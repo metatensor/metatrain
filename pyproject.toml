@@ -1,0 +1,58 @@
+[project]
+name = "metatensor-models"
+dynamic = ["version"]
+requires-python = ">=3.7"
+
+readme = "README.md"
+license = {text = "BSD-3-Clause"}
+description = "" # TODO
+authors = [
+    # TODO
+]
+
+dependencies = [
+    "numpy",
+    "metatensor-core",
+    "metatensor-torch"
+]
+
+keywords = [] # TODO
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Science/Research",
+    "License :: OSI Approved :: BSD License",
+    "Operating System :: POSIX",
+    "Operating System :: MacOS :: MacOS X",
+    "Operating System :: Microsoft :: Windows",
+    "Programming Language :: Python",
+    "Programming Language :: Python :: 3",
+    "Topic :: Scientific/Engineering",
+    "Topic :: Scientific/Engineering :: Bio-Informatics",
+    "Topic :: Scientific/Engineering :: Chemistry",
+    "Topic :: Scientific/Engineering :: Physics",
+    "Topic :: Software Development :: Libraries",
+    "Topic :: Software Development :: Libraries :: Python Modules",
+]
+
+[project.urls]
+# homepage = "TODO"
+# documentation = "TODO"
+repository = "https://github.com/lab-cosmo/metatensor-models"
+# changelog = "TODO"
+
+### ======================================================================== ###
+
+[build-system]
+requires = [
+    "setuptools >=68",
+]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools]
+packages = ["metatensor_models"]
+zip-safe = false
+
+### ======================================================================== ###
+[tool.pytest.ini_options]
+python_files = ["*.py"]
+testpaths = ["tests"]
