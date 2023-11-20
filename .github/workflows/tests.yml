@@ -31,6 +31,8 @@ jobs:
 
       - name: run Python tests
         run: python -m tox
+        env:
+          PIP_EXTRA_INDEX_URL: https://download.pytorch.org/whl/cpu
 
   # check that we can build Python wheels on any Python version
   python-build:
