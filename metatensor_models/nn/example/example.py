@@ -9,8 +9,8 @@ class Example(NNModel):
     def __init__(self, equivariant_selection: List[Tuple[int, int]], hypers: Dict):
         super(Example, self).__init__(equivariant_selection, hypers)
 
-    def forward(systems: TensorMap):
+    def forward(self, systems: TensorMap):
         return systems
 
-    def compute_kernels(systems: TensorMap):
+    def compute_kernels(self, systems: TensorMap):
         return systems
