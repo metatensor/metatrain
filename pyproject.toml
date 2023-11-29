@@ -1,5 +1,5 @@
 [project]
-name = "metatensor-models"
+name = "metatensor_models"
 dynamic = ["version"]
 requires-python = ">=3.7"
 
@@ -11,6 +11,7 @@ authors = [
 ]
 
 dependencies = [
+    "ase",
     "torch",
     "metatensor-core",
     "metatensor-torch"
@@ -40,15 +41,46 @@ classifiers = [
 repository = "https://github.com/lab-cosmo/metatensor-models"
 # changelog = "TODO"
 
+[project.scripts]
+maicos = "maicos.__main__:main"
+
 ### ======================================================================== ###
 
 [build-system]
 requires = [
-    "setuptools >=68",
+    "setuptools >= 68",
+    "wheel",
 ]
 build-backend = "setuptools.build_meta"
 
-### ======================================================================== ###
+[project.optional-dependencies]
+soap-bpnn = [
+    "matplotlib",
+]
+
+[tool.setuptools.packages.find]
+where = ["src", "bin"]
+
+[tool.setuptools.dynamic]
+version = {attr = "metatensor_models.__version__"}
+
+[tool.coverage.report]
+include = [
+    "src/metatensor_models/*"
+]
+
+[tool.coverage.xml]
+output = 'tests/coverage.xml'
+
 [tool.pytest.ini_options]
 python_files = ["*.py"]
 testpaths = ["tests"]
+
+[tool.isort]
+skip = "__init__.py"
+profile = "black"
+line_length = 88
+indent = 4
+include_trailing_comma = true
+lines_after_imports = 2
+known_first_party = "metatensor_models"
