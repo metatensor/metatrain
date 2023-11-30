@@ -53,23 +53,27 @@ class MLPMap(torch.nn.Module):
 
     def forward(self, features: TensorMap) -> TensorMap:
         # Create a list of the blocks that are present in the features:
-        present_blocks = [int(key.values.item()) for key in features.keys]
+        present_blocks = [
+            int(features.keys.entry(i).values.item())
+            for i in range(features.keys.values.shape[0])
+        ]
 
         new_blocks: List[TensorBlock] = []
         for species_str, network in self.layers.items():
             species = int(species_str)
             if species not in present_blocks:
-                continue
-            block = features.block({"species_center": species})
-            output_values = network(block.values)
-            new_blocks.append(
-                TensorBlock(
-                    values=output_values,
-                    samples=block.samples,
-                    components=block.components,
-                    properties=Labels.range("properties", output_values.shape[-1]),
+                pass  # continue is not accepted by torchscript here
+            else:
+                block = features.block({"species_center": species})
+                output_values = network(block.values)
+                new_blocks.append(
+                    TensorBlock(
+                        values=output_values,
+                        samples=block.samples,
+                        components=block.components,
+                        properties=Labels.range("properties", output_values.shape[-1]),
+                    )
                 )
-            )
         return TensorMap(keys=features.keys, blocks=new_blocks)
 
 
