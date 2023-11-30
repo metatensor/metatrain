@@ -1,8 +1,8 @@
-from ..utils.data import collate_fn
-
 import logging
 
 import torch
+
+from ..utils.data import collate_fn
 
 
 def loss_function(predicted, target):
