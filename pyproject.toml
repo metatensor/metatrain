@@ -13,6 +13,7 @@ authors = [
 dependencies = [
     "ase",
     "torch",
+    "rascaline-torch @ git+https://github.com/luthaf/rascaline#subdirectory=python/rascaline-torch",
     "metatensor-core",
     "metatensor-torch"
 ]
@@ -54,9 +55,7 @@ requires = [
 build-backend = "setuptools.build_meta"
 
 [project.optional-dependencies]
-soap-bpnn = [
-    "rascaline-torch @ git+https://github.com/luthaf/rascaline#subdirectory=python/rascaline-torch",
-]
+soap-bpnn = []
 
 [tool.setuptools.packages.find]
 where = ["src"]
