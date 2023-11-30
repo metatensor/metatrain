@@ -5,7 +5,8 @@ soap:
   max_radial: 8
   max_angular: 6
   atomic_gaussian_width: 0.3
-  radial_basis: Gto
+  radial_basis:
+    Gto: {}
   center_atom_weight: 1.0
   cutoff_function:
     ShiftedCosine:

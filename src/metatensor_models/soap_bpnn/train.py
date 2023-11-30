@@ -8,7 +8,7 @@ def loss_function(predicted, target):
     return torch.sum((predicted.block.values - target.block.values)**2)
 
 
-def trainer(model, train_dataset, hypers):
+def train(model, train_dataset, hypers):
 
     # Create a dataloader for the training dataset:
     train_dataloader = torch.utils.data.DataLoader(

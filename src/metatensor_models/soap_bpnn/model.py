@@ -20,15 +20,15 @@ class MLPMap(torch.nn.Module):
         nns_per_species = []
         for _ in all_species:
             module_list = [
-                torch.nn.Linear(hypers["input_size"], hypers["num_neurons_per_layers"]),
+                torch.nn.Linear(hypers["input_size"], hypers["num_neurons_per_layer"]),
                 torch.nn.SiLU(),
             ]
             for _ in range(hypers["num_hidden_layers"]):
-                module_list.append(torch.nn.Linear(hypers["num_neurons_per_layers"], hypers["num_neurons_per_layers"]))
+                module_list.append(torch.nn.Linear(hypers["num_neurons_per_layer"], hypers["num_neurons_per_layer"]))
                 module_list.append(torch.nn.SiLU())
 
             # If there are no hidden layers, the number of inputs for the last layer is the input size 
-            n_inputs_last_layer = hypers["num_neurons_per_layers"] if hypers["num_hidden_layers"] > 0 else hypers["input_size"]
+            n_inputs_last_layer = hypers["num_neurons_per_layer"] if hypers["num_hidden_layers"] > 0 else hypers["input_size"]
             
             module_list.append(torch.nn.Linear(n_inputs_last_layer, hypers["output_size"]))
             nns_per_species.append(torch.nn.Sequential(*module_list))
@@ -39,9 +39,14 @@ class MLPMap(torch.nn.Module):
         })
 
     def forward(self, features: TensorMap) -> TensorMap:
+
+        # Create a list of the blocks that are present in the features:
+        present_blocks = [int(key.values.item()) for key in features.keys]
+
         new_blocks: List[TensorBlock] = []
         for species_str, network in self.layers.items():
             species = int(species_str)
+            if species not in present_blocks: continue
             # Here, do we have to check that the species is actually present in the system?
             block = features.block({"species_center": species})
             output_values = network(block.values)
@@ -62,13 +67,13 @@ class MLPMap(torch.nn.Module):
 class SoapBPNN(torch.nn.Module):
     def __init__(self, all_species, hypers) -> None:
         super().__init__()
-        self.soap_calculator = rascaline.torch.PowerSpectrum(
-            hypers["soap"]
+        self.soap_calculator = rascaline.torch.SoapPowerSpectrum(
+            **hypers["soap"]
         )
         hypers_bpnn = hypers["bpnn"]
-        hypers_bpnn["input_size"] = hypers["soap"]["max_radial"]**2 * (hypers["soap"]["max_angular"] + 1)
+        hypers_bpnn["input_size"] = len(all_species)**2 * hypers["soap"]["max_radial"]**2 * (hypers["soap"]["max_angular"] + 1)
         hypers_bpnn["output_size"] = 1
-        self.bpnn = MLPMap(all_species, hypers["bpnn"])
+        self.bpnn = MLPMap(all_species, hypers_bpnn)
         self.neighbor_species_1_labels = Labels(
             names=["species_neighbor_1"],
             values=torch.tensor(all_species).reshape(-1, 1)
@@ -90,8 +95,6 @@ class SoapBPNN(torch.nn.Module):
         atomic_energies = atomic_energies.keys_to_samples("species_center")
 
         # Sum the atomic energies coming from the BPNN to get the total energy
-        total_energies = metatensor.torch.sum(atomic_energies, ["center", "species_center"])
+        total_energies = metatensor.torch.sum_over_samples(atomic_energies, ["center", "species_center"])
 
         return {"energy": total_energies}
-
-
