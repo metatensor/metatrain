@@ -9,10 +9,10 @@ from metatensor.torch import TensorMap
 from .structures import STRUCTURE_READERS
 from .targets import TARGET_READERS
 
-from rascaline.torch.system import Systems
+from rascaline.torch.system import System
 
 
-def read_structures(filename: str, fileformat: Optional[str] = None) -> List[Systems]:
+def read_structures(filename: str, fileformat: Optional[str] = None) -> List[System]:
     """Reads a structure information from file."""
 
     if fileformat is None:
