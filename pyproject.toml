@@ -42,7 +42,7 @@ repository = "https://github.com/lab-cosmo/metatensor-models"
 # changelog = "TODO"
 
 [project.scripts]
-maicos = "maicos.__main__:main"
+metatensor_models = "metatensor_models.__main__:main"
 
 ### ======================================================================== ###
 
@@ -59,7 +59,7 @@ soap-bpnn = [
 ]
 
 [tool.setuptools.packages.find]
-where = ["src", "bin"]
+where = ["src"]
 
 [tool.setuptools.dynamic]
 version = {attr = "metatensor_models.__version__"}
