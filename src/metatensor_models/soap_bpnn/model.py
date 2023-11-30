@@ -74,6 +74,7 @@ class MLPMap(torch.nn.Module):
                         properties=Labels.range("properties", output_values.shape[-1]),
                     )
                 )
+
         return TensorMap(keys=features.keys, blocks=new_blocks)
 
 
