@@ -1,15 +1,13 @@
-import torch
 import logging
 
-import metatensor.torch
+import torch
 
 
 def loss_function(predicted, target):
-    return torch.sum((predicted.block.values - target.block.values)**2)
+    return torch.sum((predicted.block.values - target.block.values) ** 2)
 
 
 def train(model, train_dataset, hypers):
-
     # Create a dataloader for the training dataset:
     train_dataloader = torch.utils.data.DataLoader(
         dataset=train_dataset,
@@ -35,4 +33,3 @@ def train(model, train_dataset, hypers):
 
     # Save the model:
     torch.save(model.state_dict(), "model_final.pt")
-    
