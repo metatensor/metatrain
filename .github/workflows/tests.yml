@@ -38,14 +38,12 @@ jobs:
         python-version: ${{ matrix.python-version }}
     - run: pip install tox
 
-    - name: Set up MSVC command prompt
-      uses: ilammy/msvc-dev-cmd@v1
-
     - name: run Python tests
       run: tox -e tests
       env:
         # Use the CPU only version of torch when building/running the code
         PIP_EXTRA_INDEX_URL: https://download.pytorch.org/whl/cpu
+        PIP_VERBOSE: 1
 
     - name: Upload codecoverage
       uses: codecov/codecov-action@v3
