@@ -6,6 +6,7 @@
 import os
 import re
 
+
 # -- Project information -----------------------------------------------------
 # https://www.sphinx-doc.org/en/master/usage/configuration.html#project-information
 
@@ -15,8 +16,7 @@ author = 'metatensor-models developers'
 
 # Parse the version from the module.
 with open(os.path.join(os.path.dirname(__file__), '..', '..', 'src', 'metatensor_models', '__init__.py')) as f:
-    version = re.match(r'.*__version__ = \'(.*?)\'', f.read(), re.S).group(1)
-
+    version = re.match(r".*__version__ = \"(.*?)\"", f.read(), re.S).group(1)
 release = version
 
 
