@@ -1,20 +1,11 @@
-.. metatensor-models documentation master file, created by
-   sphinx-quickstart on Sat Dec  2 10:03:28 2023.
-   You can adapt this file completely to your liking, but it should at least
-   contain the root `toctree` directive.
-
 Welcome to metatensor-models's documentation!
 =============================================
 
+This is a collection of atomistic models interfaced with metatensor.
+
 .. toctree::
-   :maxdepth: 2
-   :caption: Contents:
+   :maxdepth: 1
 
-
-
-Indices and tables
-==================
-
-* :ref:`genindex`
-* :ref:`modindex`
-* :ref:`search`
+   quickstart
+   how-to
+   models
