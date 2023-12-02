@@ -1,4 +1,4 @@
-sphinx                # documentation generator
+sphinx >= 4.0.0       # documentation generator
 sphinx-toggleprompt   # hide the prompt (>>>) in python doctests
 pygments >=2.11       # syntax highligthing
 sphinx_rtd_dark_mode  # sphinx theme

@@ -11,17 +11,36 @@ copyright = '2023, metatensor-models developers'
 author = 'metatensor-models developers'
 release = '2023.11.29'
 
-# -- General configuration ---------------------------------------------------
-# https://www.sphinx-doc.org/en/master/usage/configuration.html#general-configuration
 
+# -- General configuration ---------------------------------------------------
+
+needs_sphinx = "4.0.0"
+
+python_use_unqualified_type_names = True
+
+# Add any Sphinx extension module names here, as strings. They can be
+# extensions coming with Sphinx (named 'sphinx.ext.*') or your custom
+# ones.
 extensions = [
     'sphinx_rtd_dark_mode',
+    "sphinx.ext.viewcode",
+    "sphinx.ext.autodoc",
+    "sphinx.ext.intersphinx",
+    "sphinx_toggleprompt",
+    "myst_parser",
 ]
+
 default_dark_mode = True
 
-templates_path = ['_templates']
-exclude_patterns = []
+autoclass_content = "both"
+autodoc_member_order = "bysource"
+autodoc_typehints = "both"
+autodoc_typehints_format = "short"
 
+intersphinx_mapping = {
+    "python": ("https://docs.python.org/3", None),
+    "torch": ("https://pytorch.org/docs/stable/", None),
+}
 
 
 # -- Options for HTML output -------------------------------------------------
