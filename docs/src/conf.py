@@ -14,7 +14,7 @@ copyright = '2023, metatensor-models developers'
 author = 'metatensor-models developers'
 
 # Parse the version from the module.
-with open(os.path.join(os.path.dirname(__file__), '..', '..', 'metatensor_models', '__init__.py')) as f:
+with open(os.path.join(os.path.dirname(__file__), '..', '..', 'src', 'metatensor_models', '__init__.py')) as f:
     version = re.match(r'.*__version__ = \'(.*?)\'', f.read(), re.S).group(1)
 
 release = version
