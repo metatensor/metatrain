@@ -20,7 +20,7 @@ dataset_path = os.path.join(path, "data/qm9_reduced_100.xyz")
 def test_regression_init():
     """Perform a regression test on the model at initialization"""
 
-    all_species = [1, 6, 7, 8, 9]
+    all_species = [1, 6, 7, 8]
     hypers = yaml.safe_load(open(hypers_path, "r"))
     soap_bpnn = SoapBPNN(all_species, hypers).to(torch.float64)
 
@@ -31,11 +31,11 @@ def test_regression_init():
     )
     expected_output = torch.tensor(
         [
-            [0.354014973507],
-            [0.079493871143],
-            [0.111979416192],
-            [0.405708668342],
-            [0.130853761777],
+            [-0.236301918363],
+            [-0.168581936238],
+            [-0.130610894525],
+            [-0.357959424353],
+            [-0.290683367111],
         ],
         dtype=torch.float64,
     )
@@ -47,7 +47,7 @@ def test_regression_train():
     """Perform a regression test on the model when
     trained for 2 epoch on a small dataset"""
 
-    all_species = [1, 6, 7, 8, 9]
+    all_species = [1, 6, 7, 8]
     hypers = yaml.safe_load(open(hypers_path, "r"))
     hypers["epochs"] = 2
     hypers["batch_size"] = 5
@@ -65,11 +65,11 @@ def test_regression_train():
     output = soap_bpnn(structures[:5])
     expected_output = torch.tensor(
         [
-            [-0.928599079860],
-            [-0.825878482412],
-            [-0.474396235869],
-            [-0.463211805738],
-            [-0.514200923850],
+            [-40.250192670994],
+            [-56.248591125262],
+            [-76.192451563486],
+            [-77.000614265071],
+            [-92.977346257705],
         ],
         dtype=torch.float64,
     )

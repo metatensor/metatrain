@@ -2,6 +2,7 @@ import logging
 
 import torch
 
+from ..utils.composition import calculate_composition_weights
 from ..utils.data import collate_fn
 
 
@@ -10,6 +11,10 @@ def loss_function(predicted, target):
 
 
 def train(model, train_dataset, hypers):
+    # Calculate and set the composition weights:
+    composition_weights = calculate_composition_weights(train_dataset, "U0")
+    model.set_composition_weights(composition_weights)
+
     # Create a dataloader for the training dataset:
     train_dataloader = torch.utils.data.DataLoader(
         dataset=train_dataset,

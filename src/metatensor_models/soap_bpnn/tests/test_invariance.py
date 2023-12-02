@@ -17,7 +17,7 @@ dataset_path = os.path.join(path, "data/qm9_reduced_100.xyz")
 def test_rotational_invariance():
     """Tests that the model is rotationally invariant."""
 
-    all_species = [1, 6, 7, 8, 9]
+    all_species = [1, 6, 7, 8]
     hypers = yaml.safe_load(open(hypers_path, "r"))
     soap_bpnn = SoapBPNN(all_species, hypers).to(torch.float64)
 

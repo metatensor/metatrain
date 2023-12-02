@@ -5,6 +5,8 @@ import rascaline.torch
 import torch
 from metatensor.torch import Labels, TensorBlock, TensorMap
 
+from ..utils.composition import apply_composition_contribution
+
 
 class MLPMap(torch.nn.Module):
     def __init__(self, all_species: List[int], hypers: dict) -> None:
@@ -79,8 +81,17 @@ class MLPMap(torch.nn.Module):
 
 
 class SoapBPNN(torch.nn.Module):
-    def __init__(self, all_species, hypers) -> None:
+    def __init__(self, all_species: List[int], hypers: Dict) -> None:
         super().__init__()
+        self.all_species = all_species
+
+        # creates a composition weight tensor that can be directly indexed by species,
+        # this can be left as a tensor of zero or set from the outside using
+        # set_composition_weights (recommended for better accuracy)
+        self.register_buffer(
+            "composition_weights", torch.zeros(max(self.all_species) + 1)
+        )
+
         self.soap_calculator = rascaline.torch.SoapPowerSpectrum(**hypers["soap"])
         hypers_bpnn = hypers["bpnn"]
         hypers_bpnn["input_size"] = (
@@ -111,6 +122,9 @@ class SoapBPNN(torch.nn.Module):
         )
 
         atomic_energies = self.bpnn(soap_features)
+        atomic_energies = apply_composition_contribution(
+            atomic_energies, self.composition_weights
+        )
         atomic_energies = atomic_energies.keys_to_samples("species_center")
 
         # Sum the atomic energies coming from the BPNN to get the total energy
@@ -119,3 +133,7 @@ class SoapBPNN(torch.nn.Module):
         )
 
         return {"energy": total_energies}
+
+    def set_composition_weights(self, input_composition_weights: torch.Tensor) -> None:
+        # all species that are not present retain their weight of zero
+        self.composition_weights[self.all_species] = input_composition_weights

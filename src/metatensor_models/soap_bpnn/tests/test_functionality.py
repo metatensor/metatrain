@@ -17,7 +17,7 @@ def test_prediction_subset():
     """Tests that the model can predict on a subset
     of the elements it was trained on."""
 
-    all_species = [1, 6, 7, 8, 9]
+    all_species = [1, 6, 7, 8]
     hypers = yaml.safe_load(open(hypers_path, "r"))
     soap_bpnn = SoapBPNN(all_species, hypers).to(torch.float64)
 
