@@ -3,13 +3,21 @@
 # For the full list of built-in configuration values, see the documentation:
 # https://www.sphinx-doc.org/en/master/usage/configuration.html
 
+import os
+import re
+
 # -- Project information -----------------------------------------------------
 # https://www.sphinx-doc.org/en/master/usage/configuration.html#project-information
 
 project = 'metatensor-models'
 copyright = '2023, metatensor-models developers'
 author = 'metatensor-models developers'
-release = '2023.11.29'
+
+# Parse the version from the module.
+with open(os.path.join(os.path.dirname(__file__), '..', '..', 'metatensor_models', '__init__.py')) as f:
+    version = re.match(r'.*__version__ = \'(.*?)\'', f.read(), re.S).group(1)
+
+release = version
 
 
 # -- General configuration ---------------------------------------------------
@@ -27,7 +35,6 @@ extensions = [
     "sphinx.ext.autodoc",
     "sphinx.ext.intersphinx",
     "sphinx_toggleprompt",
-    "myst_parser",
 ]
 
 default_dark_mode = True
