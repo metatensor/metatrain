@@ -1,4 +1,4 @@
 How-to
 ======
 
-This section describes how to use the metatensor-models package.
+This section describes how to use the ``metatensor-models`` package.
