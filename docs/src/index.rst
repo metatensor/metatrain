@@ -9,3 +9,4 @@ This is a collection of atomistic models interfaced with ``metatensor``.
    quickstart
    how-to
    models
+   dev-docs
