@@ -15,7 +15,7 @@ def main():
     ap.add_argument(
         "--version",
         action="version",
-        version=f"metatensor_models {__version__}",
+        version=f"metatensor-models {__version__}",
     )
 
     ap.add_argument(
