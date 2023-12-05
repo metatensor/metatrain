@@ -26,6 +26,8 @@ python:
    install:
    - method: pip
      path: .
-     extra_requirements:
-     - "--extra-index-url https://download.pytorch.org/whl/cpu"
    - requirements: docs/requirements.txt
+
+# Environment variables
+env:
+   PIP_EXTRA_INDEX_URL: "https://download.pytorch.org/whl/cpu"
