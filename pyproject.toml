@@ -6,9 +6,7 @@ requires-python = ">=3.7"
 readme = "README.md"
 license = {text = "BSD-3-Clause"}
 description = "" # TODO
-authors = [
-    # TODO
-]
+authors = [{name = "metatensor-models developers"}]
 
 dependencies = [
     "ase",
