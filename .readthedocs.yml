@@ -19,7 +19,10 @@ sphinx:
    fail_on_warning: true
 
 
-# Declare the Python requirements required to build the docs
+# Declare the Python requirements required to build the docs.
+# Additionally, a custom environment variable
+# PIP_EXTRA_INDEX_URL: https://download.pytorch.org/whl/cpu
+# is declared in the project’s dashboard
 python:
    install:
    - method: pip
