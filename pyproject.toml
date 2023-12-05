@@ -42,7 +42,7 @@ repository = "https://github.com/lab-cosmo/metatensor-models"
 # changelog = "TODO"
 
 [project.scripts]
-metatensor-models = "metatensor_models.__main__:main"
+metatensor-models = "metatensor.models.__main__:main"
 
 ### ======================================================================== ###
 
@@ -60,11 +60,11 @@ soap-bpnn = []
 where = ["src"]
 
 [tool.setuptools.dynamic]
-version = {attr = "metatensor_models.__version__"}
+version = {attr = "metatensor.models.__version__"}
 
 [tool.coverage.report]
 include = [
-    "src/metatensor_models/*"
+    "src/metatensor/models/*"
 ]
 
 [tool.coverage.xml]

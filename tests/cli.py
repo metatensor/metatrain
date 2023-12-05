@@ -3,7 +3,7 @@ import sys
 
 import pytest
 
-from metatensor_models.scripts import __all__ as available_scripts
+from metatensor.models.scripts import __all__ as available_scripts
 
 
 class Test_parse_args(object):

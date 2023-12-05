@@ -4,7 +4,7 @@ from datetime import datetime
 
 import tomli  # Replace by tomllib from std library once docs are build with Python 3.11
 
-import metatensor_models
+import metatensor.models
 
 
 ROOT = os.path.abspath(os.path.join("..", ".."))
@@ -24,7 +24,7 @@ author = ", ".join(a["name"] for a in project_dict["authors"])
 copyright = f"{datetime.now().date().year}, {author}"
 
 # The full version, including alpha/beta/rc tags
-release = metatensor_models.__version__
+release = metatensor.models.__version__
 
 
 # -- General configuration ---------------------------------------------------
