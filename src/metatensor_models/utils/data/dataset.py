@@ -41,7 +41,7 @@ class Dataset(torch.utils.data.Dataset):
 
         Args:
             index: The index of the item in the dataset.
-        
+
         Returns:
             A tuple containing the structure and targets for the given index.
         """
@@ -68,7 +68,7 @@ def collate_fn(batch):
     Args:
         batch: A list of samples, where each sample is a tuple containing a
             structure and targets.
-    
+
     Returns:
         A tuple containing the structures and targets for the batch.
     """

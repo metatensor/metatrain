@@ -8,5 +8,5 @@ It includes documentation on how to add a new model, as well as the API of the u
 .. toctree::
    :maxdepth: 1
 
-   dev-docs/adding-models
-   dev-docs/utils-api
+   adding-models
+   utils/index
