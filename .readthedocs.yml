@@ -8,10 +8,8 @@ version: 2
 # Set the OS, Python version and other tools you might need
 build:
   os: ubuntu-22.04
-  apt_packages:
-    - cmake
   tools:
-    python: "3.10"
+    python: "3.11"
     rust: "1.70"
 
 
@@ -24,8 +22,4 @@ sphinx:
 # Declare the Python requirements required to build the docs
 python:
    install:
-   - method: pip
-     path: .
-     extra_requirements:
-       - --extra-index-url=https://download.pytorch.org/whl/cpu
    - requirements: docs/requirements.txt
