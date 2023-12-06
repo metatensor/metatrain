@@ -14,7 +14,8 @@ dependencies = [
     "rascaline-torch @ git+https://github.com/luthaf/rascaline#subdirectory=python/rascaline-torch",
     "metatensor-core",
     "metatensor-operations",
-    "metatensor-torch"
+    "metatensor-torch",
+    "pyyaml",
 ]
 
 keywords = [] # TODO
