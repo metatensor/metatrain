@@ -5,9 +5,9 @@ import rascaline.torch
 import torch
 import yaml
 
-from metatensor_models.soap_bpnn import SoapBPNN, train
-from metatensor_models.utils.data import Dataset
-from metatensor_models.utils.data.readers import read_structures, read_targets
+from metatensor.models.soap_bpnn import SoapBPNN, train
+from metatensor.models.utils.data import Dataset
+from metatensor.models.utils.data.readers import read_structures, read_targets
 
 
 torch.manual_seed(0)

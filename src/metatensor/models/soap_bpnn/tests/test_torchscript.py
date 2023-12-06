@@ -3,7 +3,7 @@ import os
 import torch
 import yaml
 
-from metatensor_models.soap_bpnn import SoapBPNN
+from metatensor.models.soap_bpnn import SoapBPNN
 
 
 path = os.path.dirname(__file__)
