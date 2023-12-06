@@ -1,7 +1,7 @@
 import os
 import torch
 
-from metatensor.models.utils.data import Dataset, collate_fn, read_structures, read_targets, get_all_species
+from metatensor.models.utils.data import Dataset, collate_fn, read_structures, read_targets
 
 
 def test_dataset():
@@ -28,6 +28,6 @@ def test_species_list():
     targets = read_targets(dataset_path, "U0")
 
     dataset = Dataset(structures, targets)
-    species_list = get_all_species(dataset)
+    species_list = dataset.get_all_species()
 
     assert species_list == [1, 6, 7, 8]
