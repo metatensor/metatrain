@@ -81,3 +81,21 @@ def collate_fn(batch):
         )
 
     return structures, targets
+
+
+def get_all_species(dataset: Dataset) -> List[int]:
+    """
+    Returns the list of all species present in the dataset.
+
+    Args:
+        dataset: The dataset to get the species from.
+
+    Returns:
+        The list of all species present in the dataset.
+    """
+
+    species = set()
+    for structure in dataset.structures:
+        species.update(structure.species.tolist())
+
+    return sorted(species)
