@@ -1,7 +1,7 @@
 import os
 import torch
 
-from metatensor_models.utils.data import Dataset, collate_fn, read_structures, read_targets
+from metatensor.models.utils.data import Dataset, collate_fn, read_structures, read_targets
 
 
 def test_dataset():

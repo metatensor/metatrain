@@ -1,5 +1,5 @@
 [project]
-name = "metatensor_models"
+name = "metatensor-models"
 dynamic = ["version"]
 requires-python = ">=3.7"
 
@@ -43,7 +43,7 @@ repository = "https://github.com/lab-cosmo/metatensor-models"
 # changelog = "TODO"
 
 [project.scripts]
-metatensor_models = "metatensor_models.__main__:main"
+metatensor-models = "metatensor.models.__main__:main"
 
 ### ======================================================================== ###
 
@@ -61,11 +61,11 @@ soap-bpnn = []
 where = ["src"]
 
 [tool.setuptools.dynamic]
-version = {attr = "metatensor_models.__version__"}
+version = {attr = "metatensor.models.__version__"}
 
 [tool.coverage.report]
 include = [
-    "src/metatensor_models/*"
+    "src/metatensor/models/*"
 ]
 
 [tool.coverage.xml]
@@ -82,4 +82,4 @@ line_length = 88
 indent = 4
 include_trailing_comma = true
 lines_after_imports = 2
-known_first_party = "metatensor_models"
+known_first_party = "metatensor-models"
