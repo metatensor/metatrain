@@ -60,6 +60,19 @@ class Dataset(torch.utils.data.Dataset):
 
         return structure, targets
 
+    def get_all_species(self) -> List[int]:
+        """
+        Returns the list of all species present in the dataset.
+
+        Returns:
+            The list of species present in the dataset.
+        """
+        species = set()
+        for structure in self.structures:
+            species.update(structure.species.tolist())
+
+        return sorted(species)
+
 
 def collate_fn(batch):
     """
