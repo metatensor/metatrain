@@ -80,7 +80,7 @@ class MLPMap(torch.nn.Module):
         return TensorMap(keys=features.keys, blocks=new_blocks)
 
 
-class SoapBPNN(torch.nn.Module):
+class Model(torch.nn.Module):
     def __init__(self, all_species: List[int], hypers: Dict) -> None:
         super().__init__()
         self.all_species = all_species

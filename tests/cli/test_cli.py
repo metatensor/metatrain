@@ -1,9 +1,6 @@
 import subprocess
-import sys
 
 import pytest
-
-from metatensor.models.scripts import __all__ as available_scripts
 
 
 class Test_parse_args(object):
@@ -19,7 +16,7 @@ class Test_parse_args(object):
         with pytest.raises(subprocess.CalledProcessError):
             subprocess.check_call(["metatensor-models", "foo"])
 
-    @pytest.mark.parametrize("module", tuple(available_scripts))
+    @pytest.mark.parametrize("module", tuple(["eval", "export"]))
     def test_available_modules(self, module):
         """Test available modules."""
         subprocess.check_call(["metatensor-models", module, "--help"])
