@@ -8,6 +8,9 @@ from metatensor.torch import Labels, TensorBlock, TensorMap
 from ..utils.composition import apply_composition_contribution
 
 
+ARCHITECTURE_NAME = "soap_bpnn"
+
+
 class MLPMap(torch.nn.Module):
     def __init__(self, all_species: List[int], hypers: dict) -> None:
         super().__init__()
