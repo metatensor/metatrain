@@ -10,6 +10,9 @@ def loss_function(predicted, target):
     return torch.sum((predicted.block().values - target.block().values) ** 2)
 
 
+logger = logging.getLogger(__name__)
+
+
 def train(model, train_dataset, hypers):
     # Calculate and set the composition weights:
     composition_weights = calculate_composition_weights(train_dataset, "U0")
@@ -29,7 +32,7 @@ def train(model, train_dataset, hypers):
     # Train the model:
     for epoch in range(hypers["num_epochs"]):
         if epoch % hypers["log_interval"] == 0:
-            logging.info(f"Epoch {epoch}")
+            logger.info(f"Epoch {epoch}")
         if epoch % hypers["checkpoint_interval"] == 0:
             torch.save(model.state_dict(), f"model-{epoch}.pt")
         for batch in train_dataloader:

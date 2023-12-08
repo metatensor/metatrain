@@ -60,7 +60,8 @@ class Dataset(torch.utils.data.Dataset):
 
         return structure, targets
 
-    def get_all_species(self) -> List[int]:
+    @property
+    def all_species(self) -> List[int]:
         """
         Returns the list of all species present in the dataset.
 
