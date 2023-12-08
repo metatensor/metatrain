@@ -65,5 +65,5 @@ def train(model, train_dataset, hypers=DEFAULT_TRAINING_HYPERS):
 
     # Save the model:
     save_model(
-        ARCHITECTURE_NAME, model, model_hypers, model.all_species, f"model_final.pt"
+        ARCHITECTURE_NAME, model, model_hypers, model.all_species, "model_final.pt"
     )
