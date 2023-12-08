@@ -4,11 +4,18 @@ import metatensor.torch
 import rascaline.torch
 import torch
 from metatensor.torch import Labels, TensorBlock, TensorMap
+from omegaconf import OmegaConf
+
+from metatensor.models import ARCHITECTURE_CONFIG_PATH
 
 from ..utils.composition import apply_composition_contribution
 
 
 ARCHITECTURE_NAME = "soap_bpnn"
+
+DEFAULT_MODEL_HYPERS = OmegaConf.to_container(
+    OmegaConf.load(ARCHITECTURE_CONFIG_PATH / "soap_bpnn.yaml")
+)["model"]
 
 
 class MLPMap(torch.nn.Module):
@@ -84,7 +91,9 @@ class MLPMap(torch.nn.Module):
 
 
 class Model(torch.nn.Module):
-    def __init__(self, all_species: List[int], hypers: Dict) -> None:
+    def __init__(
+        self, all_species: List[int], hypers: Dict = DEFAULT_MODEL_HYPERS
+    ) -> None:
         super().__init__()
         self.all_species = all_species
 

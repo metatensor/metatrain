@@ -1,3 +1,4 @@
+import importlib
 from typing import Dict, List
 
 import torch
@@ -44,5 +45,19 @@ def load_model(path: str) -> torch.nn.Module:
     -------
         torch.nn.Module: The loaded model.
     """
-    # TODO, possibly with hydra utilities?
-    pass
+
+    # Load the model and the metadata
+    model_dict = torch.load(path)
+
+    # Get the architecture
+    architecture = importlib.import_module(f"metatensor.models.{model_dict['name']}")
+
+    # Create the model
+    model = architecture.Model(
+        all_species=model_dict["all_species"], hypers=model_dict["hypers"]
+    )
+
+    # Load the model weights
+    model.load_state_dict(model_dict["model"])
+
+    return model

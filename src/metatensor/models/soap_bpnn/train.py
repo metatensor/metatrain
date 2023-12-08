@@ -1,6 +1,9 @@
 import logging
 
 import torch
+from omegaconf import OmegaConf
+
+from metatensor.models import ARCHITECTURE_CONFIG_PATH
 
 from ..utils.composition import calculate_composition_weights
 from ..utils.data import collate_fn
@@ -8,14 +11,18 @@ from ..utils.model_io import save_model
 from .model import ARCHITECTURE_NAME
 
 
-def loss_function(predicted, target):
-    return torch.sum((predicted.block().values - target.block().values) ** 2)
-
+DEFAULT_TRAINING_HYPERS = OmegaConf.to_container(
+    OmegaConf.load(ARCHITECTURE_CONFIG_PATH / "soap_bpnn.yaml")
+)["training"]
 
 logger = logging.getLogger(__name__)
 
 
-def train(model, train_dataset, hypers):
+def loss_function(predicted, target):
+    return torch.sum((predicted.block().values - target.block().values) ** 2)
+
+
+def train(model, train_dataset, hypers=DEFAULT_TRAINING_HYPERS):
     model_hypers = hypers["model"]
     training_hypers = hypers["training"]
 

@@ -44,9 +44,9 @@ def test_regression_train():
     dataset = Dataset(structures, targets)
     soap_bpnn = Model(dataset.all_species, DEAFAULT_HYPERS["model"]).to(torch.float64)
 
-    hypers_training = DEAFAULT_HYPERS["training"].copy()
-    hypers_training["num_epochs"] = 2
-    train(soap_bpnn, dataset, hypers_training)
+    hypers = DEAFAULT_HYPERS.copy()
+    hypers["training"]["num_epochs"] = 2
+    train(soap_bpnn, dataset, hypers)
 
     # Predict on the first five structures
     output = soap_bpnn(structures[:5])
