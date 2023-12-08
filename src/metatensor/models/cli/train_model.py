@@ -37,5 +37,5 @@ def train_model(config: DictConfig) -> None:
     architecture.train(
         model=model,
         train_dataset=dataset,
-        hypers=OmegaConf.to_container(config["architecture"]["training"]),
+        hypers=OmegaConf.to_container(config["architecture"]),
     )

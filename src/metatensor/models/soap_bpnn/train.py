@@ -2,11 +2,10 @@ import logging
 
 import torch
 
-from .model import ARCHITECTURE_NAME
-
 from ..utils.composition import calculate_composition_weights
 from ..utils.data import collate_fn
 from ..utils.model_io import save_model
+from .model import ARCHITECTURE_NAME
 
 
 def loss_function(predicted, target):
@@ -33,14 +32,22 @@ def train(model, train_dataset, hypers):
     )
 
     # Create an optimizer:
-    optimizer = torch.optim.Adam(model.parameters(), lr=training_hypers["learning_rate"])
+    optimizer = torch.optim.Adam(
+        model.parameters(), lr=training_hypers["learning_rate"]
+    )
 
     # Train the model:
     for epoch in range(training_hypers["num_epochs"]):
         if epoch % training_hypers["log_interval"] == 0:
             logger.info(f"Epoch {epoch}")
         if epoch % training_hypers["checkpoint_interval"] == 0:
-            save_model(ARCHITECTURE_NAME, model, model_hypers, model.all_species, f"model_{epoch}.pt")
+            save_model(
+                ARCHITECTURE_NAME,
+                model,
+                model_hypers,
+                model.all_species,
+                f"model_{epoch}.pt",
+            )
         for batch in train_dataloader:
             optimizer.zero_grad()
             structures, targets = batch
@@ -50,4 +57,6 @@ def train(model, train_dataset, hypers):
             optimizer.step()
 
     # Save the model:
-    save_model(ARCHITECTURE_NAME, model, model_hypers, model.all_species, f"model_{epoch}.pt")
+    save_model(
+        ARCHITECTURE_NAME, model, model_hypers, model.all_species, f"model_{epoch}.pt"
+    )
