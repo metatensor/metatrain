@@ -95,7 +95,9 @@ class Model(torch.nn.Module):
         self, all_species: List[int], hypers: Dict = DEFAULT_MODEL_HYPERS
     ) -> None:
         super().__init__()
+        self.name = ARCHITECTURE_NAME
         self.all_species = all_species
+        self.hypers = hypers
 
         # creates a composition weight tensor that can be directly indexed by species,
         # this can be left as a tensor of zero or set from the outside using

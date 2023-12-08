@@ -46,7 +46,7 @@ def test_regression_train():
 
     hypers = DEAFAULT_HYPERS.copy()
     hypers["training"]["num_epochs"] = 2
-    train(soap_bpnn, dataset, hypers)
+    train(soap_bpnn, dataset, hypers["training"])
 
     # Predict on the first five structures
     output = soap_bpnn(structures[:5])
