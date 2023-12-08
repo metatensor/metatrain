@@ -21,6 +21,8 @@ def save_model(
 
         hypers (Dict): The hyperparameters used to train the model.
 
+        all_species (List[int]): The list of all species that the model can handle.
+
         path (str): The path to the file.
     """
     torch.save(
