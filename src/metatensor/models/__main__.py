@@ -1,9 +1,9 @@
-"""The main entry point for the metatensor model interface."""
+"""The main entry point for the metatensor models interface."""
 import argparse
 import sys
 
 from . import __version__
-from .scripts import evaluate, export, train
+from .cli import eval_model, export_model, train_model
 
 
 def main():
@@ -18,54 +18,49 @@ def main():
         version=f"metatensor-models {__version__}",
     )
 
-    ap.add_argument(
-        "--debug",
-        action="store_true",
-        help="Run with debug options.",
-    )
-
-    ap.add_argument(
-        "--logfile", dest="logfile", action="store", help="Logfile (optional)"
-    )
-
     subparser = ap.add_subparsers(help="sub-command help")
     evaluate_parser = subparser.add_parser(
-        "evaluate",
-        help=evaluate.__doc__,
-        description="evaluate",
+        "eval",
+        help=eval_model.__doc__,
+        description="eval model",
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
-    evaluate_parser.set_defaults(callable="evaluate")
+    evaluate_parser.set_defaults(callable="eval_model")
 
     export_parser = subparser.add_parser(
         "export",
-        help=export.__doc__,
-        description="export",
+        help=export_model.__doc__,
+        description="export model",
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
-    export_parser.set_defaults(callable="export")
+    export_parser.set_defaults(callable="export_model")
     train_parser = subparser.add_parser(
         "train",
-        help=train.__doc__,
-        description="train",
+        help=train_model.__doc__,
+        description="train model",
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
-    train_parser.set_defaults(callable="train")
+    train_parser.set_defaults(callable="train_model")
 
     if len(sys.argv) < 2:
-        ap.error("A subcommand is required.")
+        ap.error("You must specify a sub-command")
 
     # Be case insensitive for the subcommand
     sys.argv[1] = sys.argv[1].lower()
+    callable = sys.argv[1].lower()
 
-    args = ap.parse_args(sys.argv[1:])
+    # Workaround since we are using hydra for the train parsing
+    if callable == "train":
+        # Remove "metatensor_model" command to please hydra
+        sys.argv.pop(0)
+        train_model()
 
-    if args.callable == "evaluate":
-        evaluate()
-    elif args.callable == "export":
-        export()
-    elif args.callable == "train":
-        train()
+    else:
+        ap.parse_args([callable])
+        if callable == "eval":
+            eval_model()
+        elif callable == "export":
+            export_model()
 
 
 if __name__ == "__main__":

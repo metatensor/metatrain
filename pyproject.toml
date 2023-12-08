@@ -11,11 +11,11 @@ authors = [{name = "metatensor-models developers"}]
 dependencies = [
     "ase",
     "torch",
+    "hydra-core",
     "rascaline-torch @ git+https://github.com/luthaf/rascaline#subdirectory=python/rascaline-torch",
     "metatensor-core",
     "metatensor-operations",
     "metatensor-torch",
-    "pyyaml",
 ]
 
 keywords = [] # TODO
@@ -83,3 +83,6 @@ indent = 4
 include_trailing_comma = true
 lines_after_imports = 2
 known_first_party = "metatensor-models"
+
+[tool.mypy]
+ignore_missing_imports = true
