@@ -1,18 +1,14 @@
 import logging
 
 import torch
-from omegaconf import OmegaConf
-
-from metatensor.models import ARCHITECTURE_CONFIG_PATH
 
 from ..utils.composition import calculate_composition_weights
 from ..utils.data import collate_fn
 from ..utils.model_io import save_model
+from .model import DEAFAULT_HYPERS
 
 
-DEFAULT_TRAINING_HYPERS = OmegaConf.to_container(
-    OmegaConf.load(ARCHITECTURE_CONFIG_PATH / "soap_bpnn.yaml")
-)["training"]
+DEFAULT_TRAINING_HYPERS = DEAFAULT_HYPERS["training"]
 
 logger = logging.getLogger(__name__)
 
