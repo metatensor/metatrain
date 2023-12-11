@@ -7,7 +7,7 @@ architecture:
 
   training:
     batch_size: 8
-    num_epochs: 5
+    num_epochs: 1
 
 dataset:
   structure_path: "qm9_reduced_100.xyz"

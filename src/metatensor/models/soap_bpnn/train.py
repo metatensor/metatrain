@@ -19,7 +19,16 @@ def loss_function(predicted, target):
 
 def train(model, train_dataset, hypers=DEFAULT_TRAINING_HYPERS):
     # Calculate and set the composition weights:
-    composition_weights = calculate_composition_weights(train_dataset, "U0")
+
+    if len(train_dataset.targets) > 1:
+        raise ValueError(
+            f"`train_dataset` contains {len(train_dataset.targets)} targets but we "
+            "currently only support a single target value!"
+        )
+    else:
+        target = list(train_dataset.targets.keys())[0]
+
+    composition_weights = calculate_composition_weights(train_dataset, target)
     model.set_composition_weights(composition_weights)
 
     # Create a dataloader for the training dataset:

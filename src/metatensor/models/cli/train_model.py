@@ -1,7 +1,6 @@
-import os
-
 import importlib
 import logging
+import os
 
 import hydra
 from omegaconf import DictConfig, OmegaConf
@@ -23,7 +22,7 @@ def train_model(config: DictConfig) -> None:
     structures = read_structures(config["dataset"]["structure_path"])
     targets = read_targets(
         config["dataset"]["targets_path"],
-        target_value=config["dataset"]["target_value"],
+        target_values=config["dataset"]["target_value"],
     )
     dataset = Dataset(structures, targets)
 

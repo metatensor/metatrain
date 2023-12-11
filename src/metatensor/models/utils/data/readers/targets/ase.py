@@ -9,7 +9,10 @@ def read_ase(
     filename: str,
     target_values: Union[List[str], str],
 ) -> Dict[str, TensorMap]:
-    """Store target informations from file in a :class:`metatensor.TensorMap`.
+    """Store target informations with ase in a :class:`metatensor.TensorMap`.
+
+    :param filename: name of the file to read
+    :param target_values: target values to be parsed from the file.
 
     :returns:
         TensorMap containing the given information
@@ -30,7 +33,7 @@ def read_ase(
             values=torch.tensor(values).reshape(-1, 1),
             samples=Labels(["structure"], torch.arange(n_structures).reshape(-1, 1)),
             components=[],
-            properties=Labels([target_value], torch.tensor([(0,)])),
+            properties=Labels(["energy"], torch.tensor([(0,)])),
         )
 
         target_dictionary[target_value] = TensorMap(Labels.single(), [block])
