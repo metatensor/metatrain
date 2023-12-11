@@ -1,5 +1,5 @@
-Utilitliy API
-=============
+Utility API
+===========
 
 This is the API for the ``utils`` module of ``metatensor-models``.
 
@@ -8,3 +8,4 @@ This is the API for the ``utils`` module of ``metatensor-models``.
 
    dataset
    readers/index
+   model-io

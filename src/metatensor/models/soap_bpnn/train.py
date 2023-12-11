@@ -4,16 +4,20 @@ import torch
 
 from ..utils.composition import calculate_composition_weights
 from ..utils.data import collate_fn
+from ..utils.model_io import save_model
+from .model import DEAFAULT_HYPERS
+
+
+DEFAULT_TRAINING_HYPERS = DEAFAULT_HYPERS["training"]
+
+logger = logging.getLogger(__name__)
 
 
 def loss_function(predicted, target):
     return torch.sum((predicted.block().values - target.block().values) ** 2)
 
 
-logger = logging.getLogger(__name__)
-
-
-def train(model, train_dataset, hypers):
+def train(model, train_dataset, hypers=DEFAULT_TRAINING_HYPERS):
     # Calculate and set the composition weights:
     composition_weights = calculate_composition_weights(train_dataset, "U0")
     model.set_composition_weights(composition_weights)
@@ -34,7 +38,10 @@ def train(model, train_dataset, hypers):
         if epoch % hypers["log_interval"] == 0:
             logger.info(f"Epoch {epoch}")
         if epoch % hypers["checkpoint_interval"] == 0:
-            torch.save(model.state_dict(), f"model-{epoch}.pt")
+            save_model(
+                model,
+                f"model_{epoch}.pt",
+            )
         for batch in train_dataloader:
             optimizer.zero_grad()
             structures, targets = batch
@@ -44,4 +51,4 @@ def train(model, train_dataset, hypers):
             optimizer.step()
 
     # Save the model:
-    torch.save(model.state_dict(), "model_final.pt")
+    save_model(model, "model_final.pt")
