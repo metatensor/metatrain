@@ -2,11 +2,16 @@ import ase.io
 import rascaline.torch
 import torch
 
-from metatensor.models.soap_bpnn import Model, train
+from metatensor.models.soap_bpnn import (
+    DEFAULT_MODEL_HYPERS,
+    DEFAULT_TRAINING_HYPERS,
+    Model,
+    train,
+)
 from metatensor.models.utils.data import Dataset
 from metatensor.models.utils.data.readers import read_structures, read_targets
 
-from . import DATASET_PATH, DEAFAULT_HYPERS
+from . import DATASET_PATH
 
 
 torch.manual_seed(0)
@@ -16,7 +21,7 @@ def test_regression_init():
     """Perform a regression test on the model at initialization"""
 
     all_species = [1, 6, 7, 8]
-    soap_bpnn = Model(all_species, DEAFAULT_HYPERS["model"]).to(torch.float64)
+    soap_bpnn = Model(all_species, DEFAULT_MODEL_HYPERS).to(torch.float64)
 
     # Predict on the first fivestructures
     structures = ase.io.read(DATASET_PATH, ":5")
@@ -42,11 +47,11 @@ def test_regression_train():
     targets = read_targets(DATASET_PATH, "U0")
 
     dataset = Dataset(structures, targets)
-    soap_bpnn = Model(dataset.all_species, DEAFAULT_HYPERS["model"]).to(torch.float64)
+    soap_bpnn = Model(dataset.all_species, DEFAULT_MODEL_HYPERS).to(torch.float64)
 
-    hypers_training = DEAFAULT_HYPERS["training"].copy()
-    hypers_training["num_epochs"] = 2
-    train(soap_bpnn, dataset, hypers_training)
+    hypers = DEFAULT_TRAINING_HYPERS.copy()
+    hypers["num_epochs"] = 2
+    train(soap_bpnn, dataset, hypers)
 
     # Predict on the first five structures
     output = soap_bpnn(structures[:5])

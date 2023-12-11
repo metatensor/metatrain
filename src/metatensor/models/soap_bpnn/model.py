@@ -4,8 +4,19 @@ import metatensor.torch
 import rascaline.torch
 import torch
 from metatensor.torch import Labels, TensorBlock, TensorMap
+from omegaconf import OmegaConf
 
+from .. import ARCHITECTURE_CONFIG_PATH
 from ..utils.composition import apply_composition_contribution
+
+
+DEAFAULT_HYPERS = OmegaConf.to_container(
+    OmegaConf.load(ARCHITECTURE_CONFIG_PATH / "soap_bpnn.yaml")
+)
+
+DEFAULT_MODEL_HYPERS = DEAFAULT_HYPERS["model"]
+
+ARCHITECTURE_NAME = "soap_bpnn"
 
 
 class MLPMap(torch.nn.Module):
@@ -81,9 +92,13 @@ class MLPMap(torch.nn.Module):
 
 
 class Model(torch.nn.Module):
-    def __init__(self, all_species: List[int], hypers: Dict) -> None:
+    def __init__(
+        self, all_species: List[int], hypers: Dict = DEFAULT_MODEL_HYPERS
+    ) -> None:
         super().__init__()
+        self.name = ARCHITECTURE_NAME
         self.all_species = all_species
+        self.hypers = hypers
 
         # creates a composition weight tensor that can be directly indexed by species,
         # this can be left as a tensor of zero or set from the outside using
