@@ -1,3 +1,5 @@
+import os
+
 import importlib
 import logging
 
@@ -34,6 +36,10 @@ def train_model(config: DictConfig) -> None:
     )
 
     logger.info("Run training")
+    output_dir = hydra.core.hydra_config.HydraConfig.get().runtime.output_dir
+    logger.info(f"Changing directory for train output to: {output_dir}")
+    os.chdir(output_dir)
+
     architecture.train(
         model=model,
         train_dataset=dataset,
