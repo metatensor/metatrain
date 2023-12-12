@@ -22,8 +22,7 @@ def main():
     subparser = ap.add_subparsers(help="sub-command help")
     evaluate_parser = subparser.add_parser(
         "eval",
-        help="Evaluate a pretrained model.",
-        description="eval model",
+        description=eval_model.__doc__.split(r"\n:param")[0],
         formatter_class=argparse.ArgumentDefaultsHelpFormatter,
     )
     evaluate_parser.set_defaults(callable="eval_model")
@@ -31,8 +30,7 @@ def main():
 
     export_parser = subparser.add_parser(
         "export",
-        help=export_model.__doc__,
-        description="export model",
+        description=export_model.__doc__,
         formatter_class=argparse.ArgumentDefaultsHelpFormatter,
     )
     export_parser.set_defaults(callable="export_model")
