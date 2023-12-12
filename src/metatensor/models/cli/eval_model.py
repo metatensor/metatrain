@@ -4,7 +4,6 @@ from ..utils.data.readers import read_structures
 from ..utils.data.writers import write_predictions
 from ..utils.model_io import load_model
 
-
 def _eval_model_cli(parser: argparse.ArgumentParser) -> None:
     """Add the `eval_model` paramaters to an argparse (sub)-parser"""
     parser.add_argument(
@@ -17,7 +16,7 @@ def _eval_model_cli(parser: argparse.ArgumentParser) -> None:
     )
     parser.add_argument(
         "-s",
-        "--structure",
+        "--structures",
         dest="structure_path",
         type=str,
         required=True,

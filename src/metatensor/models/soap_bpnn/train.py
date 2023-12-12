@@ -2,6 +2,8 @@ import logging
 
 import torch
 
+from pathlib import Path
+
 from ..utils.composition import calculate_composition_weights
 from ..utils.data import collate_fn
 from ..utils.model_io import save_model
@@ -17,7 +19,7 @@ def loss_function(predicted, target):
     return torch.sum((predicted.block().values - target.block().values) ** 2)
 
 
-def train(model, train_dataset, hypers=DEFAULT_TRAINING_HYPERS):
+def train(model, train_dataset, hypers=DEFAULT_TRAINING_HYPERS, output_dir="."):
     # Calculate and set the composition weights:
 
     if len(train_dataset.targets) > 1:
@@ -49,7 +51,7 @@ def train(model, train_dataset, hypers=DEFAULT_TRAINING_HYPERS):
         if epoch % hypers["checkpoint_interval"] == 0:
             save_model(
                 model,
-                f"model_{epoch}.pt",
+                Path(output_dir) / f"model_{epoch}.pt",
             )
         for batch in train_dataloader:
             optimizer.zero_grad()
@@ -59,5 +61,4 @@ def train(model, train_dataset, hypers=DEFAULT_TRAINING_HYPERS):
             loss.backward()
             optimizer.step()
 
-    # Save the model:
-    save_model(model, "model_final.pt")
+    return model
