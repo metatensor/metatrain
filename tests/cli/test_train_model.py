@@ -15,7 +15,6 @@ def test_train(monkeypatch, tmp_path):
         [
             "metatensor-models",
             "train",
-            "--config-dir=.",
-            "--config-name=parameters.yaml",
+            "--parameters=parameters.yaml",
         ]
     )

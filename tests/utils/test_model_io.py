@@ -11,8 +11,9 @@ from metatensor.models.utils.model_io import load_model, save_model
 RESOURCES_PATH = Path(__file__).parent.resolve() / ".." / "resources"
 
 
-def test_save_load_model():
+def test_save_load_model(monkeypatch, tmp_path):
     """Test that saving and loading a model works and preserves its internal state."""
+    monkeypatch.chdir(tmp_path)
 
     model = soap_bpnn.Model(all_species=[1, 6, 7, 8])
     structures = read_structures(RESOURCES_PATH / "qm9_reduced_100.xyz")

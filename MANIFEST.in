@@ -4,6 +4,7 @@ include LICENSE
 include README.md
 
 prune docs
+prune examples
 prune tests
 prune .github
 prune .tox

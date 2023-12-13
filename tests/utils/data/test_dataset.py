@@ -10,7 +10,7 @@ from metatensor.models.utils.data import (
 )
 
 
-RESOURCES_PATH = Path(__file__).parent.resolve() / ".." / "resources"
+RESOURCES_PATH = Path(__file__).parent.resolve() / ".." / ".." / "resources"
 
 
 def test_dataset():

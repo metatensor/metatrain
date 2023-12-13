@@ -1,7 +1,7 @@
-Target data Readers
-###################
+Target data Reader
+##################
 
-Parsers for obtaining information from structures. All readers return a of
+Parsers for obtaining information from target files. All readers return a of
 :py:class:`metatensor.torch.TensorMap`. The mapping which reader is used for which file
 type is stored in
 

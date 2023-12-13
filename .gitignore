@@ -161,3 +161,7 @@ cython_debug/
 
 # Models
 *.pt
+
+# model output directories
+outputs/
+examples/*.xyz
