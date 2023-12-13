@@ -1,4 +1,5 @@
 import logging
+from pathlib import Path
 
 import torch
 
@@ -17,9 +18,18 @@ def loss_function(predicted, target):
     return torch.sum((predicted.block().values - target.block().values) ** 2)
 
 
-def train(model, train_dataset, hypers=DEFAULT_TRAINING_HYPERS):
+def train(model, train_dataset, hypers=DEFAULT_TRAINING_HYPERS, output_dir="."):
     # Calculate and set the composition weights:
-    composition_weights = calculate_composition_weights(train_dataset, "U0")
+
+    if len(train_dataset.targets) > 1:
+        raise ValueError(
+            f"`train_dataset` contains {len(train_dataset.targets)} targets but we "
+            "currently only support a single target value!"
+        )
+    else:
+        target = list(train_dataset.targets.keys())[0]
+
+    composition_weights = calculate_composition_weights(train_dataset, target)
     model.set_composition_weights(composition_weights)
 
     # Create a dataloader for the training dataset:
@@ -40,7 +50,7 @@ def train(model, train_dataset, hypers=DEFAULT_TRAINING_HYPERS):
         if epoch % hypers["checkpoint_interval"] == 0:
             save_model(
                 model,
-                f"model_{epoch}.pt",
+                Path(output_dir) / f"model_{epoch}.pt",
             )
         for batch in train_dataloader:
             optimizer.zero_grad()
@@ -50,5 +60,4 @@ def train(model, train_dataset, hypers=DEFAULT_TRAINING_HYPERS):
             loss.backward()
             optimizer.step()
 
-    # Save the model:
-    save_model(model, "model_final.pt")
+    return model

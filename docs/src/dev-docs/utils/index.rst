@@ -8,4 +8,5 @@ This is the API for the ``utils`` module of ``metatensor-models``.
 
    dataset
    readers/index
+   writers
    model-io

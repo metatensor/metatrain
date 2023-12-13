@@ -1,15 +1,13 @@
 defaults:
-  - architecture: soap_bpnn
+  - _self_  # mandatory parameter to avoid hydra warnings
+  - architecture: soap_bpnn  # architecture used to train the model
 
-architecture:
-  soap:
-    cutoff: 15
-
-  training:
+training:
     batch_size: 8
-    num_epochs: 5
+    num_epochs: 1
 
+# Section defining the parameters for structure and target data
 dataset:
-  structure_path: "qm9_reduced_100.xyz"
-  targets_path: "qm9_reduced_100.xyz"
-  target_value: "U0"
+  structure_path: "qm9_reduced_100.xyz" # file where the positions are stored
+  targets_path: "qm9_reduced_100.xyz" # file with target values (i.e energies)
+  target_value: "U0" # name of the target value in `targets_path`

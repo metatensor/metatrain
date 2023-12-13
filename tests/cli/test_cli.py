@@ -16,7 +16,7 @@ class Test_parse_args(object):
         with pytest.raises(subprocess.CalledProcessError):
             subprocess.check_call(["metatensor-models", "foo"])
 
-    @pytest.mark.parametrize("module", tuple(["eval", "export"]))
+    @pytest.mark.parametrize("module", tuple(["eval", "export", "train"]))
     def test_available_modules(self, module):
         """Test available modules."""
         subprocess.check_call(["metatensor-models", module, "--help"])
