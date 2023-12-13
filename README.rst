@@ -61,10 +61,10 @@ Having problems or ideas?
 -------------------------
 
 Having a problem with metatensor-models? Please let us know by `submitting an issue
-<https://github.com/ceriottm/MeshLODE/issues>`_.
+<https://github.com/metatensor-models/issues>`_.
 
 Submit new features or bug fixes through a `pull request
-<https://github.com/ceriottm/MeshLODE/pulls>`_.
+<https://github.com/metatensor-models/pulls>`_.
 
 .. marker-contributing
 
@@ -73,7 +73,7 @@ Contributors
 
 Thanks goes to all people that make metatensor-models possible:
 
-.. image:: https://contrib.rocks/image?repo=ceriottm/MeshLODE
+.. image:: https://contrib.rocks/image?repo=metatensor-models
    :target: https://github.com/lab-cosmo/metatensor-models/graphs/contributors
 
 .. |tests| image:: https://github.com/lab-cosmo/metatensor-models/workflows/Tests/badge.svg

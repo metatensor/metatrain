@@ -4,8 +4,22 @@ from ..utils.data.readers import read_structures
 from ..utils.data.writers import write_predictions
 from ..utils.model_io import load_model
 
-def _eval_model_cli(parser: argparse.ArgumentParser) -> None:
+
+def _add_eval_model_parser(subparser: argparse._SubParsersAction) -> None:
     """Add the `eval_model` paramaters to an argparse (sub)-parser"""
+
+    if eval_model.__doc__ is not None:
+        description = eval_model.__doc__.split(r"\n:param")[0]
+    else:
+        description = None
+
+    parser = subparser.add_parser(
+        "eval",
+        description=description,
+        formatter_class=argparse.ArgumentDefaultsHelpFormatter,
+    )
+    parser.set_defaults(callable="eval_model")
+
     parser.add_argument(
         "-m",
         "--model",

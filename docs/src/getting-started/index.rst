@@ -1,7 +1,7 @@
 Getting started
 ===============
 
-This sections describes, how to install the package, and its most basic commands.
+This sections describes how to install the package, and its most basic commands.
 
 .. toctree::
    :maxdepth: 1

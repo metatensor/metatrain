@@ -6,7 +6,7 @@ general help of `metatensor-models` can be accessed using
 
 .. code-block:: bash
 
-    metatensor-models -h
+    metatensor-models --help
 
 We now demonstrate how to `train` and `evaluate` a model from the command line. For this
 example we use the :ref:`architecture-soap-bpnn` architecture and a subset of the `QM9
@@ -16,11 +16,14 @@ from our :download:`website <../../static/qm9_reduced_100.xyz>`.
 Training
 ########
 
-For performing a model training in `metatensor-models` uses the hydra framework. Hydra
-allows to dynamical composition and override of config files and the command line and
-has powerful tools to create multiple training runs with a single command. We will not
-explain here how to use hydra in detail, as we only use a few functions ins this example
-but rather refer to their good package documentation.
+To train models, `metatensor-models` uses the hydra framework. Hydra is a framework
+developed by Facebook AI for elegantly configuring complex applications. It's primarily
+used for managing command-line arguments in Python applications, allowing for a
+structured and dynamic approach to configuration. It allows to dynamical composition and
+override of config files and the command line and has powerful tools to create multiple
+training runs with a single command. We will not explain here how to use hydra in
+detail, as we only use a few functions ins this example but rather refer to their good
+package documentation.
 
 The sub-command to start a model training is
 
@@ -47,8 +50,9 @@ created. By default, this output directory is used to store Hydra output for the
 behavior in the parameter file. To start the training using the ``parameters.yaml`` in
 the current directory type.
 
-.. literalinclude:: ../../../examples/train.sh
+.. literalinclude:: ../../../examples/usage.sh
     :language: bash
+    :lines: 3-8
 
 
 Evaluation
@@ -60,5 +64,6 @@ The sub-command to evaluate a already trained model is
 
     metatensor-models eval
 
-.. literalinclude:: ../../../examples/eval.sh
+.. literalinclude:: ../../../examples/usage.sh
     :language: bash
+    :lines: 9-

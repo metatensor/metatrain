@@ -1,8 +1,7 @@
 import logging
+from pathlib import Path
 
 import torch
-
-from pathlib import Path
 
 from ..utils.composition import calculate_composition_weights
 from ..utils.data import collate_fn
