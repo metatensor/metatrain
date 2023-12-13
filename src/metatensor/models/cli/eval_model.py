@@ -59,7 +59,6 @@ def eval_model(
     :param structure_path: Path to a structure file which should be considered for the
         evaluation.
     :param output_path: Path to save the predicted values
-
     """
 
     model = load_model(model_path)
