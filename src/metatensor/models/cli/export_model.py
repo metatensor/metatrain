@@ -1,42 +1,41 @@
 import argparse
 
+from .formatter import CustomHelpFormatter
+
 
 def _add_export_model_parser(subparser: argparse._SubParsersAction) -> None:
     if export_model.__doc__ is not None:
-        description = export_model.__doc__.split(r":param")[0]
+        description = export_model.__doc__.split(":param")[0]
     else:
         description = None
 
     parser = subparser.add_parser(
         "export",
         description=description,
-        formatter_class=argparse.ArgumentDefaultsHelpFormatter,
+        formatter_class=CustomHelpFormatter,
     )
     parser.set_defaults(callable="export_model")
 
     parser.add_argument(
-        "-m",
-        "--model",
-        dest="model_path",
+        "model",
         type=str,
-        required=True,
-        help="Path to a saved model",
+        help="Saved model which should be exprted",
     )
     parser.add_argument(
         "-o",
         "--output",
-        dest="output_path",
+        dest="output",
         type=str,
         required=False,
         default="exported.pt",
-        help="Export path for the model.",
+        help="Filename of the exported model (default: %(default)s).",
     )
 
 
-def export_model(model_path: str, output_path: str) -> None:
+def export_model(model: str, output: str) -> None:
     """Export a pretrained model to run MD simulations
 
-    :param model_path: Path to a saved model
-    :param output_path: Path to save the exported model
+    :param model: Path to a saved model
+    :param output: Path to save the exported model
     """
     raise NotImplementedError("model exporting is not implemented yet.")

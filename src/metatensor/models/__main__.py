@@ -13,7 +13,7 @@ from .cli.train_model import _add_train_model_parser
 def main():
     ap = argparse.ArgumentParser(
         description=__doc__,
-        formatter_class=argparse.ArgumentDefaultsHelpFormatter,
+        formatter_class=argparse.RawTextHelpFormatter,
     )
 
     ap.add_argument(
@@ -43,10 +43,10 @@ def main():
         # override `sys.argv` to be compatible with our CLI architecture.
         argv = sys.argv[:1]
 
-        parameters_path = Path(args.parameters_path)
-        argv.append(f"--config-dir={parameters_path.parent}")
-        argv.append(f"--config-name={parameters_path.name}")
-        argv.append(f"+output_path={args.output_path}")
+        options = Path(args.options)
+        argv.append(f"--config-dir={options.parent}")
+        argv.append(f"--config-name={options.name}")
+        argv.append(f"+output_path={args.output}")
 
         if args.hydra_paramters is not None:
             argv += args.hydra_paramters

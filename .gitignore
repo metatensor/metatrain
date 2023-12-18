@@ -159,8 +159,9 @@ cython_debug/
 #  option (not recommended) you can uncomment the following to ignore the entire idea folder.
 #.idea/
 
-# Models
+# Don't save model outputs
 *.pt
+!tests/resources/*.pt
 
 # model output directories
 outputs/

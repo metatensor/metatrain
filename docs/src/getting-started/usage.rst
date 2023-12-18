@@ -1,5 +1,5 @@
-Usage - command line
-====================
+Usage
+=====
 
 `metatensor-models` is designed for an direct usage from the the command line (cli). The
 general help of `metatensor-models` can be accessed using
@@ -31,24 +31,23 @@ The sub-command to start a model training is
 
     metatensor-models train
 
-To train a model you have to define your parameters. This includes the specific
-architecture you want to use, the files for obtaining training structures and target
-values as well as probable changes
+To train a model you have to define your options. This includes the specific
+architecture you want to use and the data including the training structures and target
+values
 
 The default model and training hyperparameter for each model are listed in their
-corresponding documentation page. We will use the following config to run an example
-training
+corresponding documentation page. We will use these minimal options to run an example
+training using the default hyperparameters of an SOAP BPNN model
 
-
-.. literalinclude:: ../../static/parameters.yaml
+.. literalinclude:: ../../static/options.yaml
    :language: yaml
 
-For each training run a new output directory is based on the current date and time is
-created. By default, this output directory is used to store Hydra output for the run
-(Configuration, Logs etc). You can `override
+For each training run a new output directory based on the current date and time is
+created. By default, this output directory is used to store Hydra's output for the run
+(configuration, Logs etc). You can `override
 <https://hydra.cc/docs/tutorials/basic/running_your_app/working_directory/>`_ this
-behavior in the parameter file. To start the training using the ``parameters.yaml`` in
-the current directory type.
+behavior in the options file. To start the training create an ``options.yaml`` file in
+the current directory and type
 
 .. literalinclude:: ../../../examples/usage.sh
     :language: bash

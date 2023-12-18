@@ -16,14 +16,7 @@ def test_eval(output, monkeypatch, tmp_path):
     shutil.copy(RESOURCES_PATH / "qm9_reduced_100.xyz", "qm9_reduced_100.xyz")
     shutil.copy(RESOURCES_PATH / "bpnn-model.pt", "bpnn-model.pt")
 
-    command = [
-        "metatensor-models",
-        "eval",
-        "-m",
-        "bpnn-model.pt",
-        "-s",
-        "qm9_reduced_100.xyz",
-    ]
+    command = ["metatensor-models", "eval", "bpnn-model.pt", "qm9_reduced_100.xyz"]
 
     if output is not None:
         command += ["-o", output]
