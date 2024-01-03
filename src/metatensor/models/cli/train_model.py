@@ -102,18 +102,13 @@ def train_model(config: DictConfig) -> None:
     logger.info("Setting up model")
     architetcure_name = config["architecture"]["name"]
     architecture = importlib.import_module(f"metatensor.models.{architetcure_name}")
-    model = architecture.Model(
-        all_species=dataset.all_species,
-        hypers=OmegaConf.to_container(config["architecture"]["model"]),
-    )
 
     logger.info("Run training")
     output_dir = hydra.core.hydra_config.HydraConfig.get().runtime.output_dir
 
     model = architecture.train(
-        model=model,
         train_dataset=dataset,
-        hypers=OmegaConf.to_container(config["architecture"]["training"]),
+        hypers=OmegaConf.to_container(config["architecture"]),
         output_dir=output_dir,
     )
 
