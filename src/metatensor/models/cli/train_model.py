@@ -11,6 +11,7 @@ from metatensor.models.utils.data.readers import read_structures, read_targets
 
 from .. import CONFIG_PATH
 from ..utils.model_io import save_model
+from .formatter import CustomHelpFormatter
 
 
 logger = logging.getLogger(__name__)
@@ -20,9 +21,7 @@ def _has_yaml_suffix(s: str) -> str:
     """Checks if a string has a .yaml suffix."""
 
     if Path(s).suffix != ".yaml":
-        raise argparse.ArgumentTypeError(
-            f"Parameters file '{s}' must be a `.yaml` file."
-        )
+        raise argparse.ArgumentTypeError(f"Options file '{s}' must be a `.yaml` file.")
 
     return s
 
@@ -34,33 +33,30 @@ def _add_train_model_parser(subparser: argparse._SubParsersAction) -> None:
     be parsed by the hydra CLI."""
 
     if train_model.__doc__ is not None:
-        description = train_model.__doc__.split(r"\n:param")[0]
+        description = train_model.__doc__.split(r":param")[0]
     else:
         description = None
 
     parser = subparser.add_parser(
         "train",
         description=description,
-        formatter_class=argparse.ArgumentDefaultsHelpFormatter,
+        formatter_class=CustomHelpFormatter,
     )
     parser.set_defaults(callable="train_model")
 
     parser.add_argument(
-        "-p",
-        "--parameters",
-        dest="parameters_path",
+        "options",
         type=_has_yaml_suffix,
-        required=True,
-        help="Path to the parameter file",
+        help="Options file",
     )
     parser.add_argument(
         "-o",
         "--output",
-        dest="output_path",
+        dest="output",
         type=str,
         required=False,
         default="model.pt",
-        help="Path to save the final model.",
+        help="Path to save the final model (default: %(default)s).",
     )
     parser.add_argument(
         "-y",
@@ -73,7 +69,7 @@ def _add_train_model_parser(subparser: argparse._SubParsersAction) -> None:
 
 
 @hydra.main(config_path=str(CONFIG_PATH), config_name="config", version_base=None)
-def train_model(config: DictConfig) -> None:
+def train_model(options: DictConfig) -> None:
     """Train an atomistic machine learning model using configurations provided by Hydra.
 
     This function sets up the dataset and model architecture, then runs the training
@@ -87,29 +83,30 @@ def train_model(config: DictConfig) -> None:
     https://hydra.cc/docs/advanced/hydra-command-line-flags/ and
     https://hydra.cc/docs/advanced/override_grammar/basic/ for details.
 
-    :param config: A dictionary-like object obtained from Hydra, containing all the
-        necessary parameters for dataset preparation, model instantiation, and training.
+    :param options: A dictionary-like object obtained from Hydra, containing all the
+        necessary options for dataset preparation, model hyperparameters, and training.
     """
 
     logger.info("Setting up dataset")
-    structures = read_structures(config["dataset"]["structure_path"])
+    structures = read_structures(options["dataset"]["structure_path"])
     targets = read_targets(
-        config["dataset"]["targets_path"],
-        target_values=config["dataset"]["target_value"],
+        options["dataset"]["targets_path"],
+        target_values=options["dataset"]["target_value"],
     )
     dataset = Dataset(structures, targets)
 
     logger.info("Setting up model")
-    architetcure_name = config["architecture"]["name"]
+    architetcure_name = options["architecture"]["name"]
     architecture = importlib.import_module(f"metatensor.models.{architetcure_name}")
 
     logger.info("Run training")
     output_dir = hydra.core.hydra_config.HydraConfig.get().runtime.output_dir
 
+    print(OmegaConf.to_container(options))
     model = architecture.train(
         train_dataset=dataset,
-        hypers=OmegaConf.to_container(config["architecture"]),
+        hypers=OmegaConf.to_container(options["architecture"]),
         output_dir=output_dir,
     )
 
-    save_model(model, config["output_path"])
+    save_model(model, options["output_path"])

@@ -1,5 +1,4 @@
 defaults:
-  - _self_  # mandatory parameter to avoid hydra warnings
   - architecture: soap_bpnn  # architecture used to train the model
 
 # Section defining the parameters for structure and target data
