@@ -10,11 +10,11 @@ from .. import ARCHITECTURE_CONFIG_PATH
 from ..utils.composition import apply_composition_contribution
 
 
-DEAFAULT_HYPERS = OmegaConf.to_container(
+DEFAULT_HYPERS = OmegaConf.to_container(
     OmegaConf.load(ARCHITECTURE_CONFIG_PATH / "soap_bpnn.yaml")
 )
 
-DEFAULT_MODEL_HYPERS = DEAFAULT_HYPERS["model"]
+DEFAULT_MODEL_HYPERS = DEFAULT_HYPERS["model"]
 
 ARCHITECTURE_NAME = "soap_bpnn"
 

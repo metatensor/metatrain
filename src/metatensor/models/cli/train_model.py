@@ -98,19 +98,14 @@ def train_model(options: DictConfig) -> None:
     logger.info("Setting up model")
     architetcure_name = options["architecture"]["name"]
     architecture = importlib.import_module(f"metatensor.models.{architetcure_name}")
-    model = architecture.Model(
-        all_species=dataset.all_species,
-        hypers=OmegaConf.to_container(options["architecture"]["model"]),
-    )
 
     logger.info("Run training")
     output_dir = hydra.core.hydra_config.HydraConfig.get().runtime.output_dir
 
     print(OmegaConf.to_container(options))
     model = architecture.train(
-        model=model,
         train_dataset=dataset,
-        hypers=OmegaConf.to_container(options["architecture"]["training"]),
+        hypers=OmegaConf.to_container(options["architecture"]),
         output_dir=output_dir,
     )
 
