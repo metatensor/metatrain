@@ -1,10 +1,10 @@
 defaults:
-  - _self_  # mandatory parameter to avoid hydra warnings
   - architecture: soap_bpnn  # architecture used to train the model
 
-training:
-    batch_size: 8
-    num_epochs: 1
+architecture:
+  training:
+      batch_size: 2
+      num_epochs: 1
 
 # Section defining the parameters for structure and target data
 dataset:
