@@ -4,9 +4,8 @@ import metatensor.torch
 import rascaline.torch
 import torch
 from metatensor.torch import Labels, TensorBlock, TensorMap
+from metatensor.torch.atomistic import ModelCapabilities, System
 from omegaconf import OmegaConf
-
-from metatensor.torch.atomistic import ModelCapabilities
 
 from .. import ARCHITECTURE_CONFIG_PATH
 from ..utils.composition import apply_composition_contribution
@@ -99,6 +98,19 @@ class Model(torch.nn.Module):
     ) -> None:
         super().__init__()
         self.name = ARCHITECTURE_NAME
+
+        # Check capabilities
+        if len(capabilities.outputs) > 1:
+            raise ValueError(
+                "SOAP-BPNN only supports a single output, "
+                "but multiple outputs were provided"
+            )
+        if next(iter(capabilities.outputs.values())).quantity != "energy":
+            raise ValueError(
+                "SOAP-BPNN only supports energy-like outputs, "
+                f"but {next(iter(capabilities.outputs.values())).quantity} was provided"
+            )
+
         self.capabilities = capabilities
         self.all_species = capabilities.species
         self.hypers = hypers
@@ -125,10 +137,10 @@ class Model(torch.nn.Module):
         )
         self.neighbor_species_2_labels = Labels(
             names=["species_neighbor_2"],
-            values=torch.tensor(all_species).reshape(-1, 1),
+            values=torch.tensor(self.all_species).reshape(-1, 1),
         )
 
-    def forward(self, systems: List[rascaline.torch.System]) -> Dict[str, TensorMap]:
+    def forward(self, systems: List[System]) -> Dict[str, TensorMap]:
         soap_features = self.soap_calculator(systems)
 
         device = soap_features.block(0).values.device

@@ -1,6 +1,7 @@
 import ase.io
 import rascaline.torch
 import torch
+from metatensor.torch.atomistic import ModelCapabilities, ModelOutput
 
 from metatensor.models.soap_bpnn import DEFAULT_HYPERS, Model, train
 from metatensor.models.utils.data import Dataset
@@ -15,8 +16,17 @@ torch.manual_seed(0)
 def test_regression_init():
     """Perform a regression test on the model at initialization"""
 
-    all_species = [1, 6, 7, 8]
-    soap_bpnn = Model(all_species, DEFAULT_HYPERS["model"]).to(torch.float64)
+    capabilities = ModelCapabilities(
+        length_unit="Angstrom",
+        species=[1, 6, 7, 8],
+        outputs={
+            "energy": ModelOutput(
+                quantity="energy",
+                unit="eV",
+            )
+        },
+    )
+    soap_bpnn = Model(capabilities, DEFAULT_HYPERS["model"]).to(torch.float64)
 
     # Predict on the first fivestructures
     structures = ase.io.read(DATASET_PATH, ":5")

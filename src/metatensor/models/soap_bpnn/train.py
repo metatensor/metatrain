@@ -2,7 +2,6 @@ import logging
 from pathlib import Path
 
 import torch
-
 from metatensor.torch.atomistic import ModelCapabilities, ModelOutput
 
 from ..utils.composition import calculate_composition_weights
@@ -19,7 +18,6 @@ def loss_function(predicted, target):
 
 
 def train(train_dataset, hypers=DEFAULT_HYPERS, output_dir="."):
-
     # Set the model's capabilities:
     model_capabilities = ModelCapabilities(
         length_unit="Angstrom",
@@ -29,7 +27,7 @@ def train(train_dataset, hypers=DEFAULT_HYPERS, output_dir="."):
                 quantity="energy",
                 unit="eV",
             )
-        }
+        },
     )
 
     # Create the model:
