@@ -113,15 +113,15 @@ class Model(torch.nn.Module):
         self.soap_calculator = rascaline.torch.SoapPowerSpectrum(**hypers["soap"])
         hypers_bpnn = hypers["bpnn"]
         hypers_bpnn["input_size"] = (
-            len(all_species) ** 2
+            len(self.all_species) ** 2
             * hypers["soap"]["max_radial"] ** 2
             * (hypers["soap"]["max_angular"] + 1)
         )
         hypers_bpnn["output_size"] = 1
-        self.bpnn = MLPMap(all_species, hypers_bpnn)
+        self.bpnn = MLPMap(self.all_species, hypers_bpnn)
         self.neighbor_species_1_labels = Labels(
             names=["species_neighbor_1"],
-            values=torch.tensor(all_species).reshape(-1, 1),
+            values=torch.tensor(self.all_species).reshape(-1, 1),
         )
         self.neighbor_species_2_labels = Labels(
             names=["species_neighbor_2"],
