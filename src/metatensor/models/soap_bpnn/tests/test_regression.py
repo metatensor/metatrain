@@ -2,6 +2,7 @@ import ase.io
 import rascaline.torch
 import torch
 from metatensor.torch.atomistic import ModelCapabilities, ModelOutput
+from omegaconf import OmegaConf
 
 from metatensor.models.soap_bpnn import DEFAULT_HYPERS, Model, train
 from metatensor.models.utils.data import Dataset
@@ -39,8 +40,6 @@ def test_regression_init():
         dtype=torch.float64,
     )
 
-    print(output["energy"].block().values)
-
     assert torch.allclose(output["energy"].block().values, expected_output, rtol=1e-3)
 
 
@@ -49,7 +48,19 @@ def test_regression_train():
     trained for 2 epoch on a small dataset"""
 
     structures = read_structures(DATASET_PATH)
-    targets = read_targets(DATASET_PATH, "U0")
+
+    conf = {
+        "energy": {
+            "quantity": "energy",
+            "read_from": DATASET_PATH,
+            "file_format": ".xyz",
+            "key": "U0",
+            "forces": False,
+            "stress": False,
+            "virial": False,
+        }
+    }
+    targets = read_targets(OmegaConf.create(conf))
 
     dataset = Dataset(structures, targets)
 
@@ -65,6 +76,4 @@ def test_regression_train():
         dtype=torch.float64,
     )
 
-    print(output["U0"].block().values)
-
-    assert torch.allclose(output["U0"].block().values, expected_output, rtol=1e-3)
+    assert torch.allclose(output["energy"].block().values, expected_output, rtol=1e-3)

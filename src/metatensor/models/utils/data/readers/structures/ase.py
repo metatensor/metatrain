@@ -5,7 +5,7 @@ from rascaline.systems import AseSystem
 from rascaline.torch.system import System, systems_to_torch
 
 
-def read_ase(filename: str) -> List[System]:
+def read_structures_ase(filename: str) -> List[System]:
     """Store structure informations using ase.
 
     :param filename: name of the file to read
