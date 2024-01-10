@@ -6,6 +6,8 @@ import torch
 from metatensor.torch import Labels, TensorBlock, TensorMap
 from omegaconf import OmegaConf
 
+from metatensor.torch.atomistic import ModelCapabilities
+
 from .. import ARCHITECTURE_CONFIG_PATH
 from ..utils.composition import apply_composition_contribution
 
@@ -93,11 +95,12 @@ class MLPMap(torch.nn.Module):
 
 class Model(torch.nn.Module):
     def __init__(
-        self, all_species: List[int], hypers: Dict = DEFAULT_MODEL_HYPERS
+        self, capabilities: ModelCapabilities, hypers: Dict = DEFAULT_MODEL_HYPERS
     ) -> None:
         super().__init__()
         self.name = ARCHITECTURE_NAME
-        self.all_species = all_species
+        self.capabilities = capabilities
+        self.all_species = capabilities.species
         self.hypers = hypers
 
         # creates a composition weight tensor that can be directly indexed by species,

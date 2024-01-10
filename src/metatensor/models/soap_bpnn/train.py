@@ -3,6 +3,8 @@ from pathlib import Path
 
 import torch
 
+from metatensor.torch.atomistic import ModelCapabilities, ModelOutput
+
 from ..utils.composition import calculate_composition_weights
 from ..utils.data import collate_fn
 from ..utils.model_io import save_model
@@ -17,10 +19,22 @@ def loss_function(predicted, target):
 
 
 def train(train_dataset, hypers=DEFAULT_HYPERS, output_dir="."):
-    # Calculate and set the composition weights:
 
+    # Set the model's capabilities:
+    model_capabilities = ModelCapabilities(
+        length_unit="Angstrom",
+        species=train_dataset.all_species,
+        outputs={
+            "U0": ModelOutput(
+                quantity="energy",
+                unit="eV",
+            )
+        }
+    )
+
+    # Create the model:
     model = Model(
-        all_species=train_dataset.all_species,
+        capabilities=model_capabilities,
         hypers=hypers["model"],
     )
 
@@ -32,6 +46,7 @@ def train(train_dataset, hypers=DEFAULT_HYPERS, output_dir="."):
     else:
         target = list(train_dataset.targets.keys())[0]
 
+    # Calculate and set the composition weights:
     composition_weights = calculate_composition_weights(train_dataset, target)
     model.set_composition_weights(composition_weights)
 
