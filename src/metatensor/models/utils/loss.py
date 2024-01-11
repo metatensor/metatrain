@@ -44,7 +44,7 @@ class TensorMapLoss:
         loss = torch.zeros((), dtype=tensor_map_1.block().values.dtype, device=tensor_map_1.block().values.device)
         loss += self.weight * self.loss(tensor_map_1.block().values, tensor_map_2.block().values)
         for gradient_name, gradient_weight in self.gradient_weights.items():
-            loss += gradient_weight * self.loss(tensor_map_1.gradient(gradient_name).values, tensor_map_2.gradient(gradient_name).values)
+            loss += gradient_weight * self.loss(tensor_map_1.block().gradient(gradient_name).values, tensor_map_2.block().gradient(gradient_name).values)
 
         return loss
 
