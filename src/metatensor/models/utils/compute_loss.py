@@ -149,9 +149,6 @@ def _displacement_gradients_to_block(gradients_list):
     """Convert a list of displacement gradients to a `TensorBlock` 
     which can act as a gradient block to an energy block."""
 
-    """Convert a list of position gradients to a `TensorBlock` 
-    which can act as a gradient block to an energy block."""
-
     # `gradients` consists of a list of tensors where the second dimension is 3
     gradients = torch.stack(gradients_list, dim=0).unsqueeze(-1)
     # unsqueeze for the property dimension
@@ -161,7 +158,6 @@ def _displacement_gradients_to_block(gradients_list):
         values=torch.arange(len(gradients_list)).unsqueeze(-1)
     )
 
-    # TODO: check if this makes physical sense
     components = [
         Labels(
             names=["cell vector"],
