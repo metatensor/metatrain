@@ -33,9 +33,11 @@ def read_ase(
             values=torch.tensor(values).reshape(-1, 1),
             samples=Labels(["structure"], torch.arange(n_structures).reshape(-1, 1)),
             components=[],
-            properties=Labels(["energy"], torch.tensor([(0,)])),
+            properties=Labels.single(),
         )
 
-        target_dictionary[target_value] = TensorMap(Labels.single(), [block])
+        target_dictionary[target_value] = TensorMap(
+            keys=Labels(["lambda", "sigma"], torch.tensor([(0, 1)])), blocks=[block]
+        )
 
     return target_dictionary

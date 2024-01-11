@@ -1,8 +1,8 @@
-import metatensor.torch
-from metatensor.torch import TensorMap
+from typing import Dict, Optional
 
 import torch
-from typing import Dict, Optional
+from metatensor.torch import TensorMap
+
 
 # This file defines losses for metatensor models.
 
@@ -10,37 +10,66 @@ from typing import Dict, Optional
 class TensorMapLoss:
     """
     A loss function that operates on two `metatensor.torch.TensorMap`s.
-    
+
     The loss is computed as the sum of the loss on the block values and
     the loss on the gradients, with weights specified at initialization.
 
-    This loss function assumes that all the gradients declared at
-    initialization are present in both TensorMaps.
+    At the moment, this loss function assumes that all the gradients
+    declared at initialization are present in both TensorMaps.
     """
 
     def __init__(
-            self,
-            reduction: str = "mean",
-            weight: float = 1.0,
-            gradient_weights: Optional[Dict[str, float]] = {},
-        ):
+        self,
+        reduction: str = "mean",
+        weight: float = 1.0,
+        gradient_weights: Optional[Dict[str, float]] = None,
+    ):
         self.loss = torch.nn.MSELoss(reduction=reduction)
         self.weight = weight
-        self.gradient_weights = gradient_weights
+        self.gradient_weights = {} if gradient_weights is None else gradient_weights
 
-    def __call__(self, tensor_map_1: TensorMap, tensor_map_2: TensorMap) -> torch.Tensor:
-        # Assert that the two have the same metadata:
-        assert metatensor.torch.equal_metadata(tensor_map_1, tensor_map_2)
+    def __call__(
+        self, tensor_map_1: TensorMap, tensor_map_2: TensorMap
+    ) -> torch.Tensor:
+        # Assert that the two have the same metadata, except for the samples,
+        # which can be different due to batching, but must have the same size:
+        assert tensor_map_1.keys == tensor_map_2.keys
+        assert tensor_map_1.block().properties == tensor_map_2.block().properties
+        assert tensor_map_1.block().components == tensor_map_2.block().components
+        assert len(tensor_map_1.block().samples) == len(tensor_map_2.block().samples)
+        for gradient_name in self.gradient_weights.keys():
+            assert len(tensor_map_1.block().gradient(gradient_name).samples) == len(
+                tensor_map_2.block().gradient(gradient_name).samples
+            )
+            assert (
+                tensor_map_1.block().gradient(gradient_name).properties
+                == tensor_map_2.block().gradient(gradient_name).properties
+            )
+            assert (
+                tensor_map_1.block().gradient(gradient_name).components
+                == tensor_map_2.block().gradient(gradient_name).components
+            )
 
         # If the two TensorMaps have different symmetry keys:
         if len(tensor_map_1) != 1:
-            raise NotImplementedError("TensorMapLoss does not yet support multiple symmetry keys.")
+            raise NotImplementedError(
+                "TensorMapLoss does not yet support multiple symmetry keys."
+            )
 
         # Compute the loss:
-        loss = torch.zeros((), dtype=tensor_map_1.block().values.dtype, device=tensor_map_1.block().values.device)
-        loss += self.weight * self.loss(tensor_map_1.block().values, tensor_map_2.block().values)
+        loss = torch.zeros(
+            (),
+            dtype=tensor_map_1.block().values.dtype,
+            device=tensor_map_1.block().values.device,
+        )
+        loss += self.weight * self.loss(
+            tensor_map_1.block().values, tensor_map_2.block().values
+        )
         for gradient_name, gradient_weight in self.gradient_weights.items():
-            loss += gradient_weight * self.loss(tensor_map_1.block().gradient(gradient_name).values, tensor_map_2.block().gradient(gradient_name).values)
+            loss += gradient_weight * self.loss(
+                tensor_map_1.block().gradient(gradient_name).values,
+                tensor_map_2.block().gradient(gradient_name).values,
+            )
 
         return loss
 
@@ -57,18 +86,24 @@ class TensorMapDictLoss:
     """
 
     def __init__(
-            self,
-            weights: Dict[str, Dict[str, float]],
-            reduction: str = "mean",
-        ):
+        self,
+        weights: Dict[str, Dict[str, float]],
+        reduction: str = "mean",
+    ):
         self.losses = {}
         for key, weight in weights.items():
             # Remove the value weight from the gradient weights and store it separately:
-            value_weight = weight.pop("values")  
+            value_weight = weight.pop("values")
             # Define the loss relative to this key:
-            self.losses[key] = TensorMapLoss(reduction=reduction, weight=value_weight, gradient_weights=weight)
+            self.losses[key] = TensorMapLoss(
+                reduction=reduction, weight=value_weight, gradient_weights=weight
+            )
 
-    def __call__(self, tensor_map_dict_1: Dict[str, TensorMap], tensor_map_dict_2: Dict[str, TensorMap]) -> torch.Tensor:
+    def __call__(
+        self,
+        tensor_map_dict_1: Dict[str, TensorMap],
+        tensor_map_dict_2: Dict[str, TensorMap],
+    ) -> torch.Tensor:
         # Assert that the two have the keys:
         assert set(tensor_map_dict_1.keys()) == set(tensor_map_dict_2.keys())
 
