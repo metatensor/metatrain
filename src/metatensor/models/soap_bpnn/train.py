@@ -44,7 +44,7 @@ def train(train_dataset, hypers=DEFAULT_HYPERS, output_dir="."):
 
     # Calculate and set the composition weights:
     composition_weights = calculate_composition_weights(train_dataset, target_name)
-    model.set_composition_weights(composition_weights)
+    model.set_composition_weights(target_name, composition_weights)
 
     hypers_training = hypers["training"]
 

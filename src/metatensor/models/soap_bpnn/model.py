@@ -35,7 +35,7 @@ class MLPMap(torch.nn.Module):
         # Build a neural network for each species
         nns_per_species = []
         for _ in all_species:
-            module_list = []
+            module_list: List[torch.nn.Module] = []
             for _ in range(hypers["num_hidden_layers"]):
                 if len(module_list) == 0:
                     module_list.append(
@@ -158,9 +158,16 @@ class Model(torch.nn.Module):
         # creates a composition weight tensor that can be directly indexed by species,
         # this can be left as a tensor of zero or set from the outside using
         # set_composition_weights (recommended for better accuracy)
+        n_outputs = len(capabilities.outputs)
         self.register_buffer(
-            "composition_weights", torch.zeros(max(self.all_species) + 1)
+            "composition_weights", torch.zeros((n_outputs, max(self.all_species) + 1))
         )
+        # buffers cannot be indexed by strings (torchscript), so we create a single
+        # tensor for all output. Due to this, we need to slice the tensor when we use
+        # it and use the output name to select the correct slice via a dictionary
+        self.output_to_index = {
+            output_name: i for i, output_name in enumerate(capabilities.outputs.keys())
+        }
 
         self.soap_calculator = rascaline.torch.SoapPowerSpectrum(**hypers["soap"])
         hypers_bpnn = hypers["bpnn"]
@@ -220,11 +227,10 @@ class Model(torch.nn.Module):
         atomic_energies: Dict[str, metatensor.torch.TensorMap] = {}
         for output_name, output_layer in self.last_layers.items():
             if output_name in requested_outputs:
-                atomic_energies[output_name] = output_layer(hidden_features)
-
-        # atomic_energies = apply_composition_contribution(
-        #     atomic_energies, self.composition_weights
-        # )
+                atomic_energies[output_name] = apply_composition_contribution(
+                    output_layer(hidden_features),
+                    self.composition_weights[self.output_to_index[output_name]],
+                )
 
         # Sum the atomic energies coming from the BPNN to get the total energy
         total_energies: Dict[str, metatensor.torch.TensorMap] = {}
@@ -244,6 +250,11 @@ class Model(torch.nn.Module):
 
         return total_energies
 
-    def set_composition_weights(self, input_composition_weights: torch.Tensor) -> None:
+    def set_composition_weights(
+        self, output_name: str, input_composition_weights: torch.Tensor
+    ) -> None:
+        """Set the composition weights for a given output."""
         # all species that are not present retain their weight of zero
-        self.composition_weights[self.all_species] = input_composition_weights
+        self.composition_weights[self.output_to_index[output_name]][
+            self.all_species
+        ] = input_composition_weights
