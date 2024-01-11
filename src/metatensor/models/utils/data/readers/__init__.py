@@ -7,7 +7,7 @@ from metatensor.torch import TensorMap
 from .structures import STRUCTURE_READERS
 from .targets import TARGET_READERS
 
-from rascaline.torch.system import System
+from metatensor.torch.atomistic import System
 
 
 def read_structures(filename: str, fileformat: Optional[str] = None) -> List[System]:
