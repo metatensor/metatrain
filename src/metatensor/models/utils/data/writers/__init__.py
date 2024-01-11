@@ -2,7 +2,7 @@ from typing import List, Optional
 
 from pathlib import Path
 from metatensor.torch import TensorMap
-from rascaline.torch.system import System
+from metatensor.torch.atomistic import System
 
 from .xyz import write_xyz
 

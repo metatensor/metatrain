@@ -4,6 +4,7 @@ import metatensor.torch
 import rascaline.torch
 import torch
 from metatensor.torch import Labels, TensorBlock, TensorMap
+from metatensor.torch.atomistic import ModelCapabilities, System
 from omegaconf import OmegaConf
 
 from .. import ARCHITECTURE_CONFIG_PATH
@@ -93,11 +94,25 @@ class MLPMap(torch.nn.Module):
 
 class Model(torch.nn.Module):
     def __init__(
-        self, all_species: List[int], hypers: Dict = DEFAULT_MODEL_HYPERS
+        self, capabilities: ModelCapabilities, hypers: Dict = DEFAULT_MODEL_HYPERS
     ) -> None:
         super().__init__()
         self.name = ARCHITECTURE_NAME
-        self.all_species = all_species
+
+        # Check capabilities
+        if len(capabilities.outputs) > 1:
+            raise ValueError(
+                "SOAP-BPNN only supports a single output, "
+                "but multiple outputs were provided"
+            )
+        if next(iter(capabilities.outputs.values())).quantity != "energy":
+            raise ValueError(
+                "SOAP-BPNN only supports energy-like outputs, "
+                f"but {next(iter(capabilities.outputs.values())).quantity} was provided"
+            )
+
+        self.capabilities = capabilities
+        self.all_species = capabilities.species
         self.hypers = hypers
 
         # creates a composition weight tensor that can be directly indexed by species,
@@ -110,22 +125,22 @@ class Model(torch.nn.Module):
         self.soap_calculator = rascaline.torch.SoapPowerSpectrum(**hypers["soap"])
         hypers_bpnn = hypers["bpnn"]
         hypers_bpnn["input_size"] = (
-            len(all_species) ** 2
+            len(self.all_species) ** 2
             * hypers["soap"]["max_radial"] ** 2
             * (hypers["soap"]["max_angular"] + 1)
         )
         hypers_bpnn["output_size"] = 1
-        self.bpnn = MLPMap(all_species, hypers_bpnn)
+        self.bpnn = MLPMap(self.all_species, hypers_bpnn)
         self.neighbor_species_1_labels = Labels(
             names=["species_neighbor_1"],
-            values=torch.tensor(all_species).reshape(-1, 1),
+            values=torch.tensor(self.all_species).reshape(-1, 1),
         )
         self.neighbor_species_2_labels = Labels(
             names=["species_neighbor_2"],
-            values=torch.tensor(all_species).reshape(-1, 1),
+            values=torch.tensor(self.all_species).reshape(-1, 1),
         )
 
-    def forward(self, systems: List[metatensor.torch.atomistic.System]) -> Dict[str, TensorMap]:
+    def forward(self, systems: List[System]) -> Dict[str, TensorMap]:
         soap_features = self.soap_calculator(systems)
 
         device = soap_features.block(0).values.device

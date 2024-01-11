@@ -1,19 +1,17 @@
 from typing import Dict, List
 
 import metatensor.torch
-import rascaline.torch
 import torch
 from metatensor.torch import Labels, TensorMap
+from metatensor.torch.atomistic import System
 
 
 class Dataset(torch.utils.data.Dataset):
-    def __init__(
-        self, structures: List[metatensor.torch.atomistic.System], targets: Dict[str, TensorMap]
-    ):
+    def __init__(self, structures: List[System], targets: Dict[str, TensorMap]):
         """
-        Creates a dataset from a list of `rascaline.torch.System` objects
-        and a dictionary of targets where the keys are strings and the
-        values are `TensorMap` objects.
+        Creates a dataset from a list of `metatensor.torch.atomistic.System`
+        objects and a dictionary of targets where the keys are strings and
+        the values are `TensorMap` objects.
         """
 
         for tensor_map in targets.values():
