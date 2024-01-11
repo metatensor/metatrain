@@ -6,7 +6,7 @@ import torch
 
 from metatensor.models import soap_bpnn
 from metatensor.models.utils.data import read_structures
-from metatensor.models.utils.target_gradient import compute_gradient
+from metatensor.models.utils.output_gradient import compute_gradient
 
 
 RESOURCES_PATH = Path(__file__).parent.resolve() / ".." / "resources"
