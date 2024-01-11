@@ -8,7 +8,7 @@ from metatensor.torch import Labels, TensorMap
 
 class Dataset(torch.utils.data.Dataset):
     def __init__(
-        self, structures: List[rascaline.torch.System], targets: Dict[str, TensorMap]
+        self, structures: List[metatensor.torch.atomistic.System], targets: Dict[str, TensorMap]
     ):
         """
         Creates a dataset from a list of `rascaline.torch.System` objects

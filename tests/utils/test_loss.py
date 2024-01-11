@@ -1,9 +1,13 @@
+from pathlib import Path
 import pytest
 
 import torch
 from metatensor.torch import TensorMap, TensorBlock, Labels
 
 from metatensor.models.utils.loss import TensorMapLoss, TensorMapDictLoss
+
+
+RESOURCES_PATH = Path(__file__).parent.resolve() / ".." / "resources"
 
 
 @pytest.fixture
@@ -172,3 +176,28 @@ def test_tmap_dict_loss(tensor_map_with_grad_1, tensor_map_with_grad_2, tensor_m
     assert torch.allclose(loss(output_dict, target_dict), expected_result)
 
 
+def test_tmap_dict_loss_subset(tensor_map_with_grad_1, tensor_map_with_grad_3):
+    """Test that the dict loss is computed correctly when only a subset
+    of the possible targets is present both in outputs and targets."""
+
+    loss = TensorMapDictLoss(
+        weights={
+            "output_1": {"values": 1.0, "gradient": 0.5},
+            "output_2": {"values": 1.0, "gradient": 0.5},
+        }
+    )
+
+    output_dict = {
+        "output_1": tensor_map_with_grad_1,
+    }
+
+    target_dict = {
+        "output_1": tensor_map_with_grad_3,
+    }
+
+    expected_result = (
+        1.0 * (tensor_map_with_grad_1.block().values - tensor_map_with_grad_3.block().values).pow(2).mean() +
+        0.5 * (tensor_map_with_grad_1.block().gradient("gradient").values - tensor_map_with_grad_3.block().gradient("gradient").values).pow(2).mean()
+    )
+
+    assert torch.allclose(loss(output_dict, target_dict), expected_result)

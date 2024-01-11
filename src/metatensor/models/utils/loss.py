@@ -1,12 +1,8 @@
 import metatensor.torch
 from metatensor.torch import TensorMap
 
-from rascaline.torch.system import System
-
 import torch
-from typing import Dict, List, Optional
-
-from .output_gradient import compute_gradient
+from typing import Dict, Optional
 
 # This file defines losses for metatensor models.
 
@@ -85,83 +81,3 @@ class TensorMapDictLoss:
             loss += self.losses[key](tensor_map_dict_1[key], tensor_map_dict_2[key])
 
         return loss
-
-
-def compute_model_loss(
-    loss: TensorMapDictLoss,
-    model: torch.nn.Module,
-    systems: List[System],
-    targets: Dict[str, TensorMap],
-):
-    """
-    Compute the loss of a model on a set of targets.
-
-    This function assumes that the model returns a dictionary of
-    TensorMaps, with the same keys as the targets.
-    """
-    # Assert that all targets are within the model's capabilities:
-    if not set(targets.keys()).issubset(model.capabilities.outputs.keys()):
-        raise ValueError("Not all targets are within the model's capabilities.")
-
-    # Find if there are any energy targets that require gradients:
-    energy_targets = []
-    energy_targets_that_require_position_gradients = []
-    energy_targets_that_require_displacement_gradients = []
-    for target_name in targets.keys():
-        # Check if the target is an energy:
-        if model.capabilities.outputs[target_name].quantity == "energy":
-            energy_targets.append(target_name)
-            # Check if the energy requires gradients:
-            if targets[target_name].has_gradients("positions"):
-                energy_targets_that_require_position_gradients.append(target_name)
-            if targets[target_name].has_gradients("displacements"):
-                energy_targets_that_require_displacement_gradients.append(target_name)
-                
-    if len(energy_targets_that_require_displacement_gradients) > 0:
-        # TODO: raise an error if the systems do not have a cell
-        # if not all([system.has_cell for system in systems]):
-        #     raise ValueError("One or more systems does not have a cell.")
-        displacements = [torch.eye(3, requires_grad=True, dtype=system.dtype, device=system.device) for system in systems]
-        # Create new "displaced" systems:
-        systems = [
-            System(
-                positions=system.positions @ displacement,
-                cell=system.cell @ displacement,
-                species=system.species,
-            )
-            for system, displacement in zip(systems, displacements)
-        ]
-    else:
-        if len(energy_targets_that_require_position_gradients) > 0:
-            # Set positions to require gradients:
-            for system in systems:
-                system.positions.requires_grad_(True)
-
-    # Based on the keys of the targets, get the outputs of the model:
-    raw_model_outputs = model(systems, targets.keys())
-
-    for energy_target in energy_targets:
-        # If the energy target requires gradients, compute them:
-        target_requires_pos_gradients = energy_target in energy_targets_that_require_position_gradients
-        target_requires_disp_gradients = energy_target in energy_targets_that_require_displacement_gradients
-        if target_requires_pos_gradients and target_requires_disp_gradients:
-            gradients = compute_gradient(
-                raw_model_outputs[energy_target].block().values,
-                [system.positions for system in systems] + displacements,
-                is_training=True,
-            )
-            new_energy_tensor_map
-        elif target_requires_pos_gradients:
-            gradients = compute_gradient(
-                raw_model_outputs[energy_target].block().values,
-                [system.positions for system in systems],
-                is_training=True,
-            )
-        elif target_requires_disp_gradients:
-            gradients = compute_gradient(
-                raw_model_outputs[energy_target].block().values,
-                displacements,
-                is_training=True,
-            )
-        else:
-            pass

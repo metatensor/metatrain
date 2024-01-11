@@ -125,7 +125,7 @@ class Model(torch.nn.Module):
             values=torch.tensor(all_species).reshape(-1, 1),
         )
 
-    def forward(self, systems: List[rascaline.torch.System]) -> Dict[str, TensorMap]:
+    def forward(self, systems: List[metatensor.torch.atomistic.System]) -> Dict[str, TensorMap]:
         soap_features = self.soap_calculator(systems)
 
         device = soap_features.block(0).values.device
