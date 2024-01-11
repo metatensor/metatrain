@@ -3,6 +3,7 @@ import copy
 import ase.io
 import rascaline.torch
 import torch
+from metatensor.torch.atomistic import ModelCapabilities, ModelOutput
 
 from metatensor.models.soap_bpnn import DEFAULT_HYPERS, Model
 
@@ -12,8 +13,17 @@ from . import DATASET_PATH
 def test_rotational_invariance():
     """Tests that the model is rotationally invariant."""
 
-    all_species = [1, 6, 7, 8]
-    soap_bpnn = Model(all_species, DEFAULT_HYPERS["model"]).to(torch.float64)
+    capabilities = ModelCapabilities(
+        length_unit="Angstrom",
+        species=[1, 6, 7, 8],
+        outputs={
+            "energy": ModelOutput(
+                quantity="energy",
+                unit="eV",
+            )
+        },
+    )
+    soap_bpnn = Model(capabilities, DEFAULT_HYPERS["model"]).to(torch.float64)
 
     structure = ase.io.read(DATASET_PATH)
     original_structure = copy.deepcopy(structure)

@@ -2,6 +2,7 @@ from pathlib import Path
 
 import metatensor.torch
 import rascaline.torch
+from metatensor.torch.atomistic import ModelCapabilities, ModelOutput
 
 from metatensor.models import soap_bpnn
 from metatensor.models.utils.data import read_structures
@@ -15,7 +16,18 @@ def test_save_load_model(monkeypatch, tmp_path):
     """Test that saving and loading a model works and preserves its internal state."""
     monkeypatch.chdir(tmp_path)
 
-    model = soap_bpnn.Model(all_species=[1, 6, 7, 8])
+    capabilities = ModelCapabilities(
+        length_unit="Angstrom",
+        species=[1, 6, 7, 8],
+        outputs={
+            "energy": ModelOutput(
+                quantity="energy",
+                unit="eV",
+            )
+        },
+    )
+
+    model = soap_bpnn.Model(capabilities)
     structures = read_structures(RESOURCES_PATH / "qm9_reduced_100.xyz")
 
     output_before_save = model(rascaline.torch.systems_to_torch(structures))

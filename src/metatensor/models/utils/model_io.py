@@ -19,7 +19,7 @@ def save_model(
             "architecture_name": model.name,
             "model_state_dict": model.state_dict(),
             "model_hypers": model.hypers,
-            "all_species": model.all_species,
+            "model_capabilities": model.capabilities,
         },
         path,
     )
@@ -47,7 +47,7 @@ def load_model(path: str) -> torch.nn.Module:
 
     # Create the model
     model = architecture.Model(
-        all_species=model_dict["all_species"], hypers=model_dict["model_hypers"]
+        capabilities=model_dict["model_capabilities"], hypers=model_dict["model_hypers"]
     )
 
     # Load the model weights
