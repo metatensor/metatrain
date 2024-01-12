@@ -134,7 +134,8 @@ def train(
 
         if epoch % hypers_training["log_interval"] == 0:
             logger.info(
-                f"Epoch {epoch}, train loss: {train_loss:.4f}, validation loss: {validation_loss:.4f}"
+                f"Epoch {epoch}, train loss: {train_loss:.4f}, "
+                f"validation loss: {validation_loss:.4f}"
             )
 
         if epoch % hypers_training["checkpoint_interval"] == 0:
@@ -151,7 +152,8 @@ def train(
             epochs_without_improvement += 1
             if epochs_without_improvement >= 50:
                 logger.info(
-                    f"Early stopping criterion reached after {epoch} epochs without improvement."
+                    f"Early stopping criterion reached after {epoch} "
+                    "epochs without improvement."
                 )
                 break
 
