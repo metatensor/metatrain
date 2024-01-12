@@ -37,7 +37,7 @@ def test_without_shuffling():
     # will yield 5 batches of 2
 
     combined_dataloader = combine_dataloaders(
-        dataloader_qm9, dataloader_alchemical, shuffle=False
+        [dataloader_qm9, dataloader_alchemical], shuffle=False
     )
 
     assert len(combined_dataloader) == 15
