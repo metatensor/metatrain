@@ -4,6 +4,7 @@ import logging
 from pathlib import Path
 
 import hydra
+from metatensor.torch.atomistic import ModelCapabilities, ModelOutput
 from omegaconf import DictConfig, OmegaConf
 
 from metatensor.models.utils.data import Dataset
@@ -102,9 +103,22 @@ def train_model(options: DictConfig) -> None:
     logger.info("Run training")
     output_dir = hydra.core.hydra_config.HydraConfig.get().runtime.output_dir
 
+    # HACK:
+    model_capabilities = ModelCapabilities(
+        length_unit="Angstrom",
+        species=dataset.all_species,
+        outputs={
+            options["dataset"]["target_value"]: ModelOutput(
+                quantity="energy", unit="eV"
+            )
+        },
+    )
+
     print(OmegaConf.to_container(options))
     model = architecture.train(
-        train_dataset=dataset,
+        train_datasets=[dataset],  # HACK
+        validation_datasets=[dataset],  # HACK
+        model_capabilities=model_capabilities,  # HACK
         hypers=OmegaConf.to_container(options["architecture"]),
         output_dir=output_dir,
     )

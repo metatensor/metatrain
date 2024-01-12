@@ -1,9 +1,8 @@
 import itertools
+from typing import List
 
 import numpy as np
 import torch
-
-from typing import List
 
 
 class CombinedIterableDataset(torch.utils.data.IterableDataset):
@@ -40,7 +39,9 @@ class CombinedIterableDataset(torch.utils.data.IterableDataset):
         return len(self.indices)
 
 
-def combine_dataloaders(dataloaders: List[torch.utils.data.DataLoader], shuffle: bool = True):
+def combine_dataloaders(
+    dataloaders: List[torch.utils.data.DataLoader], shuffle: bool = True
+):
     """
     Combines multiple dataloaders into a single dataloader.
     """

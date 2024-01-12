@@ -1,4 +1,7 @@
+import random
+
 import ase.io
+import numpy as np
 import rascaline.torch
 import torch
 from metatensor.torch.atomistic import ModelCapabilities, ModelOutput
@@ -10,6 +13,9 @@ from metatensor.models.utils.data.readers import read_structures, read_targets
 from . import DATASET_PATH
 
 
+# reproducibility
+random.seed(0)
+np.random.seed(0)
 torch.manual_seed(0)
 
 
@@ -39,8 +45,6 @@ def test_regression_init():
         dtype=torch.float64,
     )
 
-    print(output["energy"].block().values)
-
     assert torch.allclose(output["energy"].block().values, expected_output, rtol=1e-3)
 
 
@@ -55,16 +59,26 @@ def test_regression_train():
 
     hypers = DEFAULT_HYPERS.copy()
     hypers["training"]["num_epochs"] = 2
-    soap_bpnn = train(dataset, hypers)
+
+    capabilities = ModelCapabilities(
+        length_unit="Angstrom",
+        species=dataset.all_species,
+        outputs={
+            "U0": ModelOutput(
+                quantity="energy",
+                unit="eV",
+            )
+        },
+    )
+    soap_bpnn = train([dataset], [dataset], capabilities, hypers)
 
     # Predict on the first five structures
     output = soap_bpnn(structures[:5])
 
     expected_output = torch.tensor(
-        [[-39.9658], [-56.0888], [-76.1100], [-76.9461], [-93.0914]],
+        [[-40.1358], [-56.1721], [-76.1576], [-77.1174], [-93.1679]],
         dtype=torch.float64,
     )
 
     print(output["U0"].block().values)
-
     assert torch.allclose(output["U0"].block().values, expected_output, rtol=1e-3)

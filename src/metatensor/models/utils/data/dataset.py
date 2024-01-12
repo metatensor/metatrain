@@ -98,7 +98,7 @@ def collate_fn(batch):
 def canonical_check_datasets(
     train_datasets: List[Dataset],
     validation_datasets: List[Dataset],
-    capabilities: ModelCapabilities
+    capabilities: ModelCapabilities,
 ):
     """
     This is a helper function that checks that the training and validation sets
@@ -121,9 +121,7 @@ def canonical_check_datasets(
     # Check that they are compatible with the model's capabilities:
     for target in targets:
         if target not in capabilities.outputs.keys():
-            raise ValueError(
-                f"The target {target} is not in the model's capabilities."
-            )
+            raise ValueError(f"The target {target} is not in the model's capabilities.")
 
     # For now, we impose no overlap between the targets in the training sets:
     if len(set(targets)) != len(targets):
@@ -131,7 +129,7 @@ def canonical_check_datasets(
             "The training datasets must not have overlapping targets in SOAP-BPNN. "
             "This means that one target cannot be in more than one dataset."
         )
-    
+
     # Check that the validation sets do not have targets that are not in the
     # training sets:
     for dataset in validation_datasets:
@@ -141,7 +139,7 @@ def canonical_check_datasets(
                     f"The validation dataset has a target ({target}) "
                     "that is not in the training datasets."
                 )
-            
+
     # Get all the species in the training sets:
     all_training_species = []
     for dataset in train_datasets:
