@@ -3,7 +3,7 @@ from typing import Dict, List
 import metatensor.torch
 import torch
 from metatensor.torch import Labels, TensorMap
-from metatensor.torch.atomistic import System
+from metatensor.torch.atomistic import ModelCapabilities, System
 
 
 class Dataset(torch.utils.data.Dataset):
@@ -93,3 +93,75 @@ def collate_fn(batch):
         )
 
     return structures, targets
+
+
+def canonical_check_datasets(
+    train_datasets: List[Dataset],
+    validation_datasets: List[Dataset],
+    capabilities: ModelCapabilities
+):
+    """
+    This is a helper function that checks that the training and validation sets
+    are compatible with one another and with the model's capabilities. Although
+    these checks will not fit all use cases, they will fit most.
+
+    :param train_datasets: A list of training datasets.
+    :param validation_datasets: A list of validation datasets.
+    :param capabilities: The model's capabilities.
+
+    :raises ValueError: If the training and validation sets are not compatible
+        with one another or with the model's capabilities.
+    """
+
+    # Get all targets in the training sets:
+    targets = []
+    for dataset in train_datasets:
+        targets += list(dataset.targets.keys())
+
+    # Check that they are compatible with the model's capabilities:
+    for target in targets:
+        if target not in capabilities.outputs.keys():
+            raise ValueError(
+                f"The target {target} is not in the model's capabilities."
+            )
+
+    # For now, we impose no overlap between the targets in the training sets:
+    if len(set(targets)) != len(targets):
+        raise ValueError(
+            "The training datasets must not have overlapping targets in SOAP-BPNN. "
+            "This means that one target cannot be in more than one dataset."
+        )
+    
+    # Check that the validation sets do not have targets that are not in the
+    # training sets:
+    for dataset in validation_datasets:
+        for target in dataset.targets.keys():
+            if target not in targets:
+                raise ValueError(
+                    f"The validation dataset has a target ({target}) "
+                    "that is not in the training datasets."
+                )
+            
+    # Get all the species in the training sets:
+    all_training_species = []
+    for dataset in train_datasets:
+        all_training_species += list(dataset.all_species)
+
+    # Check that they are compatible with the model's capabilities:
+    for species in all_training_species:
+        if species not in capabilities.species:
+            raise ValueError(
+                f"The species {species} is not in the model's capabilities."
+            )
+
+    # Check that the validation sets do not have species that are not in the
+    # training sets:
+    for dataset in validation_datasets:
+        for species in dataset.all_species:
+            if species not in all_training_species:
+                raise ValueError(
+                    f"The validation dataset has a species ({species}) "
+                    "that is not in the training datasets. This could be "
+                    "a result of a random train/validation split. You can "
+                    "avoid this by providing a validation dataset manually."
+                )

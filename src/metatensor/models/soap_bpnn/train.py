@@ -6,34 +6,30 @@ from metatensor.torch.atomistic import ModelCapabilities, ModelOutput
 
 from ..utils.composition import calculate_composition_weights
 from ..utils.compute_loss import compute_model_loss
-from ..utils.data import collate_fn
+from ..utils.data import collate_fn, Dataset, canonical_check_datasets, combine_dataloaders
 from ..utils.loss import TensorMapDictLoss
 from ..utils.model_io import save_model
 from .model import DEFAULT_HYPERS, Model
+
+from typing import Dict, List
 
 
 logger = logging.getLogger(__name__)
 
 
-def train(train_dataset, hypers=DEFAULT_HYPERS, output_dir="."):
-    if len(train_dataset.targets) > 1:
-        raise ValueError(
-            f"`train_dataset` contains {len(train_dataset.targets)} targets but we "
-            "currently only support a single target value!"
-        )
-    else:
-        target_name = list(train_dataset.targets.keys())[0]
+def train(
+    train_datasets: List[Dataset],
+    validation_datasets: List[Dataset],
+    model_capabilities: ModelCapabilities,
+    hypers: Dict = DEFAULT_HYPERS,
+    output_dir: str = "."
+):
 
-    # Set the model's capabilities:
-    model_capabilities = ModelCapabilities(
-        length_unit="Angstrom",
-        species=train_dataset.all_species,
-        outputs={
-            target_name: ModelOutput(
-                quantity="energy",
-                unit="eV",
-            )
-        },
+    # Perform canonical checks on the datasets:
+    canonical_check_datasets(
+        train_datasets,
+        validation_datasets,
+        model_capabilities,
     )
 
     # Create the model:
@@ -42,19 +38,53 @@ def train(train_dataset, hypers=DEFAULT_HYPERS, output_dir="."):
         hypers=hypers["model"],
     )
 
-    # Calculate and set the composition weights:
-    composition_weights = calculate_composition_weights(train_dataset, target_name)
-    model.set_composition_weights(target_name, composition_weights)
+    # Calculate and set the composition weights for all targets:
+    for target_name in model_capabilities.targets:
+        # find the dataset that contains the target:
+        train_dataset_with_target = None
+        for dataset in train_datasets:
+            if target_name in dataset.targets:
+                train_dataset_with_target = dataset
+                break
+        if train_dataset_with_target is None:
+            raise ValueError(
+                f"Target {target_name} in the model's capabilities is not "
+                "present in any of the training datasets."
+            )
+        composition_weights = calculate_composition_weights(train_dataset_with_target, target_name)
+        model.set_composition_weights(target_name, composition_weights)
 
     hypers_training = hypers["training"]
 
-    # Create a dataloader for the training dataset:
-    train_dataloader = torch.utils.data.DataLoader(
-        dataset=train_dataset,
-        batch_size=hypers_training["batch_size"],
-        shuffle=True,
-        collate_fn=collate_fn,
-    )
+    # Create dataloader for the training datasets:
+    train_dataloaders = []
+    for dataset in train_datasets:
+        train_dataloaders.append(
+            torch.utils.data.DataLoader(
+                dataset=dataset,
+                batch_size=hypers_training["batch_size"],
+                shuffle=True,
+                collate_fn=collate_fn,
+            )
+        )
+    train_dataloader = combine_dataloaders(train_dataloaders, shuffle=True)
+
+    # Create dataloader for the validation datasets:
+    validation_dataloaders = []
+    for dataset in validation_datasets:
+        validation_dataloaders.append(
+            torch.utils.data.DataLoader(
+                dataset=dataset,
+                batch_size=hypers_training["batch_size"],
+                shuffle=False,
+                collate_fn=collate_fn,
+            )
+        )
+    validation_dataloader = combine_dataloaders(validation_dataloaders, shuffle=False)
+
+    #####################################
+    I DON'T UNDERSTAND THIS PART
+    #####################################
 
     # Create a loss function:
     loss_fn = TensorMapDictLoss(
