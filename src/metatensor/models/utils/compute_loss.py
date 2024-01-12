@@ -17,8 +17,12 @@ def compute_model_loss(
     """
     Compute the loss of a model on a set of targets.
 
-    This function assumes that the model returns a dictionary of
-    TensorMaps, with the same keys as the targets.
+    :param loss: The loss function to use.
+    :param model: The model to use.
+    :param systems: The systems to use.
+    :param targets: The targets to use.
+
+    :returns: The loss as a scalar `torch.Tensor`.
     """
     # Assert that all targets are within the model's capabilities:
     if not set(targets.keys()).issubset(model.capabilities.outputs.keys()):

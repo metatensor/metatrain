@@ -69,9 +69,7 @@ class MLPMap(torch.nn.Module):
         new_blocks: List[TensorBlock] = []
         for species_str, network in self.layers.items():
             species = int(species_str)
-            if species not in present_blocks:
-                pass  # continue is not accepted by torchscript here
-            else:
+            if species in present_blocks:
                 block = features.block({"species_center": species})
                 output_values = network(block.values)
                 new_blocks.append(
@@ -113,9 +111,7 @@ class LinearMap(torch.nn.Module):
         new_blocks: List[TensorBlock] = []
         for species_str, layer in self.layers.items():
             species = int(species_str)
-            if species not in present_blocks:
-                pass  # continue is not accepted by torchscript here
-            else:
+            if species in present_blocks:
                 block = features.block({"species_center": species})
                 output_values = layer(block.values)
                 new_blocks.append(
