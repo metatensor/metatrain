@@ -56,5 +56,9 @@ def eval_model(model: str, structures: str, output: str = "output.xyz") -> None:
 
     loaded_model = load_model(model)
     structure_list = read_structures(structures)
+
+    # since the second argument is missing,
+    # this calculates all the available properties:
     predictions = loaded_model(structure_list)
+
     write_predictions(output, predictions, structure_list)
