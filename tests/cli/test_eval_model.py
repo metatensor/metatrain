@@ -26,4 +26,4 @@ def test_eval(output, monkeypatch, tmp_path):
     subprocess.check_call(command)
 
     frames = ase.io.read(output, ":")
-    frames[0].info["energy"]
+    frames[0].info["U0"]

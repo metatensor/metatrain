@@ -14,9 +14,14 @@ def write_xyz(filename: str, predictions: TensorMap, structures: List[System]) -
     :param predictions: prediction values written to the file.
     :param structures: strcutures additional written to the file.
     """
+    # Get the target property name:
+    target_name = next(iter(predictions.keys()))
+
     frames = []
     for i_system, system in enumerate(structures):
-        info = {"energy": float(predictions["energy"].block().values[i_system, 0])}
+        info = {
+            target_name: float(predictions[target_name].block().values[i_system, 0])
+        }
         atoms = ase.Atoms(symbols=system.species, positions=system.positions, info=info)
 
         if torch.any(system.cell != 0):

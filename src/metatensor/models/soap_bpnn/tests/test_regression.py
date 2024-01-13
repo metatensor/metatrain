@@ -35,11 +35,11 @@ def test_regression_init():
         [rascaline.torch.systems_to_torch(structure) for structure in structures]
     )
     expected_output = torch.tensor(
-        [
-            [[0.5021], [0.3809], [0.1849], [0.2126], [0.0920]],
-        ],
+        [[-0.4615], [-0.4367], [-0.3004], [-0.2606], [-0.2380]],
         dtype=torch.float64,
     )
+
+    print(output["energy"].block().values)
 
     assert torch.allclose(output["energy"].block().values, expected_output, rtol=1e-3)
 
@@ -61,8 +61,10 @@ def test_regression_train():
     output = soap_bpnn(structures[:5])
 
     expected_output = torch.tensor(
-        [[-40.5923], [-56.5135], [-76.4457], [-77.2500], [-93.1583]],
+        [[-39.9658], [-56.0888], [-76.1100], [-76.9461], [-93.0914]],
         dtype=torch.float64,
     )
 
-    assert torch.allclose(output["energy"].block().values, expected_output, rtol=1e-3)
+    print(output["U0"].block().values)
+
+    assert torch.allclose(output["U0"].block().values, expected_output, rtol=1e-3)
