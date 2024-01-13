@@ -45,6 +45,8 @@ def test_regression_init():
         dtype=torch.float64,
     )
 
+    print(output["energy"].block().values)
+
     assert torch.allclose(output["energy"].block().values, expected_output, rtol=1e-3)
 
 
@@ -80,5 +82,4 @@ def test_regression_train():
         dtype=torch.float64,
     )
 
-    print(output["U0"].block().values)
     assert torch.allclose(output["U0"].block().values, expected_output, rtol=1e-3)

@@ -105,6 +105,11 @@ def train(
     # Create a loss function:
     loss_fn = TensorMapDictLoss(loss_weights_dict)
 
+    # Create a loss function:
+    loss_fn = TensorMapDictLoss(
+        {target_name: {"values": 1.0}},
+    )
+
     # Create an optimizer:
     optimizer = torch.optim.Adam(
         model.parameters(), lr=hypers_training["learning_rate"]
