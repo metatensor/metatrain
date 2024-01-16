@@ -66,9 +66,26 @@ def test_read_stress_ase(monkeypatch, tmp_path):
     result = read_stress_ase(filename=filename, key="stress-3x3")
 
     expected = torch.tensor(structures.info["stress-3x3"])
-    expected *= torch.tensor(structures.cell.tolist())
+    expected *= torch.tensor(structures.cell.volume)
     expected = expected.reshape(-1, 3, 3, 1)
     torch.testing.assert_close(result.values, expected)
+
+
+@pytest.mark.parametrize("reader", [read_stress_ase, read_virial_ase])
+def test_no_cell_error(reader, monkeypatch, tmp_path):
+    monkeypatch.chdir(tmp_path)
+
+    filename = "structures.xyz"
+
+    structures = ase_system()
+    structures.cell = [0.0, 0.0, 0.0]
+
+    ase.io.write(filename, structures)
+
+    with pytest.raises(
+        ValueError, match="Found at least one structure with zero cell vectors."
+    ):
+        read_stress_ase(filename=filename, key="stress-3x3")
 
 
 def test_read_virial_ase(monkeypatch, tmp_path):

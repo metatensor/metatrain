@@ -33,7 +33,7 @@ def read_energy_ase(
 
 def read_forces_ase(
     filename: str,
-    key: str,
+    key: str = "energy",
 ) -> TensorBlock:
     """Store force information as a :class:`metatensor.TensorBlock` which can be used as
     ``position`` gradients .
@@ -74,7 +74,7 @@ def read_forces_ase(
 
 def read_virial_ase(
     filename: str,
-    key: str,
+    key: str = "virial",
 ):
     """Store virial information in :class:`metatensor.TensorBlock` which can be used as
     ``displacement`` gradients
@@ -90,7 +90,7 @@ def read_virial_ase(
 
 def read_stress_ase(
     filename: str,
-    key: str,
+    key: str = "stress",
 ):
     """Store stress information in :class:`metatensor.TensorBlock` which can be used as
     ``displacement`` gradients
@@ -135,10 +135,17 @@ def _read_virial_stress_ase(
             f"stress/virial must be a 3 x 3 matrix but has shape {values.shape}"
         )
 
+    volumes = torch.tensor([f.cell.volume for f in frames])
+    if torch.any(volumes == 0):
+        raise ValueError(
+            "Found at least one structure with zero cell vectors."
+            "Virial/stress can only be used if cell is non zero!"
+        )
+
     if is_virial:
         values *= -1
     else:  # is stress
-        values *= torch.tensor([f.cell.tolist() for f in frames])
+        values *= volumes
 
     samples = Labels(["sample"], torch.tensor([[s] for s in range(n_structures)]))
 

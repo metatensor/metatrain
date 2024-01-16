@@ -233,12 +233,12 @@ def test_read_targets_error(monkeypatch, tmp_path):
 
     with pytest.raises(
         ValueError,
-        match="Cannot add gradient displacement gradient for stress and virial!",
+        match="stress and virial at the same time",
     ):
         read_targets(OmegaConf.create(conf))
 
 
-def test_unsopprted_quantity(monkeypatch, tmp_path):
+def test_unsopprted_quantity():
     conf = {
         "energy": {
             "quantity": "foo",

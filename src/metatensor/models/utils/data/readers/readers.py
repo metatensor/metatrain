@@ -30,7 +30,7 @@ def _base_reader(
 
 def read_energy(
     filename: str,
-    target_value: str,
+    target_value: str = "energy",
     fileformat: Optional[str] = None,
 ) -> TensorBlock:
     """Read energy informations from a file.
@@ -51,7 +51,7 @@ def read_energy(
 
 def read_forces(
     filename: str,
-    target_value: str,
+    target_value: str = "forces",
     fileformat: Optional[str] = None,
 ) -> TensorBlock:
     """Read force informations from a file.
@@ -72,7 +72,7 @@ def read_forces(
 
 def read_stress(
     filename: str,
-    target_value: str,
+    target_value: str = "stress",
     fileformat: Optional[str] = None,
 ) -> TensorBlock:
     """Read stress informations from a file.
@@ -109,7 +109,7 @@ def read_structures(
 
 def read_virial(
     filename: str,
-    target_value: str,
+    target_value: str = "virial",
     fileformat: Optional[str] = None,
 ) -> TensorBlock:
     """Read virial informations from a file.
@@ -166,9 +166,7 @@ def read_targets(conf: DictConfig) -> Dict[str, TensorMap]:
                     )
 
             if target["stress"] and target["virial"]:
-                raise ValueError(
-                    "Cannot add gradient displacement gradient for stress and virial!"
-                )
+                raise ValueError("Cannot use stress and virial at the same time!")
 
             if target["stress"]:
                 try:
