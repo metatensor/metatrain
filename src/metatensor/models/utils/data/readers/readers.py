@@ -131,6 +131,14 @@ def read_virial(
 def read_targets(conf: DictConfig) -> Dict[str, TensorMap]:
     """Reading all target information from a fully expanded config.
 
+    To get such a config you can use
+    :func:`metatensor.models.cli.train_model.expand_dataset_config`.
+
+    This function uses subfunctions like :func:`read_energy` to parse the requested
+    target quantity. Currently only `energy` is a supported target property. But, within
+    the `energy` section gradients such as `forces`, the `stress` or the `virial` can be
+    added. Other gradients are silentlty irgnored.
+
     :param conf: config containing the keys for what should be read.
     :returns: Dictionary containing one TensorMaps for each target section in the
         config."""

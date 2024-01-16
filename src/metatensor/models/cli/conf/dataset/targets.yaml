@@ -3,6 +3,3 @@ read_from: ${...structures.read_from}
 file_format:
 key:
 unit:
-forces: off
-stress: off
-virial: off

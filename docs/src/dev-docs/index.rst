@@ -10,4 +10,5 @@ module.
    :maxdepth: 1
 
    adding-models
+   cli/index
    utils/index

@@ -79,15 +79,24 @@ def _resolve_single_str(config):
 
 
 def expand_dataset_config(conf: Union[str, DictConfig]) -> DictConfig:
-    """Expand a short hand notation in a dataset config to actual format."""
-    base_conf_structures = OmegaConf.load(CONFIG_PATH / "dataset" / "structures.yaml")
-    base_conf_target = OmegaConf.load(CONFIG_PATH / "dataset" / "targets.yaml")
-    base_gradient_conf = OmegaConf.load(CONFIG_PATH / "dataset" / "gradient.yaml")
+    """Expand a short hand notation in a dataset config to actual format.
 
-    base_conf_energy = OmegaConf.load(CONFIG_PATH / "dataset" / "targets.yaml")
-    base_conf_energy["forces"] = base_gradient_conf.copy()
-    base_conf_energy["stress"] = base_gradient_conf.copy()
-    base_conf_energy["virial"] = False
+    Currently the config si not checked if all keys are known. Unknown keys can be added
+    and will be ignored and not deleted."""
+
+    conf_path = CONFIG_PATH / "dataset"
+    base_conf_structures = OmegaConf.load(conf_path / "structures.yaml")
+    base_conf_target = OmegaConf.load(conf_path / "targets.yaml")
+    base_conf_gradients_avail = OmegaConf.load(conf_path / "gradients_avail.yaml")
+    base_conf_gradient = OmegaConf.load(conf_path / "gradient.yaml")
+
+    known_gradient_keys = list(base_conf_gradients_avail.keys())
+
+    # merge confif to get default configs for energies and other target config.
+    base_conf_target = OmegaConf.merge(base_conf_target, base_conf_gradients_avail)
+    base_conf_energy = base_conf_target.copy()
+    base_conf_energy["forces"] = base_conf_gradient.copy()
+    base_conf_energy["stress"] = base_conf_gradient.copy()
 
     if isinstance(conf, str):
         read_from = conf
@@ -130,24 +139,23 @@ def expand_dataset_config(conf: Union[str, DictConfig]) -> DictConfig:
 
         # merge and interpolate possible present gradients with default config
         for gradient_key, gradient_conf in conf["targets"][target_key].items():
-            if (
-                type(gradient_conf) is str
-                and Path(gradient_conf).suffix  # field is a file with a suffix
-                and gradient_key not in ["read_from", "file_format"]
-            ):
-                gradient_conf = _resolve_single_str(gradient_conf)
+            if gradient_key in known_gradient_keys:
+                if gradient_key:
+                    gradient_conf = base_conf_gradient.copy()
+                elif type(gradient_key) is str:
+                    gradient_conf = _resolve_single_str(gradient_conf)
 
-            if isinstance(gradient_conf, DictConfig):
-                gradient_conf = OmegaConf.merge(base_gradient_conf, gradient_conf)
+                if isinstance(gradient_conf, DictConfig):
+                    gradient_conf = OmegaConf.merge(base_conf_gradient, gradient_conf)
 
-                if gradient_conf["key"] is None:
-                    gradient_conf["key"] = gradient_key
+                    if gradient_conf["key"] is None:
+                        gradient_conf["key"] = gradient_key
 
-                conf["targets"][target_key][gradient_key] = gradient_conf
+                    conf["targets"][target_key][gradient_key] = gradient_conf
 
         # If user sets the virial gradient and leaves the stress section untouched
         # we disable the by default enabled stress gradients.
-        base_stress_gradient_conf = base_gradient_conf.copy()
+        base_stress_gradient_conf = base_conf_gradient.copy()
         base_stress_gradient_conf["key"] = "stress"
 
         if (

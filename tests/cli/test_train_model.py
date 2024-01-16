@@ -169,3 +169,20 @@ def test_expand_dataset_config_error():
         ValueError, match="Cannot perform training with respect to virials and stress"
     ):
         expand_dataset_config(OmegaConf.create(conf))
+
+
+def test_expand_dataset_gradient_true():
+    conf = {
+        "structures": "foo.xyz",
+        "targets": {
+            "energy": {
+                "virial": True,
+                "stress": False,
+            }
+        },
+    }
+
+    conf_expanded = expand_dataset_config(OmegaConf.create(conf))
+
+    assert conf_expanded["targets"]["energy"]["stress"] is False
+    conf_expanded["targets"]["energy"]["virial"]["read_from"]
