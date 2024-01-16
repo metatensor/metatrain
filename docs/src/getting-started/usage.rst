@@ -1,5 +1,5 @@
-Usage
-=====
+Basic Usage
+===========
 
 `metatensor-models` is designed for an direct usage from the the command line (cli). The
 general help of `metatensor-models` can be accessed using

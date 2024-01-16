@@ -5,12 +5,13 @@ defaults:
 # Last position of the _self_ this entry defines that default options will be
 # overwritten by this config.
 
-# Section defining the parameters for structure and target data
+# Mandatory section defining the parameters for structure and target data of the trainin
+# set
 training_set:
   structures: "qm9_reduced_100.xyz" # file where the positions are stored
   targets:
     energy:
       key: "U0" # name of the target value
 
-test_set: 0.1
-validation_set: 0.1
+test_set: 0.1  # 10 % of the training_set are randomly split and taken for test set
+validation_set: 0.1 # 10 % of the training_set are randomly split and for validation

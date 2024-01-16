@@ -1,0 +1,20 @@
+structures:
+  read_from: dataset.xyz
+  file_format: .xyz
+  unit: null
+targets:
+  energy:
+    quantity: energy
+    read_from: dataset.xyz
+    file_format: .xyz
+    key: energy
+    unit: null
+    forces:
+      read_from: ${..read_from}
+      file_format: ${..file_format}
+      key: forces
+    stress:
+      read_from: ${..read_from}
+      file_format: ${..file_format}
+      key: stress
+    virial: false

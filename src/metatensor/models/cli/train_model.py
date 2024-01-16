@@ -79,10 +79,31 @@ def _resolve_single_str(config):
 
 
 def expand_dataset_config(conf: Union[str, DictConfig]) -> DictConfig:
-    """Expand a short hand notation in a dataset config to actual format.
+    """Expands shorthand notations in a dataset configuration to their full formats.
 
-    Currently the config si not checked if all keys are known. Unknown keys can be added
-    and will be ignored and not deleted."""
+    This function takes a dataset configuration, either as a string or a DictConfig, and
+    expands it into a detailed configuration format. It processes structures, targets,
+    and gradient sections, setting default values and inferring missing information.
+    Unknown keys are ignored, allowing for flexibility.
+
+    The function performs the following steps:
+
+    - Loads base configurations for structures, targets, and gradients from predefined
+      YAML files.
+    - Merges and interpolates the input configuration with the base configurations.
+    - Expands shorthand notations like file paths or simple true/false settings to full
+      dictionary structures.
+    - Handles special cases, such as the mandatory nature of the 'energy' section for MD
+      simulations and the mutual exclusivity of 'stress' and 'virial' sections.
+    - Validates the final expanded configuration, particularly for gradient-related
+      settings, to ensure consistency and prevent conflicts during training.
+
+    :param conf: The dataset configuration, either as a file path string or a DictConfig
+        object.
+    :returns: The fully expanded dataset configuration.
+    :raises ValueError: If both ``virial`` and ``stress`` sections are enabled in the
+        'energy' target, as this is not permissible for training.
+    """
 
     conf_path = CONFIG_PATH / "dataset"
     base_conf_structures = OmegaConf.load(conf_path / "structures.yaml")
@@ -137,10 +158,10 @@ def expand_dataset_config(conf: Union[str, DictConfig]) -> DictConfig:
                 conf["targets"][target_key]["read_from"]
             ).suffix
 
-        # merge and interpolate possible present gradients with default config
+        # merge and interpolate possible present gradients with default gradient config
         for gradient_key, gradient_conf in conf["targets"][target_key].items():
             if gradient_key in known_gradient_keys:
-                if gradient_key:
+                if gradient_key is True:
                     gradient_conf = base_conf_gradient.copy()
                 elif type(gradient_key) is str:
                     gradient_conf = _resolve_single_str(gradient_conf)
@@ -153,8 +174,8 @@ def expand_dataset_config(conf: Union[str, DictConfig]) -> DictConfig:
 
                     conf["targets"][target_key][gradient_key] = gradient_conf
 
-        # If user sets the virial gradient and leaves the stress section untouched
-        # we disable the by default enabled stress gradients.
+        # If user sets the virial gradient and leaves the stress section untouched,
+        # we disable the by default enabled stress gradient section.
         base_stress_gradient_conf = base_conf_gradient.copy()
         base_stress_gradient_conf["key"] = "stress"
 

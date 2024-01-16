@@ -60,4 +60,3 @@ Implemented Readers
 -------------------
 
 .. autofunction:: metatensor.models.utils.data.readers.targets.read_virial_ase
-
