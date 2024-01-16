@@ -7,12 +7,7 @@ from metatensor.torch.atomistic import ModelCapabilities
 
 from ..utils.composition import calculate_composition_weights
 from ..utils.compute_loss import compute_model_loss
-from ..utils.data import (
-    Dataset,
-    canonical_check_datasets,
-    collate_fn,
-    combine_dataloaders,
-)
+from ..utils.data import Dataset, check_datasets, collate_fn, combine_dataloaders
 from ..utils.loss import TensorMapDictLoss
 from ..utils.model_io import save_model
 from .model import DEFAULT_HYPERS, Model
@@ -29,7 +24,7 @@ def train(
     output_dir: str = ".",
 ):
     # Perform canonical checks on the datasets:
-    canonical_check_datasets(
+    check_datasets(
         train_datasets,
         validation_datasets,
         model_capabilities,

@@ -95,7 +95,7 @@ def collate_fn(batch):
     return structures, targets
 
 
-def canonical_check_datasets(
+def check_datasets(
     train_datasets: List[Dataset],
     validation_datasets: List[Dataset],
     capabilities: ModelCapabilities,

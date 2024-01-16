@@ -8,8 +8,8 @@ import torch
 class CombinedIterableDataset(torch.utils.data.IterableDataset):
     """
     Combines multiple dataloaders into a single iterable dataset.
-    This is useful for combining multiple datasets into a single dataloader
-    and learning from all of them simultaneously.
+    This is useful for combining multiple dataloaders into a single
+    dataloader. The new dataloader can be shuffled or not.
     """
 
     def __init__(self, dataloaders, shuffle):
@@ -44,6 +44,11 @@ def combine_dataloaders(
 ):
     """
     Combines multiple dataloaders into a single dataloader.
+
+    :param dataloaders: list of dataloaders to combine
+    :param shuffle: whether to shuffle the combined dataloader
+
+    :return: combined dataloader
     """
     combined_dataset = CombinedIterableDataset(dataloaders, shuffle)
     return torch.utils.data.DataLoader(combined_dataset, batch_size=None)
