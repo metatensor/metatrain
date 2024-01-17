@@ -1,5 +1,0 @@
-quantity: energy
-read_from: ${...structures.read_from}
-file_format:
-key:
-unit:

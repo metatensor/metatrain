@@ -1,5 +1,5 @@
-General Structure and Target data Readers
-=========================================
+Structure and Target data Readers
+=================================
 
 The main entry point for reading structure and target information are the two reader
 functions

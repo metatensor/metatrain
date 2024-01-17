@@ -1,3 +1,5 @@
+.. _dataset_conf:
+
 Customize a Dataset Configuration
 =================================
 
@@ -63,7 +65,7 @@ Understanding the YAML Block
 The ``training_set`` is divided into sections ``structures`` and ``targets``:
 
 Structures Section
-------------------
+^^^^^^^^^^^^^^^^^^
 Describes the structure data like positions and cell information.
 
 :param read_from: The file containing structure data.
@@ -76,16 +78,17 @@ A single string in this section automatically expands, using the string as the
 
 .. note::
 
-   Metatensor-models does not convert units during training or evaluation. Units are
-   necessary for MD simulations.
+   ``metatensor-models`` does not convert units during training or evaluation. Units are
+   only required if model should be used to run MD simulations.
 
 Targets Section
----------------
+^^^^^^^^^^^^^^^
 Allows defining multiple target sections, each with a unique name.
 
-- Commonly, a section named ``energy`` is defined, which is essential for MD
-  simulations.
-- For other target sections, gradients are disabled by default.
+- Commonly, a section named ``energy`` should be defined, which is essential for MD
+  simulations. For this section gradients like `forces` and `stress` are enabled by
+  default. See :ref:`energy-section` for further details on this section.
+- For other target sections, all gradients are disabled by default.
 
 Target section parameters include:
 
@@ -105,8 +108,8 @@ A single string in a target section automatically expands, using the string as t
 
 .. _gradient-section:
 
-Gradient Sections
------------------
+Gradient Section
+^^^^^^^^^^^^^^^^
 Each gradient section (like ``forces`` or ``stress``) has similar parameters:
 
 :param read_from: The file for gradient data.
@@ -115,8 +118,10 @@ Each gradient section (like ``forces`` or ``stress``) has similar parameters:
 
 Sections set to ``true`` or ``on`` automatically expand with default parameters.
 
+.. _energy-section:
+
 Energy Section
---------------
+^^^^^^^^^^^^^^
 The ``energy`` section is mandatory for MD simulations, with forces and stresses enabled
 by default.
 
@@ -126,4 +131,4 @@ by default.
 
 .. note::
 
-   Metatensor-models ignores unknown keys in these sections during dataset parsing.
+   Unknown keys are ignored and not deleted in all sections during dataset parsing.

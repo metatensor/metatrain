@@ -132,7 +132,7 @@ def read_targets(conf: DictConfig) -> Dict[str, TensorMap]:
     """Reading all target information from a fully expanded config.
 
     To get such a config you can use
-    :func:`metatensor.models.cli.train_model.expand_dataset_config`.
+    :func:`metatensor.models.utils.omegaconf.expand_dataset_config`.
 
     This function uses subfunctions like :func:`read_energy` to parse the requested
     target quantity. Currently only `energy` is a supported target property. But, within

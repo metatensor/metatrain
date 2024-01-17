@@ -1,3 +1,0 @@
-read_from: ${..read_from}
-file_format: ${..file_format}
-key:
