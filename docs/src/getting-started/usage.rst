@@ -42,8 +42,9 @@ training using the default hyperparameters of an SOAP BPNN model
 .. literalinclude:: ../../static/options.yaml
    :language: yaml
 
-For each training run a new output directory based on the current date and time is
-created. By default, this output directory is used to store Hydra's output for the run
+For each training run a new output directory in the format
+``output/YYYY-MM-DD/HH-MM-SS`` based on the current date and time is created. By
+default, this output directory is used to store Hydra's output for the run
 (configuration, Logs etc). You can `override
 <https://hydra.cc/docs/tutorials/basic/running_your_app/working_directory/>`_ this
 behavior in the options file. To start the training create an ``options.yaml`` file in
@@ -66,7 +67,6 @@ The sub-command to evaluate a already trained model is
 .. literalinclude:: ../../../examples/usage.sh
     :language: bash
     :lines: 9-
-
 
 In the next tutorials we show how adjust the dataset section of ``options.yaml`` file
 to use it for your own datasets.
