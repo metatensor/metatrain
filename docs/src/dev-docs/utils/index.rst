@@ -10,3 +10,4 @@ This is the API for the ``utils`` module of ``metatensor-models``.
    readers/index
    writers
    model-io
+   omegaconf

@@ -1,5 +1,6 @@
 defaults:
   - architecture: soap_bpnn  # architecture used to train the model
+  - _self_
 
 architecture:
   training:
@@ -7,7 +8,12 @@ architecture:
       num_epochs: 1
 
 # Section defining the parameters for structure and target data
-dataset:
-  structure_path: "qm9_reduced_100.xyz" # file where the positions are stored
-  targets_path: "qm9_reduced_100.xyz" # file with target values (i.e energies)
-  target_value: "U0" # name of the target value in `targets_path`
+training_set:
+  structures:
+    read_from: "qm9_reduced_100.xyz"
+  targets:
+    energy:
+      key: "U0"
+
+test_set: 0.1
+validation_set: 0.1

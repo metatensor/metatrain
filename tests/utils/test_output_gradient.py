@@ -166,7 +166,6 @@ def test_both(is_training):
     ]
 
     output = model(systems)
-    print(output["energy"].block().values.requires_grad)
     gradients = compute_gradient(
         output["energy"].block().values,
         [system.positions for system in systems] + displacements,

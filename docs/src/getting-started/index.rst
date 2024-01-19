@@ -8,3 +8,4 @@ This sections describes how to install the package, and its most basic commands.
 
    installation
    usage
+   custom_dataset_conf
