@@ -1,4 +1,10 @@
-from .dataset import Dataset, collate_fn, check_datasets  # noqa: F401
+from .dataset import (  # noqa: F401
+    Dataset,
+    get_all_species,
+    get_all_targets,
+    collate_fn,
+    check_datasets,
+)
 from .readers import (  # noqa: F401
     read_energy,
     read_forces,

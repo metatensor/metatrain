@@ -13,6 +13,7 @@ from metatensor.models.utils.data import Dataset
 from metatensor.models.utils.data.readers import read_structures, read_targets
 
 from .. import CONFIG_PATH
+from ..utils.data import get_all_species
 from ..utils.model_io import save_model
 from ..utils.omegaconf import expand_dataset_config
 from .formatter import CustomHelpFormatter
@@ -175,6 +176,11 @@ def train_model(options: DictConfig) -> None:
     logger.info("Run training")
     output_dir = hydra.core.hydra_config.HydraConfig.get().runtime.output_dir
 
+    all_species = []
+    for dataset in [train_dataset]:  # HACK: only a single train_dataset for now
+        all_species += get_all_species(dataset)
+    all_species = list(set(all_species))
+
     outputs = {
         key: ModelOutput(
             quantity=value["quantity"],
@@ -182,34 +188,18 @@ def train_model(options: DictConfig) -> None:
         )
         for key, value in options["training_set"]["targets"].items()
     }
+    model_capabilities = ModelCapabilities(
+        length_unit="Angstrom",
+        species=all_species,
+        outputs=outputs,
+    )
 
-    # HACK: Avoid passing a Subset which we can not handle yet. For now we pass
-    # the complete training set even though it was split before...
-    if isinstance(train_dataset, torch.utils.data.Subset):
-        # HACK:
-        model_capabilities = ModelCapabilities(
-            length_unit="Angstrom",
-            species=train_dataset.dataset.all_species,
-            outputs=outputs,
-        )
-        model = architecture.train(
-            train_datasets=[train_dataset.dataset],
-            validation_datasets=[train_dataset.dataset],
-            model_capabilities=model_capabilities,
-            hypers=OmegaConf.to_container(options["architecture"]),
-            output_dir=output_dir,
-        )
-    else:
-        # HACK:
-        model_capabilities = ModelCapabilities(
-            length_unit="Angstrom", species=train_dataset.all_species, outputs=outputs
-        )
-        model = architecture.train(
-            train_dataset=[train_dataset],
-            validation_dataset=[train_dataset],
-            model_capabilities=model_capabilities,
-            hypers=OmegaConf.to_container(options["architecture"]),
-            output_dir=output_dir,
-        )
+    model = architecture.train(
+        train_datasets=[train_dataset],
+        validation_datasets=[validation_dataset],
+        model_capabilities=model_capabilities,
+        hypers=OmegaConf.to_container(options["architecture"]),
+        output_dir=output_dir,
+    )
 
     save_model(model, options["output_path"])

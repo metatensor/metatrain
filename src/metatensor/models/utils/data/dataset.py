@@ -58,19 +58,61 @@ class Dataset(torch.utils.data.Dataset):
 
         return structure, targets
 
-    @property
-    def all_species(self) -> List[int]:
-        """
-        Returns the list of all species present in the dataset.
 
-        Returns:
-            The list of species present in the dataset.
-        """
-        species = set()
-        for structure in self.structures:
-            species.update(structure.species.tolist())
+def get_all_species(dataset: Dataset) -> List[int]:
+    """
+    Returns the list of all species present in the dataset.
 
-        return sorted(species)
+    Args:
+        dataset: The dataset.
+
+    Returns:
+        The list of species present in the dataset.
+    """
+
+    # The following does not work because the `dataset` can also
+    # be a `Subset` object:
+    # species = []
+    # for structure in dataset.structures:
+    #     species += structure.species.tolist()
+    # return list(set(species))
+
+    # Iterate over all single instances of the dataset:
+    species = []
+    for index in range(len(dataset)):
+        structure, _ = dataset[index]
+        species += structure.species.tolist()
+
+    # Remove duplicates and sort:
+    result = list(set(species))
+    result.sort()
+
+    return result
+
+
+def get_all_targets(dataset: Dataset) -> List[str]:
+    """
+    Returns the list of all targets present in the dataset.
+
+    Args:
+        dataset: The dataset.
+
+    Returns:
+        The list of targets present in the dataset.
+    """
+
+    # The following does not work because the `dataset` can also
+    # be a `Subset` object:
+    # return list(dataset.targets.keys())
+
+    # Iterate over all single instances of the dataset:
+    target_names = []
+    for index in range(len(dataset)):
+        _, targets = dataset[index]
+        target_names += list(targets.keys())
+
+    # Remove duplicates:
+    return list(set(target_names))
 
 
 def collate_fn(batch):
@@ -116,7 +158,7 @@ def check_datasets(
     # Get all targets in the training sets:
     targets = []
     for dataset in train_datasets:
-        targets += list(dataset.targets.keys())
+        targets += get_all_targets(dataset)
 
     # Check that they are compatible with the model's capabilities:
     for target in targets:
@@ -133,7 +175,7 @@ def check_datasets(
     # Check that the validation sets do not have targets that are not in the
     # training sets:
     for dataset in validation_datasets:
-        for target in dataset.targets.keys():
+        for target in get_all_targets(dataset):
             if target not in targets:
                 raise ValueError(
                     f"The validation dataset has a target ({target}) "
@@ -143,7 +185,7 @@ def check_datasets(
     # Get all the species in the training sets:
     all_training_species = []
     for dataset in train_datasets:
-        all_training_species += list(dataset.all_species)
+        all_training_species += get_all_species(dataset)
 
     # Check that they are compatible with the model's capabilities:
     for species in all_training_species:
@@ -155,7 +197,7 @@ def check_datasets(
     # Check that the validation sets do not have species that are not in the
     # training sets:
     for dataset in validation_datasets:
-        for species in dataset.all_species:
+        for species in get_all_species(dataset):
             if species not in all_training_species:
                 raise ValueError(
                     f"The validation dataset has a species ({species}) "

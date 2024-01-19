@@ -7,7 +7,13 @@ from metatensor.torch.atomistic import ModelCapabilities
 
 from ..utils.composition import calculate_composition_weights
 from ..utils.compute_loss import compute_model_loss
-from ..utils.data import Dataset, check_datasets, collate_fn, combine_dataloaders
+from ..utils.data import (
+    Dataset,
+    check_datasets,
+    collate_fn,
+    combine_dataloaders,
+    get_all_targets,
+)
 from ..utils.loss import TensorMapDictLoss
 from ..utils.model_io import save_model
 from .model import DEFAULT_HYPERS, Model
@@ -41,7 +47,7 @@ def train(
         # find the dataset that contains the target:
         train_dataset_with_target = None
         for dataset in train_datasets:
-            if target_name in dataset.targets:
+            if target_name in get_all_targets(dataset):
                 train_dataset_with_target = dataset
                 break
         if train_dataset_with_target is None:

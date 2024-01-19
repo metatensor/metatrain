@@ -8,7 +8,7 @@ from metatensor.torch.atomistic import ModelCapabilities, ModelOutput
 from omegaconf import OmegaConf
 
 from metatensor.models.soap_bpnn import DEFAULT_HYPERS, Model, train
-from metatensor.models.utils.data import Dataset
+from metatensor.models.utils.data import Dataset, get_all_species
 from metatensor.models.utils.data.readers import read_structures, read_targets
 
 from . import DATASET_PATH
@@ -76,7 +76,7 @@ def test_regression_train():
 
     capabilities = ModelCapabilities(
         length_unit="Angstrom",
-        species=dataset.all_species,
+        species=get_all_species(dataset),
         outputs={
             "U0": ModelOutput(
                 quantity="energy",
