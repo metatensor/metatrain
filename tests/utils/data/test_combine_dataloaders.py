@@ -2,6 +2,7 @@ from pathlib import Path
 
 import numpy as np
 import torch
+from omegaconf import OmegaConf
 
 from metatensor.models.utils.data import (
     Dataset,
@@ -21,7 +22,20 @@ def test_without_shuffling():
     """Tests combining dataloaders without shuffling."""
 
     structures = read_structures(RESOURCES_PATH / "qm9_reduced_100.xyz")
-    targets = read_targets(RESOURCES_PATH / "qm9_reduced_100.xyz", "U0")
+
+    conf = {
+        "U0": {
+            "quantity": "energy",
+            "read_from": RESOURCES_PATH / "qm9_reduced_100.xyz",
+            "file_format": ".xyz",
+            "key": "U0",
+            "forces": False,
+            "stress": False,
+            "virial": False,
+        }
+    }
+    targets = read_targets(OmegaConf.create(conf))
+
     dataset = Dataset(structures, targets)
     dataloader_qm9 = torch.utils.data.DataLoader(
         dataset, batch_size=10, collate_fn=collate_fn
@@ -29,7 +43,20 @@ def test_without_shuffling():
     # will yield 10 batches of 10
 
     structures = read_structures(RESOURCES_PATH / "alchemical_reduced_10.xyz")
-    targets = read_targets(RESOURCES_PATH / "alchemical_reduced_10.xyz", "free_energy")
+
+    conf = {
+        "free_energy": {
+            "quantity": "energy",
+            "read_from": RESOURCES_PATH / "alchemical_reduced_10.xyz",
+            "file_format": ".xyz",
+            "key": "free_energy",
+            "forces": False,
+            "stress": False,
+            "virial": False,
+        }
+    }
+    targets = read_targets(OmegaConf.create(conf))
+
     dataset = Dataset(structures, targets)
     dataloader_alchemical = torch.utils.data.DataLoader(
         dataset, batch_size=2, collate_fn=collate_fn
@@ -54,7 +81,20 @@ def test_with_shuffling():
     # with a probability of 1/(15 5) = 1/3003
 
     structures = read_structures(RESOURCES_PATH / "qm9_reduced_100.xyz")
-    targets = read_targets(RESOURCES_PATH / "qm9_reduced_100.xyz", "U0")
+
+    conf = {
+        "U0": {
+            "quantity": "energy",
+            "read_from": RESOURCES_PATH / "qm9_reduced_100.xyz",
+            "file_format": ".xyz",
+            "key": "U0",
+            "forces": False,
+            "stress": False,
+            "virial": False,
+        }
+    }
+    targets = read_targets(OmegaConf.create(conf))
+
     dataset = Dataset(structures, targets)
     dataloader_qm9 = torch.utils.data.DataLoader(
         dataset, batch_size=10, collate_fn=collate_fn
@@ -62,7 +102,20 @@ def test_with_shuffling():
     # will yield 10 batches of 10
 
     structures = read_structures(RESOURCES_PATH / "alchemical_reduced_10.xyz")
-    targets = read_targets(RESOURCES_PATH / "alchemical_reduced_10.xyz", "free_energy")
+
+    conf = {
+        "free_energy": {
+            "quantity": "energy",
+            "read_from": RESOURCES_PATH / "alchemical_reduced_10.xyz",
+            "file_format": ".xyz",
+            "key": "free_energy",
+            "forces": False,
+            "stress": False,
+            "virial": False,
+        }
+    }
+    targets = read_targets(OmegaConf.create(conf))
+
     dataset = Dataset(structures, targets)
     dataloader_alchemical = torch.utils.data.DataLoader(
         dataset, batch_size=2, collate_fn=collate_fn
