@@ -11,3 +11,4 @@ This is the API for the ``utils`` module of ``metatensor-models``.
    writers
    model-io
    omegaconf
+   combine_dataloaders
