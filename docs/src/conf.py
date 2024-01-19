@@ -51,6 +51,7 @@ intersphinx_mapping = {
     "python": ("https://docs.python.org/3", None),
     "torch": ("https://pytorch.org/docs/stable/", None),
     "metatensor": ("https://lab-cosmo.github.io/metatensor/latest/", None),
+    "omegaconf": ("https://omegaconf.readthedocs.io/en/latest/", None),
     "rascaline": ("https://luthaf.fr/rascaline/latest/", None),
 }
 

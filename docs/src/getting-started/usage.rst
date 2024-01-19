@@ -1,5 +1,5 @@
-Usage
-=====
+Basic Usage
+===========
 
 `metatensor-models` is designed for an direct usage from the the command line (cli). The
 general help of `metatensor-models` can be accessed using
@@ -66,3 +66,7 @@ The sub-command to evaluate a already trained model is
 .. literalinclude:: ../../../examples/usage.sh
     :language: bash
     :lines: 9-
+
+
+In the next tutorials we show how adjust the dataset section of ``options.yaml`` file
+to use it for your own datasets.
