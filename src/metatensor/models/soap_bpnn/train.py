@@ -30,6 +30,7 @@ def train(
     output_dir: str = ".",
 ):
     # Perform canonical checks on the datasets:
+    logger.info("Checking datasets for consistency")
     check_datasets(
         train_datasets,
         validation_datasets,
