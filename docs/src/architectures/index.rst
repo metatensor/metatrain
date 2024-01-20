@@ -1,3 +1,5 @@
+.. _available-architectures:
+
 Available Architectures
 =======================
 

@@ -132,3 +132,5 @@ by default.
 .. note::
 
    Unknown keys are ignored and not deleted in all sections during dataset parsing.
+
+In the next tutorials we show how to override the default parameters of an architecture.
