@@ -1,8 +1,17 @@
 defaults:
   - architecture: soap_bpnn  # architecture used to train the model
+  - _self_
 
-# Section defining the parameters for structure and target data
-dataset:
-  structure_path: "qm9_reduced_100.xyz" # file where the positions are stored
-  targets_path: "qm9_reduced_100.xyz" # file with target values (i.e energies)
-  target_value: "U0" # name of the target value in `targets_path`
+# Last position of the _self_ this entry defines that default options will be
+# overwritten by this config.
+
+# Mandatory section defining the parameters for structure and target data of the trainin
+# set
+training_set:
+  structures: "qm9_reduced_100.xyz" # file where the positions are stored
+  targets:
+    energy:
+      key: "U0" # name of the target value
+
+test_set: 0.1  # 10 % of the training_set are randomly split and taken for test set
+validation_set: 0.1 # 10 % of the training_set are randomly split and for validation

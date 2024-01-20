@@ -1,6 +1,7 @@
 from pathlib import Path
 
 import torch
+from omegaconf import OmegaConf
 
 from metatensor.models.utils.data import (
     Dataset,
@@ -17,7 +18,20 @@ def test_dataset():
     """Tests the readers and the dataset class."""
 
     structures = read_structures(RESOURCES_PATH / "qm9_reduced_100.xyz")
-    targets = read_targets(RESOURCES_PATH / "qm9_reduced_100.xyz", "U0")
+
+    filename = str(RESOURCES_PATH / "qm9_reduced_100.xyz")
+    conf = {
+        "energy": {
+            "quantity": "energy",
+            "read_from": filename,
+            "file_format": ".xyz",
+            "key": "U0",
+            "forces": False,
+            "stress": False,
+            "virial": False,
+        }
+    }
+    targets = read_targets(OmegaConf.create(conf))
 
     dataset = Dataset(structures, targets)
     dataloader = torch.utils.data.DataLoader(
@@ -25,14 +39,25 @@ def test_dataset():
     )
 
     for batch in dataloader:
-        assert batch[1]["U0"].block().values.shape == (10, 1)
+        assert batch[1]["energy"].block().values.shape == (10, 1)
 
 
 def test_species_list():
     """Tests that the species list is correctly computed."""
 
     structures = read_structures(RESOURCES_PATH / "qm9_reduced_100.xyz")
-    targets = read_targets(RESOURCES_PATH / "qm9_reduced_100.xyz", "U0")
+    conf = {
+        "energy": {
+            "quantity": "energy",
+            "read_from": str(RESOURCES_PATH / "qm9_reduced_100.xyz"),
+            "file_format": ".xyz",
+            "key": "U0",
+            "forces": False,
+            "stress": False,
+            "virial": False,
+        }
+    }
+    targets = read_targets(OmegaConf.create(conf))
 
     dataset = Dataset(structures, targets)
 

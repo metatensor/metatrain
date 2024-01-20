@@ -10,4 +10,4 @@ which file type is stored in
 Implemented Readers
 -------------------
 
-.. autofunction:: metatensor.models.utils.data.readers.structures.read_ase
+.. autofunction:: metatensor.models.utils.data.readers.structures.read_structures_ase
