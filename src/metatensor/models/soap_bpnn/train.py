@@ -44,6 +44,7 @@ def train(
     )
 
     # Calculate and set the composition weights for all targets:
+    logger.info("Calculating composition weights")
     for target_name in model_capabilities.outputs.keys():
         # find the dataset that contains the target:
         train_dataset_with_target = None
@@ -62,6 +63,8 @@ def train(
         model.set_composition_weights(target_name, composition_weights)
 
     hypers_training = hypers["training"]
+
+    logger.info("Setting up data loaders")
 
     # Create dataloader for the training datasets:
     train_dataloaders = []
@@ -122,6 +125,7 @@ def train(
     epochs_without_improvement = 0
 
     # Train the model:
+    logger.info("Starting training")
     for epoch in range(hypers_training["num_epochs"]):
         train_loss = 0.0
         for batch in train_dataloader:

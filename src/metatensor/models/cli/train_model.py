@@ -173,7 +173,6 @@ def train_model(options: DictConfig) -> None:
     architetcure_name = options["architecture"]["name"]
     architecture = importlib.import_module(f"metatensor.models.{architetcure_name}")
 
-    logger.info("Run training")
     output_dir = hydra.core.hydra_config.HydraConfig.get().runtime.output_dir
 
     all_species = []
@@ -194,6 +193,7 @@ def train_model(options: DictConfig) -> None:
         outputs=outputs,
     )
 
+    logger.info("Calling model trainer")
     model = architecture.train(
         train_datasets=[train_dataset],
         validation_datasets=[validation_dataset],

@@ -71,7 +71,9 @@ def compute_model_loss(
                 system.positions.requires_grad_(True)
 
     # Based on the keys of the targets, get the outputs of the model:
-    model_outputs = model(systems, targets.keys())
+    model_outputs = model(
+        systems, {key: model.capabilities.outputs[key] for key in targets.keys()}
+    )
 
     for energy_target in energy_targets:
         # If the energy target requires gradients, compute them:

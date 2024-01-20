@@ -4,7 +4,7 @@ import metatensor.torch
 import rascaline.torch
 import torch
 from metatensor.torch import Labels, TensorBlock, TensorMap
-from metatensor.torch.atomistic import ModelCapabilities, System
+from metatensor.torch.atomistic import ModelCapabilities, ModelOutput, System
 from omegaconf import OmegaConf
 
 from .. import ARCHITECTURE_CONFIG_PATH
@@ -196,12 +196,15 @@ class Model(torch.nn.Module):
         )
 
     def forward(
-        self, systems: List[System], requested_outputs: Optional[List[str]] = None
+        self,
+        systems: List[System],
+        outputs: Dict[str, ModelOutput],
+        selected_atoms: Optional[Labels] = None,
     ) -> Dict[str, TensorMap]:
-        if requested_outputs is None:  # default to all outputs
-            requested_outputs = list(self.capabilities.outputs.keys())
+        if selected_atoms is not None:
+            raise NotImplementedError("SOAP-BPNN does not support selected atoms.")
 
-        for requested_output in requested_outputs:
+        for requested_output in outputs.keys():
             if requested_output not in self.capabilities.outputs.keys():
                 raise ValueError(
                     f"Requested output {requested_output} is not within "
@@ -220,16 +223,16 @@ class Model(torch.nn.Module):
 
         hidden_features = self.bpnn(soap_features)
 
-        atomic_energies: Dict[str, metatensor.torch.TensorMap] = {}
+        atomic_energies: Dict[str, TensorMap] = {}
         for output_name, output_layer in self.last_layers.items():
-            if output_name in requested_outputs:
+            if output_name in outputs:
                 atomic_energies[output_name] = apply_composition_contribution(
                     output_layer(hidden_features),
                     self.composition_weights[self.output_to_index[output_name]],
                 )
 
         # Sum the atomic energies coming from the BPNN to get the total energy
-        total_energies: Dict[str, metatensor.torch.TensorMap] = {}
+        total_energies: Dict[str, TensorMap] = {}
         for output_name, atomic_energy in atomic_energies.items():
             atomic_energy = atomic_energy.keys_to_samples("species_center")
             total_energies[output_name] = metatensor.torch.sum_over_samples(

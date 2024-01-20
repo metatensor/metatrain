@@ -18,4 +18,4 @@ def test_torchscript():
         },
     )
     soap_bpnn = Model(capabilities, DEFAULT_HYPERS["model"]).to(torch.float64)
-    torch.jit.script(soap_bpnn)
+    torch.jit.script(soap_bpnn, {"energy": soap_bpnn.capabilities.outputs["energy"]})
