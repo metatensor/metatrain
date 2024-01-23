@@ -1,6 +1,6 @@
 import logging
 from pathlib import Path
-from typing import Dict, List
+from typing import Dict, List, Union
 
 import torch
 from metatensor.torch.atomistic import ModelCapabilities
@@ -23,8 +23,8 @@ logger = logging.getLogger(__name__)
 
 
 def train(
-    train_datasets: List[Dataset],
-    validation_datasets: List[Dataset],
+    train_datasets: List[Union[Dataset, torch.utils.data.Subset]],
+    validation_datasets: List[Union[Dataset, torch.utils.data.Subset]],
     model_capabilities: ModelCapabilities,
     hypers: Dict = DEFAULT_HYPERS,
     output_dir: str = ".",

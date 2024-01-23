@@ -37,7 +37,13 @@ def calculate_composition_weights(
 
     regularizer = 1e-20
 
-    while True:
+    while regularizer:
+        if regularizer > 1e5:
+            raise RuntimeError(
+                "Failed to solve the linear system to calculate the "
+                "composition weights. The dataset is probably too small "
+                "or ill-conditioned."
+            )
         try:
             solution = torch.linalg.solve(
                 composition_features.T @ composition_features
