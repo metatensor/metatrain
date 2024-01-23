@@ -10,16 +10,18 @@ class CombinedIterableDataset(torch.utils.data.IterableDataset):
     Combines multiple dataloaders into a single iterable dataset.
     This is useful for combining multiple dataloaders into a single
     dataloader. The new dataloader can be shuffled or not.
+
+    :param dataloaders: list of dataloaders to combine
+    :param shuffle: whether to shuffle the combined dataloader
+
+    :return: combined dataloader
     """
 
     def __init__(self, dataloaders, shuffle):
         self.dataloaders = dataloaders
         self.shuffle = shuffle
-        self.indices = self._create_indices()
 
-    def _create_indices(self):
-        # Create a list of (dataloader_idx, idx) tuples
-        # for all indices in all dataloaders
+        # Create the indices:
         indices = [
             (i, dl_idx)
             for dl_idx, dl in enumerate(self.dataloaders)
@@ -29,7 +31,8 @@ class CombinedIterableDataset(torch.utils.data.IterableDataset):
         # Shuffle the indices if requested
         if self.shuffle:
             np.random.shuffle(indices)
-        return indices
+
+        self.indices = indices
 
     def __iter__(self):
         for idx, dataloader_idx in self.indices:
