@@ -6,6 +6,7 @@ from omegaconf import OmegaConf
 from metatensor.models.utils.data import (
     Dataset,
     collate_fn,
+    get_all_species,
     read_structures,
     read_targets,
 )
@@ -43,7 +44,7 @@ def test_dataset():
 
 
 def test_species_list():
-    """Tests that the species list is correctly computed."""
+    """Tests that the species list is correctly computed with get_all_species."""
 
     structures = read_structures(RESOURCES_PATH / "qm9_reduced_100.xyz")
     conf = {
@@ -61,4 +62,4 @@ def test_species_list():
 
     dataset = Dataset(structures, targets)
 
-    assert dataset.all_species == [1, 6, 7, 8]
+    assert get_all_species(dataset) == [1, 6, 7, 8]

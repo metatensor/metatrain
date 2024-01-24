@@ -1,11 +1,13 @@
 import importlib
+from pathlib import Path
+from typing import Union
 
 import torch
 
 
 def save_model(
     model: torch.nn.Module,
-    path: str,
+    path: Union[str, Path],
 ) -> None:
     """Saves a model to a file, along with all the metadata needed to load it.
 
@@ -25,7 +27,7 @@ def save_model(
     )
 
 
-def load_model(path: str) -> torch.nn.Module:
+def load_model(path: Union[str, Path]) -> torch.nn.Module:
     """Loads a model from a file.
 
     Parameters
