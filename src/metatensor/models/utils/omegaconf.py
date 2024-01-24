@@ -29,6 +29,7 @@ CONF_STRUCTURES = OmegaConf.create(
         "read_from": "${..read_from}",
         "file_format": "${file_format:}",
         "key": None,
+        "length_unit": None,
     }
 )
 
