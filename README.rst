@@ -3,6 +3,11 @@ metatensor-models
 
 |tests| |docs|
 
+.. warning::
+
+    **metatensor-models is still very early in the concept stage. You should not use it
+    for anything important.**
+
 This is a repository for models using metatensor, in one shape or another. The only
 requirement is for these models to be able to take metatensor objects as inputs and
 outputs. The models do not need to live entirely in this repository: in the most extreme
@@ -32,7 +37,7 @@ Documentation
 ------------
 
 For details, tutorials, and examples, please have a look at our
-[documentation](https://lab-cosmo.github.io/metatensor-models/latest/).
+`documentation <https://lab-cosmo.github.io/metatensor-models/latest/>`_.
 
 .. marker-installation
 
