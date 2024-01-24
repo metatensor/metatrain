@@ -35,9 +35,31 @@ def calculate_composition_weights(
 
     targets = targets.squeeze(dim=(1, 2))  # remove component and property dimensions
 
-    return torch.linalg.solve(
-        composition_features.T @ composition_features, composition_features.T @ targets
-    )
+    regularizer = 1e-20
+
+    while regularizer:
+        if regularizer > 1e5:
+            raise RuntimeError(
+                "Failed to solve the linear system to calculate the "
+                "composition weights. The dataset is probably too small "
+                "or ill-conditioned."
+            )
+        try:
+            solution = torch.linalg.solve(
+                composition_features.T @ composition_features
+                + regularizer
+                * torch.eye(
+                    composition_features.shape[1],
+                    dtype=composition_features.dtype,
+                    device=composition_features.device,
+                ),
+                composition_features.T @ targets,
+            )
+            break
+        except torch._C._LinAlgError:
+            regularizer *= 10.0
+
+    return solution
 
 
 def apply_composition_contribution(

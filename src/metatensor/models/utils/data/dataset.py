@@ -3,7 +3,7 @@ from typing import Dict, List
 import metatensor.torch
 import torch
 from metatensor.torch import Labels, TensorMap
-from metatensor.torch.atomistic import System
+from metatensor.torch.atomistic import ModelCapabilities, System
 
 
 class Dataset(torch.utils.data.Dataset):
@@ -58,19 +58,61 @@ class Dataset(torch.utils.data.Dataset):
 
         return structure, targets
 
-    @property
-    def all_species(self) -> List[int]:
-        """
-        Returns the list of all species present in the dataset.
 
-        Returns:
-            The list of species present in the dataset.
-        """
-        species = set()
-        for structure in self.structures:
-            species.update(structure.species.tolist())
+def get_all_species(dataset: Dataset) -> List[int]:
+    """
+    Returns the list of all species present in the dataset.
 
-        return sorted(species)
+    Args:
+        dataset: The dataset.
+
+    Returns:
+        The list of species present in the dataset.
+    """
+
+    # The following does not work because the `dataset` can also
+    # be a `Subset` object:
+    # species = []
+    # for structure in dataset.structures:
+    #     species += structure.species.tolist()
+    # return list(set(species))
+
+    # Iterate over all single instances of the dataset:
+    species = []
+    for index in range(len(dataset)):
+        structure, _ = dataset[index]
+        species += structure.species.tolist()
+
+    # Remove duplicates and sort:
+    result = list(set(species))
+    result.sort()
+
+    return result
+
+
+def get_all_targets(dataset: Dataset) -> List[str]:
+    """
+    Returns the list of all targets present in the dataset.
+
+    Args:
+        dataset: The dataset.
+
+    Returns:
+        The list of targets present in the dataset.
+    """
+
+    # The following does not work because the `dataset` can also
+    # be a `Subset` object:
+    # return list(dataset.targets.keys())
+
+    # Iterate over all single instances of the dataset:
+    target_names = []
+    for index in range(len(dataset)):
+        _, targets = dataset[index]
+        target_names += list(targets.keys())
+
+    # Remove duplicates:
+    return list(set(target_names))
 
 
 def collate_fn(batch):
@@ -93,3 +135,73 @@ def collate_fn(batch):
         )
 
     return structures, targets
+
+
+def check_datasets(
+    train_datasets: List[Dataset],
+    validation_datasets: List[Dataset],
+    capabilities: ModelCapabilities,
+):
+    """
+    This is a helper function that checks that the training and validation sets
+    are compatible with one another and with the model's capabilities. Although
+    these checks will not fit all use cases, they will fit most.
+
+    :param train_datasets: A list of training datasets.
+    :param validation_datasets: A list of validation datasets.
+    :param capabilities: The model's capabilities.
+
+    :raises ValueError: If the training and validation sets are not compatible
+        with one another or with the model's capabilities.
+    """
+
+    # Get all targets in the training sets:
+    targets = []
+    for dataset in train_datasets:
+        targets += get_all_targets(dataset)
+
+    # Check that they are compatible with the model's capabilities:
+    for target in targets:
+        if target not in capabilities.outputs.keys():
+            raise ValueError(f"The target {target} is not in the model's capabilities.")
+
+    # For now, we impose no overlap between the targets in the training sets:
+    if len(set(targets)) != len(targets):
+        raise ValueError(
+            "The training datasets must not have overlapping targets in SOAP-BPNN. "
+            "This means that one target cannot be in more than one dataset."
+        )
+
+    # Check that the validation sets do not have targets that are not in the
+    # training sets:
+    for dataset in validation_datasets:
+        for target in get_all_targets(dataset):
+            if target not in targets:
+                raise ValueError(
+                    f"The validation dataset has a target ({target}) "
+                    "that is not in the training datasets."
+                )
+
+    # Get all the species in the training sets:
+    all_training_species = []
+    for dataset in train_datasets:
+        all_training_species += get_all_species(dataset)
+
+    # Check that they are compatible with the model's capabilities:
+    for species in all_training_species:
+        if species not in capabilities.species:
+            raise ValueError(
+                f"The species {species} is not in the model's capabilities."
+            )
+
+    # Check that the validation sets do not have species that are not in the
+    # training sets:
+    for dataset in validation_datasets:
+        for species in get_all_species(dataset):
+            if species not in all_training_species:
+                raise ValueError(
+                    f"The validation dataset has a species ({species}) "
+                    "that is not in the training datasets. This could be "
+                    "a result of a random train/validation split. You can "
+                    "avoid this by providing a validation dataset manually."
+                )
