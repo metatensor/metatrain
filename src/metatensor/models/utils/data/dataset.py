@@ -6,6 +6,10 @@ from metatensor.torch import Labels, TensorMap
 from metatensor.torch.atomistic import ModelCapabilities, System
 
 
+compiled_slice = torch.jit.script(metatensor.torch.slice)
+compiled_join = torch.jit.script(metatensor.torch.join)
+
+
 class Dataset(torch.utils.data.Dataset):
     def __init__(self, structures: List[System], targets: Dict[str, TensorMap]):
         """
@@ -52,7 +56,7 @@ class Dataset(torch.utils.data.Dataset):
 
         targets = {}
         for name, tensor_map in self.targets.items():
-            targets[name] = metatensor.torch.slice(
+            targets[name] = compiled_slice(
                 tensor_map, "samples", structure_index_samples
             )
 
@@ -130,9 +134,7 @@ def collate_fn(batch):
     structures = [sample[0] for sample in batch]
     targets = {}
     for name in batch[0][1].keys():
-        targets[name] = metatensor.torch.join(
-            [sample[1][name] for sample in batch], "samples"
-        )
+        targets[name] = compiled_join([sample[1][name] for sample in batch], "samples")
 
     return structures, targets
 
