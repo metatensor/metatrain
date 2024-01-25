@@ -145,7 +145,7 @@ def _read_virial_stress_ase(
     if is_virial:
         values *= -1
     else:  # is stress
-        values *= volumes
+        values *= volumes.reshape(-1, 1, 1)
 
     samples = Labels(["sample"], torch.tensor([[s] for s in range(n_structures)]))
 
