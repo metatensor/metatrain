@@ -31,14 +31,14 @@ class TensorMapLoss:
         reduction: str = "mean",
         weight: float = 1.0,
         gradient_weights: Optional[Dict[str, float]] = None,
-    ) -> Tuple[torch.Tensor, Dict[str, Dict[str, Tuple[float, int]]]]:
+    ):
         self.loss = torch.nn.MSELoss(reduction=reduction)
         self.weight = weight
         self.gradient_weights = {} if gradient_weights is None else gradient_weights
 
     def __call__(
         self, tensor_map_1: TensorMap, tensor_map_2: TensorMap
-    ) -> torch.Tensor:
+    ) -> Tuple[torch.Tensor, Dict[str, Tuple[float, int]]]:
         # Check that the two have the same metadata, except for the samples,
         # which can be different due to batching, but must have the same size:
         if tensor_map_1.keys != tensor_map_2.keys:
@@ -100,7 +100,10 @@ class TensorMapLoss:
         values_1 = tensor_map_1.block().values
         values_2 = tensor_map_2.block().values
         loss += self.weight * self.loss(values_1, values_2)
-        info["values"] = (torch.sum((values_1 - values_2) ** 2).item(), values_1.numel())
+        info["values"] = (
+            torch.sum((values_1 - values_2) ** 2).item(),
+            values_1.numel(),
+        )
 
         for gradient_name, gradient_weight in self.gradient_weights.items():
             values_1 = tensor_map_1.block().gradient(gradient_name).values
@@ -110,7 +113,7 @@ class TensorMapLoss:
                 torch.sum((values_1 - values_2) ** 2).item(),
                 values_1.numel(),
             )
-        
+
         return loss, info
 
 
@@ -154,7 +157,6 @@ class TensorMapDictLoss:
         tensor_map_dict_1: Dict[str, TensorMap],
         tensor_map_dict_2: Dict[str, TensorMap],
     ) -> Tuple[torch.Tensor, Dict[str, Tuple[float, int]]]:
-        
         # Assert that the two have the keys:
         assert set(tensor_map_dict_1.keys()) == set(tensor_map_dict_2.keys())
 
@@ -165,11 +167,15 @@ class TensorMapDictLoss:
 
         # Compute the loss and associated info:
         for target in tensor_map_dict_1.keys():
-            target_loss, target_info = self.losses[target](tensor_map_dict_1[target], tensor_map_dict_2[target])
+            target_loss, target_info = self.losses[target](
+                tensor_map_dict_1[target], tensor_map_dict_2[target]
+            )
             loss += target_loss
             info[target] = target_info["values"]
             for gradient_name in target_info.keys():
                 if gradient_name != "values":
-                    info[f"{target}_{gradient_name}_gradients"] = target_info[gradient_name]
+                    info[f"{target}_{gradient_name}_gradients"] = target_info[
+                        gradient_name
+                    ]
 
         return loss, info

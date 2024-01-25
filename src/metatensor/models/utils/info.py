@@ -1,7 +1,10 @@
 from typing import Dict, Tuple
 
 
-def update_aggregated_info(aggregated_info: Dict[str, Tuple[float, int]], new_info: Dict[str, Tuple[float, int]]):
+def update_aggregated_info(
+    aggregated_info: Dict[str, Tuple[float, int]],
+    new_info: Dict[str, Tuple[float, int]],
+):
     """
     Update the aggregated information dictionary with new information.
 
@@ -12,7 +15,7 @@ def update_aggregated_info(aggregated_info: Dict[str, Tuple[float, int]], new_in
     If a key is present in both dictionaries, the values are added.
     If a key is present in ``new_info`` but not ``aggregated_info``,
     it is simply copied.
-    
+
     :param aggregated_info: The aggregated information dictionary.
     :param new_info: The new information dictionary.
 

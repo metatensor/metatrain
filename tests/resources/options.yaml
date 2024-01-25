@@ -4,21 +4,16 @@ defaults:
 
 architecture:
   training:
-      batch_size: 8
-      num_epochs: 10
-      log_interval: 1
+      batch_size: 2
+      num_epochs: 1
 
 # Section defining the parameters for structure and target data
 training_set:
   structures:
-    read_from: "carbon_reduced_20.xyz"
+    read_from: "qm9_reduced_100.xyz"
   targets:
     energy:
-      key: "energy"
-      forces:
-        key: "force"
-      virial:
-        key: "virNOTUSED"
+      key: "U0"
 
 test_set: 0.1
 validation_set: 0.1

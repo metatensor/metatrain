@@ -58,7 +58,7 @@ def test_compute_model_loss():
 
     gradient_components = [
         Labels(
-            names=["coordinate"],
+            names=["direction"],
             values=torch.tensor([[0], [1], [2]]),
         )
     ]
