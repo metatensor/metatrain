@@ -39,7 +39,7 @@ def compute_model_loss(
             # Check if the energy requires gradients:
             if targets[target_name].block().has_gradient("positions"):
                 energy_targets_that_require_position_gradients.append(target_name)
-            if targets[target_name].block().has_gradient("displacements"):
+            if targets[target_name].block().has_gradient("displacement"):
                 energy_targets_that_require_displacement_gradients.append(target_name)
 
     if len(energy_targets_that_require_displacement_gradients) > 0:
@@ -93,7 +93,7 @@ def compute_model_loss(
                 "positions", _position_gradients_to_block(gradients[: len(systems)])
             )
             new_block.add_gradient(
-                "displacements",
+                "displacement",
                 _displacement_gradients_to_block(gradients[len(systems) :]),
             )
             new_energy_tensor_map = TensorMap(
@@ -124,7 +124,7 @@ def compute_model_loss(
             old_energy_tensor_map = model_outputs[energy_target]
             new_block = old_energy_tensor_map.block().copy()
             new_block.add_gradient(
-                "displacements", _displacement_gradients_to_block(gradients)
+                "displacement", _displacement_gradients_to_block(gradients)
             )
             new_energy_tensor_map = TensorMap(
                 keys=old_energy_tensor_map.keys,
@@ -134,7 +134,7 @@ def compute_model_loss(
         else:
             pass
 
-    # Compute the loss:
+    # Compute and return the loss and associated info:
     return loss(model_outputs, targets)
 
 
@@ -166,7 +166,7 @@ def _position_gradients_to_block(gradients_list):
 
     components = [
         Labels(
-            names=["coordinate"],
+            names=["direction"],
             values=torch.tensor([[0], [1], [2]]),
         )
     ]
@@ -183,8 +183,7 @@ def _displacement_gradients_to_block(gradients_list):
     """Convert a list of displacement gradients to a `TensorBlock`
     which can act as a gradient block to an energy block."""
 
-    # `gradients` consists of a list of tensors where the second dimension is 3
-    gradients = torch.concatenate(gradients_list, dim=0).unsqueeze(-1)
+    gradients = torch.stack(gradients_list, dim=0).unsqueeze(-1)
     # unsqueeze for the property dimension
 
     samples = Labels(
@@ -193,7 +192,7 @@ def _displacement_gradients_to_block(gradients_list):
 
     components = [
         Labels(
-            names=["cell vector"],
+            names=["cell_vector"],
             values=torch.tensor([[0], [1], [2]]),
         ),
         Labels(

@@ -16,6 +16,8 @@ from ..utils.data import (
 )
 from ..utils.loss import TensorMapDictLoss
 from ..utils.model_io import save_model
+from ..utils.info import update_aggregated_info, finalize_aggregated_info
+
 from .model import DEFAULT_HYPERS, Model
 
 
@@ -107,11 +109,6 @@ def train(
     # Create a loss function:
     loss_fn = TensorMapDictLoss(loss_weights_dict)
 
-    # Create a loss function:
-    loss_fn = TensorMapDictLoss(
-        {target_name: {"values": 1.0}},
-    )
-
     # Create an optimizer:
     optimizer = torch.optim.Adam(
         model.parameters(), lr=hypers_training["learning_rate"]
@@ -123,27 +120,68 @@ def train(
 
     # Train the model:
     for epoch in range(hypers_training["num_epochs"]):
+        # aggregated information holders:
+        aggregated_train_info = {}
+        aggregated_validation_info = {}
+
         train_loss = 0.0
         for batch in train_dataloader:
             optimizer.zero_grad()
             structures, targets = batch
-            loss = compute_model_loss(loss_fn, model, structures, targets)
+            loss, info = compute_model_loss(loss_fn, model, structures, targets)
             train_loss += loss.item()
             loss.backward()
             optimizer.step()
+            aggregated_train_info = update_aggregated_info(
+                aggregated_train_info, info
+            )
+        aggregated_train_info = finalize_aggregated_info(aggregated_train_info)
 
         validation_loss = 0.0
         for batch in validation_dataloader:
             structures, targets = batch
             # TODO: specify that the model is not training here to save some autograd
-            loss = compute_model_loss(loss_fn, model, structures, targets)
+            loss, info = compute_model_loss(loss_fn, model, structures, targets)
             validation_loss += loss.item()
-
-        if epoch % hypers_training["log_interval"] == 0:
-            logger.info(
-                f"Epoch {epoch}, train loss: {train_loss:.4f}, "
-                f"validation loss: {validation_loss:.4f}"
+            aggregated_validation_info = update_aggregated_info(
+                aggregated_validation_info, info
             )
+        aggregated_validation_info = finalize_aggregated_info(
+            aggregated_validation_info
+        )
+
+        # Now we log the information:
+        if epoch % hypers_training["log_interval"] == 0:
+            logging_string = f"Epoch {epoch:4}, train loss: {train_loss:10.4f}, validation loss: {validation_loss:10.4f}"
+            for key, value in aggregated_train_info.items():
+                if key.endswith("_positions_gradients"):
+                    # check if this is a force
+                    target_name = key[:-len("_positions_gradients")]
+                    if model.capabilities.outputs[target_name].quantity == "energy":
+                        # if this is a force, replace the ugly name with "force"
+                        key = f"force[{target_name}]"
+                elif key.endswith("_displacement_gradients"):
+                    # check if this is a virial/stress
+                    target_name = key[:-len("_displacement_gradients")]
+                    if model.capabilities.outputs[target_name].quantity == "energy":
+                        # if this is a virial/stress, replace the ugly name with "virial/stress"
+                        key = f"virial/stress[{target_name}]"
+                logging_string += f", train {key} RMSE: {value:10.4f}"
+            for key, value in aggregated_validation_info.items():
+                if key.endswith("_positions_gradients"):
+                    # check if this is a force
+                    target_name = key[:-len("_positions_gradients")]
+                    if model.capabilities.outputs[target_name].quantity == "energy":
+                        # if this is a force, replace the ugly name with "forces"
+                        key = f"force[{target_name}]"
+                elif key.endswith("_displacement_gradients"):
+                    # check if this is a virial/stress
+                    target_name = key[:-len("_displacement_gradients")]
+                    if model.capabilities.outputs[target_name].quantity == "energy":
+                        # if this is a virial/stress, replace the ugly name with "virial/stress"
+                        key = f"virial/stress[{target_name}]"
+                logging_string += f", valid {key} RMSE: {value:10.4f}"
+            logger.info(logging_string)
 
         if epoch % hypers_training["checkpoint_interval"] == 0:
             save_model(
@@ -167,12 +205,12 @@ def train(
     return model
 
 
-def _get_outputs_dict(datasets: List[Dataset]):
+def _get_outputs_dict(datasets: List[Union[Dataset, torch.utils.data.Subset]]):
     """
     This is a helper function that extracts all the possible outputs and their gradients
     from a list of datasets.
 
-    :param datasets: A list of datasets.
+    :param datasets: A list of Datasets or Subsets.
 
     :returns: A dictionary mapping output names to a list of "values" (always)
         and possible gradients.
