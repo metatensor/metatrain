@@ -160,7 +160,7 @@ def train(
         if epoch % hypers_training["log_interval"] == 0:
             logging_string = (
                 f"Epoch {epoch:4}, train loss: {train_loss:10.4f}, "
-                " validation loss: {validation_loss:10.4f}"
+                f" validation loss: {validation_loss:10.4f}"
             )
             for key, value in aggregated_train_info.items():
                 if key.endswith("_positions_gradients"):
