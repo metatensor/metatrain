@@ -1,9 +1,17 @@
 import os
 
-import torch
-from metatensor.torch.atomistic import ModelCapabilities, ModelOutput
 
-from metatensor.models.soap_bpnn import DEFAULT_HYPERS, Model
+# Execute the setup script which will make sum_over_samples saveable.
+current_dir = os.path.dirname(__file__)
+setup_path = os.path.join(
+    current_dir, "..", "..", "..", "..", "..", "scripts", "setup.py"
+)
+exec(open(setup_path).read())
+
+import torch  # noqa: E402
+from metatensor.torch.atomistic import ModelCapabilities, ModelOutput  # noqa: E402
+
+from metatensor.models.soap_bpnn import DEFAULT_HYPERS, Model  # noqa: E402
 
 
 def test_torchscript():
@@ -25,13 +33,6 @@ def test_torchscript():
 
 def test_torchscript_save():
     """Tests that the model can be jitted and saved."""
-
-    # Execute the setup script which will make sum_over_samples saveable.
-    current_dir = os.path.dirname(__file__)
-    setup_path = os.path.join(
-        current_dir, "..", "..", "..", "..", "..", "scripts", "setup.py"
-    )
-    exec(open(setup_path).read())
 
     capabilities = ModelCapabilities(
         length_unit="Angstrom",
