@@ -77,7 +77,13 @@ class MLPMap(torch.nn.Module):
                         values=output_values,
                         samples=block.samples,
                         components=block.components,
-                        properties=Labels.range("properties", output_values.shape[-1]),
+                        # cannot use Labels.range() here because of torch.jit.save
+                        properties=Labels(
+                            names=["properties"],
+                            values=torch.arange(
+                                output_values.shape[1], device=output_values.device
+                            ).reshape(-1, 1),
+                        ),
                     )
                 )
 
@@ -119,7 +125,13 @@ class LinearMap(torch.nn.Module):
                         values=output_values,
                         samples=block.samples,
                         components=block.components,
-                        properties=Labels.single(),
+                        # cannot use Labels.single() here because of torch.jit.save
+                        properties=Labels(
+                            names=["_"],
+                            values=torch.zeros(
+                                (1, 1), dtype=torch.int32, device=block.values.device
+                            ),
+                        ),
                     )
                 )
 
