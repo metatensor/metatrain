@@ -162,6 +162,7 @@ cython_debug/
 # Don't save model outputs
 *.pt
 !tests/resources/*.pt
+!examples/ase/*.pt
 
 # model output directories
 outputs/
