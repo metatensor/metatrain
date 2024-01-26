@@ -1,4 +1,5 @@
 """The main entry point for the metatensor-models interface."""
+
 import argparse
 import sys
 from pathlib import Path

@@ -1,5 +1,6 @@
 """Test correct type and metadata of readers. Correct values will be checked
 within the tests for each fileformat"""
+
 import logging
 
 import ase
