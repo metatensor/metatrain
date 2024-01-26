@@ -160,50 +160,32 @@ def train(
         if epoch % hypers_training["log_interval"] == 0:
             logging_string = (
                 f"Epoch {epoch:4}, train loss: {train_loss:10.4f}, "
-                f" validation loss: {validation_loss:10.4f}"
+                f"validation loss: {validation_loss:10.4f}"
             )
-            for key, value in aggregated_train_info.items():
-                if key.endswith("_positions_gradients"):
-                    # check if this is a force
-                    target_name = key[: -len("_positions_gradients")]
-                    if model.capabilities.outputs[target_name].quantity == "energy":
-                        # if this is a force, replace the ugly name with "force"
-                        if only_one_energy:
-                            key = "force"
-                        else:
-                            key = f"force[{target_name}]"
-                elif key.endswith("_displacement_gradients"):
-                    # check if this is a virial/stress
-                    target_name = key[: -len("_displacement_gradients")]
-                    if model.capabilities.outputs[target_name].quantity == "energy":
-                        # if this is a virial/stress,
-                        # replace the ugly name with "virial/stress"
-                        if only_one_energy:
-                            key = "virial/stress"
-                        else:
-                            key = f"virial/stress[{target_name}]"
-                logging_string += f", train {key} RMSE: {value:10.4f}"
-            for key, value in aggregated_validation_info.items():
-                if key.endswith("_positions_gradients"):
-                    # check if this is a force
-                    target_name = key[: -len("_positions_gradients")]
-                    if model.capabilities.outputs[target_name].quantity == "energy":
-                        # if this is a force, replace the ugly name with "forces"
-                        if only_one_energy:
-                            key = "force"
-                        else:
-                            key = f"force[{target_name}]"
-                elif key.endswith("_displacement_gradients"):
-                    # check if this is a virial/stress
-                    target_name = key[: -len("_displacement_gradients")]
-                    if model.capabilities.outputs[target_name].quantity == "energy":
-                        # if this is a virial/stress,
-                        # replace the ugly name with "virial/stress"
-                        if only_one_energy:
-                            key = "virial/stress"
-                        else:
-                            key = f"virial/stress[{target_name}]"
-                logging_string += f", valid {key} RMSE: {value:10.4f}"
+            for name, information_holder in zip(
+                ["train", "valid"], [aggregated_train_info, aggregated_validation_info]
+            ):
+                for key, value in information_holder.items():
+                    if key.endswith("_positions_gradients"):
+                        # check if this is a force
+                        target_name = key[: -len("_positions_gradients")]
+                        if model.capabilities.outputs[target_name].quantity == "energy":
+                            # if this is a force, replace the ugly name with "force"
+                            if only_one_energy:
+                                key = "force"
+                            else:
+                                key = f"force[{target_name}]"
+                    elif key.endswith("_displacement_gradients"):
+                        # check if this is a virial/stress
+                        target_name = key[: -len("_displacement_gradients")]
+                        if model.capabilities.outputs[target_name].quantity == "energy":
+                            # if this is a virial/stress,
+                            # replace the ugly name with "virial/stress"
+                            if only_one_energy:
+                                key = "virial/stress"
+                            else:
+                                key = f"virial/stress[{target_name}]"
+                    logging_string += f", {name} {key} RMSE: {value:10.4f}"
             logger.info(logging_string)
 
         if epoch % hypers_training["checkpoint_interval"] == 0:
