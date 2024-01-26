@@ -1,5 +1,8 @@
 """Here we check only the correct values. Correct shape and metadata will be checked
 within `test_readers.py`"""
+
+from typing import List
+
 import ase.io
 import pytest
 import torch
@@ -27,17 +30,22 @@ def ase_system() -> ase.Atoms:
     return atoms
 
 
+def ase_systems() -> List[ase.Atoms]:
+    return [ase_system(), ase_system()]
+
+
 def test_read_energy_ase(monkeypatch, tmp_path):
     monkeypatch.chdir(tmp_path)
 
     filename = "structures.xyz"
 
-    structures = ase_system()
+    structures = ase_systems()
     ase.io.write(filename, structures)
 
     result = read_energy_ase(filename=filename, key="true_energy")
 
-    expected = torch.tensor([[structures.info["true_energy"]]])
+    l_expected = [a.info["true_energy"] for a in structures]
+    expected = torch.tensor(l_expected).reshape(-1, 1)
     torch.testing.assert_close(result.values, expected)
 
 
@@ -46,12 +54,13 @@ def test_read_forces_ase(monkeypatch, tmp_path):
 
     filename = "structures.xyz"
 
-    structures = ase_system()
+    structures = ase_systems()
     ase.io.write(filename, structures)
 
     result = read_forces_ase(filename=filename, key="forces")
 
-    expected = -torch.tensor(structures.get_array("forces")).reshape(-1, 3, 1)
+    l_expected = [atoms.get_array("forces") for atoms in structures]
+    expected = -torch.tensor(l_expected).reshape(-1, 3, 1)
     torch.testing.assert_close(result.values, expected)
 
 
@@ -60,13 +69,15 @@ def test_read_stress_ase(monkeypatch, tmp_path):
 
     filename = "structures.xyz"
 
-    structures = ase_system()
+    structures = ase_systems()
     ase.io.write(filename, structures)
 
     result = read_stress_ase(filename=filename, key="stress-3x3")
 
-    expected = torch.tensor(structures.info["stress-3x3"])
-    expected *= torch.tensor(structures.cell.volume)
+    l_expected = [atoms.info["stress-3x3"] for atoms in structures]
+    l_cell = [atoms.cell.volume for atoms in structures]
+    expected = torch.tensor(l_expected)
+    expected *= torch.tensor(l_cell).reshape(-1, 1, 1)
     expected = expected.reshape(-1, 3, 3, 1)
     torch.testing.assert_close(result.values, expected)
 
@@ -93,12 +104,13 @@ def test_read_virial_ase(monkeypatch, tmp_path):
 
     filename = "structures.xyz"
 
-    structures = ase_system()
+    structures = ase_systems()
     ase.io.write(filename, structures)
 
     result = read_virial_ase(filename=filename, key="stress-3x3")
 
-    expected = -torch.tensor(structures.info["stress-3x3"])
+    l_expected = [atoms.info["stress-3x3"] for atoms in structures]
+    expected = -torch.tensor(l_expected)
     expected = expected.reshape(-1, 3, 3, 1)
     torch.testing.assert_close(result.values, expected)
 

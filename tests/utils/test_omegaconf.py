@@ -14,7 +14,7 @@ def test_expand_dataset_config():
     file_name = "foo.xyz"
     file_format = ".xyz"
 
-    structure_section = {"read_from": file_name, "unit": "angstrom"}
+    structure_section = {"read_from": file_name, "length_unit": "angstrom"}
 
     target_section = {
         "quantity": "energy",
@@ -31,7 +31,7 @@ def test_expand_dataset_config():
 
     assert conf_expanded["structures"]["read_from"] == file_name
     assert conf_expanded["structures"]["file_format"] == file_format
-    assert conf_expanded["structures"]["unit"] == "angstrom"
+    assert conf_expanded["structures"]["length_unit"] == "angstrom"
 
     targets_conf = conf_expanded["targets"]
     assert len(targets_conf) == 2
@@ -89,6 +89,7 @@ def test_expand_dataset_config_min():
 
     assert conf_expanded["structures"]["read_from"] == file_name
     assert conf_expanded["structures"]["file_format"] == file_format
+    assert conf_expanded["structures"]["length_unit"] is None
 
     targets_conf = conf_expanded["targets"]
     assert targets_conf["energy"]["quantity"] == "energy"

@@ -1,3 +1,4 @@
+import os
 from typing import Dict, List
 
 import metatensor.torch
@@ -6,9 +7,13 @@ from metatensor.torch import Labels, TensorMap
 from metatensor.torch.atomistic import ModelCapabilities, System
 
 
-# script these functions, otherwise they are too slow:
-scripted_slice = torch.jit.script(metatensor.torch.slice)
-scripted_join = torch.jit.script(metatensor.torch.join)
+if os.environ.get("METATENSOR_IMPORT_FOR_SPHINX", "0") == "1":
+    # This is necessary to make the Sphinx documentation build
+    compiled_slice = None
+    compiled_join = None
+else:
+    compiled_slice = torch.jit.script(metatensor.torch.slice)
+    compiled_join = torch.jit.script(metatensor.torch.join)
 
 
 class Dataset(torch.utils.data.Dataset):
@@ -57,7 +62,7 @@ class Dataset(torch.utils.data.Dataset):
 
         targets = {}
         for name, tensor_map in self.targets.items():
-            targets[name] = scripted_slice(
+            targets[name] = compiled_slice(
                 tensor_map, "samples", structure_index_samples
             )
 
@@ -135,7 +140,7 @@ def collate_fn(batch):
     structures = [sample[0] for sample in batch]
     targets = {}
     for name in batch[0][1].keys():
-        targets[name] = scripted_join([sample[1][name] for sample in batch], "samples")
+        targets[name] = compiled_join([sample[1][name] for sample in batch], "samples")
 
     return structures, targets
 
