@@ -22,3 +22,9 @@ head -n 20 output.xyz
 # All command line flags of the eval sub-command can be listed via
 
 metatensor-models eval --help
+
+# For example, the following command
+
+metatensor-models export model.pt
+
+# creates an `exported-model.pt` file that contains the exported model.

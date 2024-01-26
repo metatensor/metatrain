@@ -47,4 +47,7 @@ def export_model(model: str, output: Optional[str]) -> None:
 
     # Export the model
     wrapper = MetatensorAtomisticModel(loaded_model.eval(), loaded_model.capabilities)
-    wrapper.export("exported-model.pt")
+    if output is None:
+        wrapper.export("exported-model.pt")
+    else:
+        wrapper.export(output)

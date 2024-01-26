@@ -58,7 +58,7 @@ the current directory and type
 Evaluation
 ##########
 
-The sub-command to evaluate a already trained model is
+The sub-command to evaluate an already trained model is
 
 .. code-block:: bash
 
@@ -66,7 +66,23 @@ The sub-command to evaluate a already trained model is
 
 .. literalinclude:: ../../../examples/usage.sh
     :language: bash
-    :lines: 9-
+    :lines: 9-25
+
+
+Exporting
+#########
+
+Exporting a model is very useful if you want to use it in other frameworks,
+especially in molecular dynamics simulations.
+The sub-command to export an already trained model is
+
+.. code-block:: bash
+
+    metatensor-models export
+
+.. literalinclude:: ../../../examples/usage.sh
+    :language: bash
+    :lines: 25-
 
 In the next tutorials we show how adjust the dataset section of ``options.yaml`` file
 to use it for your own datasets.
