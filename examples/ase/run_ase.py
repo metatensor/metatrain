@@ -1,4 +1,4 @@
-# tools to run the simulation
+# Import tools to run the simulation
 import ase.build
 import ase.md
 import ase.md.velocitydistribution
@@ -20,6 +20,7 @@ ase.md.velocitydistribution.MaxwellBoltzmannDistribution(atoms, temperature_K=30
 # Load the model and register it as the energy calculator for these ``atoms``:
 atoms.calc = MetatensorCalculator("exported-model.pt")
 
+# Define the integrator:
 integrator = ase.md.Langevin(
     atoms,
     timestep=1.0 * ase.units.fs,
@@ -27,4 +28,5 @@ integrator = ase.md.Langevin(
     friction=0.1 / ase.units.fs,
 )
 
+# Run the simulation:
 integrator.run(10)
