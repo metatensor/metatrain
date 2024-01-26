@@ -150,8 +150,8 @@ def _read_virial_stress_ase(
     samples = Labels(["sample"], torch.tensor([[s] for s in range(n_structures)]))
 
     components = [
-        Labels(["direction_1"], torch.arange(3).reshape(-1, 1)),
-        Labels(["direction_2"], torch.arange(3).reshape(-1, 1)),
+        Labels(["cell_vector"], torch.arange(3).reshape(-1, 1)),
+        Labels(["coordinate"], torch.arange(3).reshape(-1, 1)),
     ]
 
     block = TensorBlock(

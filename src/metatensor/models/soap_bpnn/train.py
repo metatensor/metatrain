@@ -1,6 +1,6 @@
 import logging
 from pathlib import Path
-from typing import Dict, List, Union
+from typing import Dict, List, Tuple, Union
 
 import torch
 from metatensor.torch.atomistic import ModelCapabilities
@@ -14,6 +14,7 @@ from ..utils.data import (
     combine_dataloaders,
     get_all_targets,
 )
+from ..utils.info import finalize_aggregated_info, update_aggregated_info
 from ..utils.loss import TensorMapDictLoss
 from ..utils.model_io import save_model
 from .model import DEFAULT_HYPERS, Model
@@ -91,11 +92,20 @@ def train(
 
     # Extract all the possible outputs and their gradients from the training set:
     outputs_dict = _get_outputs_dict(train_datasets)
+    energy_counter = 0
     for output_name in outputs_dict.keys():
         if output_name not in model_capabilities.outputs:
             raise ValueError(
                 f"Output {output_name} is not in the model's capabilities."
             )
+        if model_capabilities.outputs[output_name].quantity == "energy":
+            energy_counter += 1
+
+    # This will be useful later for printing forces/virials/stresses:
+    if energy_counter == 1:
+        only_one_energy = True
+    else:
+        only_one_energy = False
 
     # Create a loss weight dict:
     loss_weights_dict = {}
@@ -106,11 +116,6 @@ def train(
 
     # Create a loss function:
     loss_fn = TensorMapDictLoss(loss_weights_dict)
-
-    # Create a loss function:
-    loss_fn = TensorMapDictLoss(
-        {target_name: {"values": 1.0}},
-    )
 
     # Create an optimizer:
     optimizer = torch.optim.Adam(
@@ -123,27 +128,65 @@ def train(
 
     # Train the model:
     for epoch in range(hypers_training["num_epochs"]):
+        # aggregated information holders:
+        aggregated_train_info: Dict[str, Tuple[float, int]] = {}
+        aggregated_validation_info: Dict[str, Tuple[float, int]] = {}
+
         train_loss = 0.0
         for batch in train_dataloader:
             optimizer.zero_grad()
             structures, targets = batch
-            loss = compute_model_loss(loss_fn, model, structures, targets)
+            loss, info = compute_model_loss(loss_fn, model, structures, targets)
             train_loss += loss.item()
             loss.backward()
             optimizer.step()
+            aggregated_train_info = update_aggregated_info(aggregated_train_info, info)
+        aggregated_train_info = finalize_aggregated_info(aggregated_train_info)
 
         validation_loss = 0.0
         for batch in validation_dataloader:
             structures, targets = batch
             # TODO: specify that the model is not training here to save some autograd
-            loss = compute_model_loss(loss_fn, model, structures, targets)
+            loss, info = compute_model_loss(loss_fn, model, structures, targets)
             validation_loss += loss.item()
-
-        if epoch % hypers_training["log_interval"] == 0:
-            logger.info(
-                f"Epoch {epoch}, train loss: {train_loss:.4f}, "
-                f"validation loss: {validation_loss:.4f}"
+            aggregated_validation_info = update_aggregated_info(
+                aggregated_validation_info, info
             )
+        aggregated_validation_info = finalize_aggregated_info(
+            aggregated_validation_info
+        )
+
+        # Now we log the information:
+        if epoch % hypers_training["log_interval"] == 0:
+            logging_string = (
+                f"Epoch {epoch:4}, train loss: {train_loss:10.4f}, "
+                f"validation loss: {validation_loss:10.4f}"
+            )
+            for name, information_holder in zip(
+                ["train", "valid"], [aggregated_train_info, aggregated_validation_info]
+            ):
+                for key, value in information_holder.items():
+                    if key.endswith("_positions_gradients"):
+                        # check if this is a force
+                        target_name = key[: -len("_positions_gradients")]
+                        if model.capabilities.outputs[target_name].quantity == "energy":
+                            # if this is a force, replace the ugly name with "force"
+                            if only_one_energy:
+                                key = "force"
+                            else:
+                                key = f"force[{target_name}]"
+                    elif key.endswith("_displacement_gradients"):
+                        # check if this is a virial/stress
+                        target_name = key[: -len("_displacement_gradients")]
+                        if model.capabilities.outputs[target_name].quantity == "energy":
+                            # if this is a virial/stress,
+                            # replace the ugly name with "virial/stress"
+                            if only_one_energy:
+                                key = "virial/stress"
+                            else:
+                                key = f"virial/stress[{target_name}]"
+                    logging_string += f", {name} {key} RMSE: {value:10.4f}"
+            logger.info(logging_string)
 
         if epoch % hypers_training["checkpoint_interval"] == 0:
             save_model(
@@ -167,12 +210,12 @@ def train(
     return model
 
 
-def _get_outputs_dict(datasets: List[Dataset]):
+def _get_outputs_dict(datasets: List[Union[Dataset, torch.utils.data.Subset]]):
     """
     This is a helper function that extracts all the possible outputs and their gradients
     from a list of datasets.
 
-    :param datasets: A list of datasets.
+    :param datasets: A list of Datasets or Subsets.
 
     :returns: A dictionary mapping output names to a list of "values" (always)
         and possible gradients.
