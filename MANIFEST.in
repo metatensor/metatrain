@@ -2,6 +2,8 @@ graft src
 
 include LICENSE
 include README.md
+
+# TODO: remove once the hack is not needed anymore
 include scripts/setup.py
 
 prune docs

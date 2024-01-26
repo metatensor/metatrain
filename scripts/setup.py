@@ -1,3 +1,7 @@
+# Since torch.jit.save cannot handle Labels.single(), we need to replace it with
+# Labels(names=["_"], values=_dispatch.zeros_like(block.values, (1, 1)))
+# in metatensor-operations. This is a hacky way to do it.
+
 import os
 import metatensor.operations
 
