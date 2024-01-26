@@ -12,5 +12,6 @@ This is a collection of atomistic models interfaced with ``metatensor``.
    :hidden:
 
    getting-started/index
+   tutorials/index
    architectures/index
    dev-docs/index
