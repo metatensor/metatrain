@@ -211,38 +211,6 @@ def train(
                 )
                 break
 
-        validation_loss = 0.0
-        for batch in validation_dataloader:
-            structures, targets = batch
-            # TODO: specify that the model is not training here to save some autograd
-            loss = compute_model_loss(loss_fn, model, structures, targets)
-            validation_loss += loss.item()
-
-        if epoch % hypers_training["log_interval"] == 0:
-            logger.info(
-                f"Epoch {epoch}, train loss: {train_loss:.4f}, "
-                f"validation loss: {validation_loss:.4f}"
-            )
-
-        if epoch % hypers_training["checkpoint_interval"] == 0:
-            save_model(
-                model,
-                Path(output_dir) / f"model_{epoch}.pt",
-            )
-
-        # early stopping criterion:
-        if validation_loss < best_validation_loss:
-            best_validation_loss = validation_loss
-            epochs_without_improvement = 0
-        else:
-            epochs_without_improvement += 1
-            if epochs_without_improvement >= 50:
-                logger.info(
-                    f"Early stopping criterion reached after {epoch} "
-                    "epochs without improvement."
-                )
-                break
-
     return model
 
 
