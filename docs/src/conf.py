@@ -10,6 +10,10 @@ import metatensor.models
 ROOT = os.path.abspath(os.path.join("..", ".."))
 sys.path.insert(0, ROOT)
 
+# when importing metatensor-torch, this will change the definition of the classes
+# to include the documentation
+os.environ["METATENSOR_IMPORT_FOR_SPHINX"] = "1"
+
 # -- Project information -----------------------------------------------------
 
 # The master toctree document.

@@ -1,3 +1,4 @@
+import os
 from typing import Dict, List
 
 import metatensor.torch
@@ -6,8 +7,13 @@ from metatensor.torch import Labels, TensorMap
 from metatensor.torch.atomistic import ModelCapabilities, System
 
 
-compiled_slice = torch.jit.script(metatensor.torch.slice)
-compiled_join = torch.jit.script(metatensor.torch.join)
+if os.environ.get("METATENSOR_IMPORT_FOR_SPHINX", "0") == "1":
+    # This is necessary to make the Sphinx documentation build
+    compiled_slice = None
+    compiled_join = None
+else:
+    compiled_slice = torch.jit.script(metatensor.torch.slice)
+    compiled_join = torch.jit.script(metatensor.torch.join)
 
 
 class Dataset(torch.utils.data.Dataset):
