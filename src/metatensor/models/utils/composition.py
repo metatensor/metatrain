@@ -80,7 +80,7 @@ def apply_composition_contribution(
         Atomic property with the composition contribution applied.
     """
 
-    new_keys = []
+    new_keys: List[int] = []
     new_blocks: List[TensorBlock] = []
     for key, block in atomic_property.items():
         atomic_species = int(key.values.item())
@@ -95,9 +95,9 @@ def apply_composition_contribution(
             )
         )
 
-    new_keys = Labels(
+    new_keys_labels = Labels(
         names=["species_center"],
         values=torch.tensor(new_keys).reshape(-1, 1),
     )
 
-    return TensorMap(keys=new_keys, blocks=new_blocks)
+    return TensorMap(keys=new_keys_labels, blocks=new_blocks)

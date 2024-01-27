@@ -66,7 +66,7 @@ class MLPMap(torch.nn.Module):
             for i in range(features.keys.values.shape[0])
         ]
 
-        new_keys = []
+        new_keys: List[int] = []
         new_blocks: List[TensorBlock] = []
         for species_str, network in self.layers.items():
             species = int(species_str)
@@ -82,12 +82,12 @@ class MLPMap(torch.nn.Module):
                         properties=Labels.range("properties", output_values.shape[-1]),
                     )
                 )
-        new_keys = Labels(
+        new_keys_labels = Labels(
             names=["species_center"],
             values=torch.tensor(new_keys).reshape(-1, 1),
         )
 
-        return TensorMap(keys=new_keys, blocks=new_blocks)
+        return TensorMap(keys=new_keys_labels, blocks=new_blocks)
 
 
 class LinearMap(torch.nn.Module):
@@ -114,7 +114,7 @@ class LinearMap(torch.nn.Module):
             for i in range(features.keys.values.shape[0])
         ]
 
-        new_keys = []
+        new_keys: List[int] = []
         new_blocks: List[TensorBlock] = []
         for species_str, layer in self.layers.items():
             species = int(species_str)
@@ -130,12 +130,12 @@ class LinearMap(torch.nn.Module):
                         properties=Labels.single(),
                     )
                 )
-        new_keys = Labels(
+        new_keys_labels = Labels(
             names=["species_center"],
             values=torch.tensor(new_keys).reshape(-1, 1),
         )
 
-        return TensorMap(keys=new_keys, blocks=new_blocks)
+        return TensorMap(keys=new_keys_labels, blocks=new_blocks)
 
 
 class Model(torch.nn.Module):
