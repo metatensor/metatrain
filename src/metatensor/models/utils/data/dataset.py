@@ -123,7 +123,6 @@ def get_all_targets(dataset: Dataset) -> List[str]:
     return list(set(target_names))
 
 
-@torch.jit.script
 def collate_fn(batch: List[Tuple[System, Dict[str, TensorMap]]]):
     """
     Creates a batch from a list of samples.
