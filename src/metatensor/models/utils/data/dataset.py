@@ -1,19 +1,14 @@
-import os
-from typing import Dict, List
+from typing import Dict, List, Tuple
 
-import metatensor.torch
 import torch
-from metatensor.torch import Labels, TensorMap
+from metatensor.torch import TensorMap
 from metatensor.torch.atomistic import ModelCapabilities, System
 
+from .slice_join import join, slice
 
-if os.environ.get("METATENSOR_IMPORT_FOR_SPHINX", "0") == "1":
-    # This is necessary to make the Sphinx documentation build
-    compiled_slice = None
-    compiled_join = None
-else:
-    compiled_slice = torch.jit.script(metatensor.torch.slice)
-    compiled_join = torch.jit.script(metatensor.torch.join)
+
+compiled_slice = torch.jit.script(slice)
+compiled_join = torch.jit.script(join)
 
 
 class Dataset(torch.utils.data.Dataset):
@@ -55,16 +50,9 @@ class Dataset(torch.utils.data.Dataset):
         """
         structure = self.structures[index]
 
-        structure_index_samples = Labels(
-            names=["structure"],
-            values=torch.tensor([[index]]),  # must be a 2D-array
-        )
-
         targets = {}
         for name, tensor_map in self.targets.items():
-            targets[name] = compiled_slice(
-                tensor_map, "samples", structure_index_samples
-            )
+            targets[name] = compiled_slice(tensor_map, index)
 
         return structure, targets
 
@@ -125,7 +113,8 @@ def get_all_targets(dataset: Dataset) -> List[str]:
     return list(set(target_names))
 
 
-def collate_fn(batch):
+@torch.jit.script
+def collate_fn(batch: List[Tuple[System, Dict[str, TensorMap]]]):
     """
     Creates a batch from a list of samples.
 
@@ -137,11 +126,11 @@ def collate_fn(batch):
         A tuple containing the structures and targets for the batch.
     """
 
-    structures = [sample[0] for sample in batch]
-    targets = {}
-    for name in batch[0][1].keys():
-        targets[name] = compiled_join([sample[1][name] for sample in batch], "samples")
-
+    structures: List[System] = [sample[0] for sample in batch]
+    targets: Dict[str, TensorMap] = {}
+    names = list(batch[0][1].keys())
+    for name in names:
+        targets[name] = compiled_join([sample[1][name] for sample in batch])
     return structures, targets
 
 
