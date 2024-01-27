@@ -1,3 +1,4 @@
+import os
 from typing import Dict, List, Tuple
 
 import torch
@@ -7,8 +8,17 @@ from metatensor.torch.atomistic import ModelCapabilities, System
 from .slice_join import join, slice
 
 
-compiled_slice = torch.jit.script(slice)
-compiled_join = torch.jit.script(join)
+if os.environ.get("METATENSOR_IMPORT_FOR_SPHINX", "0") == "1":
+    # This is necessary to make the Sphinx documentation build
+    def compiled_slice(a, b):
+        pass
+
+    def compiled_join(a):
+        pass
+
+else:
+    compiled_slice = torch.jit.script(slice)
+    compiled_join = torch.jit.script(join)
 
 
 class Dataset(torch.utils.data.Dataset):
