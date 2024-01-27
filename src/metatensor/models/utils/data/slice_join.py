@@ -100,16 +100,19 @@ def join(tensor_map_list: List[TensorMap]):
                 for tensor_map in tensor_map_list
             ]
         )
+
+        gradient_sample_values = []
+        for index, tensor_map in enumerate(tensor_map_list):
+            single_gradient_sample_values = (
+                tensor_map.block().gradient(gradient_name).samples.values
+            )
+            single_gradient_sample_values[:, 0] = index  # update the "sample" value
+            gradient_sample_values.append(single_gradient_sample_values)
+        gradient_sample_values = torch.cat(gradient_sample_values)
+
         gradient_samples = Labels(
             names=gradient_block.samples.names,
-            values=torch.cat(
-                [
-                    tensor_map.block().gradient(gradient_name).samples.values
-                    for tensor_map in tensor_map_list
-                ]
-            ),
-            # note that we should update the "sample", but we don't do it because we
-            # don't need it (with the present construction, all "sample" values are 0)
+            values=gradient_sample_values,
         )
         gradient_components = gradient_block.components
         gradient_properties = gradient_block.properties
