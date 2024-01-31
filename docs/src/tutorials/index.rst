@@ -7,4 +7,4 @@ This sections includes some more advanced tutorials on the usage of the
 .. toctree::
    :maxdepth: 1
 
-   ase
+   gallery/index
