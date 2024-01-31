@@ -109,8 +109,8 @@ def train_model(options: DictConfig) -> None:
     if not isinstance(test_options, float):
         test_options = expand_dataset_config(test_options)
         test_structures = read_structures(
-            filename=train_options["structures"]["read_from"],
-            fileformat=train_options["structures"]["file_format"],
+            filename=test_options["structures"]["read_from"],
+            fileformat=test_options["structures"]["file_format"],
         )
         test_targets = read_targets(test_options["targets"])
         test_dataset = Dataset(test_structures, test_targets)
@@ -125,8 +125,8 @@ def train_model(options: DictConfig) -> None:
     if not isinstance(validation_options, float):
         validation_options = expand_dataset_config(validation_options)
         validation_structures = read_structures(
-            filename=train_options["structures"]["read_from"],
-            fileformat=train_options["structures"]["file_format"],
+            filename=validation_options["structures"]["read_from"],
+            fileformat=validation_options["structures"]["file_format"],
         )
         validation_targets = read_targets(validation_options["targets"])
         validation_dataset = Dataset(validation_structures, validation_targets)
