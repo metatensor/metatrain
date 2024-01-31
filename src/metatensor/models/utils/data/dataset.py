@@ -1,11 +1,12 @@
 import os
 from typing import Dict, List, Tuple
 
+import metatensor.torch
 import torch
-from metatensor.torch import TensorMap
+from metatensor.torch import Labels, TensorMap
 from metatensor.torch.atomistic import ModelCapabilities, System
 
-from .slice_join import join, slice
+from .temporary_join import join
 
 
 if os.environ.get("METATENSOR_IMPORT_FOR_SPHINX", "0") == "1":
@@ -17,7 +18,7 @@ if os.environ.get("METATENSOR_IMPORT_FOR_SPHINX", "0") == "1":
         pass
 
 else:
-    compiled_slice = torch.jit.script(slice)
+    compiled_slice = torch.jit.script(metatensor.torch.slice)
     compiled_join = torch.jit.script(join)
 
 
@@ -60,9 +61,14 @@ class Dataset(torch.utils.data.Dataset):
         """
         structure = self.structures[index]
 
+        sample_labels = Labels(
+            names=["structure"],
+            values=torch.tensor([index]).reshape(1, 1),
+        )
+
         targets = {}
         for name, tensor_map in self.targets.items():
-            targets[name] = compiled_slice(tensor_map, index)
+            targets[name] = compiled_slice(tensor_map, "samples", sample_labels)
 
         return structure, targets
 

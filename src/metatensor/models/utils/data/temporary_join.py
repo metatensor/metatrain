@@ -4,66 +4,6 @@ import torch
 from metatensor.torch import Labels, TensorBlock, TensorMap
 
 
-def slice(tensor_map: TensorMap, index: int):
-    """
-    Slices a TensorMap along a given dimension.
-
-    :param tensor_map: The TensorMap to slice.
-    :param index: The index to select.
-
-    :return: The sliced TensorMap.
-    """
-
-    assert len(tensor_map) == 1
-    assert len(tensor_map.block().samples.names) == 1
-    assert tensor_map.block().samples.names == ["structure"]
-
-    keys = tensor_map.keys
-    samples = Labels(
-        names=["structure"],
-        values=torch.tensor([[index]]),
-    )
-    components = tensor_map.block().components
-    properties = tensor_map.block().properties
-    values = tensor_map.block().values[index].unsqueeze(0)
-
-    block = TensorBlock(
-        samples=samples,
-        components=components,
-        properties=properties,
-        values=values,
-    )
-
-    for gradient_name, gradient_block in tensor_map.block().gradients():
-        where_index = torch.where(gradient_block.samples.column("sample") == index)[0]
-
-        gradient_sample_values = gradient_block.samples.values[where_index]
-        gradient_sample_values[:, 0] = 0
-        gradient_values = gradient_block.values[where_index]
-
-        gradient_samples = Labels(
-            names=gradient_block.samples.names,
-            values=gradient_sample_values,
-        )
-        gradient_components = gradient_block.components
-        gradient_properties = gradient_block.properties
-
-        block.add_gradient(
-            gradient_name,
-            TensorBlock(
-                values=gradient_values,
-                samples=gradient_samples,
-                components=gradient_components,
-                properties=gradient_properties,
-            ),
-        )
-
-    return TensorMap(
-        keys=keys,
-        blocks=[block],
-    )
-
-
 def join(tensor_map_list: List[TensorMap]):
     """
     Joins a list of TensorMaps into a single TensorMap.

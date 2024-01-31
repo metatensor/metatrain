@@ -4,8 +4,8 @@ defaults:
 
 architecture:
   training:
-      batch_size: 2
-      num_epochs: 1
+    batch_size: 2
+    num_epochs: 1
 
 # Section defining the parameters for structure and target data
 training_set:
