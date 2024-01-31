@@ -1,4 +1,7 @@
 """
+Running molecular dynamics with ASE
+===================================
+
 This tutorial shows how to use an exported model to run an ASE simulation.
 """
 
