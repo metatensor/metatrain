@@ -9,74 +9,84 @@ This tutorial shows how to use an exported model to run an ASE simulation.
 #
 # First, we import the necessary libraries:
 
-# NumPy
-import numpy as np
-
 # Tools to run the simulation
 import ase.md
 import ase.md.velocitydistribution
 import ase.units
+import ase.visualize.plot
+
+# Plotting
+import matplotlib.pyplot as plt
+
+# NumPy
+import numpy as np
 
 # Integration with ASE calculator for metatensor atomistic models
 from metatensor.torch.atomistic.ase_calculator import MetatensorCalculator
 
-# Plotting
-import matplotlib.pyplot as plt
-import ase.visualize.plot
-
 # The SOAP-BPNN model contains compiled extensions from rascaline.torch
-import rascaline.torch
+import rascaline.torch  # noqa
 
 
 # %%
 #
-# Next, we initialize the simulation, including importing the model:
+# Next, we initialize the simulation. We first obatin the initial positions based
+# on the dataset file which we trained the model on. You can obtain the
+# dataset used in this example from our :download:`website
+# <../../../../static/ethanol_reduced_100.xyz>`.
 
-# Initial positions (reading them from a file):
-atoms = ase.io.read("../../tests/resources/ethanol_reduced_100.xyz")
 
-# Initialize the velocities:
-ase.md.velocitydistribution.MaxwellBoltzmannDistribution(atoms, temperature_K=300)
+atoms = ase.io.read("ethanol_reduced_100.xyz")
 
-# Load the model and register it as the energy calculator for these ``atoms``:
-atoms.calc = MetatensorCalculator("exported-model.pt")
+# %%
+#
 
-# Define the integrator:
-integrator = ase.md.VelocityVerlet(
-    atoms,
-    timestep=1.0 * ase.units.fs
-)
-
-# Plot the initial configuration:
 ase.visualize.plot.plot_atoms(atoms)
 plt.show()
 
 # %%
 #
+# Our initial coordinates do not include velocities. We Iiitialize the velocities
+# according to a Maxwell Boltzman Distribution at 300 K.
+
+ase.md.velocitydistribution.MaxwellBoltzmannDistribution(atoms, temperature_K=300)
+
+# %%
+#
+# Finally we add or register model as the energy calculator.
+atoms.calc = MetatensorCalculator("exported-model.pt")
+
+# %%
+#
+# Finally we define the integrator which we use to obtain new positions and velocities based on
+# our energy calculator. We use a common timestep of 0.5 fs.
+
+integrator = ase.md.VelocityVerlet(atoms, timestep=0.5 * ase.units.fs)
+
+
+# %%
+#
 # Run a short simulation:
 
-potential_energy = []
-kinetic_energy = []
-total_energy = []
+n_steps = 100
+
+potential_energy = np.zeros(n_steps)
+kinetic_energy = np.zeros(n_steps)
+total_energy = np.zeros(n_steps)
 trajectory = []
 
-for step in range(100):
+for step in range(n_steps):
     # run a single simulation step
     integrator.run(1)
 
     # collect data about the simulation
-    potential_energy.append(atoms.get_potential_energy())
-    kinetic_energy.append(atoms.get_kinetic_energy())
-    total_energy.append(atoms.get_total_energy())
+    potential_energy[step] = atoms.get_potential_energy()
+    kinetic_energy[step] = atoms.get_kinetic_energy()
+    total_energy[step] = atoms.get_total_energy()
     trajectory.append(atoms.copy())
 
-# Convert to numpy arrays
-potential_energy = np.array(potential_energy)
-kinetic_energy = np.array(kinetic_energy)
-total_energy = np.array(total_energy)
-
 # Plot the final configuration:
-ase.visualize.plot.plot_atoms(trajectory[99])
+ase.visualize.plot.plot_atoms(trajectory[-1])
 plt.show()
 
 # %%
@@ -84,8 +94,9 @@ plt.show()
 # Plot the evolution of kinetic, potential, and total energy.
 # The total energy should approximately be conserved:
 
-plt.plot(range(100), potential_energy-potential_energy.mean(), label="potential energy")
-plt.plot(range(100), kinetic_energy-kinetic_energy.mean(), label="kinetic energy")
-plt.plot(range(100), total_energy-total_energy.mean(), label="total energy")
+plt.plot(potential_energy, label="potential energy")
+plt.plot(kinetic_energy, label="kinetic energy")
+plt.plot(total_energy, label="total energy")
+
 plt.legend()
 plt.show()
