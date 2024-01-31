@@ -35,7 +35,7 @@ class PseudoSphinxApp:
         self.config.default_role = ""
         self.config.sphinx_gallery_conf = {
             "filename_pattern": ".*",
-            "examples_dirs": os.path.join(HERE, example),
+            "examples_dirs": os.path.join(HERE, "..", "..", example),
             "gallery_dirs": gallery_dir,
             "min_reported_time": 60,
         }
