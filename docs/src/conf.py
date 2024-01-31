@@ -44,6 +44,13 @@ extensions = [
     "sphinx_gallery.load_style",
 ]
 
+sphinx_gallery_conf = {
+    "filename_pattern": ".*",
+    "examples_dirs": [
+        os.path.join(ROOT, "examples", "ase"),
+    ],
+}
+
 python_use_unqualified_type_names = True
 
 autoclass_content = "both"
