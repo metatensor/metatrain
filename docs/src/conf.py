@@ -41,6 +41,7 @@ extensions = [
     "sphinx.ext.autodoc",
     "sphinx.ext.intersphinx",
     "sphinx_toggleprompt",
+    "sphinx_gallery.load_style",
 ]
 
 python_use_unqualified_type_names = True

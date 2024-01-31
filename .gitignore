@@ -170,3 +170,4 @@ examples/*.xyz
 
 # sphinx gallery
 docs/src/tutorials/gallery
+*execution_times*
