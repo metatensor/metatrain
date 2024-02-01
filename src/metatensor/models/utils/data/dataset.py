@@ -1,7 +1,8 @@
 import os
-from typing import Dict, List
+from typing import Dict, List, Tuple
 
 import metatensor.torch
+import numpy as np
 import torch
 from metatensor.torch import Labels, TensorMap
 from metatensor.torch.atomistic import ModelCapabilities, System
@@ -9,8 +10,12 @@ from metatensor.torch.atomistic import ModelCapabilities, System
 
 if os.environ.get("METATENSOR_IMPORT_FOR_SPHINX", "0") == "1":
     # This is necessary to make the Sphinx documentation build
-    compiled_slice = None
-    compiled_join = None
+    def compiled_slice(a, b):
+        pass
+
+    def compiled_join(a, axis, remove_tensor_name):
+        pass
+
 else:
     compiled_slice = torch.jit.script(metatensor.torch.slice)
     compiled_join = torch.jit.script(metatensor.torch.join)
@@ -55,16 +60,14 @@ class Dataset(torch.utils.data.Dataset):
         """
         structure = self.structures[index]
 
-        structure_index_samples = Labels(
+        sample_labels = Labels(
             names=["structure"],
-            values=torch.tensor([[index]]),  # must be a 2D-array
+            values=torch.tensor([index]).reshape(1, 1),
         )
 
         targets = {}
         for name, tensor_map in self.targets.items():
-            targets[name] = compiled_slice(
-                tensor_map, "samples", structure_index_samples
-            )
+            targets[name] = compiled_slice(tensor_map, "samples", sample_labels)
 
         return structure, targets
 
@@ -125,7 +128,7 @@ def get_all_targets(dataset: Dataset) -> List[str]:
     return list(set(target_names))
 
 
-def collate_fn(batch):
+def collate_fn(batch: List[Tuple[System, Dict[str, TensorMap]]]):
     """
     Creates a batch from a list of samples.
 
@@ -137,11 +140,25 @@ def collate_fn(batch):
         A tuple containing the structures and targets for the batch.
     """
 
-    structures = [sample[0] for sample in batch]
-    targets = {}
-    for name in batch[0][1].keys():
-        targets[name] = compiled_join([sample[1][name] for sample in batch], "samples")
+    structures: List[System] = [sample[0] for sample in batch]
+    # `join` will reorder the samples based on their structure number.
+    # Let's reorder the list of structures in the same way:
+    structure_samples = [
+        list(sample[1].values())[0].block().samples.values.item() for sample in batch
+    ]
+    sorting_order = np.argsort(structure_samples)
+    structures = [structures[index] for index in sorting_order]
+    # TODO: use metatensor.learn for datasets/dataloaders, making sure the same
+    # issues are handled correctly
 
+    targets: Dict[str, TensorMap] = {}
+    names = list(batch[0][1].keys())
+    for name in names:
+        targets[name] = compiled_join(
+            [sample[1][name] for sample in batch],
+            axis="samples",
+            remove_tensor_name=True,
+        )
     return structures, targets
 
 
