@@ -92,6 +92,11 @@ def train_model(options: DictConfig) -> None:
         necessary options for dataset preparation, model hyperparameters, and training.
     """
 
+    # This gives some accuracy improvements. It is very likely that
+    # this is just due to the preliminary composition fit in the SOAP-BPNN.
+    # TODO: investigate
+    torch.set_default_dtype(torch.float64)
+
     # TODO load seed from config
     generator = torch.Generator()
 
@@ -180,6 +185,7 @@ def train_model(options: DictConfig) -> None:
     for dataset in [train_dataset]:  # HACK: only a single train_dataset for now
         all_species += get_all_species(dataset)
     all_species = list(set(all_species))
+    all_species.sort()
 
     outputs = {
         key: ModelOutput(
