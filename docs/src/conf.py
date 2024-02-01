@@ -64,8 +64,15 @@ extensions = [
     "sphinx.ext.autodoc",
     "sphinx.ext.intersphinx",
     "sphinx_toggleprompt",
-    "sphinx_gallery.load_style",
+    "sphinx_gallery.gen_gallery",
 ]
+
+sphinx_gallery_conf = {
+    "filename_pattern": "/*",
+    "examples_dirs": ["../../examples"],
+    "gallery_dirs": ["examples"],
+    "min_reported_time": 5,
+}
 
 python_use_unqualified_type_names = True
 

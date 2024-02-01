@@ -169,5 +169,5 @@ outputs/
 examples/*.xyz
 
 # sphinx gallery
-docs/src/tutorials/gallery
+docs/src/examples
 *execution_times*
