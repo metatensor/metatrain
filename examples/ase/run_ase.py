@@ -53,7 +53,15 @@ ase.md.velocitydistribution.MaxwellBoltzmannDistribution(atoms, temperature_K=30
 
 # %%
 #
-# Finally we add or register model as the energy calculator.
+# We add or register a exported model as the energy calculator. The model was trained
+# using the following training options.
+#
+# .. literalinclude:: ../../static/options.yaml
+#    :language: yaml
+#
+# As step by step introduction to train this model with these options is given in the
+# :ref:`label_basic_usage` tutorial.
+
 atoms.calc = MetatensorCalculator("exported-model.pt")
 
 # %%

@@ -1,3 +1,5 @@
+.. _label_basic_usage:
+
 Basic Usage
 ===========
 
