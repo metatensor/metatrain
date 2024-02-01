@@ -200,7 +200,7 @@ def train_model(options: DictConfig) -> None:
         outputs=outputs,
     )
 
-    logger.info("Calling model trainer")
+    logger.info("Calling architecture trainer")
     model = architecture.train(
         train_datasets=[train_dataset],
         validation_datasets=[validation_dataset],

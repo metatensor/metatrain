@@ -1,5 +1,4 @@
 import argparse
-from typing import Optional
 
 from metatensor.torch.atomistic import MetatensorAtomisticModel
 
@@ -35,7 +34,7 @@ def _add_export_model_parser(subparser: argparse._SubParsersAction) -> None:
     )
 
 
-def export_model(model: str, output: Optional[str]) -> None:
+def export_model(model: str, output: str = "exported-model.pt") -> None:
     """Export a pretrained model to run MD simulations
 
     :param model: Path to a saved model
@@ -47,7 +46,4 @@ def export_model(model: str, output: Optional[str]) -> None:
 
     # Export the model
     wrapper = MetatensorAtomisticModel(loaded_model.eval(), loaded_model.capabilities)
-    if output is None:
-        wrapper.export("exported-model.pt")
-    else:
-        wrapper.export(output)
+    wrapper.export(output)
