@@ -91,9 +91,10 @@ integrator = ase.md.VelocityVerlet(atoms, timestep=0.5 * ase.units.fs)
 # Run the simulation
 # ------------------
 #
-# We now have everything ready to run the MD simulation. To keep the execution time of
-# this tutorial low we run the simulations only for 100 steps. If you want to run a
-# longer simulation you can increase the ``n_steps`` variable.
+# We now have everything ready to run the MD simulation at constant energy (NVE). To
+# keep the execution time of this tutorial small we run the simulations only for 100
+# steps. If you want to run a longer simulation you can increase the ``n_steps``
+# variable.
 #
 # During the simulation loop we collect data about the simulation for later analysis.
 
@@ -196,7 +197,7 @@ rdf_train_mean = np.mean([rdf_train[i][0] for i in range(n_steps)], axis=0)
 # %%
 #
 # Plotting the RDF verifies that the hydrogen bonds are stable, confirming that we
-# performed an energy-conserving and stable simulation
+# performed an energy-conserving and stable simulation.
 
 plt.plot(bins, rdf_traj_mean, label="trajectory")
 plt.plot(bins, rdf_train_mean, label="training set")
