@@ -30,7 +30,7 @@ def _add_export_model_parser(subparser: argparse._SubParsersAction) -> None:
         dest="output",
         type=str,
         required=False,
-        default = "exported-model.pt",
+        default="exported-model.pt",
         help="Filename of the exported model (default: %(default)s).",
     )
 
