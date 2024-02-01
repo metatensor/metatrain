@@ -58,8 +58,9 @@ atoms = training_frames[0].copy()
 # Below we show the initial configuration of a single ethanol molecule in vacuum.
 
 ase.visualize.plot.plot_atoms(atoms)
-plt.xlabel("x / Å")
-plt.ylabel("y / Å")
+
+plt.xlabel("Å")
+plt.ylabel("Å")
 
 plt.show()
 
@@ -120,8 +121,8 @@ for step in range(n_steps):
 # Analyse the results
 # -------------------
 #
-# Inspect the final structure
-# ###########################
+# Energy conservation
+# ###################
 #
 # For a first analysis, we plot the evolution of the mean of the kinetic, potential, and
 # total energy which is an important measure for the stability of a simulation.
@@ -142,15 +143,15 @@ plt.show()
 
 # %%
 #
-# Energy conservation
-# ###################
+# Inspect the final structure
+# ###########################
 #
 # Even though the total energy is conserved, we also have to verify that the ethanol
 # molecule is stable and the bonds did not break.
 
 ase.visualize.plot.plot_atoms(trajectory[-1])
-plt.xlabel("x / Å")
-plt.ylabel("y / Å")
+plt.xlabel("Å")
+plt.ylabel("Å")
 
 plt.show()
 
