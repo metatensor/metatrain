@@ -30,11 +30,12 @@ def _add_export_model_parser(subparser: argparse._SubParsersAction) -> None:
         dest="output",
         type=str,
         required=False,
+        default = "exported-model.pt",
         help="Filename of the exported model (default: %(default)s).",
     )
 
 
-def export_model(model: str, output: str = "exported-model.pt") -> None:
+def export_model(model: str, output: str) -> None:
     """Export a pretrained model to run MD simulations
 
     :param model: Path to a saved model
