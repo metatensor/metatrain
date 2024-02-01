@@ -1,7 +1,6 @@
 import os
 import sys
 from datetime import datetime
-import subprocess
 
 import tomli  # Replace by tomllib from std library once docs are build with Python 3.11
 
@@ -10,32 +9,6 @@ import metatensor.models
 
 ROOT = os.path.abspath(os.path.join("..", ".."))
 sys.path.insert(0, ROOT)
-
-# -- Run sphinx-gallery ------------------------------------------------------
-
-# sphinx-gallery configuration (is this needed?)
-# sphinx_gallery_conf = {
-#     "filename_pattern": ".*",
-#     "examples_dirs": [
-#         os.path.join(ROOT, "examples", "ase"),
-#     ],
-# }
-
-# run sphinx-gallery to generate the examples
-# python docs/src/gallery.py examples/ase from the root directory
-subprocess.run(
-    [
-        "python",
-        os.path.join(ROOT, "docs", "src", "gallery.py"),
-        os.path.join(ROOT, "examples", "ase"),
-    ]
-)
-
-# -- metatensor-torch documentation ------------------------------------------
-
-# when importing metatensor-torch, this will change the definition of the classes
-# to include the documentation
-os.environ["METATENSOR_IMPORT_FOR_SPHINX"] = "1"
 
 # -- Project information -----------------------------------------------------
 

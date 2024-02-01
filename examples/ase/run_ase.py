@@ -2,79 +2,101 @@
 Running molecular dynamics with ASE
 ===================================
 
-This tutorial shows how to use an exported model to run an ASE simulation.
+This tutorial demonstrates how to use an already trained and exported model to run an
+ASE simulation of a single ethanol molecule in vacuum. We use a model that was trained
+using the :ref:`architecture-soap-bpnn` architecture on 100 ethanol structures
+containing energies and forces. You can obtain the :download:`dataset file
+<../../../static/ethanol_reduced_100.xyz>` used in this example from our website. The
+dataset is a subset of the `rMD17 dataset
+<https://iopscience.iop.org/article/10.1088/2632-2153/abba6f/meta>`_.
+
+The model was trained using the following training options.
+
+.. literalinclude:: ../../../static/options_ethanol.yaml
+   :language: yaml
+
+A step-by-step introduction on how to train and export a model for this example is
+provided in the :ref:`label_basic_usage` tutorial. The :download:`pretrained model
+<../../../static/exported_model_ethanol.pt>` is also available for download.
 """
 
 # %%
 #
-# First, we import the necessary libraries:
+# First, we start by importing the necessary libraries, including the integration of ASE
+# calculators for metatensor atomistic models
 
-# Tools to run the simulation
+
 import ase.md
 import ase.md.velocitydistribution
 import ase.units
 import ase.visualize.plot
-
-# Plotting
 import matplotlib.pyplot as plt
-
-# NumPy
 import numpy as np
-
-# Integration with ASE calculator for metatensor atomistic models
+import rascaline.torch  # noqa
+from ase.geometry.analysis import Analysis
 from metatensor.torch.atomistic.ase_calculator import MetatensorCalculator
 
-# The SOAP-BPNN model contains compiled extensions from rascaline.torch
-import rascaline.torch  # noqa
-
 
 # %%
 #
-# Next, we initialize the simulation. We first obatin the initial positions based
-# on the dataset file which we trained the model on. You can obtain the
-# dataset used in this example from our :download:`website
-# <../../../../static/ethanol_reduced_100.xyz>`.
+# .. note::
+#    We have to import ``rascaline.torch`` even though it is not used explicitly in this
+#    tutorial. The SOAP-BPNN model contains compiled extensions and therefore the import
+#    is required.
+#
+# Setting up the simulation
+# -------------------------
+#
+# Next, we initialize the simulation by extracting the initial positions from the
+# dataset file which we initially trained the model on.
 
-
-atoms = ase.io.read("ethanol_reduced_100.xyz")
+training_frames = ase.io.read("ethanol_reduced_100.xyz", ":")
+atoms = training_frames[0].copy()
 
 # %%
 #
+# Below we show the initial configuration of a single ethanol molecule in vacuum.
 
 ase.visualize.plot.plot_atoms(atoms)
+plt.xlabel("x / Å")
+plt.ylabel("y / Å")
+
 plt.show()
+
 
 # %%
 #
-# Our initial coordinates do not include velocities. We Iiitialize the velocities
-# according to a Maxwell Boltzman Distribution at 300 K.
+# Our initial coordinates do not include velocities. We initialize the velocities
+# according to a Maxwell-Boltzmann Distribution at 300 K.
 
 ase.md.velocitydistribution.MaxwellBoltzmannDistribution(atoms, temperature_K=300)
 
 # %%
 #
-# We add or register a exported model as the energy calculator. The model was trained
-# using the following training options.
-#
-# .. literalinclude:: ../../static/options.yaml
-#    :language: yaml
-#
-# As step by step introduction to train this model with these options is given in the
-# :ref:`label_basic_usage` tutorial.
+# We now register our exported model as the energy calculator to obtain energies and
+# forces.
 
-atoms.calc = MetatensorCalculator("exported-model.pt")
+atoms.calc = MetatensorCalculator("exported_model_ethanol.pt")
 
 # %%
 #
-# Finally we define the integrator which we use to obtain new positions and velocities based on
-# our energy calculator. We use a common timestep of 0.5 fs.
+# Finally, we define the integrator which we use to obtain new positions and velocities
+# based on our energy calculator. We use a common timestep of 0.5 fs.
 
 integrator = ase.md.VelocityVerlet(atoms, timestep=0.5 * ase.units.fs)
 
 
 # %%
 #
-# Run a short simulation:
+# Run the simulation
+# ------------------
+#
+# We now have everything ready to run the MD simulation. To keep the execution time of
+# this tutorial low we run the simulations only for 100 steps. If you want to run a
+# longer simulation you can increase the ``n_steps`` variable.
+#
+# During the simulation loop we collect data about the simulation for later analysis.
+
 
 n_steps = 100
 
@@ -87,24 +109,100 @@ for step in range(n_steps):
     # run a single simulation step
     integrator.run(1)
 
-    # collect data about the simulation
+    trajectory.append(atoms.copy())
     potential_energy[step] = atoms.get_potential_energy()
     kinetic_energy[step] = atoms.get_kinetic_energy()
     total_energy[step] = atoms.get_total_energy()
-    trajectory.append(atoms.copy())
 
-# Plot the final configuration:
-ase.visualize.plot.plot_atoms(trajectory[-1])
+# %%
+#
+# Analyse the results
+# -------------------
+#
+# Inspect the final structure
+# ###########################
+#
+# For a first analysis, we plot the evolution of the mean of the kinetic, potential, and
+# total energy which is an important measure for the stability of a simulation.
+#
+# As shown below we see that both the kinetic, potential, and total energy
+# fluctuate but the total energy is conserved over the length of the simulation.
+
+
+plt.plot(potential_energy - potential_energy.mean(), label="potential energy")
+plt.plot(kinetic_energy - kinetic_energy.mean(), label="kinetic energy")
+plt.plot(total_energy - total_energy.mean(), label="total energy")
+
+plt.xlabel("step")
+plt.ylabel("energy / kcal/mol")
+plt.legend()
+
 plt.show()
 
 # %%
 #
-# Plot the evolution of kinetic, potential, and total energy.
-# The total energy should approximately be conserved:
+# Energy conservation
+# ###################
+#
+# Even though the total energy is conserved, we also have to verify that the ethanol
+# molecule is stable and the bonds did not break.
 
-plt.plot(potential_energy, label="potential energy")
-plt.plot(kinetic_energy, label="kinetic energy")
-plt.plot(total_energy, label="total energy")
+ase.visualize.plot.plot_atoms(trajectory[-1])
+plt.xlabel("x / Å")
+plt.ylabel("y / Å")
+
+plt.show()
+
+# %%
+#
+# Carbon-hydrogen radial distribution function
+# ############################################
+#
+# As a final analysis we also calculate and plot the carbon-hydrogen radial distribution
+# function (RDF) from the trajectory and compare this to the RDF from the training set.
+#
+# To use the RDF code from ase we first have to define a unit cell for our structures.
+# We choose a cubic one with a side length of 10 Å.
+
+for atoms in training_frames:
+    atoms.cell = 10 * np.ones(3)
+    atoms.pbc = True
+
+for atoms in trajectory:
+    atoms.cell = 10 * np.ones(3)
+    atoms.pbc = True
+
+# %%
+#
+# We now can initilize the :py:class:`ase.geometry.analysis.Analysis` objects and
+# compute the the RDF using the :py:meth:`ase.geometry.analysis.Analysis.get_rdf`
+# method.
+
+ana_traj = Analysis(trajectory)
+ana_train = Analysis(training_frames)
+
+rdf_traj = ana_traj.get_rdf(rmax=5, nbins=50, elements=["C", "H"], return_dists=True)
+rdf_train = ana_train.get_rdf(rmax=5, nbins=50, elements=["C", "H"], return_dists=True)
+
+# %%
+#
+# We extract the bin positions from the returned values and and averege the RDF over the
+# whole trajectory and dataset, respectively.
+
+bins = rdf_traj[0][1]
+rdf_traj_mean = np.mean([rdf_traj[i][0] for i in range(n_steps)], axis=0)
+rdf_train_mean = np.mean([rdf_train[i][0] for i in range(n_steps)], axis=0)
+
+# %%
+#
+# Plotting the RDF verifies that the hydrogen bonds are stable, confirming that we
+# performed an energy-conserving and stable simulation
+
+plt.plot(bins, rdf_traj_mean, label="trajectory")
+plt.plot(bins, rdf_train_mean, label="training set")
 
 plt.legend()
+plt.xlabel("r / Å")
+plt.ylabel("radial distribution function")
+
 plt.show()

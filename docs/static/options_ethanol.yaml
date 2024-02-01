@@ -5,8 +5,8 @@ defaults:
 architecture:
   training:
     batch_size: 16
-    num_epochs: 1000
-    learning_rate: 0.003
+    num_epochs: 100
+    learning_rate: 0.01
 
 # Section defining the parameters for structure and target data
 training_set:
