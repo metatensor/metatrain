@@ -66,10 +66,12 @@ class MLPMap(torch.nn.Module):
             for i in range(features.keys.values.shape[0])
         ]
 
+        new_keys: List[int] = []
         new_blocks: List[TensorBlock] = []
         for species_str, network in self.layers.items():
             species = int(species_str)
             if species in present_blocks:
+                new_keys.append(species)
                 block = features.block({"species_center": species})
                 output_values = network(block.values)
                 new_blocks.append(
@@ -86,8 +88,60 @@ class MLPMap(torch.nn.Module):
                         ),
                     )
                 )
+        new_keys_labels = Labels(
+            names=["species_center"],
+            values=torch.tensor(new_keys).reshape(-1, 1),
+        )
 
-        return TensorMap(keys=features.keys, blocks=new_blocks)
+        return TensorMap(keys=new_keys_labels, blocks=new_blocks)
+
+
+class LayerNormMap(torch.nn.Module):
+    def __init__(self, all_species: List[int], n_layer: int) -> None:
+        super().__init__()
+
+        # Initialize a layernorm for each species
+        layernorm_per_species = []
+        for _ in all_species:
+            layernorm_per_species.append(torch.nn.LayerNorm((n_layer,)))
+
+        # Create a module dict to store the neural networks
+        self.layernorms = torch.nn.ModuleDict(
+            {
+                str(species): layer
+                for species, layer in zip(all_species, layernorm_per_species)
+            }
+        )
+
+    def forward(self, features: TensorMap) -> TensorMap:
+        # Create a list of the blocks that are present in the features:
+        present_blocks = [
+            int(features.keys.entry(i).values.item())
+            for i in range(features.keys.values.shape[0])
+        ]
+
+        new_keys: List[int] = []
+        new_blocks: List[TensorBlock] = []
+        for species_str, layer in self.layernorms.items():
+            species = int(species_str)
+            if species in present_blocks:
+                new_keys.append(species)
+                block = features.block({"species_center": species})
+                output_values = layer(block.values)
+                new_blocks.append(
+                    TensorBlock(
+                        values=output_values,
+                        samples=block.samples,
+                        components=block.components,
+                        properties=block.properties,
+                    )
+                )
+        new_keys_labels = Labels(
+            names=["species_center"],
+            values=torch.tensor(new_keys).reshape(-1, 1),
+        )
+
+        return TensorMap(keys=new_keys_labels, blocks=new_blocks)
 
 
 class LinearMap(torch.nn.Module):
@@ -114,10 +168,12 @@ class LinearMap(torch.nn.Module):
             for i in range(features.keys.values.shape[0])
         ]
 
+        new_keys: List[int] = []
         new_blocks: List[TensorBlock] = []
         for species_str, layer in self.layers.items():
             species = int(species_str)
             if species in present_blocks:
+                new_keys.append(species)
                 block = features.block({"species_center": species})
                 output_values = layer(block.values)
                 new_blocks.append(
@@ -134,8 +190,12 @@ class LinearMap(torch.nn.Module):
                         ),
                     )
                 )
+        new_keys_labels = Labels(
+            names=["species_center"],
+            values=torch.tensor(new_keys).reshape(-1, 1),
+        )
 
-        return TensorMap(keys=features.keys, blocks=new_blocks)
+        return TensorMap(keys=new_keys_labels, blocks=new_blocks)
 
 
 class Model(torch.nn.Module):
@@ -150,8 +210,7 @@ class Model(torch.nn.Module):
             if output.quantity != "energy":
                 raise ValueError(
                     "SOAP-BPNN only supports energy-like outputs, "
-                    f"but a {next(iter(capabilities.outputs.values())).quantity} "
-                    "was provided"
+                    f"but a {output.quantity} was provided"
                 )
             if output.per_atom:
                 raise ValueError(
@@ -178,12 +237,16 @@ class Model(torch.nn.Module):
         }
 
         self.soap_calculator = rascaline.torch.SoapPowerSpectrum(**hypers["soap"])
-        hypers_bpnn = hypers["bpnn"]
-        hypers_bpnn["input_size"] = (
+        soap_size = (
             len(self.all_species) ** 2
             * hypers["soap"]["max_radial"] ** 2
             * (hypers["soap"]["max_angular"] + 1)
         )
+
+        self.layernorm = LayerNormMap(self.all_species, soap_size)
+
+        hypers_bpnn = hypers["bpnn"]
+        hypers_bpnn["input_size"] = soap_size
 
         self.bpnn = MLPMap(self.all_species, hypers_bpnn)
         self.neighbor_species_1_labels = Labels(
@@ -233,6 +296,8 @@ class Model(torch.nn.Module):
             self.neighbor_species_2_labels.to(device)
         )
 
+        soap_features = self.layernorm(soap_features)
+
         hidden_features = self.bpnn(soap_features)
 
         atomic_energies: Dict[str, TensorMap] = {}
@@ -251,7 +316,7 @@ class Model(torch.nn.Module):
                 atomic_energy, ["center", "species_center"]
             )
             # Change the energy label from _ to (0, 1):
-            total_energies[output_name] = metatensor.torch.TensorMap(
+            total_energies[output_name] = TensorMap(
                 keys=Labels(
                     names=["lambda", "sigma"],
                     values=torch.tensor([[0, 1]]),
