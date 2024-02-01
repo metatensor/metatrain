@@ -2,7 +2,7 @@ from typing import List
 
 import rascaline.torch
 import torch
-from metatensor.torch import TensorBlock, TensorMap
+from metatensor.torch import Labels, TensorBlock, TensorMap
 
 
 def calculate_composition_weights(
@@ -80,11 +80,11 @@ def apply_composition_contribution(
         Atomic property with the composition contribution applied.
     """
 
-    # Get the composition for each structure in the dataset
-
+    new_keys: List[int] = []
     new_blocks: List[TensorBlock] = []
     for key, block in atomic_property.items():
         atomic_species = int(key.values.item())
+        new_keys.append(atomic_species)
         new_values = block.values + composition_weights[atomic_species]
         new_blocks.append(
             TensorBlock(
@@ -95,4 +95,9 @@ def apply_composition_contribution(
             )
         )
 
-    return TensorMap(keys=atomic_property.keys, blocks=new_blocks)
+    new_keys_labels = Labels(
+        names=["species_center"],
+        values=torch.tensor(new_keys).reshape(-1, 1),
+    )
+
+    return TensorMap(keys=new_keys_labels, blocks=new_blocks)
