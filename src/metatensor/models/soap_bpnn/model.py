@@ -4,7 +4,7 @@ import metatensor.torch
 import rascaline.torch
 import torch
 from metatensor.torch import Labels, TensorBlock, TensorMap
-from metatensor.torch.atomistic import ModelCapabilities, System
+from metatensor.torch.atomistic import ModelCapabilities, ModelOutput, System
 from omegaconf import OmegaConf
 
 from .. import ARCHITECTURE_CONFIG_PATH
@@ -79,7 +79,13 @@ class MLPMap(torch.nn.Module):
                         values=output_values,
                         samples=block.samples,
                         components=block.components,
-                        properties=Labels.range("properties", output_values.shape[-1]),
+                        # cannot use Labels.range() here because of torch.jit.save
+                        properties=Labels(
+                            names=["properties"],
+                            values=torch.arange(
+                                output_values.shape[1], device=output_values.device
+                            ).reshape(-1, 1),
+                        ),
                     )
                 )
         new_keys_labels = Labels(
@@ -175,7 +181,13 @@ class LinearMap(torch.nn.Module):
                         values=output_values,
                         samples=block.samples,
                         components=block.components,
-                        properties=Labels.single(),
+                        # cannot use Labels.single() here because of torch.jit.save
+                        properties=Labels(
+                            names=["_"],
+                            values=torch.zeros(
+                                (1, 1), dtype=torch.int32, device=block.values.device
+                            ),
+                        ),
                     )
                 )
         new_keys_labels = Labels(
@@ -259,12 +271,15 @@ class Model(torch.nn.Module):
         )
 
     def forward(
-        self, systems: List[System], requested_outputs: Optional[List[str]] = None
+        self,
+        systems: List[System],
+        outputs: Dict[str, ModelOutput],
+        selected_atoms: Optional[Labels] = None,
     ) -> Dict[str, TensorMap]:
-        if requested_outputs is None:  # default to all outputs
-            requested_outputs = list(self.capabilities.outputs.keys())
+        if selected_atoms is not None:
+            raise NotImplementedError("SOAP-BPNN does not support selected atoms.")
 
-        for requested_output in requested_outputs:
+        for requested_output in outputs.keys():
             if requested_output not in self.capabilities.outputs.keys():
                 raise ValueError(
                     f"Requested output {requested_output} is not within "
@@ -287,7 +302,7 @@ class Model(torch.nn.Module):
 
         atomic_energies: Dict[str, TensorMap] = {}
         for output_name, output_layer in self.last_layers.items():
-            if output_name in requested_outputs:
+            if output_name in outputs:
                 atomic_energies[output_name] = apply_composition_contribution(
                     output_layer(hidden_features),
                     self.composition_weights[self.output_to_index[output_name]],

@@ -3,6 +3,8 @@ graft src
 include LICENSE
 include README.md
 
+include scripts/hotfix_metatensor.py
+
 prune docs
 prune examples
 prune tests

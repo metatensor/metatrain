@@ -1,5 +1,9 @@
 import argparse
+import warnings
 
+from metatensor.torch.atomistic import MetatensorAtomisticModel
+
+from ..utils.model_io import load_model
 from .formatter import CustomHelpFormatter
 
 
@@ -19,7 +23,7 @@ def _add_export_model_parser(subparser: argparse._SubParsersAction) -> None:
     parser.add_argument(
         "model",
         type=str,
-        help="Saved model which should be exprted",
+        help="Saved model which should be exported",
     )
     parser.add_argument(
         "-o",
@@ -27,15 +31,27 @@ def _add_export_model_parser(subparser: argparse._SubParsersAction) -> None:
         dest="output",
         type=str,
         required=False,
-        default="exported.pt",
+        default="exported-model.pt",
         help="Filename of the exported model (default: %(default)s).",
     )
 
 
 def export_model(model: str, output: str) -> None:
-    """Export a pretrained model to run MD simulations
+    """Export a pre-trained model to run MD simulations
 
     :param model: Path to a saved model
     :param output: Path to save the exported model
     """
-    raise NotImplementedError("model exporting is not implemented yet.")
+
+    loaded_model = load_model(model)
+
+    for model_output_name, model_output in loaded_model.capabilities.outputs.items():
+        if model_output.unit == "":
+            warnings.warn(
+                f"No units were provided for the `{model_output_name}` output. "
+                "As a result, this model output will be passed to MD engines as is.",
+                stacklevel=1,
+            )
+
+    wrapper = MetatensorAtomisticModel(loaded_model.eval(), loaded_model.capabilities)
+    wrapper.export(output)

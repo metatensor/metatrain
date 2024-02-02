@@ -30,13 +30,17 @@ def test_save_load_model(monkeypatch, tmp_path):
     model = soap_bpnn.Model(capabilities)
     structures = read_structures(RESOURCES_PATH / "qm9_reduced_100.xyz")
 
-    output_before_save = model(rascaline.torch.systems_to_torch(structures), ["energy"])
+    output_before_save = model(
+        rascaline.torch.systems_to_torch(structures),
+        {"energy": model.capabilities.outputs["energy"]},
+    )
 
     save_model(model, "test_model.pt")
     loaded_model = load_model("test_model.pt")
 
     output_after_load = loaded_model(
-        rascaline.torch.systems_to_torch(structures), ["energy"]
+        rascaline.torch.systems_to_torch(structures),
+        {"energy": model.capabilities.outputs["energy"]},
     )
 
     assert metatensor.torch.allclose(

@@ -22,3 +22,14 @@ head -n 20 output.xyz
 # All command line flags of the eval sub-command can be listed via
 
 metatensor-models eval --help
+
+# However, before we export the model, we need to run the following command to
+# hotfix errors in metatensor.
+
+python ../scripts/hotfix_metatensor.py
+
+# Finally, the `metatestor-models export`, i.e.,
+
+metatensor-models export model.pt
+
+# creates an `exported-model.pt` file that contains the exported model.
