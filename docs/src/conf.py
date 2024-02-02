@@ -10,10 +10,6 @@ import metatensor.models
 ROOT = os.path.abspath(os.path.join("..", ".."))
 sys.path.insert(0, ROOT)
 
-# when importing metatensor-torch, this will change the definition of the classes
-# to include the documentation
-os.environ["METATENSOR_IMPORT_FOR_SPHINX"] = "1"
-
 # -- Project information -----------------------------------------------------
 
 # The master toctree document.
@@ -41,7 +37,15 @@ extensions = [
     "sphinx.ext.autodoc",
     "sphinx.ext.intersphinx",
     "sphinx_toggleprompt",
+    "sphinx_gallery.gen_gallery",
 ]
+
+sphinx_gallery_conf = {
+    "filename_pattern": "/*",
+    "examples_dirs": ["../../examples"],
+    "gallery_dirs": ["examples"],
+    "min_reported_time": 5,
+}
 
 python_use_unqualified_type_names = True
 

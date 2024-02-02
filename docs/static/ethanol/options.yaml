@@ -1,0 +1,20 @@
+defaults:
+  - architecture: soap_bpnn  # architecture used to train the model
+  - _self_
+
+architecture:
+  training:
+    batch_size: 16
+    num_epochs: 100
+    learning_rate: 0.01
+
+# Section defining the parameters for structure and target data
+training_set:
+  structures: "ethanol_reduced_100.xyz"
+  targets:
+    energy:
+      key: "energy"
+      unit: "kcal/mol"  # very important to run simulations
+
+validation_set: 0.1
+test_set: 0.0
