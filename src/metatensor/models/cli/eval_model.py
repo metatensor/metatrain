@@ -42,7 +42,7 @@ def _add_eval_model_parser(subparser: argparse._SubParsersAction) -> None:
     )
 
 
-def eval_model(model: str, structures: str, output: str = "output.xyz") -> None:
+def eval_model(model: str, structures: str, output: str) -> None:
     """Evaluate a pretrained model.
 
     ``target_property`` wil be predicted on a provided set of structures. Predicted
@@ -57,8 +57,7 @@ def eval_model(model: str, structures: str, output: str = "output.xyz") -> None:
     loaded_model = load_model(model)
     structure_list = read_structures(structures)
 
-    # since the second argument is missing,
-    # this calculates all the available properties:
-    predictions = loaded_model(structure_list)
+    # this calculates all the properties that the model is capable of predicting:
+    predictions = loaded_model(structure_list, loaded_model.capabilities.outputs)
 
     write_predictions(output, predictions, structure_list)

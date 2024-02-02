@@ -29,8 +29,14 @@ def test_rotational_invariance():
     original_structure = copy.deepcopy(structure)
     structure.rotate(48, "y")
 
-    original_output = soap_bpnn([rascaline.torch.systems_to_torch(original_structure)])
-    rotated_output = soap_bpnn([rascaline.torch.systems_to_torch(structure)])
+    original_output = soap_bpnn(
+        [rascaline.torch.systems_to_torch(original_structure)],
+        {"energy": soap_bpnn.capabilities.outputs["energy"]},
+    )
+    rotated_output = soap_bpnn(
+        [rascaline.torch.systems_to_torch(structure)],
+        {"energy": soap_bpnn.capabilities.outputs["energy"]},
+    )
 
     assert torch.allclose(
         original_output["energy"].block().values,

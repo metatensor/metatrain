@@ -24,4 +24,7 @@ def test_prediction_subset():
     soap_bpnn = Model(capabilities, DEFAULT_HYPERS["model"]).to(torch.float64)
 
     structure = ase.Atoms("O2", positions=[[0.0, 0.0, 0.0], [0.0, 0.0, 1.0]])
-    soap_bpnn([rascaline.torch.systems_to_torch(structure)])
+    soap_bpnn(
+        [rascaline.torch.systems_to_torch(structure)],
+        {"energy": soap_bpnn.capabilities.outputs["energy"]},
+    )

@@ -34,7 +34,7 @@ def test_forces(is_training):
     structures = rascaline.torch.systems_to_torch(
         structures, positions_requires_grad=True
     )
-    output = model(structures)
+    output = model(structures, {"energy": model.capabilities.outputs["energy"]})
     position_gradients = compute_gradient(
         output["energy"].block().values,
         [structure.positions for structure in structures],
@@ -46,7 +46,7 @@ def test_forces(is_training):
     structures = rascaline.torch.systems_to_torch(
         structures, positions_requires_grad=True
     )
-    output = jitted_model(structures)
+    output = jitted_model(structures, {"energy": model.capabilities.outputs["energy"]})
     jitted_position_gradients = compute_gradient(
         output["energy"].block().values,
         [structure.positions for structure in structures],
@@ -93,7 +93,7 @@ def test_virial(is_training):
         for system, displacement in zip(structures, displacements)
     ]
 
-    output = model(systems)
+    output = model(systems, {"energy": model.capabilities.outputs["energy"]})
     displacement_gradients = compute_gradient(
         output["energy"].block().values,
         displacements,
@@ -118,7 +118,7 @@ def test_virial(is_training):
         for system, displacement in zip(structures, displacements)
     ]
 
-    output = jitted_model(systems)
+    output = jitted_model(systems, {"energy": model.capabilities.outputs["energy"]})
     jitted_displacement_gradients = compute_gradient(
         output["energy"].block().values,
         displacements,
@@ -165,7 +165,7 @@ def test_both(is_training):
         for system, displacement in zip(structures, displacements)
     ]
 
-    output = model(systems)
+    output = model(systems, {"energy": model.capabilities.outputs["energy"]})
     gradients = compute_gradient(
         output["energy"].block().values,
         [system.positions for system in systems] + displacements,
@@ -189,7 +189,7 @@ def test_both(is_training):
     ]
 
     jitted_model = torch.jit.script(model)
-    output = jitted_model(systems)
+    output = jitted_model(systems, {"energy": model.capabilities.outputs["energy"]})
     print(output["energy"].block().values.requires_grad)
     jitted_gradients = compute_gradient(
         output["energy"].block().values,
