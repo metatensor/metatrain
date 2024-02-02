@@ -1,4 +1,4 @@
 metatensor-models Examples
 ==========================
 
-This folder consists of introductory examples and advanced examples
+This folder consists of introductory and advanced examples.
