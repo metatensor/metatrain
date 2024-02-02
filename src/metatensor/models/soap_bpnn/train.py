@@ -1,7 +1,9 @@
 import logging
+import warnings
 from pathlib import Path
 from typing import Dict, List, Tuple, Union
 
+import rascaline
 import torch
 from metatensor.torch.atomistic import ModelCapabilities
 
@@ -15,12 +17,19 @@ from ..utils.data import (
     get_all_targets,
 )
 from ..utils.info import finalize_aggregated_info, update_aggregated_info
+from ..utils.logging import MetricLogger
 from ..utils.loss import TensorMapDictLoss
 from ..utils.model_io import save_model
 from .model import DEFAULT_HYPERS, Model
 
 
 logger = logging.getLogger(__name__)
+
+# disable rascaline logger
+rascaline.set_logging_callback(lambda x, y: None)
+
+# Filter out the second derivative warning from rascaline-torch
+warnings.filterwarnings("ignore", category=UserWarning, message="second derivative")
 
 
 def train(
@@ -95,20 +104,11 @@ def train(
 
     # Extract all the possible outputs and their gradients from the training set:
     outputs_dict = _get_outputs_dict(train_datasets)
-    energy_counter = 0
     for output_name in outputs_dict.keys():
         if output_name not in model_capabilities.outputs:
             raise ValueError(
                 f"Output {output_name} is not in the model's capabilities."
             )
-        if model_capabilities.outputs[output_name].quantity == "energy":
-            energy_counter += 1
-
-    # This will be useful later for printing forces/virials/stresses:
-    if energy_counter == 1:
-        only_one_energy = True
-    else:
-        only_one_energy = False
 
     # Create a loss weight dict:
     loss_weights_dict = {}
@@ -145,7 +145,7 @@ def train(
             loss.backward()
             optimizer.step()
             aggregated_train_info = update_aggregated_info(aggregated_train_info, info)
-        aggregated_train_info = finalize_aggregated_info(aggregated_train_info)
+        finalized_train_info = finalize_aggregated_info(aggregated_train_info)
 
         validation_loss = 0.0
         for batch in validation_dataloader:
@@ -156,41 +156,25 @@ def train(
             aggregated_validation_info = update_aggregated_info(
                 aggregated_validation_info, info
             )
-        aggregated_validation_info = finalize_aggregated_info(
-            aggregated_validation_info
-        )
+        finalized_validation_info = finalize_aggregated_info(aggregated_validation_info)
 
         # Now we log the information:
-        if epoch % hypers_training["log_interval"] == 0:
-            logging_string = (
-                f"Epoch {epoch:4}, train loss: {train_loss:10.4f}, "
-                f"validation loss: {validation_loss:10.4f}"
+        if epoch == 0:
+            metric_logger = MetricLogger(
+                model_capabilities,
+                train_loss,
+                validation_loss,
+                finalized_train_info,
+                finalized_validation_info,
             )
-            for name, information_holder in zip(
-                ["train", "valid"], [aggregated_train_info, aggregated_validation_info]
-            ):
-                for key, value in information_holder.items():
-                    if key.endswith("_positions_gradients"):
-                        # check if this is a force
-                        target_name = key[: -len("_positions_gradients")]
-                        if model.capabilities.outputs[target_name].quantity == "energy":
-                            # if this is a force, replace the ugly name with "force"
-                            if only_one_energy:
-                                key = "force"
-                            else:
-                                key = f"force[{target_name}]"
-                    elif key.endswith("_displacement_gradients"):
-                        # check if this is a virial/stress
-                        target_name = key[: -len("_displacement_gradients")]
-                        if model.capabilities.outputs[target_name].quantity == "energy":
-                            # if this is a virial/stress,
-                            # replace the ugly name with "virial/stress"
-                            if only_one_energy:
-                                key = "virial/stress"
-                            else:
-                                key = f"virial/stress[{target_name}]"
-                    logging_string += f", {name} {key} RMSE: {value:10.4f}"
-            logger.info(logging_string)
+        if epoch % hypers_training["log_interval"] == 0:
+            metric_logger.log(
+                epoch,
+                train_loss,
+                validation_loss,
+                finalized_train_info,
+                finalized_validation_info,
+            )
 
         if epoch % hypers_training["checkpoint_interval"] == 0:
             save_model(
@@ -206,7 +190,7 @@ def train(
             epochs_without_improvement += 1
             if epochs_without_improvement >= 50:
                 logger.info(
-                    f"Early stopping criterion reached after {epoch} "
+                    "Early stopping criterion reached after 50 "
                     "epochs without improvement."
                 )
                 break
