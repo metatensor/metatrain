@@ -85,6 +85,3 @@ def test_hydra_arguments():
     )
     # Check that num_epochs is override is succesful
     assert "num_epochs: 1" in str(out)
-
-
-# TODO: test split of train/test/validation using floats and combinations of these.
