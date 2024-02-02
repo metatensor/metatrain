@@ -13,7 +13,7 @@ general help of `metatensor-models` can be accessed using
 We now demonstrate how to `train` and `evaluate` a model from the command line. For this
 example we use the :ref:`architecture-soap-bpnn` architecture and a subset of the `QM9
 dataset <https://paperswithcode.com/dataset/qm9>`_. You can obtain the reduced dataset
-from our :download:`website <../../static/qm9_reduced_100.xyz>`.
+from our :download:`website <../../static/qm9/qm9_reduced_100.xyz>`.
 
 Training
 ########
@@ -41,7 +41,7 @@ The default model and training hyperparameter for each model are listed in their
 corresponding documentation page. We will use these minimal options to run an example
 training using the default hyperparameters of an SOAP BPNN model
 
-.. literalinclude:: ../../static/options.yaml
+.. literalinclude:: ../../static/qm9/options.yaml
    :language: yaml
 
 For each training run a new output directory in the format
@@ -52,7 +52,7 @@ default, this output directory is used to store Hydra's output for the run
 behavior in the options file. To start the training create an ``options.yaml`` file in
 the current directory and type
 
-.. literalinclude:: ../../../examples/usage.sh
+.. literalinclude:: ../../../examples/basic_usage/usage.sh
     :language: bash
     :lines: 3-8
 
@@ -66,7 +66,7 @@ The sub-command to evaluate an already trained model is
 
     metatensor-models eval
 
-.. literalinclude:: ../../../examples/usage.sh
+.. literalinclude:: ../../../examples/basic_usage/usage.sh
     :language: bash
     :lines: 9-25
 
@@ -82,7 +82,7 @@ The sub-command to export an already trained model is
 
     metatensor-models export
 
-.. literalinclude:: ../../../examples/usage.sh
+.. literalinclude:: ../../../examples/basic_usage/usage.sh
     :language: bash
     :lines: 25-
 

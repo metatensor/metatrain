@@ -6,18 +6,22 @@ This tutorial demonstrates how to use an already trained and exported model to r
 ASE simulation of a single ethanol molecule in vacuum. We use a model that was trained
 using the :ref:`architecture-soap-bpnn` architecture on 100 ethanol structures
 containing energies and forces. You can obtain the :download:`dataset file
-<../../../static/ethanol_reduced_100.xyz>` used in this example from our website. The
-dataset is a subset of the `rMD17 dataset
+<../../../static/ethanol/ethanol_reduced_100.xyz>` used in this example from our
+website. The dataset is a subset of the `rMD17 dataset
 <https://iopscience.iop.org/article/10.1088/2632-2153/abba6f/meta>`_.
 
 The model was trained using the following training options.
 
-.. literalinclude:: ../../../static/options_ethanol.yaml
+.. literalinclude:: ../../../static/ethanol/options.yaml
    :language: yaml
 
-A step-by-step introduction on how to train and export a model for this example is
-provided in the :ref:`label_basic_usage` tutorial. The :download:`pretrained model
-<../../../static/exported_model_ethanol.pt>` is also available for download.
+You can train and export the model yourself using the following commands
+
+.. literalinclude:: ../../../../examples/ase/train_export.sh
+   :language: bash
+
+A detailed step-by-step introduction on how to train and export a model is provided in
+the :ref:`label_basic_usage` tutorial.
 """
 
 # %%
@@ -77,7 +81,7 @@ ase.md.velocitydistribution.MaxwellBoltzmannDistribution(atoms, temperature_K=30
 # We now register our exported model as the energy calculator to obtain energies and
 # forces.
 
-atoms.calc = MetatensorCalculator("exported_model_ethanol.pt")
+atoms.calc = MetatensorCalculator("exported-model.pt")
 
 # %%
 #
