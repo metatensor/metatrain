@@ -1,4 +1,6 @@
+ase
 furo
 sphinx >= 7
+sphinx-gallery
 sphinx-toggleprompt
 tomli

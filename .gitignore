@@ -165,4 +165,10 @@ cython_debug/
 
 # model output directories
 outputs/
-examples/*.xyz
+examples/basic_usage/*.xyz
+!docs/static/*.pt
+!examples/ase/*.pt
+
+# sphinx gallery
+docs/src/examples
+*execution_times*
