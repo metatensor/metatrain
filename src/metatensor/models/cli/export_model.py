@@ -1,6 +1,4 @@
 import argparse
-
-from typing import Optional
 import warnings
 
 from metatensor.torch.atomistic import MetatensorAtomisticModel
