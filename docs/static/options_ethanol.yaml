@@ -10,8 +10,7 @@ architecture:
 
 # Section defining the parameters for structure and target data
 training_set:
-  structures:
-    read_from: "../../../tests/resources/ethanol_reduced_100.xyz"
+  structures: "ethanol_reduced_100.xyz"
   targets:
     energy:
       key: "energy"
