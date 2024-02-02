@@ -165,7 +165,7 @@ cython_debug/
 
 # model output directories
 outputs/
-examples/*.xyz
+examples/basic_usage/*.xyz
 !docs/static/*.pt
 !examples/ase/*.pt
 

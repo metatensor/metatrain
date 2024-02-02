@@ -26,7 +26,7 @@ metatensor-models eval --help
 # However, before we export the model, we need to run the following command to
 # hotfix errors in metatensor.
 
-python ../scripts/hotfix_metatensor.py
+python ../../scripts/hotfix_metatensor.py
 
 # Finally, the `metatestor-models export`, i.e.,
 
