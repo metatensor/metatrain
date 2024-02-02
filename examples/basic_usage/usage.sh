@@ -24,11 +24,9 @@ head -n 20 output.xyz
 metatensor-models eval --help
 
 # However, before we export the model, we need to run the following command to
-# set up the environment for exporting
+# hotfix errors in metatensor.
 
-python ../scripts/setup.py
-
-# The above script can be found in the `scripts` folder of the repository.
+python ../scripts/hotfix_metatensor.py
 
 # Finally, the `metatestor-models export`, i.e.,
 

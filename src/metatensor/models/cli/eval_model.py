@@ -42,7 +42,7 @@ def _add_eval_model_parser(subparser: argparse._SubParsersAction) -> None:
     )
 
 
-def eval_model(model: str, structures: str, output: str = "output.xyz") -> None:
+def eval_model(model: str, structures: str, output: str) -> None:
     """Evaluate a pretrained model.
 
     ``target_property`` wil be predicted on a provided set of structures. Predicted

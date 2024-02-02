@@ -1,5 +1,7 @@
 import argparse
+
 from typing import Optional
+import warnings
 
 from metatensor.torch.atomistic import MetatensorAtomisticModel
 
@@ -31,23 +33,27 @@ def _add_export_model_parser(subparser: argparse._SubParsersAction) -> None:
         dest="output",
         type=str,
         required=False,
+        default="exported-model.pt",
         help="Filename of the exported model (default: %(default)s).",
     )
 
 
-def export_model(model: str, output: Optional[str]) -> None:
-    """Export a pretrained model to run MD simulations
+def export_model(model: str, output: str) -> None:
+    """Export a pre-trained model to run MD simulations
 
     :param model: Path to a saved model
     :param output: Path to save the exported model
     """
 
-    # Load the model
     loaded_model = load_model(model)
 
-    # Export the model
+    for model_output_name, model_output in loaded_model.capabilities.outputs.items():
+        if model_output.unit == "":
+            warnings.warn(
+                f"No units were provided for the `{model_output_name}` output. "
+                "As a result, this model output will be passed to MD engines as is.",
+                stacklevel=1,
+            )
+
     wrapper = MetatensorAtomisticModel(loaded_model.eval(), loaded_model.capabilities)
-    if output is None:
-        wrapper.export("exported-model.pt")
-    else:
-        wrapper.export(output)
+    wrapper.export(output)
