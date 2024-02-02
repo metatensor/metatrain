@@ -72,9 +72,8 @@ The sub-command to evaluate an already trained model is
 Exporting
 #########
 
-Exporting a model is very useful if you want to use it in other frameworks,
-especially in molecular dynamics simulations.
-The sub-command to export an already trained model is
+Exporting a model required if you want to use it in other frameworks, especially in
+molecular dynamics simulations. The sub-command to export a model is
 
 .. code-block:: bash
 

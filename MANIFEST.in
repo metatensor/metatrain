@@ -3,8 +3,7 @@ graft src
 include LICENSE
 include README.md
 
-# TODO: remove once the hack is not needed anymore
-include scripts/setup.py
+include scripts/hotfix_metatensor.py
 
 prune docs
 prune examples
