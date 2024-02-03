@@ -1,4 +1,5 @@
 import logging
+import warnings
 from pathlib import Path
 from typing import Dict, List, Tuple, Union
 
@@ -16,7 +17,7 @@ from ..utils.data import (
 )
 from ..utils.info import finalize_aggregated_info, update_aggregated_info
 from ..utils.loss import TensorMapDictLoss
-from ..utils.model_io import save_model
+from ..utils.model_io import load_model, save_model
 from .model import DEFAULT_HYPERS, Model
 
 
@@ -39,10 +40,22 @@ def train(
     )
 
     # Create the model:
-    model = Model(
-        capabilities=model_capabilities,
-        hypers=hypers["model"],
-    )
+    if hypers["model"]["restart"] is None:
+        model = Model(
+            capabilities=model_capabilities,
+            hypers=hypers["model"],
+        )
+    else:
+        model = load_model(hypers["model"]["restart"])
+        filtered_new_dict = {k: v for k, v in hypers["model"].items() if k != "restart"}
+        filtered_old_dict = {k: v for k, v in model.hypers.items() if k != "restart"}
+        if filtered_new_dict != filtered_old_dict:
+            warnings.warn(
+                "The hyperparameters of the model have changed since the last "
+                "training run. The new hyperparameters will be discarded.",
+                UserWarning,
+                stacklevel=1,
+            )
 
     # Calculate and set the composition weights for all targets:
     logger.info("Calculating composition weights")

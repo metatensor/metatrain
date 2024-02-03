@@ -2,6 +2,7 @@
 name: soap_bpnn
 
 model:
+  restart: null
   soap:
     cutoff: 5.0
     max_radial: 8
