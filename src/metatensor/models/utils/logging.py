@@ -25,12 +25,11 @@ class MetricLogger:
 
         In this way, the logger can align the output to make it easier to read.
 
-        Args:
-            model_capabilities: The capabilities of the model.
-            train_loss_0: The initial training loss.
-            validation_loss_0: The initial validation loss.
-            train_info_0: The initial training metrics.
-            validation_info_0: The initial validation metrics.
+        :param model_capabilities: The capabilities of the model.
+        :param train_loss_0: The initial training loss.
+        :param validation_loss_0: The initial validation loss.
+        :param train_info_0: The initial training metrics.
+        :param validation_info_0: The initial validation metrics.
         """
 
         # Since the quantities are supposed to decrease, we want to store the
@@ -72,12 +71,11 @@ class MetricLogger:
         The training metrics are automatically aligned to make them easier to read,
         based on the order of magnitude of each metric at the start of the training.
 
-        Args:
-            epoch: The current epoch.
-            train_loss: The current training loss.
-            validation_loss: The current validation loss.
-            train_info: The current training metrics.
-            validation_info: The current validation metrics.
+        :param epoch: The current epoch.
+        :param train_loss: The current training loss.
+        :param validation_loss: The current validation loss.
+        :param train_info: The current training metrics.
+        :param validation_info: The current validation metrics.
         """
 
         # The epoch is printed with 4 digits, assuming that the training
@@ -132,8 +130,7 @@ def _get_digits(value: float) -> Tuple[int, int]:
 
     5 "significant" digits are guaranteed to be printed.
 
-    Args:
-        value: The value for which the number of digits is calculated.
+    :param value: The value for which the number of digits is calculated.
     """
 
     # Get order of magnitude of the value:
