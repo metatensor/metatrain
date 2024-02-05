@@ -2,17 +2,14 @@ import argparse
 import logging
 from typing import Dict, Tuple, Union
 
+import metatensor.torch as metatensor
 import torch
+from metatensor.learn.data import Dataset
+from metatensor.torch import Labels
 from omegaconf import DictConfig, OmegaConf
 
 from ..utils.compute_loss import compute_model_loss
-from ..utils.data import (
-    Dataset,
-    collate_fn,
-    read_structures,
-    read_targets,
-    write_predictions,
-)
+from ..utils.data import collate_fn, read_structures, read_targets, write_predictions
 from ..utils.extract_targets import get_outputs_dict
 from ..utils.info import finalize_aggregated_info, update_aggregated_info
 from ..utils.loss import TensorMapDictLoss
@@ -153,7 +150,32 @@ def eval_model(
     # Predict targets
     if hasattr(options, "targets"):
         eval_targets = read_targets(options["targets"])
-        eval_dataset = Dataset(eval_structures, eval_targets)
+        # , slice_samples_by="structure"
+
+        # TODO: use this when targets are sliced in the reader
+        # eval_dataset = Dataset(
+        #     structure=eval_structures, energy=eval_targets["energy"]
+        # )
+
+        # TODO: change the readers to provide the targets as a list of TensorMaps
+        # for each sample, not a single TensorMap. This then aligns with the
+        # paradigm set by `metatensor-learn`. In the meantime, slice the targets to
+        # per-structure TensorMaps.
+        validation_targets_sliced: Dict = {"energy": []}
+        for structure_idx in range(len(eval_structures)):
+            validation_targets_sliced["energy"].append(
+                metatensor.slice(
+                    eval_targets["energy"],
+                    axis="samples",
+                    labels=Labels(
+                        names=["structure"],
+                        values=torch.tensor([structure_idx]).reshape(-1, 1),
+                    ),
+                )
+            )
+        eval_dataset = Dataset(
+            structure=eval_structures, energy=validation_targets_sliced["energy"]
+        )
         _eval_targets(model, eval_dataset)
 
     # Predict structures
