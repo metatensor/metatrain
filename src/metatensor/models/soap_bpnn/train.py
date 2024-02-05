@@ -38,7 +38,7 @@ def train(
     model_capabilities: ModelCapabilities,
     hypers: Dict = DEFAULT_HYPERS,
     output_dir: str = ".",
-):
+) -> torch.nn.Module:
     # Perform canonical checks on the datasets:
     logger.info("Checking datasets for consistency")
     check_datasets(
