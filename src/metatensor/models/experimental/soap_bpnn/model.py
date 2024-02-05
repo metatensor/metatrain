@@ -3,9 +3,10 @@ from typing import Dict, List, Optional
 import metatensor.torch
 import rascaline.torch
 import torch
-from metatensor.torch import Labels, TensorBlock, TensorMap
+from metatensor.torch import Labels, TensorMap
 from metatensor.torch.atomistic import ModelCapabilities, ModelOutput, System
 from metatensor.torch.learn.nn import Linear as LinearMap
+from metatensor.torch.learn.nn import ModuleMap
 
 from ...utils.composition import apply_composition_contribution
 from . import ARCHITECTURE_NAME, DEFAULT_MODEL_HYPERS
@@ -19,11 +20,11 @@ class Identity(torch.nn.Module):
         return x
 
 
-class MLPMap(torch.nn.Module):
+class MLPMap(ModuleMap):
     def __init__(self, all_species: List[int], hypers: dict) -> None:
         super().__init__()
 
-        self.activation_function = torch.nn.SiLU()
+        activation_function = torch.nn.SiLU()
 
         # Build a neural network for each species
         nns_per_species = []
@@ -43,102 +44,48 @@ class MLPMap(torch.nn.Module):
                             hypers["num_neurons_per_layer"],
                         )
                     )
-                module_list.append(self.activation_function)
+                module_list.append(activation_function)
 
             nns_per_species.append(torch.nn.Sequential(*module_list))
-
-        # Create a module dict to store the neural networks
-        self.layers = torch.nn.ModuleDict(
-            {str(species): nn for species, nn in zip(all_species, nns_per_species)}
+        in_keys = Labels(
+            "central_species",
+            values=torch.tensor(all_species).reshape(-1, 1),
         )
 
-    def forward(self, features: TensorMap) -> TensorMap:
-        # Create a list of the blocks that are present in the features:
-        present_blocks = [
-            int(features.keys.entry(i).values.item())
-            for i in range(features.keys.values.shape[0])
+        # PR TODO check how to solve device issue
+        #         before the device was infered in the forward path
+        #         but now this does not work
+        #         need to now how device is generally determined
+        out_properties = [
+            Labels(
+                names=["properties"],
+                values=torch.arange(
+                    hypers["num_neurons_per_layer"],
+                ).reshape(-1, 1),
+            )
+            for _ in range(len(in_keys))
         ]
-
-        new_keys: List[int] = []
-        new_blocks: List[TensorBlock] = []
-        for species_str, network in self.layers.items():
-            species = int(species_str)
-            if species in present_blocks:
-                new_keys.append(species)
-                block = features.block({"center_type": species})
-                output_values = network(block.values)
-                new_blocks.append(
-                    TensorBlock(
-                        values=output_values,
-                        samples=block.samples,
-                        components=block.components,
-                        # cannot use Labels.range() here because of torch.jit.save
-                        properties=Labels(
-                            names=["properties"],
-                            values=torch.arange(
-                                output_values.shape[1], device=output_values.device
-                            ).reshape(-1, 1),
-                        ),
-                    )
-                )
-        new_keys_labels = Labels(
-            names=["center_type"],
-            values=torch.tensor(new_keys, device=new_blocks[0].values.device).reshape(
-                -1, 1
-            ),
-        )
-
-        return TensorMap(keys=new_keys_labels, blocks=new_blocks)
+        super().__init__(in_keys, nns_per_species, out_properties)
+        self.activation_function = activation_function
 
 
-class LayerNormMap(torch.nn.Module):
+class LayerNormMap(ModuleMap):
     def __init__(self, all_species: List[int], n_layer: int) -> None:
-        super().__init__()
-
         # Initialize a layernorm for each species
         layernorm_per_species = []
         for _ in all_species:
             layernorm_per_species.append(torch.nn.LayerNorm((n_layer,)))
 
-        # Create a module dict to store the neural networks
-        self.layernorms = torch.nn.ModuleDict(
-            {
-                str(species): layer
-                for species, layer in zip(all_species, layernorm_per_species)
-            }
+        in_keys = Labels(
+            "central_species",
+            values=torch.tensor(all_species).reshape(-1, 1),
         )
 
-    def forward(self, features: TensorMap) -> TensorMap:
-        # Create a list of the blocks that are present in the features:
-        present_blocks = [
-            int(features.keys.entry(i).values.item())
-            for i in range(features.keys.values.shape[0])
-        ]
-
-        new_keys: List[int] = []
-        new_blocks: List[TensorBlock] = []
-        for species_str, layer in self.layernorms.items():
-            species = int(species_str)
-            if species in present_blocks:
-                new_keys.append(species)
-                block = features.block({"center_type": species})
-                output_values = layer(block.values)
-                new_blocks.append(
-                    TensorBlock(
-                        values=output_values,
-                        samples=block.samples,
-                        components=block.components,
-                        properties=block.properties,
-                    )
-                )
-        new_keys_labels = Labels(
-            names=["center_type"],
-            values=torch.tensor(new_keys, device=new_blocks[0].values.device).reshape(
-                -1, 1
-            ),
-        )
-
-        return TensorMap(keys=new_keys_labels, blocks=new_blocks)
+        # PR COMMENT this removes properties labels information
+        #            do you think a flag in ModuleMap that uses
+        #            the property labels from the input for the output
+        #            is a useful flag for maps that don't change property size
+        super().__init__(in_keys, layernorm_per_species)
 
 
 class Model(torch.nn.Module):
