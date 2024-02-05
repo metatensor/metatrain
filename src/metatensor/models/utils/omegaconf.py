@@ -163,9 +163,9 @@ def check_units(actual_options, desired_options):
     :raises ValueError: If the lenght units are not consistent between
     the structure in the dataset options.
     :raises ValueError: If a target is present only in desider_option and
-        not in actual_option.
+    not in actual_option.
     :raises ValueError: If unit of a target quantity is not consistent betweent
-        the dataset option.
+    the dataset option.
     """
     if (
         desired_options["structures"]["length_unit"]
