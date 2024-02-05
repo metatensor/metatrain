@@ -108,6 +108,7 @@ def train_model(
         raise ConfigKeyError("Architecture name is not defined!") from exc
 
     conf["defaults"] = [
+        "base",
         {"architecture": architecture_name},
         {"override hydra/job_logging": "custom"},
         "_self_",
@@ -140,14 +141,18 @@ def _train_model_hydra(options: DictConfig) -> None:
     :param options: A dictionary-like object obtained from Hydra, containing all the
         necessary options for dataset preparation, model hyperparameters, and training.
     """
+    if options["base_precision"] == 64:
+        torch.set_default_dtype(torch.float64)
+    elif options["base_precision"] == 32:
+        torch.set_default_dtype(torch.float32)
+    elif options["base_precision"] == 16:
+        torch.set_default_dtype(torch.float16)
+    else:
+        raise ValueError("Only 64, 32 or 16 are possible values for `base_precision`.")
 
-    # This gives some accuracy improvements. It is very likely that
-    # this is just due to the preliminary composition fit in the SOAP-BPNN.
-    # TODO: investigate
-    torch.set_default_dtype(torch.float64)
-
-    # TODO load seed from config
     generator = torch.Generator()
+    if options["seed"] != -1:
+        generator.manual_seed(options["seed"])
 
     logger.info("Setting up training set")
     train_options = expand_dataset_config(options["training_set"])
