@@ -164,7 +164,7 @@ def check_units(actual_options, desired_options):
     the structure in the dataset options.
     :raises ValueError: If a target is present only in desider_option and
     not in actual_option.
-    :raises ValueError: If unit of a target quantity is not consistent betweent
+    :raises ValueError: If the unit of a target quantity is not consistent between
     the dataset option.
     """
     if (
