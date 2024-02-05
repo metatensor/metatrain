@@ -47,6 +47,7 @@ def main():
         options = Path(args.options)
         argv.append(f"--config-dir={options.parent}")
         argv.append(f"--config-name={options.name}")
+        argv.append(f"+continue={args.continue_from}")
         argv.append(f"+output_path={args.output}")
 
         if args.hydra_paramters is not None:

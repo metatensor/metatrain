@@ -64,6 +64,15 @@ def _add_train_model_parser(subparser: argparse._SubParsersAction) -> None:
         help="Path to save the final model (default: %(default)s).",
     )
     parser.add_argument(
+        "-c",
+        "--continue",
+        dest="continue_from",
+        type=str,
+        required=False,
+        default=None,
+        help="File to continue training from.",
+    )
+    parser.add_argument(
         "-y",
         "--hydra",
         dest="hydra_paramters",
@@ -206,6 +215,7 @@ def train_model(options: DictConfig) -> None:
         validation_datasets=[validation_dataset],
         model_capabilities=model_capabilities,
         hypers=OmegaConf.to_container(options["architecture"]),
+        continue_from=options["continue"],
         output_dir=output_dir,
     )
 
