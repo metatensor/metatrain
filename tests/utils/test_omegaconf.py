@@ -1,7 +1,9 @@
+import re
+
 import pytest
 from omegaconf import OmegaConf
 
-from metatensor.models.utils.omegaconf import expand_dataset_config
+from metatensor.models.utils.omegaconf import check_units, expand_dataset_config
 
 
 def test_file_format_resolver():
@@ -145,3 +147,105 @@ def test_expand_dataset_gradient():
 
     assert conf_expanded["targets"]["my_energy"]["stress"] is False
     conf_expanded["targets"]["my_energy"]["virial"]["read_from"]
+
+
+def test_check_units():
+    file_name = "foo.xyz"
+    structure_section = {"read_from": file_name, "length_unit": "angstrom"}
+
+    target_section = {
+        "quantity": "energy",
+        "forces": file_name,
+        "unit": "eV",
+        "virial": {"read_from": "my_grad.dat", "key": "foo"},
+    }
+
+    mytarget_section = {
+        "quantity": "love",
+        "forces": file_name,
+        "unit": "heart",
+        "virial": {"read_from": "my_grad.dat", "key": "foo"},
+    }
+
+    conf = {
+        "structures": structure_section,
+        "targets": {"energy": target_section, "my_target": mytarget_section},
+    }
+
+    structure_section1 = {"read_from": file_name, "length_unit": "angstrom1"}
+
+    target_section1 = {
+        "quantity": "energy",
+        "forces": file_name,
+        "unit": "eV_",
+        "virial": {"read_from": "my_grad.dat", "key": "foo"},
+    }
+
+    mytarget_section1 = {
+        "quantity": "love",
+        "forces": file_name,
+        "unit": "heart_",
+        "virial": {"read_from": "my_grad.dat", "key": "foo"},
+    }
+
+    conf1 = {
+        "structures": structure_section1,
+        "targets": {"energy": target_section, "my_target": mytarget_section},
+    }
+    conf0 = {
+        "structures": structure_section,
+        "targets": {"energy": target_section, "my_target0": mytarget_section},
+    }
+    conf2 = {
+        "structures": structure_section,
+        "targets": {"energy": target_section1, "my_target": mytarget_section},
+    }
+    conf3 = {
+        "structures": structure_section,
+        "targets": {"energy": target_section, "my_target": mytarget_section1},
+    }
+
+    train_options = expand_dataset_config(OmegaConf.create(conf))
+    test_options = expand_dataset_config(OmegaConf.create(conf))
+
+    test_options0 = expand_dataset_config(OmegaConf.create(conf0))
+
+    test_options1 = expand_dataset_config(OmegaConf.create(conf1))
+    test_options2 = expand_dataset_config(OmegaConf.create(conf2))
+
+    test_options3 = expand_dataset_config(OmegaConf.create(conf3))
+
+    check_units(actual_options=test_options, desired_options=train_options)
+
+    with pytest.raises(
+        ValueError,
+        match=re.escape(
+            "length units are inconsistent between dataset options."
+            " angstrom1 != angstrom"
+        ),
+    ):
+        check_units(actual_options=test_options1, desired_options=train_options)
+
+    with pytest.raises(
+        ValueError,
+        match=re.escape("target 'my_target' is not present in the given dataset."),
+    ):
+        check_units(actual_options=test_options0, desired_options=train_options)
+
+    with pytest.raises(
+        ValueError,
+        match=re.escape(
+            "units of target 'energy' are inconsistent between dataset options."
+            " eV_ != eV."
+        ),
+    ):
+        check_units(actual_options=test_options2, desired_options=train_options)
+
+    with pytest.raises(
+        ValueError,
+        match=re.escape(
+            "units of target 'my_target' are inconsistent between dataset options."
+            " heart_ != heart."
+        ),
+    ):
+        check_units(actual_options=test_options3, desired_options=train_options)
