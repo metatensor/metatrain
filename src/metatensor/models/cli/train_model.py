@@ -15,7 +15,7 @@ from metatensor.models.utils.data.readers import read_structures, read_targets
 from .. import CONFIG_PATH
 from ..utils.data import get_all_species
 from ..utils.model_io import save_model
-from ..utils.omegaconf import expand_dataset_config
+from ..utils.omegaconf import check_units, expand_dataset_config
 from .formatter import CustomHelpFormatter
 
 
@@ -120,6 +120,7 @@ def train_model(options: DictConfig) -> None:
         test_targets = read_targets(test_options["targets"])
         test_dataset = Dataset(test_structures, test_targets)
         test_fraction = 0.0
+        check_units(actual_options=test_options, desired_options=train_options)
     else:
         if test_options < 0 or test_options >= 1:
             raise ValueError("Test set split must be between 0 and 1.")
@@ -136,6 +137,7 @@ def train_model(options: DictConfig) -> None:
         validation_targets = read_targets(validation_options["targets"])
         validation_dataset = Dataset(validation_structures, validation_targets)
         validation_fraction = 0.0
+        check_units(actual_options=validation_options, desired_options=train_options)
     else:
         if validation_options < 0 or validation_options >= 1:
             raise ValueError("Validation set split must be between 0 and 1.")
@@ -169,10 +171,7 @@ def train_model(options: DictConfig) -> None:
             test_dataset = subsets[1]
             validation_dataset = subsets[2]
 
-    # TODO: Perform section and unit consistency checks between test/train/validation
-    # set
     test_dataset
-    validation_dataset
 
     logger.info("Setting up model")
     architetcure_name = options["architecture"]["name"]
