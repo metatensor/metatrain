@@ -157,6 +157,16 @@ def expand_dataset_config(conf: Union[str, DictConfig]) -> DictConfig:
 
 
 def check_units(actual_options, desired_options):
+    """Check if the units in the 2 input dataset options are consistent.
+    :param actual_options: The dataset that you want to test.
+    :param desired_options: The dataset option to use as template.
+    :raises ValueError: If the lenght units are not consistent between
+    the structure in the dataset options.
+    :raises ValueError: If a target is present only in desider_option and
+        not in actual_option.
+    :raises ValueError: If unit of a target quantity is not consistent betweent
+        the dataset option.
+    """
     if (
         desired_options["structures"]["length_unit"]
         != actual_options["structures"]["length_unit"]
