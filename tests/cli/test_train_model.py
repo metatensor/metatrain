@@ -1,3 +1,4 @@
+import glob
 import shutil
 import subprocess
 from pathlib import Path
@@ -26,6 +27,9 @@ def test_train(monkeypatch, tmp_path, output):
 
     subprocess.check_call(command)
     assert Path(output).is_file()
+
+    # Test if fully expanded options.yaml file is written
+    assert len(glob.glob("outputs/*/*/options.yaml")) == 1
 
 
 @pytest.mark.parametrize("test_set_file", (True, False))
@@ -85,3 +89,19 @@ def test_hydra_arguments():
     )
     # Check that num_epochs is override is succesful
     assert "num_epochs: 1" in str(out)
+
+
+def test_no_architecture_name(monkeypatch, tmp_path):
+    """Test error raise if architecture.name is not set."""
+    monkeypatch.chdir(tmp_path)
+
+    options = OmegaConf.load(RESOURCES_PATH / "options.yaml")
+    options["architecture"].pop("name")
+    OmegaConf.save(config=options, f="options.yaml")
+
+    try:
+        subprocess.check_output(
+            ["metatensor-models", "train", "options.yaml"], stderr=subprocess.STDOUT
+        )
+    except subprocess.CalledProcessError as captured:
+        assert "Architecture name is not defined!" in str(captured.output)
