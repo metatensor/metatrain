@@ -34,6 +34,18 @@ def test_train(monkeypatch, tmp_path, output):
     # Test if logfile is written
     assert len(glob.glob("outputs/*/*/train.log")) == 1
 
+    # Open the log file and check if the logging is correct
+    with open(glob.glob("outputs/*/*/train.log")[0]) as f:
+        log = f.read()
+
+    assert "This log is also available"
+    assert "[INFO]" in log
+    assert "Epoch" in log
+    assert "loss" in log
+    assert "validation" in log
+    assert "train" in log
+    assert "energy" in log
+
 
 @pytest.mark.parametrize("test_set_file", (True, False))
 @pytest.mark.parametrize("validation_set_file", (True, False))
@@ -108,31 +120,3 @@ def test_no_architecture_name(monkeypatch, tmp_path):
         )
     except subprocess.CalledProcessError as captured:
         assert "Architecture name is not defined!" in str(captured.output)
-
-
-def test_train_logging(monkeypatch, tmp_path):
-    """Test that training via the training cli runs without an error raise."""
-    monkeypatch.chdir(tmp_path)
-    shutil.copy(RESOURCES_PATH / "qm9_reduced_100.xyz", "qm9_reduced_100.xyz")
-    shutil.copy(RESOURCES_PATH / "options.yaml", "options.yaml")
-
-    command = ["metatensor-models", "train", "options.yaml"]
-
-    subprocess.check_call(command)
-
-    # Test if fully expanded options.yaml file is written
-    assert len(glob.glob("outputs/*/*/options.yaml")) == 1
-
-    # Test if logfile is written
-    assert len(glob.glob("outputs/*/*/train.log")) == 1
-
-    # Open the log file and check if the logging is correct
-    with open(glob.glob("outputs/*/*/train.log")[0]) as f:
-        log = f.read()
-
-    assert "[INFO]" in log
-    assert "Epoch" in log
-    assert "loss" in log
-    assert "validation" in log
-    assert "train" in log
-    assert "energy" in log
