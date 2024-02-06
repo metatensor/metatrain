@@ -1,0 +1,3 @@
+device: "cpu"
+base_precision: 64
+seed: -1
