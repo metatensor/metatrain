@@ -167,17 +167,18 @@ def _train_model_hydra(options: DictConfig) -> None:
         raise ValueError("Only 64, 32 or 16 are possible values for `base_precision`.")
 
     generator = torch.Generator()
-    if options["seed"] < -1:
-        raise ValueError("`seed` should be a positive number or -1.")
-    if options["seed"] > -1:
-        generator.manual_seed(options["seed"])
-        torch.manual_seed(options["seed"])
-        np.random.seed(options["seed"])
-        random.seed(options["seed"])
-        os.environ["PYTHONHASHSEED"] = str(options["seed"])
-        if torch.cuda.is_available():
-            torch.cuda.manual_seed(options["seed"])
-            torch.cuda.manual_seed_all(options["seed"])
+    if options["seed"] is not None:
+        if options["seed"] < 0:
+            raise ValueError("`seed` should be a positive number or None.")
+        else:
+            generator.manual_seed(options["seed"])
+            torch.manual_seed(options["seed"])
+            np.random.seed(options["seed"])
+            random.seed(options["seed"])
+            os.environ["PYTHONHASHSEED"] = str(options["seed"])
+            if torch.cuda.is_available():
+                torch.cuda.manual_seed(options["seed"])
+                torch.cuda.manual_seed_all(options["seed"])
 
     logger.info("Setting up training set")
     train_options = expand_dataset_config(options["training_set"])

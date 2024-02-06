@@ -148,7 +148,7 @@ def test_no_architecture_name(monkeypatch, tmp_path):
         assert "Architecture name is not defined!" in str(captured.output)
 
 
-@pytest.mark.parametrize("seed", [1234, -1, -123])
+@pytest.mark.parametrize("seed", [1234, None, 0, -123])
 @pytest.mark.parametrize("architecture_name", ["soap_bpnn"])
 def test_model_consistency_with_seed(monkeypatch, tmp_path, architecture_name, seed):
     """Checks final model consistency with a fixed seed."""
@@ -160,14 +160,30 @@ def test_model_consistency_with_seed(monkeypatch, tmp_path, architecture_name, s
     options["seed"] = seed
     OmegaConf.save(config=options, f="options.yaml")
 
-    if seed < -1:
-        try:
-            subprocess.check_output(
-                ["metatensor-models", "train", "options.yaml", "-o", "model1.pt"],
-                stderr=subprocess.STDOUT,
+    if seed is not None:
+        if seed < 0:
+            try:
+                subprocess.check_output(
+                    ["metatensor-models", "train", "options.yaml", "-o", "model1.pt"],
+                    stderr=subprocess.STDOUT,
+                )
+            except subprocess.CalledProcessError as captured:
+                assert "should be a positive number or None." in str(captured.output)
+        else:
+            subprocess.check_call(
+                ["metatensor-models", "train", "options.yaml", "-o", "model1.pt"]
             )
-        except subprocess.CalledProcessError as captured:
-            assert "should be a positive number or -1." in str(captured.output)
+            subprocess.check_call(
+                ["metatensor-models", "train", "options.yaml", "-o", "model2.pt"]
+            )
+
+            m1 = torch.load("model1.pt")
+            m2 = torch.load("model2.pt")
+
+            for i in m1["model_state_dict"]:
+                tensor1 = m1["model_state_dict"][i]
+                tensor2 = m2["model_state_dict"][i]
+                assert torch.allclose(tensor1, tensor2)
     else:
         subprocess.check_call(
             ["metatensor-models", "train", "options.yaml", "-o", "model1.pt"]
@@ -182,10 +198,9 @@ def test_model_consistency_with_seed(monkeypatch, tmp_path, architecture_name, s
         for index, i in enumerate(m1["model_state_dict"]):
             tensor1 = m1["model_state_dict"][i]
             tensor2 = m2["model_state_dict"][i]
-
-            # The first tensor only depend on the chemical compositions (not on the
-            # seed) and should alwyas be the same.
-            if seed > -1 or index == 0:
+            if index == 0:
+                # The first tensor only depend on the chemical compositions (not on the
+                # seed) and should alwyas be the same.
                 assert torch.allclose(tensor1, tensor2)
             else:
                 assert not torch.allclose(tensor1, tensor2)
