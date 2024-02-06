@@ -154,7 +154,9 @@ def _train_model_hydra(options: DictConfig) -> None:
         raise ValueError("Only 64, 32 or 16 are possible values for `base_precision`.")
 
     generator = torch.Generator()
-    if options["seed"] != -1:
+    if options["seed"] < -1:
+        raise ValueError("`seed` should be a positive number or -1.")
+    if options["seed"] > -1:
         generator.manual_seed(options["seed"])
         torch.manual_seed(options["seed"])
         np.random.seed(options["seed"])
