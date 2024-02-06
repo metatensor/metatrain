@@ -305,7 +305,9 @@ class Model(torch.nn.Module):
             if output_name in outputs:
                 atomic_energies[output_name] = apply_composition_contribution(
                     output_layer(hidden_features),
-                    self.composition_weights[self.output_to_index[output_name]],
+                    self.composition_weights[  # type: ignore
+                        self.output_to_index[output_name]
+                    ],
                 )
 
         # Sum the atomic energies coming from the BPNN to get the total energy
@@ -331,6 +333,29 @@ class Model(torch.nn.Module):
     ) -> None:
         """Set the composition weights for a given output."""
         # all species that are not present retain their weight of zero
-        self.composition_weights[self.output_to_index[output_name]][
+        self.composition_weights[self.output_to_index[output_name]][  # type: ignore
             self.all_species
         ] = input_composition_weights
+
+    def add_output(self, output_name: str) -> None:
+        """Add a new output to the model."""
+        # add a new row to the composition weights tensor
+        self.composition_weights = torch.cat(
+            [
+                self.composition_weights,  # type: ignore
+                torch.zeros(
+                    1,
+                    self.composition_weights.shape[1],  # type: ignore
+                    dtype=self.composition_weights.dtype,  # type: ignore
+                    device=self.composition_weights.device,  # type: ignore
+                ),
+            ]
+        )  # type: ignore
+        self.output_to_index[output_name] = len(self.output_to_index)
+        # add a new linear layer to the last layers
+        hypers_bpnn = self.hypers["bpnn"]
+        if hypers_bpnn["num_hidden_layers"] == 0:
+            n_inputs_last_layer = hypers_bpnn["input_size"]
+        else:
+            n_inputs_last_layer = hypers_bpnn["num_neurons_per_layer"]
+        self.last_layers[output_name] = LinearMap(self.all_species, n_inputs_last_layer)
