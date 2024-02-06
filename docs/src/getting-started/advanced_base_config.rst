@@ -13,4 +13,5 @@ be adjusted. They should be written without indentation in the ``options.yaml`` 
     to the same value ``seed``.
     If ``seed=-1`` all the seeds are set to a random number. Default: ``-1``
 :param base_precision: This may increase the accuracy but will increase the
-    memory consumption during training. Default: ``64``
+    memory consumption during training. Possible values:
+    ``64``, ``32`` or ``16``. Default: ``64``
