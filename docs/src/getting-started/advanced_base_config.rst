@@ -12,5 +12,5 @@ be adjusted. They should be written without indentation in the ``options.yaml`` 
     of ``numpy.random``, ``random``, ``torch`` and ``torch.cuda`` (if available)
     to the same value ``seed``.
     If ``seed=-1`` all the seeds are set to a random number. Default: ``-1``
-:param base_precision: This may increase the accuracy improvements but will increase the
+:param base_precision: This may increase the accuracy but will increase the
     memory consumption during training. Default: ``64``
