@@ -77,9 +77,9 @@ def test_continue(monkeypatch, tmp_path):
     monkeypatch.chdir(tmp_path)
     shutil.copy(RESOURCES_PATH / "qm9_reduced_100.xyz", "qm9_reduced_100.xyz")
     shutil.copy(RESOURCES_PATH / "bpnn-model.pt", "bpnn-model.pt")
-    shutil.copy(RESOURCES_PATH / "options_continue.yaml", "options_continue.yaml")
+    shutil.copy(RESOURCES_PATH / "options.yaml", "options.yaml")
 
-    command = ["metatensor-models", "train", "options_continue.yaml"]
+    command = ["metatensor-models", "train", "options.yaml", "-c bpnn-model.pt"]
     subprocess.check_call(command)
 
 
@@ -88,13 +88,23 @@ def test_continue_different_dataset(monkeypatch, tmp_path):
     with a different dataset than the original."""
     monkeypatch.chdir(tmp_path)
     shutil.copy(RESOURCES_PATH / "ethanol_reduced_100.xyz", "ethanol_reduced_100.xyz")
-    shutil.copy(RESOURCES_PATH / "bpnn-model.pt", "bpnn-model.pt")
     shutil.copy(
-        RESOURCES_PATH / "options_continue_different_dataset.yaml",
-        "options_continue_different_dataset.yaml",
+        RESOURCES_PATH / "bpnn-model.pt",
+        "bpnn-model.pt",
     )
 
-    command = ["metatensor-models", "train", "options_continue_different_dataset.yaml"]
+    options = OmegaConf.load(RESOURCES_PATH / "options.yaml")
+    options["training_set"]["structures"]["read_from"] = "ethanol_reduced_100.xyz"
+    options["training_set"]["targets"]["energy"]["key"] = "energy"
+    print(options)
+    OmegaConf.save(config=options, f="options.yaml")
+
+    command = [
+        "metatensor-models",
+        "train",
+        "options.yaml",
+        "-c bpnn-model.pt",
+    ]
     subprocess.check_call(command)
 
 
