@@ -8,7 +8,11 @@ handlers:
     class: logging.StreamHandler
     formatter: simple
     stream: ext://sys.stdout
+  file:
+    class: logging.FileHandler
+    formatter: simple
+    filename: "${hydra:runtime.output_dir}/train.log"
 root:
-  handlers: [console]
+  handlers: [console, file]
 
 disable_existing_loggers: false

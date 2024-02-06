@@ -31,6 +31,9 @@ def test_train(monkeypatch, tmp_path, output):
     # Test if fully expanded options.yaml file is written
     assert len(glob.glob("outputs/*/*/options.yaml")) == 1
 
+    # Test if logfile is written
+    assert len(glob.glob("outputs/*/*/train.log")) == 1
+
 
 @pytest.mark.parametrize("test_set_file", (True, False))
 @pytest.mark.parametrize("validation_set_file", (True, False))
