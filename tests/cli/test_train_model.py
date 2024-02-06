@@ -190,3 +190,18 @@ def test_model_consistency_with_seed(monkeypatch, tmp_path, architecture_name, s
             else:
                 assert not torch.allclose(tensor1, tensor2)
 
+
+def test_error_base_precision(monkeypatch, tmp_path):
+    """Test unsopperted base_precision"""
+    monkeypatch.chdir(tmp_path)
+
+    options = OmegaConf.load(RESOURCES_PATH / "options.yaml")
+    options["base_precision"] = "123"
+    OmegaConf.save(config=options, f="options.yaml")
+
+    try:
+        subprocess.check_output(
+            ["metatensor-models", "train", "options.yaml"], stderr=subprocess.STDOUT
+        )
+    except subprocess.CalledProcessError as captured:
+        assert "Only 64, 32 or 16 are possible values for " in str(captured.output)
