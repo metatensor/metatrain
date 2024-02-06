@@ -192,7 +192,7 @@ def test_model_consistency_with_seed(monkeypatch, tmp_path, architecture_name, s
 
 
 def test_error_base_precision(monkeypatch, tmp_path):
-    """Test unsopperted base_precision"""
+    """Test unsopported `base_precision`"""
     monkeypatch.chdir(tmp_path)
 
     options = OmegaConf.load(RESOURCES_PATH / "options.yaml")
