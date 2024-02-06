@@ -194,11 +194,11 @@ def _displacement_gradients_to_block(gradients_list):
 
     components = [
         Labels(
-            names=["cell_vector"],
+            names=["cell_abc"],
             values=torch.tensor([[0], [1], [2]]),
         ),
         Labels(
-            names=["coordinate"],
+            names=["xyz"],
             values=torch.tensor([[0], [1], [2]]),
         ),
     ]
