@@ -1,8 +1,5 @@
-defaults:
-  - architecture: soap_bpnn  # architecture used to train the model
-  - _self_
-
 architecture:
+  name: soap_bpnn
   model:
     restart: bpnn-model.pt
   training:
