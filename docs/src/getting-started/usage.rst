@@ -76,7 +76,7 @@ Exporting
 
 Exporting a model is very useful if you want to use it in other frameworks,
 especially in molecular dynamics simulations.
-The sub-command to export an already trained model is
+The sub-command to export a trained model is
 
 .. code-block:: bash
 
