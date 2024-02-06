@@ -1,3 +1,4 @@
+import logging
 import os
 from typing import Dict, List, Tuple
 
@@ -6,6 +7,9 @@ import numpy as np
 import torch
 from metatensor.torch import Labels, TensorMap
 from metatensor.torch.atomistic import ModelCapabilities, System
+
+
+logger = logging.getLogger(__name__)
 
 
 if os.environ.get("METATENSOR_IMPORT_FOR_SPHINX", "0") == "1":
@@ -177,43 +181,41 @@ def check_datasets(
     :param capabilities: The model's capabilities.
 
     :raises ValueError: If the training and validation sets are not compatible
-        with one another or with the model's capabilities.
+        with the model's capabilities.
     """
 
-    # Get all targets in the training sets:
-    targets = []
+    # Get all targets in the training and validation sets:
+    train_targets = []
     for dataset in train_datasets:
-        targets += get_all_targets(dataset)
+        train_targets += get_all_targets(dataset)
+    validation_targets = []
+    for dataset in validation_datasets:
+        validation_targets += get_all_targets(dataset)
 
     # Check that they are compatible with the model's capabilities:
-    for target in targets:
+    for target in train_targets + validation_targets:
         if target not in capabilities.outputs.keys():
             raise ValueError(f"The target {target} is not in the model's capabilities.")
 
-    # For now, we impose no overlap between the targets in the training sets:
-    if len(set(targets)) != len(targets):
-        raise ValueError(
-            "The training datasets must not have overlapping targets in SOAP-BPNN. "
-            "This means that one target cannot be in more than one dataset."
-        )
-
     # Check that the validation sets do not have targets that are not in the
     # training sets:
-    for dataset in validation_datasets:
-        for target in get_all_targets(dataset):
-            if target not in targets:
-                raise ValueError(
-                    f"The validation dataset has a target ({target}) "
-                    "that is not in the training datasets."
-                )
+    for target in validation_targets:
+        if target not in train_targets:
+            logger.warn(
+                f"The validation dataset has a target ({target}) "
+                "that is not in the training dataset."
+            )
 
-    # Get all the species in the training sets:
+    # Get all the species in the training and validation sets:
     all_training_species = []
     for dataset in train_datasets:
         all_training_species += get_all_species(dataset)
+    all_validation_species = []
+    for dataset in validation_datasets:
+        all_validation_species += get_all_species(dataset)
 
     # Check that they are compatible with the model's capabilities:
-    for species in all_training_species:
+    for species in all_training_species + all_validation_species:
         if species not in capabilities.species:
             raise ValueError(
                 f"The species {species} is not in the model's capabilities."
@@ -221,12 +223,11 @@ def check_datasets(
 
     # Check that the validation sets do not have species that are not in the
     # training sets:
-    for dataset in validation_datasets:
-        for species in get_all_species(dataset):
-            if species not in all_training_species:
-                raise ValueError(
-                    f"The validation dataset has a species ({species}) "
-                    "that is not in the training datasets. This could be "
-                    "a result of a random train/validation split. You can "
-                    "avoid this by providing a validation dataset manually."
-                )
+    for species in all_validation_species:
+        if species not in all_training_species:
+            logger.warn(
+                f"The validation dataset has a species ({species}) "
+                "that is not in the training dataset. This could be "
+                "a result of a random train/validation split. You can "
+                "avoid this by providing a validation dataset manually."
+            )
