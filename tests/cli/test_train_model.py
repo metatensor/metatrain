@@ -148,62 +148,45 @@ def test_no_architecture_name(monkeypatch, tmp_path):
         assert "Architecture name is not defined!" in str(captured.output)
 
 
+@pytest.mark.parametrize("seed", [1234, -1, -123])
 @pytest.mark.parametrize("architecture_name", ["soap_bpnn"])
-def test_model_consistency_with_seed(monkeypatch, tmp_path, architecture_name):
+def test_model_consistency_with_seed(monkeypatch, tmp_path, architecture_name, seed):
     """Checks final model consistency with a fixed seed."""
     monkeypatch.chdir(tmp_path)
     shutil.copy(RESOURCES_PATH / "qm9_reduced_100.xyz", "qm9_reduced_100.xyz")
 
     options = OmegaConf.load(RESOURCES_PATH / "options.yaml")
     options["architecture"]["name"] = architecture_name
-    # fixed seed
-    options["seed"] = 1234
+    options["seed"] = seed
     OmegaConf.save(config=options, f="options.yaml")
 
-    subprocess.check_call(
-        ["metatensor-models", "train", "options.yaml", "-o", "model1.pt"]
-    )
-    subprocess.check_call(
-        ["metatensor-models", "train", "options.yaml", "-o", "model2.pt"]
-    )
-
-    m1 = torch.load("model1.pt")
-    m2 = torch.load("model2.pt")
-
-    for i in m1["model_state_dict"]:
-        assert torch.allclose(m1["model_state_dict"][i], m2["model_state_dict"][i])
-
-    # random seed
-    options["seed"] = -1
-    OmegaConf.save(config=options, f="options.yaml")
-
-    subprocess.check_call(
-        ["metatensor-models", "train", "options.yaml", "-o", "model1.pt"]
-    )
-    subprocess.check_call(
-        ["metatensor-models", "train", "options.yaml", "-o", "model2.pt"]
-    )
-
-    m1 = torch.load("model1.pt")
-    m2 = torch.load("model2.pt")
-
-    for ii, i in enumerate(m1["model_state_dict"]):
-        if ii == 0:
-            # The first tensor only depend on the chemical compositions not on the seed
-            assert torch.allclose(m1["model_state_dict"][i], m2["model_state_dict"][i])
-        else:
-            assert not torch.allclose(
-                m1["model_state_dict"][i], m2["model_state_dict"][i]
+    if seed < -1:
+        try:
+            subprocess.check_output(
+                ["metatensor-models", "train", "options.yaml", "-o", "model1.pt"],
+                stderr=subprocess.STDOUT,
             )
-
-    # invalid seed
-    options["seed"] = -123
-    OmegaConf.save(config=options, f="options.yaml")
-
-    try:
-        subprocess.check_output(
-            ["metatensor-models", "train", "options.yaml", "-o", "model1.pt"],
-            stderr=subprocess.STDOUT,
+        except subprocess.CalledProcessError as captured:
+            assert "should be a positive number or -1." in str(captured.output)
+    else:
+        subprocess.check_call(
+            ["metatensor-models", "train", "options.yaml", "-o", "model1.pt"]
         )
-    except subprocess.CalledProcessError as captured:
-        assert "should be a positive number or -1." in str(captured.output)
+        subprocess.check_call(
+            ["metatensor-models", "train", "options.yaml", "-o", "model2.pt"]
+        )
+
+        m1 = torch.load("model1.pt")
+        m2 = torch.load("model2.pt")
+
+        for index, i in enumerate(m1["model_state_dict"]):
+            tensor1 = m1["model_state_dict"][i]
+            tensor2 = m2["model_state_dict"][i]
+
+            # The first tensor only depend on the chemical compositions (not on the
+            # seed) and should alwyas be the same.
+            if seed > -1 or index == 0:
+                assert torch.allclose(tensor1, tensor2)
+            else:
+                assert not torch.allclose(tensor1, tensor2)
+
