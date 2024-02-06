@@ -1,8 +1,7 @@
-from typing import Optional
 import logging
 import warnings
 from pathlib import Path
-from typing import Dict, List, Tuple, Union
+from typing import Dict, List, Optional, Tuple, Union
 
 import rascaline
 import torch
