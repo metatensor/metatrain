@@ -1,3 +1,4 @@
+from typing import Optional
 import logging
 import warnings
 from pathlib import Path
@@ -38,11 +39,11 @@ def train(
     validation_datasets: List[Union[Dataset, torch.utils.data.Subset]],
     requested_capabilities: ModelCapabilities,
     hypers: Dict = DEFAULT_HYPERS,
-    continue_from: str = "None",
+    continue_from: Optional[str] = None,
     output_dir: str = ".",
 ):
     # Create the model:
-    if continue_from == "None":
+    if continue_from is None:
         model = Model(
             capabilities=requested_capabilities,
             hypers=hypers["model"],

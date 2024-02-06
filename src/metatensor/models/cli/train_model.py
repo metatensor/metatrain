@@ -107,6 +107,7 @@ def train_model(
 
     :param options: Options file path
     :param output: Path to save the final model
+    :param continue_from: File to continue training from.
     :param hydra_parameters: Hydra's command line and override flags
     """
     conf = OmegaConf.load(options)
@@ -129,8 +130,10 @@ def train_model(
 
         # HACK: Hydra parses command line arguments directlty from `sys.argv`. We
         # override `sys.argv` to be compatible with our CLI architecture.
-        argv = sys.argv[:1]
+        if continue_from is None:
+            continue_from = "null"
 
+        argv = sys.argv[:1]
         argv.append(f"--config-dir={options_new.parent}")
         argv.append(f"--config-name={options_new.name}")
         argv.append(f"+output_path={output}")
