@@ -69,7 +69,6 @@ def _add_train_model_parser(subparser: argparse._SubParsersAction) -> None:
         dest="continue_from",
         type=str,
         required=False,
-        default=None,
         help="File to continue training from.",
     )
     parser.add_argument(
@@ -203,7 +202,7 @@ def train_model(options: DictConfig) -> None:
         for key, value in options["training_set"]["targets"].items()
     }
     length_unit = train_options["structures"]["length_unit"]
-    model_capabilities = ModelCapabilities(
+    requested_capabilities = ModelCapabilities(
         length_unit=length_unit if length_unit is not None else "",
         species=all_species,
         outputs=outputs,
@@ -213,7 +212,7 @@ def train_model(options: DictConfig) -> None:
     model = architecture.train(
         train_datasets=[train_dataset],
         validation_datasets=[validation_dataset],
-        model_capabilities=model_capabilities,
+        requested_capabilities=requested_capabilities,
         hypers=OmegaConf.to_container(options["architecture"]),
         continue_from=options["continue"],
         output_dir=output_dir,
