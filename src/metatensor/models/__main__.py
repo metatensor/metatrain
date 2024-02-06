@@ -2,7 +2,6 @@
 
 import argparse
 import sys
-from pathlib import Path
 
 from . import __version__
 from .cli import eval_model, export_model, train_model
@@ -40,22 +39,7 @@ def main():
     elif callable == "export_model":
         export_model(**args.__dict__)
     elif callable == "train_model":
-        # HACK: Hydra parses command line arguments directlty from `sys.argv`. We
-        # override `sys.argv` to be compatible with our CLI architecture.
-        argv = sys.argv[:1]
-
-        options = Path(args.options)
-        argv.append(f"--config-dir={options.parent}")
-        argv.append(f"--config-name={options.name}")
-        argv.append(f"+continue={args.continue_from}")
-        argv.append(f"+output_path={args.output}")
-
-        if args.hydra_paramters is not None:
-            argv += args.hydra_paramters
-
-        sys.argv = argv
-
-        train_model()
+        train_model(**args.__dict__)
     else:
         raise ValueError("internal error when selecting a sub-command.")
 

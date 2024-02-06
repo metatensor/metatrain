@@ -26,11 +26,8 @@ hyperparameters. The adjustments for ``num_epochs`` and ``cutoff`` look like thi
 
 .. code-block:: yaml
 
-   defaults:
-      - architecture: soap_bpnn
-      - _self_
-
    architecture:
+      name: "soap_bpnn"
       model:
          soap:
             cutoff: 7.0
@@ -65,16 +62,3 @@ syntax are available at https://hydra.cc/docs/advanced/override_grammar/basic/.
    For your reference and reproducibility purposes `metatensor-models` always writes the
    fully expanded options to the ``.hydra`` subdirectory inside the ``output``
    directory of your current training run.
-
-
-Understanding the Defaults Section
-----------------------------------
-
-You may have noticed the ``defaults`` section at the beginning of each file. This list
-dictates which defaults should be loaded and how to compose the final config object and
-is conventionally the first item in the config.
-
-Append ``_self_`` to the end of the list to have your primary config override values
-from the Defaults List. If you do not add a ``_self_`` entry still your primary config
-Overrides values from the Defaults List, but Hydra will throw a warning. For more
-background, visit https://hydra.cc/docs/tutorials/basic/your_first_app/defaults/.

@@ -1,13 +1,17 @@
 import argparse
 import importlib
 import logging
+import sys
+import tempfile
 import warnings
 from pathlib import Path
+from typing import List, Optional
 
 import hydra
 import torch
 from metatensor.torch.atomistic import ModelCapabilities, ModelOutput
 from omegaconf import DictConfig, OmegaConf
+from omegaconf.errors import ConfigKeyError
 
 from metatensor.models.utils.data import Dataset
 from metatensor.models.utils.data.readers import read_structures, read_targets
@@ -15,7 +19,7 @@ from metatensor.models.utils.data.readers import read_structures, read_targets
 from .. import CONFIG_PATH
 from ..utils.data import get_all_species
 from ..utils.model_io import save_model
-from ..utils.omegaconf import expand_dataset_config
+from ..utils.omegaconf import check_units, expand_dataset_config
 from .formatter import CustomHelpFormatter
 
 
@@ -74,16 +78,21 @@ def _add_train_model_parser(subparser: argparse._SubParsersAction) -> None:
     parser.add_argument(
         "-y",
         "--hydra",
-        dest="hydra_paramters",
+        dest="hydra_parameters",
         nargs="+",
         type=str,
         help="Hydra's command line and override flags.",
     )
 
 
-@hydra.main(config_path=str(CONFIG_PATH), version_base=None)
-def train_model(options: DictConfig) -> None:
-    """Train an atomistic machine learning model using configurations provided by Hydra.
+def train_model(
+    options: str,
+    output: str = "model.pt",
+    continue_from: Optional[str] = None,
+    hydra_parameters: Optional[List[str]] = None,
+) -> None:
+    """
+    Train an atomistic machine learning model using configurations provided by Hydra.
 
     This function sets up the dataset and model architecture, then runs the training
     process. The dataset is prepared by reading structural data and target values from
@@ -96,17 +105,64 @@ def train_model(options: DictConfig) -> None:
     https://hydra.cc/docs/advanced/hydra-command-line-flags/ and
     https://hydra.cc/docs/advanced/override_grammar/basic/ for details.
 
+    :param options: Options file path
+    :param output: Path to save the final model
+    :param hydra_parameters: Hydra's command line and override flags
+    """
+    conf = OmegaConf.load(options)
+
+    try:
+        architecture_name = conf["architecture"]["name"]
+    except ConfigKeyError as exc:
+        raise ConfigKeyError("Architecture name is not defined!") from exc
+
+    conf["defaults"] = [
+        "base",
+        {"architecture": architecture_name},
+        {"override hydra/job_logging": "custom"},
+        "_self_",
+    ]
+
+    with tempfile.TemporaryDirectory() as tmpdirname:
+        options_new = Path(tmpdirname) / "options.yaml"
+        OmegaConf.save(config=conf, f=options_new)
+
+        # HACK: Hydra parses command line arguments directlty from `sys.argv`. We
+        # override `sys.argv` to be compatible with our CLI architecture.
+        argv = sys.argv[:1]
+
+        argv.append(f"--config-dir={options_new.parent}")
+        argv.append(f"--config-name={options_new.name}")
+        argv.append(f"+output_path={output}")
+        argv.append(f"+continue_from={continue_from}")
+
+        if hydra_parameters is not None:
+            argv += hydra_parameters
+
+        sys.argv = argv
+
+        _train_model_hydra()
+
+
+@hydra.main(config_path=str(CONFIG_PATH), version_base=None)
+def _train_model_hydra(options: DictConfig) -> None:
+    """Actual fit function called in :func:`train_model`.
+
     :param options: A dictionary-like object obtained from Hydra, containing all the
         necessary options for dataset preparation, model hyperparameters, and training.
     """
+    if options["base_precision"] == 64:
+        torch.set_default_dtype(torch.float64)
+    elif options["base_precision"] == 32:
+        torch.set_default_dtype(torch.float32)
+    elif options["base_precision"] == 16:
+        torch.set_default_dtype(torch.float16)
+    else:
+        raise ValueError("Only 64, 32 or 16 are possible values for `base_precision`.")
 
-    # This gives some accuracy improvements. It is very likely that
-    # this is just due to the preliminary composition fit in the SOAP-BPNN.
-    # TODO: investigate
-    torch.set_default_dtype(torch.float64)
-
-    # TODO load seed from config
     generator = torch.Generator()
+    if options["seed"] != -1:
+        generator.manual_seed(options["seed"])
 
     logger.info("Setting up training set")
     train_options = expand_dataset_config(options["training_set"])
@@ -128,6 +184,7 @@ def train_model(options: DictConfig) -> None:
         test_targets = read_targets(test_options["targets"])
         test_dataset = Dataset(test_structures, test_targets)
         test_fraction = 0.0
+        check_units(actual_options=test_options, desired_options=train_options)
     else:
         if test_options < 0 or test_options >= 1:
             raise ValueError("Test set split must be between 0 and 1.")
@@ -144,6 +201,7 @@ def train_model(options: DictConfig) -> None:
         validation_targets = read_targets(validation_options["targets"])
         validation_dataset = Dataset(validation_structures, validation_targets)
         validation_fraction = 0.0
+        check_units(actual_options=validation_options, desired_options=train_options)
     else:
         if validation_options < 0 or validation_options >= 1:
             raise ValueError("Validation set split must be between 0 and 1.")
@@ -177,16 +235,15 @@ def train_model(options: DictConfig) -> None:
             test_dataset = subsets[1]
             validation_dataset = subsets[2]
 
-    # TODO: Perform section and unit consistency checks between test/train/validation
-    # set
     test_dataset
-    validation_dataset
+
+    output_dir = hydra.core.hydra_config.HydraConfig.get().runtime.output_dir
+    # Save fully expanded config
+    OmegaConf.save(config=options, f=Path(output_dir) / "options.yaml")
 
     logger.info("Setting up model")
     architetcure_name = options["architecture"]["name"]
     architecture = importlib.import_module(f"metatensor.models.{architetcure_name}")
-
-    output_dir = hydra.core.hydra_config.HydraConfig.get().runtime.output_dir
 
     all_species = []
     for dataset in [train_dataset]:  # HACK: only a single train_dataset for now
@@ -214,7 +271,7 @@ def train_model(options: DictConfig) -> None:
         validation_datasets=[validation_dataset],
         requested_capabilities=requested_capabilities,
         hypers=OmegaConf.to_container(options["architecture"]),
-        continue_from=options["continue"],
+        continue_from=options["continue_from"],
         output_dir=output_dir,
     )
 
