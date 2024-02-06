@@ -53,6 +53,11 @@ def train(
         hypers=hypers["model"],
     )
 
+    logger.info(f"Training on device {hypers['training']['device']}")
+    if hypers["training"]["device"] == "gpu":
+        hypers["training"]["device"] = "cuda"
+    model.to(hypers["training"]["device"])
+
     # Calculate and set the composition weights for all targets:
     logger.info("Calculating composition weights")
     for target_name in model_capabilities.outputs.keys():

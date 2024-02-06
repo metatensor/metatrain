@@ -225,8 +225,6 @@ def _train_model_hydra(options: DictConfig) -> None:
             test_dataset = subsets[1]
             validation_dataset = subsets[2]
 
-    test_dataset
-
     output_dir = hydra.core.hydra_config.HydraConfig.get().runtime.output_dir
     # Save fully expanded config
     OmegaConf.save(config=options, f=Path(output_dir) / "options.yaml")

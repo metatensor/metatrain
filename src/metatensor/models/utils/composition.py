@@ -29,7 +29,7 @@ def calculate_composition_weights(
     composition_calculator = rascaline.torch.AtomicComposition(per_structure=True)
     composition_features = composition_calculator.compute(
         [sample[0] for sample in dataset]
-    )
+    ).to(dtype=torch.get_default_dtype())  # rascaline-torch always outputs in float64
     composition_features = composition_features.keys_to_properties("species_center")
     composition_features = composition_features.block().values
 
@@ -97,7 +97,7 @@ def apply_composition_contribution(
 
     new_keys_labels = Labels(
         names=["species_center"],
-        values=torch.tensor(new_keys).reshape(-1, 1),
+        values=torch.tensor(new_keys, device=new_blocks[0].values.device).reshape(-1, 1),
     )
 
     return TensorMap(keys=new_keys_labels, blocks=new_blocks)
