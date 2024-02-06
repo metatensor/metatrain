@@ -74,6 +74,42 @@ def test_train_explicit_validation_test(
     assert Path(output).is_file()
 
 
+def test_continue(monkeypatch, tmp_path):
+    """Test that continuing training from a checkpoint runs without an error raise."""
+    monkeypatch.chdir(tmp_path)
+    shutil.copy(RESOURCES_PATH / "qm9_reduced_100.xyz", "qm9_reduced_100.xyz")
+    shutil.copy(RESOURCES_PATH / "bpnn-model.pt", "bpnn-model.pt")
+    shutil.copy(RESOURCES_PATH / "options.yaml", "options.yaml")
+
+    command = ["metatensor-models", "train", "options.yaml", "-c bpnn-model.pt"]
+    subprocess.check_call(command)
+
+
+def test_continue_different_dataset(monkeypatch, tmp_path):
+    """Test that continuing training from a checkpoint runs without an error raise
+    with a different dataset than the original."""
+    monkeypatch.chdir(tmp_path)
+    shutil.copy(RESOURCES_PATH / "ethanol_reduced_100.xyz", "ethanol_reduced_100.xyz")
+    shutil.copy(
+        RESOURCES_PATH / "bpnn-model.pt",
+        "bpnn-model.pt",
+    )
+
+    options = OmegaConf.load(RESOURCES_PATH / "options.yaml")
+    options["training_set"]["structures"]["read_from"] = "ethanol_reduced_100.xyz"
+    options["training_set"]["targets"]["energy"]["key"] = "energy"
+    print(options)
+    OmegaConf.save(config=options, f="options.yaml")
+
+    command = [
+        "metatensor-models",
+        "train",
+        "options.yaml",
+        "-c bpnn-model.pt",
+    ]
+    subprocess.check_call(command)
+
+
 def test_yml_error():
     """Test error raise of the option file is not a .yaml file."""
     try:
