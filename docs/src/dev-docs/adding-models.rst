@@ -1,7 +1,7 @@
 .. _adding-new-models:
 
 Adding new models
-=================
+-----------------
 
 To be done.
 This section contains a quick introduction to adding a new model to

@@ -1,5 +1,5 @@
 Adding new models
-=================
+-----------------
 
 This section contains a quick introduction to adding a new model to
 ``metatensor-models``. In order to add a new model, two things are
