@@ -4,7 +4,9 @@ import subprocess
 from pathlib import Path
 
 import ase.io
+import metatensor.torch  # noqa
 import pytest
+import torch
 from omegaconf import OmegaConf
 
 
@@ -156,3 +158,77 @@ def test_no_architecture_name(monkeypatch, tmp_path):
         )
     except subprocess.CalledProcessError as captured:
         assert "Architecture name is not defined!" in str(captured.output)
+
+
+@pytest.mark.parametrize("seed", [1234, None, 0, -123])
+@pytest.mark.parametrize("architecture_name", ["soap_bpnn"])
+def test_model_consistency_with_seed(monkeypatch, tmp_path, architecture_name, seed):
+    """Checks final model consistency with a fixed seed."""
+    monkeypatch.chdir(tmp_path)
+    shutil.copy(RESOURCES_PATH / "qm9_reduced_100.xyz", "qm9_reduced_100.xyz")
+
+    options = OmegaConf.load(RESOURCES_PATH / "options.yaml")
+    options["architecture"]["name"] = architecture_name
+    options["seed"] = seed
+    OmegaConf.save(config=options, f="options.yaml")
+
+    if seed is not None:
+        if seed < 0:
+            try:
+                subprocess.check_output(
+                    ["metatensor-models", "train", "options.yaml", "-o", "model1.pt"],
+                    stderr=subprocess.STDOUT,
+                )
+            except subprocess.CalledProcessError as captured:
+                assert "should be a positive number or None." in str(captured.output)
+        else:
+            subprocess.check_call(
+                ["metatensor-models", "train", "options.yaml", "-o", "model1.pt"]
+            )
+            subprocess.check_call(
+                ["metatensor-models", "train", "options.yaml", "-o", "model2.pt"]
+            )
+
+            m1 = torch.load("model1.pt")
+            m2 = torch.load("model2.pt")
+
+            for i in m1["model_state_dict"]:
+                tensor1 = m1["model_state_dict"][i]
+                tensor2 = m2["model_state_dict"][i]
+                assert torch.allclose(tensor1, tensor2)
+    else:
+        subprocess.check_call(
+            ["metatensor-models", "train", "options.yaml", "-o", "model1.pt"]
+        )
+        subprocess.check_call(
+            ["metatensor-models", "train", "options.yaml", "-o", "model2.pt"]
+        )
+
+        m1 = torch.load("model1.pt")
+        m2 = torch.load("model2.pt")
+
+        for index, i in enumerate(m1["model_state_dict"]):
+            tensor1 = m1["model_state_dict"][i]
+            tensor2 = m2["model_state_dict"][i]
+            if index == 0:
+                # The first tensor only depend on the chemical compositions (not on the
+                # seed) and should alwyas be the same.
+                assert torch.allclose(tensor1, tensor2)
+            else:
+                assert not torch.allclose(tensor1, tensor2)
+
+
+def test_error_base_precision(monkeypatch, tmp_path):
+    """Test unsupported `base_precision`"""
+    monkeypatch.chdir(tmp_path)
+
+    options = OmegaConf.load(RESOURCES_PATH / "options.yaml")
+    options["base_precision"] = "123"
+    OmegaConf.save(config=options, f="options.yaml")
+
+    try:
+        subprocess.check_output(
+            ["metatensor-models", "train", "options.yaml"], stderr=subprocess.STDOUT
+        )
+    except subprocess.CalledProcessError as captured:
+        assert "Only 64, 32 or 16 are possible values for " in str(captured.output)
