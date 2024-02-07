@@ -36,6 +36,18 @@ def test_train(monkeypatch, tmp_path, output):
     # Test if logfile is written
     assert len(glob.glob("outputs/*/*/train.log")) == 1
 
+    # Open the log file and check if the logging is correct
+    with open(glob.glob("outputs/*/*/train.log")[0]) as f:
+        log = f.read()
+
+    assert "This log is also available"
+    assert "[INFO]" in log
+    assert "Epoch" in log
+    assert "loss" in log
+    assert "validation" in log
+    assert "train" in log
+    assert "energy" in log
+
 
 @pytest.mark.parametrize("test_set_file", (True, False))
 @pytest.mark.parametrize("validation_set_file", (True, False))

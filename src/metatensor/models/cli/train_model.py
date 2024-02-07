@@ -180,6 +180,10 @@ def _train_model_hydra(options: DictConfig) -> None:
                 torch.cuda.manual_seed(options["seed"])
                 torch.cuda.manual_seed_all(options["seed"])
 
+    output_dir = str(hydra.core.hydra_config.HydraConfig.get().runtime.output_dir)
+    output_dir = output_dir[output_dir.find("outputs") :]
+    logger.info("This log is also available in '{output_dir}/train.log'.")
+
     logger.info("Setting up training set")
     train_options = expand_dataset_config(options["training_set"])
     train_structures = read_structures(
