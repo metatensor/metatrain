@@ -344,7 +344,8 @@ class Model(torch.nn.Module):
         self.composition_weights[self.output_to_index[output_name]][  # type: ignore
             self.all_species
         ] = input_composition_weights.to(
-            dtype=self.composition_weights.dtype, device=self.composition_weights.device
+            dtype=self.composition_weights.dtype,  # type: ignore
+            device=self.composition_weights.device,  # type: ignore
         )
 
     def add_output(self, output_name: str) -> None:
