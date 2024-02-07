@@ -23,7 +23,7 @@ that provide an homogeneous enviroment and user interface to
 train, export, infere ML models and to
 connect those model with various MD engines (e.g. ``LAMMPS``, ``i-PI``, ``ASE`` ...).
 ``metatensor-models`` is the tools that tranform every ML architecture in a
-end-to-end model. Any custom ML architecture can be integrated in ``metatensor-models``
+end-to-end model. Any custom ML architecture compatible with TorchScript can be integrated in ``metatensor-models``
 using the general storage format of ``metatensor`` and then it has automatic access to
 a dataloder and compatibility with various MD engines.
 
