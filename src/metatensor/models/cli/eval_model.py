@@ -38,14 +38,14 @@ def _add_eval_model_parser(subparser: argparse._SubParsersAction) -> None:
         type=str,
         required=False,
         default="output.xyz",
-        help="filenmae of the predictions (default: %(default)s)",
+        help="filename of the predictions (default: %(default)s)",
     )
 
 
 def eval_model(model: str, structures: str, output: str = "output.xyz") -> None:
     """Evaluate a pretrained model.
 
-    ``target_property`` wil be predicted on a provided set of structures. Predicted
+    ``target_property`` will be predicted on a provided set of structures. Predicted
     values will be written ``output``.
 
     :param model: Path to a saved model
