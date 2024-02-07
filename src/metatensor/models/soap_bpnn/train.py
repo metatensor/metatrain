@@ -2,6 +2,7 @@ import logging
 import warnings
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple, Union
+from ..utils.extract_targets import get_outputs_dict
 
 import rascaline
 import torch
@@ -243,27 +244,3 @@ def train(
                 break
 
     return model
-
-
-def _get_outputs_dict(datasets: List[Union[Dataset, torch.utils.data.Subset]]):
-    """
-    This is a helper function that extracts all the possible outputs and their gradients
-    from a list of datasets.
-
-    :param datasets: A list of Datasets or Subsets.
-
-    :returns: A dictionary mapping output names to a list of "values" (always)
-        and possible gradients.
-    """
-
-    outputs_dict = {}
-    for dataset in datasets:
-        sample_batch = next(iter(dataset))
-        targets = sample_batch[1]  # this is a dictionary of TensorMaps
-        for target_name, target_tmap in targets.items():
-            if target_name not in outputs_dict:
-                outputs_dict[target_name] = [
-                    "values"
-                ] + target_tmap.block().gradients_list()
-
-    return outputs_dict

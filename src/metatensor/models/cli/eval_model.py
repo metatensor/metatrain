@@ -1,18 +1,21 @@
 import argparse
 import logging
 from typing import Union
-from pathlib import Path
+from typing import Dict, Tuple
+
 
 import torch
 from omegaconf import OmegaConf
 
+from ..utils.extract_targets import get_outputs_dict
 from ..utils.compute_loss import compute_model_loss
-from ..utils.data import Dataset, read_structures, read_targets, write_predictions
+from ..utils.data import Dataset, read_structures, read_targets, write_predictions, collate_fn
 from ..utils.loss import TensorMapDictLoss
 from ..utils.model_io import load_model
 from ..utils.omegaconf import check_units, expand_dataset_config, _has_yaml_suffix
 from .formatter import CustomHelpFormatter
 from ..utils.data.dataset import _train_test_random_split
+from ..utils.info import finalize_aggregated_info, update_aggregated_info
 
 
 logger = logging.getLogger(__name__)
@@ -61,15 +64,82 @@ def _add_eval_model_parser(subparser: argparse._SubParsersAction) -> None:
     )
 
 
-def _eval_targets(model, dataset: Union[Dataset, torch.utils.data.Subset]):
-    pass
-    # weights_dict = {}  # logic to be taken from bpnn..
-    # loss = TensorMapDictLoss(weights_dict)
+def _eval_targets(model, dataset: Union[Dataset, torch.utils.data.Subset], dataset_name: str) -> None:
+    """Evaluate a model on a dataset and print the RMSEs for each target."""
 
-    # targets = None
-    # _, info = compute_model_loss(loss, model, dataset, targets)
+    # Extract all the possible outputs and their gradients from the dataset:
+    outputs_dict = get_outputs_dict([dataset])
+    for output_name in outputs_dict.keys():
+        if output_name not in model.capabilities.outputs:
+            raise ValueError(
+                f"Output {output_name} is not in the model's capabilities."
+            )
 
-    # TODO do the actual printing of RMSEs!
+    # Create the loss function:
+    loss_weights_dict = {}
+    for output_name, value_or_gradient_list in outputs_dict.items():
+        loss_weights_dict[output_name] = {
+            value_or_gradient: 0.0 for value_or_gradient in value_or_gradient_list
+        }
+    loss_fn = TensorMapDictLoss(loss_weights_dict)
+
+    # Create a dataloader:
+    dataloader = torch.utils.data.DataLoader(
+        dataset=dataset,
+        batch_size=batch_size,
+        shuffle=True,
+        collate_fn=collate_fn,
+    )
+
+    # Compute the RMSEs:
+    aggregated_info: Dict[str, Tuple[float, int]] = {}
+    for batch in dataloader:
+        structures, targets = batch
+        _, info = compute_model_loss(loss_fn, model, structures, targets)
+        aggregated_info = update_aggregated_info(aggregated_info, info)
+    finalized_info = finalize_aggregated_info(aggregated_info)
+
+    energy_counter = 0
+    for output in model.capabilities.outputs.values():
+        if output.quantity == "energy":
+            energy_counter += 1
+    if energy_counter == 1:
+        only_one_energy = True
+    else:
+        only_one_energy = False
+
+    logger.info(f"{dataset_name} RMSEs:")
+
+    logging_string = ""
+    for key, value in finalized_info.items():
+        new_key = key
+        if key.endswith("_positions_gradients"):
+            # check if this is a force
+            target_name = key[: -len("_positions_gradients")]
+            if (
+                model.capabilities.outputs[target_name].quantity
+                == "energy"
+            ):
+                # if this is a force, replace the ugly name with "force"
+                if only_one_energy:
+                    new_key = "force"
+                else:
+                    new_key = f"force[{target_name}]"
+        elif key.endswith("_displacement_gradients"):
+            # check if this is a virial/stress
+            target_name = key[: -len("_displacement_gradients")]
+            if (
+                model.capabilities.outputs[target_name].quantity
+                == "energy"
+            ):
+                # if this is a virial/stress,
+                # replace the ugly name with "virial/stress"
+                if only_one_energy:
+                    new_key = "virial/stress"
+                else:
+                    new_key = f"virial/stress[{target_name}]"
+        logging_string += f", {new_key} RMSE: {value}"
+    logger.info(logging_string)
 
 
 def eval_model(
