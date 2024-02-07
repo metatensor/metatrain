@@ -1,6 +1,8 @@
 import argparse
 import importlib
 import logging
+import os
+import random
 import sys
 import tempfile
 import warnings
@@ -8,6 +10,7 @@ from pathlib import Path
 from typing import List, Optional
 
 import hydra
+import numpy as np
 import torch
 from metatensor.torch.atomistic import ModelCapabilities, ModelOutput
 from omegaconf import DictConfig, OmegaConf
@@ -68,6 +71,14 @@ def _add_train_model_parser(subparser: argparse._SubParsersAction) -> None:
         help="Path to save the final model (default: %(default)s).",
     )
     parser.add_argument(
+        "-c",
+        "--continue",
+        dest="continue_from",
+        type=str,
+        required=False,
+        help="File to continue training from.",
+    )
+    parser.add_argument(
         "-y",
         "--hydra",
         dest="hydra_parameters",
@@ -80,6 +91,7 @@ def _add_train_model_parser(subparser: argparse._SubParsersAction) -> None:
 def train_model(
     options: str,
     output: str = "model.pt",
+    continue_from: Optional[str] = None,
     hydra_parameters: Optional[List[str]] = None,
 ) -> None:
     """
@@ -98,6 +110,7 @@ def train_model(
 
     :param options: Options file path
     :param output: Path to save the final model
+    :param continue_from: File to continue training from.
     :param hydra_parameters: Hydra's command line and override flags
     """
     conf = OmegaConf.load(options)
@@ -120,11 +133,14 @@ def train_model(
 
         # HACK: Hydra parses command line arguments directlty from `sys.argv`. We
         # override `sys.argv` to be compatible with our CLI architecture.
-        argv = sys.argv[:1]
+        if continue_from is None:
+            continue_from = "null"
 
+        argv = sys.argv[:1]
         argv.append(f"--config-dir={options_new.parent}")
         argv.append(f"--config-name={options_new.name}")
         argv.append(f"+output_path={output}")
+        argv.append(f"+continue_from={continue_from}")
 
         if hydra_parameters is not None:
             argv += hydra_parameters
@@ -151,8 +167,18 @@ def _train_model_hydra(options: DictConfig) -> None:
         raise ValueError("Only 64, 32 or 16 are possible values for `base_precision`.")
 
     generator = torch.Generator()
-    if options["seed"] != -1:
-        generator.manual_seed(options["seed"])
+    if options["seed"] is not None:
+        if options["seed"] < 0:
+            raise ValueError("`seed` should be a positive number or None.")
+        else:
+            generator.manual_seed(options["seed"])
+            torch.manual_seed(options["seed"])
+            np.random.seed(options["seed"])
+            random.seed(options["seed"])
+            os.environ["PYTHONHASHSEED"] = str(options["seed"])
+            if torch.cuda.is_available():
+                torch.cuda.manual_seed(options["seed"])
+                torch.cuda.manual_seed_all(options["seed"])
 
     logger.info("Setting up training set")
     train_options = expand_dataset_config(options["training_set"])
@@ -247,7 +273,7 @@ def _train_model_hydra(options: DictConfig) -> None:
         for key, value in options["training_set"]["targets"].items()
     }
     length_unit = train_options["structures"]["length_unit"]
-    model_capabilities = ModelCapabilities(
+    requested_capabilities = ModelCapabilities(
         length_unit=length_unit if length_unit is not None else "",
         species=all_species,
         outputs=outputs,
@@ -257,8 +283,9 @@ def _train_model_hydra(options: DictConfig) -> None:
     model = architecture.train(
         train_datasets=[train_dataset],
         validation_datasets=[validation_dataset],
-        model_capabilities=model_capabilities,
+        requested_capabilities=requested_capabilities,
         hypers=OmegaConf.to_container(options["architecture"]),
+        continue_from=options["continue_from"],
         output_dir=output_dir,
     )
 

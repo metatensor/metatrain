@@ -15,5 +15,5 @@ training_set:
     energy:
       key: "energy"
 
-test_set: 0.1
+test_set: 0.5
 validation_set: 0.1

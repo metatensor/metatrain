@@ -6,7 +6,7 @@ from metatensor.torch import Labels, TensorBlock, TensorMap
 
 
 def calculate_composition_weights(
-    dataset: torch.utils.data.Dataset, property: str
+    datasets: List[torch.utils.data.Dataset], property: str
 ) -> torch.Tensor:
     """Calculate the composition weights for a dataset.
     For now, it assumes per-structure properties.
@@ -23,15 +23,19 @@ def calculate_composition_weights(
     """
 
     # Get the target for each structure in the dataset
-    targets = torch.stack([sample[1][property].block().values for sample in dataset])
+    targets = torch.stack(
+        [
+            sample[1][property].block().values
+            for dataset in datasets
+            for sample in dataset
+        ]
+    )
 
     # Get the composition for each structure in the dataset
     composition_calculator = rascaline.torch.AtomicComposition(per_structure=True)
     composition_features = composition_calculator.compute(
-        [sample[0] for sample in dataset]
-    ).to(
-        dtype=torch.get_default_dtype()
-    )  # rascaline-torch always outputs in float64
+        [sample[0] for dataset in datasets for sample in dataset]
+    )
     composition_features = composition_features.keys_to_properties("species_center")
     composition_features = composition_features.block().values
 

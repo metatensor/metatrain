@@ -1,7 +1,7 @@
 import logging
 import warnings
 from pathlib import Path
-from typing import Dict, List, Tuple, Union
+from typing import Dict, List, Optional, Tuple, Union
 
 import rascaline
 import torch
@@ -19,7 +19,8 @@ from ..utils.data import (
 from ..utils.info import finalize_aggregated_info, update_aggregated_info
 from ..utils.logging import MetricLogger
 from ..utils.loss import TensorMapDictLoss
-from ..utils.model_io import save_model
+from ..utils.merge_capabilities import merge_capabilities
+from ..utils.model_io import load_model, save_model
 from .model import DEFAULT_HYPERS, Model
 
 
@@ -38,11 +39,39 @@ warnings.filterwarnings(
 def train(
     train_datasets: List[Union[Dataset, torch.utils.data.Subset]],
     validation_datasets: List[Union[Dataset, torch.utils.data.Subset]],
-    model_capabilities: ModelCapabilities,
+    requested_capabilities: ModelCapabilities,
     hypers: Dict = DEFAULT_HYPERS,
+    continue_from: Optional[str] = None,
     output_dir: str = ".",
 ):
-    # Perform canonical checks on the datasets:
+    # Create the model:
+    if continue_from is None:
+        model = Model(
+            capabilities=requested_capabilities,
+            hypers=hypers["model"],
+        )
+        new_capabilities = requested_capabilities
+    else:
+        model = load_model(continue_from)
+        filtered_new_dict = {k: v for k, v in hypers["model"].items() if k != "restart"}
+        filtered_old_dict = {k: v for k, v in model.hypers.items() if k != "restart"}
+        if filtered_new_dict != filtered_old_dict:
+            logger.warn(
+                "The hyperparameters of the model have changed since the last "
+                "training run. The new hyperparameters will be discarded."
+            )
+        # merge the model's capabilities with the requested capabilities
+        merged_capabilities, new_capabilities = merge_capabilities(
+            model.capabilities, requested_capabilities
+        )
+        model.capabilities = merged_capabilities
+        # make the new model capable of handling the new outputs
+        for output_name in new_capabilities.outputs.keys():
+            model.add_output(output_name)
+
+    model_capabilities = model.capabilities
+
+    # Perform checks on the datasets:
     logger.info("Checking datasets for consistency")
     check_datasets(
         train_datasets,
@@ -71,20 +100,21 @@ def train(
 
     # Calculate and set the composition weights for all targets:
     logger.info("Calculating composition weights")
-    for target_name in model_capabilities.outputs.keys():
-        # find the dataset that contains the target:
-        train_dataset_with_target = None
+    for target_name in new_capabilities.outputs.keys():
+        # TODO: warn in the documentation that capabilities that are already
+        # present in the model won't recalculate the composition weights
+        # find the datasets that contain the target:
+        train_datasets_with_target = []
         for dataset in train_datasets:
             if target_name in get_all_targets(dataset):
-                train_dataset_with_target = dataset
-                break
-        if train_dataset_with_target is None:
+                train_datasets_with_target.append(dataset)
+        if len(train_datasets_with_target) == 0:
             raise ValueError(
-                f"Target {target_name} in the model's capabilities is not "
+                f"Target {target_name} in the model's new capabilities is not "
                 "present in any of the training datasets."
             )
         composition_weights = calculate_composition_weights(
-            train_dataset_with_target, target_name
+            train_datasets_with_target, target_name
         )
         model.set_composition_weights(target_name, composition_weights)
 
