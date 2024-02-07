@@ -1,3 +1,4 @@
+from typing import Optional
 import logging
 import os
 from typing import Dict, List, Tuple
@@ -7,6 +8,10 @@ import numpy as np
 import torch
 from metatensor.torch import Labels, TensorMap
 from metatensor.torch.atomistic import ModelCapabilities, System
+from torch import Generator, default_generator
+from torch.utils.data import Subset, random_split
+
+from torch.utils.data import random_split
 
 
 logger = logging.getLogger(__name__)
@@ -231,3 +236,19 @@ def check_datasets(
                 "a result of a random train/validation split. You can "
                 "avoid this by providing a validation dataset manually."
             )
+
+
+def _train_test_random_split(
+    train_dataset: Dataset,
+    train_size: float,
+    test_size: float,
+    generator: Optional[Generator] = default_generator,
+) -> List[Subset]:
+    if train_size <= 0:
+        raise ValueError("Fraction of the train set is smaller or equal to 0!")
+
+    # normalize fractions
+    lengths = torch.tensor([train_size, test_size])
+    lengths /= lengths.sum()
+
+    return random_split(dataset=train_dataset, lengths=lengths, generator=generator)

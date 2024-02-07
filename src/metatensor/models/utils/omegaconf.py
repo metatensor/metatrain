@@ -2,6 +2,7 @@ from pathlib import Path
 from typing import Union
 
 from omegaconf import DictConfig, OmegaConf
+import argparse
 
 
 def file_format(_parent_):
@@ -21,6 +22,15 @@ def _resolve_single_str(config):
         return OmegaConf.create({"read_from": config})
     else:
         return config
+
+
+def _has_yaml_suffix(s: str) -> str:
+    """Checks if a string has a .yaml suffix."""
+
+    if Path(s).suffix != ".yaml":
+        raise argparse.ArgumentTypeError(f"Options file '{s}' must be a `.yaml` file.")
+
+    return s
 
 
 # BASE CONFIGURATIONS

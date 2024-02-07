@@ -5,7 +5,6 @@ import os
 import random
 import sys
 import tempfile
-import warnings
 from pathlib import Path
 from typing import List, Optional
 
@@ -16,13 +15,12 @@ from metatensor.torch.atomistic import ModelCapabilities, ModelOutput
 from omegaconf import DictConfig, OmegaConf
 from omegaconf.errors import ConfigKeyError
 
-from metatensor.models.utils.data import Dataset
-from metatensor.models.utils.data.readers import read_structures, read_targets
-
 from .. import CONFIG_PATH
-from ..utils.data import get_all_species
+from ..utils.data import Dataset, get_all_species, read_structures, read_targets
+from ..utils.data.dataset import _train_test_random_split
 from ..utils.model_io import save_model
-from ..utils.omegaconf import check_units, expand_dataset_config
+from ..utils.omegaconf import check_units, expand_dataset_config, _has_yaml_suffix
+from .eval_model import _eval_targets
 from .formatter import CustomHelpFormatter
 
 
@@ -156,12 +154,10 @@ def _train_model_hydra(options: DictConfig) -> None:
     else:
         raise ValueError("Only 64, 32 or 16 are possible values for `base_precision`.")
 
-    generator = torch.Generator()
     if options["seed"] is not None:
         if options["seed"] < 0:
             raise ValueError("`seed` should be a positive number or None.")
         else:
-            generator.manual_seed(options["seed"])
             torch.manual_seed(options["seed"])
             np.random.seed(options["seed"])
             random.seed(options["seed"])
@@ -170,9 +166,8 @@ def _train_model_hydra(options: DictConfig) -> None:
                 torch.cuda.manual_seed(options["seed"])
                 torch.cuda.manual_seed_all(options["seed"])
 
-    output_dir = str(hydra.core.hydra_config.HydraConfig.get().runtime.output_dir)
-    output_dir = output_dir[output_dir.find("outputs") :]
-    logger.info("This log is also available in '{output_dir}/train.log'.")
+    output_dir = hydra.core.hydra_config.HydraConfig.get().runtime.output_dir
+    logger.info(f"This log is also available in '{output_dir}/train.log'.")
 
     logger.info("Setting up training set")
     train_options = expand_dataset_config(options["training_set"])
@@ -182,10 +177,30 @@ def _train_model_hydra(options: DictConfig) -> None:
     )
     train_targets = read_targets(train_options["targets"])
     train_dataset = Dataset(train_structures, train_targets)
+    train_size = 1.0
 
     logger.info("Setting up test set")
     test_options = options["test_set"]
-    if not isinstance(test_options, float):
+
+    # Always split test datset before validation to ensure same split as in eval script!
+    if isinstance(test_options, float):
+        test_size = test_options
+        train_size -= test_size
+
+        if test_size < 0 or test_size >= 1:
+            raise ValueError("Test set split must be between 0 and 1.")
+
+        generator = torch.Generator()
+        if options["seed"] is not None:
+            generator.manual_seed(options["seed"])
+
+        train_dataset, test_dataset = _train_test_random_split(
+            train_dataset=train_dataset,
+            train_size=train_size,
+            test_size=test_size,
+            generator=generator,
+        )
+    else:
         test_options = expand_dataset_config(test_options)
         test_structures = read_structures(
             filename=test_options["structures"]["read_from"],
@@ -193,16 +208,28 @@ def _train_model_hydra(options: DictConfig) -> None:
         )
         test_targets = read_targets(test_options["targets"])
         test_dataset = Dataset(test_structures, test_targets)
-        test_fraction = 0.0
         check_units(actual_options=test_options, desired_options=train_options)
-    else:
-        if test_options < 0 or test_options >= 1:
-            raise ValueError("Test set split must be between 0 and 1.")
-        test_fraction = test_options
 
     logger.info("Setting up validation set")
     validation_options = options["validation_set"]
-    if not isinstance(validation_options, float):
+    if isinstance(validation_options, float):
+        validation_size = validation_options
+        train_size -= validation_size
+
+        if validation_size < 0 or validation_size >= 1:
+            raise ValueError("Validation set split must be between 0 and 1.")
+
+        generator = torch.Generator()
+        if options["seed"] is not None:
+            generator.manual_seed(options["seed"])
+
+        train_dataset, validation_dataset = _train_test_random_split(
+            train_dataset=train_dataset,
+            train_size=train_size,
+            test_size=validation_size,
+            generator=generator,
+        )
+    else:
         validation_options = expand_dataset_config(validation_options)
         validation_structures = read_structures(
             filename=validation_options["structures"]["read_from"],
@@ -210,42 +237,8 @@ def _train_model_hydra(options: DictConfig) -> None:
         )
         validation_targets = read_targets(validation_options["targets"])
         validation_dataset = Dataset(validation_structures, validation_targets)
-        validation_fraction = 0.0
         check_units(actual_options=validation_options, desired_options=train_options)
-    else:
-        if validation_options < 0 or validation_options >= 1:
-            raise ValueError("Validation set split must be between 0 and 1.")
-        validation_fraction = validation_options
 
-    # Split train dataset if requested
-    if test_fraction or validation_fraction:
-        train_fraction = 1 - test_fraction - validation_fraction
-        if train_fraction < 0:
-            raise ValueError("fraction of the train set is smaller then 0!")
-
-        # ignore warning of possible empty dataset
-        with warnings.catch_warnings():
-            warnings.simplefilter("ignore")
-            subsets = torch.utils.data.random_split(
-                dataset=train_dataset,
-                lengths=[
-                    train_fraction,
-                    test_fraction,
-                    validation_fraction,
-                ],
-                generator=generator,
-            )
-
-        train_dataset = subsets[0]
-        if test_fraction and not validation_fraction:
-            test_dataset = subsets[1]
-        elif not validation_fraction and validation_fraction:
-            validation_dataset = subsets[1]
-        else:
-            test_dataset = subsets[1]  # noqa: F841
-            validation_dataset = subsets[2]
-
-    output_dir = hydra.core.hydra_config.HydraConfig.get().runtime.output_dir
     # Save fully expanded config
     OmegaConf.save(config=options, f=Path(output_dir) / "options.yaml")
 
@@ -286,4 +279,11 @@ def _train_model_hydra(options: DictConfig) -> None:
 
     save_model(model, options["output_path"])
 
-    # TODO: add evaluation of the test set
+    logger.info("Evaulate train dataset")
+    _eval_targets(model, train_dataset)
+
+    logger.info("Evaulate validation dataset")
+    _eval_targets(model, validation_dataset)
+
+    logger.info("Evaulate test dataset")
+    _eval_targets(model, test_dataset)
