@@ -13,6 +13,19 @@ requirement is for these models to be able to take metatensor objects as inputs 
 outputs. The models do not need to live entirely in this repository: in the most extreme
 case, this repository can simply contain a wrapper to an external model.
 
+.. marker-introduction
+
+What is metatensor-models? 
+###########################
+
+The idea behind ``metatensor-models`` is to have a general hub that provide an homogeneous
+enviroment and user interface to train, export, infere ML models and to 
+connect those model with various MD engines (e.g. ``LAMMPS``, ``i-PI``, ``ASE`` ...).
+``metatensor-models`` is the tools that tranform every ML architecture in a 
+end-to-end model. Any custom ML architecture can be integrated in ``metatensor-models``
+using the general storage format of ``metatensor`` and then it has automatic access to 
+a dataloder and compatibility with various MD engines. 
+
 .. marker-architectures
 
 List of Implemented Architectures
