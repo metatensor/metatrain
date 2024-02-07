@@ -20,13 +20,12 @@ What is metatensor-models?
 
 The idea behind ``metatensor-models`` is to have a general hub
 that provide an homogeneous enviroment and user interface to
-train, export, infere ML models and to
-connect those model with various MD engines (e.g. ``LAMMPS``, ``i-PI``, ``ASE`` ...).
-``metatensor-models`` is the tools that tranform every ML architecture in a
+train, export and evaluate ML models and to
+connect those models with various MD engines (e.g. ``LAMMPS``, ``i-PI``, ``ASE`` ...).
+``metatensor-models`` is the tool that transforms every ML architecture in an
 end-to-end model. Any custom ML architecture compatible with TorchScript
-can be integrated in ``metatensor-models``
-using the general storage format of ``metatensor`` and then it has automatic access to
-a dataloder and compatibility with various MD engines.
+can be integrated in ``metatensor-models``, gaining automatic access to
+a training and evaluation interface, as well as compatibility with various MD engines.
 
 Note: ``metatensor-models`` does not provide `per se` mathematical functionalities but
 relies on external models that implement the various architectures.

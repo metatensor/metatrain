@@ -1,5 +1,5 @@
-Welcome to metatensor-models' documentation!
-=============================================
+Welcome to metatensor-models!
+=============================
 
 .. include:: ../../README.rst
    :start-after: marker-introduction
