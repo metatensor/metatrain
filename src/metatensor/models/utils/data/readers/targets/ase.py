@@ -18,7 +18,9 @@ def read_energy_ase(
         TensorMap containing the given information
     """
     frames = ase.io.read(filename, ":")
-    values = torch.tensor([f.info[key] for f in frames], dtype=torch.get_default_dtype())
+    values = torch.tensor(
+        [f.info[key] for f in frames], dtype=torch.get_default_dtype()
+    )
     n_structures = len(values)
 
     block = TensorBlock(
@@ -47,7 +49,9 @@ def read_forces_ase(
     frames = ase.io.read(filename, ":")
     n_structures = len(frames)
     # We store forces as positions gradients which means we invert the sign
-    values_raw = [-torch.tensor(f.arrays[key], dtype=torch.get_default_dtype()) for f in frames]
+    values_raw = [
+        -torch.tensor(f.arrays[key], dtype=torch.get_default_dtype()) for f in frames
+    ]
 
     # The `"sample"` label refers to the index of the corresponding value in the
     # block. Here, the number of values is the same as the number of structures so
@@ -121,7 +125,9 @@ def _read_virial_stress_ase(
     """
     frames = ase.io.read(filename, ":")
     n_structures = len(frames)
-    values = torch.tensor([f.info[key].tolist() for f in frames], dtype=torch.get_default_dtype())
+    values = torch.tensor(
+        [f.info[key].tolist() for f in frames], dtype=torch.get_default_dtype()
+    )
 
     if values.shape[1:] == (9,):
         warnings.warn(
@@ -135,7 +141,9 @@ def _read_virial_stress_ase(
             f"stress/virial must be a 3 x 3 matrix but has shape {values.shape}"
         )
 
-    volumes = torch.tensor([f.cell.volume for f in frames], dtype=torch.get_default_dtype())
+    volumes = torch.tensor(
+        [f.cell.volume for f in frames], dtype=torch.get_default_dtype()
+    )
     if torch.any(volumes == 0):
         raise ValueError(
             "Found at least one structure with zero cell vectors."

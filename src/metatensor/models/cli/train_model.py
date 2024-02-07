@@ -222,7 +222,7 @@ def _train_model_hydra(options: DictConfig) -> None:
         elif not validation_fraction and validation_fraction:
             validation_dataset = subsets[1]
         else:
-            test_dataset = subsets[1]
+            test_dataset = subsets[1]  # noqa: F841
             validation_dataset = subsets[2]
 
     output_dir = hydra.core.hydra_config.HydraConfig.get().runtime.output_dir
