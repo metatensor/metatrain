@@ -90,9 +90,9 @@ class MLPMap(torch.nn.Module):
                 )
         new_keys_labels = Labels(
             names=["species_center"],
-            values=torch.tensor(
-                new_keys, device=next(self.parameters()).device
-            ).reshape(-1, 1),
+            values=torch.tensor(new_keys, device=new_blocks[0].values.device).reshape(
+                -1, 1
+            ),
         )
 
         return TensorMap(keys=new_keys_labels, blocks=new_blocks)
@@ -140,9 +140,9 @@ class LayerNormMap(torch.nn.Module):
                 )
         new_keys_labels = Labels(
             names=["species_center"],
-            values=torch.tensor(
-                new_keys, device=next(self.parameters()).device
-            ).reshape(-1, 1),
+            values=torch.tensor(new_keys, device=new_blocks[0].values.device).reshape(
+                -1, 1
+            ),
         )
 
         return TensorMap(keys=new_keys_labels, blocks=new_blocks)
@@ -196,9 +196,9 @@ class LinearMap(torch.nn.Module):
                 )
         new_keys_labels = Labels(
             names=["species_center"],
-            values=torch.tensor(
-                new_keys, device=next(self.parameters()).device
-            ).reshape(-1, 1),
+            values=torch.tensor(new_keys, device=new_blocks[0].values.device).reshape(
+                -1, 1
+            ),
         )
 
         return TensorMap(keys=new_keys_labels, blocks=new_blocks)
@@ -294,7 +294,7 @@ class Model(torch.nn.Module):
 
         soap_features = self.soap_calculator(systems)
 
-        device = next(self.parameters()).device
+        device = soap_features.block(0).values.device
         soap_features = soap_features.keys_to_properties(
             self.neighbor_species_1_labels.to(device)
         )
@@ -328,7 +328,8 @@ class Model(torch.nn.Module):
                 keys=Labels(
                     names=["lambda", "sigma"],
                     values=torch.tensor(
-                        [[0, 1]], device=next(self.parameters()).device
+                        [[0, 1]],
+                        device=total_energies[output_name].block(0).values.device,
                     ),
                 ),
                 blocks=[total_energies[output_name].block()],
