@@ -12,21 +12,18 @@ The ``Model`` class should inherit from ``torch.nn.Module`` and implement
 an ``__init__`` method and a ``forward`` method. The ``__init__`` method
 should have the following signature:
 
-```python
+.. code-block:: python
 
-class Model(torch.nn.Module):
-    def __init__(
-        self, capabilities: ModelCapabilities, hypers: Dict
-    ) -> None:
-
-```
+    class Model(torch.nn.Module):
+        def __init__(self, capabilities: ModelCapabilities, hypers: Dict) -> None:
+            ...
 
 For more information on the ``ModelCapabilities`` class, see
 :py:class:`metatensor.torch.atomistic.ModelCapabilities`.
 
 The ``forward`` method should have the following signature:
 
-```python
+.. code-block:: python
 
     def forward(
         self,
@@ -34,8 +31,7 @@ The ``forward`` method should have the following signature:
         outputs: Dict[str, ModelOutput],
         selected_atoms: Optional[Labels] = None,
     ) -> Dict[str, TensorMap]:
-
-```
+        ...
 
 For more information on the ``System`` and ``ModelOutput`` classes, see
 :py:class:`metatensor.torch.atomistic.System` and
@@ -43,17 +39,16 @@ For more information on the ``System`` and ``ModelOutput`` classes, see
 
 The ``train_model`` function should have the following signature:
 
-```python
+.. code-block:: python
 
-def train(
-    train_datasets: List[Union[Dataset, torch.utils.data.Subset]],
-    validation_datasets: List[Union[Dataset, torch.utils.data.Subset]],
-    model_capabilities: ModelCapabilities,
-    hypers: Dict = DEFAULT_HYPERS,
-    output_dir: str = ".",
-) -> torch.nn.Module:
-
-```
+    def train(
+        train_datasets: List[Union[Dataset, torch.utils.data.Subset]],
+        validation_datasets: List[Union[Dataset, torch.utils.data.Subset]],
+        model_capabilities: ModelCapabilities,
+        hypers: Dict = DEFAULT_HYPERS,
+        output_dir: str = ".",
+    ) -> torch.nn.Module:
+        ...
 
 For more information on the ``Dataset`` class, see
 :py:class:`metatensor.operations.utils.data.Dataset`.
