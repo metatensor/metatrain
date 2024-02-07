@@ -28,6 +28,9 @@ can be integrated in ``metatensor-models``
 using the general storage format of ``metatensor`` and then it has automatic access to
 a dataloder and compatibility with various MD engines.
 
+Note: ``metatensor-models`` does not provide `per se` mathematical functionalities but
+relies on external models that implement the various architectures.
+
 Features
 #########
 
@@ -38,7 +41,8 @@ Features
   and application needs.
 
 - **Streamlined Training**: Automated process leveraging MD-generated data to
-  optimize ML models with minimal effort.
+  optimize ML models with minimal effort. It uses the ``hydra`` module to
+  easy management of folder and files.
 
 - **HPC Compatibility**: Efficient in HPC environments for extensive simulations.
 
