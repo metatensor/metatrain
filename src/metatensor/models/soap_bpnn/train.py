@@ -93,8 +93,8 @@ def train(
         if not torch.cuda.is_available():
             raise ValueError("CUDA is not available on this machine.")
         logger.info(
-            "A cuda device was requested. The SOAP features are calculated on CPU, "
-            "while the neural network will be run on GPU."
+            "A cuda device was requested. The neural network will be run on GPU, "
+            "but the SOAP features are calculated on CPU."
         )
     model.to(device)
 

@@ -92,6 +92,4 @@ def test_regression_train():
         [[-40.5912], [-56.5473], [-76.4415], [-77.3883], [-93.4608]]
     )
 
-    print(output["U0"].block().values)
-
     assert torch.allclose(output["U0"].block().values, expected_output, rtol=1e-3)
