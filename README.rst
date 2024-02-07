@@ -31,7 +31,7 @@ a dataloder and compatibility with various MD engines.
 Features
 #########
 
-- **Custom ML Architecture**: Integrate any TorchScriptable ML model 
+- **Custom ML Architecture**: Integrate any TorchScriptable ML model
   to explore innovative architectures.
 
 - **MD Engine Compatibility**: Supports various MD engines for diverse research
