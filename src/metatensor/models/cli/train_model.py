@@ -169,7 +169,7 @@ def _train_model_hydra(options: DictConfig) -> None:
 
     output_dir = str(hydra.core.hydra_config.HydraConfig.get().runtime.output_dir)
     output_dir = output_dir[output_dir.find("outputs") :]
-    logger.info('This log is also available in the "' + output_dir + '/" directory')
+    logger.info("This log is also available in '{output_dir}/train.log'.")
 
     logger.info("Setting up training set")
     train_options = expand_dataset_config(options["training_set"])
