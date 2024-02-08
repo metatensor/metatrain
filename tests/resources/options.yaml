@@ -4,7 +4,6 @@ architecture:
     batch_size: 2
     num_epochs: 1
 
-# Section defining the parameters for structure and target data
 training_set:
   structures:
     read_from: "qm9_reduced_100.xyz"

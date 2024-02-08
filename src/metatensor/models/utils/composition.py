@@ -103,7 +103,9 @@ def apply_composition_contribution(
 
     new_keys_labels = Labels(
         names=["species_center"],
-        values=torch.tensor(new_keys).reshape(-1, 1),
+        values=torch.tensor(new_keys, device=new_blocks[0].values.device).reshape(
+            -1, 1
+        ),
     )
 
     return TensorMap(keys=new_keys_labels, blocks=new_blocks)
