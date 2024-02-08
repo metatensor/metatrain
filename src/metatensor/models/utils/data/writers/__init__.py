@@ -22,7 +22,7 @@ def write_predictions(
     For certain file suffixes also the structures will be written (i.e ``xyz``).
 
     :param filename: name of the file to write
-    :param predictions: :py:class:`metatensor.torch.TensorMap` containinb the
+    :param predictions: :py:class:`metatensor.torch.TensorMap` containing the
         predictions that should be written
     :param structures: list of structures that for some writers will also be written
     :param fileformat: format of the target value file. If :py:obj:`None` the format is
