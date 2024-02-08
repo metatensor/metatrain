@@ -291,7 +291,7 @@ def _train_model_hydra(options: DictConfig) -> None:
         hypers=OmegaConf.to_container(options["architecture"]),
         continue_from=options["continue_from"],
         output_dir=output_dir,
-        device=options["device"],
+        device_str=options["device"],
     )
 
     save_model(model, options["output_path"])
