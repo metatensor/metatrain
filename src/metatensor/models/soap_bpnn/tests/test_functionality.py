@@ -73,7 +73,7 @@ def test_prediction_subset_atoms():
     )
 
     selection_labels = metatensor.torch.Labels(
-        names=["structure", "center"],
+        names=["system", "atom"],
         values=torch.tensor([[0, 0], [0, 2], [0, 3]]),
     )
 
