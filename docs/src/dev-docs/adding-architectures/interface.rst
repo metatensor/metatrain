@@ -13,8 +13,7 @@ should have the following signature:
 .. code-block:: python
 
     class Model(torch.nn.Module):
-        def __init__(self, capabilities: ModelCapabilities, hypers: Dict) -> None:
-            ...
+        def __init__(self, capabilities: ModelCapabilities, hypers: Dict) -> None: ...
 
 For more information on the ``ModelCapabilities`` class, see
 :py:class:`metatensor.torch.atomistic.ModelCapabilities`.
