@@ -29,8 +29,11 @@ logger = logging.getLogger(__name__)
 # disable rascaline logger
 rascaline.set_logging_callback(lambda x, y: None)
 
-# Filter out the second derivative warning from rascaline-torch
+# Filter out the second derivative and device warnings from rascaline-torch
 warnings.filterwarnings("ignore", category=UserWarning, message="second derivative")
+warnings.filterwarnings(
+    "ignore", category=UserWarning, message="Systems data is on device"
+)
 
 
 def train(
@@ -40,6 +43,7 @@ def train(
     hypers: Dict = DEFAULT_HYPERS,
     continue_from: Optional[str] = None,
     output_dir: str = ".",
+    device_str: str = "cpu",
 ):
     # Create the model:
     if continue_from is None:
@@ -75,6 +79,25 @@ def train(
         validation_datasets,
         model_capabilities,
     )
+
+    # Create the model:
+    model = Model(
+        capabilities=model_capabilities,
+        hypers=hypers["model"],
+    )
+
+    logger.info(f"Training on device {device_str}")
+    if device_str == "gpu":
+        device_str = "cuda"
+    device = torch.device(device_str)
+    if device.type == "cuda":
+        if not torch.cuda.is_available():
+            raise ValueError("CUDA is not available on this machine.")
+        logger.info(
+            "A cuda device was requested. The neural network will be run on GPU, "
+            "but the SOAP features are calculated on CPU."
+        )
+    model.to(device)
 
     # Calculate and set the composition weights for all targets:
     logger.info("Calculating composition weights")

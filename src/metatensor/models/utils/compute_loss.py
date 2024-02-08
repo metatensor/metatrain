@@ -28,6 +28,11 @@ def compute_model_loss(
     if not set(targets.keys()).issubset(model.capabilities.outputs.keys()):
         raise ValueError("Not all targets are within the model's capabilities.")
 
+    # Infer model device, move systems and targets to the same device:
+    device = next(model.parameters()).device
+    systems = [system.to(device=device) for system in systems]
+    targets = {key: target.to(device=device) for key, target in targets.items()}
+
     # Find if there are any energy targets that require gradients:
     energy_targets = []
     energy_targets_that_require_position_gradients = []
@@ -175,9 +180,9 @@ def _position_gradients_to_block(gradients_list):
 
     return TensorBlock(
         values=gradients,
-        samples=samples,
-        components=components,
-        properties=Labels.single(),
+        samples=samples.to(gradients.device),
+        components=[c.to(gradients.device) for c in components],
+        properties=Labels.single().to(gradients.device),
     )
 
 
@@ -205,7 +210,7 @@ def _displacement_gradients_to_block(gradients_list):
 
     return TensorBlock(
         values=gradients,
-        samples=samples,
-        components=components,
-        properties=Labels.single(),
+        samples=samples.to(gradients.device),
+        components=[c.to(gradients.device) for c in components],
+        properties=Labels.single().to(gradients.device),
     )
