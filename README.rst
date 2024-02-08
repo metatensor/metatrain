@@ -64,9 +64,10 @@ atomistic model.
 
    * - SOAP BPNN
      - A Behler-Parrinello neural network with SOAP features
-     
+
    * - Alchemical Model
-     - A Behler-Parrinello neural network with SOAP features and Alchemical Compression of the composition space
+     - A Behler-Parrinello neural network with SOAP features
+       and Alchemical Compression of the composition space
 
 .. marker-documentation
 
