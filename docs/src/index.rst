@@ -1,10 +1,8 @@
-Welcome to metatensor-models's documentation!
-=============================================
-
-This is a collection of atomistic models interfaced with ``metatensor``.
+Welcome to metatensor-models!
+=============================
 
 .. include:: ../../README.rst
-   :start-after: marker-architectures
+   :start-after: marker-introduction
    :end-before: marker-documentation
 
 .. toctree::
