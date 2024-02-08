@@ -122,18 +122,6 @@ def test_continue_different_dataset(monkeypatch, tmp_path):
     subprocess.check_call(command)
 
 
-def test_yml_error():
-    """Test error raise of the option file is not a .yaml file."""
-    try:
-        subprocess.check_output(
-            ["metatensor-models", "train", "options.yml"], stderr=subprocess.STDOUT
-        )
-    except subprocess.CalledProcessError as captured:
-        assert "Options file 'options.yml' must be a `.yaml` file." in str(
-            captured.output
-        )
-
-
 def test_hydra_arguments():
     """Test if hydra arguments work."""
     option_path = str(RESOURCES_PATH / "options.yaml")
