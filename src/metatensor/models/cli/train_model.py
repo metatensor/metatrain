@@ -1,6 +1,8 @@
 import argparse
 import importlib
 import logging
+import os
+import random
 import sys
 import tempfile
 import warnings
@@ -8,6 +10,7 @@ from pathlib import Path
 from typing import List, Optional
 
 import hydra
+import numpy as np
 import torch
 from metatensor.torch.atomistic import ModelCapabilities, ModelOutput
 from omegaconf import DictConfig, OmegaConf
@@ -164,8 +167,22 @@ def _train_model_hydra(options: DictConfig) -> None:
         raise ValueError("Only 64, 32 or 16 are possible values for `base_precision`.")
 
     generator = torch.Generator()
-    if options["seed"] != -1:
-        generator.manual_seed(options["seed"])
+    if options["seed"] is not None:
+        if options["seed"] < 0:
+            raise ValueError("`seed` should be a positive number or None.")
+        else:
+            generator.manual_seed(options["seed"])
+            torch.manual_seed(options["seed"])
+            np.random.seed(options["seed"])
+            random.seed(options["seed"])
+            os.environ["PYTHONHASHSEED"] = str(options["seed"])
+            if torch.cuda.is_available():
+                torch.cuda.manual_seed(options["seed"])
+                torch.cuda.manual_seed_all(options["seed"])
+
+    output_dir = str(hydra.core.hydra_config.HydraConfig.get().runtime.output_dir)
+    output_dir = output_dir[output_dir.find("outputs") :]
+    logger.info("This log is also available in '{output_dir}/train.log'.")
 
     logger.info("Setting up training set")
     train_options = expand_dataset_config(options["training_set"])
@@ -235,10 +252,8 @@ def _train_model_hydra(options: DictConfig) -> None:
         elif not validation_fraction and validation_fraction:
             validation_dataset = subsets[1]
         else:
-            test_dataset = subsets[1]
+            test_dataset = subsets[1]  # noqa: F841
             validation_dataset = subsets[2]
-
-    test_dataset
 
     output_dir = hydra.core.hydra_config.HydraConfig.get().runtime.output_dir
     # Save fully expanded config
@@ -276,6 +291,7 @@ def _train_model_hydra(options: DictConfig) -> None:
         hypers=OmegaConf.to_container(options["architecture"]),
         continue_from=options["continue_from"],
         output_dir=output_dir,
+        device_str=options["device"],
     )
 
     save_model(model, options["output_path"])
