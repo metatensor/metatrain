@@ -1,0 +1,14 @@
+# architecture used to train the model
+architecture:
+  name: alchemical_model
+
+# Mandatory section defining the parameters for structure and target data of the
+# training set
+training_set:
+  structures: "hea_samples_bulk.xyz" # file where the positions are stored
+  targets:
+    energy:
+      key: "energy" # name of the target value
+
+test_set: 0.1  # 10 % of the training_set are randomly split and taken for test set
+validation_set: 0.1 # 10 % of the training_set are randomly split and for validation
