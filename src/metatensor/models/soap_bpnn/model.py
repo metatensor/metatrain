@@ -282,14 +282,6 @@ class Model(torch.nn.Module):
         outputs: Dict[str, ModelOutput],
         selected_atoms: Optional[Labels] = None,
     ) -> Dict[str, TensorMap]:
-        # check outputs
-        for requested_output in outputs.keys():
-            if requested_output not in self.capabilities.outputs.keys():
-                raise ValueError(
-                    f"Requested output {requested_output} is not within "
-                    "the model's capabilities."
-                )
-
         if selected_atoms is not None:
             # change metatensor names to match rascaline
             selected_atoms = selected_atoms.rename("system", "structure")
