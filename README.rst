@@ -13,6 +13,40 @@ requirement is for these models to be able to take metatensor objects as inputs 
 outputs. The models do not need to live entirely in this repository: in the most extreme
 case, this repository can simply contain a wrapper to an external model.
 
+.. marker-introduction
+
+What is metatensor-models?
+###########################
+
+The idea behind ``metatensor-models`` is to have a general hub
+that provide an homogeneous enviroment and user interface to
+train, export and evaluate ML models and to
+connect those models with various MD engines (e.g. ``LAMMPS``, ``i-PI``, ``ASE`` ...).
+``metatensor-models`` is the tool that transforms every ML architecture in an
+end-to-end model. Any custom ML architecture compatible with TorchScript
+can be integrated in ``metatensor-models``, gaining automatic access to
+a training and evaluation interface, as well as compatibility with various MD engines.
+
+Note: ``metatensor-models`` does not provide `per se` mathematical functionalities but
+relies on external models that implement the various architectures.
+
+Features
+#########
+
+- **Custom ML Architecture**: Integrate any TorchScriptable ML model
+  to explore innovative architectures.
+
+- **MD Engine Compatibility**: Supports various MD engines for diverse research
+  and application needs.
+
+- **Streamlined Training**: Automated process leveraging MD-generated data to
+  optimize ML models with minimal effort. It uses the ``hydra`` module to
+  easy management of folder and files.
+
+- **HPC Compatibility**: Efficient in HPC environments for extensive simulations.
+
+- **Future-Proof**: Extensible to accommodate advancements in ML and MD fields.
+
 .. marker-architectures
 
 List of Implemented Architectures
