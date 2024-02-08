@@ -25,7 +25,6 @@ model:
     activation_function: SiLU
 
 training:
-  device: "cpu"
   batch_size: 8
   num_epochs: 100
   learning_rate: 0.001

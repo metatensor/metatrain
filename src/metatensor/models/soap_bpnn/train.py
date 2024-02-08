@@ -43,6 +43,7 @@ def train(
     hypers: Dict = DEFAULT_HYPERS,
     continue_from: Optional[str] = None,
     output_dir: str = ".",
+    device_str: str = "cpu",
 ):
     # Create the model:
     if continue_from is None:
@@ -85,10 +86,10 @@ def train(
         hypers=hypers["model"],
     )
 
-    logger.info(f"Training on device {hypers['training']['device']}")
-    if hypers["training"]["device"] == "gpu":
-        hypers["training"]["device"] = "cuda"
-    device = torch.device(hypers["training"]["device"])
+    logger.info(f"Training on device {device_str}")
+    if device_str == "gpu":
+        device_str = "cuda"
+    device = torch.device(device_str)
     if device.type == "cuda":
         if not torch.cuda.is_available():
             raise ValueError("CUDA is not available on this machine.")
