@@ -29,15 +29,6 @@ from .formatter import CustomHelpFormatter
 logger = logging.getLogger(__name__)
 
 
-def _has_yaml_suffix(s: str) -> str:
-    """Checks if a string has a .yaml suffix."""
-
-    if Path(s).suffix != ".yaml":
-        raise argparse.ArgumentTypeError(f"Options file '{s}' must be a `.yaml` file.")
-
-    return s
-
-
 def _add_train_model_parser(subparser: argparse._SubParsersAction) -> None:
     """Add basic the `train_model` paramaters to an argparse (sub)-parser.
 
@@ -58,7 +49,7 @@ def _add_train_model_parser(subparser: argparse._SubParsersAction) -> None:
 
     parser.add_argument(
         "options",
-        type=_has_yaml_suffix,
+        type=OmegaConf.load,
         help="Options file",
     )
     parser.add_argument(
@@ -89,7 +80,7 @@ def _add_train_model_parser(subparser: argparse._SubParsersAction) -> None:
 
 
 def train_model(
-    options: str,
+    options: DictConfig,
     output: str = "model.pt",
     continue_from: Optional[str] = None,
     hydra_parameters: Optional[List[str]] = None,
@@ -108,31 +99,30 @@ def train_model(
     https://hydra.cc/docs/advanced/hydra-command-line-flags/ and
     https://hydra.cc/docs/advanced/override_grammar/basic/ for details.
 
-    :param options: Options file path
+    :param options: DictConfig containing the training options
     :param output: Path to save the final model
     :param continue_from: File to continue training from.
     :param hydra_parameters: Hydra's command line and override flags
     """
-    conf = OmegaConf.load(options)
-
     try:
-        architecture_name = conf["architecture"]["name"]
+        architecture_name = options["architecture"]["name"]
     except ConfigKeyError as exc:
         raise ConfigKeyError("Architecture name is not defined!") from exc
 
-    conf["defaults"] = [
+    options["defaults"] = [
         "base",
         {"architecture": architecture_name},
         {"override hydra/job_logging": "custom"},
         "_self_",
     ]
 
+    # HACK: Hydra parses command line arguments directlty from `sys.argv`. We override
+    # `sys.argv` and write files to a tempory directory to be hydra compatible with our
+    # CLI architecture.
     with tempfile.TemporaryDirectory() as tmpdirname:
         options_new = Path(tmpdirname) / "options.yaml"
-        OmegaConf.save(config=conf, f=options_new)
+        OmegaConf.save(config=options, f=options_new)
 
-        # HACK: Hydra parses command line arguments directlty from `sys.argv`. We
-        # override `sys.argv` to be compatible with our CLI architecture.
         if continue_from is None:
             continue_from = "null"
 
