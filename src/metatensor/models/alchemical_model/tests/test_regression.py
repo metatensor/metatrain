@@ -48,7 +48,6 @@ def test_regression_init():
         systems,
         {"U0": alchemical_model.capabilities.outputs["U0"]},
     )
-    print(output["U0"].block().values)
     expected_output = torch.tensor(
         [[-0.6996], [-0.4681], [2.2749], [-0.5971], [1.6994]],
         dtype=torch.float64,
@@ -103,16 +102,20 @@ def test_regression_train():
             )
         },
     )
-    alchemical_model = train([dataset], [dataset], capabilities, hypers)
+    alchemical_model = train(
+        train_datasets=[dataset],
+        validation_datasets=[dataset],
+        requested_capabilities=capabilities,
+        hypers=hypers,
+    )
 
     # Predict on the first five structures
     output = alchemical_model(
         structures[:5], {"U0": alchemical_model.capabilities.outputs["U0"]}
     )
 
-    print(output["U0"].block().values)
     expected_output = torch.tensor(
-        [[-37.3165], [-33.7774], [-29.9353], [-61.5583], [-61.0081]],
+        [[-71.9730], [-59.0585], [-58.7821], [-98.1361], [-56.7274]],
         dtype=torch.float64,
     )
 

@@ -12,12 +12,14 @@ def get_average_number_of_atoms(
     """Calculate the average number of atoms in a dataset."""
     average_number_of_atoms = []
     for dataset in datasets:
+        num_atoms = []
+        for item in dataset:
+            structure = item[0]
+            if not isinstance(structure, torch.ScriptObject):
+                raise RuntimeError
+            num_atoms.append(len(structure))
         average_number_of_atoms.append(
-            torch.mean(
-                torch.tensor([len(structure) for structure in dataset.structures]).to(
-                    torch.get_default_dtype()
-                )
-            )
+            torch.mean(torch.tensor(num_atoms).to(torch.get_default_dtype()))
         )
     return torch.tensor(average_number_of_atoms)
 
@@ -29,7 +31,10 @@ def get_average_number_of_neighbors(
     average_number_of_neighbors = []
     for dataset in datasets:
         num_neighbors = []
-        for structure in dataset.structures:
+        for item in dataset:
+            structure = item[0]
+            if not isinstance(structure, torch.ScriptObject):
+                raise RuntimeError
             known_neighbors_lists = structure.known_neighbors_lists()
             if len(known_neighbors_lists) == 0:
                 raise ValueError(

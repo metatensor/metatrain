@@ -33,10 +33,10 @@ class AlchemicalSoapCalculator(torch.nn.Module):
         cutoff_radius: float,
         basis_cutoff: float,
         radial_basis_type: str = "le",
-        basis_normalization_factor: float = None,
         basis_scale: float = 3.0,
         trainable_basis: bool = True,
-        num_pseudo_species: int = None,
+        basis_normalization_factor: Optional[float] = None,
+        num_pseudo_species: Optional[int] = None,
     ):
         super().__init__()
         if isinstance(all_species, np.ndarray):
@@ -128,6 +128,9 @@ class Model(torch.nn.Module):
         self.register_buffer(
             "composition_weights", torch.zeros((n_outputs, max(self.all_species) + 1))
         )
+        # creates a normalization factor for energies
+        # this can be left as a tensor of 1.0 or set from the outside using
+        # set_normalization_factor (recommended for better accuracy)
         self.register_buffer(
             "normalization_factor", torch.tensor(1.0, dtype=torch.float32)
         )
