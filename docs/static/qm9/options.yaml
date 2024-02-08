@@ -1,12 +1,9 @@
-defaults:
-  - architecture: soap_bpnn  # architecture used to train the model
-  - _self_
+# architecture used to train the model
+architecture:
+  name: soap_bpnn
 
-# Last position of the _self_ this entry defines that default options will be
-# overwritten by this config.
-
-# Mandatory section defining the parameters for structure and target data of the trainin
-# set
+# Mandatory section defining the parameters for structure and target data of the
+# training set
 training_set:
   structures: "qm9_reduced_100.xyz" # file where the positions are stored
   targets:

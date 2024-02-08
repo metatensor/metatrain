@@ -1,7 +1,9 @@
 import logging
+import warnings
 from pathlib import Path
-from typing import Dict, List, Tuple, Union
+from typing import Dict, List, Optional, Tuple, Union
 
+import rascaline
 import torch
 from metatensor.torch.atomistic import ModelCapabilities
 
@@ -15,22 +17,62 @@ from ..utils.data import (
     get_all_targets,
 )
 from ..utils.info import finalize_aggregated_info, update_aggregated_info
+from ..utils.logging import MetricLogger
 from ..utils.loss import TensorMapDictLoss
-from ..utils.model_io import save_model
+from ..utils.merge_capabilities import merge_capabilities
+from ..utils.model_io import load_model, save_model
 from .model import DEFAULT_HYPERS, Model
 
 
 logger = logging.getLogger(__name__)
 
+# disable rascaline logger
+rascaline.set_logging_callback(lambda x, y: None)
+
+# Filter out the second derivative and device warnings from rascaline-torch
+warnings.filterwarnings("ignore", category=UserWarning, message="second derivative")
+warnings.filterwarnings(
+    "ignore", category=UserWarning, message="Systems data is on device"
+)
+
 
 def train(
     train_datasets: List[Union[Dataset, torch.utils.data.Subset]],
     validation_datasets: List[Union[Dataset, torch.utils.data.Subset]],
-    model_capabilities: ModelCapabilities,
+    requested_capabilities: ModelCapabilities,
     hypers: Dict = DEFAULT_HYPERS,
+    continue_from: Optional[str] = None,
     output_dir: str = ".",
+    device_str: str = "cpu",
 ):
-    # Perform canonical checks on the datasets:
+    # Create the model:
+    if continue_from is None:
+        model = Model(
+            capabilities=requested_capabilities,
+            hypers=hypers["model"],
+        )
+        new_capabilities = requested_capabilities
+    else:
+        model = load_model(continue_from)
+        filtered_new_dict = {k: v for k, v in hypers["model"].items() if k != "restart"}
+        filtered_old_dict = {k: v for k, v in model.hypers.items() if k != "restart"}
+        if filtered_new_dict != filtered_old_dict:
+            logger.warn(
+                "The hyperparameters of the model have changed since the last "
+                "training run. The new hyperparameters will be discarded."
+            )
+        # merge the model's capabilities with the requested capabilities
+        merged_capabilities, new_capabilities = merge_capabilities(
+            model.capabilities, requested_capabilities
+        )
+        model.capabilities = merged_capabilities
+        # make the new model capable of handling the new outputs
+        for output_name in new_capabilities.outputs.keys():
+            model.add_output(output_name)
+
+    model_capabilities = model.capabilities
+
+    # Perform checks on the datasets:
     logger.info("Checking datasets for consistency")
     check_datasets(
         train_datasets,
@@ -44,22 +86,36 @@ def train(
         hypers=hypers["model"],
     )
 
+    logger.info(f"Training on device {device_str}")
+    if device_str == "gpu":
+        device_str = "cuda"
+    device = torch.device(device_str)
+    if device.type == "cuda":
+        if not torch.cuda.is_available():
+            raise ValueError("CUDA is not available on this machine.")
+        logger.info(
+            "A cuda device was requested. The neural network will be run on GPU, "
+            "but the SOAP features are calculated on CPU."
+        )
+    model.to(device)
+
     # Calculate and set the composition weights for all targets:
     logger.info("Calculating composition weights")
-    for target_name in model_capabilities.outputs.keys():
-        # find the dataset that contains the target:
-        train_dataset_with_target = None
+    for target_name in new_capabilities.outputs.keys():
+        # TODO: warn in the documentation that capabilities that are already
+        # present in the model won't recalculate the composition weights
+        # find the datasets that contain the target:
+        train_datasets_with_target = []
         for dataset in train_datasets:
             if target_name in get_all_targets(dataset):
-                train_dataset_with_target = dataset
-                break
-        if train_dataset_with_target is None:
+                train_datasets_with_target.append(dataset)
+        if len(train_datasets_with_target) == 0:
             raise ValueError(
-                f"Target {target_name} in the model's capabilities is not "
+                f"Target {target_name} in the model's new capabilities is not "
                 "present in any of the training datasets."
             )
         composition_weights = calculate_composition_weights(
-            train_dataset_with_target, target_name
+            train_datasets_with_target, target_name
         )
         model.set_composition_weights(target_name, composition_weights)
 
@@ -95,20 +151,11 @@ def train(
 
     # Extract all the possible outputs and their gradients from the training set:
     outputs_dict = _get_outputs_dict(train_datasets)
-    energy_counter = 0
     for output_name in outputs_dict.keys():
         if output_name not in model_capabilities.outputs:
             raise ValueError(
                 f"Output {output_name} is not in the model's capabilities."
             )
-        if model_capabilities.outputs[output_name].quantity == "energy":
-            energy_counter += 1
-
-    # This will be useful later for printing forces/virials/stresses:
-    if energy_counter == 1:
-        only_one_energy = True
-    else:
-        only_one_energy = False
 
     # Create a loss weight dict:
     loss_weights_dict = {}
@@ -145,7 +192,7 @@ def train(
             loss.backward()
             optimizer.step()
             aggregated_train_info = update_aggregated_info(aggregated_train_info, info)
-        aggregated_train_info = finalize_aggregated_info(aggregated_train_info)
+        finalized_train_info = finalize_aggregated_info(aggregated_train_info)
 
         validation_loss = 0.0
         for batch in validation_dataloader:
@@ -156,41 +203,25 @@ def train(
             aggregated_validation_info = update_aggregated_info(
                 aggregated_validation_info, info
             )
-        aggregated_validation_info = finalize_aggregated_info(
-            aggregated_validation_info
-        )
+        finalized_validation_info = finalize_aggregated_info(aggregated_validation_info)
 
         # Now we log the information:
-        if epoch % hypers_training["log_interval"] == 0:
-            logging_string = (
-                f"Epoch {epoch:4}, train loss: {train_loss:10.4f}, "
-                f"validation loss: {validation_loss:10.4f}"
+        if epoch == 0:
+            metric_logger = MetricLogger(
+                model_capabilities,
+                train_loss,
+                validation_loss,
+                finalized_train_info,
+                finalized_validation_info,
             )
-            for name, information_holder in zip(
-                ["train", "valid"], [aggregated_train_info, aggregated_validation_info]
-            ):
-                for key, value in information_holder.items():
-                    if key.endswith("_positions_gradients"):
-                        # check if this is a force
-                        target_name = key[: -len("_positions_gradients")]
-                        if model.capabilities.outputs[target_name].quantity == "energy":
-                            # if this is a force, replace the ugly name with "force"
-                            if only_one_energy:
-                                key = "force"
-                            else:
-                                key = f"force[{target_name}]"
-                    elif key.endswith("_displacement_gradients"):
-                        # check if this is a virial/stress
-                        target_name = key[: -len("_displacement_gradients")]
-                        if model.capabilities.outputs[target_name].quantity == "energy":
-                            # if this is a virial/stress,
-                            # replace the ugly name with "virial/stress"
-                            if only_one_energy:
-                                key = "virial/stress"
-                            else:
-                                key = f"virial/stress[{target_name}]"
-                    logging_string += f", {name} {key} RMSE: {value:10.4f}"
-            logger.info(logging_string)
+        if epoch % hypers_training["log_interval"] == 0:
+            metric_logger.log(
+                epoch,
+                train_loss,
+                validation_loss,
+                finalized_train_info,
+                finalized_validation_info,
+            )
 
         if epoch % hypers_training["checkpoint_interval"] == 0:
             save_model(
@@ -206,7 +237,7 @@ def train(
             epochs_without_improvement += 1
             if epochs_without_improvement >= 50:
                 logger.info(
-                    f"Early stopping criterion reached after {epoch} "
+                    "Early stopping criterion reached after 50 "
                     "epochs without improvement."
                 )
                 break

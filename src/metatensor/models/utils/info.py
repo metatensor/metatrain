@@ -34,7 +34,9 @@ def update_aggregated_info(
     return aggregated_info
 
 
-def finalize_aggregated_info(aggregated_info):
+def finalize_aggregated_info(
+    aggregated_info: Dict[str, Tuple[float, int]]
+) -> Dict[str, float]:
     """
     Finalize the aggregated information dictionaryby calculating RMSEs.
 

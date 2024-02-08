@@ -40,7 +40,7 @@ format, which is also valid for initial input:
         structures:
             read_from: dataset.xyz
             file_format: .xyz
-            unit: null
+            length_unit: null
         targets:
             energy:
                 quantity: energy
@@ -71,7 +71,7 @@ Describes the structure data like positions and cell information.
 :param read_from: The file containing structure data.
 :param file_format: The file format, guessed from the suffix if ``null`` or not
     provided.
-:param unit: The unit of lengths, optional but recommended for simulations.
+:param length_unit: The unit of lengths, optional but recommended for simulations.
 
 A single string in this section automatically expands, using the string as the
 ``read_from`` parameter.
