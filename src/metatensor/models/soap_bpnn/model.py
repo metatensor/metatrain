@@ -298,6 +298,11 @@ class Model(torch.nn.Module):
                     "the model's capabilities."
                 )
 
+        if selected_atoms is not None:
+            # change metatensor names to match rascaline
+            selected_atoms = selected_atoms.rename("system", "structure")
+            selected_atoms = selected_atoms.rename("atom", "center")
+
         soap_features = self.soap_calculator(systems, selected_samples=selected_atoms)
 
         device = soap_features.block(0).values.device
