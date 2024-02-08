@@ -15,14 +15,13 @@ from metatensor.models.utils.data.readers import read_structures, read_targets
 from . import DATASET_PATH
 
 
-# reproducibility
-random.seed(0)
-np.random.seed(0)
-torch.manual_seed(0)
-
-
 def test_regression_init():
     """Perform a regression test on the model at initialization"""
+
+    # reproducibility
+    random.seed(0)
+    np.random.seed(0)
+    torch.manual_seed(0)
 
     capabilities = ModelCapabilities(
         length_unit="Angstrom",
@@ -49,6 +48,7 @@ def test_regression_init():
         systems,
         {"U0": alchemical_model.capabilities.outputs["U0"]},
     )
+    print(output["U0"].block().values)
     expected_output = torch.tensor(
         [[-0.6996], [-0.4681], [2.2749], [-0.5971], [1.6994]],
         dtype=torch.float64,
@@ -60,6 +60,11 @@ def test_regression_init():
 def test_regression_train():
     """Perform a regression test on the model when
     trained for 2 epoch on a small dataset"""
+
+    # reproducibility
+    random.seed(0)
+    np.random.seed(0)
+    torch.manual_seed(0)
 
     atoms_list = ase.io.read(DATASET_PATH, ":")
     structures = read_structures(DATASET_PATH)
@@ -105,8 +110,9 @@ def test_regression_train():
         structures[:5], {"U0": alchemical_model.capabilities.outputs["U0"]}
     )
 
+    print(output["U0"].block().values)
     expected_output = torch.tensor(
-        [[-59.8994], [-52.9348], [-55.5842], [-86.7398], [-51.5123]],
+        [[-37.3165], [-33.7774], [-29.9353], [-61.5583], [-61.0081]],
         dtype=torch.float64,
     )
 
