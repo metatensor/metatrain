@@ -59,7 +59,7 @@ Finally, the new model should implement default hyperparameters in the
 Here we explain how to interact with our data classes:
 
 .. toctree::
-   :maxdepth: 1
+    :maxdepth: 1
 
     capabilities
     dataset
