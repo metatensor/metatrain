@@ -132,10 +132,10 @@ def _eval_targets(model, dataset: Union[Dataset, torch.utils.data.Subset]) -> No
 def eval_model(
     model: torch.nn.Module, options: DictConfig, output: str = "output.xyz"
 ) -> None:
-    """Evaluate a pretrained model on a certain data set.
+    """Evaluate a pretrained model on a given data set.
 
     If ``options`` contains a ``targets`` sub-section, RMSE values will be reported. If
-    this sub-section is missing only a xyz-file with containing the properties the model
+    this sub-section is missing, only a xyz-file with containing the properties the model
     was trained against is written.
 
     :param model: Saved model to be evaluated.

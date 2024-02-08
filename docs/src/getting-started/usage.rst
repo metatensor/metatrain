@@ -66,14 +66,14 @@ The sub-command to evaluate an already trained model is
 
     metatensor-models eval
 
-Besides the a already trained `model` you will also have to provide a file containing
+Besides the trained `model` you will also have to provide a file containing
 the structure and possible target values for evaluation. The structure of this
 ``eval.yaml`` is exactly the same as for a dataset in the ``options.yaml`` file.
 
 .. literalinclude:: ../../static/qm9/eval.yaml
    :language: yaml
 
-Note that the ``targets`` section is optional. If the ``targets`` section is present the
+Note that the ``targets`` section is optional. If the ``targets`` section is present, the
 function will calculate and report RMSE values of the predictions with respect to the
 real values as loaded from the ``targets`` section. You can run an evaluation by typing
 

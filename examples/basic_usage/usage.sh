@@ -8,7 +8,7 @@ metatensor-models train options.yaml
 metatensor-models train --help
 
 # We now evaluate the model on the training dataset, where the first arguments specifies
-# trained model and the second an option file containing the dataset for evaulation.
+# trained model and the second an option file containing the path of the dataset for evaulation.
 
 metatensor-models eval model.pt eval.yaml
 
