@@ -3,7 +3,7 @@
 Advanced Base Configuration
 ===========================
 
-Here, "cell_abc" how some advanced base properties in the ``options.yaml`` can
+Here, we show how some advanced base properties in the ``options.yaml`` can
 be adjusted. They should be written without indentation in the ``options.yaml`` file.
 
 :param device: The device in which the training should be run. Takes two possible
