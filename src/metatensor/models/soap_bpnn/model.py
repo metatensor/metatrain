@@ -282,15 +282,7 @@ class Model(torch.nn.Module):
         outputs: Dict[str, ModelOutput],
         selected_atoms: Optional[Labels] = None,
     ) -> Dict[str, TensorMap]:
-        for system in systems:
-            for species in system.species:
-                if species not in self.all_species:
-                    raise ValueError(
-                        "This model only supports systems with chemical "
-                        f"species {self.all_species}, but a system with species "
-                        f"{system.species} was provided"
-                    )
-
+        # check outputs
         for requested_output in outputs.keys():
             if requested_output not in self.capabilities.outputs.keys():
                 raise ValueError(
