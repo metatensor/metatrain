@@ -282,8 +282,14 @@ class Model(torch.nn.Module):
         outputs: Dict[str, ModelOutput],
         selected_atoms: Optional[Labels] = None,
     ) -> Dict[str, TensorMap]:
-        if selected_atoms is not None:
-            raise NotImplementedError("SOAP-BPNN does not support selected atoms.")
+        for system in systems:
+            for species in system.species:
+                if species not in self.all_species:
+                    raise ValueError(
+                        "This model only supports systems with chemical "
+                        f"species {self.all_species}, but a system with species "
+                        f"{system.species} was provided"
+                    )
 
         for requested_output in outputs.keys():
             if requested_output not in self.capabilities.outputs.keys():
@@ -292,7 +298,7 @@ class Model(torch.nn.Module):
                     "the model's capabilities."
                 )
 
-        soap_features = self.soap_calculator(systems)
+        soap_features = self.soap_calculator(systems, selected_samples=selected_atoms)
 
         device = soap_features.block(0).values.device
         soap_features = soap_features.keys_to_properties(
