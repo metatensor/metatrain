@@ -19,7 +19,7 @@ from .. import CONFIG_PATH
 from ..utils.data import Dataset, get_all_species, read_structures, read_targets
 from ..utils.data.dataset import _train_test_random_split
 from ..utils.model_io import save_model
-from ..utils.omegaconf import check_units, expand_dataset_config, _has_yaml_suffix
+from ..utils.omegaconf import _has_yaml_suffix, check_units, expand_dataset_config
 from .eval_model import _eval_targets
 from .formatter import CustomHelpFormatter
 

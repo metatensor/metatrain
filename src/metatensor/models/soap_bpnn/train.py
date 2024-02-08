@@ -2,7 +2,6 @@ import logging
 import warnings
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple, Union
-from ..utils.extract_targets import get_outputs_dict
 
 import rascaline
 import torch
@@ -17,6 +16,7 @@ from ..utils.data import (
     combine_dataloaders,
     get_all_targets,
 )
+from ..utils.extract_targets import get_outputs_dict
 from ..utils.info import finalize_aggregated_info, update_aggregated_info
 from ..utils.logging import MetricLogger
 from ..utils.loss import TensorMapDictLoss
@@ -151,7 +151,7 @@ def train(
     validation_dataloader = combine_dataloaders(validation_dataloaders, shuffle=False)
 
     # Extract all the possible outputs and their gradients from the training set:
-    outputs_dict = _get_outputs_dict(train_datasets)
+    outputs_dict = get_outputs_dict(train_datasets)
     for output_name in outputs_dict.keys():
         if output_name not in model_capabilities.outputs:
             raise ValueError(

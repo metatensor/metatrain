@@ -1,7 +1,6 @@
-from typing import Optional
 import logging
 import os
-from typing import Dict, List, Tuple
+from typing import Dict, List, Optional, Tuple
 
 import metatensor.torch
 import numpy as np
@@ -10,8 +9,6 @@ from metatensor.torch import Labels, TensorMap
 from metatensor.torch.atomistic import ModelCapabilities, System
 from torch import Generator, default_generator
 from torch.utils.data import Subset, random_split
-
-from torch.utils.data import random_split
 
 
 logger = logging.getLogger(__name__)

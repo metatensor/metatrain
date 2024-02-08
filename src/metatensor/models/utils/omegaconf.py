@@ -1,8 +1,8 @@
+import argparse
 from pathlib import Path
 from typing import Union
 
 from omegaconf import DictConfig, OmegaConf
-import argparse
 
 
 def file_format(_parent_):

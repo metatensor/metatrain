@@ -1,21 +1,25 @@
 import argparse
 import logging
-from typing import Union
-from typing import Dict, Tuple
-
+from typing import Dict, Tuple, Union
 
 import torch
 from omegaconf import OmegaConf
 
-from ..utils.extract_targets import get_outputs_dict
 from ..utils.compute_loss import compute_model_loss
-from ..utils.data import Dataset, read_structures, read_targets, write_predictions, collate_fn
+from ..utils.data import (
+    Dataset,
+    collate_fn,
+    read_structures,
+    read_targets,
+    write_predictions,
+)
+from ..utils.data.dataset import _train_test_random_split
+from ..utils.extract_targets import get_outputs_dict
+from ..utils.info import finalize_aggregated_info, update_aggregated_info
 from ..utils.loss import TensorMapDictLoss
 from ..utils.model_io import load_model
-from ..utils.omegaconf import check_units, expand_dataset_config, _has_yaml_suffix
+from ..utils.omegaconf import _has_yaml_suffix, check_units, expand_dataset_config
 from .formatter import CustomHelpFormatter
-from ..utils.data.dataset import _train_test_random_split
-from ..utils.info import finalize_aggregated_info, update_aggregated_info
 
 
 logger = logging.getLogger(__name__)
@@ -64,7 +68,7 @@ def _add_eval_model_parser(subparser: argparse._SubParsersAction) -> None:
     )
 
 
-def _eval_targets(model, dataset: Union[Dataset, torch.utils.data.Subset], dataset_name: str) -> None:
+def _eval_targets(model, dataset: Union[Dataset, torch.utils.data.Subset]) -> None:
     """Evaluate a model on a dataset and print the RMSEs for each target."""
 
     # Extract all the possible outputs and their gradients from the dataset:
@@ -86,7 +90,7 @@ def _eval_targets(model, dataset: Union[Dataset, torch.utils.data.Subset], datas
     # Create a dataloader:
     dataloader = torch.utils.data.DataLoader(
         dataset=dataset,
-        batch_size=batch_size,
+        batch_size=4,  # Choose small value to not crash the system at evaluation
         shuffle=True,
         collate_fn=collate_fn,
     )
@@ -108,18 +112,13 @@ def _eval_targets(model, dataset: Union[Dataset, torch.utils.data.Subset], datas
     else:
         only_one_energy = False
 
-    logger.info(f"{dataset_name} RMSEs:")
-
-    logging_string = ""
+    log_output = []
     for key, value in finalized_info.items():
         new_key = key
         if key.endswith("_positions_gradients"):
             # check if this is a force
             target_name = key[: -len("_positions_gradients")]
-            if (
-                model.capabilities.outputs[target_name].quantity
-                == "energy"
-            ):
+            if model.capabilities.outputs[target_name].quantity == "energy":
                 # if this is a force, replace the ugly name with "force"
                 if only_one_energy:
                     new_key = "force"
@@ -128,18 +127,15 @@ def _eval_targets(model, dataset: Union[Dataset, torch.utils.data.Subset], datas
         elif key.endswith("_displacement_gradients"):
             # check if this is a virial/stress
             target_name = key[: -len("_displacement_gradients")]
-            if (
-                model.capabilities.outputs[target_name].quantity
-                == "energy"
-            ):
+            if model.capabilities.outputs[target_name].quantity == "energy":
                 # if this is a virial/stress,
                 # replace the ugly name with "virial/stress"
                 if only_one_energy:
                     new_key = "virial/stress"
                 else:
                     new_key = f"virial/stress[{target_name}]"
-        logging_string += f", {new_key} RMSE: {value}"
-    logger.info(logging_string)
+        log_output.append(f"{new_key} RMSE: {value}")
+    logger.info(", ".join(log_output))
 
 
 def eval_model(
@@ -193,8 +189,8 @@ def eval_model(
             train_dataset = Dataset(train_structures, train_targets)
 
             generator = torch.Generator()
-            if options["seed"] is not None:
-                generator.manual_seed(options["seed"])
+            if conf["seed"] is not None:
+                generator.manual_seed(conf["seed"])
 
             _, eval_dataset = _train_test_random_split(
                 train_dataset=train_dataset,

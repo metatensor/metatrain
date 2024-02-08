@@ -1,5 +1,7 @@
 from typing import List, Union
+
 import torch
+
 from .data import Dataset
 
 
