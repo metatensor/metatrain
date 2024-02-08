@@ -135,8 +135,8 @@ def eval_model(
     """Evaluate a pretrained model on a given data set.
 
     If ``options`` contains a ``targets`` sub-section, RMSE values will be reported. If
-    this sub-section is missing, only a xyz-file with containing the properties the model
-    was trained against is written.
+    this sub-section is missing, only a xyz-file with containing the properties the
+    model was trained against is written.
 
     :param model: Saved model to be evaluated.
     :param options: DictConfig to define a test dataset taken for the evaluation.
