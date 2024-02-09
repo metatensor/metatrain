@@ -71,7 +71,7 @@ def test_read_forces(fileformat, monkeypatch, tmp_path):
     result = read_forces(filename, fileformat=fileformat, target_value="forces")
 
     assert result.samples.names == ["sample", "structure", "atom"]
-    assert result.components == [Labels(["direction"], torch.arange(3).reshape(-1, 1))]
+    assert result.components == [Labels(["xyz"], torch.arange(3).reshape(-1, 1))]
     assert result.properties == Labels.single()
 
 
@@ -87,8 +87,8 @@ def test_read_stress_virial(reader, fileformat, monkeypatch, tmp_path):
     result = reader(filename, fileformat=fileformat, target_value="stress-3x3")
 
     components = [
-        Labels(["cell_vector"], torch.arange(3).reshape(-1, 1)),
-        Labels(["coordinate"], torch.arange(3).reshape(-1, 1)),
+        Labels(["xyz_1"], torch.arange(3).reshape(-1, 1)),
+        Labels(["xyz_2"], torch.arange(3).reshape(-1, 1)),
     ]
 
     assert result.samples.names == ["sample"]
@@ -157,15 +157,13 @@ def test_read_targets(stress_dict, virial_dict, monkeypatch, tmp_path, caplog):
 
         pos_grad = result_block.gradient("positions")
         assert pos_grad.samples.names == ["sample", "structure", "atom"]
-        assert pos_grad.components == [
-            Labels(["direction"], torch.arange(3).reshape(-1, 1))
-        ]
+        assert pos_grad.components == [Labels(["xyz"], torch.arange(3).reshape(-1, 1))]
         assert pos_grad.properties == Labels.single()
 
-        disp_grad = result_block.gradient("displacement")
+        disp_grad = result_block.gradient("strain")
         components = [
-            Labels(["cell_vector"], torch.arange(3).reshape(-1, 1)),
-            Labels(["coordinate"], torch.arange(3).reshape(-1, 1)),
+            Labels(["xyz_1"], torch.arange(3).reshape(-1, 1)),
+            Labels(["xyz_2"], torch.arange(3).reshape(-1, 1)),
         ]
 
         assert disp_grad.samples.names == ["sample"]

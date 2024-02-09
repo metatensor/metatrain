@@ -178,7 +178,7 @@ def read_targets(conf: DictConfig) -> Dict[str, TensorMap]:
 
             if target["stress"]:
                 try:
-                    displacement_gradient = read_stress(
+                    strain_gradient = read_stress(
                         filename=target["stress"]["read_from"],
                         target_value=target["stress"]["key"],
                         fileformat=target["stress"]["file_format"],
@@ -193,13 +193,11 @@ def read_targets(conf: DictConfig) -> Dict[str, TensorMap]:
                         f"Stress found in section {target_key!r}. Stress is taken for "
                         f"training!"
                     )
-                    block.add_gradient(
-                        parameter="displacement", gradient=displacement_gradient
-                    )
+                    block.add_gradient(parameter="strain", gradient=strain_gradient)
 
             if target["virial"]:
                 try:
-                    displacement_gradient = read_virial(
+                    strain_gradient = read_virial(
                         filename=target["virial"]["read_from"],
                         target_value=target["virial"]["key"],
                         fileformat=target["virial"]["file_format"],
@@ -214,9 +212,7 @@ def read_targets(conf: DictConfig) -> Dict[str, TensorMap]:
                         f"Virial found in section {target_key!r}. Virial is taken for "
                         f"training!"
                     )
-                    block.add_gradient(
-                        parameter="displacement", gradient=displacement_gradient
-                    )
+                    block.add_gradient(parameter="strain", gradient=strain_gradient)
         else:
             raise ValueError(
                 f"Quantity: {target['quantity']!r} is not supported. Choose 'energy'."
