@@ -66,7 +66,7 @@ The sub-command to evaluate an already trained model is
 
     metatensor-models eval
 
-Besides the trained `model` you will also have to provide a file containing the
+Besides the trained `model`, you will also have to provide a file containing the
 structure and possible target values for evaluation. The structure of this ``eval.yaml``
 is exactly the same as for a dataset in the ``options.yaml`` file.
 
