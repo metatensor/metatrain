@@ -13,7 +13,8 @@ should have the following signature:
 .. code-block:: python
 
     class Model(torch.nn.Module):
-        def __init__(self, capabilities: ModelCapabilities, hypers: Dict) -> None: ...
+        def __init__(self, capabilities: ModelCapabilities, hypers: Dict) -> None:
+            ...
 
 For more information on the ``ModelCapabilities`` class, see
 :py:class:`metatensor.torch.atomistic.ModelCapabilities`.
@@ -27,7 +28,8 @@ The ``forward`` method should have the following signature:
         systems: List[System],
         outputs: Dict[str, ModelOutput],
         selected_atoms: Optional[Labels] = None,
-    ) -> Dict[str, TensorMap]: ...
+    ) -> Dict[str, TensorMap]:
+        ...
 
 For more information on the ``System`` and ``ModelOutput`` classes, see
 :py:class:`metatensor.torch.atomistic.System` and
@@ -43,10 +45,11 @@ The ``train_model`` function should have the following signature:
         model_capabilities: ModelCapabilities,
         hypers: Dict = DEFAULT_HYPERS,
         output_dir: str = ".",
-    ) -> torch.nn.Module: ...
+    ) -> torch.nn.Module:
+        ...
 
 For more information on the ``Dataset`` class, see
 :py:class:`metatensor.operations.utils.data.Dataset`.
 
-Finally, the new model should implement default hyperparameters in the
+Finally, the new model should have its default hyperparameters in the
 ``src/metatensor/models/cli/conf/architecture/`` folder.
