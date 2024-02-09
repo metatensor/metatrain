@@ -141,10 +141,6 @@ class Model(torch.nn.Module):
             output_name: i for i, output_name in enumerate(capabilities.outputs.keys())
         }
 
-        for external_hp in ["basis_normalization_factor"]:
-            if external_hp not in hypers["soap"]:
-                raise ValueError(f"The {external_hp} must be provided in the hypers.")
-
         # TODO Inject basis_normalization_factor and device into the hypers
         self.soap_features_layer = AlchemicalSoapCalculator(
             all_species=self.all_species, **hypers["soap"]
@@ -281,5 +277,14 @@ class Model(torch.nn.Module):
         ] = input_composition_weights
 
     def set_normalization_factor(self, normalization_factor: torch.Tensor) -> None:
-        """Set the normalization factor for the model."""
+        """Set the normalization factor for output of the model."""
         self.normalization_factor = normalization_factor
+
+    def set_basis_normalization_factor(self, basis_normalization_factor: torch.Tensor):
+        """Set the normalization factor for the basis functions of the model."""
+        self.soap_features_layer.spex_calculator.normalization_factor = (
+            1.0 / torch.sqrt(basis_normalization_factor)
+        )
+        self.soap_features_layer.spex_calculator.normalization_factor_0 = (
+            1.0 / basis_normalization_factor ** (3 / 4)
+        )

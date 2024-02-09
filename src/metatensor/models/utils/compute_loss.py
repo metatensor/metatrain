@@ -1,3 +1,4 @@
+import logging
 from typing import Dict, List
 
 import torch
@@ -61,6 +62,9 @@ def compute_model_loss(
             for system in systems
         ]
         # Create new "displaced" systems:
+        logging.warning(
+            "Systems are recreated, which may cause loosing the neighborlists."
+        )
         systems = [
             System(
                 positions=system.positions @ displacement,

@@ -3,7 +3,7 @@ from pathlib import Path
 from typing import Dict, List, Optional, Tuple, Union
 
 import torch
-from metatensor.torch.atomistic import ModelCapabilities
+from metatensor.torch.atomistic import ModelCapabilities, register_autograd_neighbors
 
 from ..utils.composition import calculate_composition_weights
 from ..utils.compute_loss import compute_model_loss
@@ -24,6 +24,7 @@ from ..utils.normalize import (
     get_average_number_of_neighbors,
 )
 from .model import DEFAULT_HYPERS, Model
+from .utils import get_primitive_neighbors_list
 
 
 logger = logging.getLogger(__name__)
@@ -71,6 +72,23 @@ def train(
         validation_datasets,
         model_capabilities,
     )
+
+    # Calculating the neighbolists
+    logger.info("Calculating the neighbolists")
+    for dataset in train_datasets + validation_datasets:
+        for item in dataset:
+            system = item[0]
+            if len(system.known_neighbors_lists()) == 0:
+                nl, nl_options = get_primitive_neighbors_list(
+                    system,
+                    model_cutoff=hypers["model"]["soap"]["cutoff_radius"],
+                    full_list=True,
+                )
+                register_autograd_neighbors(system, nl)
+                system.add_neighbors_list(nl_options, nl)
+
+    assert len(train_datasets[0][0][0].known_neighbors_lists()) > 0
+
     # Calculate the average number of atoms and neighbors in the training datasets:
     average_number_of_atoms = get_average_number_of_atoms(train_datasets)
     average_number_of_neighbors = get_average_number_of_neighbors(train_datasets)
@@ -80,10 +98,10 @@ def train(
     average_number_of_neighbors = average_number_of_neighbors[0]
 
     # Set the normalization factor for the basis functions of the model:
-    hypers["model"]["soap"]["basis_normalization_factor"] = average_number_of_neighbors
 
-    # Set the normalization factor for the model:
+    # Set the normalization factors for the model:
     model.set_normalization_factor(average_number_of_atoms)
+    model.set_basis_normalization_factor(average_number_of_neighbors)
 
     logger.info(f"Training on device {device_str}")
     if device_str == "gpu":
@@ -198,6 +216,7 @@ def train(
         for batch in train_dataloader:
             optimizer.zero_grad()
             structures, targets = batch
+            assert len(structures[0].known_neighbors_lists()) > 0
             loss, info = compute_model_loss(loss_fn, model, structures, targets)
             train_loss += loss.item()
             loss.backward()
