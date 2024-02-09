@@ -14,7 +14,7 @@ a tuple containing the inputs and the outputs of the model in the
 You can either extract data yourself from the ``Dataset`` class and
 convert it to a format that is more suited to your model (see the
 ``System`` and ``TensorMap`` sections of this guide), or you can use
-the provided :py:function:`metatensor.models.utils.data.collate_fn` to build
+the provided :py:func:`metatensor.models.utils.data.collate_fn` to build
 :py:class:`torch.utils.data.DataLoader` objects that will return the data in
 the ``Tuple[List[System], Dict[str, TensorMap]]`` format, which
 corresponds exactly to the input and output of a ``metatensor`` model.
