@@ -13,6 +13,7 @@ well as how to interact with our data classes:
     dataset
     output
     system
+    tensormap
 
 You can also browse the source code of the existing models in the
 ``metatensor-models`` repository to get a better understanding of how
