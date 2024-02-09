@@ -22,13 +22,7 @@ class MLPMap(torch.nn.Module):
     def __init__(self, all_species: List[int], hypers: dict) -> None:
         super().__init__()
 
-        activation_function_name = hypers["activation_function"]
-        if activation_function_name == "SiLU":
-            self.activation_function = torch.nn.SiLU()
-        else:
-            raise ValueError(
-                f"Unsupported activation function: {activation_function_name}"
-            )
+        self.activation_function = torch.nn.SiLU()
 
         # Build a neural network for each species
         nns_per_species = []
@@ -247,7 +241,10 @@ class Model(torch.nn.Module):
             * (hypers["soap"]["max_angular"] + 1)
         )
 
-        self.layernorm = LayerNormMap(self.all_species, soap_size)
+        if hypers_bpnn["layernorm"]:
+            self.layernorm = LayerNormMap(self.all_species, soap_size)
+        else:
+            self.layernorm = torch.nn.Identity()
 
         hypers_bpnn = hypers["bpnn"]
         hypers_bpnn["input_size"] = soap_size
