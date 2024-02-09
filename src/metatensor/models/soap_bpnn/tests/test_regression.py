@@ -1,12 +1,10 @@
 import random
 
 import ase.io
-import metatensor.torch as metatensor
 import numpy as np
 import rascaline.torch
 import torch
 from metatensor.learn.data import Dataset
-from metatensor.torch import Labels
 from metatensor.torch.atomistic import ModelCapabilities, ModelOutput
 from omegaconf import OmegaConf
 
@@ -70,26 +68,7 @@ def test_regression_train():
         }
     }
     targets = read_targets(OmegaConf.create(conf))
-    # TODO: use this when targets are sliced in the reader
-    # dataset = Dataset(structure=structures, U0=targets["U0"])
-
-    # TODO: change the readers to provide the targets as a list of TensorMaps
-    # for each sample, not a single TensorMap. This then aligns with the
-    # paradigm set by `metatensor-learn`. In the meantime, slice the targets to
-    # per-structure TensorMaps.
-    targets_sliced = {"U0": []}
-    for structure_idx in range(len(structures)):
-        targets_sliced["U0"].append(
-            metatensor.slice(
-                targets["U0"],
-                axis="samples",
-                labels=Labels(
-                    names=["structure"],
-                    values=torch.tensor([structure_idx]).reshape(-1, 1),
-                ),
-            )
-        )
-    dataset = Dataset(structure=structures, U0=targets_sliced["U0"])
+    dataset = Dataset(structure=structures, U0=targets["U0"])
 
     hypers = DEFAULT_HYPERS.copy()
     hypers["training"]["num_epochs"] = 2

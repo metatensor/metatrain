@@ -1,10 +1,7 @@
 from pathlib import Path
 
-import metatensor.torch as metatensor
 import numpy as np
-import torch
 from metatensor.learn.data import DataLoader, Dataset
-from metatensor.torch import Labels
 from omegaconf import OmegaConf
 
 from metatensor.models.utils.data import (
@@ -36,27 +33,8 @@ def test_without_shuffling():
             "virial": False,
         }
     }
-    targets = read_targets(OmegaConf.create(conf))  # , slice_samples_by="structure")
-    # TODO: use this when targets are sliced in the reader
-    # dataset = Dataset(structure=structures, U0=targets["U0"])
-
-    # TODO: change the readers to provide the targets as a list of TensorMaps
-    # for each sample, not a single TensorMap. This then aligns with the
-    # paradigm set by `metatensor-learn`. In the meantime, slice the targets to
-    # per-structure TensorMaps.
-    targets_sliced = {"U0": []}
-    for structure_idx in range(len(structures)):
-        targets_sliced["U0"].append(
-            metatensor.slice(
-                targets["U0"],
-                axis="samples",
-                labels=Labels(
-                    names=["structure"],
-                    values=torch.tensor([structure_idx]).reshape(-1, 1),
-                ),
-            )
-        )
-    dataset = Dataset(structure=structures, U0=targets_sliced["U0"])
+    targets = read_targets(OmegaConf.create(conf))
+    dataset = Dataset(structure=structures, U0=targets["U0"])
     dataloader_qm9 = DataLoader(dataset, batch_size=10, collate_fn=collate_fn)
     # will yield 10 batches of 10
 
@@ -73,28 +51,8 @@ def test_without_shuffling():
             "virial": False,
         }
     }
-    targets = read_targets(OmegaConf.create(conf))  # , slice_samples_by="structure")
-    # TODO: use this when targets are sliced in the reader
-    # dataset = Dataset(structure=structures, free_energy=targets["free_energy"])
-
-    # TODO: change the readers to provide the targets as a list of TensorMaps
-    # for each sample, not a single TensorMap. This then aligns with the
-    # paradigm set by `metatensor-learn`. In the meantime, slice the targets to
-    # per-structure TensorMaps.
-    targets_sliced = {"free_energy": []}
-    for structure_idx in range(len(structures)):
-        targets_sliced["free_energy"].append(
-            metatensor.slice(
-                targets["free_energy"],
-                axis="samples",
-                labels=Labels(
-                    names=["structure"],
-                    values=torch.tensor([structure_idx]).reshape(-1, 1),
-                ),
-            )
-        )
-    dataset = Dataset(structure=structures, free_energy=targets_sliced["free_energy"])
-
+    targets = read_targets(OmegaConf.create(conf))
+    dataset = Dataset(structure=structures, free_energy=targets["free_energy"])
     dataloader_alchemical = DataLoader(dataset, batch_size=2, collate_fn=collate_fn)
     # will yield 5 batches of 2
 
@@ -128,27 +86,8 @@ def test_with_shuffling():
             "virial": False,
         }
     }
-    targets = read_targets(OmegaConf.create(conf))  # , slice_samples_by="structure")
-    # TODO: use this when targets are sliced in the reader
-    # dataset = Dataset(structure=structures, U0=targets["U0"])
-
-    # TODO: change the readers to provide the targets as a list of TensorMaps
-    # for each sample, not a single TensorMap. This then aligns with the
-    # paradigm set by `metatensor-learn`. In the meantime, slice the targets to
-    # per-structure TensorMaps.
-    targets_sliced = {"U0": []}
-    for structure_idx in range(len(structures)):
-        targets_sliced["U0"].append(
-            metatensor.slice(
-                targets["U0"],
-                axis="samples",
-                labels=Labels(
-                    names=["structure"],
-                    values=torch.tensor([structure_idx]).reshape(-1, 1),
-                ),
-            )
-        )
-    dataset = Dataset(structure=structures, U0=targets_sliced["U0"])
+    targets = read_targets(OmegaConf.create(conf))
+    dataset = Dataset(structure=structures, U0=targets["U0"])
     dataloader_qm9 = DataLoader(dataset, batch_size=10, collate_fn=collate_fn)
     # will yield 10 batches of 10
 
@@ -165,28 +104,8 @@ def test_with_shuffling():
             "virial": False,
         }
     }
-    targets = read_targets(OmegaConf.create(conf))  # , slice_samples_by="structure")
-    # TODO: use this when targets are sliced in the reader
-    # dataset = Dataset(structure=structures, free_energy=targets["free_energy"])
-
-    # TODO: change the readers to provide the targets as a list of TensorMaps
-    # for each sample, not a single TensorMap. This then aligns with the
-    # paradigm set by `metatensor-learn`. In the meantime, slice the targets to
-    # per-structure TensorMaps.
-    targets_sliced = {"free_energy": []}
-    for structure_idx in range(len(structures)):
-        targets_sliced["free_energy"].append(
-            metatensor.slice(
-                targets["free_energy"],
-                axis="samples",
-                labels=Labels(
-                    names=["structure"],
-                    values=torch.tensor([structure_idx]).reshape(-1, 1),
-                ),
-            )
-        )
-    dataset = Dataset(structure=structures, free_energy=targets_sliced["free_energy"])
-
+    targets = read_targets(OmegaConf.create(conf))
+    dataset = Dataset(structure=structures, free_energy=targets["free_energy"])
     dataloader_alchemical = DataLoader(dataset, batch_size=2, collate_fn=collate_fn)
     # will yield 5 batches of 2
 

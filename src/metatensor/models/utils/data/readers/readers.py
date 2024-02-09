@@ -32,7 +32,7 @@ def read_energy(
     filename: str,
     target_value: str = "energy",
     fileformat: Optional[str] = None,
-) -> TensorBlock:
+) -> List[TensorBlock]:
     """Read energy informations from a file.
 
     :param filename: name of the file to read
@@ -53,7 +53,7 @@ def read_forces(
     filename: str,
     target_value: str = "forces",
     fileformat: Optional[str] = None,
-) -> TensorBlock:
+) -> List[TensorBlock]:
     """Read force informations from a file.
 
     :param filename: name of the file to read
@@ -74,7 +74,7 @@ def read_stress(
     filename: str,
     target_value: str = "stress",
     fileformat: Optional[str] = None,
-) -> TensorBlock:
+) -> List[TensorBlock]:
     """Read stress informations from a file.
 
     :param filename: name of the file to read
@@ -111,7 +111,7 @@ def read_virial(
     filename: str,
     target_value: str = "virial",
     fileformat: Optional[str] = None,
-) -> TensorBlock:
+) -> List[TensorBlock]:
     """Read virial informations from a file.
 
     :param filename: name of the file to read
@@ -128,7 +128,7 @@ def read_virial(
     )
 
 
-def read_targets(conf: DictConfig) -> Dict[str, TensorMap]:  # , slice_samples_by: str
+def read_targets(conf: DictConfig) -> Dict[str, List[TensorMap]]:
     """Reading all target information from a fully expanded config.
 
     To get such a config you can use
@@ -146,7 +146,7 @@ def read_targets(conf: DictConfig) -> Dict[str, TensorMap]:  # , slice_samples_b
 
     for target_key, target in conf.items():
         if target["quantity"] == "energy":
-            block = read_energy(
+            blocks = read_energy(
                 filename=target["read_from"],
                 target_value=target["key"],
                 fileformat=target["file_format"],
@@ -154,7 +154,7 @@ def read_targets(conf: DictConfig) -> Dict[str, TensorMap]:  # , slice_samples_b
 
             if target["forces"]:
                 try:
-                    position_gradient = read_forces(
+                    position_gradients = read_forces(
                         filename=target["forces"]["read_from"],
                         target_value=target["forces"]["key"],
                         fileformat=target["forces"]["file_format"],
@@ -169,16 +169,17 @@ def read_targets(conf: DictConfig) -> Dict[str, TensorMap]:  # , slice_samples_b
                         f"Forces found in section {target_key!r}. Forces are taken for "
                         "training!"
                     )
-                    block.add_gradient(
-                        parameter="positions", gradient=position_gradient
-                    )
+                    for block, position_gradient in zip(blocks, position_gradients):
+                        block.add_gradient(
+                            parameter="positions", gradient=position_gradient
+                        )
 
             if target["stress"] and target["virial"]:
                 raise ValueError("Cannot use stress and virial at the same time!")
 
             if target["stress"]:
                 try:
-                    strain_gradient = read_stress(
+                    strain_gradients = read_stress(
                         filename=target["stress"]["read_from"],
                         target_value=target["stress"]["key"],
                         fileformat=target["stress"]["file_format"],
@@ -193,11 +194,12 @@ def read_targets(conf: DictConfig) -> Dict[str, TensorMap]:  # , slice_samples_b
                         f"Stress found in section {target_key!r}. Stress is taken for "
                         f"training!"
                     )
-                    block.add_gradient(parameter="strain", gradient=strain_gradient)
+                    for block, strain_gradient in zip(blocks, strain_gradients):
+                        block.add_gradient(parameter="strain", gradient=strain_gradient)
 
             if target["virial"]:
                 try:
-                    strain_gradient = read_virial(
+                    strain_gradients = read_virial(
                         filename=target["virial"]["read_from"],
                         target_value=target["virial"]["key"],
                         fileformat=target["virial"]["file_format"],
@@ -212,41 +214,18 @@ def read_targets(conf: DictConfig) -> Dict[str, TensorMap]:  # , slice_samples_b
                         f"Virial found in section {target_key!r}. Virial is taken for "
                         f"training!"
                     )
-                    block.add_gradient(parameter="strain", gradient=strain_gradient)
+                    for block, strain_gradient in zip(blocks, strain_gradients):
+                        block.add_gradient(parameter="strain", gradient=strain_gradient)
         else:
             raise ValueError(
                 f"Quantity: {target['quantity']!r} is not supported. Choose 'energy'."
             )
 
-        target_dictionary[target_key] = TensorMap(
-            keys=Labels(["lambda", "sigma"], torch.tensor([(0, 1)])), blocks=[block]
-        )
+        target_dictionary[target_key] = [
+            TensorMap(
+                keys=Labels(["lambda", "sigma"], torch.tensor([(0, 1)])), blocks=[block]
+            )
+            for block in blocks
+        ]
 
     return target_dictionary
-
-    # # TODO: slice the targets here - gradients need attention
-    # sliced_target_dictionary = {}
-    # for target_key, target_tmap in target_dictionary.items():
-    #     sample_ids = metatensor.unique_metadata(
-    #         target_tmap, "samples", slice_samples_by
-    #     )
-    #     sample_ids = torch.tensor(sample_ids.values[:, 0])
-    #     # sanity check that the sample ids are just a continuous range
-    #     assert torch.all(sample_ids == torch.arange(len(sample_ids)))
-
-    #     per_sample_tmaps = []
-    #     for sample_id in sample_ids:
-    #         print(sample_id)
-    #         per_sample_tmaps.append(
-    #             metatensor.slice(
-    #                 target_tmap,
-    #                 axis="samples",
-    #                 labels=Labels(
-    #                     names=[slice_samples_by],
-    #                     values=torch.tensor([sample_id]).reshape(-1, 1),
-    #                 ),
-    #             )
-    #         )
-    #     sliced_target_dictionary[target_key] = per_sample_tmaps
-
-    # return sliced_target_dictionary
