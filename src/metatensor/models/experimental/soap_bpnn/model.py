@@ -241,13 +241,13 @@ class Model(torch.nn.Module):
             * (hypers["soap"]["max_angular"] + 1)
         )
 
+        hypers_bpnn = hypers["bpnn"]
+        hypers_bpnn["input_size"] = soap_size
+
         if hypers_bpnn["layernorm"]:
             self.layernorm = LayerNormMap(self.all_species, soap_size)
         else:
             self.layernorm = torch.nn.Identity()
-
-        hypers_bpnn = hypers["bpnn"]
-        hypers_bpnn["input_size"] = soap_size
 
         self.bpnn = MLPMap(self.all_species, hypers_bpnn)
         self.neighbor_species_1_labels = Labels(
