@@ -128,7 +128,7 @@ def read_virial(
     )
 
 
-def read_targets(conf: DictConfig) -> Dict[str, TensorMap]:
+def read_targets(conf: DictConfig) -> Dict[str, TensorMap]:  # , slice_samples_by: str
     """Reading all target information from a fully expanded config.
 
     To get such a config you can use
@@ -178,7 +178,7 @@ def read_targets(conf: DictConfig) -> Dict[str, TensorMap]:
 
             if target["stress"]:
                 try:
-                    displacement_gradient = read_stress(
+                    strain_gradient = read_stress(
                         filename=target["stress"]["read_from"],
                         target_value=target["stress"]["key"],
                         fileformat=target["stress"]["file_format"],
@@ -193,13 +193,11 @@ def read_targets(conf: DictConfig) -> Dict[str, TensorMap]:
                         f"Stress found in section {target_key!r}. Stress is taken for "
                         f"training!"
                     )
-                    block.add_gradient(
-                        parameter="displacement", gradient=displacement_gradient
-                    )
+                    block.add_gradient(parameter="strain", gradient=strain_gradient)
 
             if target["virial"]:
                 try:
-                    displacement_gradient = read_virial(
+                    strain_gradient = read_virial(
                         filename=target["virial"]["read_from"],
                         target_value=target["virial"]["key"],
                         fileformat=target["virial"]["file_format"],
@@ -214,9 +212,7 @@ def read_targets(conf: DictConfig) -> Dict[str, TensorMap]:
                         f"Virial found in section {target_key!r}. Virial is taken for "
                         f"training!"
                     )
-                    block.add_gradient(
-                        parameter="displacement", gradient=displacement_gradient
-                    )
+                    block.add_gradient(parameter="strain", gradient=strain_gradient)
         else:
             raise ValueError(
                 f"Quantity: {target['quantity']!r} is not supported. Choose 'energy'."
@@ -227,3 +223,30 @@ def read_targets(conf: DictConfig) -> Dict[str, TensorMap]:
         )
 
     return target_dictionary
+
+    # # TODO: slice the targets here - gradients need attention
+    # sliced_target_dictionary = {}
+    # for target_key, target_tmap in target_dictionary.items():
+    #     sample_ids = metatensor.unique_metadata(
+    #         target_tmap, "samples", slice_samples_by
+    #     )
+    #     sample_ids = torch.tensor(sample_ids.values[:, 0])
+    #     # sanity check that the sample ids are just a continuous range
+    #     assert torch.all(sample_ids == torch.arange(len(sample_ids)))
+
+    #     per_sample_tmaps = []
+    #     for sample_id in sample_ids:
+    #         print(sample_id)
+    #         per_sample_tmaps.append(
+    #             metatensor.slice(
+    #                 target_tmap,
+    #                 axis="samples",
+    #                 labels=Labels(
+    #                     names=[slice_samples_by],
+    #                     values=torch.tensor([sample_id]).reshape(-1, 1),
+    #                 ),
+    #             )
+    #         )
+    #     sliced_target_dictionary[target_key] = per_sample_tmaps
+
+    # return sliced_target_dictionary

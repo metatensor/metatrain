@@ -69,7 +69,7 @@ def read_forces_ase(
     block = TensorBlock(
         values=values.reshape(-1, 3, 1),
         samples=samples,
-        components=[Labels(["direction"], torch.arange(3).reshape(-1, 1))],
+        components=[Labels(["xyz"], torch.arange(3).reshape(-1, 1))],
         properties=Labels.single(),
     )
 
@@ -81,7 +81,7 @@ def read_virial_ase(
     key: str = "virial",
 ):
     """Store virial information in :class:`metatensor.TensorBlock` which can be used as
-    ``displacement`` gradients
+    ``strain`` gradients
 
     :param filename: name of the file to read
     :param key: target value key name to be parsed from the file
@@ -97,7 +97,7 @@ def read_stress_ase(
     key: str = "stress",
 ):
     """Store stress information in :class:`metatensor.TensorBlock` which can be used as
-    ``displacement`` gradients
+    ``strain`` gradients
 
     :param filename: name of the file to read
     :param key: target value key name to be parsed from the file
@@ -114,7 +114,7 @@ def _read_virial_stress_ase(
     is_virial: bool = True,
 ) -> TensorBlock:
     """Store stress or virial information in :class:`metatensor.TensorBlock` which can
-    be used as ``displacement`` gradients
+    be used as ``strain`` gradients
 
     :param filename: name of the file to read
     :param key: target value key name to be parsed from the file
@@ -158,8 +158,8 @@ def _read_virial_stress_ase(
     samples = Labels(["sample"], torch.tensor([[s] for s in range(n_structures)]))
 
     components = [
-        Labels(["cell_vector"], torch.arange(3).reshape(-1, 1)),
-        Labels(["coordinate"], torch.arange(3).reshape(-1, 1)),
+        Labels(["xyz_1"], torch.arange(3).reshape(-1, 1)),
+        Labels(["xyz_2"], torch.arange(3).reshape(-1, 1)),
     ]
 
     block = TensorBlock(

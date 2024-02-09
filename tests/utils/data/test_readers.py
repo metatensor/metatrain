@@ -71,7 +71,7 @@ def test_read_forces(fileformat, monkeypatch, tmp_path):
     result = read_forces(filename, fileformat=fileformat, target_value="forces")
 
     assert result.samples.names == ["sample", "structure", "atom"]
-    assert result.components == [Labels(["direction"], torch.arange(3).reshape(-1, 1))]
+    assert result.components == [Labels(["xyz"], torch.arange(3).reshape(-1, 1))]
     assert result.properties == Labels.single()
 
 
@@ -87,8 +87,8 @@ def test_read_stress_virial(reader, fileformat, monkeypatch, tmp_path):
     result = reader(filename, fileformat=fileformat, target_value="stress-3x3")
 
     components = [
-        Labels(["cell_vector"], torch.arange(3).reshape(-1, 1)),
-        Labels(["coordinate"], torch.arange(3).reshape(-1, 1)),
+        Labels(["xyz_1"], torch.arange(3).reshape(-1, 1)),
+        Labels(["xyz_2"], torch.arange(3).reshape(-1, 1)),
     ]
 
     assert result.samples.names == ["sample"]
@@ -136,7 +136,7 @@ def test_read_targets(stress_dict, virial_dict, monkeypatch, tmp_path, caplog):
     }
 
     caplog.set_level(logging.INFO)
-    result = read_targets(OmegaConf.create(conf))
+    result = read_targets(OmegaConf.create(conf))  # , slice_samples_by="structure")
 
     assert any(["Forces found" in rec.message for rec in caplog.records])
 
@@ -157,15 +157,13 @@ def test_read_targets(stress_dict, virial_dict, monkeypatch, tmp_path, caplog):
 
         pos_grad = result_block.gradient("positions")
         assert pos_grad.samples.names == ["sample", "structure", "atom"]
-        assert pos_grad.components == [
-            Labels(["direction"], torch.arange(3).reshape(-1, 1))
-        ]
+        assert pos_grad.components == [Labels(["xyz"], torch.arange(3).reshape(-1, 1))]
         assert pos_grad.properties == Labels.single()
 
-        disp_grad = result_block.gradient("displacement")
+        disp_grad = result_block.gradient("strain")
         components = [
-            Labels(["cell_vector"], torch.arange(3).reshape(-1, 1)),
-            Labels(["coordinate"], torch.arange(3).reshape(-1, 1)),
+            Labels(["xyz_1"], torch.arange(3).reshape(-1, 1)),
+            Labels(["xyz_2"], torch.arange(3).reshape(-1, 1)),
         ]
 
         assert disp_grad.samples.names == ["sample"]
@@ -203,7 +201,7 @@ def test_read_targets_warnings(stress_dict, virial_dict, monkeypatch, tmp_path, 
     conf = {"energy": energy_section}
 
     caplog.set_level(logging.WARNING)
-    read_targets(OmegaConf.create(conf))
+    read_targets(OmegaConf.create(conf))  # , slice_samples_by="structure")
 
     assert any(["Forces not found" in rec.message for rec in caplog.records])
 
@@ -236,7 +234,8 @@ def test_read_targets_error(monkeypatch, tmp_path):
         ValueError,
         match="stress and virial at the same time",
     ):
-        read_targets(OmegaConf.create(conf))
+        # TODO: slice by structure in the reader
+        read_targets(OmegaConf.create(conf))  # , slice_samples_by="structure")
 
 
 def test_unsopprted_quantity():
@@ -250,4 +249,5 @@ def test_unsopprted_quantity():
         ValueError,
         match="Quantity: 'foo' is not supported. Choose 'energy'.",
     ):
-        read_targets(OmegaConf.create(conf))
+        # TODO: slice by structure in the reader
+        read_targets(OmegaConf.create(conf))  # , slice_samples_by="structure")
