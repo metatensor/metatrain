@@ -5,7 +5,8 @@ from typing import Dict, List, Optional, Tuple, Union
 
 import rascaline
 import torch
-from metatensor.learn.data import DataLoader, Dataset
+from metatensor.learn.data import DataLoader
+from metatensor.learn.data.dataset import _BaseDataset
 from metatensor.torch.atomistic import ModelCapabilities
 
 from ..utils.composition import calculate_composition_weights
@@ -38,8 +39,8 @@ warnings.filterwarnings(
 
 
 def train(
-    train_datasets: List[Union[Dataset, torch.utils.data.Subset]],
-    validation_datasets: List[Union[Dataset, torch.utils.data.Subset]],
+    train_datasets: List[Union[_BaseDataset, torch.utils.data.Subset]],
+    validation_datasets: List[Union[_BaseDataset, torch.utils.data.Subset]],
     requested_capabilities: ModelCapabilities,
     hypers: Dict = DEFAULT_HYPERS,
     continue_from: Optional[str] = None,

@@ -1,13 +1,13 @@
 from typing import List
 
-import metatensor.torch as metatensor
 import rascaline.torch
 import torch
+from metatensor.learn.data.dataset import _BaseDataset
 from metatensor.torch import Labels, TensorBlock, TensorMap
 
 
 def calculate_composition_weights(
-    datasets: metatensor.learn.data.dataset._BaseDataset, property: str
+    datasets: _BaseDataset, property: str
 ) -> torch.Tensor:
     """Calculate the composition weights for a dataset.
     For now, it assumes per-structure properties.

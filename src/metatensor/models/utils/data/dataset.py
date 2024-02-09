@@ -5,6 +5,7 @@ from typing import Dict, List, NamedTuple, Optional, Tuple
 import metatensor.torch
 import torch
 from metatensor.learn.data import Dataset, group_and_join
+from metatensor.learn.data.dataset import _BaseDataset
 from metatensor.torch import TensorMap
 from metatensor.torch.atomistic import ModelCapabilities
 from torch import Generator, default_generator
@@ -27,7 +28,7 @@ else:
     compiled_join = torch.jit.script(metatensor.torch.join)
 
 
-def get_all_species(dataset: metatensor.learn.data.dataset._BaseDataset) -> List[int]:
+def get_all_species(dataset: _BaseDataset) -> List[int]:
     """
     Returns the list of all species present in the dataset.
 
@@ -58,7 +59,7 @@ def get_all_species(dataset: metatensor.learn.data.dataset._BaseDataset) -> List
     return result
 
 
-def get_all_targets(dataset: metatensor.learn.data.dataset._BaseDataset) -> List[str]:
+def get_all_targets(dataset: _BaseDataset) -> List[str]:
     """
     Returns the list of all targets present in the dataset.
 
@@ -97,8 +98,8 @@ def collate_fn(batch: List[NamedTuple]) -> Tuple[List, Dict[str, TensorMap]]:
 
 
 def check_datasets(
-    train_datasets: List[metatensor.learn.data.dataset._BaseDataset],
-    validation_datasets: List[metatensor.learn.data.dataset._BaseDataset],
+    train_datasets: List[_BaseDataset],
+    validation_datasets: List[_BaseDataset],
     capabilities: ModelCapabilities,
 ):
     """

@@ -4,7 +4,7 @@ from typing import Dict, Tuple, Union
 
 import metatensor.torch as metatensor
 import torch
-from metatensor.learn.data import Dataset
+from metatensor.learn.data.dataset import Dataset, _BaseDataset
 from metatensor.torch import Labels
 from omegaconf import DictConfig, OmegaConf
 
@@ -56,7 +56,7 @@ def _add_eval_model_parser(subparser: argparse._SubParsersAction) -> None:
     )
 
 
-def _eval_targets(model, dataset: Union[Dataset, torch.utils.data.Subset]) -> None:
+def _eval_targets(model, dataset: Union[_BaseDataset, torch.utils.data.Subset]) -> None:
     """Evaluate a model on a dataset and print the RMSEs for each target."""
 
     # Extract all the possible outputs and their gradients from the dataset:
