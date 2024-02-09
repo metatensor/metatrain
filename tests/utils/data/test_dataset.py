@@ -1,10 +1,12 @@
 from pathlib import Path
 
+import metatensor.torch as metatensor
 import torch
+from metatensor.learn.data import Dataset
+from metatensor.torch import Labels
 from omegaconf import OmegaConf
 
 from metatensor.models.utils.data import (
-    Dataset,
     collate_fn,
     get_all_species,
     read_structures,
@@ -32,9 +34,28 @@ def test_dataset():
             "virial": False,
         }
     }
-    targets = read_targets(OmegaConf.create(conf))
+    targets = read_targets(OmegaConf.create(conf))  # , slice_samples_by="structure")
+    # TODO: use this when targets are sliced in the reader
+    # dataset = Dataset(structure=structures, energy=targets["energy"])
 
-    dataset = Dataset(structures, targets)
+    # TODO: change the readers to provide the targets as a list of TensorMaps
+    # for each sample, not a single TensorMap. This then aligns with the
+    # paradigm set by `metatensor-learn`. In the meantime, slice the targets to
+    # per-structure TensorMaps.
+    targets_sliced = {"energy": []}
+    for structure_idx in range(len(structures)):
+        targets_sliced["energy"].append(
+            metatensor.slice(
+                targets["energy"],
+                axis="samples",
+                labels=Labels(
+                    names=["structure"],
+                    values=torch.tensor([structure_idx]).reshape(-1, 1),
+                ),
+            )
+        )
+    dataset = Dataset(structure=structures, energy=targets_sliced["energy"])
+
     dataloader = torch.utils.data.DataLoader(
         dataset, batch_size=10, collate_fn=collate_fn
     )
@@ -58,8 +79,26 @@ def test_species_list():
             "virial": False,
         }
     }
-    targets = read_targets(OmegaConf.create(conf))
+    targets = read_targets(OmegaConf.create(conf))  # , slice_samples_by="structure")
+    # TODO: use this when targets are sliced in the reader
+    # dataset = Dataset(structure=structures, energy=targets["energy"])
 
-    dataset = Dataset(structures, targets)
+    # TODO: change the readers to provide the targets as a list of TensorMaps
+    # for each sample, not a single TensorMap. This then aligns with the
+    # paradigm set by `metatensor-learn`. In the meantime, slice the targets to
+    # per-structure TensorMaps.
+    targets_sliced = {"energy": []}
+    for structure_idx in range(len(structures)):
+        targets_sliced["energy"].append(
+            metatensor.slice(
+                targets["energy"],
+                axis="samples",
+                labels=Labels(
+                    names=["structure"],
+                    values=torch.tensor([structure_idx]).reshape(-1, 1),
+                ),
+            )
+        )
+    dataset = Dataset(structure=structures, energy=targets_sliced["energy"])
 
     assert get_all_species(dataset) == [1, 6, 7, 8]

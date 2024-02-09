@@ -136,7 +136,7 @@ def test_read_targets(stress_dict, virial_dict, monkeypatch, tmp_path, caplog):
     }
 
     caplog.set_level(logging.INFO)
-    result = read_targets(OmegaConf.create(conf))
+    result = read_targets(OmegaConf.create(conf))  # , slice_samples_by="structure")
 
     assert any(["Forces found" in rec.message for rec in caplog.records])
 
@@ -201,7 +201,7 @@ def test_read_targets_warnings(stress_dict, virial_dict, monkeypatch, tmp_path, 
     conf = {"energy": energy_section}
 
     caplog.set_level(logging.WARNING)
-    read_targets(OmegaConf.create(conf))
+    read_targets(OmegaConf.create(conf))  # , slice_samples_by="structure")
 
     assert any(["Forces not found" in rec.message for rec in caplog.records])
 
@@ -234,7 +234,8 @@ def test_read_targets_error(monkeypatch, tmp_path):
         ValueError,
         match="stress and virial at the same time",
     ):
-        read_targets(OmegaConf.create(conf))
+        # TODO: slice by structure in the reader
+        read_targets(OmegaConf.create(conf))  # , slice_samples_by="structure")
 
 
 def test_unsopprted_quantity():
@@ -248,4 +249,5 @@ def test_unsopprted_quantity():
         ValueError,
         match="Quantity: 'foo' is not supported. Choose 'energy'.",
     ):
-        read_targets(OmegaConf.create(conf))
+        # TODO: slice by structure in the reader
+        read_targets(OmegaConf.create(conf))  # , slice_samples_by="structure")
