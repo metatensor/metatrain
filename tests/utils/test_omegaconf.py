@@ -249,3 +249,19 @@ def test_check_units():
         ),
     ):
         check_units(actual_options=test_options3, desired_options=train_options)
+
+
+def test_missing_targets_section():
+    conf = {"structures": "foo.xyz"}
+    conf_expanded = expand_dataset_config(OmegaConf.create(conf))
+
+    assert conf_expanded["structures"]["read_from"] == "foo.xyz"
+    assert conf_expanded["structures"]["file_format"] == ".xyz"
+
+
+def test_missing_strcutures_section():
+    conf = {"targets": {"energies": "foo.xyz"}}
+    conf_expanded = expand_dataset_config(OmegaConf.create(conf))
+
+    assert conf_expanded["targets"]["energies"]["read_from"] == "foo.xyz"
+    assert conf_expanded["targets"]["energies"]["file_format"] == ".xyz"

@@ -16,6 +16,7 @@ from ..utils.data import (
     combine_dataloaders,
     get_all_targets,
 )
+from ..utils.extract_targets import get_outputs_dict
 from ..utils.info import finalize_aggregated_info, update_aggregated_info
 from ..utils.logging import MetricLogger
 from ..utils.loss import TensorMapDictLoss
@@ -150,7 +151,7 @@ def train(
     validation_dataloader = combine_dataloaders(validation_dataloaders, shuffle=False)
 
     # Extract all the possible outputs and their gradients from the training set:
-    outputs_dict = _get_outputs_dict(train_datasets)
+    outputs_dict = get_outputs_dict(train_datasets)
     for output_name in outputs_dict.keys():
         if output_name not in model_capabilities.outputs:
             raise ValueError(
@@ -243,27 +244,3 @@ def train(
                 break
 
     return model
-
-
-def _get_outputs_dict(datasets: List[Union[Dataset, torch.utils.data.Subset]]):
-    """
-    This is a helper function that extracts all the possible outputs and their gradients
-    from a list of datasets.
-
-    :param datasets: A list of Datasets or Subsets.
-
-    :returns: A dictionary mapping output names to a list of "values" (always)
-        and possible gradients.
-    """
-
-    outputs_dict = {}
-    for dataset in datasets:
-        sample_batch = next(iter(dataset))
-        targets = sample_batch[1]  # this is a dictionary of TensorMaps
-        for target_name, target_tmap in targets.items():
-            if target_name not in outputs_dict:
-                outputs_dict[target_name] = [
-                    "values"
-                ] + target_tmap.block().gradients_list()
-
-    return outputs_dict
