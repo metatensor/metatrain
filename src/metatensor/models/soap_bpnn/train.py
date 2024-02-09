@@ -5,12 +5,13 @@ from typing import Dict, List, Optional, Tuple, Union
 
 import rascaline
 import torch
+from metatensor.learn.data import DataLoader
+from metatensor.learn.data.dataset import _BaseDataset
 from metatensor.torch.atomistic import ModelCapabilities
 
 from ..utils.composition import calculate_composition_weights
 from ..utils.compute_loss import compute_model_loss
 from ..utils.data import (
-    Dataset,
     check_datasets,
     collate_fn,
     combine_dataloaders,
@@ -38,8 +39,8 @@ warnings.filterwarnings(
 
 
 def train(
-    train_datasets: List[Union[Dataset, torch.utils.data.Subset]],
-    validation_datasets: List[Union[Dataset, torch.utils.data.Subset]],
+    train_datasets: List[Union[_BaseDataset, torch.utils.data.Subset]],
+    validation_datasets: List[Union[_BaseDataset, torch.utils.data.Subset]],
     requested_capabilities: ModelCapabilities,
     hypers: Dict = DEFAULT_HYPERS,
     continue_from: Optional[str] = None,
@@ -128,7 +129,7 @@ def train(
     train_dataloaders = []
     for dataset in train_datasets:
         train_dataloaders.append(
-            torch.utils.data.DataLoader(
+            DataLoader(
                 dataset=dataset,
                 batch_size=hypers_training["batch_size"],
                 shuffle=True,
@@ -141,7 +142,7 @@ def train(
     validation_dataloaders = []
     for dataset in validation_datasets:
         validation_dataloaders.append(
-            torch.utils.data.DataLoader(
+            DataLoader(
                 dataset=dataset,
                 batch_size=hypers_training["batch_size"],
                 shuffle=False,

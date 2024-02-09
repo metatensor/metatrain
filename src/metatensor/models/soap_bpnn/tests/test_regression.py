@@ -1,14 +1,17 @@
 import random
 
 import ase.io
+import metatensor.torch as metatensor
 import numpy as np
 import rascaline.torch
 import torch
+from metatensor.learn.data import Dataset
+from metatensor.torch import Labels
 from metatensor.torch.atomistic import ModelCapabilities, ModelOutput
 from omegaconf import OmegaConf
 
 from metatensor.models.soap_bpnn import DEFAULT_HYPERS, Model, train
-from metatensor.models.utils.data import Dataset, get_all_species
+from metatensor.models.utils.data import get_all_species
 from metatensor.models.utils.data.readers import read_structures, read_targets
 
 from . import DATASET_PATH
@@ -67,8 +70,26 @@ def test_regression_train():
         }
     }
     targets = read_targets(OmegaConf.create(conf))
+    # TODO: use this when targets are sliced in the reader
+    # dataset = Dataset(structure=structures, U0=targets["U0"])
 
-    dataset = Dataset(structures, targets)
+    # TODO: change the readers to provide the targets as a list of TensorMaps
+    # for each sample, not a single TensorMap. This then aligns with the
+    # paradigm set by `metatensor-learn`. In the meantime, slice the targets to
+    # per-structure TensorMaps.
+    targets_sliced = {"U0": []}
+    for structure_idx in range(len(structures)):
+        targets_sliced["U0"].append(
+            metatensor.slice(
+                targets["U0"],
+                axis="samples",
+                labels=Labels(
+                    names=["structure"],
+                    values=torch.tensor([structure_idx]).reshape(-1, 1),
+                ),
+            )
+        )
+    dataset = Dataset(structure=structures, U0=targets_sliced["U0"])
 
     hypers = DEFAULT_HYPERS.copy()
     hypers["training"]["num_epochs"] = 2
@@ -89,7 +110,9 @@ def test_regression_train():
     output = soap_bpnn(structures[:5], {"U0": soap_bpnn.capabilities.outputs["U0"]})
 
     expected_output = torch.tensor(
-        [[-40.2997], [-57.4928], [-72.6778], [-75.6990], [-91.9050]]
+        [[-40.5912], [-56.5473], [-76.4415], [-77.3883], [-93.4608]]
     )
+
+    print(output["U0"].block().values)
 
     assert torch.allclose(output["U0"].block().values, expected_output, rtol=1e-3)

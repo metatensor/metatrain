@@ -1,12 +1,13 @@
 import logging
 import os
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List, NamedTuple, Optional, Tuple
 
 import metatensor.torch
-import numpy as np
 import torch
-from metatensor.torch import Labels, TensorMap
-from metatensor.torch.atomistic import ModelCapabilities, System
+from metatensor.learn.data import Dataset, group_and_join
+from metatensor.learn.data.dataset import _BaseDataset
+from metatensor.torch import TensorMap
+from metatensor.torch.atomistic import ModelCapabilities
 from torch import Generator, default_generator
 from torch.utils.data import Subset, random_split
 
@@ -27,58 +28,7 @@ else:
     compiled_join = torch.jit.script(metatensor.torch.join)
 
 
-class Dataset(torch.utils.data.Dataset):
-    def __init__(self, structures: List[System], targets: Dict[str, TensorMap]):
-        """
-        Creates a dataset from a list of `metatensor.torch.atomistic.System`
-        objects and a dictionary of targets where the keys are strings and
-        the values are `TensorMap` objects.
-        """
-
-        for tensor_map in targets.values():
-            n_structures = (
-                torch.max(tensor_map.block(0).samples["structure"]).item() + 1
-            )
-            if n_structures != len(structures):
-                raise ValueError(
-                    f"Number of structures in input ({len(structures)}) and "
-                    f"output ({n_structures}) must be the same"
-                )
-
-        self.structures = structures
-        self.targets = targets
-
-    def __len__(self):
-        """
-        Return the total number of samples in the dataset.
-        """
-        return len(self.structures)
-
-    def __getitem__(self, index):
-        """
-        Generates one sample of data.
-
-        Args:
-            index: The index of the item in the dataset.
-
-        Returns:
-            A tuple containing the structure and targets for the given index.
-        """
-        structure = self.structures[index]
-
-        sample_labels = Labels(
-            names=["structure"],
-            values=torch.tensor([index]).reshape(1, 1),
-        )
-
-        targets = {}
-        for name, tensor_map in self.targets.items():
-            targets[name] = compiled_slice(tensor_map, "samples", sample_labels)
-
-        return structure, targets
-
-
-def get_all_species(dataset: Dataset) -> List[int]:
+def get_all_species(dataset: _BaseDataset) -> List[int]:
     """
     Returns the list of all species present in the dataset.
 
@@ -109,7 +59,7 @@ def get_all_species(dataset: Dataset) -> List[int]:
     return result
 
 
-def get_all_targets(dataset: Dataset) -> List[str]:
+def get_all_targets(dataset: _BaseDataset) -> List[str]:
     """
     Returns the list of all targets present in the dataset.
 
@@ -127,50 +77,29 @@ def get_all_targets(dataset: Dataset) -> List[str]:
     # Iterate over all single instances of the dataset:
     target_names = []
     for index in range(len(dataset)):
-        _, targets = dataset[index]
-        target_names += list(targets.keys())
+        sample = dataset[index]._asdict()  # NamedTuple -> dict
+        sample.pop("structure")  # structure not needed
+        target_names += list(sample.keys())
 
     # Remove duplicates:
     return list(set(target_names))
 
 
-def collate_fn(batch: List[Tuple[System, Dict[str, TensorMap]]]):
+def collate_fn(batch: List[NamedTuple]) -> Tuple[List, Dict[str, TensorMap]]:
     """
-    Creates a batch from a list of samples.
-
-    Args:
-        batch: A list of samples, where each sample is a tuple containing a
-            structure and targets.
-
-    Returns:
-        A tuple containing the structures and targets for the batch.
+    Wraps the `metatensor-learn` default collate function `group_and_join` to
+    return the data fields as a list of structures, and a dictionary of nameed
+    targets.
     """
 
-    structures: List[System] = [sample[0] for sample in batch]
-    # `join` will reorder the samples based on their structure number.
-    # Let's reorder the list of structures in the same way:
-    structure_samples = [
-        list(sample[1].values())[0].block().samples.values.item() for sample in batch
-    ]
-    sorting_order = np.argsort(structure_samples)
-    structures = [structures[index] for index in sorting_order]
-    # TODO: use metatensor.learn for datasets/dataloaders, making sure the same
-    # issues are handled correctly
-
-    targets: Dict[str, TensorMap] = {}
-    names = list(batch[0][1].keys())
-    for name in names:
-        targets[name] = compiled_join(
-            [sample[1][name] for sample in batch],
-            axis="samples",
-            remove_tensor_name=True,
-        )
-    return structures, targets
+    collated_targets = group_and_join(batch)._asdict()
+    structures = collated_targets.pop("structure")
+    return structures, collated_targets
 
 
 def check_datasets(
-    train_datasets: List[Dataset],
-    validation_datasets: List[Dataset],
+    train_datasets: List[_BaseDataset],
+    validation_datasets: List[_BaseDataset],
     capabilities: ModelCapabilities,
 ):
     """
