@@ -1,14 +1,7 @@
-import os
 import subprocess
 from pathlib import Path
 
 import pytest
-
-
-# Execute the setup script which will make sum_over_samples saveable.
-current_dir = os.path.dirname(__file__)
-setup_path = os.path.join(current_dir, "..", "..", "scripts", "hotfix_metatensor.py")
-exec(open(setup_path).read())
 
 
 RESOURCES_PATH = Path(__file__).parent.resolve() / ".." / "resources"
