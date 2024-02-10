@@ -2,10 +2,8 @@ import argparse
 import logging
 from typing import Dict, Tuple, Union
 
-import metatensor.torch as metatensor
 import torch
 from metatensor.learn.data.dataset import Dataset, _BaseDataset
-from metatensor.torch import Labels
 from omegaconf import DictConfig, OmegaConf
 
 from ..utils.compute_loss import compute_model_loss
@@ -150,32 +148,7 @@ def eval_model(
     # Predict targets
     if hasattr(options, "targets"):
         eval_targets = read_targets(options["targets"])
-        # , slice_samples_by="structure"
-
-        # TODO: use this when targets are sliced in the reader
-        # eval_dataset = Dataset(
-        #     structure=eval_structures, energy=eval_targets["energy"]
-        # )
-
-        # TODO: change the readers to provide the targets as a list of TensorMaps
-        # for each sample, not a single TensorMap. This then aligns with the
-        # paradigm set by `metatensor-learn`. In the meantime, slice the targets to
-        # per-structure TensorMaps.
-        validation_targets_sliced: Dict = {"energy": []}
-        for structure_idx in range(len(eval_structures)):
-            validation_targets_sliced["energy"].append(
-                metatensor.slice(
-                    eval_targets["energy"],
-                    axis="samples",
-                    labels=Labels(
-                        names=["structure"],
-                        values=torch.tensor([structure_idx]).reshape(-1, 1),
-                    ),
-                )
-            )
-        eval_dataset = Dataset(
-            structure=eval_structures, energy=validation_targets_sliced["energy"]
-        )
+        eval_dataset = Dataset(structure=eval_structures, energy=eval_targets["energy"])
         _eval_targets(model, eval_dataset)
 
     # Predict structures

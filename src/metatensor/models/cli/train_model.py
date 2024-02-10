@@ -6,14 +6,12 @@ import random
 import sys
 import tempfile
 from pathlib import Path
-from typing import Dict, List, Optional
+from typing import List, Optional
 
 import hydra
-import metatensor.torch as metatensor
 import numpy as np
 import torch
 from metatensor.learn.data import Dataset
-from metatensor.torch import Labels
 from metatensor.torch.atomistic import ModelCapabilities, ModelOutput
 from omegaconf import DictConfig, OmegaConf
 from omegaconf.errors import ConfigKeyError
@@ -179,31 +177,7 @@ def _train_model_hydra(options: DictConfig) -> None:
         fileformat=train_options["structures"]["file_format"],
     )
     train_targets = read_targets(train_options["targets"])
-    # , slice_samples_by="structure")
-
-    # TODO: use this when targets are sliced in the reader
-    # train_dataset = Dataset(
-    #   structure=train_structures, energy=train_targets["energy"]
-    # )
-    # TODO: change the readers to provide the targets as a list of TensorMaps
-    # for each sample, not a single TensorMap. This then aligns with the
-    # paradigm set by `metatensor-learn`. In the meantime, slice the targets to
-    # per-structure TensorMaps.
-    train_targets_sliced: Dict = {"energy": []}
-    for structure_idx in range(len(train_structures)):
-        train_targets_sliced["energy"].append(
-            metatensor.slice(
-                train_targets["energy"],
-                axis="samples",
-                labels=Labels(
-                    names=["structure"],
-                    values=torch.tensor([structure_idx]).reshape(-1, 1),
-                ),
-            )
-        )
-    train_dataset = Dataset(
-        structure=train_structures, energy=train_targets_sliced["energy"]
-    )
+    train_dataset = Dataset(structure=train_structures, energy=train_targets["energy"])
     train_size = 1.0
 
     logger.info("Setting up test set")
@@ -233,32 +207,7 @@ def _train_model_hydra(options: DictConfig) -> None:
             fileformat=test_options["structures"]["file_format"],
         )
         test_targets = read_targets(test_options["targets"])
-        # , slice_samples_by="structure")
-
-        # TODO: use this when targets are sliced in the reader
-        # test_dataset = Dataset(
-        #   structure=test_structures, energy=test_targets["energy"]
-        # )
-
-        # TODO: change the readers to provide the targets as a list of TensorMaps
-        # for each sample, not a single TensorMap. This then aligns with the
-        # paradigm set by `metatensor-learn`. In the meantime, slice the targets to
-        # per-structure TensorMaps.
-        test_targets_sliced: Dict = {"energy": []}
-        for structure_idx in range(len(test_structures)):
-            test_targets_sliced["energy"].append(
-                metatensor.slice(
-                    test_targets["energy"],
-                    axis="samples",
-                    labels=Labels(
-                        names=["structure"],
-                        values=torch.tensor([structure_idx]).reshape(-1, 1),
-                    ),
-                )
-            )
-        test_dataset = Dataset(
-            structure=test_structures, energy=test_targets_sliced["energy"]
-        )
+        test_dataset = Dataset(structure=test_structures, energy=test_targets["energy"])
         check_units(actual_options=test_options, desired_options=train_options)
 
     logger.info("Setting up validation set")
@@ -287,31 +236,8 @@ def _train_model_hydra(options: DictConfig) -> None:
             fileformat=validation_options["structures"]["file_format"],
         )
         validation_targets = read_targets(validation_options["targets"])
-        # , slice_samples_by="structure"
-
-        # TODO: use this when targets are sliced in the reader
-        # validation_dataset = Dataset(
-        #     structure=validation_structures, energy=validation_targets["energy"]
-        # )
-
-        # TODO: change the readers to provide the targets as a list of TensorMaps
-        # for each sample, not a single TensorMap. This then aligns with the
-        # paradigm set by `metatensor-learn`. In the meantime, slice the targets to
-        # per-structure TensorMaps.
-        validation_targets_sliced: Dict = {"energy": []}
-        for structure_idx in range(len(validation_structures)):
-            validation_targets_sliced["energy"].append(
-                metatensor.slice(
-                    validation_targets["energy"],
-                    axis="samples",
-                    labels=Labels(
-                        names=["structure"],
-                        values=torch.tensor([structure_idx]).reshape(-1, 1),
-                    ),
-                )
-            )
         validation_dataset = Dataset(
-            structure=validation_structures, energy=validation_targets_sliced["energy"]
+            structure=validation_structures, energy=validation_targets["energy"]
         )
         check_units(actual_options=validation_options, desired_options=train_options)
 
