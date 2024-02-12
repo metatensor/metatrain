@@ -10,7 +10,7 @@ permissions:
 
 jobs:
   documentation-links:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-22.04
     steps:
       - uses: readthedocs/actions/preview@v1
         with:
