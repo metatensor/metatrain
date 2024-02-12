@@ -85,14 +85,15 @@ Targets Section
 ^^^^^^^^^^^^^^^
 Allows defining multiple target sections, each with a unique name.
 
-- Commonly, a section named ``energy`` should be defined, which is essential for MD
-  simulations. For this section gradients like `forces` and `stress` are enabled by
-  default. See :ref:`energy-section` for further details on this section.
+- Commonly, a section named ``energy`` should be defined, which is essential for running
+  molecular dynamics simulations. For the ``energy`` section gradients like `forces` and
+  `stress` are enabled by default.
 - For other target sections, all gradients are disabled by default.
 
 Target section parameters include:
 
-:param quantity: The target's quantity (e.g., energy, dipole).
+:param quantity: The target's quantity (e.g., ``energy``, ``dipole``). Currently only
+    ``energy`` is supported.
 :param read_from: The file for target data, defaults to the ``structures.read_from``
   file if not provided.
 :param file_format: The file format, guessed from the suffix if not provided.
@@ -116,21 +117,14 @@ Each gradient section (like ``forces`` or ``stress``) has similar parameters:
 :param file_format: The file format, guessed from the suffix if not provided.
 :param key: The key for reading from the file.
 
-Sections set to ``true`` or ``on`` automatically expand with default parameters.
-
-.. _energy-section:
-
-Energy Section
-^^^^^^^^^^^^^^
-The ``energy`` section is mandatory for MD simulations, with forces and stresses enabled
-by default.
-
-- A warning is raised if requisite data is missing, but training proceeds without them.
-- Setting a ``virial`` section automatically disables the ``stress`` section in the
-  ``energy`` target.
+Sections set to ``true`` or ``on`` automatically expand with default parameters. A
+warning is raised if requisite data for a gradient is missing, but training proceeds
+without them.
 
 .. note::
 
    Unknown keys are ignored and not deleted in all sections during dataset parsing.
 
-In the next tutorials we show how to override the default parameters of an architecture.
+In the next tutorials we explain and show how to set some advanced global training
+parameters.
+
