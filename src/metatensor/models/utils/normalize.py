@@ -1,13 +1,12 @@
 from typing import List, Union
 
 import torch
+from metatensor.learn.data.dataset import _BaseDataset
 from metatensor.torch import TensorBlock, TensorMap
-
-from .data import Dataset
 
 
 def get_average_number_of_atoms(
-    datasets: List[Union[Dataset, torch.utils.data.Subset]]
+    datasets: List[Union[_BaseDataset, torch.utils.data.Subset]]
 ):
     """Calculate the average number of atoms in a dataset."""
     average_number_of_atoms = []
@@ -25,7 +24,7 @@ def get_average_number_of_atoms(
 
 
 def get_average_number_of_neighbors(
-    datasets: List[Union[Dataset, torch.utils.data.Subset]]
+    datasets: List[Union[_BaseDataset, torch.utils.data.Subset]]
 ):
     """Calculate the average number of neighbors in a dataset."""
     average_number_of_neighbors = []
