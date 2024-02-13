@@ -37,7 +37,7 @@ def compute_model_loss(
     # Find if there are any energy targets that require gradients:
     energy_targets = []
     energy_targets_that_require_position_gradients = []
-    energy_targets_that_require_displacement_gradients = []
+    energy_targets_that_require_strain_gradients = []
     for target_name in targets.keys():
         # Check if the target is an energy:
         if model.capabilities.outputs[target_name].quantity == "energy":
@@ -45,14 +45,14 @@ def compute_model_loss(
             # Check if the energy requires gradients:
             if targets[target_name].block().has_gradient("positions"):
                 energy_targets_that_require_position_gradients.append(target_name)
-            if targets[target_name].block().has_gradient("displacement"):
-                energy_targets_that_require_displacement_gradients.append(target_name)
+            if targets[target_name].block().has_gradient("strain"):
+                energy_targets_that_require_strain_gradients.append(target_name)
 
-    if len(energy_targets_that_require_displacement_gradients) > 0:
+    if len(energy_targets_that_require_strain_gradients) > 0:
         # TODO: raise an error if the systems do not have a cell
         # if not all([system.has_cell for system in systems]):
         #     raise ValueError("One or more systems does not have a cell.")
-        displacements = [
+        strains = [
             torch.eye(
                 3,
                 requires_grad=True,
@@ -67,11 +67,11 @@ def compute_model_loss(
         )
         systems = [
             System(
-                positions=system.positions @ displacement,
-                cell=system.cell @ displacement,
+                positions=system.positions @ strain,
+                cell=system.cell @ strain,
                 species=system.species,
             )
-            for system, displacement in zip(systems, displacements)
+            for system, strain in zip(systems, strains)
         ]
     else:
         if len(energy_targets_that_require_position_gradients) > 0:
@@ -90,12 +90,12 @@ def compute_model_loss(
             energy_target in energy_targets_that_require_position_gradients
         )
         target_requires_disp_gradients = (
-            energy_target in energy_targets_that_require_displacement_gradients
+            energy_target in energy_targets_that_require_strain_gradients
         )
         if target_requires_pos_gradients and target_requires_disp_gradients:
             gradients = compute_gradient(
                 model_outputs[energy_target].block().values,
-                [system.positions for system in systems] + displacements,
+                [system.positions for system in systems] + strains,
                 is_training=True,
             )
             old_energy_tensor_map = model_outputs[energy_target]
@@ -104,8 +104,8 @@ def compute_model_loss(
                 "positions", _position_gradients_to_block(gradients[: len(systems)])
             )
             new_block.add_gradient(
-                "displacement",
-                _displacement_gradients_to_block(gradients[len(systems) :]),
+                "strain",
+                _strain_gradients_to_block(gradients[len(systems) :]),
             )
             new_energy_tensor_map = TensorMap(
                 keys=old_energy_tensor_map.keys,
@@ -129,14 +129,12 @@ def compute_model_loss(
         elif target_requires_disp_gradients:
             gradients = compute_gradient(
                 model_outputs[energy_target].block().values,
-                displacements,
+                strains,
                 is_training=True,
             )
             old_energy_tensor_map = model_outputs[energy_target]
             new_block = old_energy_tensor_map.block().copy()
-            new_block.add_gradient(
-                "displacement", _displacement_gradients_to_block(gradients)
-            )
+            new_block.add_gradient("strain", _strain_gradients_to_block(gradients))
             new_energy_tensor_map = TensorMap(
                 keys=old_energy_tensor_map.keys,
                 blocks=[new_block],
@@ -177,7 +175,7 @@ def _position_gradients_to_block(gradients_list):
 
     components = [
         Labels(
-            names=["direction"],
+            names=["xyz"],
             values=torch.tensor([[0], [1], [2]]),
         )
     ]
@@ -190,8 +188,8 @@ def _position_gradients_to_block(gradients_list):
     )
 
 
-def _displacement_gradients_to_block(gradients_list):
-    """Convert a list of displacement gradients to a `TensorBlock`
+def _strain_gradients_to_block(gradients_list):
+    """Convert a list of strain gradients to a `TensorBlock`
     which can act as a gradient block to an energy block."""
 
     gradients = torch.stack(gradients_list, dim=0).unsqueeze(-1)
@@ -203,11 +201,11 @@ def _displacement_gradients_to_block(gradients_list):
 
     components = [
         Labels(
-            names=["cell_vector"],
+            names=["xyz_1"],
             values=torch.tensor([[0], [1], [2]]),
         ),
         Labels(
-            names=["coordinate"],
+            names=["xyz_2"],
             values=torch.tensor([[0], [1], [2]]),
         ),
     ]

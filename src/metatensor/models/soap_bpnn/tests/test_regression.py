@@ -4,11 +4,12 @@ import ase.io
 import numpy as np
 import rascaline.torch
 import torch
+from metatensor.learn.data import Dataset
 from metatensor.torch.atomistic import ModelCapabilities, ModelOutput
 from omegaconf import OmegaConf
 
 from metatensor.models.soap_bpnn import DEFAULT_HYPERS, Model, train
-from metatensor.models.utils.data import Dataset, get_all_species
+from metatensor.models.utils.data import get_all_species
 from metatensor.models.utils.data.readers import read_structures, read_targets
 
 from . import DATASET_PATH
@@ -42,9 +43,7 @@ def test_regression_init():
         [rascaline.torch.systems_to_torch(structure) for structure in structures],
         {"U0": soap_bpnn.capabilities.outputs["U0"]},
     )
-    expected_output = torch.tensor(
-        [[-0.1746], [-0.2209], [-0.2426], [-0.2033], [-0.2973]],
-    )
+    expected_output = torch.tensor([[0.2505], [0.1679], [0.1655], [0.2354], [0.0926]])
 
     assert torch.allclose(output["U0"].block().values, expected_output, rtol=1e-3)
 
@@ -67,8 +66,7 @@ def test_regression_train():
         }
     }
     targets = read_targets(OmegaConf.create(conf))
-
-    dataset = Dataset(structures, targets)
+    dataset = Dataset(structure=structures, U0=targets["U0"])
 
     hypers = DEFAULT_HYPERS.copy()
     hypers["training"]["num_epochs"] = 2
@@ -89,7 +87,7 @@ def test_regression_train():
     output = soap_bpnn(structures[:5], {"U0": soap_bpnn.capabilities.outputs["U0"]})
 
     expected_output = torch.tensor(
-        [[-40.2997], [-57.4928], [-72.6778], [-75.6990], [-91.9050]]
+        [[-40.5891], [-56.7122], [-76.4146], [-77.3364], [-93.4905]]
     )
 
     assert torch.allclose(output["U0"].block().values, expected_output, rtol=1e-3)

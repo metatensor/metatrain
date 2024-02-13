@@ -16,6 +16,7 @@ dependencies = [
     "metatensor-core",
     "metatensor-operations",
     "metatensor-torch",
+    "metatensor-learn",
 ]
 
 keywords = [] # TODO

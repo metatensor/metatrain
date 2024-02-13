@@ -283,16 +283,11 @@ class Model(torch.nn.Module):
         selected_atoms: Optional[Labels] = None,
     ) -> Dict[str, TensorMap]:
         if selected_atoms is not None:
-            raise NotImplementedError("SOAP-BPNN does not support selected atoms.")
+            # change metatensor names to match rascaline
+            selected_atoms = selected_atoms.rename("system", "structure")
+            selected_atoms = selected_atoms.rename("atom", "center")
 
-        for requested_output in outputs.keys():
-            if requested_output not in self.capabilities.outputs.keys():
-                raise ValueError(
-                    f"Requested output {requested_output} is not within "
-                    "the model's capabilities."
-                )
-
-        soap_features = self.soap_calculator(systems)
+        soap_features = self.soap_calculator(systems, selected_samples=selected_atoms)
 
         device = soap_features.block(0).values.device
         soap_features = soap_features.keys_to_properties(

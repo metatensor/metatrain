@@ -93,65 +93,68 @@ def expand_dataset_config(conf: Union[str, DictConfig]) -> DictConfig:
             {"structures": read_from, "targets": {"energy": read_from}}
         )
 
-    if type(conf["structures"]) is str:
-        conf["structures"] = _resolve_single_str(conf["structures"])
+    if hasattr(conf, "structures"):
+        if type(conf["structures"]) is str:
+            conf["structures"] = _resolve_single_str(conf["structures"])
 
-    conf["structures"] = OmegaConf.merge(CONF_STRUCTURES, conf["structures"])
+        conf["structures"] = OmegaConf.merge(CONF_STRUCTURES, conf["structures"])
 
-    for target_key, target in conf["targets"].items():
-        if type(target) is str:
-            target = _resolve_single_str(target)
+    if hasattr(conf, "targets"):
+        for target_key, target in conf["targets"].items():
+            if type(target) is str:
+                target = _resolve_single_str(target)
 
-        # Add default gradients "energy" target section
-        if target_key == "energy":
-            # For special case of the "energy" we add the section for force and stress
-            # gradient by default
-            target = OmegaConf.merge(CONF_ENERGY, target)
-        else:
-            target = OmegaConf.merge(CONF_TARGET, target)
+            # Add default gradients "energy" target section
+            if target_key == "energy":
+                # For special case of the "energy" we add the section for force and
+                # stress gradient by default
+                target = OmegaConf.merge(CONF_ENERGY, target)
+            else:
+                target = OmegaConf.merge(CONF_TARGET, target)
 
-        if target["key"] is None:
-            target["key"] = target_key
+            if target["key"] is None:
+                target["key"] = target_key
 
-        # Update DictConfig to allow for config node interpolation
-        conf["targets"][target_key] = target
+            # Update DictConfig to allow for config node interpolation
+            conf["targets"][target_key] = target
 
-        # merge and interpolate possibly present gradients with default gradient config
-        for gradient_key, gradient_conf in conf["targets"][target_key].items():
-            if gradient_key in KNWON_GRADIENTS:
-                if gradient_conf is True:
-                    gradient_conf = CONF_GRADIENT.copy()
-                elif type(gradient_conf) is str:
-                    gradient_conf = _resolve_single_str(gradient_conf)
+            # merge and interpolate possibly present gradients with default gradient
+            # config
+            for gradient_key, gradient_conf in conf["targets"][target_key].items():
+                if gradient_key in KNWON_GRADIENTS:
+                    if gradient_conf is True:
+                        gradient_conf = CONF_GRADIENT.copy()
+                    elif type(gradient_conf) is str:
+                        gradient_conf = _resolve_single_str(gradient_conf)
 
-                if isinstance(gradient_conf, DictConfig):
-                    gradient_conf = OmegaConf.merge(CONF_GRADIENT, gradient_conf)
+                    if isinstance(gradient_conf, DictConfig):
+                        gradient_conf = OmegaConf.merge(CONF_GRADIENT, gradient_conf)
 
-                    if gradient_conf["key"] is None:
-                        gradient_conf["key"] = gradient_key
+                        if gradient_conf["key"] is None:
+                            gradient_conf["key"] = gradient_key
 
-                    conf["targets"][target_key][gradient_key] = gradient_conf
+                        conf["targets"][target_key][gradient_key] = gradient_conf
 
-        # If user sets the virial gradient and leaves the stress section untouched,
-        # we disable the by default enabled stress gradient section.
-        base_stress_gradient_conf = CONF_GRADIENT.copy()
-        base_stress_gradient_conf["key"] = "stress"
+            # If user sets the virial gradient and leaves the stress section untouched,
+            # we disable the by default enabled stress gradient section.
+            base_stress_gradient_conf = CONF_GRADIENT.copy()
+            base_stress_gradient_conf["key"] = "stress"
 
-        if (
-            target_key == "energy"
-            and conf["targets"][target_key]["virial"]
-            and conf["targets"][target_key]["stress"] == base_stress_gradient_conf
-        ):
-            conf["targets"][target_key]["stress"] = False
+            if (
+                target_key == "energy"
+                and conf["targets"][target_key]["virial"]
+                and conf["targets"][target_key]["stress"] == base_stress_gradient_conf
+            ):
+                conf["targets"][target_key]["stress"] = False
 
-        if (
-            conf["targets"][target_key]["stress"]
-            and conf["targets"][target_key]["virial"]
-        ):
-            raise ValueError(
-                f"Cannot perform training with respect to virials and stress as in "
-                f"section {target_key}. Set either `virials: off` or `stress: off`."
-            )
+            if (
+                conf["targets"][target_key]["stress"]
+                and conf["targets"][target_key]["virial"]
+            ):
+                raise ValueError(
+                    f"Cannot perform training with respect to virials and stress as in "
+                    f"section {target_key}. Set either `virials: off` or `stress: off`."
+                )
 
     return conf
 

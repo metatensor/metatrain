@@ -5,17 +5,19 @@ from typing import Dict, List, Optional, Tuple, Union
 
 import rascaline
 import torch
+from metatensor.learn.data import DataLoader
+from metatensor.learn.data.dataset import _BaseDataset
 from metatensor.torch.atomistic import ModelCapabilities
 
 from ..utils.composition import calculate_composition_weights
 from ..utils.compute_loss import compute_model_loss
 from ..utils.data import (
-    Dataset,
     check_datasets,
     collate_fn,
     combine_dataloaders,
     get_all_targets,
 )
+from ..utils.extract_targets import get_outputs_dict
 from ..utils.info import finalize_aggregated_info, update_aggregated_info
 from ..utils.logging import MetricLogger
 from ..utils.loss import TensorMapDictLoss
@@ -37,8 +39,8 @@ warnings.filterwarnings(
 
 
 def train(
-    train_datasets: List[Union[Dataset, torch.utils.data.Subset]],
-    validation_datasets: List[Union[Dataset, torch.utils.data.Subset]],
+    train_datasets: List[Union[_BaseDataset, torch.utils.data.Subset]],
+    validation_datasets: List[Union[_BaseDataset, torch.utils.data.Subset]],
     requested_capabilities: ModelCapabilities,
     hypers: Dict = DEFAULT_HYPERS,
     continue_from: Optional[str] = None,
@@ -127,7 +129,7 @@ def train(
     train_dataloaders = []
     for dataset in train_datasets:
         train_dataloaders.append(
-            torch.utils.data.DataLoader(
+            DataLoader(
                 dataset=dataset,
                 batch_size=hypers_training["batch_size"],
                 shuffle=True,
@@ -140,7 +142,7 @@ def train(
     validation_dataloaders = []
     for dataset in validation_datasets:
         validation_dataloaders.append(
-            torch.utils.data.DataLoader(
+            DataLoader(
                 dataset=dataset,
                 batch_size=hypers_training["batch_size"],
                 shuffle=False,
@@ -150,7 +152,7 @@ def train(
     validation_dataloader = combine_dataloaders(validation_dataloaders, shuffle=False)
 
     # Extract all the possible outputs and their gradients from the training set:
-    outputs_dict = _get_outputs_dict(train_datasets)
+    outputs_dict = get_outputs_dict(train_datasets)
     for output_name in outputs_dict.keys():
         if output_name not in model_capabilities.outputs:
             raise ValueError(
@@ -243,27 +245,3 @@ def train(
                 break
 
     return model
-
-
-def _get_outputs_dict(datasets: List[Union[Dataset, torch.utils.data.Subset]]):
-    """
-    This is a helper function that extracts all the possible outputs and their gradients
-    from a list of datasets.
-
-    :param datasets: A list of Datasets or Subsets.
-
-    :returns: A dictionary mapping output names to a list of "values" (always)
-        and possible gradients.
-    """
-
-    outputs_dict = {}
-    for dataset in datasets:
-        sample_batch = next(iter(dataset))
-        targets = sample_batch[1]  # this is a dictionary of TensorMaps
-        for target_name, target_tmap in targets.items():
-            if target_name not in outputs_dict:
-                outputs_dict[target_name] = [
-                    "values"
-                ] + target_tmap.block().gradients_list()
-
-    return outputs_dict

@@ -103,9 +103,9 @@ class MetricLogger:
                             new_key = "force"
                         else:
                             new_key = f"force[{target_name}]"
-                elif key.endswith("_displacement_gradients"):
+                elif key.endswith("_strain_gradients"):
                     # check if this is a virial/stress
-                    target_name = key[: -len("_displacement_gradients")]
+                    target_name = key[: -len("_strain_gradients")]
                     if (
                         self.model_capabilities.outputs[target_name].quantity
                         == "energy"
