@@ -1,13 +1,3 @@
-import os
-
-
-# Execute the setup script which will make sum_over_samples saveable.
-current_dir = os.path.dirname(__file__)
-setup_path = os.path.join(
-    current_dir, "..", "..", "..", "..", "..", "scripts", "hotfix_metatensor.py"
-)
-exec(open(setup_path).read())
-
 import torch  # noqa: E402
 from metatensor.torch.atomistic import ModelCapabilities, ModelOutput  # noqa: E402
 
