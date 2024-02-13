@@ -138,6 +138,7 @@ def train(
     train_tensor = model._soap_torch_calculator.compute(
         train_structures, gradients=["positions"]
     )
+    model._species_labels = train_tensor.keys
     train_tensor = train_tensor.keys_to_samples("species_center")
     # TODO implement accumulate_key_names so we do not loose sparsity
     train_tensor = train_tensor.keys_to_properties(
