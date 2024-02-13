@@ -12,8 +12,8 @@ def get_average_number_of_atoms(
     average_number_of_atoms = []
     for dataset in datasets:
         num_atoms = []
-        for item in dataset:
-            structure = item[0]
+        for i in range(len(dataset)):
+            structure = dataset[i].structure
             if not isinstance(structure, torch.ScriptObject):
                 raise RuntimeError
             num_atoms.append(len(structure))
@@ -30,8 +30,8 @@ def get_average_number_of_neighbors(
     average_number_of_neighbors = []
     for dataset in datasets:
         num_neighbors = []
-        for item in dataset:
-            structure = item[0]
+        for i in range(len(dataset)):
+            structure = dataset[i].structure
             if not isinstance(structure, torch.ScriptObject):
                 raise RuntimeError
             known_neighbors_lists = structure.known_neighbors_lists()

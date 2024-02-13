@@ -5,11 +5,15 @@ import numpy as np
 import rascaline.torch
 import torch
 from metatensor.learn.data import Dataset
-from metatensor.torch.atomistic import ModelCapabilities, ModelOutput
+from metatensor.torch.atomistic import (
+    ModelCapabilities,
+    ModelOutput,
+    NeighborsListOptions,
+)
 from omegaconf import OmegaConf
 
 from metatensor.models.alchemical_model import DEFAULT_HYPERS, Model, train
-from metatensor.models.alchemical_model.utils import get_primitive_neighbors_list
+from metatensor.models.alchemical_model.utils import get_rascaline_neighbors_list
 from metatensor.models.utils.data import get_all_species
 from metatensor.models.utils.data.readers import read_structures, read_targets
 
@@ -38,12 +42,11 @@ def test_regression_init():
 
     # Predict on the first fivestructures
     structures = ase.io.read(DATASET_PATH, ":5")
-    systems = []
-    for structure in structures:
-        nl, nl_options = get_primitive_neighbors_list(structure)
-        system = rascaline.torch.systems_to_torch(structure)
+    systems = [rascaline.torch.systems_to_torch(structure) for structure in structures]
+    nl_options = NeighborsListOptions(model_cutoff=5.0, full_list=True)
+    nls = get_rascaline_neighbors_list(systems, nl_options)
+    for system, nl in zip(systems, nls):
         system.add_neighbors_list(nl_options, nl)
-        systems.append(system)
 
     output = alchemical_model(
         systems,
@@ -66,13 +69,11 @@ def test_regression_train():
     np.random.seed(0)
     torch.manual_seed(0)
 
-    atoms_list = ase.io.read(DATASET_PATH, ":")
     structures = read_structures(DATASET_PATH)
 
-    for atoms, structure in zip(atoms_list, structures):
-        nl, nl_options = get_primitive_neighbors_list(
-            atoms, model_cutoff=5.0, full_list=True
-        )
+    nl_options = NeighborsListOptions(model_cutoff=5.0, full_list=True)
+    nls = get_rascaline_neighbors_list(structures, nl_options)
+    for structure, nl in zip(structures, nls):
         structure.add_neighbors_list(nl_options, nl)
 
     conf = {
@@ -87,8 +88,7 @@ def test_regression_train():
         }
     }
     targets = read_targets(OmegaConf.create(conf))
-
-    dataset = Dataset(structures, targets)
+    dataset = Dataset(structure=structures, U0=targets["U0"])
 
     hypers = DEFAULT_HYPERS.copy()
     hypers["training"]["num_epochs"] = 2
@@ -116,7 +116,7 @@ def test_regression_train():
     )
 
     expected_output = torch.tensor(
-        [[-37.3165], [-33.7774], [-29.9353], [-61.5583], [-61.0081]],
+        [[-38.2606], [-37.4233], [-34.4073], [-58.7029], [-64.3037]],
         dtype=torch.float64,
     )
 

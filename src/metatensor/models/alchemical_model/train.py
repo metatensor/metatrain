@@ -5,7 +5,11 @@ from typing import Dict, List, Optional, Tuple, Union
 import torch
 from metatensor.learn.data import DataLoader
 from metatensor.learn.data.dataset import _BaseDataset
-from metatensor.torch.atomistic import ModelCapabilities, register_autograd_neighbors
+from metatensor.torch.atomistic import (
+    ModelCapabilities,
+    NeighborsListOptions,
+    register_autograd_neighbors,
+)
 
 from ..utils.composition import calculate_composition_weights
 from ..utils.compute_loss import compute_model_loss
@@ -26,7 +30,7 @@ from ..utils.normalize import (
     get_average_number_of_neighbors,
 )
 from .model import DEFAULT_HYPERS, Model
-from .utils import get_primitive_neighbors_list
+from .utils import get_rascaline_neighbors_list
 
 
 logger = logging.getLogger(__name__)
@@ -77,19 +81,18 @@ def train(
 
     # Calculating the neighbolists
     logger.info("Calculating the neighbolists")
+    cutoff = hypers["model"]["soap"]["cutoff_radius"]
+    nl_options = NeighborsListOptions(model_cutoff=cutoff, full_list=True)
     for dataset in train_datasets + validation_datasets:
-        for item in dataset:
-            system = item[0]
+        for i in range(len(dataset)):
+            system = dataset[i].structure
             if len(system.known_neighbors_lists()) == 0:
-                nl, nl_options = get_primitive_neighbors_list(
+                nl = get_rascaline_neighbors_list(
                     system,
-                    model_cutoff=hypers["model"]["soap"]["cutoff_radius"],
-                    full_list=True,
+                    nl_options,
                 )
                 register_autograd_neighbors(system, nl)
                 system.add_neighbors_list(nl_options, nl)
-
-    assert len(train_datasets[0][0][0].known_neighbors_lists()) > 0
 
     # Calculate the average number of atoms and neighbors in the training datasets:
     average_number_of_atoms = get_average_number_of_atoms(train_datasets)

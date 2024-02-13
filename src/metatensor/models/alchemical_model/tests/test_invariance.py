@@ -3,11 +3,15 @@ import copy
 import ase.io
 import rascaline.torch
 import torch
-from metatensor.torch.atomistic import ModelCapabilities, ModelOutput
+from metatensor.torch.atomistic import (
+    ModelCapabilities,
+    ModelOutput,
+    NeighborsListOptions,
+)
 
 from metatensor.models.alchemical_model import DEFAULT_HYPERS, Model
 
-from ..utils import get_primitive_neighbors_list
+from ..utils import get_rascaline_neighbors_list
 from . import DATASET_PATH
 
 
@@ -27,14 +31,16 @@ def test_rotational_invariance():
     alchemical_model = Model(capabilities, DEFAULT_HYPERS["model"]).to(torch.float64)
 
     structure = ase.io.read(DATASET_PATH)
-    nl, nl_options = get_primitive_neighbors_list(structure)
-
     original_structure = copy.deepcopy(structure)
     structure.rotate(48, "y")
 
+    nl_options = NeighborsListOptions(model_cutoff=5.0, full_list=True)
     original_system = rascaline.torch.systems_to_torch(original_structure)
+    nl = get_rascaline_neighbors_list(original_system, nl_options)
     original_system.add_neighbors_list(nl_options, nl)
+
     system = rascaline.torch.systems_to_torch(structure)
+    nl = get_rascaline_neighbors_list(system, nl_options)
     system.add_neighbors_list(nl_options, nl)
 
     original_output = alchemical_model(
