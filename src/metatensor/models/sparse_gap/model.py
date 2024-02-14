@@ -112,7 +112,7 @@ class Model(torch.nn.Module):
         self._subset_of_regressors_torch = TorchSubsetofRegressors(
             dummy_weights, dummy_X_pseudo
         )
-        self._species_labels = None
+        self._species_labels: TorchLabels = TorchLabels.empty("_")
 
     def forward(
         self,
@@ -128,27 +128,27 @@ class Model(torch.nn.Module):
         soap_features = self._soap_torch_calculator(
             systems, selected_samples=selected_atoms, gradients=["positions"]
         )
-        new_keys = []
-        new_blocks = []
+
+        new_blocks: List[TorchTensorBlock] = []
         # hack to add zeros
         # it add the missing key to
         # "structure", "center" = 0, 0
         # given the values are all zeros it does not
         # introduce an error
-        dummyblock = TorchTensorBlock(
+        dummyblock: TorchTensorBlock = TorchTensorBlock(
             values=torch.zeros((1, len(soap_features.block(0).properties))),
             samples=TorchLabels(["structure", "center"], torch.IntTensor([[0, 0]])),
             properties=soap_features[0].properties,
             components=[],
         )
-        for key in self._species_labels:
-            new_keys.append(key)
+
+        for idx_key in range(len(self._species_labels)):
+            key = self._species_labels.entry(idx_key)
             if soap_features.keys.position(key) is not None:
                 new_blocks.append(soap_features.block(key))
             else:
                 new_blocks.append(dummyblock)
         soap_features = TorchTensorMap(keys=self._species_labels, blocks=new_blocks)
-        # breakpoint()
 
         # TODO implement accumulate_key_names so we do not loose sparsity
         soap_features = soap_features.keys_to_samples("species_center")
