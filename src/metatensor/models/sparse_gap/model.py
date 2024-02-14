@@ -98,6 +98,7 @@ class Model(torch.nn.Module):
         )
 
         self._sampler = FPS(n_to_select=hypers["sparse_points"]["points"])
+
         # set it do dummy keys, these are properly set during training
         self._keys = TorchLabels.empty("_")
         dummy_weights = TorchTensorMap(
@@ -124,7 +125,7 @@ class Model(torch.nn.Module):
             selected_atoms = selected_atoms.rename("atom", "center")
 
         soap_features = self._soap_torch_calculator(
-            systems, selected_samples=selected_atoms
+            systems, selected_samples=selected_atoms, gradients=["positions"]
         )
         # TODO implement accumulate_key_names so we do not loose sparsity
         soap_features = soap_features.keys_to_samples("species_center")
@@ -782,7 +783,7 @@ def torch_tensor_block_to_core(torch_block: TorchTensorBlock):
     :returns torch_block:
         tensor block from metatensor-torch
     """
-    return TensorBlock(
+    block = TensorBlock(
         values=torch_block.values.detach().cpu().numpy(),
         samples=torch_labels_to_core(torch_block.samples),
         components=[
@@ -790,6 +791,19 @@ def torch_tensor_block_to_core(torch_block: TorchTensorBlock):
         ],
         properties=torch_labels_to_core(torch_block.properties),
     )
+    for parameter, gradient in torch_block.gradients():
+        block.add_gradient(
+            parameter=parameter,
+            gradient=TensorBlock(
+                values=gradient.values.detach().cpu().numpy(),
+                samples=torch_labels_to_core(gradient.samples),
+                components=[
+                    torch_labels_to_core(component) for component in gradient.components
+                ],
+                properties=torch_labels_to_core(gradient.properties),
+            ),
+        )
+    return block
 
 
 def torch_labels_to_core(torch_labels: TorchLabels):
@@ -827,7 +841,7 @@ def core_tensor_block_to_torch(core_block: TensorBlock):
     :returns torch_block:
         tensor block from metatensor-torch
     """
-    return TorchTensorBlock(
+    block = TorchTensorBlock(
         values=torch.tensor(core_block.values),
         samples=core_labels_to_torch(core_block.samples),
         components=[
@@ -835,6 +849,19 @@ def core_tensor_block_to_torch(core_block: TensorBlock):
         ],
         properties=core_labels_to_torch(core_block.properties),
     )
+    for parameter, gradient in core_block.gradients():
+        block.add_gradient(
+            parameter=parameter,
+            gradient=TensorBlock(
+                values=gradient.values.detach().cpu().numpy(),
+                samples=torch_labels_to_core(gradient.samples),
+                components=[
+                    torch_labels_to_core(component) for component in gradient.components
+                ],
+                properties=torch_labels_to_core(gradient.properties),
+            ),
+        )
+    return block
 
 
 def core_labels_to_torch(core_labels: Labels):
@@ -978,6 +1005,9 @@ class SubsetOfRegressors:
         # solve
         weight_blocks = []
         for key, y_block in y.items():
+            k_nm_block = k_nm.block(key)
+            # breakpoint()
+            # TODO(Davide) include gradients into the k_nm_block
             k_nm_block = k_nm.block(key)
             k_mm_block = k_mm.block(key)
             X_block = X.block(key)

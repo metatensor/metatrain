@@ -135,7 +135,9 @@ def train(
         for structure in dataset._data["structure"]
     ]
 
-    train_tensor = model._soap_torch_calculator.compute(train_structures)
+    train_tensor = model._soap_torch_calculator.compute(
+        train_structures, gradients=["positions"]
+    )
     train_tensor = train_tensor.keys_to_samples("species_center")
     # TODO implement accumulate_key_names so we do not loose sparsity
     train_tensor = train_tensor.keys_to_properties(
@@ -147,6 +149,7 @@ def train(
     train_y = torch_tensor_map_to_core(train_y)
 
     sparse_points = model._sampler.fit_transform(train_tensor)
+    sparse_points = metatensor.operations.remove_gradients(sparse_points)
     model._subset_of_regressors.fit(
         train_tensor, sparse_points, train_y, alpha=hypers["training"]["regularizer"]
     )
