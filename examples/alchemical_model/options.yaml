@@ -5,7 +5,7 @@ architecture:
 # Mandatory section defining the parameters for structure and target data of the
 # training set
 training_set:
-  structures: "hea_samples_bulk.xyz" # file where the positions are stored
+  structures: "alchemical_reduced_10.xyz" # file where the positions are stored
   targets:
     energy:
       key: "energy" # name of the target value

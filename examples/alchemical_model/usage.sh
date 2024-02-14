@@ -10,7 +10,7 @@ metatensor-models train --help
 # We now evaluate the model on the training dataset, where the first arguments specifies
 # the model and the second the structure file
 
-metatensor-models eval model.pt qm9_reduced_100.xyz
+metatensor-models eval model.pt alchemical_reduced_10.xyz
 
 # The evaluation command predicts the property the model was trained against; here "U0".
 # The predictions together with the structures have been written in a file named
@@ -22,11 +22,6 @@ head -n 20 output.xyz
 # All command line flags of the eval sub-command can be listed via
 
 metatensor-models eval --help
-
-# However, before we export the model, we need to run the following command to
-# hotfix errors in metatensor.
-
-python ../../scripts/hotfix_metatensor.py
 
 # Finally, the `metatestor-models export`, i.e.,
 
