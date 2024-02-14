@@ -9,11 +9,13 @@ from metatensor.torch import Labels, TensorBlock
 def read_energy_ase(
     filename: str,
     key: str,
+    dtype: torch.dtype = torch.float64,
 ) -> List[TensorBlock]:
     """Store energy information in a List of :class:`metatensor.TensorBlock`.
 
     :param filename: name of the file to read
     :param key: target value key name to be parsed from the file.
+    :param dtype: desired data type of returned tensor
 
     :returns:
         TensorMap containing the given information
@@ -24,7 +26,7 @@ def read_energy_ase(
 
     blocks = []
     for i_structure, atoms in enumerate(frames):
-        values = torch.tensor([[atoms.info[key]]], dtype=torch.get_default_dtype())
+        values = torch.tensor([[atoms.info[key]]], dtype=dtype)
         samples = Labels(["structure"], torch.tensor([[i_structure]]))
 
         block = TensorBlock(
@@ -41,12 +43,14 @@ def read_energy_ase(
 def read_forces_ase(
     filename: str,
     key: str = "energy",
+    dtype: torch.dtype = torch.float64,
 ) -> List[TensorBlock]:
     """Store force information in a List of :class:`metatensor.TensorBlock` which can be
     used as ``position`` gradients.
 
     :param filename: name of the file to read
     :param key: target value key name to be parsed from the file.
+    :param dtype: desired data type of returned tensor
 
     :returns:
         TensorMap containing the given information
@@ -59,7 +63,7 @@ def read_forces_ase(
     blocks = []
     for i_structure, atoms in enumerate(frames):
         # We store forces as positions gradients which means we invert the sign
-        values = -torch.tensor(atoms.arrays[key], dtype=torch.get_default_dtype())
+        values = -torch.tensor(atoms.arrays[key], dtype=dtype)
         values = values.reshape(-1, 3, 1)
 
         samples = Labels(
@@ -82,39 +86,48 @@ def read_forces_ase(
 def read_virial_ase(
     filename: str,
     key: str = "virial",
+    dtype: torch.dtype = torch.float64,
 ) -> List[TensorBlock]:
     """Store virial information in a List of :class:`metatensor.TensorBlock` which can
     be used as ``strain`` gradients.
 
     :param filename: name of the file to read
     :param key: target value key name to be parsed from the file
+    :param dtype: desired data type of returned tensor
 
     :returns:
         TensorMap containing the given information
     """
-    return _read_virial_stress_ase(filename=filename, key=key, is_virial=True)
+    return _read_virial_stress_ase(
+        filename=filename, key=key, is_virial=True, dtype=dtype
+    )
 
 
 def read_stress_ase(
     filename: str,
     key: str = "stress",
+    dtype: torch.dtype = torch.float64,
 ) -> List[TensorBlock]:
     """Store stress information in a List of :class:`metatensor.TensorBlock` which can
     be used as ``strain`` gradients.
 
     :param filename: name of the file to read
     :param key: target value key name to be parsed from the file
+    :param dtype: desired data type of returned tensor
 
     :returns:
         TensorMap containing the given information
     """
-    return _read_virial_stress_ase(filename=filename, key=key, is_virial=False)
+    return _read_virial_stress_ase(
+        filename=filename, key=key, is_virial=False, dtype=dtype
+    )
 
 
 def _read_virial_stress_ase(
     filename: str,
     key: str,
     is_virial: bool = True,
+    dtype: torch.dtype = torch.float64,
 ) -> List[TensorBlock]:
     """Store stress or virial information in a List of :class:`metatensor.TensorBlock`
     which can be used as ``strain`` gradients.
@@ -122,6 +135,7 @@ def _read_virial_stress_ase(
     :param filename: name of the file to read
     :param key: target value key name to be parsed from the file
     :param is_virial: if target values are stored as stress or virials.
+    :param dtype: desired data type of returned tensor
 
     :returns:
         TensorMap containing the given information
@@ -138,7 +152,7 @@ def _read_virial_stress_ase(
     blocks = []
     for i_structure, atoms in enumerate(frames):
 
-        values = torch.tensor(atoms.info[key].tolist(), dtype=torch.get_default_dtype())
+        values = torch.tensor(atoms.info[key].tolist(), dtype=dtype)
 
         if values.shape == (9,):
             warnings.warn(
