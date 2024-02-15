@@ -89,11 +89,6 @@ def train(
     if len(outputs_dict.keys()) > 1:
         raise NotImplementedError("More than one output is not supported yet.")
     output_name = next(iter(outputs_dict.keys()))
-    if len(train_datasets[0]._data[output_name][0].keys) > 1:
-        raise NotImplementedError(
-            "Found more than 1 key in properties. Assuming "
-            "equivariant learning which is not supported yet."
-        )
     # Calculate and set the composition weights for all targets:
     # TODO skipping just to make progress faster
     # logger.info("Calculating composition weights")
@@ -122,12 +117,45 @@ def train(
     # train_datasets[datasets]._data["structure"][structures]
     # train_datasets[0:N_DATASETS]._data["structure"][0:N_STRUCTURES] # AtomicSystems
     # train_datasets[0:N_DATASETS]._data[output_name][0:N_STRUCTURES] # TensorMap
-
-    train_y = metatensor.torch.join(
-        [output for dataset in train_datasets for output in dataset._data[output_name]],
-        axis="samples",
-        remove_tensor_name=True,
-    )
+    if isinstance(train_datasets[0], _BaseDataset):
+        if len(train_datasets[0]._data[output_name][0].keys) > 1:
+            raise NotImplementedError(
+                "Found more than 1 key in properties. Assuming "
+                "equivariant learning which is not supported yet."
+            )
+        train_y = metatensor.torch.join(
+            [
+                output
+                for dataset in train_datasets
+                for output in dataset._data[output_name]
+            ],
+            axis="samples",
+            remove_tensor_name=True,
+        )
+        train_structures = [
+            structure
+            for dataset in train_datasets
+            for structure in dataset._data["structure"]
+        ]
+    elif isinstance(train_datasets[0], torch.utils.data.Subset):
+        if len(train_datasets[0][0][1].keys) > 1:
+            raise NotImplementedError(
+                "Found more than 1 key in properties. Assuming "
+                "equivariant learning which is not supported yet."
+            )
+        train_datasets = train_datasets[0]  # hope is correct
+        train_y = metatensor.torch.join(
+            [output for dataset in train_datasets for output in dataset[1:]],
+            axis="samples",
+            remove_tensor_name=True,
+        )
+        train_structures = [
+            structure for dataset in train_datasets for structure in dataset[0]
+        ]
+    else:
+        raise NotImplementedError(
+            "train_datasets should be a list of _BaseDataset or torch.utils.data.Subset"
+        )
     model._train_y_mean = metatensor.torch.mean_over_samples(train_y, ["structure"])
     # breakpoint()
     train_y = metatensor.torch.subtract(train_y, float(model._train_y_mean[0].values))
@@ -135,11 +163,6 @@ def train(
     # breakpoint()
     # TODO why is there a tensor due to join?
 
-    train_structures = [
-        structure
-        for dataset in train_datasets
-        for structure in dataset._data["structure"]
-    ]
     if len(train_y[0].gradients_list()) > 0:
         train_tensor = model._soap_torch_calculator.compute(
             train_structures, gradients=["positions"]
