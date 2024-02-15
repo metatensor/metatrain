@@ -113,6 +113,10 @@ class Model(torch.nn.Module):
             dummy_weights, dummy_X_pseudo
         )
         self._species_labels: TorchLabels = TorchLabels.empty("_")
+        self._train_y_mean: TorchTensorMap = TorchTensorMap(
+            TorchLabels(["_"], torch.tensor([[0]])),
+            [metatensor.torch.block_from_array(torch.empty(1, 1))],
+        )
 
     def forward(
         self,
@@ -135,12 +139,37 @@ class Model(torch.nn.Module):
         # "structure", "center" = 0, 0
         # given the values are all zeros it does not
         # introduce an error
-        dummyblock: TorchTensorBlock = TorchTensorBlock(
-            values=torch.zeros((1, len(soap_features.block(0).properties))),
-            samples=TorchLabels(["structure", "center"], torch.IntTensor([[0, 0]])),
-            properties=soap_features[0].properties,
-            components=[],
-        )
+        # breakpoint()
+        if len(soap_features[0].gradients_list()) > 0:
+            dummyblock: TorchTensorBlock = TorchTensorBlock(
+                values=torch.zeros((1, len(soap_features[0].properties))),
+                samples=TorchLabels(["structure", "center"], torch.IntTensor([[0, 0]])),
+                properties=soap_features[0].properties,
+                components=[],
+            )
+            for idx, grad in enumerate(soap_features[0].gradients_list()):
+                dummyblock_grad: TorchTensorBlock = TorchTensorBlock(
+                    values=torch.zeros(
+                        (
+                            1,
+                            soap_features[0].gradient(grad).values.shape[1 + idx],
+                            len(soap_features[0].gradient(grad).properties),
+                        )
+                    ),
+                    samples=TorchLabels(
+                        ["sample", "structure", "atom"], torch.IntTensor([[0, 0, 0]])
+                    ),
+                    components=soap_features[0].gradient(grad).components,
+                    properties=soap_features[0].gradient(grad).properties,
+                )
+                dummyblock.add_gradient(grad, dummyblock_grad)
+        else:
+            dummyblock: TorchTensorBlock = TorchTensorBlock(
+                values=torch.zeros((1, len(soap_features[0].properties))),
+                samples=TorchLabels(["structure", "center"], torch.IntTensor([[0, 0]])),
+                properties=soap_features[0].properties,
+                components=[],
+            )
 
         for idx_key in range(len(self._species_labels)):
             key = self._species_labels.entry(idx_key)
@@ -149,7 +178,9 @@ class Model(torch.nn.Module):
             else:
                 new_blocks.append(dummyblock)
         soap_features = TorchTensorMap(keys=self._species_labels, blocks=new_blocks)
-
+        # soap_features = metatensor.torch.add(
+        #    soap_features, float(self._train_y_mean[0].values)
+        # )
         # TODO implement accumulate_key_names so we do not loose sparsity
         soap_features = soap_features.keys_to_samples("species_center")
         soap_features = soap_features.keys_to_properties(
@@ -161,7 +192,11 @@ class Model(torch.nn.Module):
         output_key = list(outputs.keys())[0]
         # TODO does not work if different species are present in systems
         #      should work if we implement kernels properly
-        return {output_key: self._subset_of_regressors_torch(soap_features)}
+        out_tensor = self._subset_of_regressors_torch(soap_features)
+        out_tensor = metatensor.torch.add(
+            out_tensor, float(self._train_y_mean[0].values)
+        )
+        return {output_key: out_tensor}
 
 
 ########################################################################################
@@ -487,7 +522,7 @@ class AggregatePolynomial(AggregateKernel):
         degree: int = 2,
     ):
         super().__init__(aggregate_names, aggregate_type, structurewise_aggregate)
-        self._degree = 2
+        self._degree = degree
 
     def compute_kernel(self, tensor1: TensorMap, tensor2: TensorMap):
         return metatensor.pow(metatensor.dot(tensor1, tensor2), self._degree)
@@ -1050,8 +1085,30 @@ class SubsetOfRegressors:
             normalization = normalization[:, None]
 
             k_nm_reg = k_nm_block.values * normalization
-            y_reg = y_block.values * normalization
-
+            y_reg = (y_block.values) * normalization
+            if len(k_nm_block.gradients_list()) > 0:
+                grad_shape = k_nm_block.gradient("positions").values.shape
+                k_nm_reg = np.vstack(
+                    [
+                        k_nm_reg,
+                        k_nm_block.gradient("positions").values.reshape(
+                            grad_shape[0] * grad_shape[1],
+                            grad_shape[2],
+                        )
+                        / alpha_values[0, 0],
+                    ]
+                )
+                grad_shape = y_block.gradient("positions").values.shape
+                y_reg = np.vstack(
+                    [
+                        y_reg,
+                        y_block.gradient("positions").values.reshape(
+                            grad_shape[0] * grad_shape[1],
+                            grad_shape[2],
+                        )
+                        / alpha_values[0, 0],
+                    ]
+                )
             self._solver = _SorKernelSolver(
                 k_mm_block.values, regularizer=1, jitter=0, solver=solver
             )

@@ -12,6 +12,7 @@ from omegaconf import OmegaConf
 from metatensor.models.sparse_gap import DEFAULT_HYPERS, Model, train
 from metatensor.models.utils.data import get_all_species
 from metatensor.models.utils.data.readers import read_structures, read_targets
+from pathlib import Path
 
 from . import DATASET_ETHANOL_PATH, DATASET_PATH
 
@@ -144,7 +145,7 @@ def test_ethanol_regression_train_and_invariance():
     dataset = Dataset(structure=structures, energy=targets["energy"])
 
     hypers = DEFAULT_HYPERS.copy()
-    hypers["training"]["num_epochs"] = 2
+    hypers["model"]["sparse_points"]["points"] = 900
 
     capabilities = ModelCapabilities(
         length_unit="Angstrom",
@@ -162,18 +163,23 @@ def test_ethanol_regression_train_and_invariance():
         structures[:5], {"energy": sparse_gap.capabilities.outputs["energy"]}
     )
     # taken from the file ethanol_reduced_100.xyz
-    expected_output = torch.tensor(
-        [
-            [-97079.92222178938],
-            [-97071.22355557],
-            [-97074.755474],
-            [-97084.3630817],
-            [-97070.815858336],
-        ]
+    data = ase.io.read(DATASET_ETHANOL_PATH, ":5", format="extxyz")
+    expected_output = torch.tensor([[i.info["energy"]] for i in data])
+    # np.savetxt(
+    #    "/Users/davidetisi/Documents/Work/Software/metatensor-models/expected_forces.dat",
+    #    -output["energy"].block().gradient("positions").values.reshape(45, 3),
+    # )
+    expected_forces = torch.vstack([torch.Tensor(i.arrays["forces"]) for i in data])
+    # expected_forces = np.loadtxt(
+    #    str(Path(__file__).parent.resolve() / "expected_forces.dat")
+    # )
+    assert torch.allclose(output["energy"].block().values, expected_output, rtol=0.1)
+    assert torch.allclose(
+        -output["energy"].block().gradient("positions").values.reshape(-1),
+        torch.Tensor(expected_forces.reshape(-1)),
+        rtol=20,
     )
-
-    assert torch.allclose(output["energy"].block().values, expected_output, rtol=0.3)
-
+    # breakpoint()
     # Tests that the model is rotationally invariant
     structure = ase.io.read(DATASET_ETHANOL_PATH)
     # PR COMMENT this is a temporary hack until kernel is properly implemented that can

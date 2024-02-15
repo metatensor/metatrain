@@ -1,6 +1,6 @@
 import logging
 import warnings
-from typing import Dict, List, Union
+from typing import Dict, List, Union, Optional
 
 import metatensor.torch
 import numpy as np
@@ -48,6 +48,7 @@ def train(
     hypers: Dict = DEFAULT_HYPERS,
     output_dir: str = ".",
     device_str: str = "cpu",
+    continue_from: Optional[str] = None,
 ):
     # Create the model:
     model = Model(
@@ -125,8 +126,13 @@ def train(
     train_y = metatensor.torch.join(
         [output for dataset in train_datasets for output in dataset._data[output_name]],
         axis="samples",
+        remove_tensor_name=True,
     )
+    model._train_y_mean = metatensor.torch.mean_over_samples(train_y, ["structure"])
+    # breakpoint()
+    train_y = metatensor.torch.subtract(train_y, float(model._train_y_mean[0].values))
     model._keys = train_y.keys
+    # breakpoint()
     # TODO why is there a tensor due to join?
 
     train_structures = [
@@ -134,10 +140,12 @@ def train(
         for dataset in train_datasets
         for structure in dataset._data["structure"]
     ]
-
-    train_tensor = model._soap_torch_calculator.compute(
-        train_structures, gradients=["positions"]
-    )
+    if len(train_y[0].gradients_list()) > 0:
+        train_tensor = model._soap_torch_calculator.compute(
+            train_structures, gradients=["positions"]
+        )
+    else:
+        train_tensor = model._soap_torch_calculator.compute(train_structures)
     model._species_labels = train_tensor.keys
     train_tensor = train_tensor.keys_to_samples("species_center")
     # TODO implement accumulate_key_names so we do not loose sparsity
