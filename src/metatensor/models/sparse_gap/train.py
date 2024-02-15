@@ -149,9 +149,7 @@ def train(
             axis="samples",
             remove_tensor_name=True,
         )
-        train_structures = [
-            structure for dataset in train_datasets for structure in dataset[0]
-        ]
+        train_structures = [dataset[0] for dataset in train_datasets]
     else:
         raise NotImplementedError(
             "train_datasets should be a list of _BaseDataset or torch.utils.data.Subset"
