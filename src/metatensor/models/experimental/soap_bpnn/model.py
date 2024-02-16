@@ -7,17 +7,15 @@ from metatensor.torch import Labels, TensorBlock, TensorMap
 from metatensor.torch.atomistic import ModelCapabilities, ModelOutput, System
 from omegaconf import OmegaConf
 
-from .. import ARCHITECTURE_CONFIG_PATH
-from ..utils.composition import apply_composition_contribution
+from ... import ARCHITECTURE_CONFIG_PATH
+from ...utils.composition import apply_composition_contribution
 
 
+ARCHITECTURE_NAME = "experimental.soap_bpnn"
 DEFAULT_HYPERS = OmegaConf.to_container(
-    OmegaConf.load(ARCHITECTURE_CONFIG_PATH / "soap_bpnn.yaml")
+    OmegaConf.load(ARCHITECTURE_CONFIG_PATH / f"{ARCHITECTURE_NAME}.yaml")
 )
-
 DEFAULT_MODEL_HYPERS = DEFAULT_HYPERS["model"]
-
-ARCHITECTURE_NAME = "soap_bpnn"
 
 
 class MLPMap(torch.nn.Module):

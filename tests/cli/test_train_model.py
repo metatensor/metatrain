@@ -10,7 +10,7 @@ import torch
 from omegaconf import OmegaConf
 from omegaconf.errors import ConfigKeyError
 
-from metatensor.models.cli import train_model
+from metatensor.models.cli.train_model import check_architecture_name, train_model
 
 
 RESOURCES_PATH = Path(__file__).parent.resolve() / ".." / "resources"
@@ -127,7 +127,7 @@ def test_no_architecture_name(options):
 
 
 @pytest.mark.parametrize("seed", [1234, None, 0, -123])
-@pytest.mark.parametrize("architecture_name", ["soap_bpnn"])
+@pytest.mark.parametrize("architecture_name", ["experimental.soap_bpnn"])
 def test_model_consistency_with_seed(
     options, monkeypatch, tmp_path, architecture_name, seed, capsys
 ):
@@ -176,3 +176,26 @@ def test_error_base_precision(options, monkeypatch, tmp_path, capsys):
         train_model(options)
         captured = capsys.readouterr()
         assert "Only 64, 32 or 16 are possible values for" in captured.out
+
+
+def test_check_architecture_name():
+    check_architecture_name("experimental.soap_bpnn")
+
+
+def test_check_architecture_name_suggest():
+    name = "soap-bpnn"
+    match = f"Architecture {name!r} is not a valid architecture."
+    with pytest.raises(ValueError, match=match):
+        check_architecture_name(name)
+
+
+def test_check_architecture_name_experimental():
+    with pytest.raises(
+        ValueError, match="experimental architecture with the same name"
+    ):
+        check_architecture_name("soap_bpnn")
+
+
+def test_check_architecture_name_deprecated():
+    # Create once a deprecated architecture exist
+    pass

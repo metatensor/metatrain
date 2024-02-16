@@ -1,6 +1,4 @@
 # default hyperparameters for the SOAP-BPNN model
-name: soap_bpnn
-
 model:
   soap:
     cutoff: 5.0

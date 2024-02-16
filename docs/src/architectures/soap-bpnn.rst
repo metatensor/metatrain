@@ -24,7 +24,7 @@ Hyperparameters
 
 The hyperparameters (and relative default values) for the SOAP-BPNN model are:
 
-.. literalinclude:: ../../../src/metatensor/models/cli/conf/architecture/soap_bpnn.yaml
+.. literalinclude:: ../../../src/metatensor/models/cli/conf/architecture/experimental.soap_bpnn.yaml
    :language: yaml
 
 Any of these hyperparameters can be overridden with the training parameter file.

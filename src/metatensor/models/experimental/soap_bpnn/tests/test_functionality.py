@@ -4,7 +4,7 @@ import rascaline.torch
 import torch
 from metatensor.torch.atomistic import ModelCapabilities, ModelOutput
 
-from metatensor.models.soap_bpnn import DEFAULT_HYPERS, Model
+from metatensor.models.experimental.soap_bpnn import DEFAULT_HYPERS, Model
 
 
 def test_prediction_subset_elements():

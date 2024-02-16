@@ -9,20 +9,20 @@ from metatensor.learn.data import DataLoader
 from metatensor.learn.data.dataset import _BaseDataset
 from metatensor.torch.atomistic import ModelCapabilities
 
-from ..utils.composition import calculate_composition_weights
-from ..utils.compute_loss import compute_model_loss
-from ..utils.data import (
+from ...utils.composition import calculate_composition_weights
+from ...utils.compute_loss import compute_model_loss
+from ...utils.data import (
     check_datasets,
     collate_fn,
     combine_dataloaders,
     get_all_targets,
 )
-from ..utils.extract_targets import get_outputs_dict
-from ..utils.info import finalize_aggregated_info, update_aggregated_info
-from ..utils.logging import MetricLogger
-from ..utils.loss import TensorMapDictLoss
-from ..utils.merge_capabilities import merge_capabilities
-from ..utils.model_io import load_model, save_model
+from ...utils.extract_targets import get_outputs_dict
+from ...utils.info import finalize_aggregated_info, update_aggregated_info
+from ...utils.logging import MetricLogger
+from ...utils.loss import TensorMapDictLoss
+from ...utils.merge_capabilities import merge_capabilities
+from ...utils.model_io import load_model, save_model
 from .model import DEFAULT_HYPERS, Model
 
 

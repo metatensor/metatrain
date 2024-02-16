@@ -8,7 +8,7 @@ from metatensor.learn.data import Dataset
 from metatensor.torch.atomistic import ModelCapabilities, ModelOutput
 from omegaconf import OmegaConf
 
-from metatensor.models.soap_bpnn import DEFAULT_HYPERS, Model, train
+from metatensor.models.experimental.soap_bpnn import DEFAULT_HYPERS, Model, train
 from metatensor.models.utils.data import get_all_species
 from metatensor.models.utils.data.readers import read_structures, read_targets
 

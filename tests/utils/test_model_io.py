@@ -4,7 +4,7 @@ import metatensor.torch
 import rascaline.torch
 from metatensor.torch.atomistic import ModelCapabilities, ModelOutput
 
-from metatensor.models import soap_bpnn
+from metatensor.models.experimental import soap_bpnn
 from metatensor.models.utils.data import read_structures
 from metatensor.models.utils.model_io import load_model, save_model
 

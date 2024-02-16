@@ -10,5 +10,6 @@ module.
    :maxdepth: 1
 
    adding-models
+   architecture-life-cycle
    cli/index
    utils/index
