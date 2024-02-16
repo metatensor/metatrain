@@ -1,3 +1,4 @@
+import itertools
 from typing import Dict, List
 
 import torch
@@ -29,6 +30,13 @@ def compute_model_loss(
         raise ValueError("Not all targets are within the model's capabilities.")
 
     # Infer model device, move systems and targets to the same device:
+    try:
+        # Attempt to get the next parameter of the model
+        device = next(model.parameters()).device
+    except StopIteration:
+        # If the above fails, attempt to get the next item
+        # from the chain of model parameters and buffers
+        device = next(itertools.chain(model.parameters(), model.buffers())).device
     device = next(model.parameters()).device
     systems = [system.to(device=device) for system in systems]
     targets = {key: target.to(device=device) for key, target in targets.items()}

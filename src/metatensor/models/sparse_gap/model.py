@@ -140,13 +140,13 @@ class Model(torch.nn.Module):
         # given the values are all zeros it does not
         # introduce an error
         # breakpoint()
+        dummyblock: TorchTensorBlock = TorchTensorBlock(
+            values=torch.zeros((1, len(soap_features[0].properties))),
+            samples=TorchLabels(["structure", "center"], torch.IntTensor([[0, 0]])),
+            properties=soap_features[0].properties,
+            components=[],
+        )
         if len(soap_features[0].gradients_list()) > 0:
-            dummyblock: TorchTensorBlock = TorchTensorBlock(
-                values=torch.zeros((1, len(soap_features[0].properties))),
-                samples=TorchLabels(["structure", "center"], torch.IntTensor([[0, 0]])),
-                properties=soap_features[0].properties,
-                components=[],
-            )
             for idx, grad in enumerate(soap_features[0].gradients_list()):
                 dummyblock_grad: TorchTensorBlock = TorchTensorBlock(
                     values=torch.zeros(
@@ -163,13 +163,6 @@ class Model(torch.nn.Module):
                     properties=soap_features[0].gradient(grad).properties,
                 )
                 dummyblock.add_gradient(grad, dummyblock_grad)
-        else:
-            dummyblock: TorchTensorBlock = TorchTensorBlock(
-                values=torch.zeros((1, len(soap_features[0].properties))),
-                samples=TorchLabels(["structure", "center"], torch.IntTensor([[0, 0]])),
-                properties=soap_features[0].properties,
-                components=[],
-            )
 
         for idx_key in range(len(self._species_labels)):
             key = self._species_labels.entry(idx_key)

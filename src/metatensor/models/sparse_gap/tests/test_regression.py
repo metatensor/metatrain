@@ -12,9 +12,11 @@ from omegaconf import OmegaConf
 from metatensor.models.sparse_gap import DEFAULT_HYPERS, Model, train
 from metatensor.models.utils.data import get_all_species
 from metatensor.models.utils.data.readers import read_structures, read_targets
-from pathlib import Path
 
 from . import DATASET_ETHANOL_PATH, DATASET_PATH
+
+
+# from pathlib import Path
 
 
 # reproducibility

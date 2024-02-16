@@ -1,6 +1,6 @@
 import logging
 import warnings
-from typing import Dict, List, Union, Optional
+from typing import Dict, List, Optional, Union
 
 import metatensor.torch
 import numpy as np
