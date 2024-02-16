@@ -10,7 +10,7 @@ metatensor-models train --help
 # We now evaluate the model on the training dataset, where the first arguments specifies
 # the model and the second the structure file
 
-metatensor-models eval model.pt alchemical_reduced_10.xyz
+metatensor-models eval model.pt eval.yaml
 
 # The evaluation command predicts the property the model was trained against; here "U0".
 # The predictions together with the structures have been written in a file named
