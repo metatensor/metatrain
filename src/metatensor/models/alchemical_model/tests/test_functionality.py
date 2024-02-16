@@ -2,10 +2,10 @@ import ase
 import rascaline.torch
 import torch
 from metatensor.torch.atomistic import (
-    ModelCapabilities,
-    ModelOutput,
-    ModelEvaluationOptions,
     MetatensorAtomisticModel,
+    ModelCapabilities,
+    ModelEvaluationOptions,
+    ModelOutput,
 )
 
 from metatensor.models.alchemical_model import DEFAULT_HYPERS, Model

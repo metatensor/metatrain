@@ -6,10 +6,10 @@ import rascaline.torch
 import torch
 from metatensor.learn.data import Dataset
 from metatensor.torch.atomistic import (
-    ModelCapabilities,
-    ModelOutput,
     MetatensorAtomisticModel,
+    ModelCapabilities,
     ModelEvaluationOptions,
+    ModelOutput,
 )
 from omegaconf import OmegaConf
 
