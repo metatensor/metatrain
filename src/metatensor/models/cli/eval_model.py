@@ -12,8 +12,8 @@ from ..utils.extract_targets import get_outputs_dict
 from ..utils.info import finalize_aggregated_info, update_aggregated_info
 from ..utils.loss import TensorMapDictLoss
 from ..utils.model_io import load_model
-from ..utils.omegaconf import expand_dataset_config
 from ..utils.neighbors_lists import check_and_update_neighbors_lists
+from ..utils.omegaconf import expand_dataset_config
 from .formatter import CustomHelpFormatter
 
 

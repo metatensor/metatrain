@@ -5,19 +5,13 @@ import numpy as np
 import rascaline.torch
 import torch
 from metatensor.learn.data import Dataset
-from metatensor.torch.atomistic import (
-    ModelCapabilities,
-    ModelOutput,
-)
+from metatensor.torch.atomistic import ModelCapabilities, ModelOutput
 from omegaconf import OmegaConf
 
 from metatensor.models.alchemical_model import DEFAULT_HYPERS, Model, train
-from metatensor.models.utils.neighbors_lists import (
-    get_rascaline_neighbors_list,
-)
 from metatensor.models.utils.data import get_all_species
 from metatensor.models.utils.data.readers import read_structures, read_targets
-
+from metatensor.models.utils.neighbors_lists import get_rascaline_neighbors_list
 
 from . import DATASET_PATH
 

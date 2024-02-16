@@ -7,8 +7,8 @@ from metatensor.torch import Labels, TensorMap
 from metatensor.torch.atomistic import (
     ModelCapabilities,
     ModelOutput,
-    System,
     NeighborsListOptions,
+    System,
 )
 from omegaconf import OmegaConf
 from torch_alchemical.nn import AlchemicalEmbedding, LayerNorm, MultiChannelLinear, SiLU

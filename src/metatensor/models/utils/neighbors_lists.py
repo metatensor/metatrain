@@ -1,12 +1,13 @@
-import torch
 from typing import List, Union
+
+import torch
 from metatensor.learn.data.dataset import _BaseDataset
+from metatensor.torch import Labels, TensorBlock
 from metatensor.torch.atomistic import (
     NeighborsListOptions,
     System,
     register_autograd_neighbors,
 )
-from metatensor.torch import Labels, TensorBlock
 from rascaline.torch import NeighborList
 
 
@@ -36,11 +37,11 @@ def get_rascaline_neighbors_list(
 
     if not isinstance(systems, list):
         systems = [systems]
+    nl_calculator = NeighborList(
+        cutoff=options.model_cutoff, full_neighbor_list=options.full_list
+    )
     nl_list = []
     for system in systems:
-        nl_calculator = NeighborList(
-            cutoff=options.model_cutoff, full_neighbor_list=options.full_list
-        )
         nl_tmap = nl_calculator.compute(system)
         tmp_nl = nl_tmap.keys_to_samples(nl_tmap.keys.names).block()
         required_indices = [

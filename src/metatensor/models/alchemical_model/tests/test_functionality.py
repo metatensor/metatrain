@@ -1,10 +1,7 @@
 import ase
 import rascaline.torch
 import torch
-from metatensor.torch.atomistic import (
-    ModelCapabilities,
-    ModelOutput,
-)
+from metatensor.torch.atomistic import ModelCapabilities, ModelOutput
 
 from metatensor.models.alchemical_model import DEFAULT_HYPERS, Model
 from metatensor.models.utils.neighbors_lists import get_rascaline_neighbors_list
