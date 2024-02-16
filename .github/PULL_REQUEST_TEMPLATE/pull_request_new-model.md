@@ -5,7 +5,6 @@
 # New model TODOs
 
 - [ ] Add default hyperparameter file to `models/cli/conf/architecture/<YOUR_model>.yaml`
-- [ ] Add a prediction test?
-- [ ] Add a fitting test?
+- [ ] Tests: torch-scriptability, basic functionality (invariance, fitting, prediction)
 - [ ] Add a `.yml` file into github workflows `.github/workflow/<YOUR_model>.yml`
 - [ ] Entry in the `optional-dependencies` section in the `pyproject.toml`
