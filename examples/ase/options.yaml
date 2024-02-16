@@ -1,5 +1,5 @@
 architecture:
-  name: soap_bpnn
+  name: experimental.soap_bpnn
   training:
     batch_size: 16
     num_epochs: 100

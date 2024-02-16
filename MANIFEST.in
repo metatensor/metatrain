@@ -3,7 +3,7 @@ graft src
 include LICENSE
 include README.md
 
-prune developers
+prune developer
 prune docs
 prune examples
 prune tests

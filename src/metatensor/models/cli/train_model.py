@@ -1,10 +1,12 @@
 import argparse
+import difflib
 import importlib
 import logging
 import os
 import random
 import sys
 import tempfile
+from importlib.util import find_spec
 from pathlib import Path
 from typing import List, Optional
 
@@ -78,6 +80,49 @@ def _add_train_model_parser(subparser: argparse._SubParsersAction) -> None:
     )
 
 
+def check_architecture_name(name: str) -> None:
+    """Check if the requested architecture is avalible.
+
+    If the architecture is not found an :func:`ValueError` is raised. If an architecture
+    with the same name as an experimental or deprecated architecture exist, this
+    architecture is suggested. If no architecture exist the closest architecture is
+    given to help debugging typos.
+
+    :param name: name of the architecture
+    :raises ValueError: if the architecture is not found
+    """
+    try:
+        if find_spec(f"metatensor.models.{name}") is not None:
+            return
+        elif find_spec(f"metatensor.models.experimental.{name}") is not None:
+            msg = (
+                f"Architecture {name!r} is not a stable architecture. An "
+                "experimental architecture with the same name was found. Set "
+                f"`name: experimental.{name}` in your options file to use this "
+                "experimental architecture."
+            )
+        elif find_spec(f"metatensor.models.deprecated.{name}") is not None:
+            msg = (
+                f"Architecture {name!r} is not a stable architecture. A "
+                "deprecated architecture with the same name was found. Set "
+                f"`name: deprecated.{name}` in your options file to use this "
+                "deprecated architecture."
+            )
+    except ModuleNotFoundError:
+        arch_avail = [
+            f.stem
+            for f in (Path(CONFIG_PATH) / "architecture").iterdir()
+            if f.is_file()
+        ]
+        closest_match = difflib.get_close_matches(name, arch_avail, cutoff=0.3)
+        msg = (
+            f"Architecture {name!r} is not a valid architecture. Do you mean "
+            f"{', '.join(closest_match)}?"
+        )
+
+    raise ValueError(msg)
+
+
 def train_model(
     options: DictConfig,
     output: str = "model.pt",
@@ -107,6 +152,8 @@ def train_model(
         architecture_name = options["architecture"]["name"]
     except ConfigKeyError as exc:
         raise ConfigKeyError("Architecture name is not defined!") from exc
+
+    check_architecture_name(architecture_name)
 
     options["defaults"] = [
         "base",

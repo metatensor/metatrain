@@ -1,6 +1,6 @@
 # architecture used to train the model
 architecture:
-  name: soap_bpnn
+  name: experimental.soap_bpnn
 
 # Mandatory section defining the parameters for structure and target data of the
 # training set

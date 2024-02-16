@@ -86,8 +86,12 @@ typing
 Exporting
 #########
 
-Exporting a model is very useful if you want to use it in other frameworks, especially
-in molecular dynamics simulations. The sub-command to export a trained model is
+Once you trained a model there will be a final checkpoint produced. Even though this
+checkpoint can be used for later evaluation as shown above a checkpoint is only a
+temporary file and may become unusable if an might be updated architecture. For a
+long-term stable usage you should export your model! Exporting a model is very necessary
+if you want to use it in other frameworks, especially in molecular dynamics simulations.
+The sub-command to export a trained model checkpoint is
 
 .. code-block:: bash
 
