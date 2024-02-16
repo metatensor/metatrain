@@ -15,7 +15,11 @@ logger = logging.getLogger(__name__)
 
 
 def _base_reader(
-    readers: dict, filename: str, fileformat: Optional[str] = None, **reader_kwargs
+    readers: dict,
+    filename: str,
+    fileformat: Optional[str] = None,
+    dtype: torch.dtype = torch.float64,
+    **reader_kwargs,
 ):
     if fileformat is None:
         fileformat = Path(filename).suffix
@@ -25,20 +29,22 @@ def _base_reader(
     except KeyError:
         raise ValueError(f"fileformat {fileformat!r} is not supported")
 
-    return reader(filename, **reader_kwargs)
+    return reader(filename, dtype=dtype, **reader_kwargs)
 
 
 def read_energy(
     filename: str,
     target_value: str = "energy",
     fileformat: Optional[str] = None,
+    dtype: torch.dtype = torch.float64,
 ) -> List[TensorBlock]:
     """Read energy informations from a file.
 
     :param filename: name of the file to read
     :param target_value: target value key name to be parsed from the file.
     :param fileformat: format of the structure file. If :py:obj:`None` the format is
-        determined from the suffix.
+        determined from the suffix
+    :param dtype: desired data type of returned tensor
     :returns: target value stored stored as a :class:`metatensor.TensorBlock`
     """
     return _base_reader(
@@ -46,6 +52,7 @@ def read_energy(
         filename=filename,
         fileformat=fileformat,
         key=target_value,
+        dtype=dtype,
     )
 
 
@@ -53,13 +60,15 @@ def read_forces(
     filename: str,
     target_value: str = "forces",
     fileformat: Optional[str] = None,
+    dtype: torch.dtype = torch.float64,
 ) -> List[TensorBlock]:
     """Read force informations from a file.
 
     :param filename: name of the file to read
-    :param target_value: target value key name to be parsed from the file.
+    :param target_value: target value key name to be parsed from the file
     :param fileformat: format of the structure file. If :py:obj:`None` the format is
-        determined from the suffix.
+        determined from the suffix
+    :param dtype: desired data type of returned tensor
     :returns: target value stored stored as a :class:`metatensor.TensorBlock`
     """
     return _base_reader(
@@ -67,6 +76,7 @@ def read_forces(
         filename=filename,
         fileformat=fileformat,
         key=target_value,
+        dtype=dtype,
     )
 
 
@@ -74,13 +84,15 @@ def read_stress(
     filename: str,
     target_value: str = "stress",
     fileformat: Optional[str] = None,
+    dtype: torch.dtype = torch.float64,
 ) -> List[TensorBlock]:
     """Read stress informations from a file.
 
     :param filename: name of the file to read
     :param target_value: target value key name to be parsed from the file.
     :param fileformat: format of the structure file. If :py:obj:`None` the format is
-        determined from the suffix.
+        determined from the suffix
+    :param dtype: desired data type of returned tensor
     :returns: target value stored stored as a :class:`metatensor.TensorBlock`
     """
     return _base_reader(
@@ -88,22 +100,28 @@ def read_stress(
         filename=filename,
         fileformat=fileformat,
         key=target_value,
+        dtype=dtype,
     )
 
 
 def read_structures(
     filename: str,
     fileformat: Optional[str] = None,
+    dtype: torch.dtype = torch.float64,
 ) -> List[System]:
     """Read structure informations from a file.
 
     :param filename: name of the file to read
     :param fileformat: format of the structure file. If :py:obj:`None` the format is
         determined from the suffix.
+    :param dtype: desired data type of returned tensor
     :returns: list of structures
     """
     return _base_reader(
-        readers=STRUCTURE_READERS, filename=filename, fileformat=fileformat
+        readers=STRUCTURE_READERS,
+        filename=filename,
+        fileformat=fileformat,
+        dtype=dtype,
     )
 
 
@@ -111,6 +129,7 @@ def read_virial(
     filename: str,
     target_value: str = "virial",
     fileformat: Optional[str] = None,
+    dtype: torch.dtype = torch.float64,
 ) -> List[TensorBlock]:
     """Read virial informations from a file.
 
@@ -118,6 +137,7 @@ def read_virial(
     :param target_value: target value key name to be parsed from the file.
     :param fileformat: format of the structure file. If :py:obj:`None` the format is
         determined from the suffix.
+    :param dtype: desired data type of returned tensor
     :returns: target value stored stored as a :class:`metatensor.TensorBlock`
     """
     return _base_reader(
@@ -125,10 +145,14 @@ def read_virial(
         filename=filename,
         fileformat=fileformat,
         key=target_value,
+        dtype=dtype,
     )
 
 
-def read_targets(conf: DictConfig) -> Dict[str, List[TensorMap]]:
+def read_targets(
+    conf: DictConfig,
+    dtype: torch.dtype = torch.float64,
+) -> Dict[str, List[TensorMap]]:
     """Reading all target information from a fully expanded config.
 
     To get such a config you can use
@@ -140,6 +164,7 @@ def read_targets(conf: DictConfig) -> Dict[str, List[TensorMap]]:
     added. Other gradients are silentlty irgnored.
 
     :param conf: config containing the keys for what should be read.
+    :param dtype: desired data type of returned tensor
     :returns: Dictionary containing one TensorMaps for each target section in the
         config."""
     target_dictionary = {}
@@ -150,6 +175,7 @@ def read_targets(conf: DictConfig) -> Dict[str, List[TensorMap]]:
                 filename=target["read_from"],
                 target_value=target["key"],
                 fileformat=target["file_format"],
+                dtype=dtype,
             )
 
             if target["forces"]:
@@ -158,6 +184,7 @@ def read_targets(conf: DictConfig) -> Dict[str, List[TensorMap]]:
                         filename=target["forces"]["read_from"],
                         target_value=target["forces"]["key"],
                         fileformat=target["forces"]["file_format"],
+                        dtype=dtype,
                     )
                 except KeyError:
                     logger.warning(
@@ -183,6 +210,7 @@ def read_targets(conf: DictConfig) -> Dict[str, List[TensorMap]]:
                         filename=target["stress"]["read_from"],
                         target_value=target["stress"]["key"],
                         fileformat=target["stress"]["file_format"],
+                        dtype=dtype,
                     )
                 except KeyError:
                     logger.warning(
@@ -203,6 +231,7 @@ def read_targets(conf: DictConfig) -> Dict[str, List[TensorMap]]:
                         filename=target["virial"]["read_from"],
                         target_value=target["virial"]["key"],
                         fileformat=target["virial"]["file_format"],
+                        dtype=dtype,
                     )
                 except KeyError:
                     logger.warning(

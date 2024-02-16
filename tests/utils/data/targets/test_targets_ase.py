@@ -42,10 +42,10 @@ def test_read_energy_ase(monkeypatch, tmp_path):
     structures = ase_systems()
     ase.io.write(filename, structures)
 
-    results = read_energy_ase(filename=filename, key="true_energy")
+    results = read_energy_ase(filename=filename, key="true_energy", dtype=torch.float16)
 
     for result, atoms in zip(results, structures):
-        expected = torch.tensor([[atoms.info["true_energy"]]])
+        expected = torch.tensor([[atoms.info["true_energy"]]], dtype=torch.float16)
         torch.testing.assert_close(result.values, expected)
 
 
@@ -57,10 +57,11 @@ def test_read_forces_ase(monkeypatch, tmp_path):
     structures = ase_systems()
     ase.io.write(filename, structures)
 
-    results = read_forces_ase(filename=filename, key="forces")
+    results = read_forces_ase(filename=filename, key="forces", dtype=torch.float16)
 
     for result, atoms in zip(results, structures):
-        expected = -torch.tensor(atoms.get_array("forces")).reshape(-1, 3, 1)
+        expected = -torch.tensor(atoms.get_array("forces"), dtype=torch.float16)
+        expected = expected.reshape(-1, 3, 1)
         torch.testing.assert_close(result.values, expected)
 
 
@@ -72,10 +73,12 @@ def test_read_stress_ase(monkeypatch, tmp_path):
     structures = ase_systems()
     ase.io.write(filename, structures)
 
-    results = read_stress_ase(filename=filename, key="stress-3x3")
+    results = read_stress_ase(filename=filename, key="stress-3x3", dtype=torch.float16)
 
     for result, atoms in zip(results, structures):
-        expected = atoms.cell.volume * torch.tensor(atoms.info["stress-3x3"])
+        expected = atoms.cell.volume * torch.tensor(
+            atoms.info["stress-3x3"], dtype=torch.float16
+        )
         expected = expected.reshape(-1, 3, 3, 1)
         torch.testing.assert_close(result.values, expected)
 
@@ -103,10 +106,10 @@ def test_read_virial_ase(monkeypatch, tmp_path):
     structures = ase_systems()
     ase.io.write(filename, structures)
 
-    results = read_virial_ase(filename=filename, key="stress-3x3")
+    results = read_virial_ase(filename=filename, key="stress-3x3", dtype=torch.float16)
 
     for result, atoms in zip(results, structures):
-        expected = -torch.tensor(atoms.info["stress-3x3"])
+        expected = -torch.tensor(atoms.info["stress-3x3"], dtype=torch.float16)
         expected = expected.reshape(-1, 3, 3, 1)
         torch.testing.assert_close(result.values, expected)
 
