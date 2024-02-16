@@ -4,7 +4,12 @@ import metatensor.torch
 import numpy as np
 import torch
 from metatensor.torch import Labels, TensorMap
-from metatensor.torch.atomistic import ModelCapabilities, ModelOutput, System
+from metatensor.torch.atomistic import (
+    ModelCapabilities,
+    ModelOutput,
+    System,
+    NeighborsListOptions,
+)
 from omegaconf import OmegaConf
 from torch_alchemical.nn import AlchemicalEmbedding, LayerNorm, MultiChannelLinear, SiLU
 from torch_alchemical.nn.power_spectrum import PowerSpectrum
@@ -120,6 +125,7 @@ class Model(torch.nn.Module):
         self.capabilities = capabilities
         self.all_species = capabilities.species
         self.hypers = hypers
+        self.cutoff_radius = self.hypers["soap"]["cutoff_radius"]
 
         # creates a composition weight tensor that can be directly indexed by species,
         # this can be left as a tensor of zero or set from the outside using
@@ -199,6 +205,16 @@ class Model(torch.nn.Module):
                 for output_name in capabilities.outputs.keys()
             }
         )
+
+    def requested_neighbors_lists(
+        self,
+    ) -> List[NeighborsListOptions]:
+        return [
+            NeighborsListOptions(
+                model_cutoff=self.cutoff_radius,
+                full_list=True,
+            )
+        ]
 
     def forward(
         self,

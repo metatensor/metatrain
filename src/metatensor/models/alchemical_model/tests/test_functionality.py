@@ -4,12 +4,10 @@ import torch
 from metatensor.torch.atomistic import (
     ModelCapabilities,
     ModelOutput,
-    NeighborsListOptions,
 )
 
 from metatensor.models.alchemical_model import DEFAULT_HYPERS, Model
-
-from ..utils import get_rascaline_neighbors_list
+from metatensor.models.utils.neighbors_lists import get_rascaline_neighbors_list
 
 
 def test_prediction_subset():
@@ -29,10 +27,11 @@ def test_prediction_subset():
 
     alchemical_model = Model(capabilities, DEFAULT_HYPERS["model"]).to(torch.float64)
     structure = ase.Atoms("O2", positions=[[0.0, 0.0, 0.0], [0.0, 0.0, 1.0]])
-    nl_options = NeighborsListOptions(model_cutoff=5.0, full_list=True)
     system = rascaline.torch.systems_to_torch(structure)
-    nl = get_rascaline_neighbors_list(system, nl_options)
-    system.add_neighbors_list(nl_options, nl)
+    requested_neighbors_lists = alchemical_model.requested_neighbors_lists()
+    for nl_options in requested_neighbors_lists:
+        nl = get_rascaline_neighbors_list(system, nl_options)
+        system.add_neighbors_list(nl_options, nl)
 
     alchemical_model(
         [system],

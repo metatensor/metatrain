@@ -7,8 +7,6 @@ from metatensor.learn.data import DataLoader
 from metatensor.learn.data.dataset import _BaseDataset
 from metatensor.torch.atomistic import (
     ModelCapabilities,
-    NeighborsListOptions,
-    register_autograd_neighbors,
 )
 
 from ..utils.composition import calculate_composition_weights
@@ -19,6 +17,7 @@ from ..utils.data import (
     combine_dataloaders,
     get_all_targets,
 )
+from ..utils.neighbors_lists import check_and_update_neighbors_lists
 from ..utils.extract_targets import get_outputs_dict
 from ..utils.info import finalize_aggregated_info, update_aggregated_info
 from ..utils.logging import MetricLogger
@@ -30,7 +29,6 @@ from ..utils.normalize import (
     get_average_number_of_neighbors,
 )
 from .model import DEFAULT_HYPERS, Model
-from .utils import get_rascaline_neighbors_list
 
 
 logger = logging.getLogger(__name__)
@@ -80,19 +78,11 @@ def train(
     )
 
     # Calculating the neighbolists
-    logger.info("Calculating the neighbolists")
-    cutoff = hypers["model"]["soap"]["cutoff_radius"]
-    nl_options = NeighborsListOptions(model_cutoff=cutoff, full_list=True)
-    for dataset in train_datasets + validation_datasets:
-        for i in range(len(dataset)):
-            system = dataset[i].structure
-            if len(system.known_neighbors_lists()) == 0:
-                nl = get_rascaline_neighbors_list(
-                    system,
-                    nl_options,
-                )
-                register_autograd_neighbors(system, nl)
-                system.add_neighbors_list(nl_options, nl)
+    logger.info("Checking and updating the neighbolists")
+    requested_neighbors_lists = model.requested_neighbors_lists()
+    check_and_update_neighbors_lists(
+        train_datasets + validation_datasets, requested_neighbors_lists
+    )
 
     # Calculate the average number of atoms and neighbors in the training datasets:
     average_number_of_atoms = get_average_number_of_atoms(train_datasets)
