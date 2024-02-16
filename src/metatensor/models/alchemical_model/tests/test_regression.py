@@ -5,7 +5,12 @@ import numpy as np
 import rascaline.torch
 import torch
 from metatensor.learn.data import Dataset
-from metatensor.torch.atomistic import ModelCapabilities, ModelOutput
+from metatensor.torch.atomistic import (
+    ModelCapabilities,
+    ModelOutput,
+    MetatensorAtomisticModel,
+    ModelEvaluationOptions,
+)
 from omegaconf import OmegaConf
 
 from metatensor.models.alchemical_model import DEFAULT_HYPERS, Model, train
@@ -45,9 +50,18 @@ def test_regression_init():
         for system, nl in zip(systems, nls):
             system.add_neighbors_list(nl_options, nl)
 
-    output = alchemical_model(
+    evaluation_options = ModelEvaluationOptions(
+        length_unit=capabilities.length_unit,
+        outputs=capabilities.outputs,
+    )
+
+    model = MetatensorAtomisticModel(
+        alchemical_model.eval(), alchemical_model.capabilities
+    )
+    output = model(
         systems,
-        {"U0": alchemical_model.capabilities.outputs["U0"]},
+        evaluation_options,
+        check_consistency=True,
     )
     expected_output = torch.tensor(
         [[-0.6996], [-0.4681], [2.2749], [-0.5971], [1.6994]],
@@ -102,8 +116,18 @@ def test_regression_train():
     )
 
     # Predict on the first five structures
-    output = alchemical_model(
-        structures[:5], {"U0": alchemical_model.capabilities.outputs["U0"]}
+    evaluation_options = ModelEvaluationOptions(
+        length_unit=alchemical_model.capabilities.length_unit,
+        outputs=alchemical_model.capabilities.outputs,
+    )
+
+    model = MetatensorAtomisticModel(
+        alchemical_model.eval(), alchemical_model.capabilities
+    )
+    output = model(
+        structures[:5],
+        evaluation_options,
+        check_consistency=True,
     )
 
     expected_output = torch.tensor(

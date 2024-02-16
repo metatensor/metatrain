@@ -1,7 +1,12 @@
 import ase
 import rascaline.torch
 import torch
-from metatensor.torch.atomistic import ModelCapabilities, ModelOutput
+from metatensor.torch.atomistic import (
+    ModelCapabilities,
+    ModelOutput,
+    ModelEvaluationOptions,
+    MetatensorAtomisticModel,
+)
 
 from metatensor.models.alchemical_model import DEFAULT_HYPERS, Model
 from metatensor.models.utils.neighbors_lists import get_rascaline_neighbors_list
@@ -30,7 +35,16 @@ def test_prediction_subset():
         nl = get_rascaline_neighbors_list(system, nl_options)
         system.add_neighbors_list(nl_options, nl)
 
-    alchemical_model(
+    evaluation_options = ModelEvaluationOptions(
+        length_unit=capabilities.length_unit,
+        outputs=capabilities.outputs,
+    )
+
+    model = MetatensorAtomisticModel(
+        alchemical_model.eval(), alchemical_model.capabilities
+    )
+    model(
         [system],
-        {"energy": alchemical_model.capabilities.outputs["energy"]},
+        evaluation_options,
+        check_consistency=True,
     )

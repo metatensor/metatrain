@@ -3,7 +3,12 @@ import copy
 import ase.io
 import rascaline.torch
 import torch
-from metatensor.torch.atomistic import ModelCapabilities, ModelOutput
+from metatensor.torch.atomistic import (
+    ModelCapabilities,
+    ModelOutput,
+    ModelEvaluationOptions,
+    MetatensorAtomisticModel,
+)
 
 from metatensor.models.alchemical_model import DEFAULT_HYPERS, Model
 from metatensor.models.utils.neighbors_lists import get_rascaline_neighbors_list
@@ -39,13 +44,23 @@ def test_rotational_invariance():
         nl = get_rascaline_neighbors_list(system, nl_options)
         system.add_neighbors_list(nl_options, nl)
 
-    original_output = alchemical_model(
-        [original_system],
-        {"energy": alchemical_model.capabilities.outputs["energy"]},
+    evaluation_options = ModelEvaluationOptions(
+        length_unit=capabilities.length_unit,
+        outputs=capabilities.outputs,
     )
-    rotated_output = alchemical_model(
+
+    model = MetatensorAtomisticModel(
+        alchemical_model.eval(), alchemical_model.capabilities
+    )
+    original_output = model(
+        [original_system],
+        evaluation_options,
+        check_consistency=True,
+    )
+    rotated_output = model(
         [system],
-        {"energy": alchemical_model.capabilities.outputs["energy"]},
+        evaluation_options,
+        check_consistency=True,
     )
 
     assert torch.allclose(

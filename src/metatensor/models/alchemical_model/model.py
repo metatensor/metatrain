@@ -233,16 +233,6 @@ class Model(torch.nn.Module):
                     f"Requested output {requested_output} is not within "
                     "the model's capabilities."
                 )
-        for system in systems:
-            if len(system.known_neighbors_lists()) == 0:
-                raise RuntimeError(
-                    "Alchemical Model requires neighbor lists to be provided."
-                )
-            for element in system.species:
-                if element not in self.all_species:
-                    raise ValueError(
-                        f"Current model doesn't support element {element}."
-                    )
 
         soap_features = self.soap_features_layer(systems)
         soap_features = self.layer_norm(soap_features)
