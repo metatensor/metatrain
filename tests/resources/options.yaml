@@ -1,8 +1,8 @@
 architecture:
-  name: experimental.soap_bpnn
+  name: experimental.pet_jax
   training:
-    batch_size: 2
-    num_epochs: 1
+    batch_size: 4
+    num_epochs: 100
 
 training_set:
   structures:
