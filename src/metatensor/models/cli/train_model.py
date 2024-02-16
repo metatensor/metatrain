@@ -175,8 +175,11 @@ def _train_model_hydra(options: DictConfig) -> None:
     train_structures = read_structures(
         filename=train_options["structures"]["read_from"],
         fileformat=train_options["structures"]["file_format"],
+        dtype=torch.get_default_dtype(),
     )
-    train_targets = read_targets(train_options["targets"])
+    train_targets = read_targets(
+        conf=train_options["targets"], dtype=torch.get_default_dtype()
+    )
     train_dataset = Dataset(structure=train_structures, energy=train_targets["energy"])
     train_size = 1.0
 
@@ -205,8 +208,11 @@ def _train_model_hydra(options: DictConfig) -> None:
         test_structures = read_structures(
             filename=test_options["structures"]["read_from"],
             fileformat=test_options["structures"]["file_format"],
+            dtype=torch.get_default_dtype(),
         )
-        test_targets = read_targets(test_options["targets"])
+        test_targets = read_targets(
+            conf=test_options["targets"], dtype=torch.get_default_dtype()
+        )
         test_dataset = Dataset(structure=test_structures, energy=test_targets["energy"])
         check_units(actual_options=test_options, desired_options=train_options)
 
@@ -234,10 +240,14 @@ def _train_model_hydra(options: DictConfig) -> None:
         validation_structures = read_structures(
             filename=validation_options["structures"]["read_from"],
             fileformat=validation_options["structures"]["file_format"],
+            dtype=torch.get_default_dtype(),
         )
-        validation_targets = read_targets(validation_options["targets"])
+        validation_targets = read_targets(
+            conf=validation_options["targets"], dtype=torch.get_default_dtype()
+        )
         validation_dataset = Dataset(
-            structure=validation_structures, energy=validation_targets["energy"]
+            structure=validation_structures,
+            energy=validation_targets["energy"],
         )
         check_units(actual_options=validation_options, desired_options=train_options)
 
