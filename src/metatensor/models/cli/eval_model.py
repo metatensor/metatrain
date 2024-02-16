@@ -145,15 +145,17 @@ def eval_model(
     """
     logging.basicConfig(level=logging.INFO, format="%(message)s")
     logger.info("Setting up evaluation set.")
+    dtype = next(model.parameters()).dtype
 
     options = expand_dataset_config(options)
     eval_structures = read_structures(
         filename=options["structures"]["read_from"],
         fileformat=options["structures"]["file_format"],
+        dtype=dtype,
     )
     # Predict targets
     if hasattr(options, "targets"):
-        eval_targets = read_targets(options["targets"])
+        eval_targets = read_targets(conf=options["targets"], dtype=dtype)
         eval_dataset = Dataset(structure=eval_structures, energy=eval_targets["energy"])
         _eval_targets(model, eval_dataset)
 

@@ -6,18 +6,19 @@ This tutorial demonstrates how to use an already trained and exported model to r
 ASE simulation of a single ethanol molecule in vacuum. We use a model that was trained
 using the :ref:`architecture-soap-bpnn` architecture on 100 ethanol structures
 containing energies and forces. You can obtain the :download:`dataset file
-<../../../static/ethanol/ethanol_reduced_100.xyz>` used in this example from our
-website. The dataset is a subset of the `rMD17 dataset
+<ethanol_reduced_100.xyz>` used in this example from our website. The dataset is a
+subset of the `rMD17 dataset
 <https://iopscience.iop.org/article/10.1088/2632-2153/abba6f/meta>`_.
 
 The model was trained using the following training options.
 
-.. literalinclude:: ../../../static/ethanol/options.yaml
+.. literalinclude:: options.yaml
    :language: yaml
 
-You can train and export the model yourself using the following commands
+You can use the pretrained and exported :download:`model <exported-model.pt>`
+or train and export the model yourself using the following commands
 
-.. literalinclude:: ../../../../examples/ase/train_export.sh
+.. literalinclude:: train_export.sh
    :language: bash
 
 A detailed step-by-step introduction on how to train and export a model is provided in
@@ -147,16 +148,13 @@ plt.show()
 
 # %%
 #
-# Inspect the final structure
-# ###########################
+# Inspect the structures
+# ######################
 #
 # Even though the total energy is conserved, we also have to verify that the ethanol
 # molecule is stable and the bonds did not break.
 
-ase.visualize.plot.plot_atoms(trajectory[-1])
-plt.xlabel("Å")
-plt.ylabel("Å")
-
+animation = ase.visualize.plot.animate(trajectory, interval=100, save_count=None)
 plt.show()
 
 # %%
