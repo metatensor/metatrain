@@ -2,6 +2,7 @@ import warnings
 
 import torch
 from metatensor.torch.atomistic import MetatensorAtomisticModel
+from typing import Any
 
 
 def export(model: torch.nn.Module, output: str) -> None:
@@ -22,3 +23,12 @@ def export(model: torch.nn.Module, output: str) -> None:
 
     wrapper = MetatensorAtomisticModel(model.eval(), model.capabilities)
     wrapper.export(output)
+
+
+def is_exported(model: Any):
+    """Check if a model has been exported.
+
+    :param model: The model to check
+    :return: True if the model has been exported, False otherwise
+    """
+    return isinstance(model, torch.jit._script.RecursiveScriptModule)

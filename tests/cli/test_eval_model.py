@@ -2,6 +2,7 @@ import logging
 import shutil
 import subprocess
 from pathlib import Path
+import torch
 
 import ase.io
 import pytest
@@ -18,7 +19,7 @@ OPTIONS_PATH = RESOURCES_PATH / "eval.yaml"
 
 @pytest.fixture
 def model():
-    return load_model(MODEL_PATH)
+    return torch.jit.load(MODEL_PATH)
 
 
 @pytest.fixture

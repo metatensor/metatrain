@@ -1,6 +1,7 @@
 import importlib
 from pathlib import Path
 from typing import Union
+import warnings
 
 import torch
 
@@ -38,6 +39,16 @@ def load_model(path: Union[str, Path]) -> torch.nn.Module:
     -------
     :return: The loaded model.
     """
+
+    if isinstance(path, str):
+        path = Path(path)
+
+    if path.suffix == ".pt":
+        warnings.warn(
+            "Trying to load a checkpoint from a .pt file. Unless you renamed "
+            "it, this is probably an exported model which will fail to train.",
+            stacklevel=1,
+        )
 
     # Load the model and the metadata
     model_dict = torch.load(path)

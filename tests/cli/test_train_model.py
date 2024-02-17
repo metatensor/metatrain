@@ -16,7 +16,7 @@ from metatensor.models.cli.train_model import check_architecture_name, train_mod
 RESOURCES_PATH = Path(__file__).parent.resolve() / ".." / "resources"
 DATASET_PATH = RESOURCES_PATH / "qm9_reduced_100.xyz"
 OPTIONS_PATH = RESOURCES_PATH / "options.yaml"
-MODEL_PATH = RESOURCES_PATH / "bpnn-model.pt"
+MODEL_PATH = RESOURCES_PATH / "bpnn-model.ckpt"
 
 
 @pytest.fixture
@@ -148,8 +148,8 @@ def test_model_consistency_with_seed(
     train_model(options, output="model1.pt")
     train_model(options, output="model2.pt")
 
-    m1 = torch.load("model1.pt")
-    m2 = torch.load("model2.pt")
+    m1 = torch.load("model1.ckpt")
+    m2 = torch.load("model2.ckpt")
 
     for index, i in enumerate(m1["model_state_dict"]):
         tensor1 = m1["model_state_dict"][i]
