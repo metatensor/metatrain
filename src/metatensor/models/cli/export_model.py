@@ -1,7 +1,5 @@
 import argparse
 
-from metatensor.torch.atomistic import MetatensorAtomisticModel
-
 from ..utils.export import export
 from ..utils.model_io import load_model
 from .formatter import CustomHelpFormatter

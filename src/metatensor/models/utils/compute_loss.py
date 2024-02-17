@@ -1,14 +1,18 @@
+import warnings
 from typing import Dict, List, Union
 
 import torch
-import warnings
 from metatensor.torch import Labels, TensorBlock, TensorMap
-from metatensor.torch.atomistic import System, ModelEvaluationOptions, register_autograd_neighbors
+from metatensor.torch.atomistic import (
+    ModelEvaluationOptions,
+    System,
+    register_autograd_neighbors,
+)
 
-from .loss import TensorMapDictLoss
-from .output_gradient import compute_gradient
 from .export import is_exported
+from .loss import TensorMapDictLoss
 from .neighbor_list import calculate_neighbor_lists
+from .output_gradient import compute_gradient
 
 
 # Ignore metatensor-torch warning due to the fact that positions/cell
@@ -41,11 +45,14 @@ def compute_model_loss(
     # Assert that all targets are within the model's capabilities:
     if not set(targets.keys()).issubset(_get_capabilities(model).outputs.keys()):
         raise ValueError("Not all targets are within the model's capabilities.")
-    
+
     # calculate neighbor lists (only for an exported model)
     if is_exported(model):
         requested_neighbor_lists = model.requested_neighbors_lists()
-        systems = [calculate_neighbor_lists(system, requested_neighbor_lists) for system in systems]
+        systems = [
+            calculate_neighbor_lists(system, requested_neighbor_lists)
+            for system in systems
+        ]
 
     # Infer model device, move systems and targets to the same device:
     device = next(model.parameters()).device
@@ -109,11 +116,7 @@ def compute_model_loss(
                 system.positions.requires_grad_(True)
 
     # Based on the keys of the targets, get the outputs of the model:
-    model_outputs = _get_model_outputs(model, systems, targets.keys())
-    
-    # model(
-    #     systems, {key: _get_capabilities(model).outputs[key] for key in targets.keys()}
-    # )
+    model_outputs = _get_model_outputs(model, systems, list(targets.keys()))
 
     for energy_target in energy_targets:
         # If the energy target requires gradients, compute them:
@@ -249,12 +252,15 @@ def _strain_gradients_to_block(gradients_list):
     )
 
 
-def _get_capabilities(model: Union[torch.nn.Module, torch.jit._script.RecursiveScriptModule]):
+def _get_capabilities(
+    model: Union[torch.nn.Module, torch.jit._script.RecursiveScriptModule]
+):
     if is_exported(model):
         return model.capabilities()
     else:
         return model.capabilities
-    
+
+
 def _get_model_outputs(
     model: Union[torch.nn.Module, torch.jit._script.RecursiveScriptModule],
     systems: List[System],
@@ -263,10 +269,12 @@ def _get_model_outputs(
     if is_exported(model):
         # put together an EvaluationOptions object
         options = ModelEvaluationOptions(
-            length_unit = "",  # this is only needed for unit conversions in MD engines
-            outputs = {key: _get_capabilities(model).outputs[key] for key in targets}
+            length_unit="",  # this is only needed for unit conversions in MD engines
+            outputs={key: _get_capabilities(model).outputs[key] for key in targets},
         )
         # we check consistency here because this could be called from eval
         return model(systems, options, check_consistency=True)
     else:
-        return model(systems, {key: _get_capabilities(model).outputs[key] for key in targets})
+        return model(
+            systems, {key: _get_capabilities(model).outputs[key] for key in targets}
+        )

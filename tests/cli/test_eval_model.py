@@ -2,14 +2,13 @@ import logging
 import shutil
 import subprocess
 from pathlib import Path
-import torch
 
 import ase.io
 import pytest
+import torch
 from omegaconf import OmegaConf
 
 from metatensor.models.cli import eval_model
-from metatensor.models.utils.model_io import load_model
 
 
 RESOURCES_PATH = Path(__file__).parent.resolve() / ".." / "resources"

@@ -1,7 +1,7 @@
 import importlib
+import warnings
 from pathlib import Path
 from typing import Union
-import warnings
 
 import torch
 

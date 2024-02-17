@@ -6,15 +6,15 @@ import torch
 from metatensor.learn.data.dataset import Dataset, _BaseDataset
 from metatensor.torch.atomistic import ModelEvaluationOptions
 from omegaconf import DictConfig, OmegaConf
-from ..utils.export import is_exported
 
 from ..utils.compute_loss import compute_model_loss
 from ..utils.data import collate_fn, read_structures, read_targets, write_predictions
+from ..utils.export import is_exported
 from ..utils.extract_targets import get_outputs_dict
 from ..utils.info import finalize_aggregated_info, update_aggregated_info
 from ..utils.loss import TensorMapDictLoss
-from ..utils.omegaconf import expand_dataset_config
 from ..utils.neighbor_list import calculate_neighbor_lists
+from ..utils.omegaconf import expand_dataset_config
 from .formatter import CustomHelpFormatter
 
 
@@ -170,7 +170,10 @@ def eval_model(
     # TODO: add forces/stresses/virials if requested
     if not hasattr(options, "targets"):
         # otherwise, the NLs will have been computed for the RMSE calculations above
-        eval_structures = [calculate_neighbor_lists(structure, model.requested_neighbors_lists()) for structure in eval_structures]
+        eval_structures = [
+            calculate_neighbor_lists(structure, model.requested_neighbors_lists())
+            for structure in eval_structures
+        ]
     eval_options = ModelEvaluationOptions(
         length_unit="",  # this is only needed for unit conversions in MD engines
         outputs=model.capabilities().outputs,

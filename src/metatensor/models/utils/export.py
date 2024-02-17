@@ -1,8 +1,8 @@
 import warnings
+from typing import Any
 
 import torch
 from metatensor.torch.atomistic import MetatensorAtomisticModel
-from typing import Any
 
 
 def export(model: torch.nn.Module, output: str) -> None:

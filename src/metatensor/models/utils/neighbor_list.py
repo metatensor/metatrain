@@ -1,16 +1,24 @@
-import torch
-import numpy as np
-import ase
-from metatensor.torch import Labels, TensorBlock
-from metatensor.torch.atomistic import System, NeighborsListOptions, register_autograd_neighbors
 from typing import List
 
+import ase
+import numpy as np
+import torch
+from metatensor.torch import Labels, TensorBlock
+from metatensor.torch.atomistic import (
+    NeighborsListOptions,
+    System,
+    register_autograd_neighbors,
+)
 
-def calculate_neighbor_lists(system: System, neighbor_lists: List[NeighborsListOptions]) -> System:
+
+def calculate_neighbor_lists(
+    system: System, neighbor_lists: List[NeighborsListOptions]
+) -> System:
     """Calculate neighbor lists for a `System` object.
-    
+
     :param system: The system for which to calculate neighbor lists.
-    :param neighbor_lists: A list of `NeighborsListOptions` objects, each of which specifies the parameters for a neighbor list.
+    :param neighbor_lists: A list of `NeighborsListOptions` objects,
+        each of which specifies the parameters for a neighbor list.
 
     :return: The `System` object with the neighbor lists added.
     """
@@ -18,7 +26,9 @@ def calculate_neighbor_lists(system: System, neighbor_lists: List[NeighborsListO
     positions = system.positions.detach().cpu().numpy()
     numbers = system.species.detach().cpu().numpy()
     cell = system.cell.detach().cpu().numpy()
-    pbc = [True, True, True] if np.any(cell != 0) else [False, False, False]  # not 100% sure about this
+    pbc = (
+        [True, True, True] if np.any(cell != 0) else [False, False, False]
+    )  # not 100% sure about this
     atoms = ase.Atoms(
         numbers=numbers,
         positions=positions,
@@ -35,7 +45,9 @@ def calculate_neighbor_lists(system: System, neighbor_lists: List[NeighborsListO
     return system
 
 
-def _compute_single_neighbor_list(atoms: ase.Atoms, options: NeighborsListOptions) -> TensorBlock:
+def _compute_single_neighbor_list(
+    atoms: ase.Atoms, options: NeighborsListOptions
+) -> TensorBlock:
     # Computes a single neighbor list for an ASE atoms object
 
     nl = ase.neighborlist.NeighborList(
@@ -68,14 +80,14 @@ def _compute_single_neighbor_list(atoms: ase.Atoms, options: NeighborsListOption
             distances.append(distance.to(dtype=torch.float64))
 
     if len(distances) == 0:
-        distances = torch.zeros((0, 3), dtype=positions.dtype)
+        stacked_distances = torch.zeros((0, 3), dtype=positions.dtype)
         samples = torch.zeros((0, 5), dtype=torch.int32)
     else:
         samples = torch.tensor(samples, dtype=torch.int32)
-        distances = torch.vstack(distances)
+        stacked_distances = torch.vstack(distances)
 
     return TensorBlock(
-        values=distances.reshape(-1, 3, 1),
+        values=stacked_distances.reshape(-1, 3, 1),
         samples=Labels(
             names=[
                 "first_atom",
