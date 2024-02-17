@@ -5,6 +5,7 @@ from typing import Dict, Tuple, Union
 import torch
 from metatensor.learn.data.dataset import Dataset, _BaseDataset
 from omegaconf import DictConfig, OmegaConf
+from metatensor.torch.atomistic import MetatensorAtomisticModel
 
 from ..utils.compute_loss import compute_model_loss
 from ..utils.data import collate_fn, read_structures, read_targets, write_predictions
@@ -35,7 +36,7 @@ def _add_eval_model_parser(subparser: argparse._SubParsersAction) -> None:
     parser.set_defaults(callable="eval_model")
     parser.add_argument(
         "model",
-        type=load_model,
+        type=torch.jit.load,
         help="Saved model to be evaluated.",
     )
     parser.add_argument(
@@ -55,12 +56,15 @@ def _add_eval_model_parser(subparser: argparse._SubParsersAction) -> None:
 
 
 def _eval_targets(model, dataset: Union[_BaseDataset, torch.utils.data.Subset]) -> None:
-    """Evaluate a model on a dataset and print the RMSEs for each target."""
+    """Evaluate an exported model on a dataset and print the RMSEs for each target."""
+
+    if not isinstance(model, torch.jit._script.RecursiveScriptModule):
+        raise ValueError("The model must be exported to be used in `_eval_targets`.")
 
     # Extract all the possible outputs and their gradients from the dataset:
     outputs_dict = get_outputs_dict([dataset])
     for output_name in outputs_dict.keys():
-        if output_name not in model.capabilities.outputs:
+        if output_name not in model.capabilities().outputs:
             raise ValueError(
                 f"Output {output_name} is not in the model's capabilities."
             )
@@ -127,7 +131,7 @@ def _eval_targets(model, dataset: Union[_BaseDataset, torch.utils.data.Subset]) 
 def eval_model(
     model: torch.nn.Module, options: DictConfig, output: str = "output.xyz"
 ) -> None:
-    """Evaluate a pretrained model on a given data set.
+    """Evaluate an exported model on a given data set.
 
     If ``options`` contains a ``targets`` sub-section, RMSE values will be reported. If
     this sub-section is missing, only a xyz-file with containing the properties the
@@ -137,6 +141,13 @@ def eval_model(
     :param options: DictConfig to define a test dataset taken for the evaluation.
     :param output: Path to save the predicted values
     """
+    if not isinstance(model, torch.jit._script.RecursiveScriptModule):
+        raise ValueError(
+            "The model must already be exported to be used in `eval`. "
+            "If you are trying to evaluate a checkpoint, export it first "
+            "with the `metatensor-models export` command."
+        )
+
     logging.basicConfig(level=logging.INFO, format="%(message)s")
     logger.info("Setting up evaluation set.")
     dtype = next(model.parameters()).dtype

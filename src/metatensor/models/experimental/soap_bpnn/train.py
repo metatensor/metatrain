@@ -228,7 +228,7 @@ def train(
         if epoch % hypers_training["checkpoint_interval"] == 0:
             save_model(
                 model,
-                Path(output_dir) / f"model_{epoch}.pt",
+                Path(output_dir) / f"model_{epoch}.ckpt",
             )
 
         # early stopping criterion:

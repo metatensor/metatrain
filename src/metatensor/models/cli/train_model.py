@@ -21,6 +21,7 @@ from omegaconf.errors import ConfigKeyError
 from .. import CONFIG_PATH
 from ..utils.data import get_all_species, read_structures, read_targets
 from ..utils.data.dataset import _train_test_random_split
+from ..utils.export import export
 from ..utils.model_io import save_model
 from ..utils.omegaconf import check_units, expand_dataset_config
 from .eval_model import _eval_targets
@@ -172,6 +173,9 @@ def train_model(
         if continue_from is None:
             continue_from = "null"
 
+        if not output.endswith(".pt"):
+            output = f"{output}.pt"
+
         argv = sys.argv[:1]
         argv.append(f"--config-dir={options_new.parent}")
         argv.append(f"--config-name={options_new.name}")
@@ -302,8 +306,8 @@ def _train_model_hydra(options: DictConfig) -> None:
     OmegaConf.save(config=options, f=Path(output_dir) / "options.yaml")
 
     logger.info("Setting up model")
-    architetcure_name = options["architecture"]["name"]
-    architecture = importlib.import_module(f"metatensor.models.{architetcure_name}")
+    architecture_name = options["architecture"]["name"]
+    architecture = importlib.import_module(f"metatensor.models.{architecture_name}")
 
     all_species = []
     for dataset in [train_dataset]:  # HACK: only a single train_dataset for now
@@ -336,13 +340,16 @@ def _train_model_hydra(options: DictConfig) -> None:
         device_str=options["device"],
     )
 
-    save_model(model, options["output_path"])
+    save_model(model, f'{options["output_path"][:-3]}.ckpt')
+    export(model, options["output_path"])
 
-    logger.info("Evaulate train dataset")
-    _eval_targets(model, train_dataset)
+    exported_model = torch.jit.load(options["output_path"])
 
-    logger.info("Evaulate validation dataset")
-    _eval_targets(model, validation_dataset)
+    logger.info("Evaulating train dataset")
+    _eval_targets(exported_model, train_dataset)
 
-    logger.info("Evaulate test dataset")
-    _eval_targets(model, test_dataset)
+    logger.info("Evaulating validation dataset")
+    _eval_targets(exported_model, validation_dataset)
+
+    logger.info("Evaulating test dataset")
+    _eval_targets(exported_model, test_dataset)
