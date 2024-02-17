@@ -14,7 +14,8 @@ from .output_gradient import compute_gradient
 warnings.filterwarnings(
     "ignore",
     category=UserWarning,
-)  # I can't make the message match anything...
+    message="neighbors",
+)  # TODO: this is not filtering out the warning for some reason
 
 
 def compute_model_loss(
