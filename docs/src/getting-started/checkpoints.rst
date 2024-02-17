@@ -27,13 +27,13 @@ Checkpoints can also be turned into exported models using the ``export`` sub-com
 
 .. code-block:: bash
 
-    metatensor-models export model.ckpt
+    metatensor-models export model.ckpt -o model.pt
 
-You can explore the usage of the ``export`` sub-command by running
+or
 
 .. code-block:: bash
 
-    metatensor-models export --help
+    metatensor-models export model.ckpt --output model.pt
 
 Keep in mind that a checkpoint is only a temporary file, which may become unusable if
 the corresponding architecture is updated. For long-term usage you should export your

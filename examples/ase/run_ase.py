@@ -16,12 +16,12 @@ The model was trained using the following training options.
    :language: yaml
 
 You can use the pretrained and exported :download:`model <exported-model.pt>`
-or train and export the model yourself using the following commands
+or train the model yourself with
 
 .. literalinclude:: train_export.sh
    :language: bash
 
-A detailed step-by-step introduction on how to train and export a model is provided in
+A detailed step-by-step introduction on how to train a model is provided in
 the :ref:`label_basic_usage` tutorial.
 """
 
