@@ -172,6 +172,3 @@ examples/basic_usage/*.xyz
 # sphinx gallery
 docs/src/examples
 *execution_times*
-
-# TODO: remove
-pet_test/

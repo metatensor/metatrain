@@ -23,7 +23,7 @@ class PET(eqx.Module):
 
     # debug: eqx.nn.Linear
 
-    def __init__(self, all_species, d_pet, composition_weights, key):
+    def __init__(self, all_species, hypers, composition_weights, key):
         n_species = len(all_species)
         print("hello 2")
 
@@ -41,12 +41,18 @@ class PET(eqx.Module):
         print("Species indices:", self.species_to_species_index)
         print("Number of species:", n_species)
 
-        key1, key2, key3 = jax.random.split(key, 3)
-        self.encoder = Encoder(n_species, d_pet, key1)
+        key_enc, key_attn, key_readout = jax.random.split(key, 3)
+        self.encoder = Encoder(n_species, hypers["d_pet"], key_enc)
         self.transformer = Transformer(
-            d_pet, 4 * d_pet, 2, 1, 0.0, 0.0, key2
-        )  # TODO: re-add dropout
-        self.readout = eqx.nn.Linear(d_pet, 1, use_bias=False, key=key3)
+            hypers["d_pet"],
+            4 * hypers["d_pet"],
+            hypers["num_heads"],
+            hypers["num_attention_layers"],
+            hypers["mlp_dropout_rate"],
+            hypers["attention_dropout_rate"],
+            key_attn,
+        )
+        self.readout = eqx.nn.Linear(hypers["d_pet"], 1, use_bias=False, key=key_readout)
 
         self.composition_weights = composition_weights
 
@@ -165,9 +171,9 @@ class PET_energy_force(eqx.Module):
 
     pet: PET
 
-    def __init__(self, all_species, d_pet, composition_weights, key):
+    def __init__(self, all_species, hypers, composition_weights, key):
         print("hello 1")
-        self.pet = PET(all_species, d_pet, composition_weights, key)
+        self.pet = PET(all_species, hypers, composition_weights, key)
 
     def __call__(self, structures, max_edges_per_node, is_training, key=None):
         energies = self.pet(structures, max_edges_per_node, is_training, key)[

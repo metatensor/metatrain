@@ -2,6 +2,10 @@
 model:
   cutoff: 5.0
   d_pet: 128
+  num_heads: 2
+  num_attention_layers: 3
+  mlp_dropout_rate: 0.0
+  attention_dropout_rate: 0.0
 
 training:
   batch_size: 16

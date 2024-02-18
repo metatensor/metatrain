@@ -177,11 +177,11 @@ def train(
     if do_forces:
         print("hello")
         model = PET_energy_force(
-            all_species, hypers["model"]["d_pet"], composition_weights_jax, key=key
+            all_species, hypers["model"], composition_weights_jax, key=key
         )
     else:
         model = PET(
-            all_species, hypers["model"]["d_pet"], composition_weights_jax, key=key
+            all_species, hypers["model"], composition_weights_jax, key=key
         )
 
     training_hypers = hypers["training"]
