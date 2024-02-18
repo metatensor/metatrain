@@ -28,15 +28,11 @@ def save_model(
     )
 
 
-def load_model(path: Union[str, Path]) -> torch.nn.Module:
-    """Loads a model from a file.
+def load_checkpoint(path: Union[str, Path]) -> torch.nn.Module:
+    """Loads a checkpoint from a file.
 
-    Parameters
-    ----------
-    :param path: The path to the file containing the model.
+    :param path: The path to the file containing the checkpoint.
 
-    Returns
-    -------
     :return: The loaded model.
     """
 
@@ -45,8 +41,9 @@ def load_model(path: Union[str, Path]) -> torch.nn.Module:
 
     if path.suffix == ".pt":
         warnings.warn(
-            "Trying to load a checkpoint from a .pt file. Unless you renamed "
-            "it, this is probably an exported model which will fail to train.",
+            "Trying to load a checkpoint from a .pt file. This is probably "
+            "an exported model which will fail to train or export. Please "
+            "use a .ckpt (checkpoint) file instead.",
             stacklevel=1,
         )
 
@@ -67,3 +64,27 @@ def load_model(path: Union[str, Path]) -> torch.nn.Module:
     model.load_state_dict(model_dict["model_state_dict"])
 
     return model
+
+
+def load_exported_model(
+    path: Union[str, Path]
+) -> torch.jit._script.RecursiveScriptModule:
+    """Loads an exported model from a file.
+
+    :param path: The path to the file containing the exported model.
+
+    :return: The loaded model.
+    """
+
+    if isinstance(path, str):
+        path = Path(path)
+
+    if path.suffix == ".ckpt":
+        warnings.warn(
+            "Trying to load an exported model from a .ckpt file. This is "
+            "probably a checkpoint which will fail to load. Please export "
+            "the checkpoint with the `metatensor-models export` command.",
+            stacklevel=1,
+        )
+
+    return torch.jit.load(path)

@@ -13,6 +13,7 @@ from ..utils.export import is_exported
 from ..utils.extract_targets import get_outputs_dict
 from ..utils.info import finalize_aggregated_info, update_aggregated_info
 from ..utils.loss import TensorMapDictLoss
+from ..utils.model_io import load_exported_model
 from ..utils.neighbor_list import attach_neighbor_lists
 from ..utils.omegaconf import expand_dataset_config
 from .formatter import CustomHelpFormatter
@@ -37,7 +38,7 @@ def _add_eval_model_parser(subparser: argparse._SubParsersAction) -> None:
     parser.set_defaults(callable="eval_model")
     parser.add_argument(
         "model",
-        type=torch.jit.load,
+        type=load_exported_model,
         help="Saved model to be evaluated.",
     )
     parser.add_argument(

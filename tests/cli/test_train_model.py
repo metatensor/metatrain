@@ -1,6 +1,7 @@
 import glob
 import shutil
 import subprocess
+import warnings
 from pathlib import Path
 
 import ase.io
@@ -106,6 +107,22 @@ def test_continue_different_dataset(options, monkeypatch, tmp_path):
     options["training_set"]["targets"]["energy"]["key"] = "energy"
 
     train_model(options, continue_from=MODEL_PATH)
+
+
+def test_continue_from_exported(options, monkeypatch, tmp_path):
+    """Test that continuing training from an exported model raises an error."""
+    monkeypatch.chdir(tmp_path)
+    shutil.copy(DATASET_PATH, "qm9_reduced_100.xyz")
+
+    # check that this warns and then errors out
+    with pytest.raises(SystemExit):
+        with warnings.catch_warnings(record=True) as w:
+            warnings.simplefilter("always")  # turn all warnings into catchable events
+            train_model(options, continue_from=RESOURCES_PATH / "bpnn-model.pt")
+            assert any(
+                "Please use a .ckpt (checkpoint) file instead" in str(warning.message)
+                for warning in w
+            )
 
 
 def test_hydra_arguments():
