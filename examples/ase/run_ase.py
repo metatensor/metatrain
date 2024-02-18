@@ -18,7 +18,7 @@ The model was trained using the following training options.
 You can use the pretrained and exported :download:`model <exported-model.pt>`
 or train the model yourself with
 
-.. literalinclude:: train_export.sh
+.. literalinclude:: train.sh
    :language: bash
 
 A detailed step-by-step introduction on how to train a model is provided in
