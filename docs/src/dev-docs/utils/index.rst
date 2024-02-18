@@ -12,3 +12,4 @@ This is the API for the ``utils`` module of ``metatensor-models``.
    model-io
    omegaconf
    combine_dataloaders
+   neighbor_lists
