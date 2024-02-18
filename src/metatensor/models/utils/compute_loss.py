@@ -11,7 +11,7 @@ from metatensor.torch.atomistic import (
 
 from .export import is_exported
 from .loss import TensorMapDictLoss
-from .neighbor_list import calculate_neighbor_lists
+from .neighbor_list import attach_neighbor_lists
 from .output_gradient import compute_gradient
 
 
@@ -50,7 +50,7 @@ def compute_model_loss(
     if is_exported(model):
         requested_neighbor_lists = model.requested_neighbors_lists()
         systems = [
-            calculate_neighbor_lists(system, requested_neighbor_lists)
+            attach_neighbor_lists(system, requested_neighbor_lists)
             for system in systems
         ]
 

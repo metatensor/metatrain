@@ -1,7 +1,6 @@
 from typing import List
 
 import ase
-import numpy as np
 import torch
 from metatensor.torch import Labels, TensorBlock
 from metatensor.torch.atomistic import (
@@ -11,10 +10,10 @@ from metatensor.torch.atomistic import (
 )
 
 
-def calculate_neighbor_lists(
+def attach_neighbor_lists(
     system: System, neighbor_lists: List[NeighborsListOptions]
 ) -> System:
-    """Calculate neighbor lists for a `System` object.
+    """Attaches neighbor lists to a `System` object.
 
     :param system: The system for which to calculate neighbor lists.
     :param neighbor_lists: A list of `NeighborsListOptions` objects,
@@ -26,9 +25,7 @@ def calculate_neighbor_lists(
     positions = system.positions.detach().cpu().numpy()
     numbers = system.species.detach().cpu().numpy()
     cell = system.cell.detach().cpu().numpy()
-    pbc = (
-        [True, True, True] if np.any(cell != 0) else [False, False, False]
-    )  # not 100% sure about this
+    pbc = list(cell.any(axis=1))
     atoms = ase.Atoms(
         numbers=numbers,
         positions=positions,
