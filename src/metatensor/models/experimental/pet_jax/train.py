@@ -189,9 +189,9 @@ def train(
     force_weight = 1.0
     num_epochs = training_hypers["num_epochs"]
     batch_size = training_hypers["batch_size"]
-    n_warmup_steps = training_hypers["n_warmup_steps"]
+    num_warmup_steps = training_hypers["num_warmup_steps"]
 
-    schedule = optax.linear_schedule(0.0, learning_rate, n_warmup_steps)
+    schedule = optax.linear_schedule(0.0, learning_rate, num_warmup_steps)
     optimizer = optax.chain(
         optax.clip_by_global_norm(10.0),
         optax.adamw(learning_rate=schedule),
@@ -288,7 +288,7 @@ def train(
             )
             train_loss += loss
 
-        if epoch % 5 == 0:
+        if epoch % training_hypers["log_interval"] == 0:
             train_metrics = evaluate_model(model, training_set, do_forces)
             valid_metrics = evaluate_model(model, valid_set, do_forces)
             if do_forces:

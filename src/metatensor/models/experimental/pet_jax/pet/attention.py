@@ -8,7 +8,8 @@ from .radial_attention import RadialAttention
 class AttentionBlock(eqx.Module):
     """A single transformer attention block."""
 
-    attention: RadialAttention
+    # attention: RadialAttention
+    attention: eqx.nn.MultiheadAttention
     layernorm: eqx.nn.Embedding
     dropout: eqx.nn.Dropout
     num_heads: int = eqx.static_field
@@ -22,16 +23,23 @@ class AttentionBlock(eqx.Module):
         key: jax.random.PRNGKey,
     ):
         self.num_heads = num_heads
-        self.attention = RadialAttention(
+        # self.attention = RadialAttention(
+        #     num_heads=num_heads,
+        #     query_size=hidden_size,
+        #     use_query_bias=True,
+        #     use_key_bias=True,
+        #     use_value_bias=True,
+        #     use_output_bias=True,
+        #     dropout_p=attention_dropout_rate,
+        #     key=key,
+        # )
+        self.attention = eqx.nn.MultiheadAttention(
             num_heads=num_heads,
             query_size=hidden_size,
-            use_query_bias=True,
-            use_key_bias=True,
-            use_value_bias=True,
-            use_output_bias=True,
             dropout_p=attention_dropout_rate,
             key=key,
         )
+
         self.layernorm = eqx.nn.LayerNorm(shape=hidden_size)
         self.dropout = eqx.nn.Dropout(dropout_rate)
 
@@ -47,15 +55,18 @@ class AttentionBlock(eqx.Module):
             (None, None) if key is None else jax.random.split(key)
         )
 
+        # Apply radial mask
+        inputs = inputs * radial_mask[:, None]
+
         # Pre-layer normalization
         normed_inputs = jax.vmap(self.layernorm)(inputs)
 
         # Attention
         attention_output = self.attention(
-            query=inputs,
-            key_=inputs,
-            value=inputs,
-            radial_mask=radial_mask,
+            query=normed_inputs,
+            key_=normed_inputs,
+            value=normed_inputs,
+            # radial_mask=radial_mask,
             inference=not enable_dropout,
             key=attention_key,
         )

@@ -44,7 +44,7 @@ class PET(eqx.Module):
         key1, key2, key3 = jax.random.split(key, 3)
         self.encoder = Encoder(n_species, d_pet, key1)
         self.transformer = Transformer(
-            d_pet, 4 * d_pet, 32, 1, 0.0, 0.0, key2
+            d_pet, 4 * d_pet, 2, 1, 0.0, 0.0, key2
         )  # TODO: re-add dropout
         self.readout = eqx.nn.Linear(d_pet, 1, use_bias=False, key=key3)
 
