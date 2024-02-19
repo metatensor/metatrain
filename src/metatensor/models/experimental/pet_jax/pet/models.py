@@ -52,7 +52,9 @@ class PET(eqx.Module):
             hypers["attention_dropout_rate"],
             key_attn,
         )
-        self.readout = eqx.nn.Linear(hypers["d_pet"], 1, use_bias=False, key=key_readout)
+        self.readout = eqx.nn.Linear(
+            hypers["d_pet"], 1, use_bias=False, key=key_readout
+        )
 
         self.composition_weights = composition_weights
 

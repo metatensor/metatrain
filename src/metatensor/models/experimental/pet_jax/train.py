@@ -180,9 +180,7 @@ def train(
             all_species, hypers["model"], composition_weights_jax, key=key
         )
     else:
-        model = PET(
-            all_species, hypers["model"], composition_weights_jax, key=key
-        )
+        model = PET(all_species, hypers["model"], composition_weights_jax, key=key)
 
     training_hypers = hypers["training"]
     learning_rate = training_hypers["learning_rate"]
