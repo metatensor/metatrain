@@ -1,6 +1,8 @@
 # architecture used to train the model
 architecture:
-  name: alchemical_model
+  name: experimental.alchemical_model
+  training:
+    num_epochs: 10
 
 # Mandatory section defining the parameters for structure and target data of the
 # training set
