@@ -234,7 +234,9 @@ class Model(torch.nn.Module):
             output_name: i for i, output_name in enumerate(capabilities.outputs.keys())
         }
 
-        self.soap_calculator = rascaline.torch.SoapPowerSpectrum(**hypers["soap"])
+        self.soap_calculator = rascaline.torch.SoapPowerSpectrum(
+            radial_basis={"Gto": {}}, **hypers["soap"]
+        )
         soap_size = (
             len(self.all_species) ** 2
             * hypers["soap"]["max_radial"] ** 2

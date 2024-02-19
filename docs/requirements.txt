@@ -1,6 +1,7 @@
 ase
 furo
 sphinx >= 7
+sphinxcontrib-bibtex
 sphinx-gallery
 sphinx-toggleprompt
 tomli
