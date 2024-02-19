@@ -1,14 +1,19 @@
 from typing import List, Union
 
 import torch
-from metatensor.learn.data.dataset import _BaseDataset
+from metatensor.learn.data.dataset import Dataset
 from metatensor.torch import TensorBlock, TensorMap
 
 
 def get_average_number_of_atoms(
-    datasets: List[Union[_BaseDataset, torch.utils.data.Subset]]
+    datasets: List[Union[Dataset, torch.utils.data.Subset]]
 ):
-    """Calculate the average number of atoms in a dataset."""
+    """Calculates the average number of atoms in a dataset.
+
+    :param datasets: A list of datasets.
+
+    :return: A `torch.Tensor` object with the average number of atoms.
+    """
     average_number_of_atoms = []
     for dataset in datasets:
         num_atoms = []
@@ -22,9 +27,14 @@ def get_average_number_of_atoms(
 
 
 def get_average_number_of_neighbors(
-    datasets: List[Union[_BaseDataset, torch.utils.data.Subset]]
-):
-    """Calculate the average number of neighbors in a dataset."""
+    datasets: List[Union[Dataset, torch.utils.data.Subset]]
+) -> torch.Tensor:
+    """Calculate the average number of neighbors in a dataset.
+
+    :param datasets: A list of datasets.
+
+    :return: A `torch.Tensor` object with the average number of neighbors.
+    """
     average_number_of_neighbors = []
     for dataset in datasets:
         num_neighbors = []
@@ -54,20 +64,13 @@ def get_average_number_of_neighbors(
 def apply_normalization(
     atomic_property: TensorMap, normalization: torch.Tensor
 ) -> TensorMap:
-    """Apply the normalization to an atomic property by dividing the
+    """Applies the normalization to an atomic property by dividing the
     atomic property by a normalization factor.
 
-    Parameters
-    ----------
-    atomic_property: TensorMap
-        Atomic property to apply the normalization to.
-    normalization: torch.Tensor
-        Normalization to apply.
+    :param atomic_property: A `TensorMap` with atomic property to be normalized.
+    :param normalization: A `torch.Tensor` object with the normalization factor.
 
-    Returns
-    -------
-    TensorMap
-        Atomic property with the normalization applied.
+    :return: A `TensorMap` object with the normalized atomic property.
     """
 
     new_blocks: List[TensorBlock] = []
