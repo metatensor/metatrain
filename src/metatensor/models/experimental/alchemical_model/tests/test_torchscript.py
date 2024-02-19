@@ -1,7 +1,10 @@
 import torch  # noqa: E402
 from metatensor.torch.atomistic import ModelCapabilities, ModelOutput  # noqa: E402
 
-from metatensor.models.alchemical_model import DEFAULT_HYPERS, Model  # noqa: E402
+from metatensor.models.experimental.alchemical_model import (  # noqa: E402
+    DEFAULT_HYPERS,
+    Model,
+)
 
 
 def test_torchscript():

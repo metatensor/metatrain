@@ -14,7 +14,7 @@ from ..utils.extract_targets import get_outputs_dict
 from ..utils.info import finalize_aggregated_info, update_aggregated_info
 from ..utils.loss import TensorMapDictLoss
 from ..utils.model_io import load_exported_model
-from ..utils.neighbor_list import attach_neighbor_lists
+from ..utils.neighbors_lists import get_system_with_neighbors_lists
 from ..utils.omegaconf import expand_dataset_config
 from .formatter import CustomHelpFormatter
 
@@ -74,7 +74,7 @@ def _eval_targets(model, dataset: Union[_BaseDataset, torch.utils.data.Subset]) 
         dataset, batch_size=1, collate_fn=collate_fn
     )
     for (structure,), _ in dataloader:
-        attach_neighbor_lists(structure, requested_neighbor_lists)
+        get_system_with_neighbors_lists(structure, requested_neighbor_lists)
 
     # Extract all the possible outputs and their gradients from the dataset:
     outputs_dict = get_outputs_dict([dataset])
@@ -183,7 +183,9 @@ def eval_model(
     if not hasattr(options, "targets"):
         # otherwise, the NLs will have been computed for the RMSE calculations above
         eval_structures = [
-            attach_neighbor_lists(structure, model.requested_neighbors_lists())
+            get_system_with_neighbors_lists(
+                structure, model.requested_neighbors_lists()
+            )
             for structure in eval_structures
         ]
     eval_options = ModelEvaluationOptions(

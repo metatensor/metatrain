@@ -10,7 +10,7 @@ from metatensor.torch.atomistic import (
 )
 
 
-def attach_neighbor_lists(
+def get_system_with_neighbors_lists(
     system: System, neighbor_lists: List[NeighborsListOptions]
 ) -> System:
     """Attaches neighbor lists to a `System` object.
@@ -35,9 +35,10 @@ def attach_neighbor_lists(
 
     # Compute the neighbor lists
     for options in neighbor_lists:
-        neighbor_list = _compute_single_neighbor_list(atoms, options)
-        register_autograd_neighbors(system, neighbor_list)
-        system.add_neighbors_list(options, neighbor_list)
+        if options not in system.known_neighbors_lists():
+            neighbor_list = _compute_single_neighbor_list(atoms, options)
+            register_autograd_neighbors(system, neighbor_list)
+            system.add_neighbors_list(options, neighbor_list)
 
     return system
 

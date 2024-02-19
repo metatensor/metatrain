@@ -7,26 +7,26 @@ from metatensor.learn.data import DataLoader
 from metatensor.learn.data.dataset import _BaseDataset
 from metatensor.torch.atomistic import ModelCapabilities
 
-from ..utils.composition import calculate_composition_weights
-from ..utils.compute_loss import compute_model_loss
-from ..utils.data import (
+from ...utils.composition import calculate_composition_weights
+from ...utils.compute_loss import compute_model_loss
+from ...utils.data import (
     check_datasets,
     collate_fn,
     combine_dataloaders,
     get_all_targets,
 )
-from ..utils.extract_targets import get_outputs_dict
-from ..utils.info import finalize_aggregated_info, update_aggregated_info
-from ..utils.logging import MetricLogger
-from ..utils.loss import TensorMapDictLoss
-from ..utils.merge_capabilities import merge_capabilities
-from ..utils.model_io import load_model, save_model
-from ..utils.normalize import (
+from ...utils.extract_targets import get_outputs_dict
+from ...utils.info import finalize_aggregated_info, update_aggregated_info
+from ...utils.logging import MetricLogger
+from ...utils.loss import TensorMapDictLoss
+from ...utils.merge_capabilities import merge_capabilities
+from ...utils.model_io import load_checkpoint, save_model
+from ...utils.neighbors_lists import get_system_with_neighbors_lists
+from ...utils.normalize import (
     get_average_number_of_atoms,
     get_average_number_of_neighbors,
 )
 from .model import DEFAULT_HYPERS, Model
-from .utils.neighbors_lists import check_and_update_neighbors_lists
 
 
 logger = logging.getLogger(__name__)
@@ -48,7 +48,7 @@ def train(
         )
         new_capabilities = requested_capabilities
     else:
-        model = load_model(continue_from)
+        model = load_checkpoint(continue_from)
         filtered_new_dict = {k: v for k, v in hypers["model"].items() if k != "restart"}
         filtered_old_dict = {k: v for k, v in model.hypers.items() if k != "restart"}
         if filtered_new_dict != filtered_old_dict:
@@ -75,12 +75,15 @@ def train(
         model_capabilities,
     )
 
-    # Calculating the neighbolists
-    logger.info("Checking and updating the neighbolists")
-    requested_neighbors_lists = model.requested_neighbors_lists()
-    check_and_update_neighbors_lists(
-        train_datasets + validation_datasets, requested_neighbors_lists
-    )
+    # Calculating the neighbors lists for the training and validation datasets:
+    logger.info("Calculating neighbors lists for the datasets")
+    requested_neighbor_lists = model.requested_neighbors_lists()
+    for dataset in train_datasets + validation_datasets:
+        for i in range(len(dataset)):
+            structure = dataset[i].structure
+            # The following line attached the neighbors lists to the structure,
+            # and doesn't require to reassign the structure to the dataset:
+            _ = get_system_with_neighbors_lists(structure, requested_neighbor_lists)
 
     # Calculate the average number of atoms and neighbors in the training datasets:
     average_number_of_atoms = get_average_number_of_atoms(train_datasets)
@@ -103,10 +106,6 @@ def train(
     if device.type == "cuda":
         if not torch.cuda.is_available():
             raise ValueError("CUDA is not available on this machine.")
-        logger.info(
-            "A cuda device was requested. The neural network will be run on GPU, "
-            "but the SOAP features are calculated on CPU."
-        )
     model.to(device)
 
     # Calculate and set the composition weights for all targets:

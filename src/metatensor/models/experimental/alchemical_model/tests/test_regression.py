@@ -13,12 +13,10 @@ from metatensor.torch.atomistic import (
 )
 from omegaconf import OmegaConf
 
-from metatensor.models.alchemical_model import DEFAULT_HYPERS, Model, train
+from metatensor.models.experimental.alchemical_model import DEFAULT_HYPERS, Model, train
 from metatensor.models.utils.data import get_all_species
 from metatensor.models.utils.data.readers import read_structures, read_targets
-from metatensor.models.alchemical_model.utils.neighbors_lists import (
-    get_rascaline_neighbors_list,
-)
+from metatensor.models.utils.neighbors_lists import get_system_with_neighbors_lists
 
 from . import DATASET_PATH
 
@@ -46,11 +44,12 @@ def test_regression_init():
     # Predict on the first fivestructures
     structures = ase.io.read(DATASET_PATH, ":5")
     systems = [rascaline.torch.systems_to_torch(structure) for structure in structures]
-    requested_neighbors_lists = alchemical_model.requested_neighbors_lists()
-    for nl_options in requested_neighbors_lists:
-        nls = get_rascaline_neighbors_list(systems, nl_options)
-        for system, nl in zip(systems, nls):
-            system.add_neighbors_list(nl_options, nl)
+    systems = [
+        get_system_with_neighbors_lists(
+            system, alchemical_model.requested_neighbors_lists()
+        )
+        for system in systems
+    ]
 
     evaluation_options = ModelEvaluationOptions(
         length_unit=capabilities.length_unit,
