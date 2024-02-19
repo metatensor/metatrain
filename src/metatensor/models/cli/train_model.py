@@ -6,6 +6,7 @@ import os
 import random
 import sys
 import tempfile
+import warnings
 from importlib.util import find_spec
 from pathlib import Path
 from typing import List, Optional
@@ -175,6 +176,12 @@ def train_model(
             continue_from = "null"
 
         if not output.endswith(".pt"):
+            warnings.warn(
+                "The output file should have a '.pt' extension. The user requested "
+                f"the model to be saved as '{output}', but it will be saved as "
+                f"'{output}.pt'.",
+                stacklevel=1,
+            )
             output = f"{output}.pt"
 
         argv = sys.argv[:1]
