@@ -20,11 +20,10 @@ from omegaconf import DictConfig, OmegaConf
 from omegaconf.errors import ConfigKeyError
 
 from .. import CONFIG_PATH
-from ..utils.data import collate_fn, get_all_species, read_structures, read_targets
+from ..utils.data import get_all_species, read_structures, read_targets
 from ..utils.data.dataset import _train_test_random_split
 from ..utils.export import export
 from ..utils.model_io import save_model
-from ..utils.neighbor_list import attach_neighbor_lists
 from ..utils.omegaconf import check_units, expand_dataset_config
 from .eval_model import _eval_targets
 from .formatter import CustomHelpFormatter
@@ -351,34 +350,7 @@ def _train_model_hydra(options: DictConfig) -> None:
     save_model(model, f'{options["output_path"][:-3]}.ckpt')
     export(model, options["output_path"])
 
-    logger.info("Setting up evaluation")
     exported_model = torch.jit.load(options["output_path"])
-    requested_neighbors_lists = exported_model.requested_neighbors_lists()
-
-    # working around https://github.com/lab-cosmo/metatensor/issues/521
-    # Desired:
-    # for structure, _ in train_dataset:
-    #     attach_neighbor_lists(structure, requested_neighbors_lists)
-    # for structure, _ in validation_dataset:
-    #     attach_neighbor_lists(structure, requested_neighbors_lists)
-    # for structure, _ in test_dataset:
-    #     attach_neighbor_lists(structure, requested_neighbors_lists)
-    # Current:
-    train_dataloader = torch.utils.data.DataLoader(
-        train_dataset, batch_size=1, collate_fn=collate_fn
-    )
-    for (structure,), _ in train_dataloader:
-        attach_neighbor_lists(structure, requested_neighbors_lists)
-    validation_dataloader = torch.utils.data.DataLoader(
-        validation_dataset, batch_size=1, collate_fn=collate_fn
-    )
-    for (structure,), _ in validation_dataloader:
-        attach_neighbor_lists(structure, requested_neighbors_lists)
-    test_dataloader = torch.utils.data.DataLoader(
-        test_dataset, batch_size=1, collate_fn=collate_fn
-    )
-    for (structure,), _ in test_dataloader:
-        attach_neighbor_lists(structure, requested_neighbors_lists)
 
     logger.info("Evaulating train dataset")
     _eval_targets(exported_model, train_dataset)

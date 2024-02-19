@@ -11,6 +11,7 @@ from metatensor.torch.atomistic import (
 
 from .export import is_exported
 from .loss import TensorMapDictLoss
+from .neighbor_list import attach_neighbor_lists
 from .output_gradient import compute_gradient
 
 
@@ -44,6 +45,14 @@ def compute_model_loss(
     # Assert that all targets are within the model's capabilities:
     if not set(targets.keys()).issubset(_get_capabilities(model).outputs.keys()):
         raise ValueError("Not all targets are within the model's capabilities.")
+
+    # calculate neighbor lists (only for an exported model)
+    if is_exported(model):
+        requested_neighbor_lists = model.requested_neighbors_lists()
+        systems = [
+            attach_neighbor_lists(system, requested_neighbor_lists)
+            for system in systems
+        ]
 
     # Infer model device, move systems and targets to the same device:
     device = next(model.parameters()).device

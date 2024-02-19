@@ -160,11 +160,6 @@ def eval_model(
         fileformat=options["structures"]["file_format"],
         dtype=dtype,
     )
-
-    # Calculate neighbor lists
-    for structure in eval_structures:
-        attach_neighbor_lists(structure, model.requested_neighbors_lists())
-
     # Predict targets
     if hasattr(options, "targets"):
         eval_targets = read_targets(conf=options["targets"], dtype=dtype)
@@ -174,6 +169,12 @@ def eval_model(
     # Predict structures
     # TODO: batch this
     # TODO: add forces/stresses/virials if requested
+    if not hasattr(options, "targets"):
+        # otherwise, the NLs will have been computed for the RMSE calculations above
+        eval_structures = [
+            attach_neighbor_lists(structure, model.requested_neighbors_lists())
+            for structure in eval_structures
+        ]
     eval_options = ModelEvaluationOptions(
         length_unit="",  # this is only needed for unit conversions in MD engines
         outputs=model.capabilities().outputs,
