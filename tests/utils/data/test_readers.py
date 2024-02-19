@@ -21,7 +21,7 @@ from metatensor.models.utils.data.readers import (
 )
 
 
-@pytest.mark.parametrize("fileformat", (None, ".xyz"))
+@pytest.mark.parametrize("fileformat", (None, ".xyz", ".extxyz"))
 def test_read_structures(fileformat, monkeypatch, tmp_path):
     monkeypatch.chdir(tmp_path)
 
@@ -49,7 +49,7 @@ def test_read_structures_unknown_fileformat():
         read_structures("foo.bar")
 
 
-@pytest.mark.parametrize("fileformat", (None, ".xyz"))
+@pytest.mark.parametrize("fileformat", (None, ".xyz", ".extxyz"))
 def test_read_energies(fileformat, monkeypatch, tmp_path):
     monkeypatch.chdir(tmp_path)
 
@@ -70,7 +70,7 @@ def test_read_energies(fileformat, monkeypatch, tmp_path):
         assert result.properties == Labels.single()
 
 
-@pytest.mark.parametrize("fileformat", (None, ".xyz"))
+@pytest.mark.parametrize("fileformat", (None, ".xyz", ".extxyz"))
 def test_read_forces(fileformat, monkeypatch, tmp_path):
     monkeypatch.chdir(tmp_path)
 
@@ -94,7 +94,7 @@ def test_read_forces(fileformat, monkeypatch, tmp_path):
 
 
 @pytest.mark.parametrize("reader", [read_stress, read_virial])
-@pytest.mark.parametrize("fileformat", (None, ".xyz"))
+@pytest.mark.parametrize("fileformat", (None, ".xyz", ".extxyz"))
 def test_read_stress_virial(reader, fileformat, monkeypatch, tmp_path):
     monkeypatch.chdir(tmp_path)
 
