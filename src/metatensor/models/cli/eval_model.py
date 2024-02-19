@@ -63,6 +63,19 @@ def _eval_targets(model, dataset: Union[_BaseDataset, torch.utils.data.Subset]) 
     if not is_exported(model):
         raise ValueError("The model must be exported to be used in `_eval_targets`.")
 
+    # Attach neighbor lists to the structures:
+    requested_neighbor_lists = model.requested_neighbors_lists()
+    # working around https://github.com/lab-cosmo/metatensor/issues/521
+    # Desired:
+    # for structure, _ in dataset:
+    #     attach_neighbor_lists(structure, requested_neighbors_lists)
+    # Current:
+    dataloader = torch.utils.data.DataLoader(
+        dataset, batch_size=1, collate_fn=collate_fn
+    )
+    for (structure,), _ in dataloader:
+        attach_neighbor_lists(structure, requested_neighbor_lists)
+
     # Extract all the possible outputs and their gradients from the dataset:
     outputs_dict = get_outputs_dict([dataset])
     for output_name in outputs_dict.keys():
