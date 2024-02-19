@@ -1,5 +1,6 @@
 import argparse
 import logging
+from pathlib import Path
 from typing import Dict, Tuple, Union
 
 import torch
@@ -20,6 +21,7 @@ from .formatter import CustomHelpFormatter
 
 
 logger = logging.getLogger(__name__)
+logging.basicConfig(level=logging.INFO, format="%(message)s")
 
 
 def _add_eval_model_parser(subparser: argparse._SubParsersAction) -> None:
@@ -145,7 +147,7 @@ def _eval_targets(model, dataset: Union[_BaseDataset, torch.utils.data.Subset]) 
 
 
 def eval_model(
-    model: torch.nn.Module, options: DictConfig, output: str = "output.xyz"
+    model: torch.nn.Module, options: DictConfig, output: Union[Path, str] = "output.xyz"
 ) -> None:
     """Evaluate an exported model on a given data set.
 
@@ -163,43 +165,60 @@ def eval_model(
             "If you are trying to evaluate a checkpoint, export it first "
             "with the `metatensor-models export` command."
         )
-
-    logging.basicConfig(level=logging.INFO, format="%(message)s")
     logger.info("Setting up evaluation set.")
 
-    options = expand_dataset_config(options)
-    eval_structures = read_structures(
-        filename=options["structures"]["read_from"],
-        fileformat=options["structures"]["file_format"],
-    )
+    if isinstance(output, str):
+        output = Path(output)
 
-    # Predict targets
-    if hasattr(options, "targets"):
-        eval_targets = read_targets(options["targets"])
-        eval_dataset = Dataset(structure=eval_structures, energy=eval_targets["energy"])
-        _eval_targets(model, eval_dataset)
-    else:
-        # TODO: batch this
-        # TODO: add forces/stresses/virials if requested
-        # Attach neighbors list to structures. This step is only required if no targets
-        # are present. Otherwise, the neighbors list have been already attached in
-        # `_eval_targets`.
-        eval_structures = [
-            get_system_with_neighbors_lists(
-                structure, model.requested_neighbors_lists()
-            )
-            for structure in eval_structures
-        ]
+    options_list = expand_dataset_config(options)
+    for i, options in enumerate(options_list):
+        if len(options_list) == 1:
+            extra_log_message = ""
+            file_index_suffix = ""
+        else:
+            extra_log_message = f" with index {i}"
+            file_index_suffix = f"_{i}"
+        logger.info(f"Evaulate dataset{extra_log_message}")
 
-    # Predict structures
-    try:
-        # `length_unit` is only required for unit conversions in MD engines and
-        # superflous here.
-        eval_options = ModelEvaluationOptions(
-            length_unit="", outputs=model.capabilities().outputs
+        eval_structures = read_structures(
+            filename=options["structures"]["read_from"],
+            fileformat=options["structures"]["file_format"],
         )
-        predictions = model(eval_structures, eval_options, check_consistency=True)
-    except Exception as e:
-        raise ArchitectureError(e)
 
-    write_predictions(output, predictions, eval_structures)
+        # Predict targets
+        if hasattr(options, "targets"):
+            eval_targets = read_targets(options["targets"])
+            eval_dataset = Dataset(
+                structure=eval_structures, energy=eval_targets["energy"]
+            )
+            _eval_targets(model, eval_dataset)
+        else:
+            # TODO: batch this
+            # TODO: add forces/stresses/virials if requested
+            # Attach neighbors list to structures. This step is only required if no
+            # targets are present. Otherwise, the neighbors list have been already
+            # attached in `_eval_targets`.
+            eval_structures = [
+                get_system_with_neighbors_lists(
+                    structure, model.requested_neighbors_lists()
+                )
+                for structure in eval_structures
+            ]
+
+        # Predict structures
+        try:
+            # `length_unit` is only required for unit conversions in MD engines and
+            # superflous here.
+            eval_options = ModelEvaluationOptions(
+                length_unit="", outputs=model.capabilities().outputs
+            )
+            predictions = model(eval_structures, eval_options, check_consistency=True)
+        except Exception as e:
+            raise ArchitectureError(e)
+
+        # TODO: adjust filename accordinglt
+        write_predictions(
+            filename=f"{output.stem}{file_index_suffix}{output.suffix}",
+            predictions=predictions,
+            structures=eval_structures,
+        )

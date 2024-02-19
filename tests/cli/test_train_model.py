@@ -59,12 +59,20 @@ def test_train(monkeypatch, tmp_path, output):
     assert "validation" in log
     assert "train" in log
     assert "energy" in log
+    assert "with index" not in log  # index only printed for more than 1 dataset
 
 
+@pytest.mark.parametrize("n_datasets", [1, 2])
 @pytest.mark.parametrize("test_set_file", (True, False))
 @pytest.mark.parametrize("validation_set_file", (True, False))
 def test_train_explicit_validation_test(
-    monkeypatch, tmp_path, test_set_file, validation_set_file, options
+    monkeypatch,
+    tmp_path,
+    capsys,
+    n_datasets,
+    test_set_file,
+    validation_set_file,
+    options,
 ):
     """Test that training via the training cli runs without an error raise
     also when the validation and test sets are provided explicitly."""
@@ -74,19 +82,150 @@ def test_train_explicit_validation_test(
 
     ase.io.write("qm9_reduced_100.xyz", structures[:50])
 
-    if test_set_file:
-        ase.io.write("test.xyz", structures[50:80])
-        options["validation_set"] = options["training_set"].copy()
-        options["validation_set"]["structures"]["read_from"] = "test.xyz"
+    options["training_set"] = OmegaConf.create(n_datasets * [options["training_set"]])
 
     if validation_set_file:
+        ase.io.write("test.xyz", structures[50:80])
+        options["validation_set"] = options["training_set"][0].copy()
+        options["validation_set"]["structures"]["read_from"] = "test.xyz"
+        options["validation_set"] = OmegaConf.create(
+            n_datasets * [options["validation_set"]]
+        )
+
+    if test_set_file:
         ase.io.write("validation.xyz", structures[80:])
-        options["test_set"] = options["training_set"].copy()
+        options["test_set"] = options["training_set"][0].copy()
         options["test_set"]["structures"]["read_from"] = "validation.xyz"
+        options["test_set"] = OmegaConf.create(n_datasets * [options["test_set"]])
 
     train_model(options)
 
+    # Test log messages which are written by hydra to STDOUT
+    log = capsys.readouterr().out
+    for set_type in ["training", "test", "validation"]:
+        for i in range(n_datasets):
+            if n_datasets == 1:
+                extra_log_message = ""
+            else:
+                extra_log_message = f" with index {i}"
+
+            assert f"Evaulate {set_type} dataset{extra_log_message}" in log
+
     assert Path("model.pt").is_file()
+
+
+@pytest.mark.parametrize(
+    "test_set_file, validation_set_file", [(True, False), (False, True)]
+)
+def test_unit_check_is_performed(
+    monkeypatch,
+    tmp_path,
+    capsys,
+    test_set_file,
+    validation_set_file,
+    options,
+):
+    """Test that error is raised if units are inconsistent between the datasets."""
+    monkeypatch.chdir(tmp_path)
+
+    structures = ase.io.read(DATASET_PATH, ":")
+
+    ase.io.write("qm9_reduced_100.xyz", structures[:50])
+
+    if validation_set_file:
+        ase.io.write("test.xyz", structures[50:80])
+        options["validation_set"] = options["training_set"].copy()
+        options["validation_set"]["structures"]["read_from"] = "test.xyz"
+        options["validation_set"]["structures"]["length_unit"] = "foo"
+
+    if test_set_file:
+        ase.io.write("validation.xyz", structures[80:])
+        options["test_set"] = options["training_set"].copy()
+        options["test_set"]["structures"]["read_from"] = "validation.xyz"
+        options["test_set"]["structures"]["length_unit"] = "foo"
+
+    with pytest.raises(SystemExit):
+        train_model(options)
+
+    captured = capsys.readouterr()
+    assert "`length_unit`s are inconsistent" in captured.err
+
+
+@pytest.mark.parametrize(
+    "test_set_file, validation_set_file", [(True, False), (False, True)]
+)
+def test_inconsistent_number_of_datasets(
+    monkeypatch, tmp_path, capsys, test_set_file, validation_set_file, options
+):
+    """Test that error is raised in inconsistent number datasets are provided.
+
+    i.e one train dataset but two validation datasets. Same for the test dataset."""
+    monkeypatch.chdir(tmp_path)
+
+    structures = ase.io.read(DATASET_PATH, ":")
+
+    ase.io.write("qm9_reduced_100.xyz", structures[:50])
+
+    if validation_set_file:
+        ase.io.write("test.xyz", structures[50:80])
+        options["validation_set"] = options["training_set"].copy()
+        options["validation_set"]["structures"]["read_from"] = "test.xyz"
+        options["validation_set"] = OmegaConf.create(2 * [options["validation_set"]])
+
+    if test_set_file:
+        ase.io.write("validation.xyz", structures[80:])
+        options["test_set"] = options["training_set"].copy()
+        options["test_set"]["structures"]["read_from"] = "validation.xyz"
+        options["test_set"] = OmegaConf.create(2 * [options["validation_set"]])
+
+    with pytest.raises(SystemExit):
+        train_model(options)
+
+    captured = capsys.readouterr()
+    assert "different size than the train datatset with length" in captured.err
+
+
+@pytest.mark.parametrize(
+    "taining_set_file, test_set_file, validation_set_file",
+    [(True, False, False), (False, True, False), (False, False, True)],
+)
+def test_inconsistencies_within_list_datasets(
+    monkeypatch,
+    tmp_path,
+    capsys,
+    taining_set_file,
+    test_set_file,
+    validation_set_file,
+    options,
+):
+    """Test error raise if inconsistency within one datasets config present."""
+    monkeypatch.chdir(tmp_path)
+    shutil.copy(DATASET_PATH, "qm9_reduced_100.xyz")
+
+    ref_dataset_conf = OmegaConf.create(2 * [options["training_set"]])
+    broken_dataset_conf = ref_dataset_conf.copy()
+    broken_dataset_conf[0]["structures"]["length_unit"] = "foo"
+    broken_dataset_conf[1]["structures"]["length_unit"] = "bar"
+
+    options["training_set"] = ref_dataset_conf
+    options["validation_set"] = ref_dataset_conf
+    options["test_set"] = ref_dataset_conf
+
+    if taining_set_file:
+        options["training_set"] = broken_dataset_conf
+    if test_set_file:
+        options["test_set"] = broken_dataset_conf
+    if validation_set_file:
+        options["validation_set"] = broken_dataset_conf
+
+    with pytest.raises(SystemExit):
+        train_model(options)
+
+    captured = capsys.readouterr()
+    print(options)
+    print(captured.err)
+    print("fooooo")
+    assert "`length_unit`s are inconsistent between one of the dataset" in captured.err
 
 
 def test_continue(options, monkeypatch, tmp_path):
@@ -119,10 +258,11 @@ def test_continue_from_exported(options, monkeypatch, tmp_path):
         with warnings.catch_warnings(record=True) as w:
             warnings.simplefilter("always")  # turn all warnings into catchable events
             train_model(options, continue_from=RESOURCES_PATH / "bpnn-model.pt")
-            assert any(
-                "Please use a .ckpt (checkpoint) file instead" in str(warning.message)
-                for warning in w
-            )
+
+    assert any(
+        "Please use a .ckpt (checkpoint) file instead" in str(warning.message)
+        for warning in w
+    )
 
 
 def test_hydra_arguments():
