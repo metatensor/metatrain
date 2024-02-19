@@ -3,11 +3,12 @@
 Alchemical Model
 ================
 
-This is an implementation of Alchemical Model: a Behler-Parrinello neural network 
-:footcite:p:`behler_generalized_2007` with Smooth overlab of atomic positions (SOAP) 
-features :footcite:p:`bartok_representing_2013` and Alchemical Compression of the composition 
-space :footcite:p:`willatt_feature_2018, lopanitsyna_modeling_2023, mazitov_surface_2024`. 
-This model is extremely useful for simulating systems with large amount of chemical elements.
+This is an implementation of Alchemical Model: a Behler-Parrinello neural network
+:footcite:p:`behler_generalized_2007` with Smooth overlab of atomic positions (SOAP)
+features :footcite:p:`bartok_representing_2013` and Alchemical Compression of the
+composition space :footcite:p:`willatt_feature_2018, lopanitsyna_modeling_2023,
+mazitov_surface_2024`. This model is extremely useful for simulating systems with
+large amount of chemical elements.
 
 
 Installation
