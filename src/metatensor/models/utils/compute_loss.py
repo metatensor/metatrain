@@ -1,12 +1,21 @@
-import logging
+import warnings
 from typing import Dict, List
 
 import torch
 from metatensor.torch import Labels, TensorBlock, TensorMap
-from metatensor.torch.atomistic import System
+from metatensor.torch.atomistic import System, register_autograd_neighbors
 
 from .loss import TensorMapDictLoss
 from .output_gradient import compute_gradient
+
+
+# Ignore metatensor-torch warning due to the fact that positions/cell
+# already require grad when registering the NL
+warnings.filterwarnings(
+    "ignore",
+    category=UserWarning,
+    message="neighbors",
+)  # TODO: this is not filtering out the warning for some reason
 
 
 def compute_model_loss(
@@ -62,17 +71,28 @@ def compute_model_loss(
             for system in systems
         ]
         # Create new "displaced" systems:
-        logging.warning(
-            "Systems are recreated, which may cause loosing the neighborlists."
-        )
-        systems = [
-            System(
+        new_systems = []
+        for system, strain in zip(systems, strains):
+            new_system = System(
                 positions=system.positions @ strain,
                 cell=system.cell @ strain,
                 species=system.species,
             )
-            for system, strain in zip(systems, strains)
-        ]
+            for nl_options in system.known_neighbors_lists():
+                nl = system.get_neighbors_list(nl_options)
+                register_autograd_neighbors(
+                    new_system,
+                    TensorBlock(
+                        values=nl.values.detach(),
+                        samples=nl.samples,
+                        components=nl.components,
+                        properties=nl.properties,
+                    ),
+                    check_consistency=True,
+                )
+                new_system.add_neighbors_list(nl_options, nl)
+            new_systems.append(new_system)
+        systems = new_systems
     else:
         if len(energy_targets_that_require_position_gradients) > 0:
             # Set positions to require gradients:
