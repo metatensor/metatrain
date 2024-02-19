@@ -80,6 +80,11 @@ soap
             scale: 2.0
             exponent: 7.0
 
+.. note::
+
+  Currently, we only support a Gaussian type orbitals (GTO) as radial basis functions
+  and radial integrals.
+
 bpnn
 ^^^^
 :param layernorm: whether to use layer normalization
