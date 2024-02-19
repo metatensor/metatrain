@@ -44,11 +44,10 @@ def get_rascaline_neighbors_list(
     for system in systems:
         nl_tmap = nl_calculator.compute(system)
         tmp_nl = nl_tmap.keys_to_samples(nl_tmap.keys.names).block()
-        required_indices = [
-            i
-            for i in range(len(tmp_nl.samples.names))
-            if tmp_nl.samples.names[i] in REQUIRED_NL_SAMPLES
-        ]
+        required_indices = []
+        for i in range(len(tmp_nl.samples.names)):
+            if tmp_nl.samples.names[i] in REQUIRED_NL_SAMPLES:
+                required_indices.append(i)
         samples = Labels(
             names=REQUIRED_NL_SAMPLES, values=tmp_nl.samples.values[:, required_indices]
         )

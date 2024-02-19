@@ -21,12 +21,12 @@ from ..utils.logging import MetricLogger
 from ..utils.loss import TensorMapDictLoss
 from ..utils.merge_capabilities import merge_capabilities
 from ..utils.model_io import load_model, save_model
-from ..utils.neighbors_lists import check_and_update_neighbors_lists
 from ..utils.normalize import (
     get_average_number_of_atoms,
     get_average_number_of_neighbors,
 )
 from .model import DEFAULT_HYPERS, Model
+from .utils.neighbors_lists import check_and_update_neighbors_lists
 
 
 logger = logging.getLogger(__name__)

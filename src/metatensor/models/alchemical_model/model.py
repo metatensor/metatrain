@@ -9,6 +9,7 @@ from metatensor.torch.atomistic import (
     ModelOutput,
     NeighborsListOptions,
     System,
+    register_autograd_neighbors,
 )
 from omegaconf import OmegaConf
 from torch_alchemical.nn import AlchemicalEmbedding, LayerNorm, MultiChannelLinear, SiLU
@@ -20,6 +21,7 @@ from .. import ARCHITECTURE_CONFIG_PATH
 from ..utils.composition import apply_composition_contribution
 from ..utils.normalize import apply_normalization
 from .utils import systems_to_torch_spex_dict
+from .utils.neighbors_lists import get_rascaline_neighbors_list
 
 
 DEFAULT_HYPERS = OmegaConf.to_container(
@@ -233,6 +235,21 @@ class Model(torch.nn.Module):
                     f"Requested output {requested_output} is not within "
                     "the model's capabilities."
                 )
+
+        if not self.training:
+            requested_neighbors_lists = self.requested_neighbors_lists()
+            for system in systems:
+                known_neighbors_lists: List[NeighborsListOptions] = (
+                    system.known_neighbors_lists()
+                )
+                for nl_options in requested_neighbors_lists:
+                    is_in_known_nls = torch.any(
+                        [nl_options == nl for nl in known_neighbors_lists]
+                    )
+                    if not is_in_known_nls:
+                        nl = get_rascaline_neighbors_list(system, nl_options)
+                        register_autograd_neighbors(system, nl)
+                        system.add_neighbors_list(nl_options, nl)
 
         soap_features = self.soap_features_layer(systems)
         soap_features = self.layer_norm(soap_features)

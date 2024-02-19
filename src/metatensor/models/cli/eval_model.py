@@ -12,7 +12,6 @@ from ..utils.extract_targets import get_outputs_dict
 from ..utils.info import finalize_aggregated_info, update_aggregated_info
 from ..utils.loss import TensorMapDictLoss
 from ..utils.model_io import load_model
-from ..utils.neighbors_lists import check_and_update_neighbors_lists
 from ..utils.omegaconf import expand_dataset_config
 from .formatter import CustomHelpFormatter
 
@@ -73,11 +72,6 @@ def _eval_targets(model, dataset: Union[_BaseDataset, torch.utils.data.Subset]) 
             value_or_gradient: 0.0 for value_or_gradient in value_or_gradient_list
         }
     loss_fn = TensorMapDictLoss(loss_weights_dict)
-
-    # Check and update the neighborlists:
-    if hasattr(model, "requested_neighbors_lists"):
-        requested_neighbors_lists = model.requested_neighbors_lists()
-        check_and_update_neighbors_lists(dataset, requested_neighbors_lists)
 
     # Create a dataloader:
     dataloader = torch.utils.data.DataLoader(

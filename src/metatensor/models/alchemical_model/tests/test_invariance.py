@@ -11,7 +11,9 @@ from metatensor.torch.atomistic import (
 )
 
 from metatensor.models.alchemical_model import DEFAULT_HYPERS, Model
-from metatensor.models.utils.neighbors_lists import get_rascaline_neighbors_list
+from metatensor.models.alchemical_model.utils.neighbors_lists import (
+    get_rascaline_neighbors_list,
+)
 
 from . import DATASET_PATH
 
