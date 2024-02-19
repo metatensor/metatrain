@@ -23,7 +23,7 @@ from .utils import systems_to_torch_spex_dict
 
 
 DEFAULT_HYPERS = OmegaConf.to_container(
-    OmegaConf.load(ARCHITECTURE_CONFIG_PATH / "alchemical_model.yaml")
+    OmegaConf.load(ARCHITECTURE_CONFIG_PATH / "experimental.alchemical_model.yaml")
 )
 
 DEFAULT_MODEL_HYPERS = DEFAULT_HYPERS["model"]
