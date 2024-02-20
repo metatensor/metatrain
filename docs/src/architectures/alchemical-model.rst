@@ -55,8 +55,8 @@ soap
 :param basis_scale: Scaling parameter of the radial basis functions, representing the
     characteristic width (in Å) of the basis functions.
 :param trainable_basis: If ``True``, the raidal basis functions will be accompanied by
-    the multi-layer perceptron (MLP) and trained during the model optimization. If
-    ``False``, the radial basis functions will be fixed.
+    the trainable multi-layer perceptron (MLP). If ``False``, the radial basis functions 
+    will be fixed.
 
 bpnn
 ^^^^
