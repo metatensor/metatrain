@@ -237,8 +237,14 @@ class Model(torch.nn.Module):
         atomic_energies: Dict[str, TensorMap] = {}
         for output_name, output_layer in self.last_layers.items():
             if output_name in outputs:
+                normalization_factor = self.normalization_factor * torch.sqrt(
+                    torch.tensor(self.num_pseudo_species)
+                )
                 atomic_energies[output_name] = apply_composition_contribution(
-                    sum_over_components(output_layer(hidden_features)),
+                    apply_normalization(
+                        sum_over_components(output_layer(hidden_features)),
+                        normalization_factor,
+                    ),
                     self.composition_weights[self.output_to_index[output_name]],
                 )
 
@@ -247,12 +253,6 @@ class Model(torch.nn.Module):
             atomic_energy = atomic_energy.keys_to_samples("species_center")
             total_energies_item = metatensor.torch.sum_over_samples(
                 atomic_energy, ["center", "species_center"]
-            )
-            normalization_factor = self.normalization_factor * torch.sqrt(
-                torch.tensor(self.num_pseudo_species)
-            )
-            total_energies_item = apply_normalization(
-                total_energies_item, normalization_factor
             )
             total_energies[output_name] = total_energies_item
             # Change the energy label from _ to (0, 1):

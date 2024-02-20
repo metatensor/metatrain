@@ -64,8 +64,9 @@ def test_regression_init():
         evaluation_options,
         check_consistency=True,
     )
+
     expected_output = torch.tensor(
-        [[-0.6996], [-0.4681], [2.2749], [-0.5971], [1.6994]],
+        [[-3.2638e-05], [3.3788e-04], [2.7429e-04], [2.7850e-03], [4.7172e-04]],
         dtype=torch.float64,
     )
 
@@ -132,7 +133,7 @@ def test_regression_train():
     )
 
     expected_output = torch.tensor(
-        [[-38.2606], [-37.4233], [-34.4073], [-58.7029], [-64.3037]],
+        [[-40.4833], [-56.5604], [-76.4256], [-77.3501], [-93.4282]],
         dtype=torch.float64,
     )
 
