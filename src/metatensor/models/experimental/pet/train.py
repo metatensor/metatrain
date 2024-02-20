@@ -87,15 +87,15 @@ def train(
     ase_train_dataset = []
     for (system,), targets in train_dataloader:
         ase_atoms = system_to_ase(system)
-        ase_atoms.info['energy'] = targets[target_name].block().values.squeeze(-1)
+        ase_atoms.info['energy'] = targets[target_name].block().values.squeeze(-1).detach().cpu().numpy()
         if do_forces:
-            ase_atoms.arrays["forces"] = targets[target_name].block().gradient('positions').values.squeeze(-1)
+            ase_atoms.arrays["forces"] = targets[target_name].block().gradient('positions').values.squeeze(-1).detach().cpu().numpy()
         ase_train_dataset.append(ase_atoms)
 
     ase_validation_dataset = []
     for (system,), _ in validation_dataloader:
         ase_atoms = system_to_ase(system)
-        ase_atoms.info['energy'] = targets[target_name].block().values.squeeze(-1)
+        ase_atoms.info['energy'] = targets[target_name].block().values.squeeze(-1).detach().cpu().numpy()
         if do_forces:
-            ase_atoms.arrays["forces"] = targets[target_name].block().gradient('positions').values.squeeze(-1)
+            ase_atoms.arrays["forces"] = targets[target_name].block().gradient('positions').values.squeeze(-1).detach().cpu().numpy()
         ase_validation_dataset.append(ase_atoms)
