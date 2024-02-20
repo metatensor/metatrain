@@ -82,12 +82,6 @@ def train(
         model_capabilities,
     )
 
-    # Create the model:
-    model = Model(
-        capabilities=model_capabilities,
-        hypers=hypers["model"],
-    )
-
     logger.info(f"Training on device {device_str}")
     if device_str == "gpu":
         device_str = "cuda"
