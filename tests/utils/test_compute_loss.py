@@ -4,7 +4,7 @@ import torch
 from metatensor.torch import Labels, TensorBlock, TensorMap
 from metatensor.torch.atomistic import ModelCapabilities, ModelOutput
 
-from metatensor.models import soap_bpnn
+from metatensor.models.experimental import soap_bpnn
 from metatensor.models.utils.compute_loss import compute_model_loss
 from metatensor.models.utils.data import read_structures
 from metatensor.models.utils.loss import TensorMapDictLoss
@@ -58,7 +58,7 @@ def test_compute_model_loss():
 
     gradient_components = [
         Labels(
-            names=["direction"],
+            names=["xyz"],
             values=torch.tensor([[0], [1], [2]]),
         )
     ]

@@ -66,25 +66,25 @@ The sub-command to evaluate an already trained model is
 
     metatensor-models eval
 
-.. literalinclude:: ../../../examples/basic_usage/usage.sh
-    :language: bash
-    :lines: 9-25
+Besides the trained `model`, you will also have to provide a file containing the
+structure and possible target values for evaluation. The structure of this ``eval.yaml``
+is exactly the same as for a dataset in the ``options.yaml`` file.
 
+.. literalinclude:: ../../static/qm9/eval.yaml
+   :language: yaml
 
-Exporting
-#########
-
-Exporting a model is very useful if you want to use it in other frameworks,
-especially in molecular dynamics simulations.
-The sub-command to export a trained model is
-
-.. code-block:: bash
-
-    metatensor-models export
+Note that the ``targets`` section is optional. If the ``targets`` section is present,
+the function will calculate and report RMSE values of the predictions with respect to
+the real values as loaded from the ``targets`` section. You can run an evaluation by
+typing
 
 .. literalinclude:: ../../../examples/basic_usage/usage.sh
     :language: bash
-    :lines: 25-
+    :lines: 9-24
 
-In the next tutorials we show how adjust the dataset section of ``options.yaml`` file
-to use it for your own datasets.
+
+Molecular simulations
+#####################
+
+The trained model can also be used to run molecular simulations.
+You can find how in the :ref:`tutorials` section.

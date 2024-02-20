@@ -1,10 +1,10 @@
 from pathlib import Path
 
 import torch
+from metatensor.learn.data import Dataset
 from omegaconf import OmegaConf
 
 from metatensor.models.utils.data import (
-    Dataset,
     collate_fn,
     get_all_species,
     read_structures,
@@ -33,8 +33,7 @@ def test_dataset():
         }
     }
     targets = read_targets(OmegaConf.create(conf))
-
-    dataset = Dataset(structures, targets)
+    dataset = Dataset(structure=structures, energy=targets["energy"])
     dataloader = torch.utils.data.DataLoader(
         dataset, batch_size=10, collate_fn=collate_fn
     )
@@ -59,7 +58,5 @@ def test_species_list():
         }
     }
     targets = read_targets(OmegaConf.create(conf))
-
-    dataset = Dataset(structures, targets)
-
+    dataset = Dataset(structure=structures, energy=targets["energy"])
     assert get_all_species(dataset) == [1, 6, 7, 8]

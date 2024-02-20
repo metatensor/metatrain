@@ -3,7 +3,7 @@
 Advanced Base Configuration
 ===========================
 
-Here, we explain how some advanced base properties in the ``options.yaml`` can
+Here, we show how some advanced base properties in the ``options.yaml`` can
 be adjusted. They should be written without indentation in the ``options.yaml`` file.
 
 :param device: The device in which the training should be run. Takes two possible
@@ -16,3 +16,5 @@ be adjusted. They should be written without indentation in the ``options.yaml`` 
 :param base_precision: This may increase the accuracy but will increase the
     memory consumption during training. Possible values:
     ``64``, ``32`` or ``16``. Default: ``64``
+
+In the next tutorials we show how to override the default parameters of an architecture.

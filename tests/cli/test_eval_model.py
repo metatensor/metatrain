@@ -1,29 +1,79 @@
+import logging
 import shutil
 import subprocess
 from pathlib import Path
 
 import ase.io
 import pytest
+import torch
+from omegaconf import OmegaConf
+
+from metatensor.models.cli import eval_model
 
 
 RESOURCES_PATH = Path(__file__).parent.resolve() / ".." / "resources"
+MODEL_PATH = RESOURCES_PATH / "bpnn-model.pt"
+OPTIONS_PATH = RESOURCES_PATH / "eval.yaml"
 
 
-@pytest.mark.parametrize("output", [None, "foo.xyz"])
-def test_eval(output, monkeypatch, tmp_path):
-    """Test that training via the training cli runs without an error raise."""
+@pytest.fixture
+def model():
+    return torch.jit.load(MODEL_PATH)
+
+
+@pytest.fixture
+def options():
+    return OmegaConf.load(OPTIONS_PATH)
+
+
+def test_eval_cli(monkeypatch, tmp_path):
+    """Test succesful run of the eval script via the CLI with default arguments"""
     monkeypatch.chdir(tmp_path)
     shutil.copy(RESOURCES_PATH / "qm9_reduced_100.xyz", "qm9_reduced_100.xyz")
-    shutil.copy(RESOURCES_PATH / "bpnn-model.pt", "bpnn-model.pt")
 
-    command = ["metatensor-models", "eval", "bpnn-model.pt", "qm9_reduced_100.xyz"]
-
-    if output is not None:
-        command += ["-o", output]
-    else:
-        output = "output.xyz"
+    command = [
+        "metatensor-models",
+        "eval",
+        str(MODEL_PATH),
+        str(OPTIONS_PATH),
+    ]
 
     subprocess.check_call(command)
 
-    frames = ase.io.read(output, ":")
+    assert Path("output.xyz").is_file()
+
+
+def test_eval(monkeypatch, tmp_path, caplog, model, options):
+    """Test that eval via python API runs without an error raise."""
+    monkeypatch.chdir(tmp_path)
+    caplog.set_level(logging.INFO)
+
+    shutil.copy(RESOURCES_PATH / "qm9_reduced_100.xyz", "qm9_reduced_100.xyz")
+
+    eval_model(
+        model=model,
+        options=options,
+        output="foo.xyz",
+    )
+
+    # Test target predictions
+    assert "energy RMSE" in "".join([rec.message for rec in caplog.records])
+
+    # Test file is written predictions
+    frames = ase.io.read("foo.xyz", ":")
     frames[0].info["energy"]
+
+
+def test_eval_no_targets(monkeypatch, tmp_path, model, options):
+    monkeypatch.chdir(tmp_path)
+
+    shutil.copy(RESOURCES_PATH / "qm9_reduced_100.xyz", "qm9_reduced_100.xyz")
+
+    options.pop("targets")
+
+    eval_model(
+        model=model,
+        options=options,
+    )
+
+    assert Path("output.xyz").is_file()

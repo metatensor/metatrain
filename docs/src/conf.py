@@ -1,4 +1,5 @@
 import os
+import subprocess
 import sys
 from datetime import datetime
 
@@ -7,8 +8,22 @@ import tomli  # Replace by tomllib from std library once docs are build with Pyt
 import metatensor.models
 
 
+# When importing metatensor-torch, this will change the definition of the classes
+# to include the documentation
+os.environ["METATENSOR_IMPORT_FOR_SPHINX"] = "1"
+
 ROOT = os.path.abspath(os.path.join("..", ".."))
-sys.path.insert(0, ROOT)
+
+# We use a second (pseudo) sphinx project located in `docs/generate_examples` to run the
+# examples and generate the actual output for our shinx-gallery. This is necessary
+# because here we have to set `METATENSOR_IMPORT_FOR_SPHINX` to `"1"` allowing the
+# correct generation of the class and function docstrings which are seperate from the
+# actual code.
+#
+# We register and use the same sphinx gallery configuration as in the pseudo project.
+sys.path.append(os.path.join(ROOT, "docs"))
+from generate_examples.conf import sphinx_gallery_conf  # noqa
+
 
 # -- Project information -----------------------------------------------------
 
@@ -29,6 +44,22 @@ release = metatensor.models.__version__
 
 # -- General configuration ---------------------------------------------------
 
+
+def generate_examples():
+    # we can not run sphinx-gallery in the same process as the normal sphinx, since they
+    # need to import metatensor.torch differently (with and without
+    # METATENSOR_IMPORT_FOR_SPHINX=1). So instead we run it inside a small script, and
+    # include the corresponding output later.
+    del os.environ["METATENSOR_IMPORT_FOR_SPHINX"]
+    script = os.path.join(ROOT, "docs", "generate_examples", "generate-examples.py")
+    subprocess.run([sys.executable, script], capture_output=False)
+    os.environ["METATENSOR_IMPORT_FOR_SPHINX"] = "1"
+
+
+def setup(app):
+    generate_examples()
+
+
 # Add any Sphinx extension module names here, as strings. They can be
 # extensions coming with Sphinx (named 'sphinx.ext.*') or your custom
 # ones.
@@ -36,16 +67,22 @@ extensions = [
     "sphinx.ext.viewcode",
     "sphinx.ext.autodoc",
     "sphinx.ext.intersphinx",
+    "sphinxcontrib.bibtex",
     "sphinx_toggleprompt",
     "sphinx_gallery.gen_gallery",
 ]
 
-sphinx_gallery_conf = {
-    "filename_pattern": "/*",
-    "examples_dirs": ["../../examples"],
-    "gallery_dirs": ["examples"],
-    "min_reported_time": 5,
-}
+# List of patterns, relative to source directory, that match files and
+# directories to ignore when looking for source files.
+# This pattern also affects html_static_path and html_extra_path.
+exclude_patterns = [
+    "Thumbs.db",
+    ".DS_Store",
+    "examples/sg_execution_times.rst",
+    "examples/ase/index.rst",
+    "sg_execution_times.rst",
+]
+
 
 python_use_unqualified_type_names = True
 
@@ -62,6 +99,11 @@ intersphinx_mapping = {
     "omegaconf": ("https://omegaconf.readthedocs.io/en/latest/", None),
     "rascaline": ("https://luthaf.fr/rascaline/latest/", None),
 }
+
+# The path to the bibtex file
+bibtex_bibfiles = ["../static/refs.bib"]
+bibtex_default_style = "unsrt"
+bibtex_reference_style = "author_year"
 
 # -- Options for HTML output -------------------------------------------------
 
