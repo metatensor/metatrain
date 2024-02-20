@@ -55,8 +55,8 @@ soap
 :param basis_scale: Scaling parameter of the radial basis functions, representing the
     characteristic width (in Å) of the basis functions.
 :param trainable_basis: If ``True``, the raidal basis functions will be accompanied by
-    the trainable multi-layer perceptron (MLP). If ``False``, the radial basis functions 
-    will be fixed.
+    the trainable multi-layer perceptron (MLP). If ``False``, the radial basis
+    functions will be fixed.
 
 bpnn
 ^^^^
@@ -78,7 +78,7 @@ The parameters for the training loop are
 
 Default Hyperparameters
 -----------------------
-The default hyperparameters for the SOAP-BPNN model are:
+The default hyperparameters for the Alchemical Model model are:
 
 .. literalinclude:: ../../../src/metatensor/models/cli/conf/architecture/experimental.alchemical_model.yaml
    :language: yaml
