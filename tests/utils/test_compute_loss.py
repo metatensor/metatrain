@@ -89,8 +89,8 @@ def test_compute_model_loss():
     targets = {
         "energy": TensorMap(
             keys=Labels(
-                names=["lambda", "sigma"],
-                values=torch.tensor([[0, 1]]),
+                names=["_"],
+                values=torch.tensor([[0]]),
             ),
             blocks=[block],
         ),

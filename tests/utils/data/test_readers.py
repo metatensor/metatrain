@@ -174,7 +174,9 @@ def test_read_targets(stress_dict, virial_dict, monkeypatch, tmp_path, caplog):
 
         assert type(target_list) is list
         for target in target_list:
-            assert target.keys == Labels(["lambda", "sigma"], torch.tensor([(0, 1)]))
+            assert target.keys == Labels(
+                ["_"], torch.tensor([[0]])
+            )
 
             result_block = target.block()
             assert result_block.values.dtype is torch.float16
