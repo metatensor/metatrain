@@ -5,6 +5,7 @@ from torch_geometric.data import Data, Batch
 from metatensor.torch.atomistic import NeighborsListOptions
 from pet.molecule import NeighborIndexConstructor, batch_to_dict
 
+
 def systems_to_pyg_graphs(systems, options, all_species):
     neighbor_index_constructors = []
     for system in systems:
@@ -65,17 +66,3 @@ def systems_to_pyg_graphs(systems, options, all_species):
         graphs.append(graph_now)
     batch = Batch.from_data_list(graphs)
     return batch
-
-    
-class PETMetatensorWrapper(torch.nn.Module):
-    def __init__(self, pet_model, all_species):
-        super(PETMetatensorWrapper, self).__init__()
-        self.pet_model = pet_model
-        self.all_species = all_species
-        
-    def forward(self, systems):
-        options = NeighborsListOptions(model_cutoff=self.pet_model.hypers.R_CUT,
-                                       full_list=True)
-        batch = systems_to_pyg_graphs(systems, options, self.all_species)
-        #print(batch_to_dict(batch))
-        return self.pet_model(batch_to_dict(batch))
