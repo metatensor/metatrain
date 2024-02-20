@@ -49,6 +49,13 @@ def train(
     output_dir: str = ".",
     device_str: str = "cpu",
 ):
+    if len(requested_capabilities.outputs) != 1:
+        raise ValueError("PET only supports a single output")
+    target_name = next(iter(requested_capabilities.outputs.keys()))
+    if requested_capabilities.outputs[target_name].quantity != "energy":
+        raise ValueError("PET only supports energies as output")
+    if requested_capabilities.outputs[target_name].per_atom:
+        raise ValueError("PET does not support per-atom energies")
 
     if len(train_datasets) != 1:
         raise ValueError("PET only supports a single training dataset")
@@ -74,7 +81,6 @@ def train(
 
     # only energies or energies and forces?
     do_forces = next(iter(next(iter(train_dataset))[1].values())).values.has_gradient("positions")
-    target_name = ...
 
     # TODO: 5.0 is hardcoded, should be a hyperparameter
     requested_nl = NeighborsListOptions(cutoff=5.0, full_list=True)
@@ -87,6 +93,7 @@ def train(
         pyg_graph.update({'energy': targets[target_name].block().values.squeeze(-1)})
         if do_forces:
             pyg_graph.update({'forces': targets[target_name].block().gradient('positions').values.squeeze(-1)})
+        pyg_train_dataset.append(pyg_graph)
 
     pyg_validation_dataset = []
     for (system,), _ in validation_dataloader:
@@ -95,3 +102,4 @@ def train(
         pyg_graph.update({'energy': targets[target_name].block().values.squeeze(-1)})
         if do_forces:
             pyg_graph.update({'forces': targets[target_name].block().gradient('positions').values.squeeze(-1)})
+        pyg_validation_dataset.append(pyg_graph)
