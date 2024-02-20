@@ -1,3 +1,5 @@
+.. _adding-new-models:
+
 Adding new models
 =================
 

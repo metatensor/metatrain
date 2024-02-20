@@ -1,0 +1,18 @@
+# architecture used to train the model
+architecture:
+  name: experimental.alchemical_model
+  training:
+    num_epochs: 10
+
+# Mandatory section defining the parameters for structure and target data of the
+# training set
+training_set:
+  structures: "alchemical_reduced_10.xyz" # file where the positions are stored
+  targets:
+    energy:
+      key: "energy" # name of the target value
+      forces: false
+      stress: false
+
+test_set: 0.1  # 10 % of the training_set are randomly split and taken for test set
+validation_set: 0.1 # 10 % of the training_set are randomly split and for validation

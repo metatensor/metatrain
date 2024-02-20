@@ -12,3 +12,5 @@ This is the API for the ``utils`` module of ``metatensor-models``.
    model-io
    omegaconf
    combine_dataloaders
+   neighbors_lists
+   normalize

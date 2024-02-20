@@ -1,10 +1,13 @@
 import argparse
+import difflib
 import importlib
 import logging
 import os
 import random
 import sys
 import tempfile
+import warnings
+from importlib.util import find_spec
 from pathlib import Path
 from typing import List, Optional
 
@@ -19,6 +22,8 @@ from omegaconf.errors import ConfigKeyError
 from .. import CONFIG_PATH
 from ..utils.data import get_all_species, read_structures, read_targets
 from ..utils.data.dataset import _train_test_random_split
+from ..utils.errors import ArchitectureError
+from ..utils.export import export
 from ..utils.model_io import save_model
 from ..utils.omegaconf import check_units, expand_dataset_config
 from .eval_model import _eval_targets
@@ -78,6 +83,49 @@ def _add_train_model_parser(subparser: argparse._SubParsersAction) -> None:
     )
 
 
+def check_architecture_name(name: str) -> None:
+    """Check if the requested architecture is avalible.
+
+    If the architecture is not found an :func:`ValueError` is raised. If an architecture
+    with the same name as an experimental or deprecated architecture exist, this
+    architecture is suggested. If no architecture exist the closest architecture is
+    given to help debugging typos.
+
+    :param name: name of the architecture
+    :raises ValueError: if the architecture is not found
+    """
+    try:
+        if find_spec(f"metatensor.models.{name}") is not None:
+            return
+        elif find_spec(f"metatensor.models.experimental.{name}") is not None:
+            msg = (
+                f"Architecture {name!r} is not a stable architecture. An "
+                "experimental architecture with the same name was found. Set "
+                f"`name: experimental.{name}` in your options file to use this "
+                "experimental architecture."
+            )
+        elif find_spec(f"metatensor.models.deprecated.{name}") is not None:
+            msg = (
+                f"Architecture {name!r} is not a stable architecture. A "
+                "deprecated architecture with the same name was found. Set "
+                f"`name: deprecated.{name}` in your options file to use this "
+                "deprecated architecture."
+            )
+    except ModuleNotFoundError:
+        arch_avail = [
+            f.stem
+            for f in (Path(CONFIG_PATH) / "architecture").iterdir()
+            if f.is_file()
+        ]
+        closest_match = difflib.get_close_matches(name, arch_avail, cutoff=0.3)
+        msg = (
+            f"Architecture {name!r} is not a valid architecture. Do you mean "
+            f"{', '.join(closest_match)}?"
+        )
+
+    raise ValueError(msg)
+
+
 def train_model(
     options: DictConfig,
     output: str = "model.pt",
@@ -108,6 +156,8 @@ def train_model(
     except ConfigKeyError as exc:
         raise ConfigKeyError("Architecture name is not defined!") from exc
 
+    check_architecture_name(architecture_name)
+
     options["defaults"] = [
         "base",
         {"architecture": architecture_name},
@@ -124,6 +174,15 @@ def train_model(
 
         if continue_from is None:
             continue_from = "null"
+
+        if not output.endswith(".pt"):
+            warnings.warn(
+                "The output file should have a '.pt' extension. The user requested "
+                f"the model to be saved as '{output}', but it will be saved as "
+                f"'{output}.pt'.",
+                stacklevel=1,
+            )
+            output = f"{output}.pt"
 
         argv = sys.argv[:1]
         argv.append(f"--config-dir={options_new.parent}")
@@ -255,8 +314,8 @@ def _train_model_hydra(options: DictConfig) -> None:
     OmegaConf.save(config=options, f=Path(output_dir) / "options.yaml")
 
     logger.info("Setting up model")
-    architetcure_name = options["architecture"]["name"]
-    architecture = importlib.import_module(f"metatensor.models.{architetcure_name}")
+    architecture_name = options["architecture"]["name"]
+    architecture = importlib.import_module(f"metatensor.models.{architecture_name}")
 
     all_species = []
     for dataset in [train_dataset]:  # HACK: only a single train_dataset for now
@@ -279,23 +338,29 @@ def _train_model_hydra(options: DictConfig) -> None:
     )
 
     logger.info("Calling architecture trainer")
-    model = architecture.train(
-        train_datasets=[train_dataset],
-        validation_datasets=[validation_dataset],
-        requested_capabilities=requested_capabilities,
-        hypers=OmegaConf.to_container(options["architecture"]),
-        continue_from=options["continue_from"],
-        output_dir=output_dir,
-        device_str=options["device"],
-    )
+    try:
+        model = architecture.train(
+            train_datasets=[train_dataset],
+            validation_datasets=[validation_dataset],
+            requested_capabilities=requested_capabilities,
+            hypers=OmegaConf.to_container(options["architecture"]),
+            continue_from=options["continue_from"],
+            output_dir=output_dir,
+            device_str=options["device"],
+        )
+    except Exception as e:
+        raise ArchitectureError(e)
 
-    save_model(model, options["output_path"])
+    save_model(model, f'{options["output_path"][:-3]}.ckpt')
+    export(model, options["output_path"])
 
-    logger.info("Evaulate train dataset")
-    _eval_targets(model, train_dataset)
+    exported_model = torch.jit.load(options["output_path"])
 
-    logger.info("Evaulate validation dataset")
-    _eval_targets(model, validation_dataset)
+    logger.info("Evaulating train dataset")
+    _eval_targets(exported_model, train_dataset)
 
-    logger.info("Evaulate test dataset")
-    _eval_targets(model, test_dataset)
+    logger.info("Evaulating validation dataset")
+    _eval_targets(exported_model, validation_dataset)
+
+    logger.info("Evaulating test dataset")
+    _eval_targets(exported_model, test_dataset)

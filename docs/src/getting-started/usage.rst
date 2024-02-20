@@ -83,19 +83,8 @@ typing
     :lines: 9-24
 
 
-Exporting
-#########
+Molecular simulations
+#####################
 
-Exporting a model is very useful if you want to use it in other frameworks, especially
-in molecular dynamics simulations. The sub-command to export a trained model is
-
-.. code-block:: bash
-
-    metatensor-models export
-
-.. literalinclude:: ../../../examples/basic_usage/usage.sh
-    :language: bash
-    :lines: 26-
-
-In the next tutorials we show how adjust the dataset section of ``options.yaml`` file to
-use it for your own datasets.
+The trained model can also be used to run molecular simulations.
+You can find how in the :ref:`tutorials` section.
