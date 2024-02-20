@@ -38,16 +38,20 @@ class Model(torch.nn.Module):
         super().__init__()
         self.name = ARCHITECTURE_NAME
         self.hypers = hypers
-        self.all_species = np.array(capabilities.species, dtype=int)
+        self.cutoff = self.hypers["R_CUT"]
+        self.all_species = capabilities.species
         self.capabilities = capabilities
         self.pet = PET(Hypers(self.hypers), 0.0, len(self.all_species))
+
+    def set_trained_model(self, trained_model: torch.nn.Module) -> None:
+        self.pet = trained_model
 
     def requested_neighbors_lists(
         self,
     ) -> List[NeighborsListOptions]:
         return [
             NeighborsListOptions(
-                model_cutoff=self.hypers["R_CUT"],
+                model_cutoff=self.cutoff,
                 full_list=True,
             )
         ]

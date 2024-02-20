@@ -1,5 +1,4 @@
 import torch
-import numpy as np
 from torch_geometric.data import Data, Batch
 
 from metatensor.torch.atomistic import System, NeighborsListOptions
@@ -8,7 +7,7 @@ from typing import List
 
 
 def systems_to_pyg_graphs(
-    systems: List[System], options: NeighborsListOptions, all_species: np.ndarray
+    systems: List[System], options: NeighborsListOptions, all_species: List[int]
 ) -> Batch:
     """
     Converts a standatd input data format of `metatensor-models` to a
@@ -18,10 +17,12 @@ def systems_to_pyg_graphs(
     format, that needs to be converted.
     :param options: A `NeighborsListOptions` objects specifying the parameters
     for a neighbor list, which will be used during the convertation.
+    :param all_species: A `torch.Tensor` with all the species present in the
+    systems.
 
     :return: The `torch_gemoetric.data.Batch` object with the neighbor lists added.
     """
-
+    all_species = torch.LongTensor(all_species)
     neighbor_index_constructors = []
     for system in systems:
         known_neighbors_lists = system.known_neighbors_lists()
@@ -85,22 +86,20 @@ def systems_to_pyg_graphs(
 
         relative_positions = displacement_vectors[relative_positions]
         central_species = [
-            np.where(all_species == specie)[0][0] for specie in np.array(system.species)
+            torch.where(all_species == specie)[0][0] for specie in system.species
         ]
         central_species = torch.LongTensor(central_species).to(device)
 
-        kwargs = {
-            "central_species": central_species,
-            "x": relative_positions,
-            "neighbor_species": neighbor_species,
-            "neighbors_pos": neighbors_pos,
-            "neighbors_index": neighbors_index.transpose(0, 1),
-            "nums": nums,
-            "mask": mask,
-            "n_atoms": len(system.species),
-        }
-
-        graph_now = Data(**kwargs)
+        graph_now = Data(
+            central_species=central_species,
+            x=relative_positions,
+            neighbor_species=neighbor_species,
+            neighbors_pos=neighbors_pos,
+            neighbors_index=neighbors_index.transpose(0, 1),
+            nums=nums,
+            mask=mask,
+            n_atoms=len(system.species),
+        )
         graphs.append(graph_now)
     batch = Batch.from_data_list(graphs)
     return batch
