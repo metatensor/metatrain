@@ -25,3 +25,8 @@ class Test_parse_args(object):
     def test_extra_options(self, args):
         """Test extra options."""
         subprocess.check_call(["metatensor-models", "--" + args])
+
+    @pytest.mark.parametrize("args", ("version", "help"))
+    def test_debug_flag(self, args):
+        """Test that even if debug flag is set commands run normal."""
+        subprocess.check_call(["metatensor-models", "--debug", "train", "-h"])
