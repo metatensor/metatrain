@@ -87,7 +87,6 @@ def train(
         pyg_graph.update({'energy': targets[target_name].block().values.squeeze(-1)})
         if do_forces:
             pyg_graph.update({'forces': targets[target_name].block().gradient('positions').values.squeeze(-1)})
-    pyg_train_dataset = torch.utils.data.Dataset(pyg_train_dataset)
 
     pyg_validation_dataset = []
     for (system,), _ in validation_dataloader:
@@ -96,5 +95,3 @@ def train(
         pyg_graph.update({'energy': targets[target_name].block().values.squeeze(-1)})
         if do_forces:
             pyg_graph.update({'forces': targets[target_name].block().gradient('positions').values.squeeze(-1)})
-    pyg_validation_dataset = torch.utils.data.Dataset(pyg_validation_dataset)
-
