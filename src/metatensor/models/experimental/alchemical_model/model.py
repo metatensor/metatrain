@@ -259,7 +259,10 @@ class Model(torch.nn.Module):
             total_energies[output_name] = TensorMap(
                 keys=Labels(
                     names=["lambda", "sigma"],
-                    values=torch.tensor([[0, 1]]),
+                    values=torch.tensor(
+                        [[0, 1]],
+                        device=total_energies[output_name].block(0).values.device,
+                    ),
                 ),
                 blocks=[total_energies[output_name].block()],
             )
@@ -273,7 +276,10 @@ class Model(torch.nn.Module):
         # all species that are not present retain their weight of zero
         self.composition_weights[self.output_to_index[output_name]][
             self.all_species
-        ] = input_composition_weights
+        ] = input_composition_weights.to(
+            dtype=self.composition_weights.dtype,  # type: ignore
+            device=self.composition_weights.device,  # type: ignore
+        )
 
     def set_normalization_factor(self, normalization_factor: torch.Tensor) -> None:
         """Set the normalization factor for output of the model."""

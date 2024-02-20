@@ -15,7 +15,7 @@ def systems_to_torch_spex_dict(
     positions = torch.cat([item.positions for item in systems])
     cells = torch.stack([item.cell for item in systems])
     species = torch.cat([item.species for item in systems])
-    centers = torch.cat([torch.arange(len(item)) for item in systems])
+    centers = torch.cat([torch.arange(len(item), device=device) for item in systems])
     if nl_options is None:
         nl_options = systems[0].known_neighbors_lists()[0]
     nls = [item.get_neighbors_list(nl_options) for item in systems]

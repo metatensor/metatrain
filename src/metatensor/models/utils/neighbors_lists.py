@@ -36,7 +36,9 @@ def get_system_with_neighbors_lists(
     # Compute the neighbor lists
     for options in neighbor_lists:
         if options not in system.known_neighbors_lists():
-            neighbor_list = _compute_single_neighbor_list(atoms, options)
+            neighbor_list = _compute_single_neighbor_list(atoms, options).to(
+                device=system.device, dtype=system.dtype
+            )
             register_autograd_neighbors(system, neighbor_list)
             system.add_neighbors_list(options, neighbor_list)
 
