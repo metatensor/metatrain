@@ -1,4 +1,5 @@
 from typing import List
+from .data.system_to_ase import system_to_ase
 
 import ase
 import torch
@@ -22,16 +23,7 @@ def get_system_with_neighbors_lists(
     :return: The `System` object with the neighbor lists added.
     """
     # Convert the system to an ASE atoms object
-    positions = system.positions.detach().cpu().numpy()
-    numbers = system.species.detach().cpu().numpy()
-    cell = system.cell.detach().cpu().numpy()
-    pbc = list(cell.any(axis=1))
-    atoms = ase.Atoms(
-        numbers=numbers,
-        positions=positions,
-        cell=cell,
-        pbc=pbc,
-    )
+    atoms = system_to_ase(system)
 
     # Compute the neighbor lists
     for options in neighbor_lists:

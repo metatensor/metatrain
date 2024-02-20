@@ -17,6 +17,7 @@ from ...utils.data import (
     combine_dataloaders,
     get_all_targets,
 )
+from ...utils.data.system_to_ase import system_to_ase
 from ...utils.extract_targets import get_outputs_dict
 from ...utils.info import finalize_aggregated_info, update_aggregated_info
 from ...utils.neighbors_lists import get_system_with_neighbors_lists
@@ -81,25 +82,20 @@ def train(
 
     # only energies or energies and forces?
     do_forces = next(iter(next(iter(train_dataset))[1].values())).values.has_gradient("positions")
-
-    # TODO: 5.0 is hardcoded, should be a hyperparameter
-    requested_nl = NeighborsListOptions(cutoff=5.0, full_list=True)
     all_species = requested_capabilities.species
 
-    pyg_train_dataset = []
+    ase_train_dataset = []
     for (system,), targets in train_dataloader:
-        system = get_system_with_neighbors_lists(system, get_system_with_neighbors_lists(system, [requested_nl]))
-        pyg_graph = systems_to_pyg_graphs([system], requested_nl, all_species)
-        pyg_graph.update({'energy': targets[target_name].block().values.squeeze(-1)})
+        ase_atoms = system_to_ase(system)
+        ase_atoms.info['energy'] = targets[target_name].block().values.squeeze(-1).detach().cpu().numpy()
         if do_forces:
-            pyg_graph.update({'forces': targets[target_name].block().gradient('positions').values.squeeze(-1)})
-        pyg_train_dataset.append(pyg_graph)
+            ase_atoms.arrays["forces"] = targets[target_name].block().gradient('positions').values.squeeze(-1).detach().cpu().numpy()
+        ase_train_dataset.append(ase_atoms)
 
-    pyg_validation_dataset = []
+    ase_validation_dataset = []
     for (system,), _ in validation_dataloader:
-        system = get_system_with_neighbors_lists(system, get_system_with_neighbors_lists(system, [requested_nl]))
-        pyg_graph = systems_to_pyg_graphs([system], requested_nl, all_species)
-        pyg_graph.update({'energy': targets[target_name].block().values.squeeze(-1)})
+        ase_atoms = system_to_ase(system)
+        ase_atoms.info['energy'] = targets[target_name].block().values.squeeze(-1).detach().cpu().numpy()
         if do_forces:
-            pyg_graph.update({'forces': targets[target_name].block().gradient('positions').values.squeeze(-1)})
-        pyg_validation_dataset.append(pyg_graph)
+            ase_atoms.arrays["forces"] = targets[target_name].block().gradient('positions').values.squeeze(-1).detach().cpu().numpy()
+        ase_validation_dataset.append(ase_atoms)
