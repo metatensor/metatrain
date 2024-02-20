@@ -65,6 +65,10 @@ atomistic model.
    * - SOAP BPNN
      - A Behler-Parrinello neural network with SOAP features
 
+   * - Alchemical Model
+     - A Behler-Parrinello neural network with SOAP features
+       and Alchemical Compression of the composition space
+
 .. marker-documentation
 
 Documentation
@@ -112,7 +116,7 @@ Contributors
 
 Thanks goes to all people that make metatensor-models possible:
 
-.. image:: https://contrib.rocks/image?repo=metatensor-models
+.. image:: https://contrib.rocks/image?repo=lab-cosmo/metatensor-models
    :target: https://github.com/lab-cosmo/metatensor-models/graphs/contributors
 
 .. |tests| image:: https://github.com/lab-cosmo/metatensor-models/workflows/Tests/badge.svg

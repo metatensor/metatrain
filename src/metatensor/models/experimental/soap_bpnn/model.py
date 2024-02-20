@@ -22,13 +22,7 @@ class MLPMap(torch.nn.Module):
     def __init__(self, all_species: List[int], hypers: dict) -> None:
         super().__init__()
 
-        activation_function_name = hypers["activation_function"]
-        if activation_function_name == "SiLU":
-            self.activation_function = torch.nn.SiLU()
-        else:
-            raise ValueError(
-                f"Unsupported activation function: {activation_function_name}"
-            )
+        self.activation_function = torch.nn.SiLU()
 
         # Build a neural network for each species
         nns_per_species = []
@@ -240,17 +234,22 @@ class Model(torch.nn.Module):
             output_name: i for i, output_name in enumerate(capabilities.outputs.keys())
         }
 
-        self.soap_calculator = rascaline.torch.SoapPowerSpectrum(**hypers["soap"])
+        self.soap_calculator = rascaline.torch.SoapPowerSpectrum(
+            radial_basis={"Gto": {}}, **hypers["soap"]
+        )
         soap_size = (
             len(self.all_species) ** 2
             * hypers["soap"]["max_radial"] ** 2
             * (hypers["soap"]["max_angular"] + 1)
         )
 
-        self.layernorm = LayerNormMap(self.all_species, soap_size)
-
         hypers_bpnn = hypers["bpnn"]
         hypers_bpnn["input_size"] = soap_size
+
+        if hypers_bpnn["layernorm"]:
+            self.layernorm = LayerNormMap(self.all_species, soap_size)
+        else:
+            self.layernorm = torch.nn.Identity()
 
         self.bpnn = MLPMap(self.all_species, hypers_bpnn)
         self.neighbor_species_1_labels = Labels(

@@ -83,23 +83,8 @@ typing
     :lines: 9-24
 
 
-Exporting
-#########
+Molecular simulations
+#####################
 
-Once you trained a model there will be a final checkpoint produced. Even though this
-checkpoint can be used for later evaluation as shown above a checkpoint is only a
-temporary file and may become unusable if an might be updated architecture. For a
-long-term stable usage you should export your model! Exporting a model is very necessary
-if you want to use it in other frameworks, especially in molecular dynamics simulations.
-The sub-command to export a trained model checkpoint is
-
-.. code-block:: bash
-
-    metatensor-models export
-
-.. literalinclude:: ../../../examples/basic_usage/usage.sh
-    :language: bash
-    :lines: 26-
-
-In the next tutorials we show how adjust the dataset section of ``options.yaml`` file to
-use it for your own datasets.
+The trained model can also be used to run molecular simulations.
+You can find how in the :ref:`tutorials` section.

@@ -1,16 +1,31 @@
-from typing import Dict, List
+import warnings
+from typing import Dict, List, Union
 
 import torch
 from metatensor.torch import Labels, TensorBlock, TensorMap
-from metatensor.torch.atomistic import System
+from metatensor.torch.atomistic import (
+    ModelEvaluationOptions,
+    System,
+    register_autograd_neighbors,
+)
 
+from .export import is_exported
 from .loss import TensorMapDictLoss
 from .output_gradient import compute_gradient
 
 
+# Ignore metatensor-torch warning due to the fact that positions/cell
+# already require grad when registering the NL
+warnings.filterwarnings(
+    "ignore",
+    category=UserWarning,
+    message="neighbors",
+)  # TODO: this is not filtering out the warning for some reason
+
+
 def compute_model_loss(
     loss: TensorMapDictLoss,
-    model: torch.nn.Module,
+    model: Union[torch.nn.Module, torch.jit._script.RecursiveScriptModule],
     systems: List[System],
     targets: Dict[str, TensorMap],
 ):
@@ -18,14 +33,16 @@ def compute_model_loss(
     Compute the loss of a model on a set of targets.
 
     :param loss: The loss function to use.
-    :param model: The model to use.
+    :param model: The model to use. This can either be a model in training
+        (``torch.nn.Module``) or an exported model
+        (``torch.jit._script.RecursiveScriptModule``).
     :param systems: The systems to use.
     :param targets: The targets to use.
 
     :returns: The loss as a scalar `torch.Tensor`.
     """
     # Assert that all targets are within the model's capabilities:
-    if not set(targets.keys()).issubset(model.capabilities.outputs.keys()):
+    if not set(targets.keys()).issubset(_get_capabilities(model).outputs.keys()):
         raise ValueError("Not all targets are within the model's capabilities.")
 
     # Infer model device, move systems and targets to the same device:
@@ -39,7 +56,7 @@ def compute_model_loss(
     energy_targets_that_require_strain_gradients = []
     for target_name in targets.keys():
         # Check if the target is an energy:
-        if model.capabilities.outputs[target_name].quantity == "energy":
+        if _get_capabilities(model).outputs[target_name].quantity == "energy":
             energy_targets.append(target_name)
             # Check if the energy requires gradients:
             if targets[target_name].block().has_gradient("positions"):
@@ -61,14 +78,28 @@ def compute_model_loss(
             for system in systems
         ]
         # Create new "displaced" systems:
-        systems = [
-            System(
+        new_systems = []
+        for system, strain in zip(systems, strains):
+            new_system = System(
                 positions=system.positions @ strain,
                 cell=system.cell @ strain,
                 species=system.species,
             )
-            for system, strain in zip(systems, strains)
-        ]
+            for nl_options in system.known_neighbors_lists():
+                nl = system.get_neighbors_list(nl_options)
+                register_autograd_neighbors(
+                    new_system,
+                    TensorBlock(
+                        values=nl.values.detach(),
+                        samples=nl.samples,
+                        components=nl.components,
+                        properties=nl.properties,
+                    ),
+                    check_consistency=True,
+                )
+                new_system.add_neighbors_list(nl_options, nl)
+            new_systems.append(new_system)
+        systems = new_systems
     else:
         if len(energy_targets_that_require_position_gradients) > 0:
             # Set positions to require gradients:
@@ -76,9 +107,7 @@ def compute_model_loss(
                 system.positions.requires_grad_(True)
 
     # Based on the keys of the targets, get the outputs of the model:
-    model_outputs = model(
-        systems, {key: model.capabilities.outputs[key] for key in targets.keys()}
-    )
+    model_outputs = _get_model_outputs(model, systems, list(targets.keys()))
 
     for energy_target in energy_targets:
         # If the energy target requires gradients, compute them:
@@ -212,3 +241,31 @@ def _strain_gradients_to_block(gradients_list):
         components=[c.to(gradients.device) for c in components],
         properties=Labels.single().to(gradients.device),
     )
+
+
+def _get_capabilities(
+    model: Union[torch.nn.Module, torch.jit._script.RecursiveScriptModule]
+):
+    if is_exported(model):
+        return model.capabilities()
+    else:
+        return model.capabilities
+
+
+def _get_model_outputs(
+    model: Union[torch.nn.Module, torch.jit._script.RecursiveScriptModule],
+    systems: List[System],
+    targets: List[str],
+) -> Dict[str, TensorMap]:
+    if is_exported(model):
+        # put together an EvaluationOptions object
+        options = ModelEvaluationOptions(
+            length_unit="",  # this is only needed for unit conversions in MD engines
+            outputs={key: _get_capabilities(model).outputs[key] for key in targets},
+        )
+        # we check consistency here because this could be called from eval
+        return model(systems, options, check_consistency=True)
+    else:
+        return model(
+            systems, {key: _get_capabilities(model).outputs[key] for key in targets}
+        )
