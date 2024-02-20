@@ -158,8 +158,9 @@ def test_model_consistency_with_seed(
     if seed is not None and seed < 0:
         with pytest.raises(SystemExit):
             train_model(options)
-            captured = capsys.readouterr()
-            assert "should be a positive number or None." in captured.out
+
+        captured = capsys.readouterr()
+        assert "should be a positive number or None." in captured.err
         return
 
     train_model(options, output="model1.pt")
@@ -191,8 +192,23 @@ def test_error_base_precision(options, monkeypatch, tmp_path, capsys):
 
     with pytest.raises(SystemExit):
         train_model(options)
-        captured = capsys.readouterr()
-        assert "Only 64, 32 or 16 are possible values for" in captured.out
+
+    captured = capsys.readouterr()
+    assert "Only 64, 32 or 16 are possible values for" in captured.err
+
+
+def test_architectur_error(options, monkeypatch, tmp_path, capsys):
+    """Test an error raise if there is problem wth the architecture."""
+    monkeypatch.chdir(tmp_path)
+    shutil.copy(DATASET_PATH, "qm9_reduced_100.xyz")
+
+    options["architecture"]["model"] = OmegaConf.create({"soap": {"cutoff": -1}})
+
+    with pytest.raises(SystemExit):
+        train_model(options)
+
+    captured = capsys.readouterr()
+    assert "likely originates from an architecture" in captured.err
 
 
 def test_check_architecture_name():
