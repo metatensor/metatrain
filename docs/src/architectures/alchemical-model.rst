@@ -45,7 +45,7 @@ soap
 
         radial_basis_type: "le"
 
-    - ``Physical"``: Physically-motivated basis functions. These radial basis functions
+    - ``Physical``: Physically-motivated basis functions. These radial basis functions
       can be set in
 
       .. code-block:: yaml
