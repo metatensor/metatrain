@@ -1,0 +1,23 @@
+# default hyperparameters for the Alchemical Model
+name: alchemical_model
+
+model:
+  soap:
+    num_pseudo_species: 4
+    cutoff_radius: 5.0
+    basis_cutoff: 400  # controls how large the radial-angular basis is
+    radial_basis_type: 'physical'  # 'physical' or 'le'
+    basis_scale: 3.0  # controls the initial scale of the physical basis (in Angstroms, does not affect the le basis)
+    trainable_basis: true  # whether the radial basis is trainable (i.e. contains a small NN)
+
+  bpnn:
+    num_hidden_layers: 2
+    num_neurons_per_layer: 32
+    activation_function: SiLU  # only SiLU is supported for the moment
+
+training:
+  batch_size: 8
+  num_epochs: 100
+  learning_rate: 0.001
+  log_interval: 10
+  checkpoint_interval: 25

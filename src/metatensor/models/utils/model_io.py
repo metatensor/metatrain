@@ -3,7 +3,16 @@ import warnings
 from pathlib import Path
 from typing import Union
 
+# The followng imports are necessary to avoid C++ related errors
+# when loading the model from a checkpoint
+import metatensor.torch  # noqa: F401
 import torch
+
+
+try:
+    import sphericart.torch  # noqa: F401
+except ImportError:
+    pass
 
 
 def save_model(
