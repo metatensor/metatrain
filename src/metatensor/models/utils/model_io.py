@@ -3,12 +3,13 @@ import warnings
 from pathlib import Path
 from typing import Union
 
-# The followng imports are necessary to avoid C++ related errors
-# when loading the model from a checkpoint
-import metatensor.torch  # noqa: F401
 import torch
 
 
+# This import is necessary to avoid errors when loading an
+# exported alchemical model, which depends on sphericart-torch.
+# TODO: Remove this when https://github.com/lab-cosmo/metatensor/issues/512
+# is ready
 try:
     import sphericart.torch  # noqa: F401
 except ImportError:
