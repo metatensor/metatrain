@@ -104,8 +104,8 @@ The parameters for the training loop are
 :param batch_size: batch size
 :param num_epochs: number of training epochs
 :param learning_rate: learning rate
-:param log_interval: write a line to the log every 10 epochs
-:param checkpoint_interval: save a checkpoint every 25 epochs
+:param log_interval: how often to log the loss during training
+:param checkpoint_interval:  how often to save a checkpoint during training
 
 
 References
