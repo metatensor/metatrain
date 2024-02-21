@@ -318,9 +318,9 @@ class Model(torch.nn.Module):
             # Change the energy label from _ to (0, 1):
             total_energies[output_name] = TensorMap(
                 keys=Labels(
-                    names=["lambda", "sigma"],
+                    names=["_"],
                     values=torch.tensor(
-                        [[0, 1]],
+                        [[0]],
                         device=total_energies[output_name].block(0).values.device,
                     ),
                 ),
