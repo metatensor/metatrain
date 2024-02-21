@@ -9,7 +9,7 @@ from omegaconf import DictConfig, OmegaConf
 
 from ..utils.compute_loss import compute_model_loss
 from ..utils.data import collate_fn, read_structures, read_targets, write_predictions
-from ..utils.export import is_exported
+from ..utils.errors import ArchitectureError
 from ..utils.extract_targets import get_outputs_dict
 from ..utils.info import finalize_aggregated_info, update_aggregated_info
 from ..utils.loss import TensorMapDictLoss
@@ -39,7 +39,7 @@ def _add_eval_model_parser(subparser: argparse._SubParsersAction) -> None:
     parser.add_argument(
         "model",
         type=load_exported_model,
-        help="Saved model to be evaluated.",
+        help="Saved exported model to be evaluated.",
     )
     parser.add_argument(
         "options",
@@ -59,10 +59,6 @@ def _add_eval_model_parser(subparser: argparse._SubParsersAction) -> None:
 
 def _eval_targets(model, dataset: Union[_BaseDataset, torch.utils.data.Subset]) -> None:
     """Evaluate an exported model on a dataset and print the RMSEs for each target."""
-
-    if not is_exported(model):
-        raise ValueError("The model must be exported to be used in `_eval_targets`.")
-
     # Attach neighbor lists to the structures:
     requested_neighbor_lists = model.requested_neighbors_lists()
     # working around https://github.com/lab-cosmo/metatensor/issues/521
@@ -109,7 +105,13 @@ def _eval_targets(model, dataset: Union[_BaseDataset, torch.utils.data.Subset]) 
     finalized_info = finalize_aggregated_info(aggregated_info)
 
     energy_counter = 0
-    for output in model.capabilities().outputs.values():
+
+    try:
+        outputs_capabilities = model.capabilities().outputs
+    except Exception as e:
+        raise ArchitectureError(e)
+
+    for output in outputs_capabilities.values():
         if output.quantity == "energy":
             energy_counter += 1
     if energy_counter == 1:
@@ -123,7 +125,7 @@ def _eval_targets(model, dataset: Union[_BaseDataset, torch.utils.data.Subset]) 
         if key.endswith("_positions_gradients"):
             # check if this is a force
             target_name = key[: -len("_positions_gradients")]
-            if model.capabilities().outputs[target_name].quantity == "energy":
+            if outputs_capabilities[target_name].quantity == "energy":
                 # if this is a force, replace the ugly name with "force"
                 if only_one_energy:
                     new_key = "force"
@@ -132,9 +134,8 @@ def _eval_targets(model, dataset: Union[_BaseDataset, torch.utils.data.Subset]) 
         elif key.endswith("_displacement_gradients"):
             # check if this is a virial/stress
             target_name = key[: -len("_displacement_gradients")]
-            if model.capabilities().outputs[target_name].quantity == "energy":
-                # if this is a virial/stress,
-                # replace the ugly name with "virial/stress"
+            if outputs_capabilities[target_name].quantity == "energy":
+                # if this is a virial/stress, replace the ugly name with "virial/stress"
                 if only_one_energy:
                     new_key = "virial/stress"
                 else:
@@ -171,26 +172,34 @@ def eval_model(
         filename=options["structures"]["read_from"],
         fileformat=options["structures"]["file_format"],
     )
+
     # Predict targets
     if hasattr(options, "targets"):
         eval_targets = read_targets(options["targets"])
         eval_dataset = Dataset(structure=eval_structures, energy=eval_targets["energy"])
         _eval_targets(model, eval_dataset)
-
-    # Predict structures
-    # TODO: batch this
-    # TODO: add forces/stresses/virials if requested
-    if not hasattr(options, "targets"):
-        # otherwise, the NLs will have been computed for the RMSE calculations above
+    else:
+        # TODO: batch this
+        # TODO: add forces/stresses/virials if requested
+        # Attach neighbors list to structures. This step is only required if no targets
+        # are present. Otherwise, the neighbors list have been already attached in
+        # `_eval_targets`.
         eval_structures = [
             get_system_with_neighbors_lists(
                 structure, model.requested_neighbors_lists()
             )
             for structure in eval_structures
         ]
-    eval_options = ModelEvaluationOptions(
-        length_unit="",  # this is only needed for unit conversions in MD engines
-        outputs=model.capabilities().outputs,
-    )
-    predictions = model(eval_structures, eval_options, check_consistency=True)
+
+    # Predict structures
+    try:
+        # `length_unit` is only required for unit conversions in MD engines and
+        # superflous here.
+        eval_options = ModelEvaluationOptions(
+            length_unit="", outputs=model.capabilities().outputs
+        )
+        predictions = model(eval_structures, eval_options, check_consistency=True)
+    except Exception as e:
+        raise ArchitectureError(e)
+
     write_predictions(output, predictions, eval_structures)

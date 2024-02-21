@@ -22,6 +22,7 @@ from omegaconf.errors import ConfigKeyError
 from .. import CONFIG_PATH
 from ..utils.data import get_all_species, read_structures, read_targets
 from ..utils.data.dataset import _train_test_random_split
+from ..utils.errors import ArchitectureError
 from ..utils.export import export
 from ..utils.model_io import save_model
 from ..utils.omegaconf import check_units, expand_dataset_config
@@ -337,15 +338,18 @@ def _train_model_hydra(options: DictConfig) -> None:
     )
 
     logger.info("Calling architecture trainer")
-    model = architecture.train(
-        train_datasets=[train_dataset],
-        validation_datasets=[validation_dataset],
-        requested_capabilities=requested_capabilities,
-        hypers=OmegaConf.to_container(options["architecture"]),
-        continue_from=options["continue_from"],
-        output_dir=output_dir,
-        device_str=options["device"],
-    )
+    try:
+        model = architecture.train(
+            train_datasets=[train_dataset],
+            validation_datasets=[validation_dataset],
+            requested_capabilities=requested_capabilities,
+            hypers=OmegaConf.to_container(options["architecture"]),
+            continue_from=options["continue_from"],
+            output_dir=output_dir,
+            device_str=options["device"],
+        )
+    except Exception as e:
+        raise ArchitectureError(e)
 
     save_model(model, f'{options["output_path"][:-3]}.ckpt')
     export(model, options["output_path"])
