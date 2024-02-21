@@ -48,11 +48,11 @@ def load_checkpoint(path: Union[str, Path]) -> torch.nn.Module:
     if isinstance(path, str):
         path = Path(path)
 
-    if path.suffix == ".pt":
+    if path.suffix != ".ckpt":
         warnings.warn(
-            "Trying to load a checkpoint from a .pt file. This is probably "
-            "an exported model which will fail to train or export. Please "
-            "use a .ckpt (checkpoint) file instead.",
+            f"Trying to load a checkpoint from a {path.suffix} file. This is probably "
+            "not a checkpoint and will fail to train or export. Please use a `.ckpt` "
+            "(checkpoint) file instead.",
             stacklevel=1,
         )
 
@@ -88,12 +88,16 @@ def load_exported_model(
     if isinstance(path, str):
         path = Path(path)
 
-    if path.suffix == ".ckpt":
+    if path.suffix != ".pt":
         warnings.warn(
-            "Trying to load an exported model from a .ckpt file. This is "
-            "probably a checkpoint which will fail to load. Please export "
-            "the checkpoint with the `metatensor-models export` command.",
+            f"Trying to load an exported model from a {path.suffix} file. This is "
+            "probably not an exported model, and it will fail to load. If this is a "
+            "checkpoint (.ckpt), please export the checkpoint with the "
+            "`metatensor-models export` command.",
             stacklevel=1,
         )
 
-    return torch.jit.load(path)
+    try:
+        return torch.jit.load(path)
+    except RuntimeError as e:
+        raise ValueError(f"model at {path} is not exported") from e
