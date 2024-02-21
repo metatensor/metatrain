@@ -9,6 +9,7 @@ from metatensor.torch.atomistic import (
     register_autograd_neighbors,
 )
 
+from .errors import ArchitectureError
 from .export import is_exported
 from .loss import TensorMapDictLoss
 from .output_gradient import compute_gradient
@@ -42,12 +43,17 @@ def compute_model_loss(
 
     :returns: The loss as a scalar `torch.Tensor`.
     """
+    try:
+        device = next(model.parameters()).device
+        outputs_capabilities = _get_capabilities(model).outputs
+    except Exception as e:
+        raise ArchitectureError(e)
+
     # Assert that all targets are within the model's capabilities:
-    if not set(targets.keys()).issubset(_get_capabilities(model).outputs.keys()):
+    if not set(targets.keys()).issubset(outputs_capabilities.keys()):
         raise ValueError("Not all targets are within the model's capabilities.")
 
-    # Infer model device, move systems and targets to the same device:
-    device = next(model.parameters()).device
+    # Infer move systems and targets to the same device:
     systems = [system.to(device=device) for system in systems]
     targets = {key: target.to(device=device) for key, target in targets.items()}
 
@@ -57,7 +63,7 @@ def compute_model_loss(
     energy_targets_that_require_strain_gradients = []
     for target_name in targets.keys():
         # Check if the target is an energy:
-        if _get_capabilities(model).outputs[target_name].quantity == "energy":
+        if outputs_capabilities[target_name].quantity == "energy":
             energy_targets.append(target_name)
             # Check if the energy requires gradients:
             if targets[target_name].block().has_gradient("positions"):

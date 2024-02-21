@@ -1,7 +1,8 @@
-"""The main entry point for the metatensor-models interface."""
+"""The main entry point for the metatensor-models command line interface."""
 
 import argparse
 import sys
+import traceback
 
 from . import __version__
 from .cli import eval_model, export_model, train_model
@@ -16,14 +17,20 @@ def main():
         formatter_class=argparse.RawTextHelpFormatter,
     )
 
+    if len(sys.argv) < 2:
+        ap.error("You must specify a sub-command")
+
     ap.add_argument(
         "--version",
         action="version",
         version=f"metatensor-models {__version__}",
     )
 
-    if len(sys.argv) < 2:
-        ap.error("You must specify a sub-command")
+    ap.add_argument(
+        "--debug",
+        action="store_true",
+        help="Run with debug options.",
+    )
 
     # Add sub-parsers
     subparser = ap.add_subparsers(help="sub-command help")
@@ -33,15 +40,22 @@ def main():
 
     args = ap.parse_args()
     callable = args.__dict__.pop("callable")
+    debug = args.__dict__.pop("debug")
 
-    if callable == "eval_model":
-        eval_model(**args.__dict__)
-    elif callable == "export_model":
-        export_model(**args.__dict__)
-    elif callable == "train_model":
-        train_model(**args.__dict__)
-    else:
-        raise ValueError("internal error when selecting a sub-command.")
+    try:
+        if callable == "eval_model":
+            eval_model(**args.__dict__)
+        elif callable == "export_model":
+            export_model(**args.__dict__)
+        elif callable == "train_model":
+            train_model(**args.__dict__)
+        else:
+            raise ValueError("internal error when selecting a sub-command.")
+    except Exception as e:
+        if debug:
+            traceback.print_exc()
+        else:
+            sys.exit(f"\033[31mERROR: {e}\033[0m")  # format error in red!
 
 
 if __name__ == "__main__":
