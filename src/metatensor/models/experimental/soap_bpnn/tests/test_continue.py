@@ -1,5 +1,6 @@
 import shutil
 
+import metatensor.models
 from metatensor.learn.data import Dataset
 from metatensor.torch.atomistic import ModelCapabilities, ModelOutput
 from omegaconf import OmegaConf
@@ -72,4 +73,8 @@ def test_continue(monkeypatch, tmp_path):
     # Predict on the first five structures
     output_after = model_after(
         structures[:5], {"U0": model_after.capabilities.outputs["U0"]}
+    )
+
+    assert metatensor.torch.allclose(
+        output_before["U0"], output_after["U0"]
     )
