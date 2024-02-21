@@ -28,6 +28,7 @@ def compute_model_loss(
     model: Union[torch.nn.Module, torch.jit._script.RecursiveScriptModule],
     systems: List[System],
     targets: Dict[str, TensorMap],
+    peratom_targets: List[str],
 ):
     """
     Compute the loss of a model on a set of targets.
@@ -108,6 +109,18 @@ def compute_model_loss(
 
     # Based on the keys of the targets, get the outputs of the model:
     model_outputs = _get_model_outputs(model, systems, list(targets.keys()))
+    
+    # modify model predictions and targets where averaging per atom is requested
+    if len(peratom_targets) > 0:
+    
+        num_atoms = torch.tensor([len(s) for s in systems]).to(device=device)
+        num_atoms = torch.reshape(num_atoms, (-1, 1))
+        
+        for pa_target in peratom_targets:
+            model_outputs[pa_target].block().values /= num_atoms
+            ## to prevent averaging builds up over epochs
+            targets = targets.copy()
+            targets[pa_target].block().values /= num_atoms
 
     for energy_target in energy_targets:
         # If the energy target requires gradients, compute them:

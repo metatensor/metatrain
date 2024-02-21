@@ -74,6 +74,7 @@ def train(
 
     model_capabilities = model.capabilities
 
+
     # Perform checks on the datasets:
     logger.info("Checking datasets for consistency")
     check_datasets(
@@ -189,7 +190,7 @@ def train(
         for batch in train_dataloader:
             optimizer.zero_grad()
             structures, targets = batch
-            loss, info = compute_model_loss(loss_fn, model, structures, targets)
+            loss, info = compute_model_loss(loss_fn, model, structures, targets, hypers_training["peratom_targets"])
             train_loss += loss.item()
             loss.backward()
             optimizer.step()
@@ -200,7 +201,7 @@ def train(
         for batch in validation_dataloader:
             structures, targets = batch
             # TODO: specify that the model is not training here to save some autograd
-            loss, info = compute_model_loss(loss_fn, model, structures, targets)
+            loss, info = compute_model_loss(loss_fn, model, structures, targets, hypers_training["peratom_targets"])
             validation_loss += loss.item()
             aggregated_validation_info = update_aggregated_info(
                 aggregated_validation_info, info
