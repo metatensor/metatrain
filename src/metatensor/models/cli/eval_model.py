@@ -10,7 +10,6 @@ from omegaconf import DictConfig, OmegaConf
 from ..utils.compute_loss import compute_model_loss
 from ..utils.data import collate_fn, read_structures, read_targets, write_predictions
 from ..utils.errors import ArchitectureError
-from ..utils.export import is_exported
 from ..utils.extract_targets import get_outputs_dict
 from ..utils.info import finalize_aggregated_info, update_aggregated_info
 from ..utils.loss import TensorMapDictLoss
@@ -40,7 +39,7 @@ def _add_eval_model_parser(subparser: argparse._SubParsersAction) -> None:
     parser.add_argument(
         "model",
         type=load_exported_model,
-        help="Saved model to be evaluated.",
+        help="Saved exported model to be evaluated.",
     )
     parser.add_argument(
         "options",
@@ -60,10 +59,6 @@ def _add_eval_model_parser(subparser: argparse._SubParsersAction) -> None:
 
 def _eval_targets(model, dataset: Union[_BaseDataset, torch.utils.data.Subset]) -> None:
     """Evaluate an exported model on a dataset and print the RMSEs for each target."""
-
-    if not is_exported(model):
-        raise ValueError("The model must be exported to be used in `_eval_targets`.")
-
     # Attach neighbor lists to the structures:
     requested_neighbor_lists = model.requested_neighbors_lists()
     # working around https://github.com/lab-cosmo/metatensor/issues/521
