@@ -1,10 +1,10 @@
 import shutil
 
-import metatensor.models
 from metatensor.learn.data import Dataset
 from metatensor.torch.atomistic import ModelCapabilities, ModelOutput
 from omegaconf import OmegaConf
 
+import metatensor.models
 from metatensor.models.experimental.soap_bpnn import DEFAULT_HYPERS, Model, train
 from metatensor.models.utils.data import get_all_species
 from metatensor.models.utils.data.readers import read_structures, read_targets
@@ -75,6 +75,4 @@ def test_continue(monkeypatch, tmp_path):
         structures[:5], {"U0": model_after.capabilities.outputs["U0"]}
     )
 
-    assert metatensor.torch.allclose(
-        output_before["U0"], output_after["U0"]
-    )
+    assert metatensor.torch.allclose(output_before["U0"], output_after["U0"])
