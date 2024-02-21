@@ -1,6 +1,3 @@
-# default hyperparameters for the Alchemical Model
-name: alchemical_model
-
 model:
   soap:
     num_pseudo_species: 4
