@@ -96,9 +96,22 @@ def test_compute_model_loss():
         ),
     }
 
+    peratom_targets = []
+
     compute_model_loss(
         loss_fn,
         model,
         structures,
         targets,
+        peratom_targets,
+    )
+
+    peratom_targets = ["energy"]
+
+    compute_model_loss(
+        loss_fn,
+        model,
+        structures,
+        targets,
+        peratom_targets,
     )
