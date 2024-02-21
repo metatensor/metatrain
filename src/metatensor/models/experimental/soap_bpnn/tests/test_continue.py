@@ -1,9 +1,5 @@
-import random
+import shutil
 
-import ase.io
-import numpy as np
-import rascaline.torch
-import torch
 from metatensor.learn.data import Dataset
 from metatensor.torch.atomistic import ModelCapabilities, ModelOutput
 from omegaconf import OmegaConf
@@ -11,18 +7,19 @@ from omegaconf import OmegaConf
 from metatensor.models.experimental.soap_bpnn import DEFAULT_HYPERS, Model, train
 from metatensor.models.utils.data import get_all_species
 from metatensor.models.utils.data.readers import read_structures, read_targets
+from metatensor.models.utils.model_io import save_model
 
 from . import DATASET_PATH
 
 
-# reproducibility
-random.seed(0)
-np.random.seed(0)
-torch.manual_seed(0)
+def test_continue(monkeypatch, tmp_path):
+    """Tests that a model can be checkpointed and loaded
+    for a continuation of the training process"""
 
+    monkeypatch.chdir(tmp_path)
+    shutil.copy(DATASET_PATH, "qm9_reduced_100.xyz")
 
-def test_regression_init():
-    """Perform a regression test on the model at initialization"""
+    structures = read_structures(DATASET_PATH)
 
     capabilities = ModelCapabilities(
         length_unit="Angstrom",
@@ -34,27 +31,12 @@ def test_regression_init():
             )
         },
     )
-    soap_bpnn = Model(capabilities, DEFAULT_HYPERS["model"]).to(torch.float64)
-
-    # Predict on the first fivestructures
-    structures = ase.io.read(DATASET_PATH, ":5")
-
-    output = soap_bpnn(
-        [rascaline.torch.systems_to_torch(structure) for structure in structures],
-        {"U0": soap_bpnn.capabilities.outputs["U0"]},
-    )
-    expected_output = torch.tensor(
-        [[-1.2796], [-0.8094], [-0.4594], [-0.9971], [-0.4695]]
+    model_before = Model(capabilities, DEFAULT_HYPERS["model"])
+    output_before = model_before(
+        structures[:5], {"U0": model_before.capabilities.outputs["U0"]}
     )
 
-    assert torch.allclose(output["U0"].block().values, expected_output, rtol=1e-3)
-
-
-def test_regression_train():
-    """Perform a regression test on the model when
-    trained for 2 epoch on a small dataset"""
-
-    structures = read_structures(DATASET_PATH)
+    save_model(model_before, "model.ckpt")
 
     conf = {
         "U0": {
@@ -71,7 +53,7 @@ def test_regression_train():
     dataset = Dataset(structure=structures, U0=targets["U0"])
 
     hypers = DEFAULT_HYPERS.copy()
-    hypers["training"]["num_epochs"] = 2
+    hypers["training"]["num_epochs"] = 0
 
     capabilities = ModelCapabilities(
         length_unit="Angstrom",
@@ -83,13 +65,11 @@ def test_regression_train():
             )
         },
     )
-    soap_bpnn = train([dataset], [dataset], capabilities, hypers)
-
-    # Predict on the first five structures
-    output = soap_bpnn(structures[:5], {"U0": soap_bpnn.capabilities.outputs["U0"]})
-
-    expected_output = torch.tensor(
-        [[-40.4234], [-56.5304], [-76.4206], [-77.3017], [-93.3537]]
+    model_after = train(
+        [dataset], [dataset], capabilities, hypers, continue_from="model.ckpt"
     )
 
-    assert torch.allclose(output["U0"].block().values, expected_output, rtol=1e-3)
+    # Predict on the first five structures
+    output_after = model_after(
+        structures[:5], {"U0": model_after.capabilities.outputs["U0"]}
+    )
