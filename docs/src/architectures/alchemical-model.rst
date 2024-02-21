@@ -13,7 +13,6 @@ large amount of chemical elements.
 
 Installation
 ------------
-
 To install the package, you can run the following command in the root
 directory of the repository:
 
@@ -22,6 +21,40 @@ directory of the repository:
     pip install .[alchemical-model]
 
 This will install the package with the Alchemical Model dependencies.
+
+
+Default Hyperparameters
+-----------------------
+The default hyperparameters for the Alchemical Model model are:
+
+.. literalinclude:: ../../../src/metatensor/models/cli/conf/architecture/experimental.alchemical_model.yaml
+   :language: yaml
+
+
+Tuning Hyperparameters
+----------------------
+The default hyperparameters above will work well in most cases, but they
+may not be optimal for your specific dataset. In general, the most important
+hyperparameters to tune are (in decreasing order of importance):
+
+- ``cutoff_radius``: This should be set to a value after which most of the
+  interactions between atoms is expected to be negligible.
+- ``num_pseudo_species``: This number determines the number of pseudo species
+  to use in the Alchemical Compression of the composition space. This value should
+  be adjusted based on the prior knowledge of the size of original chemical space
+  size.
+- ``learning_rate``: The learning rate for the neural network. This hyperparameter
+  controls how much the weights of the network are updated at each step of the
+  optimization. A larger learning rate will lead to faster training, but might cause
+  instability and/or divergence.
+- ``batch_size``: The number of samples to use in each batch of training. This
+  hyperparameter controls the tradeoff between training speed and memory usage. In
+  general, larger batch sizes will lead to faster training, but might require more
+  memory.
+- ``num_hidden_layers``, ``num_neurons_per_layer``:
+  These hyperparameters control the size and depth of the descriptors and the neural
+  network. In general, increasing these hyperparameters might lead to better accuracy,
+  especially on larger datasets, at the cost of increased training and evaluation time.
 
 
 Architecture Hyperparameters
@@ -74,40 +107,6 @@ The parameters for the training loop are
 :param log_interval: write a line to the log every 10 epochs
 :param checkpoint_interval: save a checkpoint every 25 epochs
 
-
-
-Default Hyperparameters
------------------------
-The default hyperparameters for the Alchemical Model model are:
-
-.. literalinclude:: ../../../src/metatensor/models/cli/conf/architecture/experimental.alchemical_model.yaml
-   :language: yaml
-
-
-Tuning Hyperparameters
-----------------------
-The default hyperparameters above will work well in most cases, but they
-may not be optimal for your specific dataset. In general, the most important
-hyperparameters to tune are (in decreasing order of importance):
-
-- ``cutoff_radius``: This should be set to a value after which most of the
-  interactions between atoms is expected to be negligible.
-- ``num_pseudo_species``: This number determines the number of pseudo species
-  to use in the Alchemical Compression of the composition space. This value should
-  be adjusted based on the prior knowledge of the size of original chemical space
-  size.
-- ``learning_rate``: The learning rate for the neural network. This hyperparameter
-  controls how much the weights of the network are updated at each step of the
-  optimization. A larger learning rate will lead to faster training, but might cause
-  instability and/or divergence.
-- ``batch_size``: The number of samples to use in each batch of training. This
-  hyperparameter controls the tradeoff between training speed and memory usage. In
-  general, larger batch sizes will lead to faster training, but might require more
-  memory.
-- ``num_hidden_layers``, ``num_neurons_per_layer``, ``max_radial``, ``max_angular``:
-  These hyperparameters control the size and depth of the descriptors and the neural
-  network. In general, increasing these hyperparameters might lead to better accuracy,
-  especially on larger datasets, at the cost of increased training and evaluation time.
 
 References
 ----------
