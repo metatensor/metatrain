@@ -252,7 +252,8 @@ def read_targets(
 
         target_dictionary[target_key] = [
             TensorMap(
-                keys=Labels(["lambda", "sigma"], torch.tensor([(0, 1)])), blocks=[block]
+                keys=Labels(["_"], torch.tensor([[0]])),
+                blocks=[block],
             )
             for block in blocks
         ]
