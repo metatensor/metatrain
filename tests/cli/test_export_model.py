@@ -1,3 +1,8 @@
+"""Test command line interface for the export functions.
+
+Actual unit tests for the function are performed in `tests/utils/test_export`.
+"""
+
 import subprocess
 from pathlib import Path
 

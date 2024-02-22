@@ -5,10 +5,10 @@ import sys
 import traceback
 
 from . import __version__
-from .cli import eval_model, export_model, train_model
-from .cli.eval_model import _add_eval_model_parser
-from .cli.export_model import _add_export_model_parser
-from .cli.train_model import _add_train_model_parser
+from .cli.eval import _add_eval_model_parser, eval_model
+from .cli.export import _add_export_model_parser
+from .cli.train import _add_train_model_parser, train_model
+from .utils.export import export
 
 
 def main():
@@ -46,7 +46,7 @@ def main():
         if callable == "eval_model":
             eval_model(**args.__dict__)
         elif callable == "export_model":
-            export_model(**args.__dict__)
+            export(**args.__dict__)
         elif callable == "train_model":
             train_model(**args.__dict__)
         else:
