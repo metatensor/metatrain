@@ -29,6 +29,7 @@ def compute_model_loss(
     model: Union[torch.nn.Module, torch.jit._script.RecursiveScriptModule],
     systems: List[System],
     targets: Dict[str, TensorMap],
+    peratom_targets: List[str],
 ):
     """
     Compute the loss of a model on a set of targets.
@@ -174,8 +175,38 @@ def compute_model_loss(
         else:
             pass
 
+    # Averaging by number of atoms for per atom targets
+    num_atoms = torch.tensor([len(s) for s in systems]).to(device=device)
+    num_atoms = torch.reshape(num_atoms, (-1, 1))
+
+    new_model_outputs = model_outputs.copy()
+    new_targets = targets.copy()
+
+    for pa_target in peratom_targets:
+
+        # Update predictions
+        cur_model_block = new_model_outputs[pa_target].block()
+        new_model_block = _average_by_num_atoms(cur_model_block, num_atoms)
+
+        # Update targets
+        cur_target_block = new_targets[pa_target].block()
+        new_target_block = _average_by_num_atoms(cur_target_block, num_atoms)
+
+        new_model_tensor = TensorMap(
+            keys=new_model_outputs[pa_target].keys,
+            blocks=[new_model_block],
+        )
+
+        new_target_tensor = TensorMap(
+            keys=new_targets[pa_target].keys,
+            blocks=[new_target_block],
+        )
+
+        new_model_outputs[pa_target] = new_model_tensor
+        new_targets[pa_target] = new_target_tensor
+
     # Compute and return the loss and associated info:
-    return loss(model_outputs, targets)
+    return loss(new_model_outputs, new_targets)
 
 
 def _position_gradients_to_block(gradients_list):
@@ -275,3 +306,19 @@ def _get_model_outputs(
         return model(
             systems, {key: _get_capabilities(model).outputs[key] for key in targets}
         )
+
+
+def _average_by_num_atoms(block: TensorBlock, num_atoms: torch.Tensor) -> TensorBlock:
+    """Taking the average values per atom of a `TensorBlock`."""
+
+    new_values = block.values.copy() / num_atoms
+    new_block = TensorBlock(
+        values=new_values,
+        samples=block.samples,
+        components=block.components,
+        properties=block.properties,
+    )
+    for param, gradient in block.gradients():
+        new_block.add_gradient(param, gradient)
+
+    return new_block

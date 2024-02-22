@@ -100,7 +100,7 @@ def _eval_targets(model, dataset: Union[_BaseDataset, torch.utils.data.Subset]) 
     aggregated_info: Dict[str, Tuple[float, int]] = {}
     for batch in dataloader:
         structures, targets = batch
-        _, info = compute_model_loss(loss_fn, model, structures, targets)
+        _, info = compute_model_loss(loss_fn, model, structures, targets, [])
         aggregated_info = update_aggregated_info(aggregated_info, info)
     finalized_info = finalize_aggregated_info(aggregated_info)
 

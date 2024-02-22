@@ -25,3 +25,4 @@ training:
   learning_rate: 0.001
   log_interval: 10
   checkpoint_interval: 25
+  peratom_targets: []
