@@ -1,5 +1,5 @@
 import warnings
-from typing import Dict, List, Union
+from typing import Dict, List, Tuple, Union
 
 import torch
 from metatensor.torch import Labels, TensorBlock, TensorMap
@@ -30,7 +30,7 @@ def compute_model_loss(
     systems: List[System],
     targets: Dict[str, TensorMap],
     per_atom_targets: List[str],
-):
+) -> Tuple[torch.Tensor, Dict[str, Tuple[float, int]]]:
     """
     Compute the loss of a model on a set of targets.
 

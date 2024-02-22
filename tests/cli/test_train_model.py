@@ -11,7 +11,7 @@ import torch
 from omegaconf import OmegaConf
 from omegaconf.errors import ConfigKeyError
 
-from metatensor.models.cli.train_model import check_architecture_name, train_model
+from metatensor.models.cli.train import check_architecture_name, train_model
 
 
 RESOURCES_PATH = Path(__file__).parent.resolve() / ".." / "resources"

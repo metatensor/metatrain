@@ -10,17 +10,11 @@ def calculate_composition_weights(
     datasets: _BaseDataset, property: str
 ) -> torch.Tensor:
     """Calculate the composition weights for a dataset.
+
     For now, it assumes per-structure properties.
 
-    Parameters
-    ----------
-    dataset: torch.data.utils.Dataset
-        Dataset to calculate the composition weights for.
-
-    Returns
-    -------
-    torch.Tensor
-        Composition weights for the dataset.
+    :param dataset: Dataset to calculate the composition weights for.
+    :returns: Composition weights for the dataset.
     """
 
     # Get the target for each structure in the dataset
@@ -80,17 +74,9 @@ def apply_composition_contribution(
 ) -> TensorMap:
     """Apply the composition contribution to an atomic property.
 
-    Parameters
-    ----------
-    atomic_property: TensorMap
-        Atomic property to apply the composition contribution to.
-    composition_weights: torch.Tensor
-        Composition weights to apply.
-
-    Returns
-    -------
-    TensorMap
-        Atomic property with the composition contribution applied.
+    :param atomic_property: Atomic property to apply the composition contribution to.
+    :param composition_weights: Composition weights to apply.
+    :returns: Atomic property with the composition contribution applied.
     """
 
     new_keys: List[int] = []
