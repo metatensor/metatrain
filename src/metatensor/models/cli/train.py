@@ -26,7 +26,7 @@ from ..utils.errors import ArchitectureError
 from ..utils.export import export
 from ..utils.model_io import save_model
 from ..utils.omegaconf import check_units, expand_dataset_config
-from .eval_model import _eval_targets
+from .eval import _eval_targets
 from .formatter import CustomHelpFormatter
 
 
