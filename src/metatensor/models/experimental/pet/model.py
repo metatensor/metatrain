@@ -37,11 +37,11 @@ class Model(torch.nn.Module):
     ) -> None:
         super().__init__()
         self.name = ARCHITECTURE_NAME
-        self.hypers = hypers
-        self.cutoff = self.hypers["R_CUT"]
+        self.hypers = (Hypers(hypers) if isinstance(hypers, dict) else hypers)
+        self.cutoff = (self.hypers["R_CUT"] if isinstance(self.hypers, dict) else self.hypers.R_CUT)
         self.all_species = capabilities.species
         self.capabilities = capabilities
-        self.pet = PET(Hypers(self.hypers), 0.0, len(self.all_species))
+        self.pet = PET(self.hypers, 0.0, len(self.all_species))
 
     def set_trained_model(self, trained_model: torch.nn.Module) -> None:
         self.pet = trained_model

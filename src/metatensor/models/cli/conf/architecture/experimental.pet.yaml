@@ -21,10 +21,10 @@ ARCHITECTURAL_HYPERS:
   AVERAGE_BOND_ENERGIES: False
   USE_BOND_ENERGIES: True
   USE_ADDITIONAL_SCALAR_ATTRIBUTES: False
-  SCALAR_ATTRIBUTES_SIZE: None
+  SCALAR_ATTRIBUTES_SIZE: null
   TRANSFORMER_TYPE: PostLN # PostLN or PreLN
   USE_LONG_RANGE: False
-  K_CUT: None # should be float; only used when USE_LONG_RANGE is True
+  K_CUT: null # should be float; only used when USE_LONG_RANGE is True
 
 
 FITTING_SCHEME:  
@@ -40,12 +40,12 @@ FITTING_SCHEME:
   MULTI_GPU: False
   RANDOM_SEED: 0
   CUDA_DETERMINISTIC: False
-  MODEL_TO_START_WITH: None
+  MODEL_TO_START_WITH: null
   SUPPORT_MISSING_VALUES: False
   USE_WEIGHT_DECAY: False
   WEIGHT_DECAY: 0.0
   DO_GRADIENT_CLIPPING: False
-  GRADIENT_CLIPPING_MAX_NORM: None # must be overwritten if DO_GRADIENT_CLIPPING is True
+  GRADIENT_CLIPPING_MAX_NORM: null # must be overwritten if DO_GRADIENT_CLIPPING is True
   USE_SHIFT_AGNOSTIC_LOSS: False # only used when fitting general target. Primary use case: EDOS
   ENERGIES_LOSS: per_structure # per_structure or per_atom
 
@@ -62,4 +62,4 @@ GENERAL_TARGET_SETTINGS: # only used when fitting general target
   TARGET_KEY: structural_target
 
 UTILITY_FLAGS: #for internal usage; do not change/overwrite
-  CALCULATION_TYPE: None
+  CALCULATION_TYPE: null
