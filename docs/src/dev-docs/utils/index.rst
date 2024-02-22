@@ -6,11 +6,18 @@ This is the API for the ``utils`` module of ``metatensor-models``.
 .. toctree::
    :maxdepth: 1
 
-   dataset
-   readers/index
-   writers
+   data/index
+   composition
+   compute_loss
+   errors
+   export
+   extract_targets
+   info
+   logging
+   loss
+   merge_capabilities
    model-io
-   omegaconf
-   combine_dataloaders
    neighbors_lists
    normalize
+   omegaconf
+   output_gradient

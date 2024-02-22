@@ -1,7 +1,7 @@
-export_model
+Compute loss
 ############
 
-.. automodule:: metatensor.models.cli.export_model
+.. automodule:: metatensor.models.utils.compute_loss
     :members:
     :undoc-members:
     :show-inheritance:

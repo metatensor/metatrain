@@ -8,8 +8,7 @@ from metatensor.torch import TensorMap
 
 
 class TensorMapLoss:
-    """
-    A loss function that operates on two `metatensor.torch.TensorMap`s.
+    """A loss function that operates on two ``metatensor.torch.TensorMap``.
 
     The loss is computed as the sum of the loss on the block values and
     the loss on the gradients, with weights specified at initialization.
@@ -118,8 +117,7 @@ class TensorMapLoss:
 
 
 class TensorMapDictLoss:
-    """
-    A loss function that operates on two `Dict[str, metatensor.torch.TensorMap]`.
+    """A loss function that operates on two ``Dict[str, metatensor.torch.TensorMap]``.
 
     At initialization, the user specifies a list of keys to use for the loss,
     along with a weight for each key (as well as gradient weights).

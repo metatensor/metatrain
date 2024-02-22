@@ -1,7 +1,7 @@
-train_model
+Composition
 ###########
 
-.. automodule:: metatensor.models.cli.train_model
+.. automodule:: metatensor.models.utils.composition
     :members:
     :undoc-members:
     :show-inheritance:
