@@ -137,7 +137,7 @@ syntax that are lines beginning at the same indentation level starting with a ``
     training_set:
         - structures:
               read_from: dataset_0.xyz
-              length_unit: "angstrom"
+              length_unit: angstrom
           targets:
               energy:
                   quantity: energy

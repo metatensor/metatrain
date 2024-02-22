@@ -1,7 +1,6 @@
 import glob
 import shutil
 import subprocess
-import warnings
 from pathlib import Path
 
 import ase.io
@@ -85,17 +84,17 @@ def test_train_explicit_validation_test(
     options["training_set"] = OmegaConf.create(n_datasets * [options["training_set"]])
 
     if validation_set_file:
-        ase.io.write("test.xyz", structures[50:80])
+        ase.io.write("validation.xyz", structures[50:80])
         options["validation_set"] = options["training_set"][0].copy()
-        options["validation_set"]["structures"]["read_from"] = "test.xyz"
+        options["validation_set"]["structures"]["read_from"] = "validation.xyz"
         options["validation_set"] = OmegaConf.create(
             n_datasets * [options["validation_set"]]
         )
 
     if test_set_file:
-        ase.io.write("validation.xyz", structures[80:])
+        ase.io.write("test.xyz", structures[80:])
         options["test_set"] = options["training_set"][0].copy()
-        options["test_set"]["structures"]["read_from"] = "validation.xyz"
+        options["test_set"]["structures"]["read_from"] = "test.xyz"
         options["test_set"] = OmegaConf.create(n_datasets * [options["test_set"]])
 
     train_model(options)
@@ -167,16 +166,16 @@ def test_inconsistent_number_of_datasets(
     ase.io.write("qm9_reduced_100.xyz", structures[:50])
 
     if validation_set_file:
-        ase.io.write("test.xyz", structures[50:80])
+        ase.io.write("validation.xyz", structures[50:80])
         options["validation_set"] = options["training_set"].copy()
-        options["validation_set"]["structures"]["read_from"] = "test.xyz"
+        options["validation_set"]["structures"]["read_from"] = "validation.xyz"
         options["validation_set"] = OmegaConf.create(2 * [options["validation_set"]])
 
     if test_set_file:
-        ase.io.write("validation.xyz", structures[80:])
+        ase.io.write("test.xyz", structures[80:])
         options["test_set"] = options["training_set"].copy()
-        options["test_set"]["structures"]["read_from"] = "validation.xyz"
-        options["test_set"] = OmegaConf.create(2 * [options["validation_set"]])
+        options["test_set"]["structures"]["read_from"] = "test.xyz"
+        options["test_set"] = OmegaConf.create(2 * [options["test_set"]])
 
     with pytest.raises(SystemExit):
         train_model(options)
@@ -253,16 +252,9 @@ def test_continue_from_exported(options, monkeypatch, tmp_path):
     monkeypatch.chdir(tmp_path)
     shutil.copy(DATASET_PATH, "qm9_reduced_100.xyz")
 
-    # check that this warns and then errors out
-    with pytest.raises(SystemExit):
-        with warnings.catch_warnings(record=True) as w:
-            warnings.simplefilter("always")  # turn all warnings into catchable events
+    with pytest.warns(match="Trying to load a checkpoint from"):
+        with pytest.raises(SystemExit):
             train_model(options, continue_from=RESOURCES_PATH / "bpnn-model.pt")
-
-    assert any(
-        "Please use a .ckpt (checkpoint) file instead" in str(warning.message)
-        for warning in w
-    )
 
 
 def test_hydra_arguments():
