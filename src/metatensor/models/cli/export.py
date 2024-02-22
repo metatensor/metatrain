@@ -6,8 +6,8 @@ from .formatter import CustomHelpFormatter
 
 
 def _add_export_model_parser(subparser: argparse._SubParsersAction) -> None:
-    if export_model.__doc__ is not None:
-        description = export_model.__doc__.split(":param")[0]
+    if export.__doc__ is not None:
+        description = export.__doc__.split(":param")[0]
     else:
         description = None
 
@@ -32,14 +32,3 @@ def _add_export_model_parser(subparser: argparse._SubParsersAction) -> None:
         default="exported-model.pt",
         help="Filename of the exported model (default: %(default)s).",
     )
-
-
-def export_model(model, output):
-    """Exports a trained model to allow it to make predictions,
-    including within molecular simulation engines.
-
-    :param model: Path to a saved model checkpoint
-    :param output: Path to save the exported model
-    """
-
-    export(model, output)

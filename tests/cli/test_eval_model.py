@@ -8,7 +8,7 @@ import pytest
 import torch
 from omegaconf import OmegaConf
 
-from metatensor.models.cli import eval_model
+from metatensor.models.cli.eval import eval_model
 
 
 RESOURCES_PATH = Path(__file__).parent.resolve() / ".." / "resources"
