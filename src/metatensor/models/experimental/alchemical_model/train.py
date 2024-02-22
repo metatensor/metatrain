@@ -210,7 +210,7 @@ def train(
             structures, targets = batch
             assert len(structures[0].known_neighbors_lists()) > 0
             loss, info = compute_model_loss(
-                loss_fn, model, structures, targets, hypers_training["peratom_targets"]
+                loss_fn, model, structures, targets, hypers_training["per_atom_targets"]
             )
             train_loss += loss.item()
             loss.backward()
@@ -223,7 +223,7 @@ def train(
             structures, targets = batch
             # TODO: specify that the model is not training here to save some autograd
             loss, info = compute_model_loss(
-                loss_fn, model, structures, targets, hypers_training["peratom_targets"]
+                loss_fn, model, structures, targets, hypers_training["per_atom_targets"]
             )
             validation_loss += loss.item()
             aggregated_validation_info = update_aggregated_info(

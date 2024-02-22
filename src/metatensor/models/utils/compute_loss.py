@@ -29,7 +29,7 @@ def compute_model_loss(
     model: Union[torch.nn.Module, torch.jit._script.RecursiveScriptModule],
     systems: List[System],
     targets: Dict[str, TensorMap],
-    peratom_targets: List[str],
+    per_atom_targets: List[str],
 ):
     """
     Compute the loss of a model on a set of targets.
@@ -182,7 +182,7 @@ def compute_model_loss(
     new_model_outputs = model_outputs.copy()
     new_targets = targets.copy()
 
-    for pa_target in peratom_targets:
+    for pa_target in per_atom_targets:
 
         # Update predictions
         cur_model_block = new_model_outputs[pa_target].block()

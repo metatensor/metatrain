@@ -104,14 +104,14 @@ def test_compute_model_loss():
         [],
     )
 
-    peratom_targets = ["energy"]
+    per_atom_targets = ["energy"]
 
-    peratom_loss, info = compute_model_loss(
+    per_atom_loss, info = compute_model_loss(
         loss_fn,
         model,
         structures,
         targets,
-        peratom_targets,
+        per_atom_targets,
     )
 
-    assert loss > peratom_loss
+    assert loss > per_atom_loss
