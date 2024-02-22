@@ -1,5 +1,4 @@
 from typing import List
-from .data.system_to_ase import system_to_ase
 
 import ase
 import torch
@@ -9,6 +8,8 @@ from metatensor.torch.atomistic import (
     System,
     register_autograd_neighbors,
 )
+
+from .data.system_to_ase import system_to_ase
 
 
 def get_system_with_neighbors_lists(

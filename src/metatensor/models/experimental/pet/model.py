@@ -1,7 +1,7 @@
-import torch
-import numpy as np
 from typing import Dict, List, Optional
-from metatensor.torch import Labels, TensorMap, TensorBlock
+
+import torch
+from metatensor.torch import Labels, TensorBlock, TensorMap
 from metatensor.torch.atomistic import (
     ModelCapabilities,
     ModelOutput,
@@ -9,9 +9,9 @@ from metatensor.torch.atomistic import (
     System,
 )
 from omegaconf import OmegaConf
+from pet.hypers import Hypers
 from pet.molecule import batch_to_dict
 from pet.pet import PET
-from pet.hypers import Hypers
 
 from ... import ARCHITECTURE_CONFIG_PATH
 from .utils import systems_to_pyg_graphs
@@ -37,8 +37,10 @@ class Model(torch.nn.Module):
     ) -> None:
         super().__init__()
         self.name = ARCHITECTURE_NAME
-        self.hypers = (Hypers(hypers) if isinstance(hypers, dict) else hypers)
-        self.cutoff = (self.hypers["R_CUT"] if isinstance(self.hypers, dict) else self.hypers.R_CUT)
+        self.hypers = Hypers(hypers) if isinstance(hypers, dict) else hypers
+        self.cutoff = (
+            self.hypers["R_CUT"] if isinstance(self.hypers, dict) else self.hypers.R_CUT
+        )
         self.all_species = capabilities.species
         self.capabilities = capabilities
         self.pet = PET(self.hypers, 0.0, len(self.all_species))

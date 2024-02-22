@@ -1,9 +1,9 @@
-import torch
-from torch_geometric.data import Data, Batch
-
-from metatensor.torch.atomistic import System, NeighborsListOptions
-from pet.molecule import NeighborIndexConstructor
 from typing import List
+
+import torch
+from metatensor.torch.atomistic import NeighborsListOptions, System
+from pet.molecule import NeighborIndexConstructor
+from torch_geometric.data import Batch, Data
 
 
 def systems_to_pyg_graphs(

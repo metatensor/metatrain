@@ -1,36 +1,20 @@
 import logging
 import warnings
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple, Union
+from typing import Dict, List, Optional, Union
 
 import rascaline
 import torch
 from metatensor.learn.data import DataLoader
 from metatensor.learn.data.dataset import _BaseDataset
-from metatensor.torch.atomistic import ModelCapabilities, NeighborsListOptions, System
-from pet.pet import PET
+from metatensor.torch.atomistic import ModelCapabilities
 from pet.hypers import Hypers
-
-from ...utils.composition import calculate_composition_weights
-from ...utils.compute_loss import compute_model_loss
-from ...utils.data import (
-    check_datasets,
-    collate_fn,
-    combine_dataloaders,
-    get_all_targets,
-)
-from ...utils.data.system_to_ase import system_to_ase
-from ...utils.extract_targets import get_outputs_dict
-from ...utils.info import finalize_aggregated_info, update_aggregated_info
-from ...utils.neighbors_lists import get_system_with_neighbors_lists
-from ...utils.logging import MetricLogger
-from ...utils.loss import TensorMapDictLoss
-from ...utils.merge_capabilities import merge_capabilities
-from ...utils.model_io import load_checkpoint, save_model
-from .utils import systems_to_pyg_graphs
-from .model import DEFAULT_HYPERS, Model
-
+from pet.pet import PET
 from pet.train_model import fit_pet
+
+from ...utils.data import collate_fn
+from ...utils.data.system_to_ase import system_to_ase
+from .model import DEFAULT_HYPERS, Model
 
 
 logger = logging.getLogger(__name__)
@@ -69,13 +53,13 @@ def train(
         raise ValueError("PET only supports a single training dataset")
     if len(validation_datasets) != 1:
         raise ValueError("PET only supports a single validation dataset")
-    
+
     if device_str == "gpu":
         device_str = "cuda"
 
     if continue_from is not None:
         hypers["FITTING_SCHEME"]["MODEL_TO_START_WITH"] = continue_from
-    
+
     train_dataset = train_datasets[0]
     validation_dataset = validation_datasets[0]
 
@@ -94,7 +78,7 @@ def train(
     )
 
     # only energies or energies and forces?
-    do_forces = (next(iter(train_dataset))[1].block().has_gradient('positions'))
+    do_forces = next(iter(train_dataset))[1].block().has_gradient("positions")
     all_species = requested_capabilities.species
     if not do_forces:
         hypers["MLIP_SETTINGS"]["USE_FORCES"] = False
@@ -102,21 +86,43 @@ def train(
     ase_train_dataset = []
     for (system,), targets in train_dataloader:
         ase_atoms = system_to_ase(system)
-        ase_atoms.info['energy'] = float(targets[target_name].block().values.squeeze(-1).detach().cpu().numpy())
+        ase_atoms.info["energy"] = float(
+            targets[target_name].block().values.squeeze(-1).detach().cpu().numpy()
+        )
         if do_forces:
-            ase_atoms.arrays["forces"] = -targets[target_name].block().gradient('positions').values.squeeze(-1).detach().cpu().numpy()
+            ase_atoms.arrays["forces"] = (
+                -targets[target_name]
+                .block()
+                .gradient("positions")
+                .values.squeeze(-1)
+                .detach()
+                .cpu()
+                .numpy()
+            )
         ase_train_dataset.append(ase_atoms)
 
     ase_validation_dataset = []
     for (system,), targets in validation_dataloader:
         ase_atoms = system_to_ase(system)
-        ase_atoms.info['energy'] = float(targets[target_name].block().values.squeeze(-1).detach().cpu().numpy())
+        ase_atoms.info["energy"] = float(
+            targets[target_name].block().values.squeeze(-1).detach().cpu().numpy()
+        )
         if do_forces:
-            ase_atoms.arrays["forces"] = -targets[target_name].block().gradient('positions').values.squeeze(-1).detach().cpu().numpy()
+            ase_atoms.arrays["forces"] = (
+                -targets[target_name]
+                .block()
+                .gradient("positions")
+                .values.squeeze(-1)
+                .detach()
+                .cpu()
+                .numpy()
+            )
         ase_validation_dataset.append(ase_atoms)
 
-    fit_pet(ase_train_dataset, ase_validation_dataset, hypers, "pet", device_str, output_dir)
-    
+    fit_pet(
+        ase_train_dataset, ase_validation_dataset, hypers, "pet", device_str, output_dir
+    )
+
     if do_forces:
         load_path = Path(output_dir) / "pet" / "best_val_rmse_forces_model_state_dict"
     else:
@@ -125,9 +131,11 @@ def train(
     state_dict = torch.load(load_path)
 
     ARCHITECTURAL_HYPERS = Hypers(hypers["ARCHITECTURAL_HYPERS"])
-    ARCHITECTURAL_HYPERS.D_OUTPUT = 1 # energy is a single scalar
-    ARCHITECTURAL_HYPERS.TARGET_TYPE = 'structural'  # energy is structural property
-    ARCHITECTURAL_HYPERS.TARGET_AGGREGATION = 'sum'  # energy is a sum of atomic energies
+    ARCHITECTURAL_HYPERS.D_OUTPUT = 1  # energy is a single scalar
+    ARCHITECTURAL_HYPERS.TARGET_TYPE = "structural"  # energy is structural property
+    ARCHITECTURAL_HYPERS.TARGET_AGGREGATION = (
+        "sum"  # energy is a sum of atomic energies
+    )
 
     raw_pet = PET(ARCHITECTURAL_HYPERS, 0.0, len(all_species))
 
