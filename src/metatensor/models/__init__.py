@@ -7,5 +7,3 @@ CONFIG_PATH = PACKAGE_ROOT / "cli" / "conf"
 ARCHITECTURE_CONFIG_PATH = CONFIG_PATH / "architecture"
 
 __version__ = "2023.11.29"
-
-torch.set_default_dtype(torch.float64)

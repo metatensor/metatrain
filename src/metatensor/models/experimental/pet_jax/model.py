@@ -31,7 +31,7 @@ class Model(torch.nn.Module):
         # Handle species
         self.all_species = all_species
         self.species_to_species_index = torch.full(
-            (np.max(all_species) + 1,),
+            (torch.max(all_species) + 1,),
             -1,
         )
         for i, species in enumerate(all_species):
@@ -63,24 +63,13 @@ class Model(torch.nn.Module):
         # TODO: checks
 
         n_structures = len(systems)
-        positions, centers, neighbors, cell_shifts, species, cells, segment_indices = (
+        positions, centers, neighbors, species, segment_indices, edge_vectors = (
             concatenate_structures(systems)
         )
-        max_edges_per_node = torch.max(torch.bincount(centers))
+        max_edges_per_node = int(torch.max(torch.bincount(centers)))
 
         # Convert to NEF:
-        nef_indices = get_nef_indices(centers, positions, max_edges_per_node)
-
-        # get edge vectors:
-        edge_vectors = (
-            positions[neighbors]
-            - positions[centers]
-            + jnp.einsum(
-                "ia, iab -> ib",
-                cell_shifts,
-                cells[segment_indices[centers]],
-            )
-        )
+        nef_indices = get_nef_indices(centers, len(positions), max_edges_per_node)
 
         # Get radial mask
         r = torch.sqrt(torch.sum(edge_vectors**2, axis=-1))
@@ -100,6 +89,8 @@ class Model(torch.nn.Module):
         element_indices_neighbors = edge_array_to_nef(
             element_indices_neighbors, nef_indices, self.all_species[0]
         )
+
+        print(edge_vectors.shape)
 
         features = {
             "cartesian": edge_vectors,
@@ -126,15 +117,13 @@ class Model(torch.nn.Module):
         structure_energies = torch.zeros(
             n_structures, dtype=atomic_energies.dtype, device=atomic_energies.device
         )
-        structure_energies.index_add_(atomic_energies, segment_indices, dim=0)
+        structure_energies.index_add_(0, segment_indices, atomic_energies)
 
         # TODO: use utils? use composition calculator?
-        composition = jnp.empty((n_structures, len(self.all_species)))
+        composition = torch.zeros((n_structures, len(self.all_species)), device=atomic_energies.device)
         for number in self.all_species:
-            where_number = species == number
-            composition[:, self.species_to_species_index[number]] = torch.zeros(
-                n_structures, dtype=atomic_energies.dtype, device=atomic_energies.device
-            ).index_add(where_number, segment_indices, dim=0)
+            where_number = (species == number).to(composition.dtype)
+            composition[:, self.species_to_species_index[number]].index_add_(0, segment_indices, where_number)
 
         structure_energies = structure_energies + composition @ self.composition_weights
 

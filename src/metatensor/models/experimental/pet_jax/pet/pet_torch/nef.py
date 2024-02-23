@@ -17,7 +17,7 @@ def get_nef_indices(centers, n_nodes: int, n_edges_per_node: int):
 def edge_array_to_nef(edge_array, nef_indices, fill_value):
     """Converts an edge array to a NEF array."""
 
-    mask, nef_indices = nef_indices
+    nef_indices, mask = nef_indices
 
     return torch.where(
         mask.reshape(mask.shape + (1,) * (len(edge_array.shape) - 1)),

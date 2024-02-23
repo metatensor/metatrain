@@ -33,11 +33,10 @@ class TransformerLayer(torch.nn.Module):
         self,
         inputs: torch.Tensor,
         radial_mask: torch.Tensor,
-        enable_dropout: bool = False,
     ) -> torch.Tensor:
 
         attention_output = self.attention_block(
-            inputs, radial_mask, enable_dropout=enable_dropout
+            inputs, radial_mask
         )
         output = self.ff_block(attention_output)
 

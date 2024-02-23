@@ -25,7 +25,6 @@ class FeedForwardBlock(torch.nn.Module):
     def forward(
         self,
         inputs: torch.Tensor,  # hidden_size
-        enable_dropout: bool = True,
     ) -> torch.Tensor:  # hidden_size
 
         # Pre-layer normalization
@@ -33,13 +32,13 @@ class FeedForwardBlock(torch.nn.Module):
 
         # Feed-forward
         hidden = self.mlp(normed_inputs)
-        hidden = torch.nn.gelu(hidden)
+        hidden = torch.nn.functional.gelu(hidden)
 
         # Project back to input size
         output = self.output(hidden)
 
         # Apply dropout
-        output = self.dropout(output, inference=not enable_dropout)
+        output = self.dropout(output)
 
         # Residual connection
         output += inputs

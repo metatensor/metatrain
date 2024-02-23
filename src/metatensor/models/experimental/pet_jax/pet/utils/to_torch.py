@@ -1,5 +1,7 @@
 import jax
 import torch
+import numpy as np
+import jax.numpy as jnp
 
 from ...model import Model as PET_torch
 from ..models import PET as PET_jax
@@ -21,20 +23,43 @@ def pet_to_torch(pet_jax: PET_jax, hypers: dict):
     device = torch.device(torch_device_type)
 
     pet_torch = PET_torch(
-        all_species=list(pet_jax.all_species),
+        all_species=torch.tensor(np.array(pet_jax.all_species), device=device),
         hypers=hypers,
         composition_weights=torch.tensor(
-            pet_jax.composition_weights.numpy(), device=device
+            np.array(pet_jax.composition_weights), device=device
         ),
     )
 
     # skip the species list (in both atomic numbers indices) and composition weights
-    jax_params = [x for x in jax.tree_util.tree_leaves() if isinstance(x, jax.Array)][
+    jax_params = [x for x in jax.tree_util.tree_leaves(pet_jax) if isinstance(x, jax.Array)][
         2:-1
     ]
     torch_params = list(pet_torch.parameters())
 
-    for jax_param, torch_param in zip(jax_params, torch_params):
-        torch_param.data = torch.tensor(jax_param.numpy(), device=device)
+    torch_counter = 0
+    jax_counter = 0
+    while True:
+        torch_param = torch_params[torch_counter]
+        jax_param = jax_params[jax_counter]
+
+        if torch_param.shape != jax_param.shape:
+            if torch_param.shape[0] == 3*jax_param.shape[0] and torch_param.shape[1:] == jax_param.shape[1:]:
+                # we're dealing with the attention weights
+                jax_param = [jax_param]
+                jax_param.append(jax_params[jax_counter+1])
+                jax_param.append(jax_params[jax_counter+2])
+                jax_counter += 2
+                jax_param = jnp.concatenate(jax_param)
+            else:
+                raise ValueError(
+                    f"Failed to convert parameter {torch_param.shape} "
+                    f"to {jax_param.shape} during jax-to-torch conversion of PET-JAX"
+                )
+        torch_param.data = torch.tensor(np.array(jax_param), device=device)
+        jax_counter += 1
+        torch_counter += 1
+        if jax_counter == len(jax_params):
+            assert torch_counter == len(torch_params)
+            break
 
     return pet_torch

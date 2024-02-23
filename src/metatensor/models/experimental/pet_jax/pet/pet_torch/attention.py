@@ -19,6 +19,7 @@ class AttentionBlock(torch.nn.Module):
             num_heads,
             dropout=attention_dropout_rate,
             bias=False,
+            batch_first=True,
         )
         self.layernorm = torch.nn.LayerNorm(normalized_shape=hidden_size)
         self.dropout = torch.nn.Dropout(dropout_rate)
@@ -30,13 +31,13 @@ class AttentionBlock(torch.nn.Module):
     ) -> torch.Tensor:  # seq_len hidden_size
 
         # Apply radial mask
-        inputs = inputs * radial_mask[:, None]
+        inputs = inputs * radial_mask[:, :, None]
 
         # Pre-layer normalization
         normed_inputs = self.layernorm(inputs)
 
         # Attention
-        attention_output = self.attention(
+        attention_output, _ = self.attention(
             query=normed_inputs,
             key=normed_inputs,
             value=normed_inputs,
