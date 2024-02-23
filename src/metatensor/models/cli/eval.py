@@ -30,6 +30,8 @@ def _add_eval_model_parser(subparser: argparse._SubParsersAction) -> None:
     else:
         description = None
 
+    # If you change the synopsis of these commands or add new ones adjust the completion
+    # script at `src/metatensor/models/share/metatensor-models-completion.bash`.
     parser = subparser.add_parser(
         "eval",
         description=description,

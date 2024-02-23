@@ -3,6 +3,7 @@
 import argparse
 import sys
 import traceback
+from pathlib import Path
 
 from . import __version__
 from .cli.eval import _add_eval_model_parser, eval_model
@@ -20,6 +21,8 @@ def main():
     if len(sys.argv) < 2:
         ap.error("You must specify a sub-command")
 
+    # If you change the synopsis of these commands or add new ones adjust the completion
+    # script at `src/metatensor/models/share/metatensor-models-completion.bash`.
     ap.add_argument(
         "--version",
         action="version",
@@ -30,6 +33,13 @@ def main():
         "--debug",
         action="store_true",
         help="Run with debug options.",
+    )
+
+    ap.add_argument(
+        "--shell-completion",
+        action="version",
+        help="Path to the shell completion script",
+        version=str(Path(__file__).parent / "share/metatensor-models-completion.bash"),
     )
 
     # Add sub-parsers
