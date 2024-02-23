@@ -2,8 +2,6 @@ import equinox as eqx
 import jax
 import jax.numpy as jnp
 
-from .radial_attention import RadialAttention
-
 
 class AttentionBlock(eqx.Module):
     """A single transformer attention block."""
@@ -23,16 +21,6 @@ class AttentionBlock(eqx.Module):
         key: jax.random.PRNGKey,
     ):
         self.num_heads = num_heads
-        # self.attention = RadialAttention(
-        #     num_heads=num_heads,
-        #     query_size=hidden_size,
-        #     use_query_bias=True,
-        #     use_key_bias=True,
-        #     use_value_bias=True,
-        #     use_output_bias=True,
-        #     dropout_p=attention_dropout_rate,
-        #     key=key,
-        # )
         self.attention = eqx.nn.MultiheadAttention(
             num_heads=num_heads,
             query_size=hidden_size,
@@ -66,7 +54,6 @@ class AttentionBlock(eqx.Module):
             query=normed_inputs,
             key_=normed_inputs,
             value=normed_inputs,
-            # radial_mask=radial_mask,
             inference=not enable_dropout,
             key=attention_key,
         )

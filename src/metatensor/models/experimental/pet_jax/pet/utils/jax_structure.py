@@ -7,7 +7,7 @@ from .mts_to_structure import Structure
 
 
 JAXStructure = namedtuple(
-    "JaxStructure",
+    "JAXStructure",
     "positions, cell, numbers, centers, neighbors, cell_shifts, energy, forces",
 )
 
@@ -22,7 +22,8 @@ def structure_to_jax(structure: Structure):
 
     if not np.all(structure.centers[1:] >= structure.centers[:-1]):
         raise ValueError(
-            "centers array of the neighbor list is not sorted. This is required for the JAX implementation."
+            "centers array of the neighbor list is not sorted. "
+            "This is required for the JAX implementation."
         )
 
     return JAXStructure(

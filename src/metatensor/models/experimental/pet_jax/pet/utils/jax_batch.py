@@ -2,12 +2,11 @@ from collections import namedtuple
 
 import jax.numpy as jnp
 
-from .jax_structure import JAXStructure
-
 
 JAXBatch = namedtuple(
     "JAXBatch",
-    "positions, cells, numbers, centers, neighbors, cell_shifts, n_nodes, energies, forces",
+    "positions, cells, numbers, centers, neighbors, "
+    "cell_shifts, n_nodes, energies, forces",
 )
 
 
@@ -73,7 +72,8 @@ def pad_batch(batch: JAXBatch, n_nodes: int, n_edges: int):
     :return: The padded batch.
     """
 
-    # note: for node arrays, n_nodes - 1 is always a padding value (see calculate_padding_sizes above)
+    # note: for node arrays, n_nodes - 1 is always
+    # a padding value (see calculate_padding_sizes above)
 
     return JAXBatch(
         positions=jnp.pad(

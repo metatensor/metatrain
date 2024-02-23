@@ -24,8 +24,8 @@ def concatenate_structures(systems: List[System]):
         nl_values = neighbor_list.samples.values
         edge_vectors_system = neighbor_list.values.reshape(-1, 3)
 
-        centers.append(nl_values[0] + node_counter)
-        neighbors.append(nl_values[1] + node_counter)
+        centers.append(nl_values[:, 0] + node_counter)
+        neighbors.append(nl_values[:, 1] + node_counter)
         edge_vectors.append(edge_vectors_system)
 
         node_counter += len(system.positions)

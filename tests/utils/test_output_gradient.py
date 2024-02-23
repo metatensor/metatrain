@@ -190,7 +190,6 @@ def test_both(is_training):
 
     jitted_model = torch.jit.script(model)
     output = jitted_model(systems, {"energy": model.capabilities.outputs["energy"]})
-    print(output["energy"].block().values.requires_grad)
     jitted_gradients = compute_gradient(
         output["energy"].block().values,
         [system.positions for system in systems] + strains,

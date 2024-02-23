@@ -4,7 +4,6 @@ import jax.numpy as jnp
 
 def loop_body(i, value):
     array, t = value
-    # jax.debug.print("{x}", x=jnp.nonzero(array == i, size=1, fill_value=-1)[0][0])
     t = t.at[i].set(jnp.nonzero(array == i, size=1)[0][0])
     return array, t
 

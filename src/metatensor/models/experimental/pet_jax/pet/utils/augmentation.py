@@ -1,6 +1,5 @@
 import random
 
-import numpy as np
 from scipy.spatial.transform import Rotation
 
 from .mts_to_structure import Structure

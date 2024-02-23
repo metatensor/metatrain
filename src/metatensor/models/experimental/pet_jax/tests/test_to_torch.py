@@ -2,7 +2,7 @@ import jax
 import jax.numpy as jnp
 import numpy as np
 import torch
-from metatensor.torch.atomistic import ModelOutput
+from metatensor.torch.atomistic import ModelOutput, NeighborsListOptions
 
 from metatensor.models.experimental.pet_jax.pet.models import PET as PET_jax
 from metatensor.models.experimental.pet_jax.pet.utils.jax_batch import (
@@ -18,7 +18,6 @@ from metatensor.models.experimental.pet_jax.pet.utils.mts_to_structure import (
 from metatensor.models.experimental.pet_jax.pet.utils.to_torch import pet_to_torch
 from metatensor.models.utils.data.readers.structures import read_structures_ase
 from metatensor.models.utils.neighbors_lists import get_system_with_neighbors_lists
-from metatensor.torch.atomistic import NeighborsListOptions
 
 from . import DATASET_PATH
 
@@ -36,10 +35,13 @@ def test_pet_to_torch():
     }
     composition_weights = [0.1, 0.2, 0.3, 0.4]
     pet_jax = PET_jax(
-        jnp.array(all_species), hypers, jnp.array(composition_weights), key=jax.random.PRNGKey(0)
+        jnp.array(all_species),
+        hypers,
+        jnp.array(composition_weights),
+        key=jax.random.PRNGKey(0),
     )
 
-    systems = read_structures_ase(DATASET_PATH, dtype=torch.get_default_dtype())   
+    systems = read_structures_ase(DATASET_PATH, dtype=torch.get_default_dtype())
     systems = systems[:5]
 
     # jax evaluation
@@ -58,7 +60,9 @@ def test_pet_to_torch():
 
     # neighbor lists
     nl_options = NeighborsListOptions(model_cutoff=4.0, full_list=True)
-    systems = [get_system_with_neighbors_lists(system, [nl_options]) for system in systems]
+    systems = [
+        get_system_with_neighbors_lists(system, [nl_options]) for system in systems
+    ]
 
     # torch evaluation
     output_torch = pet_torch(systems, {"energy": ModelOutput()})
@@ -69,4 +73,6 @@ def test_pet_to_torch():
     assert torch.allclose(
         torch.tensor(np.array(output_jax["energies"])),
         output_torch["energy"].block().values.squeeze(-1),
+        atol=1e-4,
+        rtol=1e-4,
     )

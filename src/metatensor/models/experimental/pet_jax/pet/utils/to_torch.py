@@ -1,7 +1,7 @@
 import jax
-import torch
-import numpy as np
 import jax.numpy as jnp
+import numpy as np
+import torch
 
 from ...model import Model as PET_torch
 from ..models import PET as PET_jax
@@ -31,9 +31,9 @@ def pet_to_torch(pet_jax: PET_jax, hypers: dict):
     )
 
     # skip the species list (in both atomic numbers indices) and composition weights
-    jax_params = [x for x in jax.tree_util.tree_leaves(pet_jax) if isinstance(x, jax.Array)][
-        2:-1
-    ]
+    jax_params = [
+        x for x in jax.tree_util.tree_leaves(pet_jax) if isinstance(x, jax.Array)
+    ][2:-1]
     torch_params = list(pet_torch.parameters())
 
     torch_counter = 0
@@ -43,11 +43,14 @@ def pet_to_torch(pet_jax: PET_jax, hypers: dict):
         jax_param = jax_params[jax_counter]
 
         if torch_param.shape != jax_param.shape:
-            if torch_param.shape[0] == 3*jax_param.shape[0] and torch_param.shape[1:] == jax_param.shape[1:]:
+            if (
+                torch_param.shape[0] == 3 * jax_param.shape[0]
+                and torch_param.shape[1:] == jax_param.shape[1:]
+            ):
                 # we're dealing with the attention weights
                 jax_param = [jax_param]
-                jax_param.append(jax_params[jax_counter+1])
-                jax_param.append(jax_params[jax_counter+2])
+                jax_param.append(jax_params[jax_counter + 1])
+                jax_param.append(jax_params[jax_counter + 2])
                 jax_counter += 2
                 jax_param = jnp.concatenate(jax_param)
             else:

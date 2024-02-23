@@ -1,5 +1,4 @@
 from pathlib import Path
-import torch
 
 PACKAGE_ROOT = Path(__file__).parent.resolve()
 

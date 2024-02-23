@@ -1,6 +1,5 @@
 from typing import Dict, List, Optional
 
-import numpy as np
 import torch
 from metatensor.torch import Labels, TensorBlock, TensorMap
 from metatensor.torch.atomistic import ModelOutput, System
@@ -51,7 +50,7 @@ class Model(torch.nn.Module):
         )
         self.readout = torch.nn.Linear(hypers["d_pet"], 1, bias=False)
 
-        self.composition_weights = composition_weights
+        self.register_buffer("composition_weights", composition_weights)
 
     def forward(
         self,
@@ -90,8 +89,6 @@ class Model(torch.nn.Module):
             element_indices_neighbors, nef_indices, self.all_species[0]
         )
 
-        print(edge_vectors.shape)
-
         features = {
             "cartesian": edge_vectors,
             "center": element_indices_centers,
@@ -120,10 +117,14 @@ class Model(torch.nn.Module):
         structure_energies.index_add_(0, segment_indices, atomic_energies)
 
         # TODO: use utils? use composition calculator?
-        composition = torch.zeros((n_structures, len(self.all_species)), device=atomic_energies.device)
+        composition = torch.zeros(
+            (n_structures, len(self.all_species)), device=atomic_energies.device
+        )
         for number in self.all_species:
             where_number = (species == number).to(composition.dtype)
-            composition[:, self.species_to_species_index[number]].index_add_(0, segment_indices, where_number)
+            composition[:, self.species_to_species_index[number]].index_add_(
+                0, segment_indices, where_number
+            )
 
         structure_energies = structure_energies + composition @ self.composition_weights
 

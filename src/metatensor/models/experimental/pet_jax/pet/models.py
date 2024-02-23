@@ -1,5 +1,4 @@
-from functools import partial
-from typing import Dict, List, Tuple
+from typing import List
 
 import equinox as eqx
 import jax
@@ -72,7 +71,8 @@ class PET(eqx.Module):
             structures.n_nodes,
             total_repeat_length=len(structures.positions),
         )
-        # segment_indices = segment_indices.at[len(structures.positions):].set(n_structures)
+        # segment_indices = segment_indices.at[len(structures.positions):]
+        # .set(n_structures)
 
         # get edge vectors:
         edge_vectors = (

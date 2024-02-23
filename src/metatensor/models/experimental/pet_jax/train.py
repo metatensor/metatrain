@@ -34,7 +34,8 @@ def train(
     device_str: str = "cpu",
 ):
     logger.info(
-        "This is a JAX version of the PET architecture. It does not support message passing yet."
+        "This is a JAX version of the PET architecture. "
+        "It does not support message passing yet."
     )
 
     # Random seed
@@ -48,7 +49,8 @@ def train(
         device_str = "cuda"
     jax.config.update("jax_platform_name", device_str)
     logger.info(
-        f"Running on device {list(jnp.array([1, 2, 3]).addressable_data(0).devices())[0]}"
+        "Running on device "
+        f"{list(jnp.array([1, 2, 3]).addressable_data(0).devices())[0]}"
     )
 
     # Dtype
@@ -244,18 +246,18 @@ def train(
 
     if do_forces:
         print(
-            f"Epoch 0 | Train loss:    N/A    | Train energy RMSE: {train_metrics['energy_rmse']:8.3e} | Train force RMSE: {train_metrics['force_rmse']:8.3e} | Valid energy RMSE: {valid_metrics['energy_rmse']:8.3e} | Valid force RMSE: {valid_metrics['force_rmse']:8.3e}"
+            f"Epoch 0 | Train loss:    N/A    | Train energy RMSE: {train_metrics['energy_rmse']:8.3e} | Train force RMSE: {train_metrics['force_rmse']:8.3e} | Valid energy RMSE: {valid_metrics['energy_rmse']:8.3e} | Valid force RMSE: {valid_metrics['force_rmse']:8.3e}"  # noqa: E501
         )
         print(
-            f"Epoch 0 | Train loss:    N/A    | Train energy MAE:  {train_metrics['energy_mae']:8.3e} | Train force MAE:  {train_metrics['force_mae']:8.3e} | Valid energy MAE:  {valid_metrics['energy_mae']:8.3e} | Valid force MAE:  {valid_metrics['force_mae']:8.3e}"
+            f"Epoch 0 | Train loss:    N/A    | Train energy MAE:  {train_metrics['energy_mae']:8.3e} | Train force MAE:  {train_metrics['force_mae']:8.3e} | Valid energy MAE:  {valid_metrics['energy_mae']:8.3e} | Valid force MAE:  {valid_metrics['force_mae']:8.3e}"  # noqa: E501
         )
         print()
     else:
         print(
-            f"Epoch 0 | Train loss:    N/A    | Train energy RMSE: {train_metrics['energy_rmse']:8.3e} | Valid energy RMSE: {valid_metrics['energy_rmse']:8.3e}"
+            f"Epoch 0 | Train loss:    N/A    | Train energy RMSE: {train_metrics['energy_rmse']:8.3e} | Valid energy RMSE: {valid_metrics['energy_rmse']:8.3e}"  # noqa: E501
         )
         print(
-            f"Epoch 0 | Train loss:    N/A    | Train energy MAE:  {train_metrics['energy_mae']:8.3e} | Valid energy MAE:  {valid_metrics['energy_mae']:8.3e}"
+            f"Epoch 0 | Train loss:    N/A    | Train energy MAE:  {train_metrics['energy_mae']:8.3e} | Valid energy MAE:  {valid_metrics['energy_mae']:8.3e}"  # noqa: E501
         )
         print()
 
@@ -291,17 +293,17 @@ def train(
             valid_metrics = evaluate_model(model, valid_set, do_forces)
             if do_forces:
                 print(
-                    f"Epoch {epoch} | Train loss: {train_loss:8.3e} | Train energy RMSE: {train_metrics['energy_rmse']:8.3e} | Train force RMSE: {train_metrics['force_rmse']:8.3e} | Valid energy RMSE: {valid_metrics['energy_rmse']:8.3e} | Valid force RMSE: {valid_metrics['force_rmse']:8.3e}"
+                    f"Epoch {epoch} | Train loss: {train_loss:8.3e} | Train energy RMSE: {train_metrics['energy_rmse']:8.3e} | Train force RMSE: {train_metrics['force_rmse']:8.3e} | Valid energy RMSE: {valid_metrics['energy_rmse']:8.3e} | Valid force RMSE: {valid_metrics['force_rmse']:8.3e}"  # noqa: E501
                 )
                 print(
-                    f"Epoch {epoch} | Train loss: {train_loss:8.3e} | Train energy MAE:  {train_metrics['energy_mae']:8.3e} | Train force MAE:  {train_metrics['force_mae']:8.3e} | Valid energy MAE:  {valid_metrics['energy_mae']:8.3e} | Valid force MAE:  {valid_metrics['force_mae']:8.3e}"
+                    f"Epoch {epoch} | Train loss: {train_loss:8.3e} | Train energy MAE:  {train_metrics['energy_mae']:8.3e} | Train force MAE:  {train_metrics['force_mae']:8.3e} | Valid energy MAE:  {valid_metrics['energy_mae']:8.3e} | Valid force MAE:  {valid_metrics['force_mae']:8.3e}"  # noqa: E501
                 )
                 print()
             else:
                 print(
-                    f"Epoch {epoch} | Train loss: {train_loss:8.3e} | Train energy RMSE: {train_metrics['energy_rmse']:8.3e} | Valid energy RMSE: {valid_metrics['energy_rmse']:8.3e}"
+                    f"Epoch {epoch} | Train loss: {train_loss:8.3e} | Train energy RMSE: {train_metrics['energy_rmse']:8.3e} | Valid energy RMSE: {valid_metrics['energy_rmse']:8.3e}"  # noqa: E501
                 )
                 print(
-                    f"Epoch {epoch} | Train loss: {train_loss:8.3e} | Train energy MAE:  {train_metrics['energy_mae']:8.3e} | Valid energy MAE:  {valid_metrics['energy_mae']:8.3e}"
+                    f"Epoch {epoch} | Train loss: {train_loss:8.3e} | Train energy MAE:  {train_metrics['energy_mae']:8.3e} | Valid energy MAE:  {valid_metrics['energy_mae']:8.3e}"  # noqa: E501
                 )
                 print()
