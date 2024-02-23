@@ -11,6 +11,7 @@ import metatensor.models
 # When importing metatensor-torch, this will change the definition of the classes
 # to include the documentation
 os.environ["METATENSOR_IMPORT_FOR_SPHINX"] = "1"
+os.environ["RASCALINE_IMPORT_FOR_SPHINX"] = "1"
 
 ROOT = os.path.abspath(os.path.join("..", ".."))
 
@@ -67,6 +68,7 @@ extensions = [
     "sphinx.ext.viewcode",
     "sphinx.ext.autodoc",
     "sphinx.ext.intersphinx",
+    "sphinxcontrib.bibtex",
     "sphinx_toggleprompt",
     "sphinx_gallery.gen_gallery",
 ]
@@ -98,6 +100,11 @@ intersphinx_mapping = {
     "omegaconf": ("https://omegaconf.readthedocs.io/en/latest/", None),
     "rascaline": ("https://luthaf.fr/rascaline/latest/", None),
 }
+
+# The path to the bibtex file
+bibtex_bibfiles = ["../static/refs.bib"]
+bibtex_default_style = "unsrt"
+bibtex_reference_style = "author_year"
 
 # -- Options for HTML output -------------------------------------------------
 

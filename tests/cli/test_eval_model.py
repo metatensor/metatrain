@@ -5,10 +5,10 @@ from pathlib import Path
 
 import ase.io
 import pytest
+import torch
 from omegaconf import OmegaConf
 
-from metatensor.models.cli import eval_model
-from metatensor.models.utils.model_io import load_model
+from metatensor.models.cli.eval import eval_model
 
 
 RESOURCES_PATH = Path(__file__).parent.resolve() / ".." / "resources"
@@ -18,7 +18,7 @@ OPTIONS_PATH = RESOURCES_PATH / "eval.yaml"
 
 @pytest.fixture
 def model():
-    return load_model(MODEL_PATH)
+    return torch.jit.load(MODEL_PATH)
 
 
 @pytest.fixture

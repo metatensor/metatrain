@@ -22,7 +22,7 @@ from ...utils.info import finalize_aggregated_info, update_aggregated_info
 from ...utils.logging import MetricLogger
 from ...utils.loss import TensorMapDictLoss
 from ...utils.merge_capabilities import merge_capabilities
-from ...utils.model_io import load_model, save_model
+from ...utils.model_io import load_checkpoint, save_model
 from .model import DEFAULT_HYPERS, Model
 
 
@@ -55,7 +55,7 @@ def train(
         )
         new_capabilities = requested_capabilities
     else:
-        model = load_model(continue_from)
+        model = load_checkpoint(continue_from)
         filtered_new_dict = {k: v for k, v in hypers["model"].items() if k != "restart"}
         filtered_old_dict = {k: v for k, v in model.hypers.items() if k != "restart"}
         if filtered_new_dict != filtered_old_dict:
@@ -80,12 +80,6 @@ def train(
         train_datasets,
         validation_datasets,
         model_capabilities,
-    )
-
-    # Create the model:
-    model = Model(
-        capabilities=model_capabilities,
-        hypers=hypers["model"],
     )
 
     logger.info(f"Training on device {device_str}")
@@ -228,7 +222,7 @@ def train(
         if epoch % hypers_training["checkpoint_interval"] == 0:
             save_model(
                 model,
-                Path(output_dir) / f"model_{epoch}.pt",
+                Path(output_dir) / f"model_{epoch}.ckpt",
             )
 
         # early stopping criterion:

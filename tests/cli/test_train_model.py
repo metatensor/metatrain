@@ -1,6 +1,7 @@
 import glob
 import shutil
 import subprocess
+import warnings
 from pathlib import Path
 
 import ase.io
@@ -10,13 +11,13 @@ import torch
 from omegaconf import OmegaConf
 from omegaconf.errors import ConfigKeyError
 
-from metatensor.models.cli.train_model import check_architecture_name, train_model
+from metatensor.models.cli.train import check_architecture_name, train_model
 
 
 RESOURCES_PATH = Path(__file__).parent.resolve() / ".." / "resources"
 DATASET_PATH = RESOURCES_PATH / "qm9_reduced_100.xyz"
 OPTIONS_PATH = RESOURCES_PATH / "options.yaml"
-MODEL_PATH = RESOURCES_PATH / "bpnn-model.pt"
+MODEL_PATH = RESOURCES_PATH / "bpnn-model.ckpt"
 
 
 @pytest.fixture
@@ -108,6 +109,22 @@ def test_continue_different_dataset(options, monkeypatch, tmp_path):
     train_model(options, continue_from=MODEL_PATH)
 
 
+def test_continue_from_exported(options, monkeypatch, tmp_path):
+    """Test that continuing training from an exported model raises an error."""
+    monkeypatch.chdir(tmp_path)
+    shutil.copy(DATASET_PATH, "qm9_reduced_100.xyz")
+
+    # check that this warns and then errors out
+    with pytest.raises(SystemExit):
+        with warnings.catch_warnings(record=True) as w:
+            warnings.simplefilter("always")  # turn all warnings into catchable events
+            train_model(options, continue_from=RESOURCES_PATH / "bpnn-model.pt")
+            assert any(
+                "Please use a .ckpt (checkpoint) file instead" in str(warning.message)
+                for warning in w
+            )
+
+
 def test_hydra_arguments():
     """Test if hydra arguments work."""
     option_path = str(RESOURCES_PATH / "options.yaml")
@@ -141,15 +158,16 @@ def test_model_consistency_with_seed(
     if seed is not None and seed < 0:
         with pytest.raises(SystemExit):
             train_model(options)
-            captured = capsys.readouterr()
-            assert "should be a positive number or None." in captured.out
+
+        captured = capsys.readouterr()
+        assert "should be a positive number or None." in captured.err
         return
 
     train_model(options, output="model1.pt")
     train_model(options, output="model2.pt")
 
-    m1 = torch.load("model1.pt")
-    m2 = torch.load("model2.pt")
+    m1 = torch.load("model1.ckpt")
+    m2 = torch.load("model2.ckpt")
 
     for index, i in enumerate(m1["model_state_dict"]):
         tensor1 = m1["model_state_dict"][i]
@@ -174,8 +192,23 @@ def test_error_base_precision(options, monkeypatch, tmp_path, capsys):
 
     with pytest.raises(SystemExit):
         train_model(options)
-        captured = capsys.readouterr()
-        assert "Only 64, 32 or 16 are possible values for" in captured.out
+
+    captured = capsys.readouterr()
+    assert "Only 64, 32 or 16 are possible values for" in captured.err
+
+
+def test_architectur_error(options, monkeypatch, tmp_path, capsys):
+    """Test an error raise if there is problem wth the architecture."""
+    monkeypatch.chdir(tmp_path)
+    shutil.copy(DATASET_PATH, "qm9_reduced_100.xyz")
+
+    options["architecture"]["model"] = OmegaConf.create({"soap": {"cutoff": -1}})
+
+    with pytest.raises(SystemExit):
+        train_model(options)
+
+    captured = capsys.readouterr()
+    assert "likely originates from an architecture" in captured.err
 
 
 def test_check_architecture_name():
