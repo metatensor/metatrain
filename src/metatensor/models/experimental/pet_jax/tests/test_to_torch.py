@@ -30,6 +30,7 @@ def test_pet_to_torch():
         "d_pet": 128,
         "num_heads": 2,
         "num_attention_layers": 3,
+        "num_gnn_layers": 1,
         "mlp_dropout_rate": 0.0,
         "attention_dropout_rate": 0.0,
     }
