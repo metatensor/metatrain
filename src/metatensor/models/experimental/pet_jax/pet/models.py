@@ -8,20 +8,21 @@ from .encoder import Encoder
 from .radial_mask import get_radial_mask
 from .transformer import Transformer
 from .utils.corresponding_edges import get_corresponding_edges
-from .utils.edges_to_nef import edge_array_to_nef, get_nef_indices, nef_array_to_edges
 from .utils.jax_batch import JAXBatch
+from .utils.nef import edge_array_to_nef, get_nef_indices, nef_array_to_edges
 
 
 class PET(eqx.Module):
 
+    # note: these are registered in the PyTree in this order
     all_species: List[int]
     species_to_species_index: jnp.ndarray
     encoder: Encoder
     transformer: Transformer
     readout: eqx.nn.MLP
-    composition_weights: jnp.ndarray
-    gnn_transformers: List[Transformer]
     gnn_contractions: List[eqx.nn.Linear]
+    gnn_transformers: List[Transformer]
+    composition_weights: jnp.ndarray
 
     def __init__(self, all_species, hypers, composition_weights, key):
         n_species = len(all_species)

@@ -4,20 +4,39 @@ import torch
 def get_nef_indices(centers, n_nodes: int, n_edges_per_node: int):
     """Transform the center indices into NEF indices."""
 
-    nef_indices = torch.full((n_nodes, n_edges_per_node), -1, dtype=torch.int64)
-    for i in range(n_nodes):
-        where = (centers == i).nonzero(as_tuple=False)
-        nef_indices[i, : len(where)] = where.squeeze(-1)
+    n_edges = len(centers)
+    edges_to_nef = torch.zeros((n_nodes, n_edges_per_node), dtype=torch.long)
+    nef_to_edges_neighbor = torch.empty((n_edges,), dtype=torch.long)
+    node_counter = torch.zeros((n_nodes,), dtype=torch.long)
+    nef_mask = torch.full((n_nodes, n_edges_per_node), False, dtype=bool)
 
-    mask = torch.where(nef_indices != -1, 1, 0).bool()
-    nef_indices[nef_indices == -1] = 0
-    return (nef_indices, mask)
+    for i in range(n_edges):
+        center = centers[i]
+        edges_to_nef[center, node_counter[center]] = i
+        nef_mask[center, node_counter[center]] = True
+        nef_to_edges_neighbor[i] = node_counter[center]
+        node_counter[center] += 1
+
+    return (edges_to_nef, nef_to_edges_neighbor, nef_mask)
 
 
-def edge_array_to_nef(edge_array, nef_indices, fill_value):
+def edge_array_to_nef(edge_array, nef_indices, mask=None, fill_value=0.0):
     """Converts an edge array to a NEF array."""
 
-    nef_indices, mask = nef_indices
+    if mask is None:
+        return edge_array[nef_indices]
+    else:
+        return torch.where(
+            mask.reshape(mask.shape + (1,) * (len(edge_array.shape) - 1)),
+            edge_array[nef_indices],
+            fill_value,
+        )
+
+
+def nef_array_to_edges(nef_array, centers, nef_to_edges_neighbor):
+    """Converts a NEF array to an edge array."""
+
+    return nef_array[centers, nef_to_edges_neighbor]
 
     return torch.where(
         mask.reshape(mask.shape + (1,) * (len(edge_array.shape) - 1)),

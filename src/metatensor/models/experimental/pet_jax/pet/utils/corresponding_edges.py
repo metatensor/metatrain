@@ -1,5 +1,3 @@
-import functools as ft
-
 import jax
 import jax.numpy as jnp
 
@@ -7,7 +5,7 @@ import jax.numpy as jnp
 def loop_body(i, carry):
     array, array_inversed, inverse_indices = carry
     inverse_indices = inverse_indices.at[i].set(
-        jnp.nonzero(array_inversed == array[i], size=1)[0][0]
+        jnp.nonzero(jnp.all(array_inversed == array[i], axis=1), size=1)[0][0]
     )
     return array, array_inversed, inverse_indices
 

@@ -6,6 +6,7 @@ import optax
 import torch
 from metatensor.torch.atomistic import ModelOutput, NeighborsListOptions
 
+from metatensor.models.experimental.pet_jax import DEFAULT_HYPERS
 from metatensor.models.experimental.pet_jax.pet.models import PET as PET_jax
 from metatensor.models.experimental.pet_jax.pet.utils.jax_batch import (
     calculate_padding_sizes,
@@ -28,18 +29,10 @@ def test_static_composition():
     """Checks that the composition features are not being trained."""
 
     all_species = [1, 6, 7, 8]
-    hypers = {
-        "d_pet": 128,
-        "num_heads": 2,
-        "num_attention_layers": 3,
-        "num_gnn_layers": 1,
-        "mlp_dropout_rate": 0.0,
-        "attention_dropout_rate": 0.0,
-    }
     composition_weights = jnp.array([0.1, 0.2, 0.3, 0.4])
     pet_jax = PET_jax(
         jnp.array(all_species),
-        hypers,
+        DEFAULT_HYPERS["model"],
         composition_weights,
         key=jax.random.PRNGKey(0),
     )

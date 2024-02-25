@@ -4,6 +4,7 @@ import numpy as np
 import torch
 from metatensor.torch.atomistic import ModelOutput, NeighborsListOptions
 
+from metatensor.models.experimental.pet_jax import DEFAULT_HYPERS
 from metatensor.models.experimental.pet_jax.pet.models import PET as PET_jax
 from metatensor.models.experimental.pet_jax.pet.utils.jax_batch import (
     calculate_padding_sizes,
@@ -26,18 +27,10 @@ def test_pet_to_torch():
     """Tests that the model can be converted to torch and predict the same output."""
 
     all_species = [1, 6, 7, 8]
-    hypers = {
-        "d_pet": 128,
-        "num_heads": 2,
-        "num_attention_layers": 3,
-        "num_gnn_layers": 1,
-        "mlp_dropout_rate": 0.0,
-        "attention_dropout_rate": 0.0,
-    }
     composition_weights = [0.1, 0.2, 0.3, 0.4]
     pet_jax = PET_jax(
         jnp.array(all_species),
-        hypers,
+        DEFAULT_HYPERS["model"],
         jnp.array(composition_weights),
         key=jax.random.PRNGKey(0),
     )
@@ -57,7 +50,7 @@ def test_pet_to_torch():
     output_jax = pet_jax(jax_batch, n_edges_per_node, is_training=False)
 
     # convert to torch
-    pet_torch = pet_to_torch(pet_jax, hypers)
+    pet_torch = pet_to_torch(pet_jax, DEFAULT_HYPERS["model"])
 
     # neighbor lists
     nl_options = NeighborsListOptions(model_cutoff=4.0, full_list=True)

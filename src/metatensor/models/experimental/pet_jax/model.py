@@ -6,8 +6,9 @@ from metatensor.torch.atomistic import ModelOutput, System
 from omegaconf import OmegaConf
 
 from ... import ARCHITECTURE_CONFIG_PATH
+from .pet.pet_torch.corresponding_edges import get_corresponding_edges
 from .pet.pet_torch.encoder import Encoder
-from .pet.pet_torch.nef import edge_array_to_nef, get_nef_indices
+from .pet.pet_torch.nef import edge_array_to_nef, get_nef_indices, nef_array_to_edges
 from .pet.pet_torch.radial_mask import get_radial_mask
 from .pet.pet_torch.structures import concatenate_structures
 from .pet.pet_torch.transformer import Transformer
@@ -50,6 +51,26 @@ class Model(torch.nn.Module):
         )
         self.readout = torch.nn.Linear(hypers["d_pet"], 1, bias=False)
 
+        self.num_mp_layers = hypers["num_gnn_layers"] - 1
+        gnn_contractions = []
+        gnn_transformers = []
+        for i in range(self.num_mp_layers):
+            gnn_contractions.append(
+                torch.nn.Linear(2 * hypers["d_pet"], hypers["d_pet"], bias=False)
+            )
+            gnn_transformers.append(
+                Transformer(
+                    hypers["d_pet"],
+                    4 * hypers["d_pet"],
+                    hypers["num_heads"],
+                    hypers["num_attention_layers"],
+                    hypers["mlp_dropout_rate"],
+                    hypers["attention_dropout_rate"],
+                )
+            )
+        self.gnn_contractions = torch.nn.ModuleList(gnn_contractions)
+        self.gnn_transformers = torch.nn.ModuleList(gnn_transformers)
+
         self.register_buffer("composition_weights", composition_weights)
 
     def forward(
@@ -68,7 +89,9 @@ class Model(torch.nn.Module):
         max_edges_per_node = int(torch.max(torch.bincount(centers)))
 
         # Convert to NEF:
-        nef_indices = get_nef_indices(centers, len(positions), max_edges_per_node)
+        nef_indices, nef_to_edges_neighbor, nef_mask = get_nef_indices(
+            centers, len(positions), max_edges_per_node
+        )
 
         # Get radial mask
         r = torch.sqrt(torch.sum(edge_vectors**2, axis=-1))
@@ -80,13 +103,15 @@ class Model(torch.nn.Module):
         element_indices_neighbors = element_indices_nodes[neighbors]
 
         # Send everything to NEF:
-        edge_vectors = edge_array_to_nef(edge_vectors, nef_indices, 0.0)
-        radial_mask = edge_array_to_nef(radial_mask, nef_indices, 0.0)
+        edge_vectors = edge_array_to_nef(edge_vectors, nef_indices)
+        radial_mask = edge_array_to_nef(
+            radial_mask, nef_indices, nef_mask, fill_value=0.0
+        )
         element_indices_centers = edge_array_to_nef(
-            element_indices_centers, nef_indices, self.all_species[0]
+            element_indices_centers, nef_indices
         )
         element_indices_neighbors = edge_array_to_nef(
-            element_indices_neighbors, nef_indices, self.all_species[0]
+            element_indices_neighbors, nef_indices
         )
 
         features = {
@@ -100,6 +125,24 @@ class Model(torch.nn.Module):
 
         # Transformer
         features = self.transformer(features, radial_mask)
+
+        # GNN
+        if self.num_mp_layers > 0:
+            corresponding_edges = get_corresponding_edges(
+                torch.stack([centers, neighbors], axis=-1)
+            )
+            for i in range(self.num_mp_layers):
+                new_features = nef_array_to_edges(
+                    features, centers, nef_to_edges_neighbor
+                )
+                corresponding_new_features = new_features[corresponding_edges]
+                new_features = torch.concatenate(
+                    [new_features, corresponding_new_features], axis=-1
+                )
+                new_features = self.gnn_contractions[i](new_features)
+                new_features = edge_array_to_nef(new_features, nef_indices)
+                new_features = self.gnn_transformers[i](new_features, radial_mask)
+                features = features + new_features
 
         # Readout
         edge_energies = self.readout(features)
@@ -131,8 +174,8 @@ class Model(torch.nn.Module):
         return {
             next(iter(outputs.keys())): TensorMap(
                 keys=Labels(
-                    names=["o3_lambda", "o3_sigma"],
-                    values=torch.tensor([[0, 1]], device=structure_energies.device),
+                    names=["_"],
+                    values=torch.tensor([[0]], device=structure_energies.device),
                 ),
                 blocks=[
                     TensorBlock(

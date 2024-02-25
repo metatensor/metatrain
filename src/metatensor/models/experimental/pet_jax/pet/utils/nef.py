@@ -38,7 +38,11 @@ def edge_array_to_nef(edge_array, nef_indices, mask=None, fill_value=0.0):
     if mask is None:
         return edge_array[nef_indices]
     else:
-        return jnp.where(mask, edge_array[nef_indices], fill_value)
+        return jnp.where(
+            mask.reshape(mask.shape + (1,) * (len(edge_array.shape) - 1)),
+            edge_array[nef_indices],
+            fill_value,
+        )
 
 
 def nef_array_to_edges(nef_array, centers, nef_to_edges_neighbor):
