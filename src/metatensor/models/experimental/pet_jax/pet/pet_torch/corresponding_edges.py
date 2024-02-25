@@ -7,6 +7,6 @@ def get_corresponding_edges(array):
     inverse_indices = torch.empty((n_edges,), dtype=torch.long)
     for i in range(n_edges):
         inverse_indices[i] = torch.nonzero(
-            torch.all(array_inversed == array[i], dim=1), as_tuple=False
-        )[0]
+            torch.all(array_inversed == array[i], dim=1)
+        )[0][0]
     return inverse_indices

@@ -2,13 +2,14 @@ import jax
 import jax.numpy as jnp
 import numpy as np
 import torch
+from metatensor.torch.atomistic import ModelCapabilities
 
 from ...model import Model as PET_torch
 from ..models import PET as PET_jax
 
 
-def pet_to_torch(pet_jax: PET_jax, hypers: dict):
-    """Convert a pet-jax model to a pet-torch model"""
+def pet_to_torch(pet_jax: PET_jax, hypers: dict, capabilities: ModelCapabilities):
+    """Convert a pet-jax model to a torch model"""
 
     jax_device = pet_jax.composition_weights.device_buffer.device()
     if jax_device.platform == "cpu":
@@ -23,7 +24,7 @@ def pet_to_torch(pet_jax: PET_jax, hypers: dict):
     device = torch.device(torch_device_type)
 
     pet_torch = PET_torch(
-        all_species=torch.tensor(np.array(pet_jax.all_species), device=device),
+        capabilities=capabilities,
         hypers=hypers,
         composition_weights=torch.tensor(
             np.array(pet_jax.composition_weights), device=device

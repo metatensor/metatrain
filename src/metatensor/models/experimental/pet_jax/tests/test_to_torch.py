@@ -2,7 +2,11 @@ import jax
 import jax.numpy as jnp
 import numpy as np
 import torch
-from metatensor.torch.atomistic import ModelOutput, NeighborsListOptions
+from metatensor.torch.atomistic import (
+    ModelCapabilities,
+    ModelOutput,
+    NeighborsListOptions,
+)
 
 from metatensor.models.experimental.pet_jax import DEFAULT_HYPERS
 from metatensor.models.experimental.pet_jax.pet.models import PET as PET_jax
@@ -50,7 +54,17 @@ def test_pet_to_torch():
     output_jax = pet_jax(jax_batch, n_edges_per_node, is_training=False)
 
     # convert to torch
-    pet_torch = pet_to_torch(pet_jax, DEFAULT_HYPERS["model"])
+    capabilities = ModelCapabilities(
+        length_unit="Angstrom",
+        species=all_species,
+        outputs={
+            "energy": ModelOutput(
+                quantity="energy",
+                unit="eV",
+            )
+        },
+    )
+    pet_torch = pet_to_torch(pet_jax, DEFAULT_HYPERS["model"], capabilities)
 
     # neighbor lists
     nl_options = NeighborsListOptions(model_cutoff=4.0, full_list=True)

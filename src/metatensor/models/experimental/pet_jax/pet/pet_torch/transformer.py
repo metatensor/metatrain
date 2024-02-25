@@ -70,9 +70,9 @@ class Transformer(torch.nn.Module):
 
     def forward(
         self,
-        inputs: torch.nn.Module,
-        radial_mask: torch.nn.Module,
-    ) -> torch.nn.Module:
+        inputs,
+        radial_mask,
+    ):
 
         x = inputs
         for layer in self.layers:

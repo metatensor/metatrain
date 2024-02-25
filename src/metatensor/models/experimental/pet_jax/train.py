@@ -12,6 +12,7 @@ from metatensor.torch.atomistic import ModelCapabilities
 
 from ...utils.composition import calculate_composition_weights
 from ...utils.data import check_datasets, get_all_targets
+from ...utils.logging import MetricLogger
 from .model import DEFAULT_HYPERS
 from .pet.models import PET, PET_energy_force
 from .pet.utils.augmentation import apply_random_augmentation
@@ -122,7 +123,7 @@ def train(
             structure,
             float(targets.block().values),
             (
-                targets.block().gradient("positions").values.reshape(-1, 3).numpy()
+                -targets.block().gradient("positions").values.reshape(-1, 3).numpy()
                 if do_forces
                 else np.zeros((0, 3))
             ),
@@ -135,7 +136,7 @@ def train(
             structure,
             float(targets.block().values),
             (
-                targets.block().gradient("positions").values.reshape(-1, 3).numpy()
+                -targets.block().gradient("positions").values.reshape(-1, 3).numpy()
                 if do_forces
                 else np.zeros((0, 3))
             ),
@@ -186,7 +187,7 @@ def train(
 
     training_hypers = hypers["training"]
     learning_rate = training_hypers["learning_rate"]
-    force_weight = 1.0
+    force_weight = 1.0  # TODO: pass this in
     num_epochs = training_hypers["num_epochs"]
     batch_size = training_hypers["batch_size"]
     num_warmup_steps = training_hypers["num_warmup_steps"]
@@ -204,7 +205,7 @@ def train(
         n_edges_per_node = len(n_edges_per_node_array)
         return model(jax_batch, n_edges_per_node, is_training=False)
 
-    def evaluate_model(model, dataset, do_forces):
+    def evaluate_model(model, dataset, force_weight, do_forces):
         energy_sse = 0.0
         energy_sae = 0.0
         if do_forces:
@@ -228,40 +229,33 @@ def train(
                 force_sae += jnp.sum(jnp.abs(predictions["forces"] - jax_batch.forces))
                 number_of_forces += 3 * len(jax_batch.forces)
         energy_mse = energy_sse / len(dataset)
-        energy_mae = energy_sae / len(dataset)
+        # energy_mae = energy_sae / len(dataset)
         energy_rmse = jnp.sqrt(energy_mse)
         result_dict = {}
-        result_dict["energy_rmse"] = energy_rmse
-        result_dict["energy_mae"] = energy_mae
+        result_dict["loss"] = energy_sse
+        result_dict[target_name] = energy_rmse
+        # result_dict["energy_mae"] = energy_mae
         if do_forces:
             force_mse = force_sse / number_of_forces
-            force_mae = force_sae / number_of_forces
+            # force_mae = force_sae / number_of_forces
             force_rmse = jnp.sqrt(force_mse)
-            result_dict["force_rmse"] = force_rmse
-            result_dict["force_mae"] = force_mae
+            result_dict["loss"] += force_weight * force_sse
+            result_dict[target_name + "_positions_gradients"] = force_rmse
+            # result_dict["force_mae"] = force_mae
         return result_dict
 
-    train_metrics = evaluate_model(model, training_set, do_forces)
-    valid_metrics = evaluate_model(model, valid_set, do_forces)
-
-    if do_forces:
-        print(
-            f"Epoch 0 | Train loss:    N/A    | Train energy RMSE: {train_metrics['energy_rmse']:8.3e} | Train force RMSE: {train_metrics['force_rmse']:8.3e} | Valid energy RMSE: {valid_metrics['energy_rmse']:8.3e} | Valid force RMSE: {valid_metrics['force_rmse']:8.3e}"  # noqa: E501
-        )
-        print(
-            f"Epoch 0 | Train loss:    N/A    | Train energy MAE:  {train_metrics['energy_mae']:8.3e} | Train force MAE:  {train_metrics['force_mae']:8.3e} | Valid energy MAE:  {valid_metrics['energy_mae']:8.3e} | Valid force MAE:  {valid_metrics['force_mae']:8.3e}"  # noqa: E501
-        )
-        print()
-    else:
-        print(
-            f"Epoch 0 | Train loss:    N/A    | Train energy RMSE: {train_metrics['energy_rmse']:8.3e} | Valid energy RMSE: {valid_metrics['energy_rmse']:8.3e}"  # noqa: E501
-        )
-        print(
-            f"Epoch 0 | Train loss:    N/A    | Train energy MAE:  {train_metrics['energy_mae']:8.3e} | Valid energy MAE:  {valid_metrics['energy_mae']:8.3e}"  # noqa: E501
-        )
-        print()
-
-    key = jax.random.PRNGKey(0)
+    train_metrics = evaluate_model(model, training_set, force_weight, do_forces)
+    valid_metrics = evaluate_model(model, valid_set, force_weight, do_forces)
+    train_loss = train_metrics.pop("loss")
+    valid_loss = valid_metrics.pop("loss")
+    metric_logger = MetricLogger(
+        model_capabilities,
+        train_loss,
+        valid_loss,
+        train_metrics,
+        valid_metrics,
+    )
+    metric_logger.log(0, train_loss, valid_loss, train_metrics, valid_metrics)
 
     for epoch in range(1, num_epochs):
         train_loss = 0.0
@@ -289,21 +283,12 @@ def train(
             train_loss += loss
 
         if epoch % training_hypers["log_interval"] == 0:
-            train_metrics = evaluate_model(model, training_set, do_forces)
-            valid_metrics = evaluate_model(model, valid_set, do_forces)
-            if do_forces:
-                print(
-                    f"Epoch {epoch} | Train loss: {train_loss:8.3e} | Train energy RMSE: {train_metrics['energy_rmse']:8.3e} | Train force RMSE: {train_metrics['force_rmse']:8.3e} | Valid energy RMSE: {valid_metrics['energy_rmse']:8.3e} | Valid force RMSE: {valid_metrics['force_rmse']:8.3e}"  # noqa: E501
-                )
-                print(
-                    f"Epoch {epoch} | Train loss: {train_loss:8.3e} | Train energy MAE:  {train_metrics['energy_mae']:8.3e} | Train force MAE:  {train_metrics['force_mae']:8.3e} | Valid energy MAE:  {valid_metrics['energy_mae']:8.3e} | Valid force MAE:  {valid_metrics['force_mae']:8.3e}"  # noqa: E501
-                )
-                print()
-            else:
-                print(
-                    f"Epoch {epoch} | Train loss: {train_loss:8.3e} | Train energy RMSE: {train_metrics['energy_rmse']:8.3e} | Valid energy RMSE: {valid_metrics['energy_rmse']:8.3e}"  # noqa: E501
-                )
-                print(
-                    f"Epoch {epoch} | Train loss: {train_loss:8.3e} | Train energy MAE:  {train_metrics['energy_mae']:8.3e} | Valid energy MAE:  {valid_metrics['energy_mae']:8.3e}"  # noqa: E501
-                )
-                print()
+            train_metrics = evaluate_model(model, training_set, force_weight, do_forces)
+            valid_metrics = evaluate_model(model, valid_set, force_weight, do_forces)
+            train_loss = train_metrics.pop("loss")
+            valid_loss = valid_metrics.pop("loss")
+            metric_logger.log(
+                epoch, train_loss, valid_loss, train_metrics, valid_metrics
+            )
+
+        # TODO: implement checkpoints

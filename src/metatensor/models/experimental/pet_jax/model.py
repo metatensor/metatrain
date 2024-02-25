@@ -23,18 +23,19 @@ DEFAULT_MODEL_HYPERS = DEFAULT_HYPERS["model"]
 
 class Model(torch.nn.Module):
 
-    def __init__(self, all_species, hypers, composition_weights):
+    def __init__(self, capabilities, hypers, composition_weights):
         super().__init__()
 
-        n_species = len(all_species)
+        self.capabilities = capabilities
 
         # Handle species
-        self.all_species = all_species
+        self.all_species = capabilities.species
+        n_species = len(self.all_species)
         self.species_to_species_index = torch.full(
-            (torch.max(all_species) + 1,),
+            (max(self.all_species) + 1,),
             -1,
         )
-        for i, species in enumerate(all_species):
+        for i, species in enumerate(self.all_species):
             self.species_to_species_index[species] = i
         print("Species indices:", self.species_to_species_index)
         print("Number of species:", n_species)
@@ -54,7 +55,7 @@ class Model(torch.nn.Module):
         self.num_mp_layers = hypers["num_gnn_layers"] - 1
         gnn_contractions = []
         gnn_transformers = []
-        for i in range(self.num_mp_layers):
+        for _ in range(self.num_mp_layers):
             gnn_contractions.append(
                 torch.nn.Linear(2 * hypers["d_pet"], hypers["d_pet"], bias=False)
             )
@@ -79,8 +80,13 @@ class Model(torch.nn.Module):
         outputs: Dict[str, ModelOutput],
         selected_atoms: Optional[Labels] = None,
     ) -> Dict[str, TensorMap]:
+        # Checks on systems (species) and outputs are done in the
+        # MetatensorAtomisticModel wrapper
 
-        # TODO: checks
+        if selected_atoms is not None:
+            raise NotImplementedError(
+                "The PET model does not support domain decomposition."
+            )
 
         n_structures = len(systems)
         positions, centers, neighbors, species, segment_indices, edge_vectors = (
@@ -94,7 +100,7 @@ class Model(torch.nn.Module):
         )
 
         # Get radial mask
-        r = torch.sqrt(torch.sum(edge_vectors**2, axis=-1))
+        r = torch.sqrt(torch.sum(edge_vectors**2, dim=-1))
         radial_mask = get_radial_mask(r, 5.0, 3.0)
 
         # Element indices
@@ -129,19 +135,21 @@ class Model(torch.nn.Module):
         # GNN
         if self.num_mp_layers > 0:
             corresponding_edges = get_corresponding_edges(
-                torch.stack([centers, neighbors], axis=-1)
+                torch.stack([centers, neighbors], dim=-1)
             )
-            for i in range(self.num_mp_layers):
+            for contraction, transformer in zip(
+                self.gnn_contractions, self.gnn_transformers
+            ):
                 new_features = nef_array_to_edges(
                     features, centers, nef_to_edges_neighbor
                 )
                 corresponding_new_features = new_features[corresponding_edges]
                 new_features = torch.concatenate(
-                    [new_features, corresponding_new_features], axis=-1
+                    [new_features, corresponding_new_features], dim=-1
                 )
-                new_features = self.gnn_contractions[i](new_features)
+                new_features = contraction(new_features)
                 new_features = edge_array_to_nef(new_features, nef_indices)
-                new_features = self.gnn_transformers[i](new_features, radial_mask)
+                new_features = transformer(new_features, radial_mask)
                 features = features + new_features
 
         # Readout
@@ -150,7 +158,7 @@ class Model(torch.nn.Module):
 
         # Sum over edges
         atomic_energies = torch.sum(
-            edge_energies, axis=(1, 2)
+            edge_energies, dim=(1, 2)
         )  # also eliminate singleton dimension 2
 
         # Sum over centers
@@ -172,7 +180,7 @@ class Model(torch.nn.Module):
         structure_energies = structure_energies + composition @ self.composition_weights
 
         return {
-            next(iter(outputs.keys())): TensorMap(
+            list(outputs.keys())[0]: TensorMap(
                 keys=Labels(
                     names=["_"],
                     values=torch.tensor([[0]], device=structure_energies.device),
