@@ -2,7 +2,7 @@ from typing import Dict, List, Optional
 
 import torch
 from metatensor.torch import Labels, TensorBlock, TensorMap
-from metatensor.torch.atomistic import ModelOutput, System
+from metatensor.torch.atomistic import ModelOutput, NeighborsListOptions, System
 from omegaconf import OmegaConf
 
 from ... import ARCHITECTURE_CONFIG_PATH
@@ -25,6 +25,8 @@ class Model(torch.nn.Module):
 
     def __init__(self, capabilities, hypers, composition_weights):
         super().__init__()
+        self.name = ARCHITECTURE_NAME
+        self.hypers = hypers
 
         self.capabilities = capabilities
 
@@ -205,3 +207,13 @@ class Model(torch.nn.Module):
                 ],
             )
         }
+
+    def requested_neighbors_lists(
+        self,
+    ) -> List[NeighborsListOptions]:
+        return [
+            NeighborsListOptions(
+                model_cutoff=self.hypers["cutoff"],
+                full_list=True,
+            )
+        ]

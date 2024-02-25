@@ -20,6 +20,7 @@ from .pet.utils.dataloader import dataloader
 from .pet.utils.jax_batch import calculate_padding_sizes, jax_structures_to_batch
 from .pet.utils.jax_structure import structure_to_jax
 from .pet.utils.mts_to_structure import mts_to_structure
+from .pet.utils.to_torch import pet_to_torch
 
 
 logger = logging.getLogger(__name__)
@@ -290,5 +291,9 @@ def train(
             metric_logger.log(
                 epoch, train_loss, valid_loss, train_metrics, valid_metrics
             )
-
         # TODO: implement checkpoints
+
+    # Convert to torch
+    model = pet_to_torch(model, hypers["model"], requested_capabilities)
+
+    return model
