@@ -7,8 +7,8 @@ import jax.numpy as jnp
 from .encoder import Encoder
 from .radial_mask import get_radial_mask
 from .transformer import Transformer
-from .utils.edges_to_nef import edge_array_to_nef, get_nef_indices, nef_array_to_edges
 from .utils.corresponding_edges import get_corresponding_edges
+from .utils.edges_to_nef import edge_array_to_nef, get_nef_indices, nef_array_to_edges
 from .utils.jax_batch import JAXBatch
 
 
@@ -19,7 +19,9 @@ class PET(eqx.Module):
     encoder: Encoder
     transformer: Transformer
     readout: eqx.nn.MLP
-    composition_weights: jnp.ndarray = eqx.static_field  # TODO: check that this isn't being trained...
+    composition_weights: jnp.ndarray = (
+        eqx.static_field
+    )  # TODO: check that this isn't being trained...
     gnn_transformers: List[Transformer]
     gnn_contractions: List[eqx.nn.Linear]
 
@@ -63,7 +65,10 @@ class PET(eqx.Module):
             contraction_key, transformer_key = jax.random.split(gnn_keys[i])
             self.gnn_contractions.append(
                 eqx.nn.Linear(
-                    2 * hypers["d_pet"], hypers["d_pet"], use_bias=False, key=contraction_key
+                    2 * hypers["d_pet"],
+                    hypers["d_pet"],
+                    use_bias=False,
+                    key=contraction_key,
                 )
             )
             self.gnn_transformers.append(
@@ -120,8 +125,12 @@ class PET(eqx.Module):
         # Send everything to NEF:
         edge_vectors = edge_array_to_nef(edge_vectors, nef_indices)
         radial_mask = edge_array_to_nef(radial_mask, nef_indices, nef_mask, 0.0)
-        element_indices_centers = edge_array_to_nef(element_indices_centers, nef_indices)
-        element_indices_neighbors = edge_array_to_nef(element_indices_neighbors, nef_indices)
+        element_indices_centers = edge_array_to_nef(
+            element_indices_centers, nef_indices
+        )
+        element_indices_neighbors = edge_array_to_nef(
+            element_indices_neighbors, nef_indices
+        )
 
         features = {
             "cartesian": edge_vectors,
@@ -140,15 +149,21 @@ class PET(eqx.Module):
         # GNN
         num_mp_layers = len(self.gnn_transformers)
         if num_mp_layers > 0:
-            corresponding_edges = get_corresponding_edges(jnp.stack([structures.centers, structures.neighbors], axis=-1))
+            corresponding_edges = get_corresponding_edges(
+                jnp.stack([structures.centers, structures.neighbors], axis=-1)
+            )
             for i in range(num_mp_layers):
-                new_features = nef_array_to_edges(features, structures.centers, nef_to_edges_neighbor)
-                corresponding_new_features = new_features[corresponding_edges]
-                new_features = jax.vmap(self.gnn_contractions[i])(jnp.concatenate([new_features, corresponding_new_features], axis=-1))
-                new_features = edge_array_to_nef(new_features, nef_indices)
-                new_features = jax.vmap(self.gnn_transformers[i], in_axes=(0, None, 0, None))(
-                    new_features, is_training, radial_mask, key
+                new_features = nef_array_to_edges(
+                    features, structures.centers, nef_to_edges_neighbor
                 )
+                corresponding_new_features = new_features[corresponding_edges]
+                new_features = jax.vmap(self.gnn_contractions[i])(
+                    jnp.concatenate([new_features, corresponding_new_features], axis=-1)
+                )
+                new_features = edge_array_to_nef(new_features, nef_indices)
+                new_features = jax.vmap(
+                    self.gnn_transformers[i], in_axes=(0, None, 0, None)
+                )(new_features, is_training, radial_mask, key)
                 features = features + new_features
 
         # Readout
