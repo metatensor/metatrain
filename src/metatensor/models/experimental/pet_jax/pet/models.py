@@ -14,14 +14,12 @@ from .utils.jax_batch import JAXBatch
 
 class PET(eqx.Module):
 
-    all_species: List[int] = eqx.static_field
-    species_to_species_index: jnp.ndarray = eqx.static_field
+    all_species: List[int]
+    species_to_species_index: jnp.ndarray
     encoder: Encoder
     transformer: Transformer
     readout: eqx.nn.MLP
-    composition_weights: jnp.ndarray = (
-        eqx.static_field
-    )  # TODO: check that this isn't being trained...
+    composition_weights: jnp.ndarray
     gnn_transformers: List[Transformer]
     gnn_contractions: List[eqx.nn.Linear]
 
@@ -195,7 +193,10 @@ class PET(eqx.Module):
                 )
             )
 
-        structure_energies = structure_energies + composition @ self.composition_weights
+        # composition weights are not trainable
+        structure_energies = structure_energies + composition @ jax.lax.stop_gradient(
+            self.composition_weights
+        )
 
         return {"energies": structure_energies}
 

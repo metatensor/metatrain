@@ -68,9 +68,6 @@ def test_pet_to_torch():
     # torch evaluation
     output_torch = pet_torch(systems, {"energy": ModelOutput()})
 
-    print(torch.tensor(np.array(output_jax["energies"])))
-    print(output_torch["energy"].block().values.squeeze(-1))
-
     assert torch.allclose(
         torch.tensor(np.array(output_jax["energies"])),
         output_torch["energy"].block().values.squeeze(-1),

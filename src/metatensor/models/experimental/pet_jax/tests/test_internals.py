@@ -18,8 +18,6 @@ def test_corresponding_edges():
     arr = jnp.array([[0, 1]] * 500 + [[1, 0]] * 500)
     corresponding_edges = get_corresponding_edges_jit(arr)
     expected = jnp.array([500] * 500 + [0] * 500)
-    print(corresponding_edges)
-    print(expected)
     assert jnp.all(corresponding_edges == expected)
 
 

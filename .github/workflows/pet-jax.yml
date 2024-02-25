@@ -1,0 +1,37 @@
+name: PET-JAX tests
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    # Check all PR
+
+jobs:
+  tests:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        include:
+          - os: ubuntu-22.04
+            python-version: "3.12"
+
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Set up Python ${{ matrix.python-version }}
+      uses: actions/setup-python@v5
+      with:
+        python-version: ${{ matrix.python-version }}
+    - run: pip install tox
+
+    - name: Install JAX
+      # JAX does not work as a dependency; it needs to be installed separately
+      run: pip install jax[cpu]
+
+    - name: run PET-JAX tests
+      run: tox -e pet-jax-tests
+
+    - name: Upload codecoverage
+      uses: codecov/codecov-action@v4
+      with:
+        files: ./tests/coverage.xml

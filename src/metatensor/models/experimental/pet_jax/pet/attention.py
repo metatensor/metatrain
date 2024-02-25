@@ -10,7 +10,7 @@ class AttentionBlock(eqx.Module):
     attention: eqx.nn.MultiheadAttention
     layernorm: eqx.nn.Embedding
     dropout: eqx.nn.Dropout
-    num_heads: int = eqx.static_field
+    num_heads: int
 
     def __init__(
         self,
