@@ -26,7 +26,7 @@ def test_prediction_subset_elements():
 
     structure = ase.Atoms("O2", positions=[[0.0, 0.0, 0.0], [0.0, 0.0, 1.0]])
     soap_bpnn(
-        [rascaline.torch.systems_to_torch(structure)],
+        [rascaline.torch.systems_to_torch(structure).to(torch.get_default_dtype())],
         {"energy": soap_bpnn.capabilities.outputs["energy"]},
     )
 
@@ -56,7 +56,11 @@ def test_prediction_subset_atoms():
     )
 
     energy_monomer = soap_bpnn(
-        [rascaline.torch.systems_to_torch(structure_monomer)],
+        [
+            rascaline.torch.systems_to_torch(structure_monomer).to(
+                torch.get_default_dtype()
+            )
+        ],
         {"energy": soap_bpnn.capabilities.outputs["energy"]},
     )
 
@@ -78,12 +82,20 @@ def test_prediction_subset_atoms():
     )
 
     energy_dimer = soap_bpnn(
-        [rascaline.torch.systems_to_torch(structure_far_away_dimer)],
+        [
+            rascaline.torch.systems_to_torch(structure_far_away_dimer).to(
+                torch.get_default_dtype()
+            )
+        ],
         {"energy": soap_bpnn.capabilities.outputs["energy"]},
     )
 
     energy_monomer_in_dimer = soap_bpnn(
-        [rascaline.torch.systems_to_torch(structure_far_away_dimer)],
+        [
+            rascaline.torch.systems_to_torch(structure_far_away_dimer).to(
+                torch.get_default_dtype()
+            )
+        ],
         {"energy": soap_bpnn.capabilities.outputs["energy"]},
         selected_atoms=selection_labels,
     )
