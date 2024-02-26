@@ -10,11 +10,10 @@ from metatensor.torch.atomistic import (
 )
 from omegaconf import OmegaConf
 from pet.hypers import Hypers
-from pet.molecule import batch_to_dict
 from pet.pet import PET
 
 from ... import ARCHITECTURE_CONFIG_PATH
-from .utils import systems_to_pyg_graphs
+from .utils import systems_to_batch_dict
 
 
 DEFAULT_HYPERS = OmegaConf.to_container(
@@ -67,8 +66,8 @@ class Model(torch.nn.Module):
         if selected_atoms is not None:
             raise NotImplementedError("PET does not support selected atoms.")
         options = self.requested_neighbors_lists()[0]
-        batch = systems_to_pyg_graphs(systems, options, self.all_species)
-        predictions = self.pet(batch_to_dict(batch))
+        batch = systems_to_batch_dict(systems, options, self.all_species)
+        predictions = self.pet(batch)
         total_energies: Dict[str, TensorMap] = {}
         for output_name in outputs:
             total_energies[output_name] = predictions

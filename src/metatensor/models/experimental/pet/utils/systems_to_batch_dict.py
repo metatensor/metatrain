@@ -1,14 +1,62 @@
-from typing import List
+from typing import List, Dict
 
 import torch
 from metatensor.torch.atomistic import NeighborsListOptions, System
 from pet.molecule import NeighborIndexConstructor
-from torch_geometric.data import Batch, Data
 
 
-def systems_to_pyg_graphs(
+def collate_graph_dicts(graph_dicts, device):
+    """
+    Collates a list of graphs into a single graph.
+
+    :param graph_dicts: A list of graphs to be collated.
+
+    :return: The collated grap (batch).
+    """
+
+    simple_concatenate_keys = ['central_species', 'x',
+                               'neighbor_species', 'neighbors_pos',
+                               'nums', 'mask', 'n_atoms']
+
+    cumulative_adjust_keys = ['neighbors_index']
+
+    result = {}
+
+    n_nodes_cumulative = 0
+    for index, graph in enumerate(graph_dicts):
+        for key in simple_concatenate_keys:
+            if key not in result:
+                result[key] = [graph[key]]
+            else:
+                result[key].append(graph[key])
+
+        for key in cumulative_adjust_keys:
+            if key not in result:
+                result[key] = [graph[key] + n_nodes_cumulative]
+            else:
+                result[key].append(graph[key] + n_nodes_cumulative)
+
+        if 'batch' not in result:
+            result['batch'] = [index] * graph['n_atoms']
+        else:
+            for _ in range(graph['n_atoms']):
+                result['batch'].append(index)
+
+        n_nodes_cumulative += graph['n_atoms']
+
+    for key in simple_concatenate_keys + cumulative_adjust_keys:
+        if key != 'n_atoms':
+            result[key] = torch.cat(result[key], dim=0)
+        else:
+            result[key] = torch.FloatTensor(result[key]).to(device)
+
+    result['batch'] = torch.LongTensor(result['batch']).to(device)
+    return result
+
+
+def systems_to_batch_dict(
     systems: List[System], options: NeighborsListOptions, all_species: List[int]
-) -> Batch:
+) -> Dict[str, torch.Tensor]:
     """
     Converts a standatd input data format of `metatensor-models` to a
     PyTorch Geometric `Batch` object, compatible with `PET` model.
@@ -20,7 +68,7 @@ def systems_to_pyg_graphs(
     :param all_species: A `torch.Tensor` with all the species present in the
     systems.
 
-    :return: The `torch_gemoetric.data.Batch` object with the neighbor lists added.
+    :return: Batch compatible with PET.
     """
     all_species = torch.LongTensor(all_species)
     neighbor_index_constructors = []
@@ -90,16 +138,15 @@ def systems_to_pyg_graphs(
         ]
         central_species = torch.LongTensor(central_species).to(device)
 
-        graph_now = Data(
-            central_species=central_species,
-            x=relative_positions,
-            neighbor_species=neighbor_species,
-            neighbors_pos=neighbors_pos,
-            neighbors_index=neighbors_index.transpose(0, 1),
-            nums=nums,
-            mask=mask,
-            n_atoms=len(system.species),
-        )
+        graph_now = {'central_species': central_species,
+                     'x': relative_positions,
+                     'neighbor_species': neighbor_species,
+                     'neighbors_pos': neighbors_pos,
+                     'neighbors_index': neighbors_index,
+                     'nums': nums,
+                     'mask': mask,
+                     'n_atoms': len(system.species)
+                     }
         graphs.append(graph_now)
-    batch = Batch.from_data_list(graphs)
-    return batch
+
+    return collate_graph_dicts(graphs, device)
