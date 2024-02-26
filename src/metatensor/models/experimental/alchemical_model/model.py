@@ -270,12 +270,15 @@ class Model(torch.nn.Module):
         return total_energies
 
     def set_composition_weights(
-        self, output_name: str, input_composition_weights: torch.Tensor
+        self,
+        output_name: str,
+        input_composition_weights: torch.Tensor,
+        species: List[int],
     ) -> None:
         """Set the composition weights for a given output."""
         # all species that are not present retain their weight of zero
-        self.composition_weights[self.output_to_index[output_name]][
-            self.all_species
+        self.composition_weights[self.output_to_index[output_name]][  # type: ignore
+            species
         ] = input_composition_weights.to(
             dtype=self.composition_weights.dtype,  # type: ignore
             device=self.composition_weights.device,  # type: ignore
