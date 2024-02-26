@@ -5,9 +5,9 @@ architecture:
     num_epochs: 100
     learning_rate: 0.01
 
-# Section defining the parameters for structure and target data
+# Section defining the parameters for system and target data
 training_set:
-  structures: "ethanol_reduced_100.xyz"
+  systems: "ethanol_reduced_100.xyz"
   targets:
     energy:
       key: "energy"

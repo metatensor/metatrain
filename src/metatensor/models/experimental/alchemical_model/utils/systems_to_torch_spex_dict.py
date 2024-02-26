@@ -45,9 +45,9 @@ def systems_to_torch_spex_dict(
     lenghts = torch.tensor([len(item) for item in systems], device=device)
     nl_lenghts = torch.tensor([len(item.values) for item in nls], device=device)
     index = torch.arange(len(systems), device=device)
-    structure_centers = torch.repeat_interleave(index, lenghts)
-    structure_pairs = torch.repeat_interleave(index, nl_lenghts)
-    structure_offsets = torch.cat(
+    system_centers = torch.repeat_interleave(index, lenghts)
+    system_pairs = torch.repeat_interleave(index, nl_lenghts)
+    system_offsets = torch.cat(
         [torch.tensor([0], device=device), torch.cumsum(lenghts[:-1], dim=0)]
     )
 
@@ -58,8 +58,8 @@ def systems_to_torch_spex_dict(
         "centers": centers,
         "pairs": pairs,
         "cell_shifts": cell_shifts,
-        "structure_centers": structure_centers,
-        "structure_pairs": structure_pairs,
-        "structure_offsets": structure_offsets,
+        "system_centers": system_centers,
+        "system_pairs": system_pairs,
+        "system_offsets": system_offsets,
     }
     return batch_dict

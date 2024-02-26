@@ -7,7 +7,7 @@ import torch
 from metatensor.torch.atomistic import ModelCapabilities, ModelOutput
 
 from metatensor.models.experimental import soap_bpnn
-from metatensor.models.utils.data import read_structures
+from metatensor.models.utils.data import read_systems
 from metatensor.models.utils.output_gradient import compute_gradient
 
 
@@ -30,26 +30,22 @@ def test_forces(is_training):
     )
 
     model = soap_bpnn.Model(capabilities)
-    structures = read_structures(RESOURCES_PATH / "qm9_reduced_100.xyz")[:5]
-    structures = rascaline.torch.systems_to_torch(
-        structures, positions_requires_grad=True
-    )
-    output = model(structures, {"energy": model.capabilities.outputs["energy"]})
+    systems = read_systems(RESOURCES_PATH / "qm9_reduced_100.xyz")[:5]
+    systems = rascaline.torch.systems_to_torch(systems, positions_requires_grad=True)
+    output = model(systems, {"energy": model.capabilities.outputs["energy"]})
     position_gradients = compute_gradient(
         output["energy"].block().values,
-        [structure.positions for structure in structures],
+        [system.positions for system in systems],
         is_training=is_training,
     )
     forces = [-position_gradient for position_gradient in position_gradients]
 
     jitted_model = torch.jit.script(model)
-    structures = rascaline.torch.systems_to_torch(
-        structures, positions_requires_grad=True
-    )
-    output = jitted_model(structures, {"energy": model.capabilities.outputs["energy"]})
+    systems = rascaline.torch.systems_to_torch(systems, positions_requires_grad=True)
+    output = jitted_model(systems, {"energy": model.capabilities.outputs["energy"]})
     jitted_position_gradients = compute_gradient(
         output["energy"].block().values,
-        [structure.positions for structure in structures],
+        [system.positions for system in systems],
         is_training=is_training,
     )
     jitted_forces = [
@@ -76,13 +72,13 @@ def test_virial(is_training):
     )
 
     model = soap_bpnn.Model(capabilities)
-    structures = read_structures(RESOURCES_PATH / "alchemical_reduced_10.xyz")[:2]
+    systems = read_systems(RESOURCES_PATH / "alchemical_reduced_10.xyz")[:2]
 
     strains = [
         torch.eye(
             3, requires_grad=True, dtype=system.cell.dtype, device=system.cell.device
         )
-        for system in structures
+        for system in systems
     ]
     systems = [
         metatensor.torch.atomistic.System(
@@ -90,7 +86,7 @@ def test_virial(is_training):
             cell=system.cell @ strain,
             species=system.species,
         )
-        for system, strain in zip(structures, strains)
+        for system, strain in zip(systems, strains)
     ]
 
     output = model(systems, {"energy": model.capabilities.outputs["energy"]})
@@ -107,7 +103,7 @@ def test_virial(is_training):
         torch.eye(
             3, requires_grad=True, dtype=system.cell.dtype, device=system.cell.device
         )
-        for system in structures
+        for system in systems
     ]
     systems = [
         metatensor.torch.atomistic.System(
@@ -115,7 +111,7 @@ def test_virial(is_training):
             cell=system.cell @ strain,
             species=system.species,
         )
-        for system, strain in zip(structures, strains)
+        for system, strain in zip(systems, strains)
     ]
 
     output = jitted_model(systems, {"energy": model.capabilities.outputs["energy"]})
@@ -146,7 +142,7 @@ def test_both(is_training):
     )
 
     model = soap_bpnn.Model(capabilities)
-    structures = read_structures(RESOURCES_PATH / "alchemical_reduced_10.xyz")[:2]
+    systems = read_systems(RESOURCES_PATH / "alchemical_reduced_10.xyz")[:2]
 
     # Here we re-create strains and systems, otherwise torch
     # complains that the graph has already beeen freed in the last grad call
@@ -154,7 +150,7 @@ def test_both(is_training):
         torch.eye(
             3, requires_grad=True, dtype=system.cell.dtype, device=system.cell.device
         )
-        for system in structures
+        for system in systems
     ]
     systems = [
         metatensor.torch.atomistic.System(
@@ -162,7 +158,7 @@ def test_both(is_training):
             cell=system.cell @ strain,
             species=system.species,
         )
-        for system, strain in zip(structures, strains)
+        for system, strain in zip(systems, strains)
     ]
 
     output = model(systems, {"energy": model.capabilities.outputs["energy"]})
@@ -177,7 +173,7 @@ def test_both(is_training):
         torch.eye(
             3, requires_grad=True, dtype=system.cell.dtype, device=system.cell.device
         )
-        for system in structures
+        for system in systems
     ]
     systems = [
         metatensor.torch.atomistic.System(
@@ -185,7 +181,7 @@ def test_both(is_training):
             cell=system.cell @ strain,
             species=system.species,
         )
-        for system, strain in zip(structures, strains)
+        for system, strain in zip(systems, strains)
     ]
 
     jitted_model = torch.jit.script(model)

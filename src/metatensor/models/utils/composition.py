@@ -13,14 +13,14 @@ def calculate_composition_weights(
 ) -> Tuple[torch.Tensor, List[int]]:
     """Calculate the composition weights for a dataset.
 
-    For now, it assumes per-structure properties.
+    For now, it assumes per-system properties.
 
     :param dataset: Dataset to calculate the composition weights for.
     :returns: Composition weights for the dataset, as well as the
         list of species that the weights correspond to.
     """
 
-    # Get the target for each structure in the dataset
+    # Get the target for each system in the dataset
     # TODO: the dataset will be iterable once metatensor PR #500 merged.
     targets = torch.stack(
         [
@@ -30,12 +30,12 @@ def calculate_composition_weights(
         ]
     )
 
-    # Get the composition for each structure in the dataset
+    # Get the composition for each system in the dataset
     composition_calculator = rascaline.torch.AtomicComposition(per_structure=True)
     # TODO: the dataset will be iterable once metatensor PR #500 merged.
     composition_features = composition_calculator.compute(
         [
-            dataset[sample_id]._asdict()["structure"]
+            dataset[sample_id]._asdict()["system"]
             for dataset in datasets
             for sample_id in range(len(dataset))
         ]

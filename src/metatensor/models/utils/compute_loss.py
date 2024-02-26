@@ -192,12 +192,12 @@ def _position_gradients_to_block(gradients_list):
             [
                 torch.concatenate(
                     [
-                        torch.tensor([i] * len(structure))
-                        for i, structure in enumerate(gradients_list)
+                        torch.tensor([i] * len(system))
+                        for i, system in enumerate(gradients_list)
                     ]
                 ),
                 torch.concatenate(
-                    [torch.arange(len(structure)) for structure in gradients_list]
+                    [torch.arange(len(system)) for system in gradients_list]
                 ),
             ],
             dim=1,
