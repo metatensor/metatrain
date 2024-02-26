@@ -15,6 +15,7 @@ from metatensor.models.cli.train import check_architecture_name, train_model
 
 RESOURCES_PATH = Path(__file__).parent.resolve() / ".." / "resources"
 DATASET_PATH = RESOURCES_PATH / "qm9_reduced_100.xyz"
+DATASET_PATH_2 = RESOURCES_PATH / "ethanol_reduced_100.xyz"
 OPTIONS_PATH = RESOURCES_PATH / "options.yaml"
 MODEL_PATH = RESOURCES_PATH / "bpnn-model.ckpt"
 
@@ -111,6 +112,26 @@ def test_train_explicit_validation_test(
             assert f"Evaulate {set_type} dataset{extra_log_message}" in log
 
     assert Path("model.pt").is_file()
+
+
+def test_train_multiple_datasets(monkeypatch, tmp_path, options):
+    """Test that training via the training cli runs without an error raise
+    also when learning on two different datasets."""
+    monkeypatch.chdir(tmp_path)
+
+    structures = ase.io.read(DATASET_PATH, ":")
+    structures_2 = ase.io.read(DATASET_PATH_2, ":")
+
+    ase.io.write("qm9_reduced_100.xyz", structures[:50])
+    ase.io.write("ethanol_reduced_100.xyz", structures_2[:50])
+
+    options["training_set"] = OmegaConf.create(2 * [options["training_set"]])
+    options["training_set"][1]["structures"]["read_from"] = "ethanol_reduced_100.xyz"
+    options["training_set"][1]["targets"]["energy"]["key"] = "energy"
+    options["training_set"][0]["targets"].pop("energy")
+    options["training_set"][0]["targets"]["U0"] = OmegaConf.create({"key": "U0"})
+
+    train_model(options)
 
 
 @pytest.mark.parametrize(
