@@ -104,7 +104,7 @@ def test_regression_train():
 
     capabilities = ModelCapabilities(
         length_unit="Angstrom",
-        species=get_all_species(dataset),
+        species=get_all_species([dataset]),
         outputs={
             "U0": ModelOutput(
                 quantity="energy",

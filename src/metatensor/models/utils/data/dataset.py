@@ -28,15 +28,15 @@ else:
     compiled_join = torch.jit.script(metatensor.torch.join)
 
 
-def get_all_species(dataset: _BaseDataset) -> List[int]:
+def get_all_species(datasets: List[_BaseDataset]) -> List[int]:
     """
-    Returns the list of all species present in the dataset.
+    Returns the list of all species present in a list of datasets.
 
     Args:
-        dataset: The dataset.
+        datasets: The datasets.
 
     Returns:
-        The list of species present in the dataset.
+        The list of species present in the datasets.
     """
 
     # The following does not work because the `dataset` can also
@@ -48,9 +48,10 @@ def get_all_species(dataset: _BaseDataset) -> List[int]:
 
     # Iterate over all single instances of the dataset:
     species = []
-    for index in range(len(dataset)):
-        structure, _ = dataset[index]
-        species += structure.species.tolist()
+    for dataset in datasets:
+        for index in range(len(dataset)):
+            structure = dataset[index][0]  # extract the structure from the NamedTuple
+            species += structure.species.tolist()
 
     # Remove duplicates and sort:
     result = list(set(species))
@@ -138,12 +139,8 @@ def check_datasets(
             )
 
     # Get all the species in the training and validation sets:
-    all_training_species = []
-    for dataset in train_datasets:
-        all_training_species += get_all_species(dataset)
-    all_validation_species = []
-    for dataset in validation_datasets:
-        all_validation_species += get_all_species(dataset)
+    all_training_species = get_all_species(train_datasets)
+    all_validation_species = get_all_species(validation_datasets)
 
     # Check that they are compatible with the model's capabilities:
     for species in all_training_species + all_validation_species:

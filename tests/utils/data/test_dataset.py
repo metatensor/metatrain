@@ -59,4 +59,4 @@ def test_species_list():
     }
     targets = read_targets(OmegaConf.create(conf))
     dataset = Dataset(structure=structures, energy=targets["energy"])
-    assert get_all_species(dataset) == [1, 6, 7, 8]
+    assert get_all_species([dataset]) == [1, 6, 7, 8]

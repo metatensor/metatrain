@@ -243,9 +243,7 @@ def _train_model_hydra(options: DictConfig) -> None:
         train_targets = read_targets(
             conf=train_options["targets"], dtype=torch.get_default_dtype()
         )
-        train_datasets.append(
-            Dataset(structure=train_structures, energy=train_targets["energy"])
-        )
+        train_datasets.append(Dataset(structure=train_structures, **train_targets))
 
     train_size = 1.0
 
@@ -288,7 +286,7 @@ def _train_model_hydra(options: DictConfig) -> None:
         )
 
         for test_options in test_options_list:
-            validation_structures = read_structures(
+            test_structures = read_structures(
                 filename=test_options["structures"]["read_from"],
                 fileformat=test_options["structures"]["file_format"],
                 dtype=torch.get_default_dtype(),
@@ -296,11 +294,7 @@ def _train_model_hydra(options: DictConfig) -> None:
             test_targets = read_targets(
                 conf=test_options["targets"], dtype=torch.get_default_dtype()
             )
-            test_dataset = Dataset(
-                structure=validation_structures,
-                **{k: v for k, v in test_targets.items()},
-            )
-
+            test_dataset = Dataset(structure=test_structures, **test_targets)
             test_datasets.append(test_dataset)
 
     logger.info("Setting up validation set")
@@ -352,10 +346,8 @@ def _train_model_hydra(options: DictConfig) -> None:
                 conf=validation_options["targets"], dtype=torch.get_default_dtype()
             )
             validation_dataset = Dataset(
-                structure=validation_structures,
-                **{k: v for k, v in validation_targets.items()},
+                structure=validation_structures, **validation_targets
             )
-
             validation_datasets.append(validation_dataset)
 
     # Save fully expanded config
@@ -365,21 +357,15 @@ def _train_model_hydra(options: DictConfig) -> None:
     architecture_name = options["architecture"]["name"]
     architecture = importlib.import_module(f"metatensor.models.{architecture_name}")
 
-    all_species = []
-    for train_dataset in train_datasets:
-        all_species += get_all_species(train_dataset)
-    all_species = list(set(all_species))
-    all_species.sort()
+    all_species = get_all_species(train_datasets)
 
-    # TODO: We creating the outputs and requested_capabilities only based on the 0th
-    # entry in train_options_list. Shouldn't we check all datasets for the qunatities
-    # units etc...
     outputs = {
         key: ModelOutput(
             quantity=value["quantity"],
             unit=(value["unit"] if value["unit"] is not None else ""),
         )
-        for key, value in train_options_list[0]["targets"].items()
+        for train_options in train_options_list
+        for key, value in train_options["targets"].items()
     }
     length_unit = train_options_list[0]["structures"]["length_unit"]
     requested_capabilities = ModelCapabilities(
