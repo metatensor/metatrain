@@ -5,7 +5,7 @@ architecture:
     num_epochs: 1
 
 training_set:
-  structures:
+  systems:
     read_from: "qm9_reduced_100.xyz"
   targets:
     energy:

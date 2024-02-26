@@ -4,10 +4,10 @@ architecture:
   training:
     num_epochs: 10
 
-# Mandatory section defining the parameters for structure and target data of the
+# Mandatory section defining the parameters for system and target data of the
 # training set
 training_set:
-  structures: "alchemical_reduced_10.xyz" # file where the positions are stored
+  systems: "alchemical_reduced_10.xyz" # file where the positions are stored
   targets:
     energy:
       key: "energy" # name of the target value

@@ -18,7 +18,7 @@ def get_outputs_dict(datasets: List[Union[Dataset, torch.utils.data.Subset]]):
     outputs_dict = {}
     for dataset in datasets:
         targets = next(iter(dataset))._asdict()
-        targets.pop("structure")  # structure not needed
+        targets.pop("system")  # system not needed
 
         # targets is now a dictionary of TensorMaps
         for target_name, target_tmap in targets.items():

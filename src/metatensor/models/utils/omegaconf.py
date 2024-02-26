@@ -24,7 +24,7 @@ def _resolve_single_str(config):
 
 
 # BASE CONFIGURATIONS
-CONF_STRUCTURES = OmegaConf.create(
+CONF_SYSTEMS = OmegaConf.create(
     {
         "read_from": "${..read_from}",
         "file_format": "${file_format:}",
@@ -36,7 +36,7 @@ CONF_STRUCTURES = OmegaConf.create(
 CONF_TARGET_FIELDS = OmegaConf.create(
     {
         "quantity": "energy",
-        "read_from": "${...structures.read_from}",
+        "read_from": "${...systems.read_from}",
         "file_format": "${file_format:}",
         "key": None,
         "unit": None,
@@ -66,7 +66,7 @@ def expand_dataset_config(conf: Union[str, DictConfig, ListConfig]) -> ListConfi
 
     This function takes a dataset configuration, either as a string, DictConfig or a
     ListConfig, and expands it into a detailed configuration format. It processes
-    structures, targets, and gradient sections, setting default values and inferring
+    systems, targets, and gradient sections, setting default values and inferring
     missing information. Unknown keys are ignored, allowing for flexibility.
 
     If the dataset configuration is either a :class:`str` or a
@@ -74,11 +74,11 @@ def expand_dataset_config(conf: Union[str, DictConfig, ListConfig]) -> ListConfi
 
     The function performs the following steps for each c
 
-    - Loads base configurations for structures, targets, and gradients from predefined
+    - Loads base configurations for systems, targets, and gradients from predefined
       YAML files.
     - Merges and interpolates the input configuration with the base configurations.
     - Expands shorthand notations like file paths or simple true/false settings to full
-      dictionary structures.
+      dictionary systems.
     - Handles special cases, such as the mandatory nature of the 'energy' section for MD
       simulations and the mutual exclusivity of 'stress' and 'virial' sections.
     - Validates the final expanded configuration, particularly for gradient-related
@@ -96,7 +96,7 @@ def expand_dataset_config(conf: Union[str, DictConfig, ListConfig]) -> ListConfi
     if isinstance(conf, str):
         read_from = conf
         conf = OmegaConf.create(
-            {"structures": read_from, "targets": {"energy": read_from}}
+            {"systems": read_from, "targets": {"energy": read_from}}
         )
 
     # Expand DictConfig -> ListConfig
@@ -105,14 +105,12 @@ def expand_dataset_config(conf: Union[str, DictConfig, ListConfig]) -> ListConfi
 
     # Perform expansion per config inside the ListConfig
     for conf_element in conf:
-        if hasattr(conf_element, "structures"):
-            if type(conf_element["structures"]) is str:
-                conf_element["structures"] = _resolve_single_str(
-                    conf_element["structures"]
-                )
+        if hasattr(conf_element, "systems"):
+            if type(conf_element["systems"]) is str:
+                conf_element["systems"] = _resolve_single_str(conf_element["systems"])
 
-            conf_element["structures"] = OmegaConf.merge(
-                CONF_STRUCTURES, conf_element["structures"]
+            conf_element["systems"] = OmegaConf.merge(
+                CONF_SYSTEMS, conf_element["systems"]
             )
 
         if hasattr(conf_element, "targets"):
@@ -193,7 +191,7 @@ def check_units(
     :param desired_options: The dataset options ``actual_options`` is tested against.
 
     :raises ValueError: If the length units are not consistent between
-        the structure in the dataset options.
+        the system in the dataset options.
     :raises ValueError: If a target is present only in desider_option and
         not in actual_option.
     :raises ValueError: If the unit of a target quantity is not consistent between
@@ -215,14 +213,14 @@ def check_units(
         desired_options,
     ):
         if (
-            actual_options_element["structures"]["length_unit"]
-            != desired_options_element["structures"]["length_unit"]
+            actual_options_element["systems"]["length_unit"]
+            != desired_options_element["systems"]["length_unit"]
         ):
             raise ValueError(
                 "`length_unit`s are inconsistent between one of the dataset options."
-                f" {actual_options_element['structures']['length_unit']!r} "
+                f" {actual_options_element['systems']['length_unit']!r} "
                 "!= "
-                f"{desired_options_element['structures']['length_unit']!r}."
+                f"{desired_options_element['systems']['length_unit']!r}."
             )
 
         for target in actual_options_element["targets"]:
@@ -250,7 +248,7 @@ def check_options_list(dataset_config: ListConfig) -> None:
 
     This is useful if the dataset config is made of several datasets.
 
-    The function checks (1) if ``length_units`` in each structure section is the same.
+    The function checks (1) if ``length_units`` in each system section is the same.
     If the names of the ``"targets"`` sections are the same between the elements of the
     list of datasets also (2) the units must be the same.
 
@@ -267,14 +265,14 @@ def check_options_list(dataset_config: ListConfig) -> None:
 
     for actual_config in dataset_config[1:]:
         if (
-            actual_config["structures"]["length_unit"]
-            != desired_config["structures"]["length_unit"]
+            actual_config["systems"]["length_unit"]
+            != desired_config["systems"]["length_unit"]
         ):
             raise ValueError(
                 "`length_unit`s are inconsistent between one of the dataset options."
-                f" {actual_config['structures']['length_unit']!r} "
+                f" {actual_config['systems']['length_unit']!r} "
                 "!= "
-                f"{desired_config['structures']['length_unit']!r}."
+                f"{desired_config['systems']['length_unit']!r}."
             )
 
         for target_key, target in actual_config["targets"].items():

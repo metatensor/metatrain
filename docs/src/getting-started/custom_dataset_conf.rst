@@ -12,7 +12,7 @@ parsing data for training. Mandatory sections in the `options.yaml` file include
 - ``test_set``
 - ``validation_set``
 
-Each section can follow a similar structure, with shorthand methods available to
+Each section can follow a similar system, with shorthand methods available to
 simplify dataset definitions.
 
 Minimal Configuration Example
@@ -36,7 +36,7 @@ format, which is also valid for initial input:
 .. code-block:: yaml
 
     training_set:
-        structures:
+        systems:
             read_from: dataset.xyz
             file_format: .xyz
             length_unit: null
@@ -61,13 +61,13 @@ format, which is also valid for initial input:
 
 Understanding the YAML Block
 ----------------------------
-The ``training_set`` is divided into sections ``structures`` and ``targets``:
+The ``training_set`` is divided into sections ``systems`` and ``targets``:
 
-Structures Section
-^^^^^^^^^^^^^^^^^^
-Describes the structure data like positions and cell information.
+Systems Section
+^^^^^^^^^^^^^^^
+Describes the system data like positions and cell information.
 
-:param read_from: The file containing structure data.
+:param read_from: The file containing system data.
 :param file_format: The file format, guessed from the suffix if ``null`` or not
     provided.
 :param length_unit: The unit of lengths, optional but recommended for simulations.
@@ -93,7 +93,7 @@ Target section parameters include:
 
 :param quantity: The target's quantity (e.g., ``energy``, ``dipole``). Currently only
     ``energy`` is supported.
-:param read_from: The file for target data, defaults to the ``structures.read_from``
+:param read_from: The file for target data, defaults to the ``systems.read_from``
   file if not provided.
 :param file_format: The file format, guessed from the suffix if not provided.
 :param key: The key for reading from the file, defaulting to the target section's name
@@ -135,7 +135,7 @@ starting with a ``"- "`` (a dash and a space)
 .. code-block:: yaml
 
     training_set:
-        - structures:
+        - systems:
               read_from: dataset_0.xyz
               length_unit: angstrom
           targets:
@@ -143,7 +143,7 @@ starting with a ``"- "`` (a dash and a space)
                   quantity: energy
                   key: my_energy_label0
                   unit: eV
-        - structures:
+        - systems:
               read_from: dataset_1.xyz
               length_unit: angstrom
           targets:

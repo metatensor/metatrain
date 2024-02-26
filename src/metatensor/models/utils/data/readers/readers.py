@@ -7,7 +7,7 @@ from metatensor.torch import Labels, TensorBlock, TensorMap
 from omegaconf import DictConfig
 from rascaline.torch.system import System
 
-from .structures import STRUCTURE_READERS
+from .systems import SYSTEM_READERS
 from .targets import ENERGY_READERS, FORCES_READERS, STRESS_READERS, VIRIAL_READERS
 
 
@@ -42,7 +42,7 @@ def read_energy(
 
     :param filename: name of the file to read
     :param target_value: target value key name to be parsed from the file.
-    :param fileformat: format of the structure file. If :py:obj:`None` the format is
+    :param fileformat: format of the system file. If :py:obj:`None` the format is
         determined from the suffix
     :param dtype: desired data type of returned tensor
     :returns: target value stored stored as a :class:`metatensor.TensorBlock`
@@ -66,7 +66,7 @@ def read_forces(
 
     :param filename: name of the file to read
     :param target_value: target value key name to be parsed from the file
-    :param fileformat: format of the structure file. If :py:obj:`None` the format is
+    :param fileformat: format of the system file. If :py:obj:`None` the format is
         determined from the suffix
     :param dtype: desired data type of returned tensor
     :returns: target value stored stored as a :class:`metatensor.TensorBlock`
@@ -90,7 +90,7 @@ def read_stress(
 
     :param filename: name of the file to read
     :param target_value: target value key name to be parsed from the file.
-    :param fileformat: format of the structure file. If :py:obj:`None` the format is
+    :param fileformat: format of the system file. If :py:obj:`None` the format is
         determined from the suffix
     :param dtype: desired data type of returned tensor
     :returns: target value stored stored as a :class:`metatensor.TensorBlock`
@@ -104,21 +104,21 @@ def read_stress(
     )
 
 
-def read_structures(
+def read_systems(
     filename: str,
     fileformat: Optional[str] = None,
     dtype: torch.dtype = torch.float64,
 ) -> List[System]:
-    """Read structure informations from a file.
+    """Read system informations from a file.
 
     :param filename: name of the file to read
-    :param fileformat: format of the structure file. If :py:obj:`None` the format is
+    :param fileformat: format of the system file. If :py:obj:`None` the format is
         determined from the suffix.
     :param dtype: desired data type of returned tensor
-    :returns: list of structures
+    :returns: list of systems
     """
     return _base_reader(
-        readers=STRUCTURE_READERS,
+        readers=SYSTEM_READERS,
         filename=filename,
         fileformat=fileformat,
         dtype=dtype,
@@ -135,7 +135,7 @@ def read_virial(
 
     :param filename: name of the file to read
     :param target_value: target value key name to be parsed from the file.
-    :param fileformat: format of the structure file. If :py:obj:`None` the format is
+    :param fileformat: format of the system file. If :py:obj:`None` the format is
         determined from the suffix.
     :param dtype: desired data type of returned tensor
     :returns: target value stored stored as a :class:`metatensor.TensorBlock`

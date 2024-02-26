@@ -32,9 +32,8 @@ def get_all_species(datasets: Union[_BaseDataset, List[_BaseDataset]]) -> List[i
     """
     Returns the list of all species present in a dataset or list of datasets.
 
-    :param datasets: The dataset, or list of datasets.
-
-    :return: The sorted list of species present in the datasets.
+    :param datasets: the dataset, or list of datasets.
+    :returns: The sorted list of species present in the datasets.
     """
 
     if not isinstance(datasets, list):
@@ -44,8 +43,8 @@ def get_all_species(datasets: Union[_BaseDataset, List[_BaseDataset]]) -> List[i
     species = []
     for dataset in datasets:
         for index in range(len(dataset)):
-            structure = dataset[index][0]  # extract the structure from the NamedTuple
-            species += structure.species.tolist()
+            system = dataset[index][0]  # extract the system from the NamedTuple
+            species += system.species.tolist()
 
     # Remove duplicates and sort:
     result = list(set(species))
@@ -58,11 +57,8 @@ def get_all_targets(dataset: _BaseDataset) -> List[str]:
     """
     Returns the list of all targets present in the dataset.
 
-    Args:
-        dataset: The dataset.
-
-    Returns:
-        The list of targets present in the dataset.
+    :param dataset: the dataset
+    :returns: list of targets present in the dataset.
     """
 
     # The following does not work because the `dataset` can also
@@ -73,7 +69,7 @@ def get_all_targets(dataset: _BaseDataset) -> List[str]:
     target_names = []
     for index in range(len(dataset)):
         sample = dataset[index]._asdict()  # NamedTuple -> dict
-        sample.pop("structure")  # structure not needed
+        sample.pop("system")  # system not needed
         target_names += list(sample.keys())
 
     # Remove duplicates:
@@ -83,13 +79,13 @@ def get_all_targets(dataset: _BaseDataset) -> List[str]:
 def collate_fn(batch: List[NamedTuple]) -> Tuple[List, Dict[str, TensorMap]]:
     """
     Wraps the `metatensor-learn` default collate function `group_and_join` to
-    return the data fields as a list of structures, and a dictionary of nameed
+    return the data fields as a list of systems, and a dictionary of nameed
     targets.
     """
 
     collated_targets = group_and_join(batch)._asdict()
-    structures = collated_targets.pop("structure")
-    return structures, collated_targets
+    systems = collated_targets.pop("system")
+    return systems, collated_targets
 
 
 def check_datasets(

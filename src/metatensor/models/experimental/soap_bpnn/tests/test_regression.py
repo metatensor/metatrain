@@ -10,7 +10,7 @@ from omegaconf import OmegaConf
 
 from metatensor.models.experimental.soap_bpnn import DEFAULT_HYPERS, Model, train
 from metatensor.models.utils.data import get_all_species
-from metatensor.models.utils.data.readers import read_structures, read_targets
+from metatensor.models.utils.data.readers import read_systems, read_targets
 
 from . import DATASET_PATH
 
@@ -36,13 +36,13 @@ def test_regression_init():
     )
     soap_bpnn = Model(capabilities, DEFAULT_HYPERS["model"])
 
-    # Predict on the first fivestructures
-    structures = ase.io.read(DATASET_PATH, ":5")
+    # Predict on the first five systems
+    systems = ase.io.read(DATASET_PATH, ":5")
 
     output = soap_bpnn(
         [
-            rascaline.torch.systems_to_torch(structure).to(torch.get_default_dtype())
-            for structure in structures
+            rascaline.torch.systems_to_torch(system).to(torch.get_default_dtype())
+            for system in systems
         ],
         {"U0": soap_bpnn.capabilities.outputs["U0"]},
     )
@@ -57,7 +57,7 @@ def test_regression_train():
     """Perform a regression test on the model when
     trained for 2 epoch on a small dataset"""
 
-    structures = read_structures(DATASET_PATH, dtype=torch.get_default_dtype())
+    systems = read_systems(DATASET_PATH, dtype=torch.get_default_dtype())
 
     conf = {
         "U0": {
@@ -71,7 +71,7 @@ def test_regression_train():
         }
     }
     targets = read_targets(OmegaConf.create(conf), dtype=torch.get_default_dtype())
-    dataset = Dataset(structure=structures, U0=targets["U0"])
+    dataset = Dataset(system=systems, U0=targets["U0"])
 
     hypers = DEFAULT_HYPERS.copy()
     hypers["training"]["num_epochs"] = 2
@@ -88,8 +88,8 @@ def test_regression_train():
     )
     soap_bpnn = train([dataset], [dataset], capabilities, hypers)
 
-    # Predict on the first five structures
-    output = soap_bpnn(structures[:5], {"U0": soap_bpnn.capabilities.outputs["U0"]})
+    # Predict on the first five systems
+    output = soap_bpnn(systems[:5], {"U0": soap_bpnn.capabilities.outputs["U0"]})
 
     expected_output = torch.tensor(
         [[-40.5102], [-56.6547], [-76.4395], [-77.3478], [-93.3939]]

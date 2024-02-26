@@ -8,7 +8,7 @@ from omegaconf import OmegaConf
 import metatensor.models
 from metatensor.models.experimental.soap_bpnn import DEFAULT_HYPERS, Model, train
 from metatensor.models.utils.data import get_all_species
-from metatensor.models.utils.data.readers import read_structures, read_targets
+from metatensor.models.utils.data.readers import read_systems, read_targets
 from metatensor.models.utils.model_io import save_model
 
 from . import DATASET_PATH
@@ -21,7 +21,7 @@ def test_continue(monkeypatch, tmp_path):
     monkeypatch.chdir(tmp_path)
     shutil.copy(DATASET_PATH, "qm9_reduced_100.xyz")
 
-    structures = read_structures(DATASET_PATH, dtype=torch.get_default_dtype())
+    systems = read_systems(DATASET_PATH, dtype=torch.get_default_dtype())
 
     capabilities = ModelCapabilities(
         length_unit="Angstrom",
@@ -35,7 +35,7 @@ def test_continue(monkeypatch, tmp_path):
     )
     model_before = Model(capabilities, DEFAULT_HYPERS["model"])
     output_before = model_before(
-        structures[:5], {"U0": model_before.capabilities.outputs["U0"]}
+        systems[:5], {"U0": model_before.capabilities.outputs["U0"]}
     )
 
     save_model(model_before, "model.ckpt")
@@ -52,7 +52,7 @@ def test_continue(monkeypatch, tmp_path):
         }
     }
     targets = read_targets(OmegaConf.create(conf))
-    dataset = Dataset(structure=structures, U0=targets["U0"])
+    dataset = Dataset(system=systems, U0=targets["U0"])
 
     hypers = DEFAULT_HYPERS.copy()
     hypers["training"]["num_epochs"] = 0
@@ -71,9 +71,9 @@ def test_continue(monkeypatch, tmp_path):
         [dataset], [dataset], capabilities, hypers, continue_from="model.ckpt"
     )
 
-    # Predict on the first five structures
+    # Predict on the first five systems
     output_after = model_after(
-        structures[:5], {"U0": model_after.capabilities.outputs["U0"]}
+        systems[:5], {"U0": model_after.capabilities.outputs["U0"]}
     )
 
     assert metatensor.torch.allclose(output_before["U0"], output_after["U0"])

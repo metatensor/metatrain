@@ -18,8 +18,8 @@ def get_average_number_of_atoms(
     for dataset in datasets:
         num_atoms = []
         for i in range(len(dataset)):
-            structure = dataset[i].structure
-            num_atoms.append(len(structure))
+            system = dataset[i].system
+            num_atoms.append(len(system))
         average_number_of_atoms.append(
             torch.mean(torch.tensor(num_atoms).to(torch.get_default_dtype()))
         )
@@ -39,17 +39,15 @@ def get_average_number_of_neighbors(
     for dataset in datasets:
         num_neighbors = []
         for i in range(len(dataset)):
-            structure = dataset[i].structure
-            known_neighbors_lists = structure.known_neighbors_lists()
+            system = dataset[i].system
+            known_neighbors_lists = system.known_neighbors_lists()
             if len(known_neighbors_lists) == 0:
-                raise ValueError(
-                    f"Structure {structure} does not have a neighbors list"
-                )
+                raise ValueError(f"system {system} does not have a neighbors list")
             elif len(known_neighbors_lists) > 1:
                 raise ValueError(
-                    "More than one neighbors list per structure is not yet supported"
+                    "More than one neighbors list per system is not yet supported"
                 )
-            nl = structure.get_neighbors_list(known_neighbors_lists[0])
+            nl = system.get_neighbors_list(known_neighbors_lists[0])
             num_neighbors.append(
                 torch.mean(
                     torch.unique(nl.samples["first_atom"], return_counts=True)[1].to(
