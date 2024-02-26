@@ -1,20 +1,15 @@
-base_precision: 32
-device: "cuda"
-random_seed: 41
-
 architecture:
-  name: experimental.pet_jax
+  name: experimental.soap_bpnn
   training:
-    batch_size: 64
-    num_epochs: 100000
-    log_interval: 10
+    batch_size: 2
+    num_epochs: 1
 
 training_set:
   structures:
-    read_from: "ethanol_reduced_100.xyz"
+    read_from: "qm9_reduced_100.xyz"
   targets:
     energy:
-      key: "energy"
+      key: "U0"
 
-test_set: 0.0
-validation_set: 0.5
+test_set: 0.5
+validation_set: 0.1
