@@ -34,17 +34,20 @@ def test_regression_init():
             )
         },
     )
-    soap_bpnn = Model(capabilities, DEFAULT_HYPERS["model"]).to(torch.float64)
+    soap_bpnn = Model(capabilities, DEFAULT_HYPERS["model"])
 
     # Predict on the first fivestructures
     structures = ase.io.read(DATASET_PATH, ":5")
 
     output = soap_bpnn(
-        [rascaline.torch.systems_to_torch(structure) for structure in structures],
+        [
+            rascaline.torch.systems_to_torch(structure).to(torch.get_default_dtype())
+            for structure in structures
+        ],
         {"U0": soap_bpnn.capabilities.outputs["U0"]},
     )
     expected_output = torch.tensor(
-        [[-1.2796], [-0.8094], [-0.4594], [-0.9971], [-0.4695]]
+        [[-0.5887], [-0.6177], [-0.3532], [-0.2567], [-0.2903]]
     )
 
     assert torch.allclose(output["U0"].block().values, expected_output, rtol=1e-3)
@@ -54,7 +57,7 @@ def test_regression_train():
     """Perform a regression test on the model when
     trained for 2 epoch on a small dataset"""
 
-    structures = read_structures(DATASET_PATH)
+    structures = read_structures(DATASET_PATH, dtype=torch.get_default_dtype())
 
     conf = {
         "U0": {
@@ -67,7 +70,7 @@ def test_regression_train():
             "virial": False,
         }
     }
-    targets = read_targets(OmegaConf.create(conf))
+    targets = read_targets(OmegaConf.create(conf), dtype=torch.get_default_dtype())
     dataset = Dataset(structure=structures, U0=targets["U0"])
 
     hypers = DEFAULT_HYPERS.copy()
@@ -89,7 +92,7 @@ def test_regression_train():
     output = soap_bpnn(structures[:5], {"U0": soap_bpnn.capabilities.outputs["U0"]})
 
     expected_output = torch.tensor(
-        [[-40.4234], [-56.5304], [-76.4206], [-77.3017], [-93.3537]]
+        [[-40.5102], [-56.6547], [-76.4395], [-77.3478], [-93.3939]]
     )
 
     assert torch.allclose(output["U0"].block().values, expected_output, rtol=1e-3)
