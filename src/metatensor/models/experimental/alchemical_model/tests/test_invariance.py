@@ -29,15 +29,17 @@ def test_rotational_invariance():
             )
         },
     )
-    alchemical_model = Model(capabilities, DEFAULT_HYPERS["model"]).to(torch.float64)
+    alchemical_model = Model(capabilities, DEFAULT_HYPERS["model"])
     structure = ase.io.read(DATASET_PATH)
     original_structure = copy.deepcopy(structure)
     structure.rotate(48, "y")
-    original_system = rascaline.torch.systems_to_torch(original_structure)
+    original_system = rascaline.torch.systems_to_torch(original_structure).to(
+        torch.get_default_dtype()
+    )
     original_system = get_system_with_neighbors_lists(
         original_system, alchemical_model.requested_neighbors_lists()
     )
-    system = rascaline.torch.systems_to_torch(structure)
+    system = rascaline.torch.systems_to_torch(structure).to(torch.get_default_dtype())
     system = get_system_with_neighbors_lists(
         system, alchemical_model.requested_neighbors_lists()
     )

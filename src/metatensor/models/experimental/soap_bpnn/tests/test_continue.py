@@ -1,5 +1,6 @@
 import shutil
 
+import torch
 from metatensor.learn.data import Dataset
 from metatensor.torch.atomistic import ModelCapabilities, ModelOutput
 from omegaconf import OmegaConf
@@ -20,7 +21,7 @@ def test_continue(monkeypatch, tmp_path):
     monkeypatch.chdir(tmp_path)
     shutil.copy(DATASET_PATH, "qm9_reduced_100.xyz")
 
-    structures = read_structures(DATASET_PATH)
+    structures = read_structures(DATASET_PATH, dtype=torch.get_default_dtype())
 
     capabilities = ModelCapabilities(
         length_unit="Angstrom",
