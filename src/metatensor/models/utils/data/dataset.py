@@ -1,6 +1,6 @@
 import logging
 import os
-from typing import Dict, List, NamedTuple, Optional, Tuple
+from typing import Dict, List, NamedTuple, Optional, Tuple, Union
 
 import metatensor.torch
 import torch
@@ -28,23 +28,17 @@ else:
     compiled_join = torch.jit.script(metatensor.torch.join)
 
 
-def get_all_species(datasets: List[_BaseDataset]) -> List[int]:
+def get_all_species(datasets: Union[_BaseDataset, List[_BaseDataset]]) -> List[int]:
     """
-    Returns the list of all species present in a list of datasets.
+    Returns the list of all species present in a dataset or list of datasets.
 
-    Args:
-        datasets: The datasets.
+    :param datasets: The dataset, or list of datasets.
 
-    Returns:
-        The list of species present in the datasets.
+    :return: The sorted list of species present in the datasets.
     """
 
-    # The following does not work because the `dataset` can also
-    # be a `Subset` object:
-    # species = []
-    # for structure in dataset.structures:
-    #     species += structure.species.tolist()
-    # return list(set(species))
+    if not isinstance(datasets, list):
+        datasets = [datasets]
 
     # Iterate over all single instances of the dataset:
     species = []

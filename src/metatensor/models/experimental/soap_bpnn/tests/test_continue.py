@@ -59,7 +59,7 @@ def test_continue(monkeypatch, tmp_path):
 
     capabilities = ModelCapabilities(
         length_unit="Angstrom",
-        species=get_all_species([dataset]),
+        species=get_all_species(dataset),
         outputs={
             "U0": ModelOutput(
                 quantity="energy",
