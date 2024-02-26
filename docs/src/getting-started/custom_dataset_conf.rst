@@ -126,10 +126,10 @@ without them.
 
 Multiple Datasets
 -----------------
-For some application it is required to provide more than one dataset for model training.
-`metatensor-models` supports stacking several datasets together using the ``YAML`` list
-syntax that are lines beginning at the same indentation level starting with a ``"- "``
-(a dash and a space)
+For some applications, it is required to provide more than one dataset for model
+training. `metatensor-models` supports stacking several datasets together using the
+``YAML`` list syntax, which consists of lines beginning at the same indentation level
+starting with a ``"- "`` (a dash and a space)
 
 
 .. code-block:: yaml
@@ -162,14 +162,15 @@ The required test and validation splits are performed consistently for each elem
 element in ``training_set``
 
 The ``length_unit`` has to be the same for each element of the list. If target section
-names are the same in elements of the list their unit has also be the same. In the
-example above the target section ``energy`` exists in both list elements and have the
-same unit ``eV``. The target section ``free-energy`` only exists in the second element
-and its unit does not have to be the same as in the first element of the list.
+names are the same for different elements of the list, their unit also has to be the
+same. In the the example above the target section ``energy`` exists in both list
+elements and therefore has the the same unit ``eV``. The target section ``free-energy``
+only exists in the second element and its unit does not have to be the same as in the
+first element of the list.
 
 .. warning::
 
-   Even though parsing several datasets is supported by the library, it may not be
+   Even though parsing several datasets is supported by the library, it may not
    work with every architecture. Check your :ref:`desired architecture
    <available-architectures>` if they **support multiple datasets**.
 
