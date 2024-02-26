@@ -74,19 +74,19 @@ def systems_to_batch_dict(
     neighbor_index_constructors = []
     for system in systems:
         known_neighbors_lists = system.known_neighbors_lists()
-        if options not in known_neighbors_lists:
+        if not torch.any(torch.tensor([known == options for known in known_neighbors_lists])):
             raise ValueError(
                 f"System does not have the neighbor list with the options {options}"
             )
         neighbors = system.get_neighbors_list(options)
 
-        i_list = neighbors.samples["first_atom"]
-        j_list = neighbors.samples["second_atom"]
+        i_list = neighbors.samples.column("first_atom")
+        j_list = neighbors.samples.column("second_atom")
 
         S_list = [
-            neighbors.samples["cell_shift_a"][None],
-            neighbors.samples["cell_shift_b"][None],
-            neighbors.samples["cell_shift_c"][None],
+            neighbors.samples.column("cell_shift_a")[None],
+            neighbors.samples.column("cell_shift_b")[None],
+            neighbors.samples.column("cell_shift_c")[None],
         ]
 
         S_list = torch.cat(S_list)
