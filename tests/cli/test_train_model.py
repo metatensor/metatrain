@@ -11,6 +11,7 @@ from omegaconf import OmegaConf
 from omegaconf.errors import ConfigKeyError
 
 from metatensor.models.cli.train import check_architecture_name, train_model
+from metatensor.models.utils.errors import ArchitectureError
 
 
 RESOURCES_PATH = Path(__file__).parent.resolve() / ".." / "resources"
@@ -140,7 +141,6 @@ def test_train_multiple_datasets(monkeypatch, tmp_path, options):
 def test_unit_check_is_performed(
     monkeypatch,
     tmp_path,
-    capsys,
     test_set_file,
     validation_set_file,
     options,
@@ -164,18 +164,15 @@ def test_unit_check_is_performed(
         options["test_set"]["systems"]["read_from"] = "validation.xyz"
         options["test_set"]["systems"]["length_unit"] = "foo"
 
-    with pytest.raises(SystemExit):
+    with pytest.raises(ValueError, match="`length_unit`s are inconsistent"):
         train_model(options)
-
-    captured = capsys.readouterr()
-    assert "`length_unit`s are inconsistent" in captured.err
 
 
 @pytest.mark.parametrize(
     "test_set_file, validation_set_file", [(True, False), (False, True)]
 )
 def test_inconsistent_number_of_datasets(
-    monkeypatch, tmp_path, capsys, test_set_file, validation_set_file, options
+    monkeypatch, tmp_path, test_set_file, validation_set_file, options
 ):
     """Test that error is raised in inconsistent number datasets are provided.
 
@@ -198,11 +195,8 @@ def test_inconsistent_number_of_datasets(
         options["test_set"]["systems"]["read_from"] = "test.xyz"
         options["test_set"] = OmegaConf.create(2 * [options["test_set"]])
 
-    with pytest.raises(SystemExit):
+    with pytest.raises(ValueError, match="different size than the train datatset"):
         train_model(options)
-
-    captured = capsys.readouterr()
-    assert "different size than the train datatset with length" in captured.err
 
 
 @pytest.mark.parametrize(
@@ -212,7 +206,6 @@ def test_inconsistent_number_of_datasets(
 def test_inconsistencies_within_list_datasets(
     monkeypatch,
     tmp_path,
-    capsys,
     taining_set_file,
     test_set_file,
     validation_set_file,
@@ -238,14 +231,8 @@ def test_inconsistencies_within_list_datasets(
     if validation_set_file:
         options["validation_set"] = broken_dataset_conf
 
-    with pytest.raises(SystemExit):
+    with pytest.raises(ValueError, match="`length_unit`s are inconsistent"):
         train_model(options)
-
-    captured = capsys.readouterr()
-    print(options)
-    print(captured.err)
-    print("fooooo")
-    assert "`length_unit`s are inconsistent between one of the dataset" in captured.err
 
 
 def test_continue(options, monkeypatch, tmp_path):
@@ -274,7 +261,7 @@ def test_continue_from_exported(options, monkeypatch, tmp_path):
     shutil.copy(DATASET_PATH, "qm9_reduced_100.xyz")
 
     with pytest.warns(match="Trying to load a checkpoint from"):
-        with pytest.raises(SystemExit):
+        with pytest.raises(ArchitectureError):
             train_model(options, continue_from=RESOURCES_PATH / "bpnn-model.pt")
 
 
@@ -299,7 +286,7 @@ def test_no_architecture_name(options):
 @pytest.mark.parametrize("seed", [1234, None, 0, -123])
 @pytest.mark.parametrize("architecture_name", ["experimental.soap_bpnn"])
 def test_model_consistency_with_seed(
-    options, monkeypatch, tmp_path, architecture_name, seed, capsys
+    options, monkeypatch, tmp_path, architecture_name, seed
 ):
     """Checks final model consistency with a fixed seed."""
     monkeypatch.chdir(tmp_path)
@@ -309,11 +296,8 @@ def test_model_consistency_with_seed(
     options["seed"] = seed
 
     if seed is not None and seed < 0:
-        with pytest.raises(SystemExit):
+        with pytest.raises(ValueError, match="should be a positive number or None."):
             train_model(options)
-
-        captured = capsys.readouterr()
-        assert "should be a positive number or None." in captured.err
         return
 
     train_model(options, output="model1.pt")
@@ -337,31 +321,25 @@ def test_model_consistency_with_seed(
                 assert torch.allclose(tensor1, tensor2)
 
 
-def test_error_base_precision(options, monkeypatch, tmp_path, capsys):
+def test_error_base_precision(options, monkeypatch, tmp_path):
     """Test unsupported `base_precision`"""
     monkeypatch.chdir(tmp_path)
 
     options["base_precision"] = "123"
 
-    with pytest.raises(SystemExit):
+    with pytest.raises(ValueError, match="Only 64, 32 or 16 are possible values for"):
         train_model(options)
 
-    captured = capsys.readouterr()
-    assert "Only 64, 32 or 16 are possible values for" in captured.err
 
-
-def test_architectur_error(options, monkeypatch, tmp_path, capsys):
+def test_architectur_error(options, monkeypatch, tmp_path):
     """Test an error raise if there is problem wth the architecture."""
     monkeypatch.chdir(tmp_path)
     shutil.copy(DATASET_PATH, "qm9_reduced_100.xyz")
 
     options["architecture"]["model"] = OmegaConf.create({"soap": {"cutoff": -1}})
 
-    with pytest.raises(SystemExit):
+    with pytest.raises(ArchitectureError, match="originates from an architecture"):
         train_model(options)
-
-    captured = capsys.readouterr()
-    assert "likely originates from an architecture" in captured.err
 
 
 def test_check_architecture_name():

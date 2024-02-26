@@ -5,7 +5,7 @@ requires-python = ">=3.7"
 
 readme = "README.md"
 license = {text = "BSD-3-Clause"}
-description = "" # TODO
+description = "Atomistic models using metatensor"
 authors = [{name = "metatensor-models developers"}]
 
 dependencies = [
@@ -19,7 +19,7 @@ dependencies = [
     "metatensor-learn",
 ]
 
-keywords = [] # TODO
+keywords = ["machine learning", "molecular modeling"]
 classifiers = [
     "Development Status :: 4 - Beta",
     "Intended Audience :: Science/Research",
@@ -38,8 +38,8 @@ classifiers = [
 ]
 
 [project.urls]
-# homepage = "TODO"
-# documentation = "TODO"
+homepage = "https://lab-cosmo.github.io/metatensor-models/latest/"
+documentation = "https://lab-cosmo.github.io/metatensor-models/latest/"
 repository = "https://github.com/lab-cosmo/metatensor-models"
 # changelog = "TODO"
 
@@ -68,16 +68,17 @@ where = ["src"]
 version = {attr = "metatensor.models.__version__"}
 
 [tool.coverage.report]
-include = [
-    "src/metatensor/models/*"
+skip_covered = true
+show_missing = true
+exclude_lines = [
+    "if __name__ == .__main__.:",
 ]
 
-[tool.coverage.xml]
-output = 'tests/coverage.xml'
-
-[tool.pytest.ini_options]
-python_files = ["*.py"]
-testpaths = ["tests"]
+[tool.coverage.paths]
+source = [
+    "src/metatensor",
+    ".tox/*/lib/python*/site-packages/metatensor"
+]
 
 [tool.isort]
 skip = "__init__.py"

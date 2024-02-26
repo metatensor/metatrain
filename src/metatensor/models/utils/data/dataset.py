@@ -123,7 +123,7 @@ def check_datasets(
     # training sets:
     for target in validation_targets:
         if target not in train_targets:
-            logger.warn(
+            logger.warning(
                 f"The validation dataset has a target ({target}) "
                 "that is not in the training dataset."
             )
@@ -143,7 +143,7 @@ def check_datasets(
     # training sets:
     for species in all_validation_species:
         if species not in all_training_species:
-            logger.warn(
+            logger.warning(
                 f"The validation dataset has a species ({species}) "
                 "that is not in the training dataset. This could be "
                 "a result of a random train/validation split. You can "
