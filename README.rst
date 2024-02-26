@@ -72,7 +72,7 @@ atomistic model.
 .. marker-documentation
 
 Documentation
-------------
+-------------
 
 For details, tutorials, and examples, please have a look at our
 `documentation <https://lab-cosmo.github.io/metatensor-models/latest/>`_.
@@ -97,6 +97,20 @@ example, to install the SOAP-BPNN model, you can run:
 .. code-block:: bash
 
     pip install .[soap-bpnn]
+
+Shell Completion
+################
+`metatensor-models` comes with completion definitions for its commands for ``bash`` and
+``zsh``. Since it is difficult to automatically configure shell completions in a robust
+manner, you must manually configure your shell to enable its completion support.
+
+To make the completions available, source the definitions as
+part of your shell's startup. Add the following to your ``~/.bash_profile``,
+``~/.zshrc`` (or, if they don't exist, ``~/.profile``):
+
+.. code-block:: bash
+
+  source $(metatensor-models --shell-completion)
 
 .. marker-issues
 
