@@ -1,4 +1,4 @@
-structures: "qm9_reduced_100.xyz" # file where the positions are stored
+systems: "qm9_reduced_100.xyz" # file where the positions are stored
 targets:
   energy:
     key: "U0" # name of the target value

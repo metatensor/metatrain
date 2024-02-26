@@ -13,7 +13,7 @@ metatensor-models train --help
 metatensor-models eval model.pt eval.yaml
 
 # The evaluation command predicts those properties the model was trained against; here
-# "U0". The predictions together with the structures have been written in a file named
+# "U0". The predictions together with the systems have been written in a file named
 # ``output.xyz`` in the current directory. The written file starts with the following
 # lines
 

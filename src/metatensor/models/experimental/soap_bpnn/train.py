@@ -182,8 +182,8 @@ def train(
         train_loss = 0.0
         for batch in train_dataloader:
             optimizer.zero_grad()
-            structures, targets = batch
-            loss, info = compute_model_loss(loss_fn, model, structures, targets)
+            systems, targets = batch
+            loss, info = compute_model_loss(loss_fn, model, systems, targets)
             train_loss += loss.item()
             loss.backward()
             optimizer.step()
@@ -192,9 +192,9 @@ def train(
 
         validation_loss = 0.0
         for batch in validation_dataloader:
-            structures, targets = batch
+            systems, targets = batch
             # TODO: specify that the model is not training here to save some autograd
-            loss, info = compute_model_loss(loss_fn, model, structures, targets)
+            loss, info = compute_model_loss(loss_fn, model, systems, targets)
             validation_loss += loss.item()
             aggregated_validation_info = update_aggregated_info(
                 aggregated_validation_info, info

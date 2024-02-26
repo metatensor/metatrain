@@ -212,7 +212,7 @@ class Model(torch.nn.Module):
                 )
             if output.per_atom:
                 raise ValueError(
-                    "SOAP-BPNN only supports per-structure outputs, "
+                    "SOAP-BPNN only supports per-system outputs, "
                     "but a per-atom output was provided"
                 )
 

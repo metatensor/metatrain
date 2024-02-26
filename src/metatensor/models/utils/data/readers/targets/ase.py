@@ -25,9 +25,9 @@ def read_energy_ase(
     properties = Labels.single()
 
     blocks = []
-    for i_structure, atoms in enumerate(frames):
+    for i_system, atoms in enumerate(frames):
         values = torch.tensor([[atoms.info[key]]], dtype=dtype)
-        samples = Labels(["structure"], torch.tensor([[i_structure]]))
+        samples = Labels(["system"], torch.tensor([[i_system]]))
 
         block = TensorBlock(
             values=values,
@@ -61,14 +61,14 @@ def read_forces_ase(
     properties = Labels.single()
 
     blocks = []
-    for i_structure, atoms in enumerate(frames):
+    for i_system, atoms in enumerate(frames):
         # We store forces as positions gradients which means we invert the sign
         values = -torch.tensor(atoms.arrays[key], dtype=dtype)
         values = values.reshape(-1, 3, 1)
 
         samples = Labels(
-            ["sample", "structure", "atom"],
-            torch.tensor([[0, i_structure, a] for a in range(len(values))]),
+            ["sample", "system", "atom"],
+            torch.tensor([[0, i_system, a] for a in range(len(values))]),
         )
 
         block = TensorBlock(
@@ -150,20 +150,20 @@ def _read_virial_stress_ase(
     properties = Labels.single()
 
     blocks = []
-    for i_structure, atoms in enumerate(frames):
+    for i_system, atoms in enumerate(frames):
 
         values = torch.tensor(atoms.info[key].tolist(), dtype=dtype)
 
         if values.shape == (9,):
             warnings.warn(
-                "Found 9-long numerical vector for the stress/virial in structure "
-                f"{i_structure}. Assume a row major format for the conversion into a "
+                "Found 9-long numerical vector for the stress/virial in system "
+                f"{i_system}. Assume a row major format for the conversion into a "
                 "3 x 3 matrix.",
                 stacklevel=2,
             )
         elif values.shape != (3, 3):
             raise ValueError(
-                f"Values in structure {i_structure} has shape {values.shape}. "
+                f"Values in system {i_system} has shape {values.shape}. "
                 "Stress/virial must be a 3 x 3 matrix or a 9-long numerical vector."
             )
 
@@ -174,7 +174,7 @@ def _read_virial_stress_ase(
         else:  # is stress
             if atoms.cell.volume == 0:
                 raise ValueError(
-                    f"Structure {i_structure} has zero cell vectors. Stress can only "
+                    f"system {i_system} has zero cell vectors. Stress can only "
                     "be used if cell is non zero."
                 )
             values *= atoms.cell.volume

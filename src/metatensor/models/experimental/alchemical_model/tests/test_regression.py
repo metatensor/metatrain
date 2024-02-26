@@ -15,7 +15,7 @@ from omegaconf import OmegaConf
 
 from metatensor.models.experimental.alchemical_model import DEFAULT_HYPERS, Model, train
 from metatensor.models.utils.data import get_all_species
-from metatensor.models.utils.data.readers import read_structures, read_targets
+from metatensor.models.utils.data.readers import read_systems, read_targets
 from metatensor.models.utils.neighbors_lists import get_system_with_neighbors_lists
 
 from . import DATASET_PATH
@@ -41,11 +41,11 @@ def test_regression_init():
     )
     alchemical_model = Model(capabilities, DEFAULT_HYPERS["model"])
 
-    # Predict on the first fivestructures
-    structures = ase.io.read(DATASET_PATH, ":5")
+    # Predict on the first five systems
+    systems = ase.io.read(DATASET_PATH, ":5")
     systems = [
-        rascaline.torch.systems_to_torch(structure).to(torch.get_default_dtype())
-        for structure in structures
+        rascaline.torch.systems_to_torch(system).to(torch.get_default_dtype())
+        for system in systems
     ]
     systems = [
         get_system_with_neighbors_lists(
@@ -84,7 +84,7 @@ def test_regression_train():
     np.random.seed(0)
     torch.manual_seed(0)
 
-    structures = read_structures(DATASET_PATH, dtype=torch.get_default_dtype())
+    systems = read_systems(DATASET_PATH, dtype=torch.get_default_dtype())
     conf = {
         "U0": {
             "quantity": "energy",
@@ -97,7 +97,7 @@ def test_regression_train():
         }
     }
     targets = read_targets(OmegaConf.create(conf), dtype=torch.get_default_dtype())
-    dataset = Dataset(structure=structures, U0=targets["U0"])
+    dataset = Dataset(system=systems, U0=targets["U0"])
 
     hypers = DEFAULT_HYPERS.copy()
     hypers["training"]["num_epochs"] = 2
@@ -119,7 +119,7 @@ def test_regression_train():
         hypers=hypers,
     )
 
-    # Predict on the first five structures
+    # Predict on the first five systems
     evaluation_options = ModelEvaluationOptions(
         length_unit=alchemical_model.capabilities.length_unit,
         outputs=alchemical_model.capabilities.outputs,
@@ -129,7 +129,7 @@ def test_regression_train():
         alchemical_model.eval(), alchemical_model.capabilities
     )
     output = model(
-        structures[:5],
+        systems[:5],
         evaluation_options,
         check_consistency=True,
     )

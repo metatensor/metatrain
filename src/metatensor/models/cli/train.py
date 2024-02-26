@@ -20,7 +20,7 @@ from omegaconf import DictConfig, OmegaConf
 from omegaconf.errors import ConfigKeyError
 
 from .. import CONFIG_PATH
-from ..utils.data import get_all_species, read_structures, read_targets
+from ..utils.data import get_all_species, read_systems, read_targets
 from ..utils.data.dataset import _train_test_random_split
 from ..utils.errors import ArchitectureError
 from ..utils.export import export
@@ -237,15 +237,15 @@ def _train_model_hydra(options: DictConfig) -> None:
 
     train_datasets = []
     for train_options in train_options_list:
-        train_structures = read_structures(
-            filename=train_options["structures"]["read_from"],
-            fileformat=train_options["structures"]["file_format"],
+        train_systems = read_systems(
+            filename=train_options["systems"]["read_from"],
+            fileformat=train_options["systems"]["file_format"],
             dtype=torch.get_default_dtype(),
         )
         train_targets = read_targets(
             conf=train_options["targets"], dtype=torch.get_default_dtype()
         )
-        train_datasets.append(Dataset(structure=train_structures, **train_targets))
+        train_datasets.append(Dataset(system=train_systems, **train_targets))
 
     train_size = 1.0
 
@@ -288,15 +288,15 @@ def _train_model_hydra(options: DictConfig) -> None:
         )
 
         for test_options in test_options_list:
-            test_structures = read_structures(
-                filename=test_options["structures"]["read_from"],
-                fileformat=test_options["structures"]["file_format"],
+            test_systems = read_systems(
+                filename=test_options["systems"]["read_from"],
+                fileformat=test_options["systems"]["file_format"],
                 dtype=torch.get_default_dtype(),
             )
             test_targets = read_targets(
                 conf=test_options["targets"], dtype=torch.get_default_dtype()
             )
-            test_dataset = Dataset(structure=test_structures, **test_targets)
+            test_dataset = Dataset(system=test_systems, **test_targets)
             test_datasets.append(test_dataset)
 
     logger.info("Setting up validation set")
@@ -339,16 +339,16 @@ def _train_model_hydra(options: DictConfig) -> None:
         )
 
         for validation_options in validation_options_list:
-            validation_structures = read_structures(
-                filename=validation_options["structures"]["read_from"],
-                fileformat=validation_options["structures"]["file_format"],
+            validation_systems = read_systems(
+                filename=validation_options["systems"]["read_from"],
+                fileformat=validation_options["systems"]["file_format"],
                 dtype=torch.get_default_dtype(),
             )
             validation_targets = read_targets(
                 conf=validation_options["targets"], dtype=torch.get_default_dtype()
             )
             validation_dataset = Dataset(
-                structure=validation_structures, **validation_targets
+                system=validation_systems, **validation_targets
             )
             validation_datasets.append(validation_dataset)
 
@@ -369,7 +369,7 @@ def _train_model_hydra(options: DictConfig) -> None:
         for train_options in train_options_list
         for key, value in train_options["targets"].items()
     }
-    length_unit = train_options_list[0]["structures"]["length_unit"]
+    length_unit = train_options_list[0]["systems"]["length_unit"]
     requested_capabilities = ModelCapabilities(
         length_unit=length_unit if length_unit is not None else "",
         species=all_species,

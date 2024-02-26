@@ -78,24 +78,24 @@ def test_train_explicit_validation_test(
     also when the validation and test sets are provided explicitly."""
     monkeypatch.chdir(tmp_path)
 
-    structures = ase.io.read(DATASET_PATH, ":")
+    systems = ase.io.read(DATASET_PATH, ":")
 
-    ase.io.write("qm9_reduced_100.xyz", structures[:50])
+    ase.io.write("qm9_reduced_100.xyz", systems[:50])
 
     options["training_set"] = OmegaConf.create(n_datasets * [options["training_set"]])
 
     if validation_set_file:
-        ase.io.write("validation.xyz", structures[50:80])
+        ase.io.write("validation.xyz", systems[50:80])
         options["validation_set"] = options["training_set"][0].copy()
-        options["validation_set"]["structures"]["read_from"] = "validation.xyz"
+        options["validation_set"]["systems"]["read_from"] = "validation.xyz"
         options["validation_set"] = OmegaConf.create(
             n_datasets * [options["validation_set"]]
         )
 
     if test_set_file:
-        ase.io.write("test.xyz", structures[80:])
+        ase.io.write("test.xyz", systems[80:])
         options["test_set"] = options["training_set"][0].copy()
-        options["test_set"]["structures"]["read_from"] = "test.xyz"
+        options["test_set"]["systems"]["read_from"] = "test.xyz"
         options["test_set"] = OmegaConf.create(n_datasets * [options["test_set"]])
 
     train_model(options)
@@ -119,14 +119,14 @@ def test_train_multiple_datasets(monkeypatch, tmp_path, options):
     also when learning on two different datasets."""
     monkeypatch.chdir(tmp_path)
 
-    structures = ase.io.read(DATASET_PATH, ":")
-    structures_2 = ase.io.read(DATASET_PATH_2, ":")
+    systems = ase.io.read(DATASET_PATH, ":")
+    systems_2 = ase.io.read(DATASET_PATH_2, ":")
 
-    ase.io.write("qm9_reduced_100.xyz", structures[:50])
-    ase.io.write("ethanol_reduced_100.xyz", structures_2[:50])
+    ase.io.write("qm9_reduced_100.xyz", systems[:50])
+    ase.io.write("ethanol_reduced_100.xyz", systems_2[:50])
 
     options["training_set"] = OmegaConf.create(2 * [options["training_set"]])
-    options["training_set"][1]["structures"]["read_from"] = "ethanol_reduced_100.xyz"
+    options["training_set"][1]["systems"]["read_from"] = "ethanol_reduced_100.xyz"
     options["training_set"][1]["targets"]["energy"]["key"] = "energy"
     options["training_set"][0]["targets"].pop("energy")
     options["training_set"][0]["targets"]["U0"] = OmegaConf.create({"key": "U0"})
@@ -148,21 +148,21 @@ def test_unit_check_is_performed(
     """Test that error is raised if units are inconsistent between the datasets."""
     monkeypatch.chdir(tmp_path)
 
-    structures = ase.io.read(DATASET_PATH, ":")
+    systems = ase.io.read(DATASET_PATH, ":")
 
-    ase.io.write("qm9_reduced_100.xyz", structures[:50])
+    ase.io.write("qm9_reduced_100.xyz", systems[:50])
 
     if validation_set_file:
-        ase.io.write("test.xyz", structures[50:80])
+        ase.io.write("test.xyz", systems[50:80])
         options["validation_set"] = options["training_set"].copy()
-        options["validation_set"]["structures"]["read_from"] = "test.xyz"
-        options["validation_set"]["structures"]["length_unit"] = "foo"
+        options["validation_set"]["systems"]["read_from"] = "test.xyz"
+        options["validation_set"]["systems"]["length_unit"] = "foo"
 
     if test_set_file:
-        ase.io.write("validation.xyz", structures[80:])
+        ase.io.write("validation.xyz", systems[80:])
         options["test_set"] = options["training_set"].copy()
-        options["test_set"]["structures"]["read_from"] = "validation.xyz"
-        options["test_set"]["structures"]["length_unit"] = "foo"
+        options["test_set"]["systems"]["read_from"] = "validation.xyz"
+        options["test_set"]["systems"]["length_unit"] = "foo"
 
     with pytest.raises(SystemExit):
         train_model(options)
@@ -182,20 +182,20 @@ def test_inconsistent_number_of_datasets(
     i.e one train dataset but two validation datasets. Same for the test dataset."""
     monkeypatch.chdir(tmp_path)
 
-    structures = ase.io.read(DATASET_PATH, ":")
+    systems = ase.io.read(DATASET_PATH, ":")
 
-    ase.io.write("qm9_reduced_100.xyz", structures[:50])
+    ase.io.write("qm9_reduced_100.xyz", systems[:50])
 
     if validation_set_file:
-        ase.io.write("validation.xyz", structures[50:80])
+        ase.io.write("validation.xyz", systems[50:80])
         options["validation_set"] = options["training_set"].copy()
-        options["validation_set"]["structures"]["read_from"] = "validation.xyz"
+        options["validation_set"]["systems"]["read_from"] = "validation.xyz"
         options["validation_set"] = OmegaConf.create(2 * [options["validation_set"]])
 
     if test_set_file:
-        ase.io.write("test.xyz", structures[80:])
+        ase.io.write("test.xyz", systems[80:])
         options["test_set"] = options["training_set"].copy()
-        options["test_set"]["structures"]["read_from"] = "test.xyz"
+        options["test_set"]["systems"]["read_from"] = "test.xyz"
         options["test_set"] = OmegaConf.create(2 * [options["test_set"]])
 
     with pytest.raises(SystemExit):
@@ -224,8 +224,8 @@ def test_inconsistencies_within_list_datasets(
 
     ref_dataset_conf = OmegaConf.create(2 * [options["training_set"]])
     broken_dataset_conf = ref_dataset_conf.copy()
-    broken_dataset_conf[0]["structures"]["length_unit"] = "foo"
-    broken_dataset_conf[1]["structures"]["length_unit"] = "bar"
+    broken_dataset_conf[0]["systems"]["length_unit"] = "foo"
+    broken_dataset_conf[1]["systems"]["length_unit"] = "bar"
 
     options["training_set"] = ref_dataset_conf
     options["validation_set"] = ref_dataset_conf
@@ -262,7 +262,7 @@ def test_continue_different_dataset(options, monkeypatch, tmp_path):
     monkeypatch.chdir(tmp_path)
     shutil.copy(RESOURCES_PATH / "ethanol_reduced_100.xyz", "ethanol_reduced_100.xyz")
 
-    options["training_set"]["structures"]["read_from"] = "ethanol_reduced_100.xyz"
+    options["training_set"]["systems"]["read_from"] = "ethanol_reduced_100.xyz"
     options["training_set"]["targets"]["energy"]["key"] = "energy"
 
     train_model(options, continue_from=MODEL_PATH)

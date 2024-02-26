@@ -35,7 +35,7 @@ hyperparameters. The adjustments for ``num_epochs`` and ``cutoff`` look like thi
          num_epochs: 200
 
    training_set:
-   structures: "qm9_reduced_100.xyz"
+   systems: "qm9_reduced_100.xyz"
    targets:
       energy:
          key: "U0"

@@ -6,7 +6,7 @@ from metatensor.torch.atomistic import ModelCapabilities, ModelOutput
 
 from metatensor.models.experimental import soap_bpnn
 from metatensor.models.utils.compute_loss import compute_model_loss
-from metatensor.models.utils.data import read_structures
+from metatensor.models.utils.data import read_systems
 from metatensor.models.utils.loss import TensorMapDictLoss
 
 
@@ -36,7 +36,7 @@ def test_compute_model_loss():
     model = soap_bpnn.Model(capabilities)
     # model = torch.jit.script(model)  # jit the model for good measure
 
-    structures = read_structures(RESOURCES_PATH / "alchemical_reduced_10.xyz")[:2]
+    systems = read_systems(RESOURCES_PATH / "alchemical_reduced_10.xyz")[:2]
 
     gradient_samples = Labels(
         names=["sample", "atom"],
@@ -44,13 +44,11 @@ def test_compute_model_loss():
             [
                 torch.concatenate(
                     [
-                        torch.tensor([i] * len(structure))
-                        for i, structure in enumerate(structures)
+                        torch.tensor([i] * len(system))
+                        for i, system in enumerate(systems)
                     ]
                 ),
-                torch.concatenate(
-                    [torch.arange(len(structure)) for structure in structures]
-                ),
+                torch.concatenate([torch.arange(len(system)) for system in systems]),
             ],
             dim=1,
         ),
@@ -64,8 +62,8 @@ def test_compute_model_loss():
     ]
 
     block = TensorBlock(
-        values=torch.tensor([[0.0] * len(structures)]).T,
-        samples=Labels.range("structure", len(structures)),
+        values=torch.tensor([[0.0] * len(systems)]).T,
+        samples=Labels.range("system", len(systems)),
         components=[],
         properties=Labels.single(),
     )
@@ -76,8 +74,8 @@ def test_compute_model_loss():
             values=torch.tensor(
                 [
                     [[1.0], [1.0], [1.0]]
-                    for structure in structures
-                    for _ in range(len(structure.positions))
+                    for system in systems
+                    for _ in range(len(system.positions))
                 ]
             ),
             samples=gradient_samples,
@@ -99,6 +97,6 @@ def test_compute_model_loss():
     compute_model_loss(
         loss_fn,
         model,
-        structures,
+        systems,
         targets,
     )
