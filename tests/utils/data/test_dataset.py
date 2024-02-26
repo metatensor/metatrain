@@ -57,6 +57,22 @@ def test_species_list():
             "virial": False,
         }
     }
+    structures_2 = read_structures(RESOURCES_PATH / "ethanol_reduced_100.xyz")
+    conf_2 = {
+        "energy": {
+            "quantity": "energy",
+            "read_from": str(RESOURCES_PATH / "ethanol_reduced_100.xyz"),
+            "file_format": ".xyz",
+            "key": "energy",
+            "forces": False,
+            "stress": False,
+            "virial": False,
+        }
+    }
     targets = read_targets(OmegaConf.create(conf))
-    dataset = Dataset(structure=structures, energy=targets["energy"])
+    targets_2 = read_targets(OmegaConf.create(conf_2))
+    dataset = Dataset(structure=structures, **targets)
+    dataset_2 = Dataset(structure=structures_2, **targets_2)
     assert get_all_species(dataset) == [1, 6, 7, 8]
+    assert get_all_species(dataset_2) == [1, 6, 8]
+    assert get_all_species([dataset, dataset_2]) == [1, 6, 7, 8]

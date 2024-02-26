@@ -2,7 +2,6 @@
 
 Customize a Dataset Configuration
 =================================
-
 Overview
 --------
 The main task in setting up a training procedure with `metatensor-models` is to provide
@@ -78,7 +77,7 @@ A single string in this section automatically expands, using the string as the
 
 .. note::
 
-   ``metatensor-models`` does not convert units during training or evaluation. Units are
+   `metatensor-models` does not convert units during training or evaluation. Units are
    only required if model should be used to run MD simulations.
 
 Targets Section
@@ -125,6 +124,55 @@ without them.
 
    Unknown keys are ignored and not deleted in all sections during dataset parsing.
 
+Multiple Datasets
+-----------------
+For some applications, it is required to provide more than one dataset for model
+training. `metatensor-models` supports stacking several datasets together using the
+``YAML`` list syntax, which consists of lines beginning at the same indentation level
+starting with a ``"- "`` (a dash and a space)
+
+
+.. code-block:: yaml
+
+    training_set:
+        - structures:
+              read_from: dataset_0.xyz
+              length_unit: angstrom
+          targets:
+              energy:
+                  quantity: energy
+                  key: my_energy_label0
+                  unit: eV
+        - structures:
+              read_from: dataset_1.xyz
+              length_unit: angstrom
+          targets:
+              energy:
+                  quantity: energy
+                  key: my_energy_label1
+                  unit: eV
+              free-energy:
+                  quantity: energy
+                  key: my_free_energy
+                  unit: hartree
+    test_set: 0.1
+    validation_set: 0.1
+
+The required test and validation splits are performed consistently for each element
+element in ``training_set``
+
+The ``length_unit`` has to be the same for each element of the list. If target section
+names are the same for different elements of the list, their unit also has to be the
+same. In the the example above the target section ``energy`` exists in both list
+elements and therefore has the the same unit ``eV``. The target section ``free-energy``
+only exists in the second element and its unit does not have to be the same as in the
+first element of the list.
+
+.. warning::
+
+   Even though parsing several datasets is supported by the library, it may not
+   work with every architecture. Check your :ref:`desired architecture
+   <available-architectures>` if they **support multiple datasets**.
+
 In the next tutorials we explain and show how to set some advanced global training
 parameters.
-

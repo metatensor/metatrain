@@ -1,6 +1,6 @@
 import logging
 import os
-from typing import Dict, List, NamedTuple, Optional, Tuple
+from typing import Dict, List, NamedTuple, Optional, Tuple, Union
 
 import metatensor.torch
 import torch
@@ -28,29 +28,24 @@ else:
     compiled_join = torch.jit.script(metatensor.torch.join)
 
 
-def get_all_species(dataset: _BaseDataset) -> List[int]:
+def get_all_species(datasets: Union[_BaseDataset, List[_BaseDataset]]) -> List[int]:
     """
-    Returns the list of all species present in the dataset.
+    Returns the list of all species present in a dataset or list of datasets.
 
-    Args:
-        dataset: The dataset.
+    :param datasets: The dataset, or list of datasets.
 
-    Returns:
-        The list of species present in the dataset.
+    :return: The sorted list of species present in the datasets.
     """
 
-    # The following does not work because the `dataset` can also
-    # be a `Subset` object:
-    # species = []
-    # for structure in dataset.structures:
-    #     species += structure.species.tolist()
-    # return list(set(species))
+    if not isinstance(datasets, list):
+        datasets = [datasets]
 
     # Iterate over all single instances of the dataset:
     species = []
-    for index in range(len(dataset)):
-        structure, _ = dataset[index]
-        species += structure.species.tolist()
+    for dataset in datasets:
+        for index in range(len(dataset)):
+            structure = dataset[index][0]  # extract the structure from the NamedTuple
+            species += structure.species.tolist()
 
     # Remove duplicates and sort:
     result = list(set(species))
@@ -138,12 +133,8 @@ def check_datasets(
             )
 
     # Get all the species in the training and validation sets:
-    all_training_species = []
-    for dataset in train_datasets:
-        all_training_species += get_all_species(dataset)
-    all_validation_species = []
-    for dataset in validation_datasets:
-        all_validation_species += get_all_species(dataset)
+    all_training_species = get_all_species(train_datasets)
+    all_validation_species = get_all_species(validation_datasets)
 
     # Check that they are compatible with the model's capabilities:
     for species in all_training_species + all_validation_species:
