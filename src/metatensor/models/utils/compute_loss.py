@@ -181,8 +181,7 @@ def compute_model_loss(
             pass
 
     # Averaging by number of atoms for per atom targets
-    num_atoms = torch.tensor([len(s) for s in systems]).to(device=device)
-    num_atoms = torch.reshape(num_atoms, (-1, 1))
+    num_atoms = torch.tensor([len(s) for s in systems], device=device).unsqueeze(-1)
 
     new_model_outputs = model_outputs.copy()
     new_targets = targets.copy()
