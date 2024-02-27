@@ -32,7 +32,10 @@ def compute_model_loss(
     per_atom_targets: List[str],
 ) -> Tuple[torch.Tensor, Dict[str, Tuple[float, int]]]:
     """
-    Compute the loss of a model on a set of targets.
+    Compute the loss of a model on a set of targets, with an option to treat
+    specifed targets on a per atom basis. This implies that when some such
+    targets are specified, their contribution to the loss will accordingly be on
+    a per atom basis.
 
     :param loss: The loss function to use.
     :param model: The model to use. This can either be a model in training
@@ -40,6 +43,8 @@ def compute_model_loss(
         (``torch.jit._script.RecursiveScriptModule``).
     :param systems: The systems to use.
     :param targets: The targets to use.
+    :param per_atom_targets: The targets that should be treated on a per atom
+        basis during loss calculation.
 
     :returns: The loss as a scalar `torch.Tensor`.
     """
