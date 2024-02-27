@@ -202,7 +202,7 @@ def train(
             loss, info = compute_model_loss(
                 loss_fn, model, structures, targets, hypers_training["per_atom_targets"]
             )
-            
+
             validation_loss += loss.item()
             aggregated_validation_info = update_aggregated_info(
                 aggregated_validation_info, info

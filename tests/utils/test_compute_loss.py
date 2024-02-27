@@ -107,7 +107,7 @@ def test_compute_model_loss():
     per_atom_loss, info = compute_model_loss(
         loss_fn,
         model,
-        structures,
+        systems,
         targets,
         per_atom_targets,
     )
