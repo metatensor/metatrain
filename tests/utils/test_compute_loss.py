@@ -94,9 +94,22 @@ def test_compute_model_loss():
         ),
     }
 
-    compute_model_loss(
+    loss, info = compute_model_loss(
         loss_fn,
         model,
         systems,
         targets,
+        [],
     )
+
+    per_atom_targets = ["energy"]
+
+    per_atom_loss, info = compute_model_loss(
+        loss_fn,
+        model,
+        systems,
+        targets,
+        per_atom_targets,
+    )
+
+    assert loss > per_atom_loss
