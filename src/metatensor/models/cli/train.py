@@ -20,12 +20,12 @@ from omegaconf import DictConfig, OmegaConf
 from omegaconf.errors import ConfigKeyError
 
 from .. import CONFIG_PATH
-from ..utils.data import get_all_species, read_structures, read_targets
+from ..utils.data import get_all_species, read_systems, read_targets
 from ..utils.data.dataset import _train_test_random_split
 from ..utils.errors import ArchitectureError
 from ..utils.export import export
 from ..utils.model_io import save_model
-from ..utils.omegaconf import check_units, expand_dataset_config
+from ..utils.omegaconf import check_options_list, check_units, expand_dataset_config
 from .eval import _eval_targets
 from .formatter import CustomHelpFormatter
 
@@ -44,6 +44,8 @@ def _add_train_model_parser(subparser: argparse._SubParsersAction) -> None:
     else:
         description = None
 
+    # If you change the synopsis of these commands or add new ones adjust the completion
+    # script at `src/metatensor/models/share/metatensor-models-completion.bash`.
     parser = subparser.add_parser(
         "train",
         description=description,
@@ -230,21 +232,26 @@ def _train_model_hydra(options: DictConfig) -> None:
     logger.info(f"This log is also available in '{output_dir}/train.log'.")
 
     logger.info("Setting up training set")
-    train_options = expand_dataset_config(options["training_set"])
-    train_structures = read_structures(
-        filename=train_options["structures"]["read_from"],
-        fileformat=train_options["structures"]["file_format"],
-        dtype=torch.get_default_dtype(),
-    )
-    train_targets = read_targets(
-        conf=train_options["targets"], dtype=torch.get_default_dtype()
-    )
-    train_dataset = Dataset(structure=train_structures, energy=train_targets["energy"])
+    train_options_list = expand_dataset_config(options["training_set"])
+    check_options_list(train_options_list)
+
+    train_datasets = []
+    for train_options in train_options_list:
+        train_systems = read_systems(
+            filename=train_options["systems"]["read_from"],
+            fileformat=train_options["systems"]["file_format"],
+            dtype=torch.get_default_dtype(),
+        )
+        train_targets = read_targets(
+            conf=train_options["targets"], dtype=torch.get_default_dtype()
+        )
+        train_datasets.append(Dataset(system=train_systems, **train_targets))
+
     train_size = 1.0
 
     logger.info("Setting up test set")
     test_options = options["test_set"]
-
+    test_datasets = []
     if isinstance(test_options, float):
         test_size = test_options
         train_size -= test_size
@@ -256,27 +263,45 @@ def _train_model_hydra(options: DictConfig) -> None:
         if options["seed"] is not None:
             generator.manual_seed(options["seed"])
 
-        train_dataset, test_dataset = _train_test_random_split(
-            train_dataset=train_dataset,
-            train_size=train_size,
-            test_size=test_size,
-            generator=generator,
-        )
+        for i_dataset, train_dataset in enumerate(train_datasets):
+            train_dataset_new, test_dataset = _train_test_random_split(
+                train_dataset=train_dataset,
+                train_size=train_size,
+                test_size=test_size,
+                generator=generator,
+            )
+
+            train_datasets[i_dataset] = train_dataset_new
+            test_datasets.append(test_dataset)
     else:
-        test_options = expand_dataset_config(test_options)
-        test_structures = read_structures(
-            filename=test_options["structures"]["read_from"],
-            fileformat=test_options["structures"]["file_format"],
-            dtype=torch.get_default_dtype(),
+        test_options_list = expand_dataset_config(test_options)
+        check_options_list(test_options_list)
+
+        if len(test_options_list) != len(train_options_list):
+            raise ValueError(
+                f"Test dataset with length {len(test_options_list)} has a different "
+                f"size than the train datatset with length {len(train_options_list)}."
+            )
+
+        check_units(
+            actual_options=test_options_list, desired_options=train_options_list
         )
-        test_targets = read_targets(
-            conf=test_options["targets"], dtype=torch.get_default_dtype()
-        )
-        test_dataset = Dataset(structure=test_structures, energy=test_targets["energy"])
-        check_units(actual_options=test_options, desired_options=train_options)
+
+        for test_options in test_options_list:
+            test_systems = read_systems(
+                filename=test_options["systems"]["read_from"],
+                fileformat=test_options["systems"]["file_format"],
+                dtype=torch.get_default_dtype(),
+            )
+            test_targets = read_targets(
+                conf=test_options["targets"], dtype=torch.get_default_dtype()
+            )
+            test_dataset = Dataset(system=test_systems, **test_targets)
+            test_datasets.append(test_dataset)
 
     logger.info("Setting up validation set")
     validation_options = options["validation_set"]
+    validation_datasets = []
     if isinstance(validation_options, float):
         validation_size = validation_options
         train_size -= validation_size
@@ -288,27 +313,44 @@ def _train_model_hydra(options: DictConfig) -> None:
         if options["seed"] is not None:
             generator.manual_seed(options["seed"])
 
-        train_dataset, validation_dataset = _train_test_random_split(
-            train_dataset=train_dataset,
-            train_size=train_size,
-            test_size=validation_size,
-            generator=generator,
-        )
+        for i_dataset, train_dataset in enumerate(train_datasets):
+            train_dataset_new, validation_dataset = _train_test_random_split(
+                train_dataset=train_dataset,
+                train_size=train_size,
+                test_size=validation_size,
+                generator=generator,
+            )
+
+            train_datasets[i_dataset] = train_dataset_new
+            validation_datasets.append(validation_dataset)
     else:
-        validation_options = expand_dataset_config(validation_options)
-        validation_structures = read_structures(
-            filename=validation_options["structures"]["read_from"],
-            fileformat=validation_options["structures"]["file_format"],
-            dtype=torch.get_default_dtype(),
+        validation_options_list = expand_dataset_config(validation_options)
+        check_options_list(validation_options_list)
+
+        if len(validation_options_list) != len(train_options_list):
+            raise ValueError(
+                f"Validation dataset with length {len(validation_options_list)} has "
+                "a different size than the train datatset with length "
+                f"{len(train_options_list)}."
+            )
+
+        check_units(
+            actual_options=validation_options_list, desired_options=train_options_list
         )
-        validation_targets = read_targets(
-            conf=validation_options["targets"], dtype=torch.get_default_dtype()
-        )
-        validation_dataset = Dataset(
-            structure=validation_structures,
-            energy=validation_targets["energy"],
-        )
-        check_units(actual_options=validation_options, desired_options=train_options)
+
+        for validation_options in validation_options_list:
+            validation_systems = read_systems(
+                filename=validation_options["systems"]["read_from"],
+                fileformat=validation_options["systems"]["file_format"],
+                dtype=torch.get_default_dtype(),
+            )
+            validation_targets = read_targets(
+                conf=validation_options["targets"], dtype=torch.get_default_dtype()
+            )
+            validation_dataset = Dataset(
+                system=validation_systems, **validation_targets
+            )
+            validation_datasets.append(validation_dataset)
 
     # Save fully expanded config
     OmegaConf.save(config=options, f=Path(output_dir) / "options.yaml")
@@ -317,20 +359,17 @@ def _train_model_hydra(options: DictConfig) -> None:
     architecture_name = options["architecture"]["name"]
     architecture = importlib.import_module(f"metatensor.models.{architecture_name}")
 
-    all_species = []
-    for dataset in [train_dataset]:  # HACK: only a single train_dataset for now
-        all_species += get_all_species(dataset)
-    all_species = list(set(all_species))
-    all_species.sort()
+    all_species = get_all_species(train_datasets)
 
     outputs = {
         key: ModelOutput(
             quantity=value["quantity"],
             unit=(value["unit"] if value["unit"] is not None else ""),
         )
-        for key, value in options["training_set"]["targets"].items()
+        for train_options in train_options_list
+        for key, value in train_options["targets"].items()
     }
-    length_unit = train_options["structures"]["length_unit"]
+    length_unit = train_options_list[0]["systems"]["length_unit"]
     requested_capabilities = ModelCapabilities(
         length_unit=length_unit if length_unit is not None else "",
         species=all_species,
@@ -340,8 +379,8 @@ def _train_model_hydra(options: DictConfig) -> None:
     logger.info("Calling architecture trainer")
     try:
         model = architecture.train(
-            train_datasets=[train_dataset],
-            validation_datasets=[validation_dataset],
+            train_datasets=train_datasets,
+            validation_datasets=validation_datasets,
             requested_capabilities=requested_capabilities,
             hypers=OmegaConf.to_container(options["architecture"]),
             continue_from=options["continue_from"],
@@ -351,16 +390,33 @@ def _train_model_hydra(options: DictConfig) -> None:
     except Exception as e:
         raise ArchitectureError(e)
 
-    save_model(model, f'{options["output_path"][:-3]}.ckpt')
+    save_model(model, f"{Path(options['output_path']).stem}.ckpt")
     export(model, options["output_path"])
-
     exported_model = torch.jit.load(options["output_path"])
 
-    logger.info("Evaulating train dataset")
-    _eval_targets(exported_model, train_dataset)
+    for i, train_dataset in enumerate(train_datasets):
+        if len(train_datasets) == 1:
+            extra_log_message = ""
+        else:
+            extra_log_message = f" with index {i}"
 
-    logger.info("Evaulating validation dataset")
-    _eval_targets(exported_model, validation_dataset)
+        logger.info(f"Evaulate training dataset{extra_log_message}")
+        _eval_targets(exported_model, train_dataset)
 
-    logger.info("Evaulating test dataset")
-    _eval_targets(exported_model, test_dataset)
+    for i, validation_dataset in enumerate(validation_datasets):
+        if len(validation_datasets) == 1:
+            extra_log_message = ""
+        else:
+            extra_log_message = f" with index {i}"
+
+        logger.info(f"Evaulate validation dataset{extra_log_message}")
+        _eval_targets(exported_model, validation_dataset)
+
+    for i, test_dataset in enumerate(test_datasets):
+        if len(test_datasets) == 1:
+            extra_log_message = ""
+        else:
+            extra_log_message = f" with index {i}"
+
+        logger.info(f"Evaulate test dataset{extra_log_message}")
+        _eval_targets(exported_model, test_dataset)

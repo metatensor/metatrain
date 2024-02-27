@@ -1,9 +1,13 @@
 import re
 
 import pytest
-from omegaconf import OmegaConf
+from omegaconf import ListConfig, OmegaConf
 
-from metatensor.models.utils.omegaconf import check_units, expand_dataset_config
+from metatensor.models.utils.omegaconf import (
+    check_options_list,
+    check_units,
+    expand_dataset_config,
+)
 
 
 def test_file_format_resolver():
@@ -12,11 +16,13 @@ def test_file_format_resolver():
     assert (conf["file_format"]) == ".xyz"
 
 
-def test_expand_dataset_config():
+@pytest.mark.parametrize("n_datasets", [1, 2])
+def test_expand_dataset_config(n_datasets):
+    """Test dataset expansion for a list of n_datasets times the same config"""
     file_name = "foo.xyz"
     file_format = ".xyz"
 
-    structure_section = {"read_from": file_name, "length_unit": "angstrom"}
+    system_section = {"read_from": file_name, "length_unit": "angstrom"}
 
     target_section = {
         "quantity": "energy",
@@ -25,56 +31,66 @@ def test_expand_dataset_config():
     }
 
     conf = {
-        "structures": structure_section,
+        "systems": system_section,
         "targets": {"energy": target_section, "my_target": target_section},
     }
 
-    conf_expanded = expand_dataset_config(OmegaConf.create(conf))
+    conf = n_datasets * [conf]
 
-    assert conf_expanded["structures"]["read_from"] == file_name
-    assert conf_expanded["structures"]["file_format"] == file_format
-    assert conf_expanded["structures"]["length_unit"] == "angstrom"
+    conf_expanded_list = expand_dataset_config(OmegaConf.create(conf))
 
-    targets_conf = conf_expanded["targets"]
-    assert len(targets_conf) == 2
+    assert type(conf_expanded_list) is ListConfig
+    assert len(conf_expanded_list) == n_datasets
 
-    for target_key in ["energy", "my_target"]:
-        assert targets_conf[target_key]["quantity"] == "energy"
-        assert targets_conf[target_key]["read_from"] == file_name
-        assert targets_conf[target_key]["file_format"] == file_format
-        assert targets_conf[target_key]["file_format"] == file_format
-        assert targets_conf[target_key]["unit"] is None
+    for conf_expanded in conf_expanded_list:
+        assert conf_expanded["systems"]["read_from"] == file_name
+        assert conf_expanded["systems"]["file_format"] == file_format
+        assert conf_expanded["systems"]["length_unit"] == "angstrom"
 
-        assert targets_conf[target_key]["forces"]["read_from"] == file_name
-        assert targets_conf[target_key]["forces"]["file_format"] == file_format
-        assert targets_conf[target_key]["forces"]["key"] == "forces"
+        targets_conf = conf_expanded["targets"]
+        assert len(targets_conf) == 2
 
-        assert targets_conf[target_key]["virial"]["read_from"] == "my_grad.dat"
-        assert targets_conf[target_key]["virial"]["file_format"] == ".dat"
-        assert targets_conf[target_key]["virial"]["key"] == "foo"
+        for target_key in ["energy", "my_target"]:
+            assert targets_conf[target_key]["quantity"] == "energy"
+            assert targets_conf[target_key]["read_from"] == file_name
+            assert targets_conf[target_key]["file_format"] == file_format
+            assert targets_conf[target_key]["file_format"] == file_format
+            assert targets_conf[target_key]["unit"] is None
 
-        assert targets_conf[target_key]["stress"] is False
+            assert targets_conf[target_key]["forces"]["read_from"] == file_name
+            assert targets_conf[target_key]["forces"]["file_format"] == file_format
+            assert targets_conf[target_key]["forces"]["key"] == "forces"
 
-    # If a virial is parsed as in the conf above the by default enabled section "stress"
-    # should be disabled automatically
-    assert targets_conf["energy"]["stress"] is False
+            assert targets_conf[target_key]["virial"]["read_from"] == "my_grad.dat"
+            assert targets_conf[target_key]["virial"]["file_format"] == ".dat"
+            assert targets_conf[target_key]["virial"]["key"] == "foo"
+
+            assert targets_conf[target_key]["stress"] is False
+
+        # If a virial is parsed as in the conf above the by default enabled section
+        # "stress" should be disabled automatically
+        assert targets_conf["energy"]["stress"] is False
 
 
 def test_expand_dataset_config_not_energy():
     file_name = "foo.xyz"
 
-    structure_section = {"read_from": file_name, "unit": "angstrom"}
+    system_section = {"read_from": file_name, "unit": "angstrom"}
 
     target_section = {
         "quantity": "my_dipole_moment",
     }
 
     conf = {
-        "structures": structure_section,
+        "systems": system_section,
         "targets": {"dipole_moment": target_section},
     }
 
-    conf_expanded = expand_dataset_config(OmegaConf.create(conf))
+    conf_expanded_list = expand_dataset_config(OmegaConf.create(conf))
+
+    assert type(conf_expanded_list) is ListConfig
+    assert len(conf_expanded_list) == 1
+    conf_expanded = conf_expanded_list[0]
 
     assert conf_expanded["targets"]["dipole_moment"]["key"] == "dipole_moment"
     assert conf_expanded["targets"]["dipole_moment"]["quantity"] == "my_dipole_moment"
@@ -87,11 +103,12 @@ def test_expand_dataset_config_min():
     file_name = "dataset.dat"
     file_format = ".dat"
 
-    conf_expanded = expand_dataset_config(file_name)
+    conf_expanded_list = expand_dataset_config(file_name)
+    conf_expanded = conf_expanded_list[0]
 
-    assert conf_expanded["structures"]["read_from"] == file_name
-    assert conf_expanded["structures"]["file_format"] == file_format
-    assert conf_expanded["structures"]["length_unit"] is None
+    assert conf_expanded["systems"]["read_from"] == file_name
+    assert conf_expanded["systems"]["file_format"] == file_format
+    assert conf_expanded["systems"]["length_unit"] is None
 
     targets_conf = conf_expanded["targets"]
     assert targets_conf["energy"]["quantity"] == "energy"
@@ -113,7 +130,7 @@ def test_expand_dataset_config_error():
     file_name = "foo.xyz"
 
     conf = {
-        "structures": file_name,
+        "systems": file_name,
         "targets": {
             "energy": {
                 "virial": file_name,
@@ -130,7 +147,7 @@ def test_expand_dataset_config_error():
 
 def test_expand_dataset_gradient():
     conf = {
-        "structures": "foo.xyz",
+        "systems": "foo.xyz",
         "targets": {
             "my_energy": {
                 "forces": "data.txt",
@@ -140,7 +157,8 @@ def test_expand_dataset_gradient():
         },
     }
 
-    conf_expanded = expand_dataset_config(OmegaConf.create(conf))
+    conf_expanded_list = expand_dataset_config(OmegaConf.create(conf))
+    conf_expanded = conf_expanded_list[0]
 
     assert conf_expanded["targets"]["my_energy"]["forces"]["read_from"] == "data.txt"
     assert conf_expanded["targets"]["my_energy"]["forces"]["file_format"] == ".txt"
@@ -151,7 +169,7 @@ def test_expand_dataset_gradient():
 
 def test_check_units():
     file_name = "foo.xyz"
-    structure_section = {"read_from": file_name, "length_unit": "angstrom"}
+    system_section = {"read_from": file_name, "length_unit": "angstrom"}
 
     target_section = {
         "quantity": "energy",
@@ -168,11 +186,11 @@ def test_check_units():
     }
 
     conf = {
-        "structures": structure_section,
+        "systems": system_section,
         "targets": {"energy": target_section, "my_target": mytarget_section},
     }
 
-    structure_section1 = {"read_from": file_name, "length_unit": "angstrom1"}
+    system_section1 = {"read_from": file_name, "length_unit": "angstrom1"}
 
     target_section1 = {
         "quantity": "energy",
@@ -189,19 +207,19 @@ def test_check_units():
     }
 
     conf1 = {
-        "structures": structure_section1,
+        "systems": system_section1,
         "targets": {"energy": target_section, "my_target": mytarget_section},
     }
     conf0 = {
-        "structures": structure_section,
+        "systems": system_section,
         "targets": {"energy": target_section, "my_target0": mytarget_section},
     }
     conf2 = {
-        "structures": structure_section,
+        "systems": system_section,
         "targets": {"energy": target_section1, "my_target": mytarget_section},
     }
     conf3 = {
-        "structures": structure_section,
+        "systems": system_section,
         "targets": {"energy": target_section, "my_target": mytarget_section1},
     }
 
@@ -212,7 +230,6 @@ def test_check_units():
 
     test_options1 = expand_dataset_config(OmegaConf.create(conf1))
     test_options2 = expand_dataset_config(OmegaConf.create(conf2))
-
     test_options3 = expand_dataset_config(OmegaConf.create(conf3))
 
     check_units(actual_options=test_options, desired_options=train_options)
@@ -220,23 +237,25 @@ def test_check_units():
     with pytest.raises(
         ValueError,
         match=re.escape(
-            "length units are inconsistent between dataset options."
-            " angstrom1 != angstrom"
+            "`length_unit`s are inconsistent between one of the dataset options."
+            " 'angstrom1' != 'angstrom'"
         ),
     ):
         check_units(actual_options=test_options1, desired_options=train_options)
 
     with pytest.raises(
         ValueError,
-        match=re.escape("target 'my_target' is not present in the given dataset."),
+        match=re.escape(
+            "Target 'my_target0' is not present in one of the given dataset options."
+        ),
     ):
         check_units(actual_options=test_options0, desired_options=train_options)
 
     with pytest.raises(
         ValueError,
         match=re.escape(
-            "units of target 'energy' are inconsistent between dataset options."
-            " eV_ != eV."
+            "Units of target 'energy' are inconsistent between one of the dataset "
+            "options. 'eV_' != 'eV'."
         ),
     ):
         check_units(actual_options=test_options2, desired_options=train_options)
@@ -244,24 +263,74 @@ def test_check_units():
     with pytest.raises(
         ValueError,
         match=re.escape(
-            "units of target 'my_target' are inconsistent between dataset options."
-            " heart_ != heart."
+            "Units of target 'my_target' are inconsistent between one of the dataset "
+            "options. 'heart_' != 'heart'."
         ),
     ):
         check_units(actual_options=test_options3, desired_options=train_options)
 
 
 def test_missing_targets_section():
-    conf = {"structures": "foo.xyz"}
-    conf_expanded = expand_dataset_config(OmegaConf.create(conf))
+    conf = {"systems": "foo.xyz"}
+    conf_expanded_list = expand_dataset_config(OmegaConf.create(conf))
+    conf_expanded = conf_expanded_list[0]
 
-    assert conf_expanded["structures"]["read_from"] == "foo.xyz"
-    assert conf_expanded["structures"]["file_format"] == ".xyz"
+    assert conf_expanded["systems"]["read_from"] == "foo.xyz"
+    assert conf_expanded["systems"]["file_format"] == ".xyz"
 
 
 def test_missing_strcutures_section():
     conf = {"targets": {"energies": "foo.xyz"}}
-    conf_expanded = expand_dataset_config(OmegaConf.create(conf))
+    conf_expanded_list = expand_dataset_config(OmegaConf.create(conf))
+    conf_expanded = conf_expanded_list[0]
 
     assert conf_expanded["targets"]["energies"]["read_from"] == "foo.xyz"
     assert conf_expanded["targets"]["energies"]["file_format"] == ".xyz"
+
+
+@pytest.fixture
+def list_conf():
+    file_name = "foo.xyz"
+
+    system_section = {"read_from": file_name, "length_unit": "angstrom"}
+
+    target_section = {
+        "quantity": "energy",
+        "unit": "eV",
+        "forces": file_name,
+        "virial": {"read_from": "my_grad.dat", "key": "foo"},
+    }
+
+    conf = {
+        "systems": system_section,
+        "targets": {"energy": target_section, "my_target": target_section},
+    }
+
+    return OmegaConf.create(3 * [conf])
+
+
+def test_check_options_list_length_unit(list_conf):
+    list_conf[1]["systems"]["length_unit"] = "foo"
+    list_conf[2]["systems"]["length_unit"] = "bar"
+
+    match = (
+        "`length_unit`s are inconsistent between one of the dataset options. "
+        "'foo' != 'angstrom'"
+    )
+
+    with pytest.raises(ValueError, match=match):
+        check_options_list(list_conf)
+
+
+def test_check_options_list_target_unit(list_conf):
+    # Test with three datasets where the second and the thirs are inconsistent.
+    list_conf[1]["targets"]["new_target"] = OmegaConf.create({"unit": "foo"})
+    list_conf[2]["targets"]["new_target"] = OmegaConf.create({"unit": "bar"})
+
+    match = (
+        "Units of target section 'new_target' are inconsistent. Found "
+        "'bar' and 'foo'"
+    )
+
+    with pytest.raises(ValueError, match=match):
+        check_options_list(list_conf)

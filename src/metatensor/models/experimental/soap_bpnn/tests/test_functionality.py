@@ -24,16 +24,16 @@ def test_prediction_subset_elements():
 
     soap_bpnn = Model(capabilities, DEFAULT_HYPERS["model"])
 
-    structure = ase.Atoms("O2", positions=[[0.0, 0.0, 0.0], [0.0, 0.0, 1.0]])
+    system = ase.Atoms("O2", positions=[[0.0, 0.0, 0.0], [0.0, 0.0, 1.0]])
     soap_bpnn(
-        [rascaline.torch.systems_to_torch(structure)],
+        [rascaline.torch.systems_to_torch(system).to(torch.get_default_dtype())],
         {"energy": soap_bpnn.capabilities.outputs["energy"]},
     )
 
 
 def test_prediction_subset_atoms():
     """Tests that the model can predict on a subset
-    of the atoms in a structure."""
+    of the atoms in a system."""
 
     capabilities = ModelCapabilities(
         length_unit="Angstrom",
@@ -49,18 +49,22 @@ def test_prediction_subset_atoms():
     soap_bpnn = Model(capabilities, DEFAULT_HYPERS["model"])
 
     # Since we don't yet support atomic predictions, we will test this by
-    # predicting on a structure with two monomers at a large distance
+    # predicting on a system with two monomers at a large distance
 
-    structure_monomer = ase.Atoms(
+    system_monomer = ase.Atoms(
         "NO2", positions=[[0.0, 0.0, 0.0], [0.0, 0.0, 1.0], [0.0, 0.0, 2.0]]
     )
 
     energy_monomer = soap_bpnn(
-        [rascaline.torch.systems_to_torch(structure_monomer)],
+        [
+            rascaline.torch.systems_to_torch(system_monomer).to(
+                torch.get_default_dtype()
+            )
+        ],
         {"energy": soap_bpnn.capabilities.outputs["energy"]},
     )
 
-    structure_far_away_dimer = ase.Atoms(
+    system_far_away_dimer = ase.Atoms(
         "N2O4",
         positions=[
             [0.0, 0.0, 0.0],
@@ -78,12 +82,20 @@ def test_prediction_subset_atoms():
     )
 
     energy_dimer = soap_bpnn(
-        [rascaline.torch.systems_to_torch(structure_far_away_dimer)],
+        [
+            rascaline.torch.systems_to_torch(system_far_away_dimer).to(
+                torch.get_default_dtype()
+            )
+        ],
         {"energy": soap_bpnn.capabilities.outputs["energy"]},
     )
 
     energy_monomer_in_dimer = soap_bpnn(
-        [rascaline.torch.systems_to_torch(structure_far_away_dimer)],
+        [
+            rascaline.torch.systems_to_torch(system_far_away_dimer).to(
+                torch.get_default_dtype()
+            )
+        ],
         {"energy": soap_bpnn.capabilities.outputs["energy"]},
         selected_atoms=selection_labels,
     )

@@ -4,7 +4,7 @@ Running molecular dynamics with ASE
 
 This tutorial demonstrates how to use an already trained and exported model to run an
 ASE simulation of a single ethanol molecule in vacuum. We use a model that was trained
-using the :ref:`architecture-soap-bpnn` architecture on 100 ethanol structures
+using the :ref:`architecture-soap-bpnn` architecture on 100 ethanol systems
 containing energies and forces. You can obtain the :download:`dataset file
 <ethanol_reduced_100.xyz>` used in this example from our website. The dataset is a
 subset of the `rMD17 dataset
@@ -148,8 +148,8 @@ plt.show()
 
 # %%
 #
-# Inspect the structures
-# ######################
+# Inspect the systems
+# ###################
 #
 # Even though the total energy is conserved, we also have to verify that the ethanol
 # molecule is stable and the bonds did not break.
@@ -165,7 +165,7 @@ plt.show()
 # As a final analysis we also calculate and plot the carbon-hydrogen radial distribution
 # function (RDF) from the trajectory and compare this to the RDF from the training set.
 #
-# To use the RDF code from ase we first have to define a unit cell for our structures.
+# To use the RDF code from ase we first have to define a unit cell for our systems.
 # We choose a cubic one with a side length of 10 Å.
 
 for atoms in training_frames:

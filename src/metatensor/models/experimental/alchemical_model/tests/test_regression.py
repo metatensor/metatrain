@@ -15,7 +15,7 @@ from omegaconf import OmegaConf
 
 from metatensor.models.experimental.alchemical_model import DEFAULT_HYPERS, Model, train
 from metatensor.models.utils.data import get_all_species
-from metatensor.models.utils.data.readers import read_structures, read_targets
+from metatensor.models.utils.data.readers import read_systems, read_targets
 from metatensor.models.utils.neighbors_lists import get_system_with_neighbors_lists
 
 from . import DATASET_PATH
@@ -39,11 +39,14 @@ def test_regression_init():
             )
         },
     )
-    alchemical_model = Model(capabilities, DEFAULT_HYPERS["model"]).to(torch.float64)
+    alchemical_model = Model(capabilities, DEFAULT_HYPERS["model"])
 
-    # Predict on the first fivestructures
-    structures = ase.io.read(DATASET_PATH, ":5")
-    systems = [rascaline.torch.systems_to_torch(structure) for structure in structures]
+    # Predict on the first five systems
+    systems = ase.io.read(DATASET_PATH, ":5")
+    systems = [
+        rascaline.torch.systems_to_torch(system).to(torch.get_default_dtype())
+        for system in systems
+    ]
     systems = [
         get_system_with_neighbors_lists(
             system, alchemical_model.requested_neighbors_lists()
@@ -66,8 +69,7 @@ def test_regression_init():
     )
 
     expected_output = torch.tensor(
-        [[-3.2638e-05], [3.3788e-04], [2.7429e-04], [2.7850e-03], [4.7172e-04]],
-        dtype=torch.float64,
+        [[-1.1830e-03], [-1.7822e-03], [7.2585e-06], [-5.2279e-04], [-4.1751e-04]]
     )
 
     assert torch.allclose(output["U0"].block().values, expected_output, rtol=1e-3)
@@ -82,7 +84,7 @@ def test_regression_train():
     np.random.seed(0)
     torch.manual_seed(0)
 
-    structures = read_structures(DATASET_PATH)
+    systems = read_systems(DATASET_PATH, dtype=torch.get_default_dtype())
     conf = {
         "U0": {
             "quantity": "energy",
@@ -94,8 +96,8 @@ def test_regression_train():
             "virial": False,
         }
     }
-    targets = read_targets(OmegaConf.create(conf))
-    dataset = Dataset(structure=structures, U0=targets["U0"])
+    targets = read_targets(OmegaConf.create(conf), dtype=torch.get_default_dtype())
+    dataset = Dataset(system=systems, U0=targets["U0"])
 
     hypers = DEFAULT_HYPERS.copy()
     hypers["training"]["num_epochs"] = 2
@@ -117,7 +119,7 @@ def test_regression_train():
         hypers=hypers,
     )
 
-    # Predict on the first five structures
+    # Predict on the first five systems
     evaluation_options = ModelEvaluationOptions(
         length_unit=alchemical_model.capabilities.length_unit,
         outputs=alchemical_model.capabilities.outputs,
@@ -127,14 +129,13 @@ def test_regression_train():
         alchemical_model.eval(), alchemical_model.capabilities
     )
     output = model(
-        structures[:5],
+        systems[:5],
         evaluation_options,
         check_consistency=True,
     )
 
     expected_output = torch.tensor(
-        [[-40.4833], [-56.5604], [-76.4256], [-77.3501], [-93.4282]],
-        dtype=torch.float64,
+        [[-40.4883], [-56.5384], [-76.4003], [-77.3402], [-93.4341]]
     )
 
     assert torch.allclose(output["U0"].block().values, expected_output, rtol=1e-3)

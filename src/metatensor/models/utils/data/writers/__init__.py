@@ -14,17 +14,17 @@ PREDICTIONS_WRITERS = {".xyz": write_xyz}
 def write_predictions(
     filename: str,
     predictions: TensorMap,
-    structures: List[System],
+    systems: List[System],
     fileformat: Optional[str] = None,
 ) -> None:
     """Writes predictions to a file.
 
-    For certain file suffixes also the structures will be written (i.e ``xyz``).
+    For certain file suffixes also the systems will be written (i.e ``xyz``).
 
     :param filename: name of the file to write
     :param predictions: :py:class:`metatensor.torch.TensorMap` containing the
         predictions that should be written
-    :param structures: list of structures that for some writers will also be written
+    :param systems: list of systems that for some writers will also be written
     :param fileformat: format of the target value file. If :py:obj:`None` the format is
         determined from the suffix.
     """
@@ -36,4 +36,4 @@ def write_predictions(
     except KeyError:
         raise ValueError(f"fileformat '{fileformat}' is not supported")
 
-    return writer(filename, predictions, structures)
+    return writer(filename, predictions, systems)
