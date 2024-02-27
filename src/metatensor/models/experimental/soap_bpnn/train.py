@@ -183,9 +183,9 @@ def train(
         for batch in train_dataloader:
             optimizer.zero_grad()
 
-            structures, targets = batch
+            systems, targets = batch
             loss, info = compute_model_loss(
-                loss_fn, model, structures, targets, hypers_training["per_atom_targets"]
+                loss_fn, model, systems, targets, hypers_training["per_atom_targets"]
             )
 
             train_loss += loss.item()
@@ -200,7 +200,7 @@ def train(
             # TODO: specify that the model is not training here to save some autograd
 
             loss, info = compute_model_loss(
-                loss_fn, model, structures, targets, hypers_training["per_atom_targets"]
+                loss_fn, model, systems, targets, hypers_training["per_atom_targets"]
             )
 
             validation_loss += loss.item()
