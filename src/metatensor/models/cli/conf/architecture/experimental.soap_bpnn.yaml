@@ -25,3 +25,6 @@ training:
   learning_rate: 0.001
   log_interval: 10
   checkpoint_interval: 25
+  per_atom_targets: []  # this specifies whether the model should be trained on a per-atom loss.
+                        # In that case, the logger will also output per-atom metrics for that
+                        # target. In any case, the final summary will be per-structure.

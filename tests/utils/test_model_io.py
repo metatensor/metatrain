@@ -42,8 +42,8 @@ def test_save_load_checkpoint(monkeypatch, tmp_path):
         {"energy": model.capabilities.outputs["energy"]},
     )
 
-    save_model(model, "test_model.pt")
-    loaded_model = load_checkpoint("test_model.pt")
+    save_model(model, "test_model.ckpt")
+    loaded_model = load_checkpoint("test_model.ckpt")
 
     output_after_load = loaded_model(
         rascaline.torch.systems_to_torch(systems),
@@ -82,5 +82,6 @@ def test_load_exported_model_warning(monkeypatch, tmp_path):
 
 
 def test_load_exported_model_error():
-    with pytest.raises(ValueError, match="is not exported"):
-        load_exported_model(RESOURCES_PATH / "bpnn-model.ckpt")
+    with pytest.warns(match="This is probably not an exported model"):
+        with pytest.raises(ValueError, match="is not exported"):
+            load_exported_model(RESOURCES_PATH / "bpnn-model.ckpt")

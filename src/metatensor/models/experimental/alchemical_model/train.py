@@ -52,7 +52,7 @@ def train(
         filtered_new_dict = {k: v for k, v in hypers["model"].items() if k != "restart"}
         filtered_old_dict = {k: v for k, v in model.hypers.items() if k != "restart"}
         if filtered_new_dict != filtered_old_dict:
-            logger.warn(
+            logger.warning(
                 "The hyperparameters of the model have changed since the last "
                 "training run. The new hyperparameters will be discarded."
             )
@@ -207,9 +207,13 @@ def train(
         train_loss = 0.0
         for batch in train_dataloader:
             optimizer.zero_grad()
+
             systems, targets = batch
             assert len(systems[0].known_neighbors_lists()) > 0
-            loss, info = compute_model_loss(loss_fn, model, systems, targets)
+            loss, info = compute_model_loss(
+                loss_fn, model, systems, targets, hypers_training["per_atom_targets"]
+            )
+
             train_loss += loss.item()
             loss.backward()
             optimizer.step()
@@ -220,7 +224,11 @@ def train(
         for batch in validation_dataloader:
             systems, targets = batch
             # TODO: specify that the model is not training here to save some autograd
-            loss, info = compute_model_loss(loss_fn, model, systems, targets)
+
+            loss, info = compute_model_loss(
+                loss_fn, model, systems, targets, hypers_training["per_atom_targets"]
+            )
+
             validation_loss += loss.item()
             aggregated_validation_info = update_aggregated_info(
                 aggregated_validation_info, info
