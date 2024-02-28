@@ -13,10 +13,17 @@ def export(model: torch.nn.Module, output: str) -> None:
     :param output: Path to save the exported model
     """
 
+    if model.capabilities.length_unit == "":
+        warnings.warn(
+            "No `length_unit` was provided for the model. As a result, this model "
+            "output will be passed to MD engines as is.",
+            stacklevel=1,
+        )
+
     for model_output_name, model_output in model.capabilities.outputs.items():
         if model_output.unit == "":
             warnings.warn(
-                f"No units were provided for the `{model_output_name}` output. "
+                f"No target units were provided for output {model_output_name!r}. "
                 "As a result, this model output will be passed to MD engines as is.",
                 stacklevel=1,
             )

@@ -70,7 +70,8 @@ Describes the system data like positions and cell information.
 :param read_from: The file containing system data.
 :param file_format: The file format, guessed from the suffix if ``null`` or not
     provided.
-:param length_unit: The unit of lengths, optional but recommended for simulations.
+:param length_unit: The unit of lengths, optional but highly recommended for running
+    simulations.
 
 A single string in this section automatically expands, using the string as the
 ``read_from`` parameter.
@@ -98,7 +99,8 @@ Target section parameters include:
 :param file_format: The file format, guessed from the suffix if not provided.
 :param key: The key for reading from the file, defaulting to the target section's name
   if not provided.
-:param unit: The unit of the target.
+:param unit: The unit of the target, optional but highly recommended for running
+    simulations.
 :param forces: Gradient sections. See :ref:`gradient-section` for parameters.
 :param stress: Gradient sections. See :ref:`gradient-section` for parameters.
 :param virial: Gradient sections. See :ref:`gradient-section` for parameters.
