@@ -1,7 +1,7 @@
 metatensor-models
 -----------------
 
-|tests| |docs|
+|tests| |codecov| |docs|
 
 .. warning::
 
@@ -16,7 +16,7 @@ case, this repository can simply contain a wrapper to an external model.
 .. marker-introduction
 
 What is metatensor-models?
-###########################
+##########################
 
 The idea behind ``metatensor-models`` is to have a general hub
 that provide an homogeneous enviroment and user interface to
@@ -31,7 +31,7 @@ Note: ``metatensor-models`` does not provide `per se` mathematical functionaliti
 relies on external models that implement the various architectures.
 
 Features
-#########
+########
 
 - **Custom ML Architecture**: Integrate any TorchScriptable ML model
   to explore innovative architectures.
@@ -50,7 +50,7 @@ Features
 .. marker-architectures
 
 List of Implemented Architectures
-###################################
+#################################
 
 Currently metatensor-models supports the following architectures for building an
 atomistic model.
@@ -138,6 +138,10 @@ Thanks goes to all people that make metatensor-models possible:
    :target: (https://github.com/lab-cosmo/metatensor-models/\
                 actions?query=workflow%3ATests)
 
+.. |codecov| image:: https://codecov.io/gh/lab-cosmo/metatensor-models/branch/master/graph/badge.svg
+   :alt: Code coverage
+   :target: https://codecov.io/gh/lab-cosmo/metatensor-models
+
 .. |docs| image:: https://img.shields.io/badge/documentation-latest-sucess
-   :alt: Python
+   :alt: Documentation
    :target: https://lab-cosmo.github.io/metatensor-models/latest/
