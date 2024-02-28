@@ -58,7 +58,8 @@ build-backend = "setuptools.build_meta"
 [project.optional-dependencies]
 soap-bpnn = []
 alchemical-model = [
-  "torch_alchemical @ git+https://github.com/abmazitov/torch_alchemical.git@fafb0bd",
+    python >= 3.9
+    "torch_alchemical @ git+https://github.com/abmazitov/torch_alchemical.git@fafb0bd",
 ]
 
 [tool.setuptools.packages.find]
