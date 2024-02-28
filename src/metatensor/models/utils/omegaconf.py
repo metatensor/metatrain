@@ -4,7 +4,7 @@ from typing import Union
 from omegaconf import DictConfig, ListConfig, OmegaConf
 
 
-def file_format(_parent_):
+def file_format(_parent_: DictConfig) -> str:
     """Custom OmegaConf resolver to find the file format.
 
     File format is obtained based on the suffix of the ``read_from`` field in the same
@@ -16,11 +16,8 @@ def file_format(_parent_):
 OmegaConf.register_new_resolver("file_format", file_format)
 
 
-def _resolve_single_str(config):
-    if isinstance(config, str):
-        return OmegaConf.create({"read_from": config})
-    else:
-        return config
+def _resolve_single_str(config: str) -> DictConfig:
+    return OmegaConf.create({"read_from": config})
 
 
 # BASE CONFIGURATIONS
@@ -28,7 +25,6 @@ CONF_SYSTEMS = OmegaConf.create(
     {
         "read_from": "${..read_from}",
         "file_format": "${file_format:}",
-        "key": None,
         "length_unit": None,
     }
 )
@@ -62,33 +58,31 @@ CONF_ENERGY["stress"] = CONF_GRADIENT.copy()
 
 
 def expand_dataset_config(conf: Union[str, DictConfig, ListConfig]) -> ListConfig:
-    """Expands shorthand notations in a dataset configuration to their full formats.
+    """Expands shorthand notations in a dataset configuration to its full format.
 
-    This function takes a dataset configuration, either as a string, DictConfig or a
-    ListConfig, and expands it into a detailed configuration format. It processes
-    systems, targets, and gradient sections, setting default values and inferring
-    missing information. Unknown keys are ignored, allowing for flexibility.
+    This function takes a dataset configuration, either as a :py:class:str,
+    :py:class:`omegaconf.DictConfig` or a :py:class:`omegaconf.ListConfig`, and expands
+    it into a detailed configuration format. It processes systems, targets, and gradient
+    sections, setting default values and inferring missing information. Unknown keys are
+    ignored, allowing for flexibility.
 
     If the dataset configuration is either a :class:`str` or a
     :class:`omegaconf.DictConfig`
 
-    The function performs the following steps for each c
+    The function performs the following steps for each config
 
-    - Loads base configurations for systems, targets, and gradients from predefined
-      YAML files.
     - Merges and interpolates the input configuration with the base configurations.
     - Expands shorthand notations like file paths or simple true/false settings to full
-      dictionary systems.
-    - Handles special cases, such as the mandatory nature of the 'energy' section for MD
+      dictionary systems. This includes setting the units to the base units of
+      ``"angstrom"`` and ``"eV"``.
+    - Handles special cases, such as the mandatory nature of the "energy" section for MD
       simulations and the mutual exclusivity of 'stress' and 'virial' sections.
-    - Validates the final expanded configuration, particularly for gradient-related
-      settings, to ensure consistency and prevent conflicts during training.
+      Additionally the gradient sections for "forces" are enables by default.
 
     :param conf: The dataset configuration, either as a file path string or a DictConfig
         object.
-    :returns: The fully expanded dataset configuration.
     :raises ValueError: If both ``virial`` and ``stress`` sections are enabled in the
-        'energy' target, as this is not permissible for training.
+        "energy" target, as this is not permissible for training.
     :returns: List of datasets configurations. If ``conf`` was a :class:`str` or a
         :class:`omegaconf.DictConfig` the list contains only a single element.
     """
@@ -118,10 +112,9 @@ def expand_dataset_config(conf: Union[str, DictConfig, ListConfig]) -> ListConfi
                 if type(target) is str:
                     target = _resolve_single_str(target)
 
-                # Add default gradients "energy" target section
+                # for special case "energy" we enable sections for `forces` and `stress`
+                # gradients by default
                 if target_key == "energy":
-                    # For special case of the "energy" we add the section for force and
-                    # stress gradient by default
                     target = OmegaConf.merge(CONF_ENERGY, target)
                 else:
                     target = OmegaConf.merge(CONF_TARGET, target)
@@ -129,7 +122,7 @@ def expand_dataset_config(conf: Union[str, DictConfig, ListConfig]) -> ListConfi
                 if target["key"] is None:
                     target["key"] = target_key
 
-                # Update DictConfig to allow for config node interpolation
+                # update DictConfig to allow for config node interpolation
                 conf_element["targets"][target_key] = target
 
                 # merge and interpolate possibly present gradients with default gradient
@@ -155,7 +148,7 @@ def expand_dataset_config(conf: Union[str, DictConfig, ListConfig]) -> ListConfi
                                 gradient_key
                             ] = gradient_conf
 
-                # If user sets the virial gradient and leaves the stress section
+                # If user sets the virial gradient and leaves the stress gradient
                 # untouched, we disable the by default enabled stress gradient section.
                 base_stress_gradient_conf = CONF_GRADIENT.copy()
                 base_stress_gradient_conf["key"] = "stress"
@@ -212,29 +205,23 @@ def check_units(
         actual_options,
         desired_options,
     ):
-        if (
-            actual_options_element["systems"]["length_unit"]
-            != desired_options_element["systems"]["length_unit"]
-        ):
+        actual_length_unit = actual_options_element["systems"]["length_unit"]
+        desired_length_unit = desired_options_element["systems"]["length_unit"]
+
+        if actual_length_unit != desired_length_unit:
             raise ValueError(
-                "`length_unit`s are inconsistent between one of the dataset options."
-                f" {actual_options_element['systems']['length_unit']!r} "
-                "!= "
-                f"{desired_options_element['systems']['length_unit']!r}."
+                "`length_unit`s are inconsistent between one of the dataset options. "
+                f"{actual_length_unit!r} != {desired_length_unit!r}."
             )
 
         for target in actual_options_element["targets"]:
+            actual_unit = actual_options_element["targets"][target]["unit"]
             if target in desired_options_element["targets"]:
-                if (
-                    actual_options_element["targets"][target]["unit"]
-                    != desired_options_element["targets"][target]["unit"]
-                ):
+                desired_unit = desired_options_element["targets"][target]["unit"]
+                if actual_unit != desired_unit:
                     raise ValueError(
-                        f"Units of target {target!r} are inconsistent"
-                        " between one of the dataset options. "
-                        f"{actual_options_element['targets'][target]['unit']!r} "
-                        f"!="
-                        f" {desired_options_element['targets'][target]['unit']!r}."
+                        f"Units of target {target!r} are inconsistent between one of "
+                        f"the dataset options. {actual_unit!r} != {desired_unit!r}."
                     )
             else:
                 raise ValueError(
@@ -248,42 +235,44 @@ def check_options_list(dataset_config: ListConfig) -> None:
 
     This is useful if the dataset config is made of several datasets.
 
-    The function checks (1) if ``length_units`` in each system section is the same.
-    If the names of the ``"targets"`` sections are the same between the elements of the
-    list of datasets also (2) the units must be the same.
+    - The function checks if ``length_units`` in each system section are known and the
+       same.
+    - For unknown quantities a warning is given.
+    - If the names of the ``"targets"`` sections are the same between the elements of
+       the list of datasets also the units must be the same.
 
     :param dataset_config: A List of configuration to be checked. In the list contains
         only one element no checks are performed.
+    :raises ValueError: If for a known quantity the units are not known.
     """
-
-    if len(dataset_config) == 1:
-        return
-
     desired_config = dataset_config[0]
     # save unit for each target seaction for later comparison
     unit_dict = {k: v["unit"] for k, v in desired_config["targets"].items()}
 
-    for actual_config in dataset_config[1:]:
-        if (
-            actual_config["systems"]["length_unit"]
-            != desired_config["systems"]["length_unit"]
-        ):
+    desired_length_unit = desired_config["systems"]["length_unit"]
+
+    # loop over ALL configs because we have check units for all elements in
+    # `dataset_config`
+    for actual_config in dataset_config:
+        # Perform consistentcy checks between config elements
+        actual_length_unit = actual_config["systems"]["length_unit"]
+        if actual_length_unit != desired_length_unit:
             raise ValueError(
                 "`length_unit`s are inconsistent between one of the dataset options."
-                f" {actual_config['systems']['length_unit']!r} "
-                "!= "
-                f"{desired_config['systems']['length_unit']!r}."
+                f" {actual_length_unit!r} != {desired_length_unit!r}."
             )
 
         for target_key, target in actual_config["targets"].items():
+            unit = target["unit"]
+
             # If a target section name is not part of the saved units we add it for
-            # later comparison. We do not have to start the loop again becuase this
+            # later comparison. We do not have to start the loop again because this
             # target section name is not present in one of the datasets checked before.
             if target_key not in unit_dict.keys():
-                unit_dict[target_key] = target["unit"]
+                unit_dict[target_key] = unit
 
-            if unit_dict[target_key] != target["unit"]:
+            if unit_dict[target_key] != unit:
                 raise ValueError(
                     f"Units of target section {target_key!r} are inconsistent. Found "
-                    f"{target['unit']!r} and {unit_dict[target_key]!r}!"
+                    f"{unit!r} and {unit_dict[target_key]!r}!"
                 )
