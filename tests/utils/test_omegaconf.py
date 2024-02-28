@@ -323,7 +323,7 @@ def test_check_options_list_length_unit(list_conf):
 
 
 def test_check_options_list_target_unit(list_conf):
-    # Test with three datasets where the second and the thirs are inconsistent.
+    """Test three datasets where the unit of the 2nd and the 3rd is inconsistent."""
     list_conf[1]["targets"]["new_target"] = OmegaConf.create({"unit": "foo"})
     list_conf[2]["targets"]["new_target"] = OmegaConf.create({"unit": "bar"})
 
