@@ -10,6 +10,7 @@ prune tests
 prune .github
 prune .tox
 
+exclude .codecov.yml
 exclude .gitignore
 exclude tox.ini
 exclude .readthedocs.yml
