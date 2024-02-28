@@ -73,6 +73,10 @@ show_missing = true
 exclude_lines = [
     "if __name__ == .__main__.:",
 ]
+omit = [
+    "*/site-packages/*",
+    "*/metatensor/models/experimental/*"
+]
 
 [tool.coverage.paths]
 source = [

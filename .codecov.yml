@@ -4,10 +4,9 @@ coverage:
       default:
         target: 80%
     patch: off
-  # ignore:
-  #   - "tests/.*"
-  #   - "examples/.*"
-  #   # architectures are not part of the coverage
-  #   - "src/metatensor/models/experimental/.*"
+  ignore:
+     - "tests/.*"
+     - "examples/.*"
+     - "src/metatensor/models/experimental/.*"
 
 comment: false
