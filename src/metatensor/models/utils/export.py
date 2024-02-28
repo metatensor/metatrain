@@ -15,8 +15,8 @@ def export(model: torch.nn.Module, output: str) -> None:
 
     if model.capabilities.length_unit == "":
         warnings.warn(
-            "No `length_unit` was provided for the model. As a result, this model "
-            "output will be passed to MD engines as is.",
+            "No `length_unit` was provided for the model. As a result, lengths "
+            "and any derived quantities will be passed to MD engines as is.",
             stacklevel=1,
         )
 
