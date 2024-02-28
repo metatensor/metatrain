@@ -40,7 +40,7 @@ class Model(torch.nn.Module):
         self.cutoff = (
             self.hypers["R_CUT"] if isinstance(self.hypers, dict) else self.hypers.R_CUT
         )
-        self.all_species = capabilities.species
+        self.all_species: List[int] = capabilities.species
         self.capabilities = capabilities
         self.pet = PET(self.hypers, 0.0, len(self.all_species))
 
@@ -70,7 +70,6 @@ class Model(torch.nn.Module):
         predictions = self.pet(batch)
         total_energies: Dict[str, TensorMap] = {}
         for output_name in outputs:
-            total_energies[output_name] = predictions
             total_energies[output_name] = TensorMap(
                 keys=Labels(
                     names=["lambda", "sigma"],
@@ -96,7 +95,7 @@ class Model(torch.nn.Module):
                                 device=predictions.device,
                             ).view(1, -1),
                         ),
-                        values=total_energies[output_name],
+                        values=predictions,
                     )
                 ],
             )
