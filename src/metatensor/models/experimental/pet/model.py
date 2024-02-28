@@ -89,11 +89,10 @@ class Model(torch.nn.Module):
                         ),
                         components=[],
                         properties=Labels(
-                            names=["property"],
-                            values=torch.tensor(
-                                len(outputs),
-                                device=predictions.device,
-                            ).view(1, -1),
+                            names=["_"],
+                            values=torch.zeros(
+                                (1, 1), dtype=torch.int32, device=predictions.device
+                            ),
                         ),
                         values=predictions,
                     )

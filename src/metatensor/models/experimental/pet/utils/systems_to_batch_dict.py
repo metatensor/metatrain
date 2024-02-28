@@ -1,4 +1,4 @@
-from typing import List, Dict, Tuple
+from typing import Dict, List, Tuple
 
 import torch
 from metatensor.torch.atomistic import NeighborsListOptions, System
@@ -24,16 +24,16 @@ class NeighborIndexConstructor:
         n_atoms: int = len(species)
 
         self.neighbors_index: List[List[int]] = []
-        for i in range(n_atoms):
-            now: List[int] = []
-            self.neighbors_index.append(now)
+        for _ in range(n_atoms):
+            neighbors_index_now: List[int] = []
+            self.neighbors_index.append(neighbors_index_now)
 
         self.neighbors_shift: List[List[torch.Tensor]] = []
-        for i in range(n_atoms):
-            now: List[torch.Tensor] = []
-            self.neighbors_shift.append(now)
+        for _ in range(n_atoms):
+            neighbors_shift_now: List[torch.Tensor] = []
+            self.neighbors_shift.append(neighbors_shift_now)
 
-        for i, j, index, S in zip(i_list, j_list, range(len(i_list)), S_list):
+        for i, j, _, S in zip(i_list, j_list, range(len(i_list)), S_list):
             self.neighbors_index[i].append(j)
             self.neighbors_shift[i].append(S)
 
@@ -41,7 +41,7 @@ class NeighborIndexConstructor:
             [] for i in range(n_atoms)
         ]
         self.neighbor_species: List[List[int]] = []
-        for i in range(n_atoms):
+        for _ in range(n_atoms):
             now: List[int] = []
             self.neighbor_species.append(now)
 
