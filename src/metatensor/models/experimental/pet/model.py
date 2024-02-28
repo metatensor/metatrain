@@ -72,9 +72,9 @@ class Model(torch.nn.Module):
         for output_name in outputs:
             total_energies[output_name] = TensorMap(
                 keys=Labels(
-                    names=["lambda", "sigma"],
+                    names=["_"],
                     values=torch.tensor(
-                        [[0, 1]],
+                        [[0]],
                         device=predictions.device,
                     ),
                 ),
