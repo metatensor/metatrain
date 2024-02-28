@@ -161,7 +161,9 @@ cython_debug/
 
 # Don't save model outputs
 *.pt
+*.ckpt
 !tests/resources/*.pt
+!tests/resources/*.ckpt
 
 # model output directories
 outputs/

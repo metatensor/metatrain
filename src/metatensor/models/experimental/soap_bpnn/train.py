@@ -59,7 +59,7 @@ def train(
         filtered_new_dict = {k: v for k, v in hypers["model"].items() if k != "restart"}
         filtered_old_dict = {k: v for k, v in model.hypers.items() if k != "restart"}
         if filtered_new_dict != filtered_old_dict:
-            logger.warn(
+            logger.warning(
                 "The hyperparameters of the model have changed since the last "
                 "training run. The new hyperparameters will be discarded."
             )
@@ -80,12 +80,6 @@ def train(
         train_datasets,
         validation_datasets,
         model_capabilities,
-    )
-
-    # Create the model:
-    model = Model(
-        capabilities=model_capabilities,
-        hypers=hypers["model"],
     )
 
     logger.info(f"Training on device {device_str}")
@@ -116,10 +110,10 @@ def train(
                 f"Target {target_name} in the model's new capabilities is not "
                 "present in any of the training datasets."
             )
-        composition_weights = calculate_composition_weights(
+        composition_weights, species = calculate_composition_weights(
             train_datasets_with_target, target_name
         )
-        model.set_composition_weights(target_name, composition_weights)
+        model.set_composition_weights(target_name, composition_weights, species)
 
     hypers_training = hypers["training"]
 
@@ -188,8 +182,12 @@ def train(
         train_loss = 0.0
         for batch in train_dataloader:
             optimizer.zero_grad()
-            structures, targets = batch
-            loss, info = compute_model_loss(loss_fn, model, structures, targets)
+
+            systems, targets = batch
+            loss, info = compute_model_loss(
+                loss_fn, model, systems, targets, hypers_training["per_atom_targets"]
+            )
+
             train_loss += loss.item()
             loss.backward()
             optimizer.step()
@@ -198,9 +196,13 @@ def train(
 
         validation_loss = 0.0
         for batch in validation_dataloader:
-            structures, targets = batch
+            systems, targets = batch
             # TODO: specify that the model is not training here to save some autograd
-            loss, info = compute_model_loss(loss_fn, model, structures, targets)
+
+            loss, info = compute_model_loss(
+                loss_fn, model, systems, targets, hypers_training["per_atom_targets"]
+            )
+
             validation_loss += loss.item()
             aggregated_validation_info = update_aggregated_info(
                 aggregated_validation_info, info

@@ -84,9 +84,9 @@ class AlchemicalSoapCalculator(torch.nn.Module):
             cell_shifts=batch_dict["cell_shifts"],
             centers=batch_dict["centers"],
             pairs=batch_dict["pairs"],
-            structure_centers=batch_dict["structure_centers"],
-            structure_pairs=batch_dict["structure_pairs"],
-            structure_offsets=batch_dict["structure_offsets"],
+            structure_centers=batch_dict["system_centers"],
+            structure_pairs=batch_dict["system_pairs"],
+            structure_offsets=batch_dict["system_offsets"],
         )
         power_spectrum = self.ps_calculator(spex)
         return power_spectrum
@@ -118,7 +118,7 @@ class Model(torch.nn.Module):
                 )
             if output.per_atom:
                 raise ValueError(
-                    "Alchemical Model only supports per-structure outputs, "
+                    "Alchemical Model only supports per-system outputs, "
                     "but a per-atom output was provided"
                 )
 
@@ -258,9 +258,9 @@ class Model(torch.nn.Module):
             # Change the energy label from _ to (0, 1):
             total_energies[output_name] = TensorMap(
                 keys=Labels(
-                    names=["lambda", "sigma"],
+                    names=["_"],
                     values=torch.tensor(
-                        [[0, 1]],
+                        [[0]],
                         device=total_energies[output_name].block(0).values.device,
                     ),
                 ),
@@ -270,12 +270,15 @@ class Model(torch.nn.Module):
         return total_energies
 
     def set_composition_weights(
-        self, output_name: str, input_composition_weights: torch.Tensor
+        self,
+        output_name: str,
+        input_composition_weights: torch.Tensor,
+        species: List[int],
     ) -> None:
         """Set the composition weights for a given output."""
         # all species that are not present retain their weight of zero
-        self.composition_weights[self.output_to_index[output_name]][
-            self.all_species
+        self.composition_weights[self.output_to_index[output_name]][  # type: ignore
+            species
         ] = input_composition_weights.to(
             dtype=self.composition_weights.dtype,  # type: ignore
             device=self.composition_weights.device,  # type: ignore
