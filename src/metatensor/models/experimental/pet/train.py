@@ -1,9 +1,7 @@
 import logging
-import warnings
 from pathlib import Path
 from typing import Dict, List, Optional, Union
 
-import rascaline
 import torch
 from metatensor.learn.data import DataLoader
 from metatensor.learn.data.dataset import _BaseDataset
@@ -18,15 +16,6 @@ from .model import DEFAULT_HYPERS, Model
 
 
 logger = logging.getLogger(__name__)
-
-# disable rascaline logger
-rascaline.set_logging_callback(lambda x, y: None)
-
-# Filter out the second derivative and device warnings from rascaline-torch
-warnings.filterwarnings("ignore", category=UserWarning, message="second derivative")
-warnings.filterwarnings(
-    "ignore", category=UserWarning, message="Systems data is on device"
-)
 
 
 def train(

@@ -4,16 +4,10 @@ import torch
 from metatensor.torch.atomistic import NeighborsListOptions, System
 
 
-@torch.jit.script
-def is_same(first: torch.Tensor, second: torch.Tensor) -> bool:
-    for i in range(first.shape[0]):
-        if first[i].item() != second[i].item():
-            return False
-    return True
-
-
-@torch.jit.script
 class NeighborIndexConstructor:
+    """From a canonical neighbor list, this function constructs neighbor
+    indices that are needed for internal usage in the PET model."""
+
     def __init__(
         self,
         i_list: List[int],
@@ -51,7 +45,7 @@ class NeighborIndexConstructor:
             self.relative_positions_raw[i].append(torch.LongTensor([index]))
             self.neighbor_species[i].append(species[j])
             for k in range(len(self.neighbors_index[j])):
-                if (self.neighbors_index[j][k] == i) and is_same(
+                if (self.neighbors_index[j][k] == i) and torch.equal(
                     self.neighbors_shift[j][k], -S
                 ):
                     self.neighbors_pos[i].append(torch.LongTensor([k]))
@@ -129,7 +123,6 @@ class NeighborIndexConstructor:
         )
 
 
-@torch.jit.script
 def collate_graph_dicts(
     graph_dicts: List[Dict[str, torch.Tensor]], device: str
 ) -> Dict[str, torch.Tensor]:
@@ -203,7 +196,6 @@ def collate_graph_dicts(
     return result_final
 
 
-@torch.jit.script
 def systems_to_batch_dict(
     systems: List[System], options: NeighborsListOptions, all_species_list: List[int]
 ) -> Dict[str, torch.Tensor]:
