@@ -22,11 +22,11 @@ from ...utils.loss import TensorMapDictLoss
 from ...utils.merge_capabilities import merge_capabilities
 from ...utils.model_io import load_checkpoint, save_model
 from ...utils.neighbors_lists import get_system_with_neighbors_lists
-from ...utils.normalize import (
+from .model import DEFAULT_HYPERS, Model
+from .utils.normalize import (
     get_average_number_of_atoms,
     get_average_number_of_neighbors,
 )
-from .model import DEFAULT_HYPERS, Model
 
 
 logger = logging.getLogger(__name__)
