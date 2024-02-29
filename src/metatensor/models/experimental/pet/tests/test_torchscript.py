@@ -18,7 +18,7 @@ def test_torchscript():
         },
     )
     pet = Model(capabilities, DEFAULT_HYPERS["ARCHITECTURAL_HYPERS"])
-    torch.jit.script(pet, {"energy": pet.capabilities.outputs["energy"]})
+    torch.jit.script(pet)
 
 
 def test_torchscript_save():
@@ -36,6 +36,6 @@ def test_torchscript_save():
     )
     pet = Model(capabilities, DEFAULT_HYPERS["ARCHITECTURAL_HYPERS"])
     torch.jit.save(
-        torch.jit.script(pet, {"energy": pet.capabilities.outputs["energy"]}),
+        torch.jit.script(pet),
         "pet.pt",
     )

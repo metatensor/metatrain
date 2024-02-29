@@ -122,9 +122,7 @@ def train(
     ARCHITECTURAL_HYPERS = Hypers(hypers["ARCHITECTURAL_HYPERS"])
     ARCHITECTURAL_HYPERS.D_OUTPUT = 1  # energy is a single scalar
     ARCHITECTURAL_HYPERS.TARGET_TYPE = "structural"  # energy is structural property
-    ARCHITECTURAL_HYPERS.TARGET_AGGREGATION = (
-        "sum"  # energy is a sum of atomic energies
-    )
+    ARCHITECTURAL_HYPERS.TARGET_AGGREGATION = "sum"  # sum of atomic energies
 
     raw_pet = PET(ARCHITECTURAL_HYPERS, 0.0, len(all_species))
 
