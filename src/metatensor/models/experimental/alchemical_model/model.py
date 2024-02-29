@@ -18,7 +18,7 @@ from torch_spex.spherical_expansions import SphericalExpansion
 
 from ... import ARCHITECTURE_CONFIG_PATH
 from ...utils.composition import apply_composition_contribution
-from ...utils.normalize import apply_normalization
+from .utils.normalize import apply_normalization
 from .utils import systems_to_torch_spex_dict
 
 
