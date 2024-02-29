@@ -2,7 +2,7 @@ import pytest
 import torch
 from metatensor.torch.atomistic import ModelCapabilities, ModelOutput
 
-from metatensor.models.experimental.alchemical_model import DEFAULT_HYPERS, Model
+from metatensor.models.experimental.soap_bpnn import DEFAULT_HYPERS, Model
 from metatensor.models.utils.export import export
 from metatensor.models.utils.model_io import load_exported_model
 
