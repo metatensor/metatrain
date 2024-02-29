@@ -45,7 +45,7 @@ def train(
     hypers: Dict = DEFAULT_HYPERS,
     continue_from: Optional[str] = None,
     output_dir: str = ".",
-    device_str: str = "cpu",
+    devices: List[torch.device] = [torch.device("cpu")],  # noqa: B006, B008
 ):
     # Create the model:
     if continue_from is None:
@@ -82,17 +82,10 @@ def train(
         model_capabilities,
     )
 
-    logger.info(f"Training on device {device_str}")
-    if device_str == "gpu":
-        device_str = "cuda"
-    device = torch.device(device_str)
-    if device.type == "cuda":
-        if not torch.cuda.is_available():
-            raise ValueError("CUDA is not available on this machine.")
-        logger.info(
-            "A cuda device was requested. The neural network will be run on GPU, "
-            "but the SOAP features are calculated on CPU."
-        )
+    if len(devices) > 1:
+        raise ValueError("SOAP-BPNN does not support multiple devices.")
+    device = devices[0]
+    logger.info(f"Training on device {device}")
     model.to(device)
 
     # Calculate and set the composition weights for all targets:

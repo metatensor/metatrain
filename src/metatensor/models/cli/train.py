@@ -22,6 +22,7 @@ from omegaconf.errors import ConfigKeyError
 from .. import CONFIG_PATH
 from ..utils.data import get_all_species, read_systems, read_targets
 from ..utils.data.dataset import _train_test_random_split
+from ..utils.device import string_to_devices
 from ..utils.errors import ArchitectureError
 from ..utils.export import export
 from ..utils.model_io import save_model
@@ -385,7 +386,7 @@ def _train_model_hydra(options: DictConfig) -> None:
             hypers=OmegaConf.to_container(options["architecture"]),
             continue_from=options["continue_from"],
             output_dir=output_dir,
-            device_str=options["device"],
+            devices=string_to_devices(options["device"]),
         )
     except Exception as e:
         raise ArchitectureError(e)

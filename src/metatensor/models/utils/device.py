@@ -16,7 +16,7 @@ multi_gpu_options = [
 all_options = cpu_options + cuda_options + multi_gpu_options
 
 
-def string_to_device(string: str) -> List[torch.device]:
+def string_to_devices(string: str) -> List[torch.device]:
     """Converts a string to a list of torch devices.
 
     This function is used to convert a user-provided ``device`` string

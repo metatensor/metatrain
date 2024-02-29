@@ -39,7 +39,7 @@ def train(
     hypers: Dict = DEFAULT_HYPERS,
     continue_from: Optional[str] = None,
     output_dir: str = ".",
-    device_str: str = "cpu",
+    devices: List[torch.device] = [torch.device("cpu")],  # noqa: B006, B008
 ):
     if continue_from is None:
         model = Model(
@@ -99,13 +99,13 @@ def train(
     model.set_normalization_factor(average_number_of_atoms)
     model.set_basis_normalization_factor(average_number_of_neighbors)
 
-    logger.info(f"Training on device {device_str}")
-    if device_str == "gpu":
-        device_str = "cuda"
-    device = torch.device(device_str)
-    if device.type == "cuda":
-        if not torch.cuda.is_available():
-            raise ValueError("CUDA is not available on this machine.")
+    if len(devices) > 1:
+        raise ValueError("The alchemical model does not support multiple devices.")
+    if devices[0].type == "mps":
+        # due to sphericart
+        raise ValueError("The alchemical model does not support MPS devices.")
+    device = devices[0]
+    logger.info(f"Training on device {device}")
     model.to(device)
 
     # Calculate and set the composition weights for all targets:

@@ -25,12 +25,15 @@ def train(
     hypers: Dict = DEFAULT_HYPERS,
     continue_from: Optional[str] = None,
     output_dir: str = ".",
-    device_str: str = "cpu",
+    devices: List[torch.device] = [torch.device("cpu")],  # noqa: B006, B008
 ):
     if torch.get_default_dtype() != torch.float32:
         raise ValueError("PET only supports float32")
-    if device_str != "cuda" and device_str != "gpu":
-        raise ValueError("PET only supports cuda (gpu) training")
+    if len(devices) != 1:
+        raise ValueError("PET only supports a single device")
+    device = devices[0]
+    if device.type != "cuda":
+        raise ValueError("PET only supports cuda training on cuda devices")
     if len(requested_capabilities.outputs) != 1:
         raise ValueError("PET only supports a single output")
     target_name = next(iter(requested_capabilities.outputs.keys()))
@@ -42,9 +45,6 @@ def train(
         raise ValueError("PET only supports a single training dataset")
     if len(validation_datasets) != 1:
         raise ValueError("PET only supports a single validation dataset")
-
-    if device_str == "gpu":
-        device_str = "cuda"
 
     if continue_from is not None:
         hypers["FITTING_SCHEME"]["MODEL_TO_START_WITH"] = continue_from
@@ -109,7 +109,7 @@ def train(
         ase_validation_dataset.append(ase_atoms)
 
     fit_pet(
-        ase_train_dataset, ase_validation_dataset, hypers, "pet", device_str, output_dir
+        ase_train_dataset, ase_validation_dataset, hypers, "pet", device, output_dir
     )
 
     if do_forces:
