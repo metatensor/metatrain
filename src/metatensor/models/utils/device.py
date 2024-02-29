@@ -30,10 +30,26 @@ def string_to_device(string: str) -> List[torch.device]:
         return [torch.device("cpu")]
 
     if string.lower() in cuda_options:
+        if not torch.cuda.is_available():
+            raise ValueError(
+                "CUDA is not available on this system, "
+                "so the `cuda` option is not available."
+            )
         return [torch.device("cuda")]
 
     if string.lower() in multi_gpu_options:
-        return [torch.device(f"cuda:{i}") for i in range(torch.cuda.device_count())]
+        device_count = torch.cuda.device_count()
+        if device_count == 0:
+            raise ValueError(
+                "No CUDA-capable GPUs were found on this system, "
+                "so the `multi-gpu` option is not available."
+            )
+        if device_count == 1:
+            raise ValueError(
+                "Only one CUDA-capable GPU was found on this system, "
+                "so the `multi-gpu` option is not available."
+            )
+        return [torch.device(f"cuda:{i}") for i in range(device_count)]
 
     raise ValueError(
         f"Unrecognized device string `{string}`. " f"Valid options are: {all_options}"
