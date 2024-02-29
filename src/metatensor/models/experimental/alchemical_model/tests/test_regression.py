@@ -21,6 +21,9 @@ from metatensor.models.utils.neighbors_lists import get_system_with_neighbors_li
 from . import DATASET_PATH
 
 
+torch.set_default_dtype(torch.float64)
+
+
 def test_regression_init():
     """Perform a regression test on the model at initialization"""
 
@@ -69,10 +72,10 @@ def test_regression_init():
     )
 
     expected_output = torch.tensor(
-        [[-1.1830e-03], [-1.7822e-03], [7.2585e-06], [-5.2279e-04], [-4.1751e-04]]
+        [[-0.6793], [-3.8208], [-0.0183], [-0.5273], [-2.1146]]
     )
 
-    assert torch.allclose(output["U0"].block().values, expected_output, rtol=1e-3)
+    assert torch.allclose(output["U0"].block().values, expected_output, atol=1e-4)
 
 
 def test_regression_train():
@@ -135,7 +138,7 @@ def test_regression_train():
     )
 
     expected_output = torch.tensor(
-        [[-40.4883], [-56.5384], [-76.4003], [-77.3402], [-93.4341]]
+        [[-86.8058], [-97.5068], [-108.2305], [-134.4337], [-151.8552]]
     )
 
-    assert torch.allclose(output["U0"].block().values, expected_output, rtol=1e-3)
+    assert torch.allclose(output["U0"].block().values, expected_output, atol=1e-4)

@@ -125,7 +125,7 @@ def train(
         composition_weights, species = calculate_composition_weights(
             train_datasets_with_target, target_name
         )
-        model.set_composition_weights(target_name, composition_weights, species)
+        model.set_composition_weights(composition_weights.unsqueeze(0), species)
 
     hypers_training = hypers["training"]
 
