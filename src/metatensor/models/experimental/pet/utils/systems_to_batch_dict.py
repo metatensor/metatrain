@@ -50,7 +50,7 @@ class NeighborIndexConstructor:
                 ):
                     self.neighbors_pos[i].append(torch.LongTensor([k]))
 
-        self.relative_positions: torch.List[torch.Tensor] = [
+        self.relative_positions = [
             torch.cat(chunk, dim=0) for chunk in self.relative_positions_raw
         ]
 
