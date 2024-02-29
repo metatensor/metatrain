@@ -55,11 +55,5 @@ MLIP_SETTINGS: # only used when fitting MLIP
   USE_ENERGIES: True
   USE_FORCES: True
 
-GENERAL_TARGET_SETTINGS: # only used when fitting general target 
-  TARGET_TYPE: structural
-  TARGET_AGGREGATION: sum # sum or mean; only used when TARGET_TYPE is structural
-  TARGET_DIM: 42
-  TARGET_KEY: structural_target
-
 UTILITY_FLAGS: #for internal usage; do not change/overwrite
   CALCULATION_TYPE: null
