@@ -16,15 +16,11 @@ jobs:
     - name: Set up Python
       uses: actions/setup-python@v5
       with:
-        python-version: "3.12
+        python-version: "3.12"
+    - run: pip install tox
 
     - name: run Alchemical Model tests
       run: tox -e alchemical-model-tests
       env:
         # Use the CPU only version of torch when building/running the code
         PIP_EXTRA_INDEX_URL: https://download.pytorch.org/whl/cpu
-
-    - name: Upload codecoverage
-      uses: codecov/codecov-action@v3
-      with:
-        files: ./tests/coverage.xml
