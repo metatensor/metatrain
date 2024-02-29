@@ -15,6 +15,7 @@ from ...utils.data import (
     check_datasets,
     collate_fn,
     combine_dataloaders,
+    get_all_species,
     get_all_targets,
 )
 from ...utils.extract_targets import get_outputs_dict
@@ -95,27 +96,57 @@ def train(
         )
     model.to(device)
 
+    hypers_training = hypers["training"]
+
     # Calculate and set the composition weights for all targets:
     logger.info("Calculating composition weights")
     for target_name in new_capabilities.outputs.keys():
         # TODO: warn in the documentation that capabilities that are already
         # present in the model won't recalculate the composition weights
         # find the datasets that contain the target:
-        train_datasets_with_target = []
-        for dataset in train_datasets:
-            if target_name in get_all_targets(dataset):
-                train_datasets_with_target.append(dataset)
-        if len(train_datasets_with_target) == 0:
-            raise ValueError(
-                f"Target {target_name} in the model's new capabilities is not "
-                "present in any of the training datasets."
-            )
-        composition_weights, species = calculate_composition_weights(
-            train_datasets_with_target, target_name
-        )
-        model.set_composition_weights(target_name, composition_weights, species)
 
-    hypers_training = hypers["training"]
+        if target_name in hypers_training["fixed_composition_weights"].keys():
+            logger.info(
+                f"For {target_name}, model will proceed with "
+                "user-supplied composition weights"
+            )
+
+            cur_weight_dict = hypers_training["fixed_composition_weights"][target_name]
+            species = []
+            num_species = len(cur_weight_dict)
+            fixed_weights = torch.zeros((num_species, 1), device=device)
+
+            for ii, (key, weight) in enumerate(
+                hypers_training["fix_composition_weights"].items()
+            ):
+                species.append(key)
+                fixed_weights[ii] = weight
+
+            all_species = []
+            for dataset in train_datasets:
+                all_species += get_all_species(dataset)
+
+            if not set(species) == set(all_species):
+                raise ValueError(
+                    "Values were not supplied for all "
+                    "the species in present in the dataset"
+                )
+            model.set_composition_weights(target_name, fixed_weights, species)
+
+        else:
+            train_datasets_with_target = []
+            for dataset in train_datasets:
+                if target_name in get_all_targets(dataset):
+                    train_datasets_with_target.append(dataset)
+            if len(train_datasets_with_target) == 0:
+                raise ValueError(
+                    f"Target {target_name} in the model's new capabilities is not "
+                    "present in any of the training datasets."
+                )
+            composition_weights, species = calculate_composition_weights(
+                train_datasets_with_target, target_name
+            )
+            model.set_composition_weights(target_name, composition_weights, species)
 
     logger.info("Setting up data loaders")
 
