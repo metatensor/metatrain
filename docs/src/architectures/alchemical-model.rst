@@ -37,7 +37,7 @@ The default hyperparameters above will work well in most cases, but they
 may not be optimal for your specific dataset. In general, the most important
 hyperparameters to tune are (in decreasing order of importance):
 
-- ``cutoff_radius``: This should be set to a value after which most of the
+- ``cutoff``: This should be set to a value after which most of the
   interactions between atoms is expected to be negligible.
 - ``num_pseudo_species``: This number determines the number of pseudo species
   to use in the Alchemical Compression of the composition space. This value should
@@ -51,9 +51,9 @@ hyperparameters to tune are (in decreasing order of importance):
   hyperparameter controls the tradeoff between training speed and memory usage. In
   general, larger batch sizes will lead to faster training, but might require more
   memory.
-- ``num_hidden_layers``, ``num_neurons_per_layer``:
-  These hyperparameters control the size and depth of the descriptors and the neural
-  network. In general, increasing these hyperparameters might lead to better accuracy,
+- ``hidden_sizes``:
+  This hyperparameter controls the size and depth of the descriptors and the neural
+  network. In general, increasing this might lead to better accuracy,
   especially on larger datasets, at the cost of increased training and evaluation time.
 
 
@@ -65,9 +65,9 @@ soap
 ^^^^
 :param num_pseudo_species: Number of pseudo species to use in the Alchemical Compression
     of the composition space.
-:param cutoff_radius: Spherical cutoff (Å) to use for atomic environments.
-:param basis_cutoff: The maximal eigenvalue of the Laplacian Eigenstates (LE) basis
-    functions used as radial basis :footcite:p:`bigi_smooth_2022`.
+:param cutoff: Spherical cutoff (Å) to use for atomic environments.
+:param basis_cutoff_power_spectrum: The maximal eigenvalue of the Laplacian Eigenstates
+    (LE) basis functions used as radial basis :footcite:p:`bigi_smooth_2022`.
 :param radial_basis_type: A type of the LE basis functions used as radial basis. The
     supported radial basis functions are
 
@@ -90,12 +90,16 @@ soap
 :param trainable_basis: If ``True``, the raidal basis functions will be accompanied by
     the trainable multi-layer perceptron (MLP). If ``False``, the radial basis
     functions will be fixed.
+:param normalize: Whether to use normalizations such as LayerNorm in the model.
+:param contract_center_species: If ``True``, the Alchemcial Compression will be applied
+    on center species as well. If ``False``, the Alchemical Compression will be applied
+    only on the neighbor species.
+
 
 bpnn
 ^^^^
-:param num_hidden_layers: number of hidden layers
-:param num_neurons_per_layer: number of neurons per hidden layer
-:param activation_function: activation function to use in the hidden layers
+:param hidden_sizes: number of neurons in each hidden layer
+:param output_size: number of neurons in the output layer
 
 training
 ########

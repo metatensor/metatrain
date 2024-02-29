@@ -7,7 +7,7 @@ model:
     basis_scale: 3.0  # controls the initial scale of the physical basis (in Angstroms, does not affect the le basis)
     trainable_basis: true  # whether the radial basis is trainable (i.e. contains a small NN)
     normalize: true  # whether to use normalizations, such as LayerNorm
-    contract_center_species: true  # whether to use the Alchamical Contraction on the center species
+    contract_center_species: true  # whether to use the Alchamical Compression on the center species
                                    # If false, the center species chemical space will remain unchaged,
                                    # and for each original atom type there will be a separate BPNN
   bpnn:
