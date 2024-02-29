@@ -331,7 +331,7 @@ def test_error_base_precision(options, monkeypatch, tmp_path):
         train_model(options)
 
 
-def test_architectur_error(options, monkeypatch, tmp_path):
+def test_architecture_error(options, monkeypatch, tmp_path):
     """Test an error raise if there is problem wth the architecture."""
     monkeypatch.chdir(tmp_path)
     shutil.copy(DATASET_PATH, "qm9_reduced_100.xyz")
