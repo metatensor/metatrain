@@ -22,6 +22,11 @@ DEFAULT_HYPERS = OmegaConf.to_container(
 
 DEFAULT_MODEL_HYPERS = DEFAULT_HYPERS["ARCHITECTURAL_HYPERS"]
 
+# We hardcode some of the hypers to make PET work as a MLIP.
+DEFAULT_MODEL_HYPERS.update(
+    {"D_OUTPUT": 1, "TARGET_TYPE": "structural", "TARGET_AGGREGATION": "sum"}
+)
+
 ARCHITECTURE_NAME = "experimental.pet"
 
 
