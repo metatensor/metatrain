@@ -10,3 +10,4 @@ API for handling data in ``metatensor-models``.
    dataset
    readers/index
    writers
+   systems_to_ase
