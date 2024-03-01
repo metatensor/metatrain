@@ -3,6 +3,10 @@
 SOAP-BPNN
 =========
 
+.. warning::
+
+  This is an **experimental model**.  You should not use it for anything important.
+
 This is a Behler-Parrinello neural network :footcite:p:`behler_generalized_2007` with
 using features based on the Smooth overlab of atomic positions (SOAP)
 :footcite:p:`bartok_representing_2013`. The SOAP features are calculated wit `rascaline
@@ -22,6 +26,8 @@ This will install the package with the SOAP-BPNN dependencies.
 
 Architecture Hyperparameters
 ----------------------------
+:param name: ``experimental.soap_bpnn``
+
 model
 #####
 soap
@@ -98,8 +104,11 @@ The parameters for the training loop are
 :param batch_size: batch size
 :param num_epochs: number of training epochs
 :param learning_rate: learning rate
-:param log_interval: write a line to the log every 10 epochs
-:param checkpoint_interval: save a checkpoint every 25 epochs
+:param log_interval: number of epochs that elapse between reporting new training results
+:param checkpoint_interval: Interval to save a checkpoint to disk.
+:param per_atom_targets: Specifies whether the model should be trained on a per-atom
+    loss. In that case, the logger will also output per-atom metrics for that target. In
+    any case, the final summary will be per-structure.
 
 
 
