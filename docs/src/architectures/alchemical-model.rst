@@ -3,6 +3,10 @@
 Alchemical Model
 ================
 
+.. warning::
+
+  This is an **experimental model**.  You should not use it for anything important.
+
 This is an implementation of Alchemical Model: a Behler-Parrinello neural network
 :footcite:p:`behler_generalized_2007` with Smooth overlab of atomic positions (SOAP)
 features :footcite:p:`bartok_representing_2013` and Alchemical Compression of the
@@ -59,6 +63,8 @@ hyperparameters to tune are (in decreasing order of importance):
 
 Architecture Hyperparameters
 ----------------------------
+:param name: ``experimental.alchemical_model``
+
 model
 #####
 soap
@@ -67,7 +73,8 @@ soap
     of the composition space.
 :param cutoff_radius: Spherical cutoff (Å) to use for atomic environments.
 :param basis_cutoff: The maximal eigenvalue of the Laplacian Eigenstates (LE) basis
-    functions used as radial basis :footcite:p:`bigi_smooth_2022`.
+    functions used as radial basis :footcite:p:`bigi_smooth_2022`. This controls how
+    large the radial-angular basis is.
 :param radial_basis_type: A type of the LE basis functions used as radial basis. The
     supported radial basis functions are
 
@@ -87,9 +94,9 @@ soap
 
 :param basis_scale: Scaling parameter of the radial basis functions, representing the
     characteristic width (in Å) of the basis functions.
-:param trainable_basis: If ``True``, the raidal basis functions will be accompanied by
-    the trainable multi-layer perceptron (MLP). If ``False``, the radial basis
-    functions will be fixed.
+:param trainable_basis: If :py:obj:`True`, the radial basis functions will be
+    accompanied by the trainable multi-layer perceptron (MLP). If :py:obj:`False`, the
+    radial basis functions will be fixed.
 
 bpnn
 ^^^^
@@ -104,9 +111,11 @@ The parameters for the training loop are
 :param batch_size: batch size
 :param num_epochs: number of training epochs
 :param learning_rate: learning rate
-:param log_interval: how often to log the loss during training
-:param checkpoint_interval:  how often to save a checkpoint during training
-
+:param log_interval: number of epochs that elapse between reporting new training results
+:param checkpoint_interval: Interval to save a checkpoint to disk.
+:param per_atom_targets: Specifies whether the model should be trained on a per-atom
+    loss. In that case, the logger will also output per-atom metrics for that target. In
+    any case, the final summary will be per-structure.
 
 References
 ----------
