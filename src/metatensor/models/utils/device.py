@@ -47,7 +47,7 @@ def string_to_device(string: str) -> List[torch.device]:
         if device_count == 1:
             raise ValueError(
                 "Only one CUDA-capable GPU was found on this system, "
-                "so the `multi-gpu` option is not available."
+                f"so the `{string}` option is not available."
             )
         return [torch.device(f"cuda:{i}") for i in range(device_count)]
 
