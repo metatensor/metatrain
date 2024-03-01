@@ -53,7 +53,7 @@ def string_to_devices(string: str) -> List[torch.device]:
         if torch.backends.mps.is_available():
             return [torch.device("mps")]
         raise ValueError(
-            "No CUDA-capable GPUs were found on this system, "
+            "No GPUs were found on this system, "
             f"so the `{string}` option is not available."
         )
 
