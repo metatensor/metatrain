@@ -33,7 +33,7 @@ def string_to_device(string: str) -> List[torch.device]:
         if not torch.cuda.is_available():
             raise ValueError(
                 "CUDA is not available on this system, "
-                "so the `cuda` option is not available."
+                f"so the `{string}` option is not available."
             )
         return [torch.device("cuda")]
 
