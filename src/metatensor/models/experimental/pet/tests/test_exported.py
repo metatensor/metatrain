@@ -1,3 +1,5 @@
+import os
+
 import pytest
 import torch
 from metatensor.torch.atomistic import ModelCapabilities, ModelOutput
@@ -14,19 +16,20 @@ def test_to(tmp_path, device, dtype):
     if device == "cuda" and not torch.cuda.is_available():
         pytest.skip("CUDA is not available")
 
-    with tmp_path.as_cwd():
-        capabilities = ModelCapabilities(
-            length_unit="Angstrom",
-            species=[1, 6, 7, 8],
-            outputs={
-                "energy": ModelOutput(
-                    quantity="energy",
-                    unit="eV",
-                )
-            },
-        )
-        pet = Model(capabilities, DEFAULT_HYPERS["ARCHITECTURAL_HYPERS"])
-        export(pet, "pet.pt")
-        exported = load_exported_model("pet.pt")
+    os.chdir(tmp_path)
 
-        exported.to(device=device, dtype=dtype)
+    capabilities = ModelCapabilities(
+        length_unit="Angstrom",
+        species=[1, 6, 7, 8],
+        outputs={
+            "energy": ModelOutput(
+                quantity="energy",
+                unit="eV",
+            )
+        },
+    )
+    pet = Model(capabilities, DEFAULT_HYPERS["ARCHITECTURAL_HYPERS"])
+    export(pet, "pet.pt")
+    exported = load_exported_model("pet.pt")
+
+    exported.to(device=device, dtype=dtype)
