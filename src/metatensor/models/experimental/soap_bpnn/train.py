@@ -217,7 +217,7 @@ def train(
             )
         finalized_validation_info = finalize_aggregated_info(aggregated_validation_info)
 
-        lr_scheduler.step(validation_loss, epoch=epoch)
+        lr_scheduler.step(validation_loss)
 
         # Now we log the information:
         if epoch == 0:
