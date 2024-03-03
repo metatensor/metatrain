@@ -114,11 +114,9 @@ def train(
             cur_weight_dict = hypers_training["fixed_composition_weights"][target_name]
             species = []
             num_species = len(cur_weight_dict)
-            fixed_weights = torch.zeros((num_species, 1), device=device)
+            fixed_weights = torch.zeros(num_species, device=device)
 
-            for ii, (key, weight) in enumerate(
-                hypers_training["fixed_composition_weights"].items()
-            ):
+            for ii, (key, weight) in enumerate(cur_weight_dict.items()):
                 species.append(key)
                 fixed_weights[ii] = weight
 
