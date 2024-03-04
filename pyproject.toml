@@ -60,6 +60,9 @@ soap-bpnn = []
 alchemical-model = [
   "torch_alchemical @ git+https://github.com/abmazitov/torch_alchemical.git@987be88",
 ]
+pet = [
+  "pet @ git+https://github.com/serfg/pet.git@5668bda",
+]
 
 [tool.setuptools.packages.find]
 where = ["src"]
