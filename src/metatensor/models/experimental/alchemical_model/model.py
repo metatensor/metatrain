@@ -71,33 +71,25 @@ class Model(torch.nn.Module):
 
         total_energies: Dict[str, TensorMap] = {}
         for output_name in outputs:
+            empty_label = Labels(
+                "_", torch.zeros((1, 1), dtype=torch.int32, device=predictions.device)
+            )
+            samples = Labels(
+                names=["structure"],
+                values=torch.arange(
+                    len(predictions),
+                    device=predictions.device,
+                ).view(-1, 1),
+            )
+            block = TensorBlock(
+                samples=samples,
+                components=[],
+                properties=empty_label,
+                values=predictions,
+            )
             total_energies[output_name] = TensorMap(
-                keys=Labels(
-                    names=["_"],
-                    values=torch.tensor(
-                        [[0]],
-                        device=predictions.device,
-                    ),
-                ),
-                blocks=[
-                    TensorBlock(
-                        samples=Labels(
-                            names=["structure"],
-                            values=torch.arange(
-                                len(predictions),
-                                device=predictions.device,
-                            ).view(-1, 1),
-                        ),
-                        components=[],
-                        properties=Labels(
-                            names=["_"],
-                            values=torch.zeros(
-                                (1, 1), dtype=torch.int32, device=predictions.device
-                            ),
-                        ),
-                        values=predictions,
-                    )
-                ],
+                keys=empty_label,
+                blocks=[block],
             )
         return total_energies
 
@@ -108,8 +100,8 @@ class Model(torch.nn.Module):
     ) -> None:
         """Set the composition weights for a given output."""
         input_composition_weights = input_composition_weights.to(
-            dtype=self.alchemical_model.composition_weights.dtype,  # type: ignore
-            device=self.alchemical_model.composition_weights.device,  # type: ignore
+            dtype=self.alchemical_model.composition_weights.dtype,
+            device=self.alchemical_model.composition_weights.device,
         )
         index = [self.all_species.index(s) for s in species]
         composition_weights = input_composition_weights[:, index]
