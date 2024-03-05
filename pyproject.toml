@@ -12,10 +12,10 @@ dependencies = [
     "ase",
     "torch",
     "hydra-core",
-    "rascaline-torch @ git+https://github.com/luthaf/rascaline#subdirectory=python/rascaline-torch",
+    "rascaline-torch @ git+https://github.com/luthaf/rascaline@5ac2ee9#subdirectory=python/rascaline-torch",
     "metatensor-core",
-    "metatensor-operations",
-    "metatensor-torch",
+    "metatensor-operations <0.2",
+    "metatensor-torch <0.3",
     "metatensor-learn",
 ]
 
