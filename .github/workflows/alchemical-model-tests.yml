@@ -8,20 +8,15 @@ on:
 
 jobs:
   tests:
-    runs-on: ${{ matrix.os }}
-    strategy:
-      matrix:
-        include:
-          - os: ubuntu-22.04
-            python-version: "3.11"
+    runs-on: ubuntu-22.04
 
     steps:
-    - uses: actions/checkout@v3
+    - uses: actions/checkout@v4
 
-    - name: Set up Python ${{ matrix.python-version }}
-      uses: actions/setup-python@v4
+    - name: Set up Python
+      uses: actions/setup-python@v5
       with:
-        python-version: ${{ matrix.python-version }}
+        python-version: "3.12"
     - run: pip install tox
 
     - name: run Alchemical Model tests
@@ -29,8 +24,3 @@ jobs:
       env:
         # Use the CPU only version of torch when building/running the code
         PIP_EXTRA_INDEX_URL: https://download.pytorch.org/whl/cpu
-
-    - name: Upload codecoverage
-      uses: codecov/codecov-action@v3
-      with:
-        files: ./tests/coverage.xml
