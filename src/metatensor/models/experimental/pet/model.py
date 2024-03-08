@@ -25,7 +25,7 @@ DEFAULT_MODEL_HYPERS = DEFAULT_HYPERS["ARCHITECTURAL_HYPERS"]
 
 # We hardcode some of the hypers to make PET work as a MLIP.
 DEFAULT_MODEL_HYPERS.update(
-    {"D_OUTPUT": 1, "TARGET_TYPE": "structural", "TARGET_AGGREGATION": "sum"}
+    {"D_OUTPUT": 1, "TARGET_TYPE": "atomic", "TARGET_AGGREGATION": "sum"}
 )
 
 ARCHITECTURE_NAME = "experimental.pet"
@@ -41,13 +41,6 @@ class Model(torch.nn.Module):
         self.cutoff = self.hypers.R_CUT
         self.all_species: List[int] = capabilities.species
         self.capabilities = capabilities
-        per_atom_output_types = [
-            output.per_atom for output in self.capabilities.outputs.values()
-        ]
-        if any(per_atom_output_types):
-            if not all(per_atom_output_types):
-                raise ValueError("All outputs must be per-atom or not per-atom.")
-            self.hypers.TARGET_TYPE = "atomic"
         self.pet = PET(self.hypers, 0.0, len(self.all_species))
 
     def set_trained_model(self, trained_model: torch.nn.Module) -> None:
@@ -77,41 +70,30 @@ class Model(torch.nn.Module):
             empty_labels = Labels(
                 names=["_"], values=torch.tensor([[0]], device=predictions.device)
             )
-            if outputs[output_name].per_atom:
-                structure_index = torch.repeat_interleave(
-                    torch.arange(len(systems), device=predictions.device),
-                    torch.tensor(
-                        [len(system) for system in systems], device=predictions.device
-                    ),
-                )
-                atom_index = torch.cat(
-                    [
-                        torch.arange(len(system), device=predictions.device)
-                        for system in systems
-                    ]
-                )
-                samples_values = torch.stack([structure_index, atom_index], dim=1)
-                samples = Labels(names=["system", "atom"], values=samples_values)
-                block = TensorBlock(
-                    samples=samples,
-                    components=[],
-                    properties=empty_labels,
-                    values=predictions,
-                )
-            else:
-                samples_values = torch.arange(
-                    len(systems), device=predictions.device
-                ).view(-1, 1)
-                samples = Labels(names=["system"], values=samples_values)
-                block = TensorBlock(
-                    samples=samples,
-                    components=[],
-                    properties=empty_labels,
-                    values=predictions,
-                )
+            structure_index = torch.repeat_interleave(
+                torch.arange(len(systems), device=predictions.device),
+                torch.tensor(
+                    [len(system) for system in systems], device=predictions.device
+                ),
+            )
+            atom_index = torch.cat(
+                [
+                    torch.arange(len(system), device=predictions.device)
+                    for system in systems
+                ]
+            )
+            samples_values = torch.stack([structure_index, atom_index], dim=1)
+            samples = Labels(names=["system", "atom"], values=samples_values)
+            block = TensorBlock(
+                samples=samples,
+                components=[],
+                properties=empty_labels,
+                values=predictions,
+            )
             if selected_atoms is not None:
                 block = metatensor.torch.slice_block(block, "samples", selected_atoms)
-            output_quantities[output_name] = TensorMap(
-                keys=empty_labels, blocks=[block]
-            )
+            output_tmap = TensorMap(keys=empty_labels, blocks=[block])
+            if not outputs[output_name].per_atom:
+                output_tmap = metatensor.torch.sum_over_samples(output_tmap, "atom")
+            output_quantities[output_name] = output_tmap
         return output_quantities
