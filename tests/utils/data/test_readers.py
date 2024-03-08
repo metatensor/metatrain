@@ -40,7 +40,7 @@ def test_read_systems(fileformat, monkeypatch, tmp_path):
             result.positions, torch.tensor(system.positions, dtype=torch.float16)
         )
         torch.testing.assert_close(
-            result.species, torch.tensor([1, 1], dtype=torch.int32)
+            result.types, torch.tensor([1, 1], dtype=torch.int32)
         )
 
 
@@ -67,7 +67,7 @@ def test_read_energies(fileformat, monkeypatch, tmp_path):
         assert result.values.dtype is torch.float16
         assert result.samples.names == ["system"]
         assert result.samples.values == torch.tensor([[i_system]])
-        assert result.properties == Labels.single()
+        assert result.properties == Labels("energy", torch.tensor([[0]]))
 
 
 @pytest.mark.parametrize("fileformat", (None, ".xyz", ".extxyz"))
@@ -90,7 +90,7 @@ def test_read_forces(fileformat, monkeypatch, tmp_path):
         assert torch.all(result.samples["sample"] == torch.tensor(0))
         assert torch.all(result.samples["system"] == torch.tensor(i_system))
         assert result.components == [Labels(["xyz"], torch.arange(3).reshape(-1, 1))]
-        assert result.properties == Labels.single()
+        assert result.properties == Labels("energy", torch.tensor([[0]]))
 
 
 @pytest.mark.parametrize("reader", [read_stress, read_virial])
@@ -117,7 +117,7 @@ def test_read_stress_virial(reader, fileformat, monkeypatch, tmp_path):
         assert result.samples.names == ["sample"]
         assert result.samples.values == torch.tensor([[0]])
         assert result.components == components
-        assert result.properties == Labels.single()
+        assert result.properties == Labels("energy", torch.tensor([[0]]))
 
 
 @pytest.mark.parametrize("reader", [read_energy, read_forces, read_stress, read_virial])
@@ -174,12 +174,12 @@ def test_read_targets(stress_dict, virial_dict, monkeypatch, tmp_path, caplog):
 
         assert type(target_list) is list
         for target in target_list:
-            assert target.keys == Labels(["_"], torch.tensor([[0]]))
+            assert target.keys == Labels(["energy"], torch.tensor([[0]]))
 
             result_block = target.block()
             assert result_block.values.dtype is torch.float16
             assert result_block.samples.names == ["system"]
-            assert result_block.properties == Labels.single()
+            assert result_block.properties == Labels("energy", torch.tensor([[0]]))
 
             pos_grad = result_block.gradient("positions")
             assert pos_grad.values.dtype is torch.float16
@@ -187,7 +187,7 @@ def test_read_targets(stress_dict, virial_dict, monkeypatch, tmp_path, caplog):
             assert pos_grad.components == [
                 Labels(["xyz"], torch.arange(3).reshape(-1, 1))
             ]
-            assert pos_grad.properties == Labels.single()
+            assert pos_grad.properties == Labels("energy", torch.tensor([[0]]))
 
             disp_grad = result_block.gradient("strain")
             components = [
@@ -197,7 +197,7 @@ def test_read_targets(stress_dict, virial_dict, monkeypatch, tmp_path, caplog):
             assert disp_grad.values.dtype is torch.float16
             assert disp_grad.samples.names == ["sample"]
             assert disp_grad.components == components
-            assert disp_grad.properties == Labels.single()
+            assert disp_grad.properties == Labels("energy", torch.tensor([[0]]))
 
 
 @pytest.mark.parametrize(

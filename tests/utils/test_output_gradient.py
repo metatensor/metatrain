@@ -20,7 +20,7 @@ def test_forces(is_training):
 
     capabilities = ModelCapabilities(
         length_unit="Angstrom",
-        species=[1, 6, 7, 8],
+        atomic_types=[1, 6, 7, 8],
         outputs={
             "energy": ModelOutput(
                 quantity="energy",
@@ -62,7 +62,7 @@ def test_virial(is_training):
 
     capabilities = ModelCapabilities(
         length_unit="Angstrom",
-        species=[21, 23, 24, 27, 29, 39, 40, 41, 72, 74, 78],
+        atomic_types=[21, 23, 24, 27, 29, 39, 40, 41, 72, 74, 78],
         outputs={
             "energy": ModelOutput(
                 quantity="energy",
@@ -84,7 +84,7 @@ def test_virial(is_training):
         metatensor.torch.atomistic.System(
             positions=system.positions @ strain,
             cell=system.cell @ strain,
-            species=system.species,
+            atomic_types=system.types,
         )
         for system, strain in zip(systems, strains)
     ]
@@ -109,7 +109,7 @@ def test_virial(is_training):
         metatensor.torch.atomistic.System(
             positions=system.positions @ strain,
             cell=system.cell @ strain,
-            species=system.species,
+            atomic_types=system.types,
         )
         for system, strain in zip(systems, strains)
     ]
@@ -132,7 +132,7 @@ def test_both(is_training):
 
     capabilities = ModelCapabilities(
         length_unit="Angstrom",
-        species=[21, 23, 24, 27, 29, 39, 40, 41, 72, 74, 78],
+        atomic_types=[21, 23, 24, 27, 29, 39, 40, 41, 72, 74, 78],
         outputs={
             "energy": ModelOutput(
                 quantity="energy",
@@ -156,7 +156,7 @@ def test_both(is_training):
         metatensor.torch.atomistic.System(
             positions=system.positions @ strain,
             cell=system.cell @ strain,
-            species=system.species,
+            atomic_types=system.types,
         )
         for system, strain in zip(systems, strains)
     ]
@@ -179,7 +179,7 @@ def test_both(is_training):
         metatensor.torch.atomistic.System(
             positions=system.positions @ strain,
             cell=system.cell @ strain,
-            species=system.species,
+            atomic_types=system.types,
         )
         for system, strain in zip(systems, strains)
     ]

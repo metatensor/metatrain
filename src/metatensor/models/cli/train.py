@@ -372,7 +372,7 @@ def _train_model_hydra(options: DictConfig) -> None:
     length_unit = train_options_list[0]["systems"]["length_unit"]
     requested_capabilities = ModelCapabilities(
         length_unit=length_unit if length_unit is not None else "",
-        species=all_species,
+        atomic_types=all_species,
         outputs=outputs,
     )
 

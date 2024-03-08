@@ -29,5 +29,5 @@ def test_read_ase(monkeypatch, tmp_path):
 
     torch.testing.assert_close(result[0].positions, torch.tensor(systems.positions))
     torch.testing.assert_close(
-        result[0].species, torch.tensor([1, 1], dtype=torch.int32)
+        result[0].types, torch.tensor([1, 1], dtype=torch.int32)
     )

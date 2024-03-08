@@ -31,7 +31,7 @@ def test_regression_init():
 
     capabilities = ModelCapabilities(
         length_unit="Angstrom",
-        species=[1, 6, 7, 8],
+        atomic_types=[1, 6, 7, 8],
         outputs={
             "U0": ModelOutput(
                 quantity="energy",
@@ -104,7 +104,7 @@ def test_regression_train():
 
     capabilities = ModelCapabilities(
         length_unit="Angstrom",
-        species=get_all_species(dataset),
+        atomic_types=get_all_species(dataset),
         outputs={
             "U0": ModelOutput(
                 quantity="energy",

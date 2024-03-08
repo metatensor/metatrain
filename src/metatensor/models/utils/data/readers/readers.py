@@ -5,7 +5,7 @@ from typing import Dict, List, Optional
 import torch
 from metatensor.torch import Labels, TensorBlock, TensorMap
 from omegaconf import DictConfig
-from rascaline.torch.system import System
+from metatensor.torch.atomistic import System
 
 from .systems import SYSTEM_READERS
 from .targets import ENERGY_READERS, FORCES_READERS, STRESS_READERS, VIRIAL_READERS

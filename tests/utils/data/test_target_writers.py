@@ -4,8 +4,7 @@ import ase.io
 import pytest
 import torch
 from metatensor.torch import Labels, TensorBlock, TensorMap
-from metatensor.torch.atomistic import System
-from rascaline.torch import systems_to_torch
+from metatensor.torch.atomistic import System, systems_to_torch
 
 from metatensor.models.utils.data.writers import write_predictions, write_xyz
 

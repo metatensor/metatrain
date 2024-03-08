@@ -6,7 +6,7 @@ from metatensor.models.utils.merge_capabilities import merge_capabilities
 def test_merge_capabilities():
     old_capabilities = ModelCapabilities(
         length_unit="angstrom",
-        species=[1, 6],
+        atomic_types=[1, 6],
         outputs={
             "energy": ModelOutput(quantity="energy", unit="eV"),
             "forces": ModelOutput(quantity="forces", unit="eV/Angstrom"),
@@ -15,7 +15,7 @@ def test_merge_capabilities():
 
     requested_capabilities = ModelCapabilities(
         length_unit="angstrom",
-        species=[1],
+        atomic_types=[1],
         outputs={
             "energy": ModelOutput(quantity="energy", unit="eV"),
             "forces": ModelOutput(quantity="forces", unit="eV/Angstrom"),
@@ -26,7 +26,7 @@ def test_merge_capabilities():
     merged, new = merge_capabilities(old_capabilities, requested_capabilities)
 
     assert merged.length_unit == "angstrom"
-    assert merged.species == [1, 6]
+    assert merged.atomic_types == [1, 6]
     assert merged.outputs["energy"].quantity == "energy"
     assert merged.outputs["energy"].unit == "eV"
     assert merged.outputs["forces"].quantity == "forces"
@@ -35,6 +35,6 @@ def test_merge_capabilities():
     assert merged.outputs["stress"].unit == "GPa"
 
     assert new.length_unit == "angstrom"
-    assert new.species == [1, 6]
+    assert new.atomic_types == [1, 6]
     assert new.outputs["stress"].quantity == "stress"
     assert new.outputs["stress"].unit == "GPa"

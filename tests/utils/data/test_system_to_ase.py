@@ -20,7 +20,7 @@ def test_system_to_ase():
     assert atoms.positions.tolist() == system.positions.tolist()
 
     # Check the species
-    assert atoms.numbers.tolist() == system.species.tolist()
+    assert atoms.numbers.tolist() == system.types.tolist()
 
     # Check the cell
     assert atoms.cell.tolist() == system.cell.tolist()

@@ -40,7 +40,7 @@ class Model(torch.nn.Module):
         self.cutoff = (
             self.hypers["R_CUT"] if isinstance(self.hypers, dict) else self.hypers.R_CUT
         )
-        self.all_species: List[int] = capabilities.species
+        self.all_species: List[int] = capabilities.atomic_types
         self.capabilities = capabilities
         self.pet = PET(self.hypers, 0.0, len(self.all_species))
 
@@ -72,7 +72,7 @@ class Model(torch.nn.Module):
         for output_name in outputs:
             total_energies[output_name] = TensorMap(
                 keys=Labels(
-                    names=["_"],
+                    names=["energy"],
                     values=torch.tensor(
                         [[0]],
                         device=predictions.device,
@@ -81,7 +81,7 @@ class Model(torch.nn.Module):
                 blocks=[
                     TensorBlock(
                         samples=Labels(
-                            names=["structure"],
+                            names=["system"],
                             values=torch.arange(
                                 len(predictions),
                                 device=predictions.device,
@@ -89,7 +89,7 @@ class Model(torch.nn.Module):
                         ),
                         components=[],
                         properties=Labels(
-                            names=["_"],
+                            names=["energy"],
                             values=torch.zeros(
                                 (1, 1), dtype=torch.int32, device=predictions.device
                             ),
