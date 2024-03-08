@@ -211,7 +211,7 @@ class Model(torch.nn.Module):
     ) -> List[NeighborsListOptions]:
         return [
             NeighborsListOptions(
-                model_cutoff=self.cutoff_radius,
+                cutoff=self.cutoff_radius,
                 full_list=True,
             )
         ]

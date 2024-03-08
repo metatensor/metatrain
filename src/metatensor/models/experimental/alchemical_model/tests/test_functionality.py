@@ -5,6 +5,7 @@ from metatensor.torch.atomistic import (
     MetatensorAtomisticModel,
     ModelCapabilities,
     ModelEvaluationOptions,
+    ModelMetadata,
     ModelOutput,
 )
 
@@ -25,6 +26,7 @@ def test_prediction_subset():
                 unit="eV",
             )
         },
+        supported_devices=["cpu"],
     )
 
     alchemical_model = Model(capabilities, DEFAULT_HYPERS["model"])
@@ -40,7 +42,7 @@ def test_prediction_subset():
     )
 
     model = MetatensorAtomisticModel(
-        alchemical_model.eval(), alchemical_model.capabilities
+        alchemical_model.eval(), ModelMetadata(), alchemical_model.capabilities
     )
     model(
         [system],

@@ -7,6 +7,7 @@ from metatensor.torch.atomistic import (
     MetatensorAtomisticModel,
     ModelCapabilities,
     ModelEvaluationOptions,
+    ModelMetadata,
     ModelOutput,
 )
 
@@ -28,6 +29,7 @@ def test_rotational_invariance():
                 unit="eV",
             )
         },
+        supported_devices=["cpu"],
     )
     alchemical_model = Model(capabilities, DEFAULT_HYPERS["model"])
     system = ase.io.read(DATASET_PATH)
@@ -50,7 +52,7 @@ def test_rotational_invariance():
     )
 
     model = MetatensorAtomisticModel(
-        alchemical_model.eval(), alchemical_model.capabilities
+        alchemical_model.eval(), ModelMetadata(), alchemical_model.capabilities
     )
     original_output = model(
         [original_system],

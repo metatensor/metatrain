@@ -9,6 +9,7 @@ from metatensor.torch.atomistic import (
     MetatensorAtomisticModel,
     ModelCapabilities,
     ModelEvaluationOptions,
+    ModelMetadata,
     ModelOutput,
 )
 from omegaconf import OmegaConf
@@ -38,6 +39,7 @@ def test_regression_init():
                 unit="eV",
             )
         },
+        supported_devices=["cpu"],
     )
     alchemical_model = Model(capabilities, DEFAULT_HYPERS["model"])
 
@@ -60,7 +62,7 @@ def test_regression_init():
     )
 
     model = MetatensorAtomisticModel(
-        alchemical_model.eval(), alchemical_model.capabilities
+        alchemical_model.eval(), ModelMetadata(), alchemical_model.capabilities
     )
     output = model(
         systems,
@@ -111,6 +113,7 @@ def test_regression_train():
                 unit="eV",
             )
         },
+        supported_devices=["cpu"],
     )
     alchemical_model = train(
         train_datasets=[dataset],
@@ -126,7 +129,7 @@ def test_regression_train():
     )
 
     model = MetatensorAtomisticModel(
-        alchemical_model.eval(), alchemical_model.capabilities
+        alchemical_model.eval(), ModelMetadata(), alchemical_model.capabilities
     )
     output = model(
         systems[:5],

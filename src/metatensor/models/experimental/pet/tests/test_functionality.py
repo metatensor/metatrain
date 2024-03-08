@@ -26,6 +26,7 @@ def test_prediction_subset():
                 unit="eV",
             )
         },
+        supported_devices=["cpu"],
     )
 
     model = Model(capabilities, DEFAULT_HYPERS["ARCHITECTURAL_HYPERS"]).to(

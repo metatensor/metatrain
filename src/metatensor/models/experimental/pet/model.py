@@ -52,7 +52,7 @@ class Model(torch.nn.Module):
     ) -> List[NeighborsListOptions]:
         return [
             NeighborsListOptions(
-                model_cutoff=self.cutoff,
+                cutoff=self.cutoff,
                 full_list=True,
             )
         ]
@@ -72,7 +72,7 @@ class Model(torch.nn.Module):
         for output_name in outputs:
             total_energies[output_name] = TensorMap(
                 keys=Labels(
-                    names=["energy"],
+                    names=["_"],
                     values=torch.tensor(
                         [[0]],
                         device=predictions.device,

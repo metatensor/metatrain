@@ -27,6 +27,7 @@ def test_to(tmp_path, device, dtype):
                 unit="eV",
             )
         },
+        supported_devices=["cpu", "cuda"],
     )
     model = Model(capabilities, DEFAULT_HYPERS["model"])
     export(model, "model.pt")
