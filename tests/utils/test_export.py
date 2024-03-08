@@ -15,7 +15,9 @@ def test_export(monkeypatch, tmp_path):
     """Tests the export function"""
     monkeypatch.chdir(tmp_path)
 
-    model = Model(capabilities=ModelCapabilities(atomic_types=[1], length_unit="angstrom"))
+    model = Model(
+        capabilities=ModelCapabilities(atomic_types=[1], length_unit="angstrom")
+    )
     export(model, "exported.pt")
 
     assert Path("exported.pt").is_file()

@@ -22,7 +22,9 @@ def write_xyz(filename: str, predictions: TensorMap, systems: List[System]) -> N
         info = {
             target_name: float(predictions[target_name].block().values[i_system, 0])
         }
-        atoms = ase.Atoms(symbols=system.atomic_types, positions=system.positions, info=info)
+        atoms = ase.Atoms(
+            symbols=system.atomic_types, positions=system.positions, info=info
+        )
 
         if torch.any(system.cell != 0):
             atoms.pbc = True

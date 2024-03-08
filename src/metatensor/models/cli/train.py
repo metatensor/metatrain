@@ -31,6 +31,7 @@ from .formatter import CustomHelpFormatter
 
 
 logger = logging.getLogger(__name__)
+logger.setLevel(logging.INFO)
 
 
 def _add_train_model_parser(subparser: argparse._SubParsersAction) -> None:
@@ -400,7 +401,7 @@ def _train_model_hydra(options: DictConfig) -> None:
         else:
             extra_log_message = f" with index {i}"
 
-        logger.info(f"Evaulate training dataset{extra_log_message}")
+        logger.info(f"Evaluating training dataset{extra_log_message}")
         _eval_targets(exported_model, train_dataset)
 
     for i, validation_dataset in enumerate(validation_datasets):
@@ -409,7 +410,7 @@ def _train_model_hydra(options: DictConfig) -> None:
         else:
             extra_log_message = f" with index {i}"
 
-        logger.info(f"Evaulate validation dataset{extra_log_message}")
+        logger.info(f"Evaluating validation dataset{extra_log_message}")
         _eval_targets(exported_model, validation_dataset)
 
     for i, test_dataset in enumerate(test_datasets):
@@ -418,5 +419,5 @@ def _train_model_hydra(options: DictConfig) -> None:
         else:
             extra_log_message = f" with index {i}"
 
-        logger.info(f"Evaulate test dataset{extra_log_message}")
+        logger.info(f"Evaluating test dataset{extra_log_message}")
         _eval_targets(exported_model, test_dataset)

@@ -6,6 +6,7 @@ from metatensor.torch.atomistic import ModelCapabilities
 
 
 logger = logging.getLogger(__name__)
+logger.setLevel(logging.INFO)
 
 
 class MetricLogger:

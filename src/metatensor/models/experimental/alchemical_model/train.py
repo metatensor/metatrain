@@ -30,6 +30,7 @@ from .utils.normalize import (
 
 
 logger = logging.getLogger(__name__)
+logger.setLevel(logging.INFO)
 
 
 def train(

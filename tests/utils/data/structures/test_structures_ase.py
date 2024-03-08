@@ -28,6 +28,4 @@ def test_read_ase(monkeypatch, tmp_path):
     assert isinstance(result[0], torch.ScriptObject)
 
     torch.testing.assert_close(result[0].positions, torch.tensor(systems.positions))
-    torch.testing.assert_close(
-        result[0].types, torch.tensor([1, 1], dtype=torch.int32)
-    )
+    torch.testing.assert_close(result[0].types, torch.tensor([1, 1], dtype=torch.int32))

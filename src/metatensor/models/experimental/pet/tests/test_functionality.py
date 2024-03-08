@@ -4,8 +4,8 @@ import torch
 from metatensor.torch.atomistic import (
     MetatensorAtomisticModel,
     ModelCapabilities,
-    ModelMetadata,
     ModelEvaluationOptions,
+    ModelMetadata,
     ModelOutput,
 )
 
@@ -40,7 +40,7 @@ def test_prediction_subset():
         outputs=capabilities.outputs,
     )
 
-    model = MetatensorAtomisticModel(model.eval(), model.capabilities)
+    model = MetatensorAtomisticModel(model.eval(), ModelMetadata(), model.capabilities)
     model(
         [system],
         evaluation_options,
