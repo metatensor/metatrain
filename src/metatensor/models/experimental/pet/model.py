@@ -47,7 +47,6 @@ class Model(torch.nn.Module):
         if any(per_atom_output_types):
             if not all(per_atom_output_types):
                 raise ValueError("All outputs must be per-atom or not per-atom.")
-            print(self.hypers.TARGET_TYPE)
             self.hypers.TARGET_TYPE = "atomic"
         self.pet = PET(self.hypers, 0.0, len(self.all_species))
 
