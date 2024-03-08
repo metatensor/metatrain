@@ -4,25 +4,22 @@ import ase.io
 import pytest
 import torch
 from metatensor.torch import Labels, TensorBlock, TensorMap
-from metatensor.torch.atomistic import System, systems_to_torch
+from metatensor.torch.atomistic import System
 
 from metatensor.models.utils.data.writers import write_predictions, write_xyz
 
 
 def systems_predictions(cell: torch.tensor = None) -> List[System]:
     if cell is None:
-        cell = torch.zeros(3, 3)
+        cell = torch.zeros((3, 3))
 
-    systems = systems_to_torch(
-        2
-        * [
-            System(
-                types=torch.tensor([1, 1]),
-                positions=torch.tensor([[0, 0, 0], [0, 0, 0.74]]),
-                cell=cell,
-            ),
-        ]
-    )
+    systems = 2 * [
+        System(
+            types=torch.tensor([1, 1]),
+            positions=torch.tensor([[0, 0, 0], [0, 0, 0.74]]),
+            cell=cell,
+        ),
+    ]
 
     # Create a mock TensorMap for predictions
     n_systems = len(systems)
@@ -69,7 +66,9 @@ def test_write_xyz_cell(monkeypatch, tmp_path):
     # Read the file and verify its contents
     frames = ase.io.read(filename, index=":")
     for atoms in frames:
-        torch.testing.assert_close(torch.tensor(atoms.cell[:]), cell)
+        torch.testing.assert_close(
+            torch.tensor(atoms.cell[:], dtype=torch.get_default_dtype()), cell
+        )
         assert all(atoms.pbc == 3 * [True])
 
 
