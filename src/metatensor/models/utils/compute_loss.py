@@ -95,7 +95,7 @@ def compute_model_loss(
             new_system = System(
                 positions=system.positions @ strain,
                 cell=system.cell @ strain,
-                species=system.types,
+                types=system.types,
             )
             for nl_options in system.known_neighbors_lists():
                 nl = system.get_neighbors_list(nl_options)

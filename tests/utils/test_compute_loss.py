@@ -24,7 +24,7 @@ def test_compute_model_loss():
 
     capabilities = ModelCapabilities(
         length_unit="Angstrom",
-        species=[21, 23, 24, 27, 29, 39, 40, 41, 72, 74, 78],
+        atomic_types=[21, 23, 24, 27, 29, 39, 40, 41, 72, 74, 78],
         outputs={
             "energy": ModelOutput(
                 quantity="energy",

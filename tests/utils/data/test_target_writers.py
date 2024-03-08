@@ -17,7 +17,7 @@ def systems_predictions(cell: torch.tensor = None) -> List[System]:
         2
         * [
             System(
-                species=torch.tensor([1, 1]),
+                types=torch.tensor([1, 1]),
                 positions=torch.tensor([[0, 0, 0], [0, 0, 0.74]]),
                 cell=cell,
             ),
