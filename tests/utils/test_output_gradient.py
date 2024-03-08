@@ -30,7 +30,9 @@ def test_forces(is_training):
     )
 
     model = soap_bpnn.Model(capabilities)
-    systems = read_systems(RESOURCES_PATH / "qm9_reduced_100.xyz")[:5]
+    systems = read_systems(
+        RESOURCES_PATH / "qm9_reduced_100.xyz", dtype=torch.get_default_dtype()
+    )[:5]
     systems = rascaline.torch.systems_to_torch(systems, positions_requires_grad=True)
     output = model(systems, {"energy": model.capabilities.outputs["energy"]})
     position_gradients = compute_gradient(
@@ -72,7 +74,9 @@ def test_virial(is_training):
     )
 
     model = soap_bpnn.Model(capabilities)
-    systems = read_systems(RESOURCES_PATH / "alchemical_reduced_10.xyz")[:2]
+    systems = read_systems(
+        RESOURCES_PATH / "alchemical_reduced_10.xyz", dtype=torch.get_default_dtype()
+    )[:2]
 
     strains = [
         torch.eye(
@@ -84,7 +88,7 @@ def test_virial(is_training):
         metatensor.torch.atomistic.System(
             positions=system.positions @ strain,
             cell=system.cell @ strain,
-            atomic_types=system.types,
+            types=system.types,
         )
         for system, strain in zip(systems, strains)
     ]
@@ -109,7 +113,7 @@ def test_virial(is_training):
         metatensor.torch.atomistic.System(
             positions=system.positions @ strain,
             cell=system.cell @ strain,
-            atomic_types=system.types,
+            types=system.types,
         )
         for system, strain in zip(systems, strains)
     ]
@@ -142,7 +146,9 @@ def test_both(is_training):
     )
 
     model = soap_bpnn.Model(capabilities)
-    systems = read_systems(RESOURCES_PATH / "alchemical_reduced_10.xyz")[:2]
+    systems = read_systems(
+        RESOURCES_PATH / "alchemical_reduced_10.xyz", dtype=torch.get_default_dtype()
+    )[:2]
 
     # Here we re-create strains and systems, otherwise torch
     # complains that the graph has already beeen freed in the last grad call
@@ -156,7 +162,7 @@ def test_both(is_training):
         metatensor.torch.atomistic.System(
             positions=system.positions @ strain,
             cell=system.cell @ strain,
-            atomic_types=system.types,
+            types=system.types,
         )
         for system, strain in zip(systems, strains)
     ]
@@ -179,7 +185,7 @@ def test_both(is_training):
         metatensor.torch.atomistic.System(
             positions=system.positions @ strain,
             cell=system.cell @ strain,
-            atomic_types=system.types,
+            types=system.types,
         )
         for system, strain in zip(systems, strains)
     ]
