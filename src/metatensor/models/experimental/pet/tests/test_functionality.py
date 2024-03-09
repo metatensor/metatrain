@@ -1,5 +1,4 @@
 import ase
-import rascaline.torch
 import torch
 from metatensor.torch.atomistic import (
     MetatensorAtomisticModel,
@@ -7,6 +6,7 @@ from metatensor.torch.atomistic import (
     ModelEvaluationOptions,
     ModelMetadata,
     ModelOutput,
+    systems_to_torch,
 )
 
 from metatensor.models.experimental.pet import DEFAULT_HYPERS, Model
@@ -33,7 +33,7 @@ def test_prediction_subset():
         torch.float64
     )
     structure = ase.Atoms("O2", positions=[[0.0, 0.0, 0.0], [0.0, 0.0, 1.0]])
-    system = rascaline.torch.systems_to_torch(structure)
+    system = systems_to_torch(structure)
     system = get_system_with_neighbors_lists(system, model.requested_neighbors_lists())
 
     evaluation_options = ModelEvaluationOptions(

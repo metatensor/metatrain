@@ -2,7 +2,6 @@ import random
 
 import ase.io
 import numpy as np
-import rascaline.torch
 import torch
 from metatensor.learn.data import Dataset
 from metatensor.torch.atomistic import (
@@ -11,6 +10,7 @@ from metatensor.torch.atomistic import (
     ModelEvaluationOptions,
     ModelMetadata,
     ModelOutput,
+    systems_to_torch,
 )
 from omegaconf import OmegaConf
 
@@ -46,8 +46,7 @@ def test_regression_init():
     # Predict on the first five systems
     systems = ase.io.read(DATASET_PATH, ":5")
     systems = [
-        rascaline.torch.systems_to_torch(system).to(torch.get_default_dtype())
-        for system in systems
+        systems_to_torch(system).to(torch.get_default_dtype()) for system in systems
     ]
     systems = [
         get_system_with_neighbors_lists(
