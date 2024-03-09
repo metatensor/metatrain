@@ -1,25 +1,25 @@
 [project]
-name = "metatensor_models"
+name = "metatensor-models"
 dynamic = ["version"]
-requires-python = ">=3.7"
+requires-python = ">=3.8"
 
 readme = "README.md"
 license = {text = "BSD-3-Clause"}
-description = "" # TODO
-authors = [
-    # TODO
-]
+description = "Atomistic models using metatensor"
+authors = [{name = "metatensor-models developers"}]
 
 dependencies = [
     "ase",
     "torch",
-    "rascaline-torch @ git+https://github.com/luthaf/rascaline#subdirectory=python/rascaline-torch",
+    "hydra-core",
+    "rascaline-torch @ git+https://github.com/luthaf/rascaline@5ac2ee9#subdirectory=python/rascaline-torch",
     "metatensor-core",
-    "metatensor-operations",
-    "metatensor-torch"
+    "metatensor-operations <0.2.1",
+    "metatensor-torch <0.3",
+    "metatensor-learn <0.2.1",
 ]
 
-keywords = [] # TODO
+keywords = ["machine learning", "molecular modeling"]
 classifiers = [
     "Development Status :: 4 - Beta",
     "Intended Audience :: Science/Research",
@@ -38,13 +38,13 @@ classifiers = [
 ]
 
 [project.urls]
-# homepage = "TODO"
-# documentation = "TODO"
+homepage = "https://lab-cosmo.github.io/metatensor-models/latest/"
+documentation = "https://lab-cosmo.github.io/metatensor-models/latest/"
 repository = "https://github.com/lab-cosmo/metatensor-models"
 # changelog = "TODO"
 
 [project.scripts]
-metatensor_models = "metatensor_models.__main__:main"
+metatensor-models = "metatensor.models.__main__:main"
 
 ### ======================================================================== ###
 
@@ -57,24 +57,35 @@ build-backend = "setuptools.build_meta"
 
 [project.optional-dependencies]
 soap-bpnn = []
+alchemical-model = [
+  "torch_alchemical @ git+https://github.com/abmazitov/torch_alchemical.git@fafb0bd",
+]
+pet = [
+  "pet @ git+https://github.com/serfg/pet.git@5668bda",
+]
 
 [tool.setuptools.packages.find]
 where = ["src"]
 
 [tool.setuptools.dynamic]
-version = {attr = "metatensor_models.__version__"}
+version = {attr = "metatensor.models.__version__"}
 
 [tool.coverage.report]
-include = [
-    "src/metatensor_models/*"
+skip_covered = true
+show_missing = true
+exclude_lines = [
+    "if __name__ == .__main__.:",
+]
+omit = [
+    "*/site-packages/*",
+    "*/metatensor/models/experimental/*"
 ]
 
-[tool.coverage.xml]
-output = 'tests/coverage.xml'
-
-[tool.pytest.ini_options]
-python_files = ["*.py"]
-testpaths = ["tests"]
+[tool.coverage.paths]
+source = [
+    "src/metatensor",
+    ".tox/*/lib/python*/site-packages/metatensor"
+]
 
 [tool.isort]
 skip = "__init__.py"
@@ -83,4 +94,7 @@ line_length = 88
 indent = 4
 include_trailing_comma = true
 lines_after_imports = 2
-known_first_party = "metatensor_models"
+known_first_party = "metatensor-models"
+
+[tool.mypy]
+ignore_missing_imports = true

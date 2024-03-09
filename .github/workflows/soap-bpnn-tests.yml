@@ -1,0 +1,26 @@
+name: SOAP-BPNN tests
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    # Check all PR
+
+jobs:
+  tests:
+    runs-on: ubuntu-22.04
+
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Set up Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: "3.12"
+    - run: pip install tox
+
+    - name: run SOAP-BPNN tests
+      run: tox -e soap-bpnn-tests
+      env:
+        # Use the CPU only version of torch when building/running the code
+        PIP_EXTRA_INDEX_URL: https://download.pytorch.org/whl/cpu
