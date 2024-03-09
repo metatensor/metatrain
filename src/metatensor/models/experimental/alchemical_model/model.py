@@ -123,7 +123,7 @@ class Model(torch.nn.Module):
                 )
 
         self.capabilities = capabilities
-        self.all_species = capabilities.species
+        self.all_species = capabilities.atomic_types
         self.hypers = hypers
         self.cutoff_radius = self.hypers["soap"]["cutoff_radius"]
 
@@ -211,7 +211,7 @@ class Model(torch.nn.Module):
     ) -> List[NeighborsListOptions]:
         return [
             NeighborsListOptions(
-                model_cutoff=self.cutoff_radius,
+                cutoff=self.cutoff_radius,
                 full_list=True,
             )
         ]
@@ -250,15 +250,15 @@ class Model(torch.nn.Module):
 
         total_energies: Dict[str, TensorMap] = {}
         for output_name, atomic_energy in atomic_energies.items():
-            atomic_energy = atomic_energy.keys_to_samples("species_center")
+            atomic_energy = atomic_energy.keys_to_samples("center_type")
             total_energies_item = metatensor.torch.sum_over_samples(
-                atomic_energy, ["center", "species_center"]
+                atomic_energy, ["atom", "center_type"]
             )
             total_energies[output_name] = total_energies_item
             # Change the energy label from _ to (0, 1):
             total_energies[output_name] = TensorMap(
                 keys=Labels(
-                    names=["_"],
+                    names=["energy"],
                     values=torch.tensor(
                         [[0]],
                         device=total_energies[output_name].block(0).values.device,

@@ -110,7 +110,7 @@ def test_train_explicit_validation_test(
             else:
                 extra_log_message = f" with index {i}"
 
-            assert f"Evaulate {set_type} dataset{extra_log_message}" in log
+            assert f"Evaluating {set_type} dataset{extra_log_message}" in log
 
     assert Path("model.pt").is_file()
 

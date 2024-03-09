@@ -2,9 +2,8 @@ from pathlib import Path
 
 import metatensor.torch
 import pytest
-import rascaline.torch
 import torch
-from metatensor.torch.atomistic import ModelCapabilities, ModelOutput
+from metatensor.torch.atomistic import ModelCapabilities, ModelOutput, System
 
 from metatensor.models.experimental import soap_bpnn
 from metatensor.models.utils.data import read_systems
@@ -20,7 +19,7 @@ def test_forces(is_training):
 
     capabilities = ModelCapabilities(
         length_unit="Angstrom",
-        species=[1, 6, 7, 8],
+        atomic_types=[1, 6, 7, 8],
         outputs={
             "energy": ModelOutput(
                 quantity="energy",
@@ -30,8 +29,17 @@ def test_forces(is_training):
     )
 
     model = soap_bpnn.Model(capabilities)
-    systems = read_systems(RESOURCES_PATH / "qm9_reduced_100.xyz")[:5]
-    systems = rascaline.torch.systems_to_torch(systems, positions_requires_grad=True)
+    systems = read_systems(
+        RESOURCES_PATH / "qm9_reduced_100.xyz", dtype=torch.get_default_dtype()
+    )[:5]
+    systems = [
+        System(
+            positions=system.positions.requires_grad_(True),
+            cell=system.cell,
+            types=system.types,
+        )
+        for system in systems
+    ]
     output = model(systems, {"energy": model.capabilities.outputs["energy"]})
     position_gradients = compute_gradient(
         output["energy"].block().values,
@@ -41,7 +49,17 @@ def test_forces(is_training):
     forces = [-position_gradient for position_gradient in position_gradients]
 
     jitted_model = torch.jit.script(model)
-    systems = rascaline.torch.systems_to_torch(systems, positions_requires_grad=True)
+    systems = read_systems(
+        RESOURCES_PATH / "qm9_reduced_100.xyz", dtype=torch.get_default_dtype()
+    )[:5]
+    systems = [
+        System(
+            positions=system.positions.requires_grad_(True),
+            cell=system.cell,
+            types=system.types,
+        )
+        for system in systems
+    ]
     output = jitted_model(systems, {"energy": model.capabilities.outputs["energy"]})
     jitted_position_gradients = compute_gradient(
         output["energy"].block().values,
@@ -62,7 +80,7 @@ def test_virial(is_training):
 
     capabilities = ModelCapabilities(
         length_unit="Angstrom",
-        species=[21, 23, 24, 27, 29, 39, 40, 41, 72, 74, 78],
+        atomic_types=[21, 23, 24, 27, 29, 39, 40, 41, 72, 74, 78],
         outputs={
             "energy": ModelOutput(
                 quantity="energy",
@@ -72,7 +90,9 @@ def test_virial(is_training):
     )
 
     model = soap_bpnn.Model(capabilities)
-    systems = read_systems(RESOURCES_PATH / "alchemical_reduced_10.xyz")[:2]
+    systems = read_systems(
+        RESOURCES_PATH / "alchemical_reduced_10.xyz", dtype=torch.get_default_dtype()
+    )[:2]
 
     strains = [
         torch.eye(
@@ -84,7 +104,7 @@ def test_virial(is_training):
         metatensor.torch.atomistic.System(
             positions=system.positions @ strain,
             cell=system.cell @ strain,
-            species=system.species,
+            types=system.types,
         )
         for system, strain in zip(systems, strains)
     ]
@@ -109,7 +129,7 @@ def test_virial(is_training):
         metatensor.torch.atomistic.System(
             positions=system.positions @ strain,
             cell=system.cell @ strain,
-            species=system.species,
+            types=system.types,
         )
         for system, strain in zip(systems, strains)
     ]
@@ -132,7 +152,7 @@ def test_both(is_training):
 
     capabilities = ModelCapabilities(
         length_unit="Angstrom",
-        species=[21, 23, 24, 27, 29, 39, 40, 41, 72, 74, 78],
+        atomic_types=[21, 23, 24, 27, 29, 39, 40, 41, 72, 74, 78],
         outputs={
             "energy": ModelOutput(
                 quantity="energy",
@@ -142,7 +162,9 @@ def test_both(is_training):
     )
 
     model = soap_bpnn.Model(capabilities)
-    systems = read_systems(RESOURCES_PATH / "alchemical_reduced_10.xyz")[:2]
+    systems = read_systems(
+        RESOURCES_PATH / "alchemical_reduced_10.xyz", dtype=torch.get_default_dtype()
+    )[:2]
 
     # Here we re-create strains and systems, otherwise torch
     # complains that the graph has already beeen freed in the last grad call
@@ -156,7 +178,7 @@ def test_both(is_training):
         metatensor.torch.atomistic.System(
             positions=system.positions @ strain,
             cell=system.cell @ strain,
-            species=system.species,
+            types=system.types,
         )
         for system, strain in zip(systems, strains)
     ]
@@ -179,7 +201,7 @@ def test_both(is_training):
         metatensor.torch.atomistic.System(
             positions=system.positions @ strain,
             cell=system.cell @ strain,
-            species=system.species,
+            types=system.types,
         )
         for system, strain in zip(systems, strains)
     ]

@@ -21,7 +21,7 @@ from .formatter import CustomHelpFormatter
 
 
 logger = logging.getLogger(__name__)
-logging.basicConfig(level=logging.INFO, format="%(message)s")
+logger.setLevel(logging.INFO)
 
 
 def _add_eval_model_parser(subparser: argparse._SubParsersAction) -> None:
@@ -182,7 +182,7 @@ def eval_model(
         else:
             extra_log_message = f" with index {i}"
             file_index_suffix = f"_{i}"
-        logger.info(f"Evaulate dataset{extra_log_message}")
+        logger.info(f"Evaluating dataset{extra_log_message}")
 
         eval_systems = read_systems(
             filename=options["systems"]["read_from"],

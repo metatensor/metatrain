@@ -2,7 +2,11 @@ import warnings
 from typing import Any
 
 import torch
-from metatensor.torch.atomistic import MetatensorAtomisticModel
+from metatensor.torch.atomistic import (
+    MetatensorAtomisticModel,
+    ModelCapabilities,
+    ModelMetadata,
+)
 
 
 def export(model: torch.nn.Module, output: str) -> None:
@@ -28,7 +32,16 @@ def export(model: torch.nn.Module, output: str) -> None:
                 stacklevel=1,
             )
 
-    wrapper = MetatensorAtomisticModel(model.eval(), model.capabilities)
+    model_capabilities_with_devices = ModelCapabilities(
+        length_unit=model.capabilities.length_unit,
+        atomic_types=model.capabilities.atomic_types,
+        outputs=model.capabilities.outputs,
+        supported_devices=["cpu", "cuda"],
+    )
+
+    wrapper = MetatensorAtomisticModel(
+        model.eval(), ModelMetadata(), model_capabilities_with_devices
+    )
     wrapper.export(output)
 
 

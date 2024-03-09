@@ -13,6 +13,7 @@ from torch.utils.data import Subset, random_split
 
 
 logger = logging.getLogger(__name__)
+logger.setLevel(logging.INFO)
 
 
 if os.environ.get("METATENSOR_IMPORT_FOR_SPHINX", "0") == "1":
@@ -44,7 +45,7 @@ def get_all_species(datasets: Union[_BaseDataset, List[_BaseDataset]]) -> List[i
     for dataset in datasets:
         for index in range(len(dataset)):
             system = dataset[index][0]  # extract the system from the NamedTuple
-            species += system.species.tolist()
+            species += system.types.tolist()
 
     # Remove duplicates and sort:
     result = list(set(species))
@@ -134,7 +135,7 @@ def check_datasets(
 
     # Check that they are compatible with the model's capabilities:
     for species in all_training_species + all_validation_species:
-        if species not in capabilities.species:
+        if species not in capabilities.atomic_types:
             raise ValueError(
                 f"The species {species} is not in the model's capabilities."
             )
