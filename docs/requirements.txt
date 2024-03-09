@@ -6,4 +6,3 @@ sphinx-gallery
 sphinx-toggleprompt
 setuptools  # required for sphinxcontrib-bibtex together with Python 3.12
 tomli
-rascaline[torch]@git+https://github.com/luthaf/rascaline  # for the SOAP-BPNN
