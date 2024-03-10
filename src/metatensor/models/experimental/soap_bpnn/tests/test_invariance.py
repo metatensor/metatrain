@@ -22,7 +22,7 @@ def test_rotational_invariance():
             )
         },
     )
-    soap_bpnn = Model(capabilities, DEFAULT_HYPERS["model"]).to(torch.float64)
+    soap_bpnn = Model(capabilities, DEFAULT_HYPERS["model"])
 
     system = ase.io.read(DATASET_PATH)
     original_system = copy.deepcopy(system)
