@@ -21,9 +21,6 @@ from metatensor.models.utils.neighbors_lists import get_system_with_neighbors_li
 from . import DATASET_PATH
 
 
-torch.set_default_dtype(torch.float64)
-
-
 def test_regression_init():
     """Perform a regression test on the model at initialization"""
 
@@ -31,6 +28,7 @@ def test_regression_init():
     random.seed(0)
     np.random.seed(0)
     torch.manual_seed(0)
+    torch.set_default_dtype(torch.float64)
 
     capabilities = ModelCapabilities(
         length_unit="Angstrom",
@@ -86,6 +84,7 @@ def test_regression_train():
     random.seed(0)
     np.random.seed(0)
     torch.manual_seed(0)
+    torch.set_default_dtype(torch.float64)
 
     systems = read_systems(DATASET_PATH, dtype=torch.get_default_dtype())
     conf = {

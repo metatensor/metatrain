@@ -49,10 +49,11 @@ class NeighborIndexConstructor:
                     self.neighbors_shift[j][k], -S
                 ):
                     self.neighbors_pos[i].append(torch.LongTensor([k]))
-
+        print(self.relative_positions_raw)
         self.relative_positions = [
             torch.cat(chunk, dim=0) for chunk in self.relative_positions_raw
         ]
+        print(self.relative_positions)
 
     def get_max_num(self) -> int:
         maximum: int = -1

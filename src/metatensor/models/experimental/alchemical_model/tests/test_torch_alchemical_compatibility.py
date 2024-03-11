@@ -56,8 +56,6 @@ def test_systems_to_torch_alchemical_batch():
     index_2, counts_2 = torch.unique(batch.batch, return_counts=True)
     assert torch.allclose(index_1, index_2)
     assert torch.allclose(counts_1, counts_2)
-    print(batch_dict["edge_offsets"])
-    print(batch.edge_offsets)
     offset_1, counts_1 = torch.unique(batch_dict["edge_offsets"], return_counts=True)
     offset_2, counts_2 = torch.unique(batch.edge_offsets, return_counts=True)
     assert torch.allclose(offset_1, offset_2)
