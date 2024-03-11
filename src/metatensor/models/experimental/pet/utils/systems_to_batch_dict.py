@@ -49,7 +49,6 @@ class NeighborIndexConstructor:
                     self.neighbors_shift[j][k], -S
                 ):
                     self.neighbors_pos[i].append(torch.LongTensor([k]))
-
         self.relative_positions = [
             torch.cat(chunk, dim=0) for chunk in self.relative_positions_raw
         ]
