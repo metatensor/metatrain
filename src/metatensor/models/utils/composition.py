@@ -41,7 +41,9 @@ def calculate_composition_weights(
         ]
     )
     composition_features = composition_features.keys_to_properties("species_center")
-    composition_features = composition_features.block().values
+    composition_features = composition_features.block().values.to(
+        torch.get_default_dtype()
+    )
 
     targets = targets.squeeze(dim=(1, 2))  # remove component and property dimensions
 

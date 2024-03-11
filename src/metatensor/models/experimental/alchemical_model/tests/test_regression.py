@@ -28,7 +28,6 @@ def test_regression_init():
     random.seed(0)
     np.random.seed(0)
     torch.manual_seed(0)
-    torch.set_default_dtype(torch.float64)
 
     capabilities = ModelCapabilities(
         length_unit="Angstrom",
@@ -69,9 +68,7 @@ def test_regression_init():
         check_consistency=True,
     )
 
-    expected_output = torch.tensor(
-        [[-0.6793], [-3.8208], [-0.0183], [-0.5273], [-2.1146]]
-    )
+    expected_output = torch.tensor([[-1.9819], [0.1507], [1.6116], [3.4118], [0.8383]])
 
     assert torch.allclose(output["U0"].block().values, expected_output, atol=1e-4)
 
@@ -84,7 +81,6 @@ def test_regression_train():
     random.seed(0)
     np.random.seed(0)
     torch.manual_seed(0)
-    torch.set_default_dtype(torch.float64)
 
     systems = read_systems(DATASET_PATH, dtype=torch.get_default_dtype())
     conf = {
@@ -137,7 +133,7 @@ def test_regression_train():
     )
 
     expected_output = torch.tensor(
-        [[-86.8058], [-97.5068], [-108.2305], [-134.4337], [-151.8552]]
+        [[-118.6454], [-106.1644], [-137.0310], [-164.7832], [-139.8678]]
     )
 
     assert torch.allclose(output["U0"].block().values, expected_output, atol=1e-4)
