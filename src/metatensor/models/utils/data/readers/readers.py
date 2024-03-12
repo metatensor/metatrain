@@ -12,7 +12,6 @@ from .targets import ENERGY_READERS, FORCES_READERS, STRESS_READERS, VIRIAL_READ
 
 
 logger = logging.getLogger(__name__)
-logger.setLevel(logging.INFO)
 
 
 def _base_reader(

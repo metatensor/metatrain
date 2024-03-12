@@ -13,7 +13,6 @@ from torch.utils.data import Subset, random_split
 
 
 logger = logging.getLogger(__name__)
-logger.setLevel(logging.INFO)
 
 
 if os.environ.get("METATENSOR_IMPORT_FOR_SPHINX", "0") == "1":
