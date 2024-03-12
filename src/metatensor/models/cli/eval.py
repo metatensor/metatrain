@@ -21,7 +21,6 @@ from .formatter import CustomHelpFormatter
 
 
 logger = logging.getLogger(__name__)
-logger.setLevel(logging.INFO)
 
 
 def _add_eval_model_parser(subparser: argparse._SubParsersAction) -> None:

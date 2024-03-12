@@ -27,7 +27,7 @@ from .model import DEFAULT_HYPERS, Model
 
 
 logger = logging.getLogger(__name__)
-logger.setLevel(logging.INFO)
+
 
 # disable rascaline logger
 rascaline.set_logging_callback(lambda x, y: None)
