@@ -9,7 +9,7 @@ def test_system_to_ase():
     # Create a system
     system = System(
         positions=torch.tensor([[0.0, 0.0, 0.0], [1.0, 1.0, 1.0]]),
-        species=torch.tensor([1, 8]),
+        types=torch.tensor([1, 8]),
         cell=torch.tensor([[10.0, 0.0, 0.0], [0.0, 10.0, 0.0], [0.0, 0.0, 10.0]]),
     )
 
@@ -20,7 +20,7 @@ def test_system_to_ase():
     assert atoms.positions.tolist() == system.positions.tolist()
 
     # Check the species
-    assert atoms.numbers.tolist() == system.species.tolist()
+    assert atoms.numbers.tolist() == system.types.tolist()
 
     # Check the cell
     assert atoms.cell.tolist() == system.cell.tolist()

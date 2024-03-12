@@ -3,7 +3,7 @@ from pathlib import Path
 
 import metatensor.torch
 import pytest
-import rascaline.torch
+import torch
 from metatensor.torch.atomistic import ModelCapabilities, ModelOutput
 
 from metatensor.models.experimental import soap_bpnn
@@ -25,7 +25,7 @@ def test_save_load_checkpoint(monkeypatch, tmp_path):
 
     capabilities = ModelCapabilities(
         length_unit="Angstrom",
-        species=[1, 6, 7, 8],
+        atomic_types=[1, 6, 7, 8],
         outputs={
             "energy": ModelOutput(
                 quantity="energy",
@@ -35,10 +35,12 @@ def test_save_load_checkpoint(monkeypatch, tmp_path):
     )
 
     model = soap_bpnn.Model(capabilities)
-    systems = read_systems(RESOURCES_PATH / "qm9_reduced_100.xyz")
+    systems = read_systems(
+        RESOURCES_PATH / "qm9_reduced_100.xyz", dtype=torch.get_default_dtype()
+    )
 
     output_before_save = model(
-        rascaline.torch.systems_to_torch(systems),
+        systems,
         {"energy": model.capabilities.outputs["energy"]},
     )
 
@@ -46,7 +48,7 @@ def test_save_load_checkpoint(monkeypatch, tmp_path):
     loaded_model = load_checkpoint("test_model.ckpt")
 
     output_after_load = loaded_model(
-        rascaline.torch.systems_to_torch(systems),
+        systems,
         {"energy": model.capabilities.outputs["energy"]},
     )
 
