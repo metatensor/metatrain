@@ -55,7 +55,7 @@ build-backend = "setuptools.build_meta"
 
 [project.optional-dependencies]
 soap-bpnn = [
-    "rascaline-torch==0.1.0 @ git+https://github.com/luthaf/rascaline#subdirectory=python/rascaline-torch",
+    "rascaline-torch @ git+https://github.com/luthaf/rascaline@ae05064#subdirectory=python/rascaline-torch",
 ]
 alchemical-model = [
   "torch_alchemical @ git+https://github.com/abmazitov/torch_alchemical.git@357a01f",
