@@ -7,6 +7,7 @@ from metatensor.torch.atomistic import (
     MetatensorAtomisticModel,
     ModelCapabilities,
     ModelEvaluationOptions,
+    ModelMetadata,
     ModelOutput,
     NeighborsListOptions,
 )
@@ -32,7 +33,7 @@ torch.manual_seed(0)
 
 systems = read_systems(DATASET_PATH, dtype=torch.get_default_dtype())
 nl_options = NeighborsListOptions(
-    model_cutoff=5.0,
+    cutoff=5.0,
     full_list=True,
 )
 systems = [get_system_with_neighbors_lists(system, [nl_options]) for system in systems]
@@ -70,13 +71,14 @@ def test_alchemical_model_inference():
     unique_numbers = get_list_of_unique_atomic_numbers(frames)
     capabilities = ModelCapabilities(
         length_unit="Angstrom",
-        species=unique_numbers,
+        atomic_types=unique_numbers,
         outputs={
             "energy": ModelOutput(
                 quantity="energy",
                 unit="eV",
             )
         },
+        supported_devices=["cpu"],
     )
 
     alchemical_model = Model(capabilities, DEFAULT_HYPERS["model"])
@@ -87,7 +89,7 @@ def test_alchemical_model_inference():
     )
 
     model = MetatensorAtomisticModel(
-        alchemical_model.eval(), alchemical_model.capabilities
+        alchemical_model.eval(), ModelMetadata(), alchemical_model.capabilities
     )
     output = model(
         systems,

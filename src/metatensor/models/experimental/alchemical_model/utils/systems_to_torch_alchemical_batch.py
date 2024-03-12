@@ -1,4 +1,4 @@
-from typing import List
+from typing import Dict, List
 
 import torch
 from metatensor.torch.atomistic import NeighborsListOptions, System
@@ -6,7 +6,7 @@ from metatensor.torch.atomistic import NeighborsListOptions, System
 
 def systems_to_torch_alchemical_batch(
     systems: List[System], nl_options: NeighborsListOptions
-) -> dict[str, torch.Tensor]:
+) -> Dict[str, torch.Tensor]:
     """
     Convert a list of metatensor.torch.atomistic.Systems to a dictionary of torch
     tensors compatible with torch_alchemiacal calculators.
@@ -14,7 +14,7 @@ def systems_to_torch_alchemical_batch(
     device = systems[0].positions.device
     positions = torch.cat([item.positions for item in systems])
     cells = torch.cat([item.cell for item in systems])
-    numbers = torch.cat([item.species for item in systems])
+    numbers = torch.cat([item.types for item in systems])
     ptr = torch.tensor([0] + [len(item) for item in systems]).cumsum(0)
     batch = torch.repeat_interleave(
         torch.arange(len(systems)), torch.tensor([len(item) for item in systems])

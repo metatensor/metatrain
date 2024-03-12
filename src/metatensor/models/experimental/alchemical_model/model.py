@@ -71,8 +71,12 @@ class Model(torch.nn.Module):
 
         total_energies: Dict[str, TensorMap] = {}
         for output_name in outputs:
-            empty_label = Labels(
+            keys = Labels(
                 "_", torch.zeros((1, 1), dtype=torch.int32, device=predictions.device)
+            )
+            properties = Labels(
+                "energy",
+                torch.zeros((1, 1), dtype=torch.int32, device=predictions.device),
             )
             samples = Labels(
                 names=["system"],
@@ -84,11 +88,11 @@ class Model(torch.nn.Module):
             block = TensorBlock(
                 samples=samples,
                 components=[],
-                properties=empty_label,
+                properties=properties,
                 values=predictions,
             )
             total_energies[output_name] = TensorMap(
-                keys=empty_label,
+                keys=keys,
                 blocks=[block],
             )
         return total_energies
