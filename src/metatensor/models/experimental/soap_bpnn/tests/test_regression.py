@@ -2,10 +2,9 @@ import random
 
 import ase.io
 import numpy as np
-import rascaline.torch
 import torch
 from metatensor.learn.data import Dataset
-from metatensor.torch.atomistic import ModelCapabilities, ModelOutput
+from metatensor.torch.atomistic import ModelCapabilities, ModelOutput, systems_to_torch
 from omegaconf import OmegaConf
 
 from metatensor.models.experimental.soap_bpnn import DEFAULT_HYPERS, Model, train
@@ -26,7 +25,7 @@ def test_regression_init():
 
     capabilities = ModelCapabilities(
         length_unit="Angstrom",
-        species=[1, 6, 7, 8],
+        atomic_types=[1, 6, 7, 8],
         outputs={
             "U0": ModelOutput(
                 quantity="energy",
@@ -41,7 +40,7 @@ def test_regression_init():
 
     output = soap_bpnn(
         [
-            rascaline.torch.systems_to_torch(system).to(torch.get_default_dtype())
+            systems_to_torch(system, dtype=torch.get_default_dtype())
             for system in systems
         ],
         {"U0": soap_bpnn.capabilities.outputs["U0"]},
@@ -76,7 +75,7 @@ def test_regression_train():
 
     capabilities = ModelCapabilities(
         length_unit="Angstrom",
-        species=get_all_species(dataset),
+        atomic_types=get_all_species(dataset),
         outputs={
             "U0": ModelOutput(
                 quantity="energy",

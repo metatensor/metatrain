@@ -12,7 +12,7 @@ def test_torchscript():
 
     capabilities = ModelCapabilities(
         length_unit="Angstrom",
-        species=[1, 6, 7, 8],
+        atomic_types=[1, 6, 7, 8],
         outputs={
             "energy": ModelOutput(
                 quantity="energy",
@@ -20,7 +20,7 @@ def test_torchscript():
             )
         },
     )
-    alchemical_model = Model(capabilities, DEFAULT_HYPERS["model"]).to(torch.float64)
+    alchemical_model = Model(capabilities, DEFAULT_HYPERS["model"])
     torch.jit.script(
         alchemical_model, {"energy": alchemical_model.capabilities.outputs["energy"]}
     )
@@ -31,7 +31,7 @@ def test_torchscript_save():
 
     capabilities = ModelCapabilities(
         length_unit="Angstrom",
-        species=[1, 6, 7, 8],
+        atomic_types=[1, 6, 7, 8],
         outputs={
             "energy": ModelOutput(
                 quantity="energy",
@@ -39,7 +39,7 @@ def test_torchscript_save():
             )
         },
     )
-    alchemical_model = Model(capabilities, DEFAULT_HYPERS["model"]).to(torch.float64)
+    alchemical_model = Model(capabilities, DEFAULT_HYPERS["model"])
     torch.jit.save(
         torch.jit.script(
             alchemical_model,

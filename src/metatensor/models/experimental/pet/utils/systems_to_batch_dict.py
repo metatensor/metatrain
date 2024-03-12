@@ -49,7 +49,6 @@ class NeighborIndexConstructor:
                     self.neighbors_shift[j][k], -S
                 ):
                     self.neighbors_pos[i].append(torch.LongTensor([k]))
-
         self.relative_positions = [
             torch.cat(chunk, dim=0) for chunk in self.relative_positions_raw
         ]
@@ -239,7 +238,7 @@ def systems_to_batch_dict(
         S_list: torch.Tensor = torch.cat(S_list_raw)
         S_list = S_list.transpose(0, 1)
 
-        species: torch.Tensor = system.species
+        species: torch.Tensor = system.types
 
         i_list = i_list.cpu()
         j_list = j_list.cpu()
@@ -289,7 +288,7 @@ def systems_to_batch_dict(
         relative_positions = displacement_vectors[relative_positions_index]
         central_species = [
             int(torch.where(all_species == specie)[0][0].item())
-            for specie in system.species
+            for specie in system.types
         ]
 
         central_species = torch.LongTensor(central_species).to(device)
