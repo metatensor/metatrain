@@ -23,8 +23,8 @@ def merge_capabilities(
         )
 
     # Check that there are no new species:
-    for species in requested_capabilities.species:
-        if species not in old_capabilities.species:
+    for species in requested_capabilities.atomic_types:
+        if species not in old_capabilities.atomic_types:
             raise ValueError(
                 f"The species {species} is not within "
                 "the capabilities of the loaded model."
@@ -50,13 +50,13 @@ def merge_capabilities(
 
     merged_capabilities = ModelCapabilities(
         length_unit=requested_capabilities.length_unit,
-        species=old_capabilities.species,
+        atomic_types=old_capabilities.atomic_types,
         outputs=outputs,
     )
 
     new_capabilities = ModelCapabilities(
         length_unit=requested_capabilities.length_unit,
-        species=old_capabilities.species,
+        atomic_types=old_capabilities.atomic_types,
         outputs=new_outputs,
     )
 
