@@ -25,22 +25,17 @@ def calculate_composition_weights(
     # note that this is sorted, and the composition weights are sorted
     # as well, because the species are sorted in the composition features
 
-    # Get the target for each system in the dataset
-    # TODO: the dataset will be iterable once metatensor PR #500 merged.
     targets = torch.stack(
         [
-            dataset[sample_id]._asdict()[property].block().values
+            sample._asdict()[property].block().values
             for dataset in datasets
-            for sample_id in range(len(dataset))
+            for sample in dataset
         ]
     )
     targets = targets.squeeze(dim=(1, 2))  # remove component and property dimensions
 
-    # TODO: the dataset will be iterable once metatensor PR #500 merged.
     structure_list = [
-        dataset[sample_id]._asdict()["system"]
-        for dataset in datasets
-        for sample_id in range(len(dataset))
+        sample._asdict()["system"] for dataset in datasets for sample in dataset
     ]
 
     dtype = structure_list[0].positions.dtype
