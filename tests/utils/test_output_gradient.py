@@ -2,9 +2,8 @@ from pathlib import Path
 
 import metatensor.torch
 import pytest
-import rascaline.torch
 import torch
-from metatensor.torch.atomistic import ModelCapabilities, ModelOutput
+from metatensor.torch.atomistic import ModelCapabilities, ModelOutput, System
 
 from metatensor.models.experimental import soap_bpnn
 from metatensor.models.utils.data import read_systems
@@ -33,7 +32,14 @@ def test_forces(is_training):
     systems = read_systems(
         RESOURCES_PATH / "qm9_reduced_100.xyz", dtype=torch.get_default_dtype()
     )[:5]
-    systems = rascaline.torch.systems_to_torch(systems, positions_requires_grad=True)
+    systems = [
+        System(
+            positions=system.positions.requires_grad_(True),
+            cell=system.cell,
+            types=system.types,
+        )
+        for system in systems
+    ]
     output = model(systems, {"energy": model.capabilities.outputs["energy"]})
     position_gradients = compute_gradient(
         output["energy"].block().values,
@@ -43,7 +49,17 @@ def test_forces(is_training):
     forces = [-position_gradient for position_gradient in position_gradients]
 
     jitted_model = torch.jit.script(model)
-    systems = rascaline.torch.systems_to_torch(systems, positions_requires_grad=True)
+    systems = read_systems(
+        RESOURCES_PATH / "qm9_reduced_100.xyz", dtype=torch.get_default_dtype()
+    )[:5]
+    systems = [
+        System(
+            positions=system.positions.requires_grad_(True),
+            cell=system.cell,
+            types=system.types,
+        )
+        for system in systems
+    ]
     output = jitted_model(systems, {"energy": model.capabilities.outputs["energy"]})
     jitted_position_gradients = compute_gradient(
         output["energy"].block().values,
