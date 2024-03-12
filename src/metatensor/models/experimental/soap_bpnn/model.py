@@ -64,7 +64,6 @@ class MLPMap(torch.nn.Module):
             species = int(species_str)
             if species in present_blocks:
                 new_keys.append(species)
-                print(1, features.keys)
                 block = features.block({"center_type": species})
                 output_values = network(block.values)
                 new_blocks.append(
@@ -171,7 +170,6 @@ class LinearMap(torch.nn.Module):
             species = int(species_str)
             if species in present_blocks:
                 new_keys.append(species)
-                print(1, features.keys)
                 block = features.block({"center_type": species})
                 output_values = layer(block.values)
                 new_blocks.append(
@@ -308,7 +306,6 @@ class Model(torch.nn.Module):
         # Sum the atomic energies coming from the BPNN to get the total energy
         total_energies: Dict[str, TensorMap] = {}
         for output_name, atomic_energy in atomic_energies.items():
-            print(3, atomic_energies.keys)
             atomic_energy = atomic_energy.keys_to_samples("center_type")
             total_energies[output_name] = metatensor.torch.sum_over_samples(
                 atomic_energy, ["atom", "center_type"]
