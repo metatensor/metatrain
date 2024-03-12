@@ -15,6 +15,11 @@ try:
 except ImportError:
     pass
 
+try:
+    import rascaline.torch  # noqa: F401
+except ImportError:
+    pass
+
 
 def save_model(
     model: torch.nn.Module,

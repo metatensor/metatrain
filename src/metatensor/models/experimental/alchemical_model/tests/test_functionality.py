@@ -5,6 +5,7 @@ from metatensor.torch.atomistic import (
     MetatensorAtomisticModel,
     ModelCapabilities,
     ModelEvaluationOptions,
+    ModelMetadata,
     ModelOutput,
 )
 
@@ -18,13 +19,14 @@ def test_prediction_subset():
 
     capabilities = ModelCapabilities(
         length_unit="Angstrom",
-        species=[1, 6, 7, 8],
+        atomic_types=[1, 6, 7, 8],
         outputs={
             "energy": ModelOutput(
                 quantity="energy",
                 unit="eV",
             )
         },
+        supported_devices=["cpu"],
     )
 
     alchemical_model = Model(capabilities, DEFAULT_HYPERS["model"])
@@ -40,7 +42,7 @@ def test_prediction_subset():
     )
 
     model = MetatensorAtomisticModel(
-        alchemical_model.eval(), alchemical_model.capabilities
+        alchemical_model.eval(), ModelMetadata(), alchemical_model.capabilities
     )
     model(
         [system],

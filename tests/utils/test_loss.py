@@ -16,7 +16,7 @@ def tensor_map_with_grad_1():
         values=torch.tensor([[1.0], [2.0], [3.0]]),
         samples=Labels.range("samples", 3),
         components=[],
-        properties=Labels.single(),
+        properties=Labels("energy", torch.tensor([[0]])),
     )
     block.add_gradient(
         "gradient",
@@ -24,7 +24,7 @@ def tensor_map_with_grad_1():
             values=torch.tensor([[1.0], [2.0], [3.0]]),
             samples=Labels.range("sample", 3),
             components=[],
-            properties=Labels.single(),
+            properties=Labels("energy", torch.tensor([[0]])),
         ),
     )
     tensor_map = TensorMap(keys=Labels.single(), blocks=[block])
@@ -37,7 +37,7 @@ def tensor_map_with_grad_2():
         values=torch.tensor([[1.0], [1.0], [3.0]]),
         samples=Labels.range("samples", 3),
         components=[],
-        properties=Labels.single(),
+        properties=Labels("energy", torch.tensor([[0]])),
     )
     block.add_gradient(
         "gradient",
@@ -45,7 +45,7 @@ def tensor_map_with_grad_2():
             values=torch.tensor([[1.0], [0.0], [3.0]]),
             samples=Labels.range("sample", 3),
             components=[],
-            properties=Labels.single(),
+            properties=Labels("energy", torch.tensor([[0]])),
         ),
     )
     tensor_map = TensorMap(keys=Labels.single(), blocks=[block])
@@ -58,7 +58,7 @@ def tensor_map_with_grad_3():
         values=torch.tensor([[0.0], [1.0], [3.0]]),
         samples=Labels.range("samples", 3),
         components=[],
-        properties=Labels.single(),
+        properties=Labels("energy", torch.tensor([[0]])),
     )
     block.add_gradient(
         "gradient",
@@ -66,7 +66,7 @@ def tensor_map_with_grad_3():
             values=torch.tensor([[1.0], [0.0], [3.0]]),
             samples=Labels.range("sample", 3),
             components=[],
-            properties=Labels.single(),
+            properties=Labels("energy", torch.tensor([[0]])),
         ),
     )
     tensor_map = TensorMap(keys=Labels.single(), blocks=[block])
@@ -79,7 +79,7 @@ def tensor_map_with_grad_4():
         values=torch.tensor([[0.0], [1.0], [3.0]]),
         samples=Labels.range("samples", 3),
         components=[],
-        properties=Labels.single(),
+        properties=Labels("energy", torch.tensor([[0]])),
     )
     block.add_gradient(
         "gradient",
@@ -87,7 +87,7 @@ def tensor_map_with_grad_4():
             values=torch.tensor([[1.0], [0.0], [2.0]]),
             samples=Labels.range("sample", 3),
             components=[],
-            properties=Labels.single(),
+            properties=Labels("energy", torch.tensor([[0]])),
         ),
     )
     tensor_map = TensorMap(keys=Labels.single(), blocks=[block])
@@ -105,7 +105,7 @@ def test_tmap_loss_no_gradients():
                 values=torch.tensor([[1.0], [2.0], [3.0]]),
                 samples=Labels.range("samples", 3),
                 components=[],
-                properties=Labels.single(),
+                properties=Labels("energy", torch.tensor([[0]])),
             )
         ],
     )
@@ -116,7 +116,7 @@ def test_tmap_loss_no_gradients():
                 values=torch.tensor([[0.0], [2.0], [3.0]]),
                 samples=Labels.range("samples", 3),
                 components=[],
-                properties=Labels.single(),
+                properties=Labels("energy", torch.tensor([[0]])),
             )
         ],
     )

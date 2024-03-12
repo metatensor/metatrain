@@ -12,7 +12,7 @@ def test_torchscript():
 
     capabilities = ModelCapabilities(
         length_unit="Angstrom",
-        species=[1, 6, 7, 8],
+        atomic_types=[1, 6, 7, 8],
         outputs={
             "energy": ModelOutput(
                 quantity="energy",
@@ -31,7 +31,7 @@ def test_torchscript_save():
 
     capabilities = ModelCapabilities(
         length_unit="Angstrom",
-        species=[1, 6, 7, 8],
+        atomic_types=[1, 6, 7, 8],
         outputs={
             "energy": ModelOutput(
                 quantity="energy",

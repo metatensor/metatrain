@@ -31,7 +31,7 @@ def calculate_composition_weights(
     )
 
     # Get the composition for each system in the dataset
-    composition_calculator = rascaline.torch.AtomicComposition(per_structure=True)
+    composition_calculator = rascaline.torch.AtomicComposition(per_system=True)
     # TODO: the dataset will be iterable once metatensor PR #500 merged.
     composition_features = composition_calculator.compute(
         [
@@ -40,10 +40,8 @@ def calculate_composition_weights(
             for sample_id in range(len(dataset))
         ]
     )
-    composition_features = composition_features.keys_to_properties("species_center")
-    composition_features = composition_features.block().values.to(
-        torch.get_default_dtype()
-    )
+    composition_features = composition_features.keys_to_properties("center_type")
+    composition_features = composition_features.block().values
 
     targets = targets.squeeze(dim=(1, 2))  # remove component and property dimensions
 
@@ -104,7 +102,7 @@ def apply_composition_contribution(
         )
 
     new_keys_labels = Labels(
-        names=["species_center"],
+        names=["center_type"],
         values=torch.tensor(new_keys, device=new_blocks[0].values.device).reshape(
             -1, 1
         ),

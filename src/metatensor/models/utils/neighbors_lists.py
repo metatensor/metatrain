@@ -44,7 +44,7 @@ def _compute_single_neighbor_list(
     # Computes a single neighbor list for an ASE atoms object
 
     nl = ase.neighborlist.NeighborList(
-        cutoffs=[options.engine_cutoff] * len(atoms),
+        cutoffs=[options.cutoff] * len(atoms),
         skin=0.0,
         sorted=False,
         self_interaction=False,
@@ -58,7 +58,7 @@ def _compute_single_neighbor_list(
 
     samples = []
     distances = []
-    cutoff2 = options.engine_cutoff * options.engine_cutoff
+    cutoff2 = options.cutoff * options.cutoff
     for i in range(len(atoms)):
         indices, offsets = nl.get_neighbors(i)
         for j, offset in zip(indices, offsets):

@@ -95,7 +95,7 @@ def compute_model_loss(
             new_system = System(
                 positions=system.positions @ strain,
                 cell=system.cell @ strain,
-                species=system.species,
+                types=system.types,
             )
             for nl_options in system.known_neighbors_lists():
                 nl = system.get_neighbors_list(nl_options)
@@ -250,7 +250,7 @@ def _position_gradients_to_block(gradients_list):
         values=gradients,
         samples=samples.to(gradients.device),
         components=[c.to(gradients.device) for c in components],
-        properties=Labels.single().to(gradients.device),
+        properties=Labels("energy", torch.tensor([[0]])).to(gradients.device),
     )
 
 
@@ -280,7 +280,7 @@ def _strain_gradients_to_block(gradients_list):
         values=gradients,
         samples=samples.to(gradients.device),
         components=[c.to(gradients.device) for c in components],
-        properties=Labels.single().to(gradients.device),
+        properties=Labels("energy", torch.tensor([[0]])).to(gradients.device),
     )
 
 
