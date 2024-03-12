@@ -4,15 +4,17 @@ from typing import Dict, List, Optional, Tuple, Union
 
 import torch
 from metatensor.learn.data import DataLoader
-from metatensor.learn.data.dataset import _BaseDataset
-from metatensor.torch.atomistic import ModelCapabilities
+from metatensor.learn.data.dataset import Dataset
+from metatensor.torch.atomistic import ModelCapabilities, ModelOutput
 
 from ...utils.composition import calculate_composition_weights
 from ...utils.compute_loss import compute_model_loss
 from ...utils.data import (
+    DatasetInfo,
     check_datasets,
     collate_fn,
     combine_dataloaders,
+    get_all_species,
     get_all_targets,
 )
 from ...utils.extract_targets import get_outputs_dict
@@ -33,14 +35,29 @@ logger = logging.getLogger(__name__)
 
 
 def train(
-    train_datasets: List[Union[_BaseDataset, torch.utils.data.Subset]],
-    validation_datasets: List[Union[_BaseDataset, torch.utils.data.Subset]],
-    requested_capabilities: ModelCapabilities,
+    train_datasets: List[Union[Dataset, torch.utils.data.Subset]],
+    validation_datasets: List[Union[Dataset, torch.utils.data.Subset]],
+    dataset_info: DatasetInfo,
     hypers: Dict = DEFAULT_HYPERS,
     continue_from: Optional[str] = None,
     output_dir: str = ".",
     device_str: str = "cpu",
 ):
+    all_species = get_all_species(train_datasets + validation_datasets)
+    outputs = {
+        key: ModelOutput(
+            quantity=dataset_info.output_quantities[key],
+            unit=dataset_info.output_units[key],
+        )
+        for key in dataset_info.outputs
+    }
+    requested_capabilities = ModelCapabilities(
+        length_unit=dataset_info.length_unit,
+        outputs=outputs,
+        atomic_types=all_species,
+        supported_devices=["cpu", "cuda"],
+    )
+
     if continue_from is None:
         model = Model(
             capabilities=requested_capabilities,

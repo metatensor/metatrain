@@ -7,7 +7,7 @@ from omegaconf import OmegaConf
 
 import metatensor.models
 from metatensor.models.experimental.soap_bpnn import DEFAULT_HYPERS, Model, train
-from metatensor.models.utils.data import get_all_species
+from metatensor.models.utils.data import DatasetInfo
 from metatensor.models.utils.data.readers import read_systems, read_targets
 from metatensor.models.utils.model_io import save_model
 
@@ -57,18 +57,14 @@ def test_continue(monkeypatch, tmp_path):
     hypers = DEFAULT_HYPERS.copy()
     hypers["training"]["num_epochs"] = 0
 
-    capabilities = ModelCapabilities(
+    dataset_info = DatasetInfo(
         length_unit="Angstrom",
-        atomic_types=get_all_species(dataset),
-        outputs={
-            "U0": ModelOutput(
-                quantity="energy",
-                unit="eV",
-            )
-        },
+        outputs=["U0"],
+        output_quantities={"U0": "energy"},
+        output_units={"U0": "eV"},
     )
     model_after = train(
-        [dataset], [dataset], capabilities, hypers, continue_from="model.ckpt"
+        [dataset], [dataset], dataset_info, hypers, continue_from="model.ckpt"
     )
 
     # Predict on the first five systems

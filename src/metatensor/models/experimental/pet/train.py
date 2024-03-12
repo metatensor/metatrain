@@ -4,13 +4,13 @@ from typing import Dict, List, Optional, Union
 
 import torch
 from metatensor.learn.data import DataLoader
-from metatensor.learn.data.dataset import _BaseDataset
-from metatensor.torch.atomistic import ModelCapabilities
+from metatensor.learn.data.dataset import Dataset
+from metatensor.torch.atomistic import ModelCapabilities, ModelOutput
 from pet.hypers import Hypers
 from pet.pet import PET
 from pet.train_model import fit_pet
 
-from ...utils.data import collate_fn
+from ...utils.data import DatasetInfo, collate_fn, get_all_species
 from ...utils.data.system_to_ase import system_to_ase
 from .model import DEFAULT_HYPERS, Model
 
@@ -19,9 +19,9 @@ logger = logging.getLogger(__name__)
 
 
 def train(
-    train_datasets: List[Union[_BaseDataset, torch.utils.data.Subset]],
-    validation_datasets: List[Union[_BaseDataset, torch.utils.data.Subset]],
-    requested_capabilities: ModelCapabilities,
+    train_datasets: List[Union[Dataset, torch.utils.data.Subset]],
+    validation_datasets: List[Union[Dataset, torch.utils.data.Subset]],
+    dataset_info: DatasetInfo,
     hypers: Dict = DEFAULT_HYPERS,
     continue_from: Optional[str] = None,
     output_dir: str = ".",
@@ -31,13 +31,11 @@ def train(
         raise ValueError("PET only supports float32")
     if device_str != "cuda" and device_str != "gpu":
         raise ValueError("PET only supports cuda (gpu) training")
-    if len(requested_capabilities.outputs) != 1:
+    if len(dataset_info.outputs) != 1:
         raise ValueError("PET only supports a single output")
-    target_name = next(iter(requested_capabilities.outputs.keys()))
-    if requested_capabilities.outputs[target_name].quantity != "energy":
+    target_name = dataset_info.outputs[0]
+    if dataset_info.output_quantities[target_name] != "energy":
         raise ValueError("PET only supports energies as output")
-    if requested_capabilities.outputs[target_name].per_atom:
-        raise ValueError("PET does not support per-atom energies")
     if len(train_datasets) != 1:
         raise ValueError("PET only supports a single training dataset")
     if len(validation_datasets) != 1:
@@ -68,7 +66,7 @@ def train(
 
     # only energies or energies and forces?
     do_forces = next(iter(train_dataset))[1].block().has_gradient("positions")
-    all_species = requested_capabilities.atomic_types
+    all_species = get_all_species(train_datasets + validation_datasets)
     if not do_forces:
         hypers["MLIP_SETTINGS"]["USE_FORCES"] = False
 
@@ -133,7 +131,21 @@ def train(
 
     raw_pet.load_state_dict(new_state_dict)
 
-    model = Model(requested_capabilities, ARCHITECTURAL_HYPERS)
+    outputs = {
+        key: ModelOutput(
+            quantity=dataset_info.output_quantities[key],
+            unit=dataset_info.output_units[key],
+        )
+        for key in dataset_info.outputs
+    }
+    capabilities = ModelCapabilities(
+        length_unit=dataset_info.length_unit,
+        outputs=outputs,
+        atomic_types=all_species,
+        supported_devices=["cpu", "cuda"],
+    )
+
+    model = Model(capabilities, ARCHITECTURAL_HYPERS)
 
     model.set_trained_model(raw_pet)
 

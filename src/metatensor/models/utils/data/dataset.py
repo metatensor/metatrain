@@ -1,11 +1,9 @@
 import logging
-import os
+from dataclasses import dataclass
 from typing import Dict, List, NamedTuple, Optional, Tuple, Union
 
-import metatensor.torch
 import torch
 from metatensor.learn.data import Dataset, group_and_join
-from metatensor.learn.data.dataset import _BaseDataset
 from metatensor.torch import TensorMap
 from metatensor.torch.atomistic import ModelCapabilities
 from torch import Generator, default_generator
@@ -15,20 +13,26 @@ from torch.utils.data import Subset, random_split
 logger = logging.getLogger(__name__)
 
 
-if os.environ.get("METATENSOR_IMPORT_FOR_SPHINX", "0") == "1":
-    # This is necessary to make the Sphinx documentation build
-    def compiled_slice(a, b):
-        pass
+@dataclass
+class DatasetInfo:
+    """A class that contains information about one or more datasets.
 
-    def compiled_join(a, axis, remove_tensor_name):
-        pass
+    This dataclass is used to communicate additional dataset details to the
+    training functions of the individual models.
 
-else:
-    compiled_slice = torch.jit.script(metatensor.torch.slice)
-    compiled_join = torch.jit.script(metatensor.torch.join)
+    :param length_unit: The unit of length used in the dataset.
+    :param outputs: The names of the outputs in the dataset.
+    :param output_quantities: The quantities of the outputs in the dataset.
+    :param output_units: The units of the outputs in the dataset.
+    """
+
+    length_unit: str
+    outputs: List[str]
+    output_quantities: Dict[str, str]
+    output_units: Dict[str, str]
 
 
-def get_all_species(datasets: Union[_BaseDataset, List[_BaseDataset]]) -> List[int]:
+def get_all_species(datasets: Union[Dataset, List[Dataset]]) -> List[int]:
     """
     Returns the list of all species present in a dataset or list of datasets.
 
@@ -53,13 +57,16 @@ def get_all_species(datasets: Union[_BaseDataset, List[_BaseDataset]]) -> List[i
     return result
 
 
-def get_all_targets(dataset: _BaseDataset) -> List[str]:
+def get_all_targets(datasets: Union[Dataset, List[Dataset]]) -> List[str]:
     """
-    Returns the list of all targets present in the dataset.
+    Returns the list of all targets present in a dataset or list of datasets.
 
-    :param dataset: the dataset
-    :returns: list of targets present in the dataset.
+    :param datasets: the dataset(s)
+    :returns: list of targets present in the dataset(s).
     """
+
+    if not isinstance(datasets, list):
+        datasets = [datasets]
 
     # The following does not work because the `dataset` can also
     # be a `Subset` object:
@@ -67,10 +74,11 @@ def get_all_targets(dataset: _BaseDataset) -> List[str]:
 
     # Iterate over all single instances of the dataset:
     target_names = []
-    for index in range(len(dataset)):
-        sample = dataset[index]._asdict()  # NamedTuple -> dict
-        sample.pop("system")  # system not needed
-        target_names += list(sample.keys())
+    for dataset in datasets:
+        for sample in dataset:
+            sample = sample._asdict()  # NamedTuple -> dict
+            sample.pop("system")  # system not needed
+            target_names += list(sample.keys())
 
     # Remove duplicates:
     return list(set(target_names))
@@ -89,8 +97,8 @@ def collate_fn(batch: List[NamedTuple]) -> Tuple[List, Dict[str, TensorMap]]:
 
 
 def check_datasets(
-    train_datasets: List[_BaseDataset],
-    validation_datasets: List[_BaseDataset],
+    train_datasets: List[Dataset],
+    validation_datasets: List[Dataset],
     capabilities: ModelCapabilities,
 ):
     """

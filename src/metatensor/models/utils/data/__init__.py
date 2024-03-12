@@ -1,4 +1,5 @@
 from .dataset import (  # noqa: F401
+    DatasetInfo,
     get_all_species,
     get_all_targets,
     collate_fn,

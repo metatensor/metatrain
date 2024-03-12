@@ -8,7 +8,7 @@ from metatensor.torch.atomistic import ModelCapabilities, ModelOutput, systems_t
 from omegaconf import OmegaConf
 
 from metatensor.models.experimental.soap_bpnn import DEFAULT_HYPERS, Model, train
-from metatensor.models.utils.data import get_all_species
+from metatensor.models.utils.data import DatasetInfo
 from metatensor.models.utils.data.readers import read_systems, read_targets
 
 from . import DATASET_PATH
@@ -73,17 +73,13 @@ def test_regression_train():
     hypers = DEFAULT_HYPERS.copy()
     hypers["training"]["num_epochs"] = 2
 
-    capabilities = ModelCapabilities(
+    dataset_info = DatasetInfo(
         length_unit="Angstrom",
-        atomic_types=get_all_species(dataset),
-        outputs={
-            "U0": ModelOutput(
-                quantity="energy",
-                unit="eV",
-            )
-        },
+        outputs=["U0"],
+        output_quantities={"U0": "energy"},
+        output_units={"U0": "eV"},
     )
-    soap_bpnn = train([dataset], [dataset], capabilities, hypers)
+    soap_bpnn = train([dataset], [dataset], dataset_info, hypers)
 
     # Predict on the first five systems
     output = soap_bpnn(systems[:5], {"U0": soap_bpnn.capabilities.outputs["U0"]})

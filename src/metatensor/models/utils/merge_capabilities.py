@@ -19,7 +19,9 @@ def merge_capabilities(
     # Check that the length units are the same:
     if old_capabilities.length_unit != requested_capabilities.length_unit:
         raise ValueError(
-            "The length units of the old and new capabilities are not the same."
+            "The length units of the old and new capabilities are not the same. "
+            f"Found `{old_capabilities.length_unit}` and "
+            f"`{requested_capabilities.length_unit}`."
         )
 
     # Check that there are no new species:
