@@ -1,10 +1,10 @@
 name: Alchemical Model tests
 
-# on:
-#   push:
-#     branches: [main]
-#   pull_request:
-#     # Check all PR
+on:
+  push:
+    branches: [main]
+  pull_request:
+    # Check all PR
 
 jobs:
   tests:
