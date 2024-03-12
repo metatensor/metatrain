@@ -64,7 +64,7 @@ class MLPMap(torch.nn.Module):
             species = int(species_str)
             if species in present_blocks:
                 new_keys.append(species)
-                block = features.block({"species_center": species})
+                block = features.block({"center_type": species})
                 output_values = network(block.values)
                 new_blocks.append(
                     TensorBlock(
@@ -81,7 +81,7 @@ class MLPMap(torch.nn.Module):
                     )
                 )
         new_keys_labels = Labels(
-            names=["species_center"],
+            names=["center_type"],
             values=torch.tensor(new_keys, device=new_blocks[0].values.device).reshape(
                 -1, 1
             ),
@@ -120,7 +120,7 @@ class LayerNormMap(torch.nn.Module):
             species = int(species_str)
             if species in present_blocks:
                 new_keys.append(species)
-                block = features.block({"species_center": species})
+                block = features.block({"center_type": species})
                 output_values = layer(block.values)
                 new_blocks.append(
                     TensorBlock(
@@ -131,7 +131,7 @@ class LayerNormMap(torch.nn.Module):
                     )
                 )
         new_keys_labels = Labels(
-            names=["species_center"],
+            names=["center_type"],
             values=torch.tensor(new_keys, device=new_blocks[0].values.device).reshape(
                 -1, 1
             ),
@@ -170,16 +170,15 @@ class LinearMap(torch.nn.Module):
             species = int(species_str)
             if species in present_blocks:
                 new_keys.append(species)
-                block = features.block({"species_center": species})
+                block = features.block({"center_type": species})
                 output_values = layer(block.values)
                 new_blocks.append(
                     TensorBlock(
                         values=output_values,
                         samples=block.samples,
                         components=block.components,
-                        # cannot use Labels.single() here because of torch.jit.save
                         properties=Labels(
-                            names=["_"],
+                            names=["energy"],
                             values=torch.zeros(
                                 (1, 1), dtype=torch.int32, device=block.values.device
                             ),
@@ -187,7 +186,7 @@ class LinearMap(torch.nn.Module):
                     )
                 )
         new_keys_labels = Labels(
-            names=["species_center"],
+            names=["center_type"],
             values=torch.tensor(new_keys, device=new_blocks[0].values.device).reshape(
                 -1, 1
             ),
@@ -217,7 +216,7 @@ class Model(torch.nn.Module):
                 )
 
         self.capabilities = capabilities
-        self.all_species = capabilities.species
+        self.all_species = capabilities.atomic_types
         self.hypers = hypers
 
         # creates a composition weight tensor that can be directly indexed by species,
@@ -253,11 +252,11 @@ class Model(torch.nn.Module):
 
         self.bpnn = MLPMap(self.all_species, hypers_bpnn)
         self.neighbor_species_1_labels = Labels(
-            names=["species_neighbor_1"],
+            names=["neighbor_1_type"],
             values=torch.tensor(self.all_species).reshape(-1, 1),
         )
         self.neighbor_species_2_labels = Labels(
-            names=["species_neighbor_2"],
+            names=["neighbor_2_type"],
             values=torch.tensor(self.all_species).reshape(-1, 1),
         )
 
@@ -279,10 +278,6 @@ class Model(torch.nn.Module):
         outputs: Dict[str, ModelOutput],
         selected_atoms: Optional[Labels] = None,
     ) -> Dict[str, TensorMap]:
-        if selected_atoms is not None:
-            # change metatensor names to match rascaline
-            selected_atoms = selected_atoms.rename("system", "structure")
-            selected_atoms = selected_atoms.rename("atom", "center")
 
         soap_features = self.soap_calculator(systems, selected_samples=selected_atoms)
 
@@ -311,20 +306,9 @@ class Model(torch.nn.Module):
         # Sum the atomic energies coming from the BPNN to get the total energy
         total_energies: Dict[str, TensorMap] = {}
         for output_name, atomic_energy in atomic_energies.items():
-            atomic_energy = atomic_energy.keys_to_samples("species_center")
+            atomic_energy = atomic_energy.keys_to_samples("center_type")
             total_energies[output_name] = metatensor.torch.sum_over_samples(
-                atomic_energy, ["center", "species_center"]
-            )
-            # Change the energy label from _ to (0, 1):
-            total_energies[output_name] = TensorMap(
-                keys=Labels(
-                    names=["_"],
-                    values=torch.tensor(
-                        [[0]],
-                        device=total_energies[output_name].block(0).values.device,
-                    ),
-                ),
-                blocks=[total_energies[output_name].block()],
+                atomic_energy, ["atom", "center_type"]
             )
 
         return total_energies

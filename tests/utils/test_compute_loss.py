@@ -24,7 +24,7 @@ def test_compute_model_loss():
 
     capabilities = ModelCapabilities(
         length_unit="Angstrom",
-        species=[21, 23, 24, 27, 29, 39, 40, 41, 72, 74, 78],
+        atomic_types=[21, 23, 24, 27, 29, 39, 40, 41, 72, 74, 78],
         outputs={
             "energy": ModelOutput(
                 quantity="energy",
@@ -65,7 +65,7 @@ def test_compute_model_loss():
         values=torch.tensor([[0.0] * len(systems)]).T,
         samples=Labels.range("system", len(systems)),
         components=[],
-        properties=Labels.single(),
+        properties=Labels("energy", torch.tensor([[0]])),
     )
 
     block.add_gradient(
@@ -80,7 +80,7 @@ def test_compute_model_loss():
             ),
             samples=gradient_samples,
             components=gradient_components,
-            properties=Labels.single(),
+            properties=Labels("energy", torch.tensor([[0]])),
         ),
     )
 

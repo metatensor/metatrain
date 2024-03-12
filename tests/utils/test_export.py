@@ -15,7 +15,9 @@ def test_export(monkeypatch, tmp_path):
     """Tests the export function"""
     monkeypatch.chdir(tmp_path)
 
-    model = Model(capabilities=ModelCapabilities(species=[1], length_unit="angstrom"))
+    model = Model(
+        capabilities=ModelCapabilities(atomic_types=[1], length_unit="angstrom")
+    )
     export(model, "exported.pt")
 
     assert Path("exported.pt").is_file()
@@ -32,7 +34,7 @@ def test_is_exported():
 
 
 def test_length_units_warning(monkeypatch, tmp_path):
-    model = Model(capabilities=ModelCapabilities(species=[1]))
+    model = Model(capabilities=ModelCapabilities(atomic_types=[1]))
 
     monkeypatch.chdir(tmp_path)
     with pytest.warns(match="No `length_unit` was provided for the model."):
@@ -45,7 +47,7 @@ def test_units_warning(monkeypatch, tmp_path):
     outputs = {"output": ModelOutput(quantity="energy")}
     model = Model(
         capabilities=ModelCapabilities(
-            species=[1], outputs=outputs, length_unit="angstrom"
+            atomic_types=[1], outputs=outputs, length_unit="angstrom"
         )
     )
 

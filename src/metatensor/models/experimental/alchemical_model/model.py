@@ -32,7 +32,7 @@ class Model(torch.nn.Module):
         self.name = ARCHITECTURE_NAME
         self.hypers = hypers
         self.cutoff = self.hypers["soap"]["cutoff"]
-        self.all_species: List[int] = capabilities.species
+        self.all_species: List[int] = capabilities.atomic_types
         self.capabilities = capabilities
         self.alchemical_model = AlchemicalModel(
             unique_numbers=self.all_species, **hypers["soap"], **hypers["bpnn"]
@@ -43,7 +43,7 @@ class Model(torch.nn.Module):
     ) -> List[NeighborsListOptions]:
         return [
             NeighborsListOptions(
-                model_cutoff=self.cutoff,
+                cutoff=self.cutoff,
                 full_list=True,
             )
         ]
@@ -71,11 +71,15 @@ class Model(torch.nn.Module):
 
         total_energies: Dict[str, TensorMap] = {}
         for output_name in outputs:
-            empty_label = Labels(
+            keys = Labels(
                 "_", torch.zeros((1, 1), dtype=torch.int32, device=predictions.device)
             )
+            properties = Labels(
+                "energy",
+                torch.zeros((1, 1), dtype=torch.int32, device=predictions.device),
+            )
             samples = Labels(
-                names=["structure"],
+                names=["system"],
                 values=torch.arange(
                     len(predictions),
                     device=predictions.device,
@@ -84,11 +88,11 @@ class Model(torch.nn.Module):
             block = TensorBlock(
                 samples=samples,
                 components=[],
-                properties=empty_label,
+                properties=properties,
                 values=predictions,
             )
             total_energies[output_name] = TensorMap(
-                keys=empty_label,
+                keys=keys,
                 blocks=[block],
             )
         return total_energies

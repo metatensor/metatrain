@@ -22,7 +22,7 @@ def read_energy_ase(
     """
     frames = ase.io.read(filename, ":")
 
-    properties = Labels.single()
+    properties = Labels("energy", torch.tensor([[0]]))
 
     blocks = []
     for i_system, atoms in enumerate(frames):
@@ -58,7 +58,7 @@ def read_forces_ase(
     frames = ase.io.read(filename, ":")
 
     components = [Labels(["xyz"], torch.arange(3).reshape(-1, 1))]
-    properties = Labels.single()
+    properties = Labels("energy", torch.tensor([[0]]))
 
     blocks = []
     for i_system, atoms in enumerate(frames):
@@ -147,7 +147,7 @@ def _read_virial_stress_ase(
         Labels(["xyz_1"], torch.arange(3).reshape(-1, 1)),
         Labels(["xyz_2"], torch.arange(3).reshape(-1, 1)),
     ]
-    properties = Labels.single()
+    properties = Labels("energy", torch.tensor([[0]]))
 
     blocks = []
     for i_system, atoms in enumerate(frames):
