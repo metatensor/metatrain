@@ -39,7 +39,10 @@ def test_regression_init():
     systems = ase.io.read(DATASET_PATH, ":5")
 
     output = soap_bpnn(
-        [systems_to_torch(system).to(torch.get_default_dtype()) for system in systems],
+        [
+            systems_to_torch(system, dtype=torch.get_default_dtype())
+            for system in systems
+        ],
         {"U0": soap_bpnn.capabilities.outputs["U0"]},
     )
     expected_output = torch.tensor([[0.0739], [0.0758], [0.1782], [-0.3517], [-0.3251]])

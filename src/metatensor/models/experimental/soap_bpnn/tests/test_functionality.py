@@ -25,7 +25,7 @@ def test_prediction_subset_elements():
 
     system = ase.Atoms("O2", positions=[[0.0, 0.0, 0.0], [0.0, 0.0, 1.0]])
     soap_bpnn(
-        [systems_to_torch(system).to(torch.get_default_dtype())],
+        [systems_to_torch(system, dtype=torch.get_default_dtype())],
         {"energy": soap_bpnn.capabilities.outputs["energy"]},
     )
 

@@ -46,7 +46,7 @@ def test_regression_init():
     # Predict on the first five systems
     systems = ase.io.read(DATASET_PATH, ":5")
     systems = [
-        systems_to_torch(system).to(torch.get_default_dtype()) for system in systems
+        systems_to_torch(system, dtype=torch.get_default_dtype()) for system in systems
     ]
     systems = [
         get_system_with_neighbors_lists(
