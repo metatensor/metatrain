@@ -1,7 +1,6 @@
 import argparse
 
-from ..utils.export import export
-from ..utils.model_io import load_checkpoint
+from ..utils.io import export, load
 from .formatter import CustomHelpFormatter
 
 
@@ -22,13 +21,13 @@ def _add_export_model_parser(subparser: argparse._SubParsersAction) -> None:
 
     parser.add_argument(
         "model",
-        type=load_checkpoint,
+        type=load,
         help="Saved model which should be exported",
     )
     parser.add_argument(
         "-o",
         "--output",
-        dest="output",
+        dest="path",
         type=str,
         required=False,
         default="exported-model.pt",
