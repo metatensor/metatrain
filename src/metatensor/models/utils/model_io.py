@@ -16,7 +16,10 @@ except ImportError:
     pass
 
 try:
+    import rascaline
     import rascaline.torch  # noqa: F401
+
+    rascaline.set_logging_callback(lambda x, y: None)
 except ImportError:
     pass
 
