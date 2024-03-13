@@ -48,6 +48,7 @@ def train(
         key: ModelOutput(
             quantity=dataset_info.target_quantities[key],
             unit=dataset_info.target_units[key],
+            per_atom=False,
         )
         for key in dataset_info.targets
     }
