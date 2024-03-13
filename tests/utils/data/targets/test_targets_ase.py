@@ -123,7 +123,9 @@ def test_read_virial_warn(monkeypatch, tmp_path):
     ase.io.write(filename, systems)
 
     with pytest.warns(match="Found 9-long numerical vector"):
-        results = read_virial_ase(filename=filename, key="stress-9")
+        results = read_virial_ase(
+            filename=filename, key="stress-9", dtype=torch.get_default_dtype()
+        )
 
     expected = -torch.tensor(systems.info["stress-9"])
     expected = expected.reshape(-1, 3, 3, 1)
