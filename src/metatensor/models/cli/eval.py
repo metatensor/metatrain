@@ -9,7 +9,7 @@ from metatensor.torch.atomistic import ModelEvaluationOptions
 from omegaconf import DictConfig, OmegaConf
 
 from ..utils.compute_loss import compute_model_loss
-from ..utils.data import collate_fn, read_structures, read_targets, write_predictions
+from ..utils.data import collate_fn, read_systems, read_targets, write_predictions
 from ..utils.errors import ArchitectureError
 from ..utils.extract_targets import get_outputs_dict
 from ..utils.info import finalize_aggregated_info, update_aggregated_info
@@ -21,7 +21,11 @@ from .formatter import CustomHelpFormatter
 
 
 logger = logging.getLogger(__name__)
-logging.basicConfig(level=logging.INFO, format="%(message)s")
+logging.basicConfig(
+    level=logging.INFO,
+    format="[%(asctime)s][%(levelname)s] - %(message)s",
+    datefmt="%Y-%m-%d %H:%M:%S",
+)
 
 
 def _add_eval_model_parser(subparser: argparse._SubParsersAction) -> None:
@@ -63,18 +67,18 @@ def _add_eval_model_parser(subparser: argparse._SubParsersAction) -> None:
 
 def _eval_targets(model, dataset: Union[_BaseDataset, torch.utils.data.Subset]) -> None:
     """Evaluate an exported model on a dataset and print the RMSEs for each target."""
-    # Attach neighbor lists to the structures:
+    # Attach neighbor lists to the systems:
     requested_neighbor_lists = model.requested_neighbors_lists()
     # working around https://github.com/lab-cosmo/metatensor/issues/521
     # Desired:
-    # for structure, _ in dataset:
-    #     attach_neighbor_lists(structure, requested_neighbors_lists)
+    # for system, _ in dataset:
+    #     attach_neighbor_lists(system, requested_neighbors_lists)
     # Current:
     dataloader = torch.utils.data.DataLoader(
         dataset, batch_size=1, collate_fn=collate_fn
     )
-    for (structure,), _ in dataloader:
-        get_system_with_neighbors_lists(structure, requested_neighbor_lists)
+    for (system,), _ in dataloader:
+        get_system_with_neighbors_lists(system, requested_neighbor_lists)
 
     # Extract all the possible outputs and their gradients from the dataset:
     outputs_dict = get_outputs_dict([dataset])
@@ -103,8 +107,10 @@ def _eval_targets(model, dataset: Union[_BaseDataset, torch.utils.data.Subset]) 
     # Compute the RMSEs:
     aggregated_info: Dict[str, Tuple[float, int]] = {}
     for batch in dataloader:
+
         structures, targets = batch
-        _, info = compute_model_loss(loss_fn, model, structures, targets)
+        _, info = compute_model_loss(loss_fn, model, structures, targets, [])
+
         aggregated_info = update_aggregated_info(aggregated_info, info)
     finalized_info = finalize_aggregated_info(aggregated_info)
 
@@ -180,41 +186,39 @@ def eval_model(
         else:
             extra_log_message = f" with index {i}"
             file_index_suffix = f"_{i}"
-        logger.info(f"Evaulate dataset{extra_log_message}")
+        logger.info(f"Evaluating dataset{extra_log_message}")
 
-        eval_structures = read_structures(
-            filename=options["structures"]["read_from"],
-            fileformat=options["structures"]["file_format"],
+        eval_systems = read_systems(
+            filename=options["systems"]["read_from"],
+            fileformat=options["systems"]["file_format"],
         )
 
         # Predict targets
         if hasattr(options, "targets"):
             eval_targets = read_targets(options["targets"])
-            eval_dataset = Dataset(
-                structure=eval_structures, energy=eval_targets["energy"]
-            )
+            eval_dataset = Dataset(system=eval_systems, energy=eval_targets["energy"])
             _eval_targets(model, eval_dataset)
         else:
             # TODO: batch this
             # TODO: add forces/stresses/virials if requested
-            # Attach neighbors list to structures. This step is only required if no
+            # Attach neighbors list to systems. This step is only required if no
             # targets are present. Otherwise, the neighbors list have been already
             # attached in `_eval_targets`.
-            eval_structures = [
+            eval_systems = [
                 get_system_with_neighbors_lists(
-                    structure, model.requested_neighbors_lists()
+                    system, model.requested_neighbors_lists()
                 )
-                for structure in eval_structures
+                for system in eval_systems
             ]
 
-        # Predict structures
+        # Predict systems
         try:
             # `length_unit` is only required for unit conversions in MD engines and
             # superflous here.
             eval_options = ModelEvaluationOptions(
                 length_unit="", outputs=model.capabilities().outputs
             )
-            predictions = model(eval_structures, eval_options, check_consistency=True)
+            predictions = model(eval_systems, eval_options, check_consistency=True)
         except Exception as e:
             raise ArchitectureError(e)
 
@@ -222,5 +226,5 @@ def eval_model(
         write_predictions(
             filename=f"{output.stem}{file_index_suffix}{output.suffix}",
             predictions=predictions,
-            structures=eval_structures,
+            systems=eval_systems,
         )

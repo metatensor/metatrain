@@ -2,7 +2,7 @@ import ase
 import ase.io
 import torch
 
-from metatensor.models.utils.data.readers.structures import read_structures_ase
+from metatensor.models.utils.data.readers.systems import read_systems_ase
 
 
 def ase_system() -> ase.Atoms:
@@ -16,18 +16,16 @@ def ase_system() -> ase.Atoms:
 def test_read_ase(monkeypatch, tmp_path):
     monkeypatch.chdir(tmp_path)
 
-    filename = "structures.xyz"
+    filename = "systems.xyz"
 
-    structures = ase_system()
-    ase.io.write(filename, structures)
+    systems = ase_system()
+    ase.io.write(filename, systems)
 
-    result = read_structures_ase(filename)
+    result = read_systems_ase(filename)
 
     assert isinstance(result, list)
     assert len(result) == 1
     assert isinstance(result[0], torch.ScriptObject)
 
-    torch.testing.assert_close(result[0].positions, torch.tensor(structures.positions))
-    torch.testing.assert_close(
-        result[0].species, torch.tensor([1, 1], dtype=torch.int32)
-    )
+    torch.testing.assert_close(result[0].positions, torch.tensor(systems.positions))
+    torch.testing.assert_close(result[0].types, torch.tensor([1, 1], dtype=torch.int32))

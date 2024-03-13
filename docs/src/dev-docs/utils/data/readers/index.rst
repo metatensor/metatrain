@@ -1,10 +1,10 @@
-Structure and Target data Readers
+system and Target data Readers
 =================================
 
-The main entry point for reading structure and target information are the two reader
+The main entry point for reading system and target information are the two reader
 functions
 
-.. autofunction:: metatensor.models.utils.data.read_structures
+.. autofunction:: metatensor.models.utils.data.read_systems
 .. autofunction:: metatensor.models.utils.data.read_targets
 
 Target type specific readers
@@ -28,5 +28,5 @@ these refer to their documentation
 .. toctree::
    :maxdepth: 1
 
-   structure
+   systems
    targets

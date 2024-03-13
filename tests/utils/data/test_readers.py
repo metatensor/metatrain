@@ -15,82 +15,82 @@ from metatensor.models.utils.data.readers import (
     read_energy,
     read_forces,
     read_stress,
-    read_structures,
+    read_systems,
     read_targets,
     read_virial,
 )
 
 
 @pytest.mark.parametrize("fileformat", (None, ".xyz", ".extxyz"))
-def test_read_structures(fileformat, monkeypatch, tmp_path):
+def test_read_systems(fileformat, monkeypatch, tmp_path):
     monkeypatch.chdir(tmp_path)
 
-    filename = "structures.xyz"
-    structures = ase_systems()
-    ase.io.write(filename, structures)
+    filename = "systems.xyz"
+    systems = ase_systems()
+    ase.io.write(filename, systems)
 
-    results = read_structures(filename, fileformat=fileformat, dtype=torch.float16)
+    results = read_systems(filename, fileformat=fileformat, dtype=torch.float16)
 
     assert isinstance(results, list)
-    assert len(results) == len(structures)
-    for structure, result in zip(structures, results):
+    assert len(results) == len(systems)
+    for system, result in zip(systems, results):
         assert isinstance(result, torch.ScriptObject)
 
         torch.testing.assert_close(
-            result.positions, torch.tensor(structure.positions, dtype=torch.float16)
+            result.positions, torch.tensor(system.positions, dtype=torch.float16)
         )
         torch.testing.assert_close(
-            result.species, torch.tensor([1, 1], dtype=torch.int32)
+            result.types, torch.tensor([1, 1], dtype=torch.int32)
         )
 
 
-def test_read_structures_unknown_fileformat():
+def test_read_systems_unknown_fileformat():
     with pytest.raises(ValueError, match="fileformat '.bar' is not supported"):
-        read_structures("foo.bar")
+        read_systems("foo.bar")
 
 
 @pytest.mark.parametrize("fileformat", (None, ".xyz", ".extxyz"))
 def test_read_energies(fileformat, monkeypatch, tmp_path):
     monkeypatch.chdir(tmp_path)
 
-    filename = "structures.xyz"
-    structures = ase_systems()
-    ase.io.write(filename, structures)
+    filename = "systems.xyz"
+    systems = ase_systems()
+    ase.io.write(filename, systems)
 
     results = read_energy(
         filename, fileformat=fileformat, target_value="true_energy", dtype=torch.float16
     )
 
     assert type(results) is list
-    assert len(results) == len(structures)
-    for i_structure, result in enumerate(results):
+    assert len(results) == len(systems)
+    for i_system, result in enumerate(results):
         assert result.values.dtype is torch.float16
-        assert result.samples.names == ["structure"]
-        assert result.samples.values == torch.tensor([[i_structure]])
-        assert result.properties == Labels.single()
+        assert result.samples.names == ["system"]
+        assert result.samples.values == torch.tensor([[i_system]])
+        assert result.properties == Labels("energy", torch.tensor([[0]]))
 
 
 @pytest.mark.parametrize("fileformat", (None, ".xyz", ".extxyz"))
 def test_read_forces(fileformat, monkeypatch, tmp_path):
     monkeypatch.chdir(tmp_path)
 
-    filename = "structures.xyz"
-    structures = ase_systems()
-    ase.io.write(filename, structures)
+    filename = "systems.xyz"
+    systems = ase_systems()
+    ase.io.write(filename, systems)
 
     results = read_forces(
         filename, fileformat=fileformat, target_value="forces", dtype=torch.float16
     )
 
     assert type(results) is list
-    assert len(results) == len(structures)
-    for i_structure, result in enumerate(results):
+    assert len(results) == len(systems)
+    for i_system, result in enumerate(results):
         assert result.values.dtype is torch.float16
-        assert result.samples.names == ["sample", "structure", "atom"]
+        assert result.samples.names == ["sample", "system", "atom"]
         assert torch.all(result.samples["sample"] == torch.tensor(0))
-        assert torch.all(result.samples["structure"] == torch.tensor(i_structure))
+        assert torch.all(result.samples["system"] == torch.tensor(i_system))
         assert result.components == [Labels(["xyz"], torch.arange(3).reshape(-1, 1))]
-        assert result.properties == Labels.single()
+        assert result.properties == Labels("energy", torch.tensor([[0]]))
 
 
 @pytest.mark.parametrize("reader", [read_stress, read_virial])
@@ -98,16 +98,16 @@ def test_read_forces(fileformat, monkeypatch, tmp_path):
 def test_read_stress_virial(reader, fileformat, monkeypatch, tmp_path):
     monkeypatch.chdir(tmp_path)
 
-    filename = "structures.xyz"
-    structures = ase_systems()
-    ase.io.write(filename, structures)
+    filename = "systems.xyz"
+    systems = ase_systems()
+    ase.io.write(filename, systems)
 
     results = reader(
         filename, fileformat=fileformat, target_value="stress-3x3", dtype=torch.float16
     )
 
     assert type(results) is list
-    assert len(results) == len(structures)
+    assert len(results) == len(systems)
     components = [
         Labels(["xyz_1"], torch.arange(3).reshape(-1, 1)),
         Labels(["xyz_2"], torch.arange(3).reshape(-1, 1)),
@@ -117,7 +117,7 @@ def test_read_stress_virial(reader, fileformat, monkeypatch, tmp_path):
         assert result.samples.names == ["sample"]
         assert result.samples.values == torch.tensor([[0]])
         assert result.components == components
-        assert result.properties == Labels.single()
+        assert result.properties == Labels("energy", torch.tensor([[0]]))
 
 
 @pytest.mark.parametrize("reader", [read_energy, read_forces, read_stress, read_virial])
@@ -127,7 +127,7 @@ def test_reader_unknown_fileformat(reader):
 
 
 STRESS_VIRIAL_DICT = {
-    "read_from": "structures.xyz",
+    "read_from": "systems.xyz",
     "file_format": ".xyz",
     "key": "stress-3x3",
 }
@@ -140,9 +140,9 @@ STRESS_VIRIAL_DICT = {
 def test_read_targets(stress_dict, virial_dict, monkeypatch, tmp_path, caplog):
     monkeypatch.chdir(tmp_path)
 
-    filename = "structures.xyz"
-    structures = ase_systems()
-    ase.io.write(filename, structures)
+    filename = "systems.xyz"
+    systems = ase_systems()
+    ase.io.write(filename, systems)
 
     energy_section = {
         "quantity": "energy",
@@ -178,16 +178,16 @@ def test_read_targets(stress_dict, virial_dict, monkeypatch, tmp_path, caplog):
 
             result_block = target.block()
             assert result_block.values.dtype is torch.float16
-            assert result_block.samples.names == ["structure"]
-            assert result_block.properties == Labels.single()
+            assert result_block.samples.names == ["system"]
+            assert result_block.properties == Labels("energy", torch.tensor([[0]]))
 
             pos_grad = result_block.gradient("positions")
             assert pos_grad.values.dtype is torch.float16
-            assert pos_grad.samples.names == ["sample", "structure", "atom"]
+            assert pos_grad.samples.names == ["sample", "system", "atom"]
             assert pos_grad.components == [
                 Labels(["xyz"], torch.arange(3).reshape(-1, 1))
             ]
-            assert pos_grad.properties == Labels.single()
+            assert pos_grad.properties == Labels("energy", torch.tensor([[0]]))
 
             disp_grad = result_block.gradient("strain")
             components = [
@@ -197,7 +197,7 @@ def test_read_targets(stress_dict, virial_dict, monkeypatch, tmp_path, caplog):
             assert disp_grad.values.dtype is torch.float16
             assert disp_grad.samples.names == ["sample"]
             assert disp_grad.components == components
-            assert disp_grad.properties == Labels.single()
+            assert disp_grad.properties == Labels("energy", torch.tensor([[0]]))
 
 
 @pytest.mark.parametrize(
@@ -207,15 +207,15 @@ def test_read_targets(stress_dict, virial_dict, monkeypatch, tmp_path, caplog):
 def test_read_targets_warnings(stress_dict, virial_dict, monkeypatch, tmp_path, caplog):
     monkeypatch.chdir(tmp_path)
 
-    filename = "structures.xyz"
-    structures = ase_system()
+    filename = "systems.xyz"
+    systems = ase_system()
 
     # Delete gradient sections
-    structures.info.pop("stress-3x3")
-    structures.info.pop("stress-9")
-    structures.arrays.pop("forces")
+    systems.info.pop("stress-3x3")
+    systems.info.pop("stress-9")
+    systems.arrays.pop("forces")
 
-    ase.io.write(filename, structures)
+    ase.io.write(filename, systems)
 
     energy_section = {
         "quantity": "energy",
@@ -230,7 +230,7 @@ def test_read_targets_warnings(stress_dict, virial_dict, monkeypatch, tmp_path, 
     conf = {"energy": energy_section}
 
     caplog.set_level(logging.WARNING)
-    read_targets(OmegaConf.create(conf))  # , slice_samples_by="structure")
+    read_targets(OmegaConf.create(conf))  # , slice_samples_by="system")
 
     assert any(["Forces not found" in rec.message for rec in caplog.records])
 
@@ -243,9 +243,9 @@ def test_read_targets_warnings(stress_dict, virial_dict, monkeypatch, tmp_path, 
 def test_read_targets_error(monkeypatch, tmp_path):
     monkeypatch.chdir(tmp_path)
 
-    filename = "structures.xyz"
-    structures = ase_system()
-    ase.io.write(filename, structures)
+    filename = "systems.xyz"
+    systems = ase_system()
+    ase.io.write(filename, systems)
 
     energy_section = {
         "quantity": "energy",

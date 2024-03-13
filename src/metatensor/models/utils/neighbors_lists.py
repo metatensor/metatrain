@@ -1,6 +1,6 @@
 from typing import List
 
-import ase
+import ase.neighborlist
 import torch
 from metatensor.torch import Labels, TensorBlock
 from metatensor.torch.atomistic import (
@@ -8,6 +8,8 @@ from metatensor.torch.atomistic import (
     System,
     register_autograd_neighbors,
 )
+
+from .data.system_to_ase import system_to_ase
 
 
 def get_system_with_neighbors_lists(
@@ -22,16 +24,7 @@ def get_system_with_neighbors_lists(
     :return: The `System` object with the neighbor lists added.
     """
     # Convert the system to an ASE atoms object
-    positions = system.positions.detach().cpu().numpy()
-    numbers = system.species.detach().cpu().numpy()
-    cell = system.cell.detach().cpu().numpy()
-    pbc = list(cell.any(axis=1))
-    atoms = ase.Atoms(
-        numbers=numbers,
-        positions=positions,
-        cell=cell,
-        pbc=pbc,
-    )
+    atoms = system_to_ase(system)
 
     # Compute the neighbor lists
     for options in neighbor_lists:
@@ -51,7 +44,7 @@ def _compute_single_neighbor_list(
     # Computes a single neighbor list for an ASE atoms object
 
     nl = ase.neighborlist.NeighborList(
-        cutoffs=[options.engine_cutoff] * len(atoms),
+        cutoffs=[options.cutoff] * len(atoms),
         skin=0.0,
         sorted=False,
         self_interaction=False,
@@ -65,7 +58,7 @@ def _compute_single_neighbor_list(
 
     samples = []
     distances = []
-    cutoff2 = options.engine_cutoff * options.engine_cutoff
+    cutoff2 = options.cutoff * options.cutoff
     for i in range(len(atoms)):
         indices, offsets = nl.get_neighbors(i)
         for j, offset in zip(indices, offsets):

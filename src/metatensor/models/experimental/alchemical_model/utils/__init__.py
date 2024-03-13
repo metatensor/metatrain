@@ -1,5 +1,5 @@
-from .systems_to_torch_spex_dict import systems_to_torch_spex_dict
+from .systems_to_torch_alchemical_batch import systems_to_torch_alchemical_batch
 
 __all__ = [
-    "systems_to_torch_spex_dict",
+    "systems_to_torch_alchemical_batch",
 ]

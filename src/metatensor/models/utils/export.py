@@ -2,7 +2,11 @@ import warnings
 from typing import Any
 
 import torch
-from metatensor.torch.atomistic import MetatensorAtomisticModel
+from metatensor.torch.atomistic import (
+    MetatensorAtomisticModel,
+    ModelCapabilities,
+    ModelMetadata,
+)
 
 
 def export(model: torch.nn.Module, output: str) -> None:
@@ -13,15 +17,31 @@ def export(model: torch.nn.Module, output: str) -> None:
     :param output: Path to save the exported model
     """
 
+    if model.capabilities.length_unit == "":
+        warnings.warn(
+            "No `length_unit` was provided for the model. As a result, lengths "
+            "and any derived quantities will be passed to MD engines as is.",
+            stacklevel=1,
+        )
+
     for model_output_name, model_output in model.capabilities.outputs.items():
         if model_output.unit == "":
             warnings.warn(
-                f"No units were provided for the `{model_output_name}` output. "
+                f"No target units were provided for output {model_output_name!r}. "
                 "As a result, this model output will be passed to MD engines as is.",
                 stacklevel=1,
             )
 
-    wrapper = MetatensorAtomisticModel(model.eval(), model.capabilities)
+    model_capabilities_with_devices = ModelCapabilities(
+        length_unit=model.capabilities.length_unit,
+        atomic_types=model.capabilities.atomic_types,
+        outputs=model.capabilities.outputs,
+        supported_devices=["cpu", "cuda"],
+    )
+
+    wrapper = MetatensorAtomisticModel(
+        model.eval(), ModelMetadata(), model_capabilities_with_devices
+    )
     wrapper.export(output)
 
 

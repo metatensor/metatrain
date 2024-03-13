@@ -18,6 +18,5 @@ This is the API for the ``utils`` module of ``metatensor-models``.
    merge_capabilities
    model-io
    neighbors_lists
-   normalize
    omegaconf
    output_gradient

@@ -29,9 +29,13 @@ def compute_model_loss(
     model: Union[torch.nn.Module, torch.jit._script.RecursiveScriptModule],
     systems: List[System],
     targets: Dict[str, TensorMap],
+    per_atom_targets: List[str],
 ) -> Tuple[torch.Tensor, Dict[str, Tuple[float, int]]]:
     """
-    Compute the loss of a model on a set of targets.
+    Compute the loss of a model on a set of targets, with an option to treat
+    specifed targets on a per atom basis. This implies that when some such
+    targets are specified, their contribution to the loss will accordingly be on
+    a per atom basis.
 
     :param loss: The loss function to use.
     :param model: The model to use. This can either be a model in training
@@ -39,6 +43,8 @@ def compute_model_loss(
         (``torch.jit._script.RecursiveScriptModule``).
     :param systems: The systems to use.
     :param targets: The targets to use.
+    :param per_atom_targets: The targets that should be treated on a per atom
+        basis during loss calculation.
 
     :returns: The loss as a scalar `torch.Tensor`.
     """
@@ -89,7 +95,7 @@ def compute_model_loss(
             new_system = System(
                 positions=system.positions @ strain,
                 cell=system.cell @ strain,
-                species=system.species,
+                types=system.types,
             )
             for nl_options in system.known_neighbors_lists():
                 nl = system.get_neighbors_list(nl_options)
@@ -174,8 +180,37 @@ def compute_model_loss(
         else:
             pass
 
+    # Averaging by number of atoms for per atom targets
+    num_atoms = torch.tensor([len(s) for s in systems], device=device).unsqueeze(-1)
+
+    new_model_outputs = model_outputs.copy()
+    new_targets = targets.copy()
+
+    for pa_target in per_atom_targets:
+
+        # Update predictions
+        cur_model_block = new_model_outputs[pa_target].block()
+        new_model_block = _average_by_num_atoms(cur_model_block, num_atoms)
+
+        # Update targets
+        cur_target_block = new_targets[pa_target].block()
+        new_target_block = _average_by_num_atoms(cur_target_block, num_atoms)
+
+        new_model_tensor = TensorMap(
+            keys=new_model_outputs[pa_target].keys,
+            blocks=[new_model_block],
+        )
+
+        new_target_tensor = TensorMap(
+            keys=new_targets[pa_target].keys,
+            blocks=[new_target_block],
+        )
+
+        new_model_outputs[pa_target] = new_model_tensor
+        new_targets[pa_target] = new_target_tensor
+
     # Compute and return the loss and associated info:
-    return loss(model_outputs, targets)
+    return loss(new_model_outputs, new_targets)
 
 
 def _position_gradients_to_block(gradients_list):
@@ -192,12 +227,12 @@ def _position_gradients_to_block(gradients_list):
             [
                 torch.concatenate(
                     [
-                        torch.tensor([i] * len(structure))
-                        for i, structure in enumerate(gradients_list)
+                        torch.tensor([i] * len(system))
+                        for i, system in enumerate(gradients_list)
                     ]
                 ),
                 torch.concatenate(
-                    [torch.arange(len(structure)) for structure in gradients_list]
+                    [torch.arange(len(system)) for system in gradients_list]
                 ),
             ],
             dim=1,
@@ -215,7 +250,7 @@ def _position_gradients_to_block(gradients_list):
         values=gradients,
         samples=samples.to(gradients.device),
         components=[c.to(gradients.device) for c in components],
-        properties=Labels.single().to(gradients.device),
+        properties=Labels("energy", torch.tensor([[0]])).to(gradients.device),
     )
 
 
@@ -245,7 +280,7 @@ def _strain_gradients_to_block(gradients_list):
         values=gradients,
         samples=samples.to(gradients.device),
         components=[c.to(gradients.device) for c in components],
-        properties=Labels.single().to(gradients.device),
+        properties=Labels("energy", torch.tensor([[0]])).to(gradients.device),
     )
 
 
@@ -275,3 +310,19 @@ def _get_model_outputs(
         return model(
             systems, {key: _get_capabilities(model).outputs[key] for key in targets}
         )
+
+
+def _average_by_num_atoms(block: TensorBlock, num_atoms: torch.Tensor) -> TensorBlock:
+    """Taking the average values per atom of a `TensorBlock`."""
+
+    new_values = block.values / num_atoms
+    new_block = TensorBlock(
+        values=new_values,
+        samples=block.samples,
+        components=block.components,
+        properties=block.properties,
+    )
+    for param, gradient in block.gradients():
+        new_block.add_gradient(param, gradient)
+
+    return new_block

@@ -22,11 +22,11 @@ from ...utils.loss import TensorMapDictLoss
 from ...utils.merge_capabilities import merge_capabilities
 from ...utils.model_io import load_checkpoint, save_model
 from ...utils.neighbors_lists import get_system_with_neighbors_lists
-from ...utils.normalize import (
+from .model import DEFAULT_HYPERS, Model
+from .utils.normalize import (
     get_average_number_of_atoms,
     get_average_number_of_neighbors,
 )
-from .model import DEFAULT_HYPERS, Model
 
 
 logger = logging.getLogger(__name__)
@@ -52,7 +52,7 @@ def train(
         filtered_new_dict = {k: v for k, v in hypers["model"].items() if k != "restart"}
         filtered_old_dict = {k: v for k, v in model.hypers.items() if k != "restart"}
         if filtered_new_dict != filtered_old_dict:
-            logger.warn(
+            logger.warning(
                 "The hyperparameters of the model have changed since the last "
                 "training run. The new hyperparameters will be discarded."
             )
@@ -80,10 +80,10 @@ def train(
     requested_neighbor_lists = model.requested_neighbors_lists()
     for dataset in train_datasets + validation_datasets:
         for i in range(len(dataset)):
-            structure = dataset[i].structure
-            # The following line attached the neighbors lists to the structure,
-            # and doesn't require to reassign the structure to the dataset:
-            _ = get_system_with_neighbors_lists(structure, requested_neighbor_lists)
+            system = dataset[i].system
+            # The following line attached the neighbors lists to the system,
+            # and doesn't require to reassign the system to the dataset:
+            _ = get_system_with_neighbors_lists(system, requested_neighbor_lists)
 
     # Calculate the average number of atoms and neighbors in the training datasets:
     average_number_of_atoms = get_average_number_of_atoms(train_datasets)
@@ -125,7 +125,7 @@ def train(
         composition_weights, species = calculate_composition_weights(
             train_datasets_with_target, target_name
         )
-        model.set_composition_weights(target_name, composition_weights, species)
+        model.set_composition_weights(composition_weights.unsqueeze(0), species)
 
     hypers_training = hypers["training"]
 
@@ -207,9 +207,13 @@ def train(
         train_loss = 0.0
         for batch in train_dataloader:
             optimizer.zero_grad()
-            structures, targets = batch
-            assert len(structures[0].known_neighbors_lists()) > 0
-            loss, info = compute_model_loss(loss_fn, model, structures, targets)
+
+            systems, targets = batch
+            assert len(systems[0].known_neighbors_lists()) > 0
+            loss, info = compute_model_loss(
+                loss_fn, model, systems, targets, hypers_training["per_atom_targets"]
+            )
+
             train_loss += loss.item()
             loss.backward()
             optimizer.step()
@@ -218,9 +222,13 @@ def train(
 
         validation_loss = 0.0
         for batch in validation_dataloader:
-            structures, targets = batch
+            systems, targets = batch
             # TODO: specify that the model is not training here to save some autograd
-            loss, info = compute_model_loss(loss_fn, model, structures, targets)
+
+            loss, info = compute_model_loss(
+                loss_fn, model, systems, targets, hypers_training["per_atom_targets"]
+            )
+
             validation_loss += loss.item()
             aggregated_validation_info = update_aggregated_info(
                 aggregated_validation_info, info

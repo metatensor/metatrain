@@ -37,14 +37,14 @@ def ase_systems() -> List[ase.Atoms]:
 def test_read_energy_ase(monkeypatch, tmp_path):
     monkeypatch.chdir(tmp_path)
 
-    filename = "structures.xyz"
+    filename = "systems.xyz"
 
-    structures = ase_systems()
-    ase.io.write(filename, structures)
+    systems = ase_systems()
+    ase.io.write(filename, systems)
 
     results = read_energy_ase(filename=filename, key="true_energy", dtype=torch.float16)
 
-    for result, atoms in zip(results, structures):
+    for result, atoms in zip(results, systems):
         expected = torch.tensor([[atoms.info["true_energy"]]], dtype=torch.float16)
         torch.testing.assert_close(result.values, expected)
 
@@ -52,14 +52,14 @@ def test_read_energy_ase(monkeypatch, tmp_path):
 def test_read_forces_ase(monkeypatch, tmp_path):
     monkeypatch.chdir(tmp_path)
 
-    filename = "structures.xyz"
+    filename = "systems.xyz"
 
-    structures = ase_systems()
-    ase.io.write(filename, structures)
+    systems = ase_systems()
+    ase.io.write(filename, systems)
 
     results = read_forces_ase(filename=filename, key="forces", dtype=torch.float16)
 
-    for result, atoms in zip(results, structures):
+    for result, atoms in zip(results, systems):
         expected = -torch.tensor(atoms.get_array("forces"), dtype=torch.float16)
         expected = expected.reshape(-1, 3, 1)
         torch.testing.assert_close(result.values, expected)
@@ -68,14 +68,14 @@ def test_read_forces_ase(monkeypatch, tmp_path):
 def test_read_stress_ase(monkeypatch, tmp_path):
     monkeypatch.chdir(tmp_path)
 
-    filename = "structures.xyz"
+    filename = "systems.xyz"
 
-    structures = ase_systems()
-    ase.io.write(filename, structures)
+    systems = ase_systems()
+    ase.io.write(filename, systems)
 
     results = read_stress_ase(filename=filename, key="stress-3x3", dtype=torch.float16)
 
-    for result, atoms in zip(results, structures):
+    for result, atoms in zip(results, systems):
         expected = atoms.cell.volume * torch.tensor(
             atoms.info["stress-3x3"], dtype=torch.float16
         )
@@ -87,28 +87,28 @@ def test_no_cell_error(monkeypatch, tmp_path):
     """Test error raise if cell vectors are zero for reading stress."""
     monkeypatch.chdir(tmp_path)
 
-    filename = "structures.xyz"
+    filename = "systems.xyz"
 
-    structures = ase_system()
-    structures.cell = [0.0, 0.0, 0.0]
+    systems = ase_system()
+    systems.cell = [0.0, 0.0, 0.0]
 
-    ase.io.write(filename, structures)
+    ase.io.write(filename, systems)
 
-    with pytest.raises(ValueError, match="Structure 0 has zero cell vectors."):
+    with pytest.raises(ValueError, match="system 0 has zero cell vectors."):
         read_stress_ase(filename=filename, key="stress-3x3")
 
 
 def test_read_virial_ase(monkeypatch, tmp_path):
     monkeypatch.chdir(tmp_path)
 
-    filename = "structures.xyz"
+    filename = "systems.xyz"
 
-    structures = ase_systems()
-    ase.io.write(filename, structures)
+    systems = ase_systems()
+    ase.io.write(filename, systems)
 
     results = read_virial_ase(filename=filename, key="stress-3x3", dtype=torch.float16)
 
-    for result, atoms in zip(results, structures):
+    for result, atoms in zip(results, systems):
         expected = -torch.tensor(atoms.info["stress-3x3"], dtype=torch.float16)
         expected = expected.reshape(-1, 3, 3, 1)
         torch.testing.assert_close(result.values, expected)
@@ -117,15 +117,15 @@ def test_read_virial_ase(monkeypatch, tmp_path):
 def test_read_virial_warn(monkeypatch, tmp_path):
     monkeypatch.chdir(tmp_path)
 
-    filename = "structures.xyz"
+    filename = "systems.xyz"
 
-    structures = ase_system()
-    ase.io.write(filename, structures)
+    systems = ase_system()
+    ase.io.write(filename, systems)
 
     with pytest.warns(match="Found 9-long numerical vector"):
         results = read_virial_ase(filename=filename, key="stress-9")
 
-    expected = -torch.tensor(structures.info["stress-9"])
+    expected = -torch.tensor(systems.info["stress-9"])
     expected = expected.reshape(-1, 3, 3, 1)
     torch.testing.assert_close(results[0].values, expected)
 
@@ -133,11 +133,11 @@ def test_read_virial_warn(monkeypatch, tmp_path):
 def test_read_virial_error(monkeypatch, tmp_path):
     monkeypatch.chdir(tmp_path)
 
-    filename = "structures.xyz"
+    filename = "systems.xyz"
 
-    structures = ase_system()
-    structures.info["stress-9"].append(1)
-    ase.io.write(filename, structures)
+    systems = ase_system()
+    systems.info["stress-9"].append(1)
+    ase.io.write(filename, systems)
 
     with pytest.raises(ValueError, match="Stress/virial must be a 3 x 3 matrix"):
         read_virial_ase(filename=filename, key="stress-9")
