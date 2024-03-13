@@ -124,7 +124,7 @@ def check_datasets(
 
     # Check that they are compatible with the model's capabilities:
     for target in train_targets + validation_targets:
-        if target not in capabilities.targets.keys():
+        if target not in capabilities.outputs.keys():
             raise ValueError(f"The target {target} is not in the model's capabilities.")
 
     # Check that the validation sets do not have targets that are not in the
