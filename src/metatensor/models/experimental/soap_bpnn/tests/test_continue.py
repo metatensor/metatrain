@@ -7,7 +7,7 @@ from omegaconf import OmegaConf
 
 import metatensor.models
 from metatensor.models.experimental.soap_bpnn import DEFAULT_HYPERS, Model, train
-from metatensor.models.utils.data import DatasetInfo
+from metatensor.models.utils.data import DatasetInfo, TargetInfo
 from metatensor.models.utils.data.readers import read_systems, read_targets
 from metatensor.models.utils.model_io import save_model
 
@@ -59,9 +59,12 @@ def test_continue(monkeypatch, tmp_path):
 
     dataset_info = DatasetInfo(
         length_unit="Angstrom",
-        targets=["U0"],
-        target_quantities={"U0": "energy"},
-        target_units={"U0": "eV"},
+        targets={
+            "U0": TargetInfo(
+                quantity="energy",
+                unit="eV",
+            ),
+        },
     )
     model_after = train(
         [dataset], [dataset], dataset_info, hypers, continue_from="model.ckpt"

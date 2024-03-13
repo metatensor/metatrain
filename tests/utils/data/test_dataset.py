@@ -6,6 +6,7 @@ from omegaconf import OmegaConf
 
 from metatensor.models.utils.data import (
     DatasetInfo,
+    TargetInfo,
     collate_fn,
     get_all_species,
     read_systems,
@@ -18,17 +19,20 @@ RESOURCES_PATH = Path(__file__).parent.resolve() / ".." / ".." / "resources"
 
 def test_dataset_info():
     """Tests the DatasetInfo class."""
+
     dataset_info = DatasetInfo(
         length_unit="angstrom",
-        targets=["energy", "U0"],
-        target_quantities={"energy": "energy", "U0": "energy"},
-        target_units={"energy": "kcal/mol", "U0": "kcal/mol"},
+        targets={
+            "energy": TargetInfo(quantity="energy", unit="kcal/mol"),
+            "U0": TargetInfo(quantity="energy", unit="kcal/mol"),
+        },
     )
 
     assert dataset_info.length_unit == "angstrom"
-    assert dataset_info.targets == ["energy", "U0"]
-    assert dataset_info.target_quantities == {"energy": "energy", "U0": "energy"}
-    assert dataset_info.target_units == {"energy": "kcal/mol", "U0": "kcal/mol"}
+    assert dataset_info.targets["energy"].quantity == "energy"
+    assert dataset_info.targets["energy"].unit == "kcal/mol"
+    assert dataset_info.targets["U0"].quantity == "energy"
+    assert dataset_info.targets["U0"].unit == "kcal/mol"
 
 
 def test_dataset():

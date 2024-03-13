@@ -19,7 +19,7 @@ from omegaconf import DictConfig, OmegaConf
 from omegaconf.errors import ConfigKeyError
 
 from .. import CONFIG_PATH
-from ..utils.data import DatasetInfo, read_systems, read_targets
+from ..utils.data import DatasetInfo, TargetInfo, read_systems, read_targets
 from ..utils.data.dataset import _train_test_random_split
 from ..utils.errors import ArchitectureError
 from ..utils.export import export
@@ -364,18 +364,12 @@ def _train_model_hydra(options: DictConfig) -> None:
             if train_options_list[0]["systems"]["length_unit"] is not None
             else ""
         ),  # these units are guaranteed to be the same across all datasets
-        targets=[
-            key
-            for train_options in train_options_list
-            for key in train_options["targets"].keys()
-        ],
-        target_quantities={
-            key: value["quantity"]
-            for train_options in train_options_list
-            for key, value in train_options["targets"].items()
-        },
-        target_units={
-            key: (value["unit"] if value["unit"] is not None else "")
+        targets={
+            key: TargetInfo(
+                quantity=value["quantity"],
+                unit=(value["unit"] if value["unit"] is not None else ""),
+                per_atom=value["per_atom"],
+            )
             for train_options in train_options_list
             for key, value in train_options["targets"].items()
         },

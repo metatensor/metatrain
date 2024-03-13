@@ -15,7 +15,7 @@ from metatensor.torch.atomistic import (
 from omegaconf import OmegaConf
 
 from metatensor.models.experimental.alchemical_model import DEFAULT_HYPERS, Model, train
-from metatensor.models.utils.data import DatasetInfo
+from metatensor.models.utils.data import DatasetInfo, TargetInfo
 from metatensor.models.utils.data.readers import read_systems, read_targets
 from metatensor.models.utils.neighbors_lists import get_system_with_neighbors_lists
 
@@ -103,9 +103,12 @@ def test_regression_train():
 
     dataset_info = DatasetInfo(
         length_unit="Angstrom",
-        targets=["U0"],
-        target_quantities={"U0": "energy"},
-        target_units={"U0": "eV"},
+        targets={
+            "U0": TargetInfo(
+                quantity="energy",
+                unit="eV",
+            ),
+        },
     )
     alchemical_model = train(
         train_datasets=[dataset],

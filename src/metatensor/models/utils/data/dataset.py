@@ -14,6 +14,21 @@ logger = logging.getLogger(__name__)
 
 
 @dataclass
+class TargetInfo:
+    """A class that contains information about a target.
+
+    :param name: The name of the target.
+    :param quantity: The quantity of the target.
+    :param unit: The unit of the target.
+    :param per_atom: Whether the target is a per-atom quantity.
+    """
+
+    quantity: str
+    unit: str
+    per_atom: bool = False
+
+
+@dataclass
 class DatasetInfo:
     """A class that contains information about one or more datasets.
 
@@ -27,9 +42,7 @@ class DatasetInfo:
     """
 
     length_unit: str
-    targets: List[str]
-    target_quantities: Dict[str, str]
-    target_units: Dict[str, str]
+    targets: Dict[str, TargetInfo]
 
 
 def get_all_species(datasets: Union[Dataset, List[Dataset]]) -> List[int]:
