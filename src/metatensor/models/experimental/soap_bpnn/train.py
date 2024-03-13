@@ -58,7 +58,7 @@ def train(
         )
         for key in dataset_info.targets
     }
-    requested_capabilities = ModelCapabilities(
+    new_capabilities = ModelCapabilities(
         length_unit=dataset_info.length_unit,
         outputs=outputs,
         atomic_types=all_species,
@@ -68,10 +68,10 @@ def train(
     # Create the model:
     if continue_from is None:
         model = Model(
-            capabilities=requested_capabilities,
+            capabilities=new_capabilities,
             hypers=hypers["model"],
         )
-        new_capabilities = requested_capabilities
+        novel_capabilities = new_capabilities
     else:
         model = load_checkpoint(continue_from)
         filtered_new_dict = {k: v for k, v in hypers["model"].items() if k != "restart"}
@@ -82,12 +82,12 @@ def train(
                 "training run. The new hyperparameters will be discarded."
             )
         # merge the model's capabilities with the requested capabilities
-        merged_capabilities, new_capabilities = merge_capabilities(
-            model.capabilities, requested_capabilities
+        merged_capabilities, novel_capabilities = merge_capabilities(
+            model.capabilities, new_capabilities
         )
         model.capabilities = merged_capabilities
         # make the new model capable of handling the new outputs
-        for output_name in new_capabilities.outputs.keys():
+        for output_name in novel_capabilities.outputs.keys():
             model.add_output(output_name)
 
     model_capabilities = model.capabilities
@@ -115,7 +115,7 @@ def train(
 
     # Calculate and set the composition weights for all targets:
     logger.info("Calculating composition weights")
-    for target_name in new_capabilities.outputs.keys():
+    for target_name in novel_capabilities.outputs.keys():
         # TODO: warn in the documentation that capabilities that are already
         # present in the model won't recalculate the composition weights
         # find the datasets that contain the target:
