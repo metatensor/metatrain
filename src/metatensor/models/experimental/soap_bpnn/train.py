@@ -53,10 +53,10 @@ def train(
     all_species = get_all_species(train_datasets + validation_datasets)
     outputs = {
         key: ModelOutput(
-            quantity=dataset_info.output_quantities[key],
-            unit=dataset_info.output_units[key],
+            quantity=dataset_info.target_quantities[key],
+            unit=dataset_info.target_units[key],
         )
-        for key in dataset_info.outputs
+        for key in dataset_info.targets
     }
     requested_capabilities = ModelCapabilities(
         length_unit=dataset_info.length_unit,

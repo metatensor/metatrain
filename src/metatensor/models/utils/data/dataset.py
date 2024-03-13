@@ -21,15 +21,15 @@ class DatasetInfo:
     training functions of the individual models.
 
     :param length_unit: The unit of length used in the dataset.
-    :param outputs: The names of the outputs in the dataset.
-    :param output_quantities: The quantities of the outputs in the dataset.
-    :param output_units: The units of the outputs in the dataset.
+    :param targets: The names of the targets in the dataset.
+    :param target_quantities: The quantities of the targets in the dataset.
+    :param target_units: The units of the targets in the dataset.
     """
 
     length_unit: str
-    outputs: List[str]
-    output_quantities: Dict[str, str]
-    output_units: Dict[str, str]
+    targets: List[str]
+    target_quantities: Dict[str, str]
+    target_units: Dict[str, str]
 
 
 def get_all_species(datasets: Union[Dataset, List[Dataset]]) -> List[int]:
@@ -124,7 +124,7 @@ def check_datasets(
 
     # Check that they are compatible with the model's capabilities:
     for target in train_targets + validation_targets:
-        if target not in capabilities.outputs.keys():
+        if target not in capabilities.targets.keys():
             raise ValueError(f"The target {target} is not in the model's capabilities.")
 
     # Check that the validation sets do not have targets that are not in the

@@ -31,11 +31,11 @@ def train(
         raise ValueError("PET only supports float32")
     if device_str != "cuda" and device_str != "gpu":
         raise ValueError("PET only supports cuda (gpu) training")
-    if len(dataset_info.outputs) != 1:
-        raise ValueError("PET only supports a single output")
-    target_name = dataset_info.outputs[0]
-    if dataset_info.output_quantities[target_name] != "energy":
-        raise ValueError("PET only supports energies as output")
+    if len(dataset_info.targets) != 1:
+        raise ValueError("PET only supports a single target")
+    target_name = dataset_info.targets[0]
+    if dataset_info.target_quantities[target_name] != "energy":
+        raise ValueError("PET only supports energies as target")
     if len(train_datasets) != 1:
         raise ValueError("PET only supports a single training dataset")
     if len(validation_datasets) != 1:
@@ -133,10 +133,10 @@ def train(
 
     outputs = {
         key: ModelOutput(
-            quantity=dataset_info.output_quantities[key],
-            unit=dataset_info.output_units[key],
+            quantity=dataset_info.target_quantities[key],
+            unit=dataset_info.target_units[key],
         )
-        for key in dataset_info.outputs
+        for key in dataset_info.targets
     }
     capabilities = ModelCapabilities(
         length_unit=dataset_info.length_unit,

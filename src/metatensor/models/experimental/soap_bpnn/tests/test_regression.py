@@ -75,9 +75,9 @@ def test_regression_train():
 
     dataset_info = DatasetInfo(
         length_unit="Angstrom",
-        outputs=["U0"],
-        output_quantities={"U0": "energy"},
-        output_units={"U0": "eV"},
+        targets=["U0"],
+        target_quantities={"U0": "energy"},
+        target_units={"U0": "eV"},
     )
     soap_bpnn = train([dataset], [dataset], dataset_info, hypers)
 

@@ -59,9 +59,9 @@ def test_continue(monkeypatch, tmp_path):
 
     dataset_info = DatasetInfo(
         length_unit="Angstrom",
-        outputs=["U0"],
-        output_quantities={"U0": "energy"},
-        output_units={"U0": "eV"},
+        targets=["U0"],
+        target_quantities={"U0": "energy"},
+        target_units={"U0": "eV"},
     )
     model_after = train(
         [dataset], [dataset], dataset_info, hypers, continue_from="model.ckpt"

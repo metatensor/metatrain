@@ -364,17 +364,17 @@ def _train_model_hydra(options: DictConfig) -> None:
             if train_options_list[0]["systems"]["length_unit"] is not None
             else ""
         ),  # these units are guaranteed to be the same across all datasets
-        outputs=[
+        targets=[
             key
             for train_options in train_options_list
             for key in train_options["targets"].keys()
         ],
-        output_quantities={
+        target_quantities={
             key: value["quantity"]
             for train_options in train_options_list
             for key, value in train_options["targets"].items()
         },
-        output_units={
+        target_units={
             key: (value["unit"] if value["unit"] is not None else "")
             for train_options in train_options_list
             for key, value in train_options["targets"].items()
