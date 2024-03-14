@@ -4,12 +4,12 @@ import ase.io
 import pytest
 import torch
 from metatensor.torch import Labels, TensorBlock, TensorMap
-from metatensor.torch.atomistic import System
+from metatensor.torch.atomistic import ModelCapabilities, ModelOutput, System
 
 from metatensor.models.utils.data.writers import write_predictions, write_xyz
 
 
-def systems_predictions(cell: torch.tensor = None) -> List[System]:
+def systems_capabilities_predictions(cell: torch.tensor = None) -> List[System]:
     if cell is None:
         cell = torch.zeros((3, 3))
 
@@ -33,17 +33,22 @@ def systems_predictions(cell: torch.tensor = None) -> List[System]:
 
     predictions = {"energy": TensorMap(Labels.single(), [block])}
 
-    return systems, predictions
+    capabilities = ModelCapabilities(
+        length_unit="angstrom",
+        outputs={"energy": ModelOutput(quantity="energy", unit="kcal/mol")},
+    )
+
+    return systems, capabilities, predictions
 
 
 def test_write_xyz(monkeypatch, tmp_path):
     monkeypatch.chdir(tmp_path)
 
-    systems, predictions = systems_predictions()
+    systems, capabilities, predictions = systems_capabilities_predictions()
 
     filename = "test_output.xyz"
 
-    write_xyz(filename, predictions, systems)
+    write_xyz(filename, systems, capabilities, predictions)
 
     # Read the file and verify its contents
     frames = ase.io.read(filename, index=":")
@@ -57,11 +62,11 @@ def test_write_xyz_cell(monkeypatch, tmp_path):
     monkeypatch.chdir(tmp_path)
 
     cell = torch.ones(3, 3)
-    systems, predictions = systems_predictions(cell=cell)
+    systems, capabilities, predictions = systems_capabilities_predictions(cell=cell)
 
     filename = "test_output.xyz"
 
-    write_xyz(filename, predictions, systems)
+    write_xyz(filename, systems, capabilities, predictions)
 
     # Read the file and verify its contents
     frames = ase.io.read(filename, index=":")
@@ -76,11 +81,13 @@ def test_write_xyz_cell(monkeypatch, tmp_path):
 def test_write_predictions(fileformat, monkeypatch, tmp_path):
     monkeypatch.chdir(tmp_path)
 
-    systems, predictions = systems_predictions()
+    systems, capabilities, predictions = systems_capabilities_predictions()
 
     filename = "test_output.xyz"
 
-    write_predictions(filename, predictions, systems, fileformat=fileformat)
+    write_predictions(
+        filename, systems, capabilities, predictions, fileformat=fileformat
+    )
 
     frames = ase.io.read(filename, index=":")
     assert len(frames) == len(systems)
@@ -90,4 +97,4 @@ def test_write_predictions(fileformat, monkeypatch, tmp_path):
 
 def test_write_predictions_unknown_fileformat():
     with pytest.raises(ValueError, match="fileformat '.bar' is not supported"):
-        write_predictions("foo.bar", predictions=None, systems=None)
+        write_predictions("foo.bar", systems=None, capabilities=None, predictions=None)

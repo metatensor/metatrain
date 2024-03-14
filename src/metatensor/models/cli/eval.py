@@ -199,9 +199,7 @@ def eval_model(
             eval_dataset = Dataset(system=eval_systems, energy=eval_targets["energy"])
             _eval_targets(model, eval_dataset)
         else:
-            # TODO: batch this
-            # TODO: add forces/stresses/virials if requested
-            # Attach neighbors list to systems. This step is only required if no
+            # attach neighbors list to systems. This step is only required if no
             # targets are present. Otherwise, the neighbors list have been already
             # attached in `_eval_targets`.
             eval_systems = [
@@ -211,10 +209,9 @@ def eval_model(
                 for system in eval_systems
             ]
 
-        # Predict systems
         try:
             # `length_unit` is only required for unit conversions in MD engines and
-            # superflous here.
+            # superfluous here.
             eval_options = ModelEvaluationOptions(
                 length_unit="", outputs=model.capabilities().outputs
             )
@@ -222,9 +219,10 @@ def eval_model(
         except Exception as e:
             raise ArchitectureError(e)
 
-        # TODO: adjust filename accordinglt
+        # TODO: adjust filename accordingly
         write_predictions(
             filename=f"{output.stem}{file_index_suffix}{output.suffix}",
-            predictions=predictions,
             systems=eval_systems,
+            capabilities=model.capabilities(),
+            predictions=predictions,
         )
