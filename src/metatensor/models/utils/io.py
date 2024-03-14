@@ -25,8 +25,14 @@ except ImportError:
 try:
     import rascaline
     import rascaline.torch  # noqa: F401
+    from rascaline import RASCAL_LOG_LEVEL_ERROR, RASCAL_LOG_LEVEL_WARN
 
-    rascaline.set_logging_callback(lambda x, y: None)
+    # disable rascaline logger for info messages
+    def rascaline_logging(level, message):
+        if level in [RASCAL_LOG_LEVEL_WARN, RASCAL_LOG_LEVEL_ERROR]:
+            rascaline.log.default_logging_callback(level, message)
+
+    rascaline.set_logging_callback(rascaline_logging)
 except ImportError:
     pass
 

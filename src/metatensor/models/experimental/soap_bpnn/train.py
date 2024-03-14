@@ -8,6 +8,7 @@ import torch
 from metatensor.learn.data import DataLoader
 from metatensor.learn.data.dataset import _BaseDataset
 from metatensor.torch.atomistic import ModelCapabilities
+from rascaline.log import RASCAL_LOG_LEVEL_ERROR, RASCAL_LOG_LEVEL_WARN
 
 from ...utils.composition import calculate_composition_weights
 from ...utils.compute_loss import compute_model_loss
@@ -30,8 +31,13 @@ from .model import DEFAULT_HYPERS, Model
 logger = logging.getLogger(__name__)
 
 
-# disable rascaline logger
-rascaline.set_logging_callback(lambda x, y: None)
+# disable rascaline logger for info messages
+def rascaline_logging(level, message):
+    if level in [RASCAL_LOG_LEVEL_WARN, RASCAL_LOG_LEVEL_ERROR]:
+        rascaline.log.default_logging_callback(level, message)
+
+
+rascaline.set_logging_callback(rascaline_logging)
 
 # Filter out the second derivative and device warnings from rascaline-torch
 warnings.filterwarnings("ignore", category=UserWarning, message="second derivative")
