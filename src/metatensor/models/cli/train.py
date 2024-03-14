@@ -22,8 +22,7 @@ from .. import CONFIG_PATH
 from ..utils.data import DatasetInfo, TargetInfo, read_systems, read_targets
 from ..utils.data.dataset import _train_test_random_split
 from ..utils.errors import ArchitectureError
-from ..utils.export import export
-from ..utils.model_io import save_model
+from ..utils.io import export, save
 from ..utils.omegaconf import check_options_list, check_units, expand_dataset_config
 from .eval import _eval_targets
 from .formatter import CustomHelpFormatter
@@ -389,7 +388,7 @@ def _train_model_hydra(options: DictConfig) -> None:
     except Exception as e:
         raise ArchitectureError(e)
 
-    save_model(model, f"{Path(options['output_path']).stem}.ckpt")
+    save(model, f"{Path(options['output_path']).stem}.ckpt")
     export(model, options["output_path"])
     exported_model = torch.jit.load(options["output_path"])
 
