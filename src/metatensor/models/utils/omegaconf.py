@@ -254,7 +254,7 @@ def check_options_list(dataset_config: ListConfig) -> None:
     # loop over ALL configs because we have check units for all elements in
     # `dataset_config`
     for actual_config in dataset_config:
-        # Perform consistentcy checks between config elements
+        # Perform consistency checks between config elements
         actual_length_unit = actual_config["systems"]["length_unit"]
         if actual_length_unit != desired_length_unit:
             raise ValueError(

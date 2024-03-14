@@ -10,7 +10,7 @@ from metatensor.torch.atomistic import (
 )
 
 from .errors import ArchitectureError
-from .export import is_exported
+from .io import is_exported
 from .loss import TensorMapDictLoss
 from .output_gradient import compute_gradient
 
