@@ -367,7 +367,7 @@ def _train_model_hydra(options: DictConfig) -> None:
             key: TargetInfo(
                 quantity=value["quantity"],
                 unit=(value["unit"] if value["unit"] is not None else ""),
-                per_atom=value["per_atom"],
+                per_atom=False,  # TODO: read this from the config
             )
             for train_options in train_options_list
             for key, value in train_options["targets"].items()

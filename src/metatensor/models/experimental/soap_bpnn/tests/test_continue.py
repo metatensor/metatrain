@@ -83,4 +83,4 @@ def test_continue(monkeypatch, tmp_path):
     with pytest.raises(
         ValueError, match="model is already exported and can't be used for continue"
     ):
-        train([dataset], [dataset], capabilities, hypers, continue_from="exported.pt")
+        train([dataset], [dataset], dataset_info, hypers, continue_from="exported.pt")
