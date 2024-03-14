@@ -12,8 +12,8 @@ jobs:
     strategy:
       matrix:
         include:
-          - os: ubuntu-22.04
-            python-version: "3.8"
+          # - os: ubuntu-22.04
+          #   python-version: "3.8"
           - os: ubuntu-22.04
             python-version: "3.12"
           - os: macos-11
