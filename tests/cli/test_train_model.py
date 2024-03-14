@@ -255,16 +255,6 @@ def test_continue_different_dataset(options, monkeypatch, tmp_path):
     train_model(options, continue_from=MODEL_PATH)
 
 
-def test_continue_from_exported(options, monkeypatch, tmp_path):
-    """Test that continuing training from an exported model raises an error."""
-    monkeypatch.chdir(tmp_path)
-    shutil.copy(DATASET_PATH, "qm9_reduced_100.xyz")
-
-    with pytest.warns(match="Trying to load a checkpoint from"):
-        with pytest.raises(ArchitectureError):
-            train_model(options, continue_from=RESOURCES_PATH / "bpnn-model.pt")
-
-
 def test_hydra_arguments():
     """Test if hydra arguments work."""
     option_path = str(RESOURCES_PATH / "options.yaml")

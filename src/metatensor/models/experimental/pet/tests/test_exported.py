@@ -5,8 +5,7 @@ import torch
 from metatensor.torch.atomistic import ModelCapabilities, ModelOutput
 
 from metatensor.models.experimental.pet import DEFAULT_HYPERS, Model
-from metatensor.models.utils.export import export
-from metatensor.models.utils.model_io import load_exported_model
+from metatensor.models.utils.io import export, load
 
 
 @pytest.mark.parametrize("device", ["cpu", "cuda"])
@@ -30,6 +29,6 @@ def test_to(tmp_path, device, dtype):
     )
     pet = Model(capabilities, DEFAULT_HYPERS["ARCHITECTURAL_HYPERS"])
     export(pet, "pet.pt")
-    exported = load_exported_model("pet.pt")
+    exported = load("pet.pt")
 
     exported.to(device=device, dtype=dtype)
