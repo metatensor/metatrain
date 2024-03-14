@@ -68,7 +68,7 @@ def train(
 
     # only energies or energies and forces?
     do_forces = next(iter(train_dataset))[1].block().has_gradient("positions")
-    all_species = requested_capabilities.species
+    all_species = requested_capabilities.atomic_types
     if not do_forces:
         hypers["MLIP_SETTINGS"]["USE_FORCES"] = False
 

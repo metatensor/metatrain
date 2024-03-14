@@ -1,5 +1,6 @@
 import shutil
 
+import pytest
 import torch
 from metatensor.learn.data import Dataset
 from metatensor.torch.atomistic import ModelCapabilities, ModelOutput
@@ -9,7 +10,7 @@ import metatensor.models
 from metatensor.models.experimental.soap_bpnn import DEFAULT_HYPERS, Model, train
 from metatensor.models.utils.data import get_all_species
 from metatensor.models.utils.data.readers import read_systems, read_targets
-from metatensor.models.utils.model_io import save_model
+from metatensor.models.utils.io import export, save
 
 from . import DATASET_PATH
 
@@ -25,7 +26,7 @@ def test_continue(monkeypatch, tmp_path):
 
     capabilities = ModelCapabilities(
         length_unit="Angstrom",
-        species=[1, 6, 7, 8],
+        atomic_types=[1, 6, 7, 8],
         outputs={
             "U0": ModelOutput(
                 quantity="energy",
@@ -38,7 +39,7 @@ def test_continue(monkeypatch, tmp_path):
         systems[:5], {"U0": model_before.capabilities.outputs["U0"]}
     )
 
-    save_model(model_before, "model.ckpt")
+    save(model_before, "model.ckpt")
 
     conf = {
         "U0": {
@@ -59,7 +60,7 @@ def test_continue(monkeypatch, tmp_path):
 
     capabilities = ModelCapabilities(
         length_unit="Angstrom",
-        species=get_all_species(dataset),
+        atomic_types=get_all_species(dataset),
         outputs={
             "U0": ModelOutput(
                 quantity="energy",
@@ -77,3 +78,10 @@ def test_continue(monkeypatch, tmp_path):
     )
 
     assert metatensor.torch.allclose(output_before["U0"], output_after["U0"])
+
+    # test error raise of model is already exported
+    export(model_before, "exported.pt")
+    with pytest.raises(
+        ValueError, match="model is already exported and can't be used for continue"
+    ):
+        train([dataset], [dataset], capabilities, hypers, continue_from="exported.pt")

@@ -24,8 +24,7 @@ from ..utils.data import get_all_species, read_systems, read_targets
 from ..utils.data.dataset import _train_test_random_split
 from ..utils.device import string_to_devices
 from ..utils.errors import ArchitectureError
-from ..utils.export import export
-from ..utils.model_io import save_model
+from ..utils.io import export, save
 from ..utils.omegaconf import check_options_list, check_units, expand_dataset_config
 from .eval import _eval_targets
 from .formatter import CustomHelpFormatter
@@ -373,7 +372,7 @@ def _train_model_hydra(options: DictConfig) -> None:
     length_unit = train_options_list[0]["systems"]["length_unit"]
     requested_capabilities = ModelCapabilities(
         length_unit=length_unit if length_unit is not None else "",
-        species=all_species,
+        atomic_types=all_species,
         outputs=outputs,
     )
 
@@ -391,7 +390,7 @@ def _train_model_hydra(options: DictConfig) -> None:
     except Exception as e:
         raise ArchitectureError(e)
 
-    save_model(model, f"{Path(options['output_path']).stem}.ckpt")
+    save(model, f"{Path(options['output_path']).stem}.ckpt")
     export(model, options["output_path"])
     exported_model = torch.jit.load(options["output_path"])
 
@@ -401,7 +400,7 @@ def _train_model_hydra(options: DictConfig) -> None:
         else:
             extra_log_message = f" with index {i}"
 
-        logger.info(f"Evaulate training dataset{extra_log_message}")
+        logger.info(f"Evaluating training dataset{extra_log_message}")
         _eval_targets(exported_model, train_dataset)
 
     for i, validation_dataset in enumerate(validation_datasets):
@@ -410,7 +409,7 @@ def _train_model_hydra(options: DictConfig) -> None:
         else:
             extra_log_message = f" with index {i}"
 
-        logger.info(f"Evaulate validation dataset{extra_log_message}")
+        logger.info(f"Evaluating validation dataset{extra_log_message}")
         _eval_targets(exported_model, validation_dataset)
 
     for i, test_dataset in enumerate(test_datasets):
@@ -419,5 +418,5 @@ def _train_model_hydra(options: DictConfig) -> None:
         else:
             extra_log_message = f" with index {i}"
 
-        logger.info(f"Evaulate test dataset{extra_log_message}")
+        logger.info(f"Evaluating test dataset{extra_log_message}")
         _eval_targets(exported_model, test_dataset)

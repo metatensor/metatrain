@@ -1,13 +1,14 @@
 import copy
 
 import ase.io
-import rascaline.torch
 import torch
 from metatensor.torch.atomistic import (
     MetatensorAtomisticModel,
     ModelCapabilities,
     ModelEvaluationOptions,
+    ModelMetadata,
     ModelOutput,
+    systems_to_torch,
 )
 
 from metatensor.models.experimental.alchemical_model import DEFAULT_HYPERS, Model
@@ -21,25 +22,24 @@ def test_rotational_invariance():
 
     capabilities = ModelCapabilities(
         length_unit="Angstrom",
-        species=[1, 6, 7, 8],
+        atomic_types=[1, 6, 7, 8],
         outputs={
             "energy": ModelOutput(
                 quantity="energy",
                 unit="eV",
             )
         },
+        supported_devices=["cpu"],
     )
     alchemical_model = Model(capabilities, DEFAULT_HYPERS["model"])
     system = ase.io.read(DATASET_PATH)
     original_system = copy.deepcopy(system)
     system.rotate(48, "y")
-    original_system = rascaline.torch.systems_to_torch(original_system).to(
-        torch.get_default_dtype()
-    )
+    original_system = systems_to_torch(original_system, dtype=torch.get_default_dtype())
     original_system = get_system_with_neighbors_lists(
         original_system, alchemical_model.requested_neighbors_lists()
     )
-    system = rascaline.torch.systems_to_torch(system).to(torch.get_default_dtype())
+    system = systems_to_torch(system, dtype=torch.get_default_dtype())
     system = get_system_with_neighbors_lists(
         system, alchemical_model.requested_neighbors_lists()
     )
@@ -50,7 +50,7 @@ def test_rotational_invariance():
     )
 
     model = MetatensorAtomisticModel(
-        alchemical_model.eval(), alchemical_model.capabilities
+        alchemical_model.eval(), ModelMetadata(), alchemical_model.capabilities
     )
     original_output = model(
         [original_system],

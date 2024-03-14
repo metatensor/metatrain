@@ -13,7 +13,7 @@ def system_to_ase(system: System) -> ase.Atoms:
 
     # Convert the system to an ASE atoms object
     positions = system.positions.detach().cpu().numpy()
-    numbers = system.species.detach().cpu().numpy()
+    numbers = system.types.detach().cpu().numpy()
     cell = system.cell.detach().cpu().numpy()
     pbc = list(cell.any(axis=1))
     atoms = ase.Atoms(

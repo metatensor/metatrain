@@ -13,15 +13,19 @@ from ..utils.data import collate_fn, read_systems, read_targets, write_predictio
 from ..utils.errors import ArchitectureError
 from ..utils.extract_targets import get_outputs_dict
 from ..utils.info import finalize_aggregated_info, update_aggregated_info
+from ..utils.io import load
 from ..utils.loss import TensorMapDictLoss
-from ..utils.model_io import load_exported_model
 from ..utils.neighbors_lists import get_system_with_neighbors_lists
 from ..utils.omegaconf import expand_dataset_config
 from .formatter import CustomHelpFormatter
 
 
 logger = logging.getLogger(__name__)
-logging.basicConfig(level=logging.INFO, format="%(message)s")
+logging.basicConfig(
+    level=logging.INFO,
+    format="[%(asctime)s][%(levelname)s] - %(message)s",
+    datefmt="%Y-%m-%d %H:%M:%S",
+)
 
 
 def _add_eval_model_parser(subparser: argparse._SubParsersAction) -> None:
@@ -42,7 +46,7 @@ def _add_eval_model_parser(subparser: argparse._SubParsersAction) -> None:
     parser.set_defaults(callable="eval_model")
     parser.add_argument(
         "model",
-        type=load_exported_model,
+        type=load,
         help="Saved exported model to be evaluated.",
     )
     parser.add_argument(
@@ -182,7 +186,7 @@ def eval_model(
         else:
             extra_log_message = f" with index {i}"
             file_index_suffix = f"_{i}"
-        logger.info(f"Evaulate dataset{extra_log_message}")
+        logger.info(f"Evaluating dataset{extra_log_message}")
 
         eval_systems = read_systems(
             filename=options["systems"]["read_from"],

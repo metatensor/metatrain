@@ -110,7 +110,7 @@ def test_train_explicit_validation_test(
             else:
                 extra_log_message = f" with index {i}"
 
-            assert f"Evaulate {set_type} dataset{extra_log_message}" in log
+            assert f"Evaluating {set_type} dataset{extra_log_message}" in log
 
     assert Path("model.pt").is_file()
 
@@ -253,16 +253,6 @@ def test_continue_different_dataset(options, monkeypatch, tmp_path):
     options["training_set"]["targets"]["energy"]["key"] = "energy"
 
     train_model(options, continue_from=MODEL_PATH)
-
-
-def test_continue_from_exported(options, monkeypatch, tmp_path):
-    """Test that continuing training from an exported model raises an error."""
-    monkeypatch.chdir(tmp_path)
-    shutil.copy(DATASET_PATH, "qm9_reduced_100.xyz")
-
-    with pytest.warns(match="Trying to load a checkpoint from"):
-        with pytest.raises(ArchitectureError):
-            train_model(options, continue_from=RESOURCES_PATH / "bpnn-model.pt")
 
 
 def test_hydra_arguments():
