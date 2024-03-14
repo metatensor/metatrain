@@ -3,7 +3,7 @@ CLI API
 
 This is the API for the command line interface ``cli`` functions for the ``train`` and
 the ``eval`` functions of ``metatensor-models``. The function ``export`` can be directly
-called from :func:`metatensor.models.utils.export`.
+called from :func:`metatensor.models.utils.io.export`.
 
 .. toctree::
    :maxdepth: 1

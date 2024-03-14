@@ -20,10 +20,10 @@ from ...utils.data import (
 )
 from ...utils.extract_targets import get_outputs_dict
 from ...utils.info import finalize_aggregated_info, update_aggregated_info
+from ...utils.io import is_exported, load, save
 from ...utils.logging import MetricLogger
 from ...utils.loss import TensorMapDictLoss
 from ...utils.merge_capabilities import merge_capabilities
-from ...utils.model_io import load_checkpoint, save_model
 from .model import DEFAULT_HYPERS, Model
 
 
@@ -57,7 +57,10 @@ def train(
         )
         new_capabilities = requested_capabilities
     else:
-        model = load_checkpoint(continue_from)
+        model = load(continue_from)
+        if is_exported(model):
+            raise ValueError("model is already exported and can't be used for continue")
+
         filtered_new_dict = {k: v for k, v in hypers["model"].items() if k != "restart"}
         filtered_old_dict = {k: v for k, v in model.hypers.items() if k != "restart"}
         if filtered_new_dict != filtered_old_dict:
@@ -258,7 +261,7 @@ def train(
             )
 
         if epoch % hypers_training["checkpoint_interval"] == 0:
-            save_model(
+            save(
                 model,
                 Path(output_dir) / f"model_{epoch}.ckpt",
             )
