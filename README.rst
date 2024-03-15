@@ -1,7 +1,7 @@
 metatensor-models
 -----------------
 
-|tests| |docs|
+|tests| |codecov| |docs|
 
 .. warning::
 
@@ -16,7 +16,7 @@ case, this repository can simply contain a wrapper to an external model.
 .. marker-introduction
 
 What is metatensor-models?
-###########################
+##########################
 
 The idea behind ``metatensor-models`` is to have a general hub
 that provide an homogeneous enviroment and user interface to
@@ -31,7 +31,7 @@ Note: ``metatensor-models`` does not provide `per se` mathematical functionaliti
 relies on external models that implement the various architectures.
 
 Features
-#########
+########
 
 - **Custom ML Architecture**: Integrate any TorchScriptable ML model
   to explore innovative architectures.
@@ -50,7 +50,7 @@ Features
 .. marker-architectures
 
 List of Implemented Architectures
-###################################
+#################################
 
 Currently metatensor-models supports the following architectures for building an
 atomistic model.
@@ -65,10 +65,14 @@ atomistic model.
    * - SOAP BPNN
      - A Behler-Parrinello neural network with SOAP features
 
+   * - Alchemical Model
+     - A Behler-Parrinello neural network with SOAP features
+       and Alchemical Compression of the composition space
+
 .. marker-documentation
 
 Documentation
-------------
+-------------
 
 For details, tutorials, and examples, please have a look at our
 `documentation <https://lab-cosmo.github.io/metatensor-models/latest/>`_.
@@ -94,6 +98,20 @@ example, to install the SOAP-BPNN model, you can run:
 
     pip install .[soap-bpnn]
 
+Shell Completion
+################
+`metatensor-models` comes with completion definitions for its commands for ``bash`` and
+``zsh``. Since it is difficult to automatically configure shell completions in a robust
+manner, you must manually configure your shell to enable its completion support.
+
+To make the completions available, source the definitions as
+part of your shell's startup. Add the following to your ``~/.bash_profile``,
+``~/.zshrc`` (or, if they don't exist, ``~/.profile``):
+
+.. code-block:: bash
+
+  source $(metatensor-models --shell-completion)
+
 .. marker-issues
 
 Having problems or ideas?
@@ -112,7 +130,7 @@ Contributors
 
 Thanks goes to all people that make metatensor-models possible:
 
-.. image:: https://contrib.rocks/image?repo=metatensor-models
+.. image:: https://contrib.rocks/image?repo=lab-cosmo/metatensor-models
    :target: https://github.com/lab-cosmo/metatensor-models/graphs/contributors
 
 .. |tests| image:: https://github.com/lab-cosmo/metatensor-models/workflows/Tests/badge.svg
@@ -120,6 +138,10 @@ Thanks goes to all people that make metatensor-models possible:
    :target: (https://github.com/lab-cosmo/metatensor-models/\
                 actions?query=workflow%3ATests)
 
+.. |codecov| image:: https://codecov.io/gh/lab-cosmo/metatensor-models/branch/main/graph/badge.svg
+   :alt: Code coverage
+   :target: https://codecov.io/gh/lab-cosmo/metatensor-models
+
 .. |docs| image:: https://img.shields.io/badge/documentation-latest-sucess
-   :alt: Python
+   :alt: Documentation
    :target: https://lab-cosmo.github.io/metatensor-models/latest/

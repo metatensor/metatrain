@@ -4,23 +4,24 @@ Running molecular dynamics with ASE
 
 This tutorial demonstrates how to use an already trained and exported model to run an
 ASE simulation of a single ethanol molecule in vacuum. We use a model that was trained
-using the :ref:`architecture-soap-bpnn` architecture on 100 ethanol structures
+using the :ref:`architecture-soap-bpnn` architecture on 100 ethanol systems
 containing energies and forces. You can obtain the :download:`dataset file
-<../../../static/ethanol/ethanol_reduced_100.xyz>` used in this example from our
-website. The dataset is a subset of the `rMD17 dataset
+<ethanol_reduced_100.xyz>` used in this example from our website. The dataset is a
+subset of the `rMD17 dataset
 <https://iopscience.iop.org/article/10.1088/2632-2153/abba6f/meta>`_.
 
 The model was trained using the following training options.
 
-.. literalinclude:: ../../../static/ethanol/options.yaml
+.. literalinclude:: options.yaml
    :language: yaml
 
-You can train and export the model yourself using the following commands
+You can use the pretrained and exported :download:`model <exported-model.pt>`
+or train the model yourself with
 
-.. literalinclude:: ../../../../examples/ase/train_export.sh
+.. literalinclude:: train.sh
    :language: bash
 
-A detailed step-by-step introduction on how to train and export a model is provided in
+A detailed step-by-step introduction on how to train a model is provided in
 the :ref:`label_basic_usage` tutorial.
 """
 
@@ -147,16 +148,13 @@ plt.show()
 
 # %%
 #
-# Inspect the final structure
-# ###########################
+# Inspect the systems
+# ###################
 #
 # Even though the total energy is conserved, we also have to verify that the ethanol
 # molecule is stable and the bonds did not break.
 
-ase.visualize.plot.plot_atoms(trajectory[-1])
-plt.xlabel("Å")
-plt.ylabel("Å")
-
+animation = ase.visualize.plot.animate(trajectory, interval=100, save_count=None)
 plt.show()
 
 # %%
@@ -167,7 +165,7 @@ plt.show()
 # As a final analysis we also calculate and plot the carbon-hydrogen radial distribution
 # function (RDF) from the trajectory and compare this to the RDF from the training set.
 #
-# To use the RDF code from ase we first have to define a unit cell for our structures.
+# To use the RDF code from ase we first have to define a unit cell for our systems.
 # We choose a cubic one with a side length of 10 Å.
 
 for atoms in training_frames:

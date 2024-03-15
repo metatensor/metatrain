@@ -13,7 +13,7 @@ metatensor-models train --help
 metatensor-models eval model.pt eval.yaml
 
 # The evaluation command predicts those properties the model was trained against; here
-# "U0". The predictions together with the structures have been written in a file named
+# "U0". The predictions together with the systems have been written in a file named
 # ``output.xyz`` in the current directory. The written file starts with the following
 # lines
 
@@ -22,9 +22,3 @@ head -n 20 output.xyz
 # All command line flags of the eval sub-command can be listed via
 
 metatensor-models eval --help
-
-# Finally, the `metatestor-models export` command, i.e.,
-
-metatensor-models export model.pt
-
-# creates an `exported-model.pt` file that contains the exported model.
