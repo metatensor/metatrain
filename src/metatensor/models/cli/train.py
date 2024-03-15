@@ -207,11 +207,11 @@ def _train_model_hydra(options: DictConfig) -> None:
         necessary options for dataset preparation, model hyperparameters, and training.
     """
     if options["base_precision"] == 64:
-        torch.set_default_dtype(torch.float64)
+        dtype = torch.float64
     elif options["base_precision"] == 32:
-        torch.set_default_dtype(torch.float32)
+        dtype = torch.float32
     elif options["base_precision"] == 16:
-        torch.set_default_dtype(torch.float16)
+        dtype = torch.float16
     else:
         raise ValueError("Only 64, 32 or 16 are possible values for `base_precision`.")
 
@@ -239,11 +239,9 @@ def _train_model_hydra(options: DictConfig) -> None:
         train_systems = read_systems(
             filename=train_options["systems"]["read_from"],
             fileformat=train_options["systems"]["file_format"],
-            dtype=torch.get_default_dtype(),
+            dtype=dtype,
         )
-        train_targets = read_targets(
-            conf=train_options["targets"], dtype=torch.get_default_dtype()
-        )
+        train_targets = read_targets(conf=train_options["targets"], dtype=dtype)
         train_datasets.append(Dataset(system=train_systems, **train_targets))
 
     train_size = 1.0
@@ -293,11 +291,9 @@ def _train_model_hydra(options: DictConfig) -> None:
             test_systems = read_systems(
                 filename=test_options["systems"]["read_from"],
                 fileformat=test_options["systems"]["file_format"],
-                dtype=torch.get_default_dtype(),
+                dtype=dtype,
             )
-            test_targets = read_targets(
-                conf=test_options["targets"], dtype=torch.get_default_dtype()
-            )
+            test_targets = read_targets(conf=test_options["targets"], dtype=dtype)
             test_dataset = Dataset(system=test_systems, **test_targets)
             test_datasets.append(test_dataset)
 
@@ -346,10 +342,10 @@ def _train_model_hydra(options: DictConfig) -> None:
             validation_systems = read_systems(
                 filename=validation_options["systems"]["read_from"],
                 fileformat=validation_options["systems"]["file_format"],
-                dtype=torch.get_default_dtype(),
+                dtype=dtype,
             )
             validation_targets = read_targets(
-                conf=validation_options["targets"], dtype=torch.get_default_dtype()
+                conf=validation_options["targets"], dtype=dtype
             )
             validation_dataset = Dataset(
                 system=validation_systems, **validation_targets

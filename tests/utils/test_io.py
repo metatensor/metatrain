@@ -2,7 +2,6 @@ from pathlib import Path
 
 import metatensor.torch
 import pytest
-import torch
 from metatensor.torch.atomistic import ModelCapabilities, ModelOutput
 
 from metatensor.models.experimental.soap_bpnn import Model
@@ -30,9 +29,7 @@ def test_save_load_checkpoint(monkeypatch, tmp_path, path):
     )
 
     model = Model(capabilities)
-    systems = read_systems(
-        RESOURCES_PATH / "qm9_reduced_100.xyz", dtype=torch.get_default_dtype()
-    )
+    systems = read_systems(RESOURCES_PATH / "qm9_reduced_100.xyz")
 
     output_before_save = model(
         systems,

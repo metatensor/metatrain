@@ -348,12 +348,12 @@ def test_model_consistency_with_seed(
         # The first tensor only depend on the chemical compositions (not on the
         # seed) and should alwyas be the same.
         if index == 0:
-            assert torch.allclose(tensor1, tensor2)
+            torch.testing.assert_close(tensor1, tensor2)
         else:
             if seed is None:
                 assert not torch.allclose(tensor1, tensor2)
             else:
-                assert torch.allclose(tensor1, tensor2)
+                torch.testing.assert_close(tensor1, tensor2)
 
 
 def test_error_base_precision(options, monkeypatch, tmp_path):
@@ -364,6 +364,16 @@ def test_error_base_precision(options, monkeypatch, tmp_path):
 
     with pytest.raises(ValueError, match="Only 64, 32 or 16 are possible values for"):
         train_model(options)
+
+
+# TODO add parametrize for 16-bit once we have a model that supports this.
+@pytest.mark.parametrize("base_precision", [64])
+def test_different_base_precision(options, monkeypatch, tmp_path, base_precision):
+    """Test different `base_precision`s."""
+    monkeypatch.chdir(tmp_path)
+    shutil.copy(DATASET_PATH, "qm9_reduced_100.xyz")
+    options["base_precision"] = base_precision
+    train_model(options)
 
 
 def test_architecture_error(options, monkeypatch, tmp_path):

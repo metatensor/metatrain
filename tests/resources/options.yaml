@@ -1,3 +1,5 @@
+base_precision: 32
+
 architecture:
   name: experimental.soap_bpnn
   training:

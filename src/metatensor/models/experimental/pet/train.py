@@ -27,7 +27,7 @@ def train(
     continue_from: Optional[str] = None,
     output_dir: str = ".",
 ):
-    if torch.get_default_dtype() != torch.float32:
+    if train_datasets[0][0].system.positions.dtype != torch.float32:
         raise ValueError("PET only supports float32")
     if len(dataset_info.targets) != 1:
         raise ValueError("PET only supports a single target")

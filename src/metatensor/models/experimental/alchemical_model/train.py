@@ -120,8 +120,10 @@ def train(
     model.set_basis_normalization_factor(average_number_of_neighbors)
 
     device = devices[0]  # only one device, as we don't support multi-gpu for now
-    logger.info(f"Training on device {device}")
-    model.to(device)
+    dtype = train_datasets[0][0].system.positions.dtype
+
+    logger.info(f"training on device {device} with dtype {dtype}")
+    model.to(device=device, dtype=dtype)
 
     # Calculate and set the composition weights for all targets:
     for target_name in novel_capabilities.outputs.keys():

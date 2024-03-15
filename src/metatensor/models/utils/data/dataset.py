@@ -133,6 +133,7 @@ def check_datasets(
         (if ``false``) upon detection of a chemical species or target in the
         validation set that is not present in the training set.
     """
+    # TODO: Check that `dtypes` are consistent within datasets
 
     # Get all targets in the training and validation sets:
     train_targets = get_all_targets(train_datasets)

@@ -45,9 +45,7 @@ def test_regression_init():
 
     # Predict on the first five systems
     systems = ase.io.read(DATASET_PATH, ":5")
-    systems = [
-        systems_to_torch(system, dtype=torch.get_default_dtype()) for system in systems
-    ]
+    systems = [systems_to_torch(system) for system in systems]
     systems = [
         get_system_with_neighbors_lists(
             system, alchemical_model.requested_neighbors_lists()
@@ -71,7 +69,9 @@ def test_regression_init():
 
     expected_output = torch.tensor([[-1.9819], [0.1507], [1.6116], [3.4118], [0.8383]])
 
-    assert torch.allclose(output["U0"].block().values, expected_output, atol=1e-4)
+    torch.testing.assert_close(
+        output["U0"].block().values, expected_output, rtol=1e-05, atol=1e-4
+    )
 
 
 def test_regression_train():
@@ -83,7 +83,7 @@ def test_regression_train():
     np.random.seed(0)
     torch.manual_seed(0)
 
-    systems = read_systems(DATASET_PATH, dtype=torch.get_default_dtype())
+    systems = read_systems(DATASET_PATH)
     conf = {
         "U0": {
             "quantity": "energy",
@@ -95,7 +95,7 @@ def test_regression_train():
             "virial": False,
         }
     }
-    targets = read_targets(OmegaConf.create(conf), dtype=torch.get_default_dtype())
+    targets = read_targets(OmegaConf.create(conf))
     dataset = Dataset(system=systems, U0=targets["U0"])
 
     hypers = DEFAULT_HYPERS.copy()
@@ -137,4 +137,6 @@ def test_regression_train():
         [[-118.6454], [-106.1644], [-137.0310], [-164.7832], [-139.8678]]
     )
 
-    assert torch.allclose(output["U0"].block().values, expected_output, atol=1e-4)
+    torch.testing.assert_close(
+        output["U0"].block().values, expected_output, rtol=1e-05, atol=1e-4
+    )
