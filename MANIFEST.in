@@ -14,5 +14,6 @@ exclude .codecov.yml
 exclude .gitignore
 exclude tox.ini
 exclude .readthedocs.yml
+exclude CODEOWNERS
 
 global-exclude *.py[cod] __pycache__/* *.so *.dylib
