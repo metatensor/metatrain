@@ -4,14 +4,13 @@ import warnings
 from pathlib import Path
 from typing import Any, Union
 
+import metatensor.torch
 import torch
 from metatensor.torch.atomistic import (
     MetatensorAtomisticModel,
     ModelCapabilities,
     ModelMetadata,
 )
-
-import metatensor
 
 
 # This import is necessary to avoid errors when loading an
