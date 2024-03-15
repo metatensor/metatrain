@@ -67,6 +67,9 @@ def _add_eval_model_parser(subparser: argparse._SubParsersAction) -> None:
 
 def _eval_targets(model, dataset: Union[_BaseDataset, torch.utils.data.Subset]) -> None:
     """Evaluate an exported model on a dataset and print the RMSEs for each target."""
+    if len(dataset) == 0:
+        logger.info("This dataset is empty")
+        return
     # Attach neighbor lists to the systems:
     requested_neighbor_lists = model.requested_neighbors_lists()
     # working around https://github.com/lab-cosmo/metatensor/issues/521

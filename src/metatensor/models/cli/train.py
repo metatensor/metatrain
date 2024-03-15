@@ -351,6 +351,16 @@ def _train_model_hydra(options: DictConfig) -> None:
             )
             validation_datasets.append(validation_dataset)
 
+    if (
+        sum([len(validation_dataset) for validation_dataset in validation_datasets])
+        == 0
+    ):
+        raise ValueError(
+            "The validation set is empty. Please provide a validation set, "
+            "either by setting a fraction of the training set or by providing it "
+            "explicitly."
+        )
+
     # Save fully expanded config
     OmegaConf.save(config=options, f=Path(output_dir) / "options.yaml")
 
