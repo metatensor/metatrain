@@ -9,9 +9,9 @@ from metatensor.learn.data import Dataset
 from metatensor.torch.atomistic import ModelCapabilities, ModelOutput
 from omegaconf import OmegaConf
 
-from metatensor.models.sparse_gap import DEFAULT_HYPERS, Model, train
-from metatensor.models.utils.data import get_all_species
-from metatensor.models.utils.data.readers import read_structures, read_targets
+from metatensor.models.experimental.gap import DEFAULT_HYPERS, Model, train
+from metatensor.models.utils.data import DatasetInfo, TargetInfo
+from metatensor.models.utils.data.readers import read_systems, read_targets
 
 from . import DATASET_ETHANOL_PATH, DATASET_PATH
 
@@ -30,7 +30,7 @@ def test_regression_init():
 
     capabilities = ModelCapabilities(
         length_unit="Angstrom",
-        species=[1, 6, 7, 8],
+        atomic_types=[1, 6, 7, 8],
         outputs={
             "U0": ModelOutput(
                 quantity="energy",
@@ -47,11 +47,11 @@ def test_regression_train_and_invariance():
     for this.
     """
 
-    structures = read_structures(DATASET_PATH)
+    systems = read_systems(DATASET_PATH, dtype=torch.get_default_dtype())
     # PR COMMENT this is a temporary hack until kernel is properly implemented that can
     #            deal with tensor maps with different species pairs
-    # for structure in structures:
-    #    structure.species = torch.ones(len(structure.species), dtype=torch.int32)
+    # for system in systems:
+    #    system.species = torch.ones(len(system.species), dtype=torch.int32)
 
     conf = {
         "U0": {
@@ -65,25 +65,24 @@ def test_regression_train_and_invariance():
         }
     }
     targets = read_targets(OmegaConf.create(conf))
-    dataset = Dataset(structure=structures, U0=targets["U0"])
+    dataset = Dataset(system=systems, U0=targets["U0"])
 
     hypers = DEFAULT_HYPERS.copy()
     hypers["training"]["num_epochs"] = 2
 
-    capabilities = ModelCapabilities(
+    dataset_info = DatasetInfo(
         length_unit="Angstrom",
-        species=get_all_species(dataset),
-        outputs={
-            "U0": ModelOutput(
+        targets={
+            "U0": TargetInfo(
                 quantity="energy",
                 unit="eV",
-            )
+            ),
         },
     )
-    sparse_gap = train([dataset], [dataset], capabilities, hypers)
+    gap = train([dataset], [dataset], dataset_info, hypers)
 
-    # Predict on the first five structures
-    output = sparse_gap(structures[:5], {"U0": sparse_gap.capabilities.outputs["U0"]})
+    # Predict on the first five systems
+    output = gap(systems[:5], {"U0": gap.capabilities.outputs["U0"]})
 
     expected_output = torch.tensor(
         [[-40.5891], [-56.7122], [-76.4146], [-77.3364], [-93.4905]]
@@ -92,21 +91,21 @@ def test_regression_train_and_invariance():
     assert torch.allclose(output["U0"].block().values, expected_output, rtol=0.3)
 
     # Tests that the model is rotationally invariant
-    structure = ase.io.read(DATASET_PATH)
+    system = ase.io.read(DATASET_PATH)
     # PR COMMENT this is a temporary hack until kernel is properly implemented that can
     #            deal with tensor maps with different species pairs
-    structure.numbers = np.ones(len(structure.numbers))
+    system.numbers = np.ones(len(system.numbers))
 
-    original_structure = copy.deepcopy(structure)
-    structure.rotate(48, "y")
+    original_system = copy.deepcopy(system)
+    system.rotate(48, "y")
 
-    original_output = sparse_gap(
-        [rascaline.torch.systems_to_torch(original_structure)],
-        {"U0": sparse_gap.capabilities.outputs["U0"]},
+    original_output = gap(
+        [rascaline.torch.systems_to_torch(original_system)],
+        {"U0": gap.capabilities.outputs["U0"]},
     )
-    rotated_output = sparse_gap(
-        [rascaline.torch.systems_to_torch(structure)],
-        {"U0": sparse_gap.capabilities.outputs["U0"]},
+    rotated_output = gap(
+        [rascaline.torch.systems_to_torch(system)],
+        {"U0": gap.capabilities.outputs["U0"]},
     )
 
     assert torch.allclose(
@@ -121,11 +120,11 @@ def test_ethanol_regression_train_and_invariance():
     for this.
     """
 
-    structures = read_structures(DATASET_ETHANOL_PATH)
+    systems = read_systems(DATASET_ETHANOL_PATH)
     # PR COMMENT this is a temporary hack until kernel is properly implemented that can
     #            deal with tensor maps with different species pairs
-    # for structure in structures:
-    #    structure.species = torch.ones(len(structure.species), dtype=torch.int32)
+    # for system in systems:
+    #    system.species = torch.ones(len(system.species), dtype=torch.int32)
 
     conf = {
         "energy": {
@@ -144,26 +143,23 @@ def test_ethanol_regression_train_and_invariance():
     }
 
     targets = read_targets(OmegaConf.create(conf))
-    dataset = Dataset(structure=structures, energy=targets["energy"])
+    dataset = Dataset(system=systems, energy=targets["energy"])
 
     hypers = DEFAULT_HYPERS.copy()
     hypers["model"]["sparse_points"]["points"] = 900
 
-    capabilities = ModelCapabilities(
+    dataset_info = DatasetInfo(
         length_unit="Angstrom",
-        species=get_all_species(dataset),
-        outputs={
-            "energy": ModelOutput(
+        targets={
+            "U0": TargetInfo(
                 quantity="energy",
                 unit="eV",
-            )
+            ),
         },
     )
-    sparse_gap = train([dataset], [dataset], capabilities, hypers)
-    # Predict on the first five structures
-    output = sparse_gap(
-        structures[:5], {"energy": sparse_gap.capabilities.outputs["energy"]}
-    )
+    gap = train([dataset], [dataset], dataset_info, hypers)
+    # Predict on the first five systems
+    output = gap(systems[:5], {"energy": gap.capabilities.outputs["energy"]})
     # taken from the file ethanol_reduced_100.xyz
     data = ase.io.read(DATASET_ETHANOL_PATH, ":5", format="extxyz")
     expected_output = torch.tensor([[i.info["energy"]] for i in data])
@@ -183,21 +179,21 @@ def test_ethanol_regression_train_and_invariance():
     )
     # breakpoint()
     # Tests that the model is rotationally invariant
-    structure = ase.io.read(DATASET_ETHANOL_PATH)
+    system = ase.io.read(DATASET_ETHANOL_PATH)
     # PR COMMENT this is a temporary hack until kernel is properly implemented that can
     #            deal with tensor maps with different species pairs
-    # structure.numbers = np.ones(len(structure.numbers))
+    # system.numbers = np.ones(len(system.numbers))
 
-    original_structure = copy.deepcopy(structure)
-    structure.rotate(48, "y")
+    original_system = copy.deepcopy(system)
+    system.rotate(48, "y")
 
-    original_output = sparse_gap(
-        [rascaline.torch.systems_to_torch(original_structure)],
-        {"energy": sparse_gap.capabilities.outputs["energy"]},
+    original_output = gap(
+        [rascaline.torch.systems_to_torch(original_system)],
+        {"energy": gap.capabilities.outputs["energy"]},
     )
-    rotated_output = sparse_gap(
-        [rascaline.torch.systems_to_torch(structure)],
-        {"energy": sparse_gap.capabilities.outputs["energy"]},
+    rotated_output = gap(
+        [rascaline.torch.systems_to_torch(system)],
+        {"energy": gap.capabilities.outputs["energy"]},
     )
 
     assert torch.allclose(

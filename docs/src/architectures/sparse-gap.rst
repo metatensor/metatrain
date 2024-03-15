@@ -21,9 +21,9 @@ of the repository:
 
 .. code-block:: bash
 
-    pip install .[sparse-gap]
+    pip install .[gap]
 
-This will install the package with the SOAP-BPNN dependencies.
+This will install the package with the GAP dependencies.
 
 
 Hyperparameters
@@ -31,7 +31,7 @@ Hyperparameters
 
 The hyperparameters (and relative default values) for the SOAP-BPNN model are:
 
-.. literalinclude:: ../../../src/metatensor/models/cli/conf/architecture/sparse_gap.yaml
+.. literalinclude:: ../../../src/metatensor/models/cli/conf/architecture/experimental.gap.yaml
    :language: yaml
 
 Any of these hyperparameters can be overridden with the training parameter file.

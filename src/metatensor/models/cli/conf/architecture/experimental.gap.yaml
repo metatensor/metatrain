@@ -1,5 +1,5 @@
 # default hyperparameters for the SparseGAP model
-name: sparse_gap
+name: gap
 
 model:
   soap:

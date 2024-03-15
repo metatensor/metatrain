@@ -6,27 +6,26 @@ import metatensor.torch
 import numpy as np
 import rascaline
 import torch
-from metatensor.learn.data.dataset import _BaseDataset
+from metatensor.learn.data import Dataset
 from metatensor.torch import TensorMap
-from metatensor.torch.atomistic import ModelCapabilities
+from metatensor.torch.atomistic import ModelCapabilities, ModelOutput
 
 import metatensor
 
 # TODO will be needed once we support more outputs
-# from ..utils.data import get_all_targets
-from ..utils.data import check_datasets
-from ..utils.extract_targets import get_outputs_dict
+# from ...utils.data import get_all_targets
+from ...utils.data import DatasetInfo, check_datasets, get_all_species
+from ...utils.extract_targets import get_outputs_dict
 
 # TODO might be important when we support mulitple capabilities
 # from ..utils.merge_capabilities import merge_capabilities
 from .model import DEFAULT_HYPERS, Model, torch_tensor_map_to_core
 
 
+# from metatensor.torch.atomistic import ModelCapabilities
+
 # TODO use this for composition
 # from ..utils.composition import calculate_composition_weights
-# PR COMMENT we do not use the loss utils since it seems more for batch-wise training
-# from ..utils.compute_loss import compute_model_loss
-# from ..utils.loss import TensorMapDictLoss
 
 
 logger = logging.getLogger(__name__)
@@ -42,17 +41,50 @@ warnings.filterwarnings(
 
 
 def train(
-    train_datasets: List[Union[_BaseDataset, torch.utils.data.Subset]],
-    validation_datasets: List[Union[_BaseDataset, torch.utils.data.Subset]],
-    requested_capabilities: ModelCapabilities,
+    train_datasets: List[Union[Dataset, torch.utils.data.Subset]],
+    validation_datasets: List[Union[Dataset, torch.utils.data.Subset]],
+    dataset_info: DatasetInfo,
     hypers: Dict = DEFAULT_HYPERS,
     output_dir: str = ".",
     device_str: str = "cpu",
     continue_from: Optional[str] = None,
 ):
+    # checks
+    if continue_from is not None:
+        raise ValueError("Training from a checkpoint is not supported in GAP.")
+    if device_str != "cpu":
+        raise ValueError("GAP only supports cpu training")
+    if len(dataset_info.targets) != 1:
+        raise ValueError("GAP only supports a single target")
+    target_name = next(iter(dataset_info.targets.keys()))
+    if dataset_info.targets[target_name].quantity != "energy":
+        raise ValueError("GAP only supports energies as target")
+    if dataset_info.targets[target_name].per_atom:
+        raise ValueError("GAP does not support per-atom energies")
+    if len(train_datasets) != 1:
+        raise ValueError("GAP only supports a single training dataset")
+    if len(validation_datasets) != 1:
+        raise ValueError("GAP only supports a single validation dataset")
+
+    all_species = get_all_species(train_datasets + validation_datasets)
+    outputs = {
+        key: ModelOutput(
+            quantity=value.quantity,
+            unit=value.unit,
+            per_atom=value.per_atom,
+        )
+        for key, value in dataset_info.targets.items()
+    }
+    capabilities = ModelCapabilities(
+        length_unit=dataset_info.length_unit,
+        outputs=outputs,
+        atomic_types=all_species,
+        supported_devices=["cpu", "cuda"],
+    )
+
     # Create the model:
     model = Model(
-        capabilities=requested_capabilities,
+        capabilities=capabilities,
         hypers=hypers["model"],
     )
 
@@ -92,7 +124,7 @@ def train(
     # Calculate and set the composition weights for all targets:
     # TODO skipping just to make progress faster
     # logger.info("Calculating composition weights")
-    # for target_name in requested_capabilities.outputs.keys():
+    # for target_name in capabilities.outputs.keys():
     #    # TODO: warn in the documentation that capabilities that are already
     #    # present in the model won't recalculate the composition weights
     #    # find the datasets that contain the target:
@@ -114,10 +146,10 @@ def train(
 
     # Information:
     # train_datasets: List[Union[_BaseDataset, torch.utils.data.Subset]],
-    # train_datasets[datasets]._data["structure"][structures]
-    # train_datasets[0:N_DATASETS]._data["structure"][0:N_STRUCTURES] # AtomicSystems
+    # train_datasets[datasets]._data["system"][structures]
+    # train_datasets[0:N_DATASETS]._data["system"][0:N_STRUCTURES] # AtomicSystems
     # train_datasets[0:N_DATASETS]._data[output_name][0:N_STRUCTURES] # TensorMap
-    if isinstance(train_datasets[0], _BaseDataset):
+    if isinstance(train_datasets[0], Dataset):
         if len(train_datasets[0]._data[output_name][0].keys) > 1:
             raise NotImplementedError(
                 "Found more than 1 key in properties. Assuming "
@@ -135,7 +167,7 @@ def train(
         train_structures = [
             structure
             for dataset in train_datasets
-            for structure in dataset._data["structure"]
+            for structure in dataset._data["system"]
         ]
     elif isinstance(train_datasets[0], torch.utils.data.Subset):
         if len(train_datasets[0][0][1].keys) > 1:
@@ -154,7 +186,7 @@ def train(
         raise NotImplementedError(
             "train_datasets should be a list of _BaseDataset or torch.utils.data.Subset"
         )
-    model._train_y_mean = metatensor.torch.mean_over_samples(train_y, ["structure"])
+    model._train_y_mean = metatensor.torch.mean_over_samples(train_y, ["system"])
     # breakpoint()
     train_y = metatensor.torch.subtract(train_y, float(model._train_y_mean[0].values))
     model._keys = train_y.keys
@@ -168,10 +200,10 @@ def train(
     else:
         train_tensor = model._soap_torch_calculator.compute(train_structures)
     model._species_labels = train_tensor.keys
-    train_tensor = train_tensor.keys_to_samples("species_center")
+    train_tensor = train_tensor.keys_to_samples("center_type")
     # TODO implement accumulate_key_names so we do not loose sparsity
     train_tensor = train_tensor.keys_to_properties(
-        ["species_neighbor_1", "species_neighbor_2"]
+        ["neighbor_1_type", "neighbor_2_type"]
     )
     # change backend
     train_tensor = TensorMap(train_y.keys, train_tensor.blocks())
@@ -188,7 +220,7 @@ def train(
     # logger.info(
     #    "Train MAE:",
     #    metatensor.mean_over_samples(
-    #        metatensor.abs(metatensor.subtract(train_y_pred, train_y)), "structure"
+    #        metatensor.abs(metatensor.subtract(train_y_pred, train_y)), "system"
     #    )[0].values[0, 0],
     # )
 
@@ -214,7 +246,7 @@ def train(
     # logger.info(
     #    "Validation MAE:",
     #    metatensor.mean_over_samples(
-    #        metatensor.abs(metatensor.subtract(val_y_pred, val_y)), "structure"
+    #        metatensor.abs(metatensor.subtract(val_y_pred, val_y)), "system"
     #    )[0].values[0, 0],
     # )
 

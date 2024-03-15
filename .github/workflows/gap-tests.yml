@@ -1,4 +1,4 @@
-name: SparseGAP tests
+name: GAP tests
 
 on:
   push:
@@ -25,7 +25,7 @@ jobs:
     - run: pip install tox
 
     - name: run SparseGAP tests
-      run: tox -e sparse-gap-tests
+      run: tox -e gap-tests
       env:
         # Use the CPU only version of torch when building/running the code
         PIP_EXTRA_INDEX_URL: https://download.pytorch.org/whl/cpu

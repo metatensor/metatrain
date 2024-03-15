@@ -12,29 +12,28 @@ import scipy
 import skmatter
 import torch
 from metatensor.torch import Labels as TorchLabels
-from metatensor.torch import TensorBlock as TorchTensorBlock
 from metatensor.torch import TensorMap as TorchTensorMap
+from metatensor.torch import TensorBlock as TorchTensorBlock
 from metatensor.torch.atomistic import ModelCapabilities, ModelOutput, System
 from omegaconf import OmegaConf
 from skmatter._selection import _FPS
 
-import metatensor
-from metatensor import Labels, TensorBlock, TensorMap
+from metatensor import Labels, TensorMap, TensorBlock
 
-from .. import ARCHITECTURE_CONFIG_PATH
+from ... import ARCHITECTURE_CONFIG_PATH
 
 
 # TODO needed when we apply composition features
-# from ..utils.composition import apply_composition_contribution
+# from ...utils.composition import apply_composition_contribution
 
 
 DEFAULT_HYPERS = OmegaConf.to_container(
-    OmegaConf.load(ARCHITECTURE_CONFIG_PATH / "sparse_gap.yaml")
+    OmegaConf.load(ARCHITECTURE_CONFIG_PATH / "experimental.gap.yaml")
 )
 
 DEFAULT_MODEL_HYPERS = DEFAULT_HYPERS["model"]
 
-ARCHITECTURE_NAME = "sparse_gap"
+ARCHITECTURE_NAME = "gap"
 
 
 class Model(torch.nn.Module):
@@ -62,7 +61,7 @@ class Model(torch.nn.Module):
                 )
 
         self.capabilities = capabilities
-        self.all_species = capabilities.species
+        self.all_species = capabilities.atomic_types
         self.hypers = hypers
 
         # creates a composition weight tensor that can be directly indexed by species,
@@ -90,7 +89,7 @@ class Model(torch.nn.Module):
         # TODO is always sum energy kernel, keep in mind for property
         kernel_kwargs = {
             "degree": hypers["krr"]["degree"],
-            "aggregate_names": ["center", "species_center"],
+            "aggregate_names": ["atom", "center_type"],
         }
         self._subset_of_regressors = SubsetOfRegressors(
             kernel_type=hypers["krr"].get("kernel", "polynomial"),
@@ -126,8 +125,8 @@ class Model(torch.nn.Module):
     ) -> Dict[str, TorchTensorMap]:
         if selected_atoms is not None:
             # change metatensor names to match rascaline
-            selected_atoms = selected_atoms.rename("system", "structure")
-            selected_atoms = selected_atoms.rename("atom", "center")
+            selected_atoms = selected_atoms.rename("system", "system")
+            selected_atoms = selected_atoms.rename("atom", "atom")
 
         soap_features = self._soap_torch_calculator(
             systems, selected_samples=selected_atoms, gradients=["positions"]
@@ -136,13 +135,13 @@ class Model(torch.nn.Module):
         new_blocks: List[TorchTensorBlock] = []
         # hack to add zeros
         # it add the missing key to
-        # "structure", "center" = 0, 0
+        # "system", "atom" = 0, 0
         # given the values are all zeros it does not
         # introduce an error
         # breakpoint()
         dummyblock: TorchTensorBlock = TorchTensorBlock(
             values=torch.zeros((1, len(soap_features[0].properties))),
-            samples=TorchLabels(["structure", "center"], torch.IntTensor([[0, 0]])),
+            samples=TorchLabels(["system", "atom"], torch.IntTensor([[0, 0]])),
             properties=soap_features[0].properties,
             components=[],
         )
@@ -157,7 +156,7 @@ class Model(torch.nn.Module):
                         )
                     ),
                     samples=TorchLabels(
-                        ["sample", "structure", "atom"], torch.IntTensor([[0, 0, 0]])
+                        ["sample", "system", "atom"], torch.IntTensor([[0, 0, 0]])
                     ),
                     components=soap_features[0].gradient(grad).components,
                     properties=soap_features[0].gradient(grad).properties,
@@ -175,9 +174,9 @@ class Model(torch.nn.Module):
         #    soap_features, float(self._train_y_mean[0].values)
         # )
         # TODO implement accumulate_key_names so we do not loose sparsity
-        soap_features = soap_features.keys_to_samples("species_center")
+        soap_features = soap_features.keys_to_samples("center_type")
         soap_features = soap_features.keys_to_properties(
-            ["species_neighbor_1", "species_neighbor_2"]
+            ["neighbor_1_type", "neighbor_2_type"]
         )
         soap_features = TorchTensorMap(self._keys, soap_features.blocks())
         # TODO we assume only one output for the moment, ask Filippo what he has done in
@@ -467,15 +466,15 @@ class AggregateKernel(torch.nn.Module):
 
     def forward(
         self,
-        tensor1: TensorMap,
-        tensor2: TensorMap,
+        tensor1: TorchTensorMap,
+        tensor2: TorchTensorMap,
         are_pseudo_points: Tuple[bool, bool] = (False, False),
-    ) -> TensorMap:
+    ) -> TorchTensorMap:
         return self.aggregate_kernel(
             self.compute_kernel(tensor1, tensor2), are_pseudo_points
         )
 
-    def compute_kernel(self, tensor1: TensorMap, tensor2: TensorMap) -> TensorMap:
+    def compute_kernel(self, tensor1: TorchTensorMap, tensor2: TorchTensorMap) -> TensorMap:
         raise NotImplementedError("compute_kernel needs to be implemented.")
 
 
@@ -553,7 +552,7 @@ class TorchAggregateKernel(torch.nn.Module):
         self._aggregate_type = aggregate_type
         self._structurewise_aggregate = structurewise_aggregate
 
-    def aggregate_features(self, tensor: TorchTensorMap) -> TorchTensorMap:
+    def aggregate_features(self, tensor: TorchTensorMap) -> TensorMap:
         if self._aggregate_type == "sum":
             return metatensor.torch.sum_over_samples(
                 tensor, sample_names=self._aggregate_names
@@ -607,17 +606,15 @@ class TorchAggregateKernel(torch.nn.Module):
 
     def forward(
         self,
-        tensor1: TorchTensorMap,
-        tensor2: TorchTensorMap,
+        tensor1: TensorMap,
+        tensor2: TensorMap,
         are_pseudo_points: Tuple[bool, bool] = (False, False),
-    ) -> TorchTensorMap:
+    ) -> TensorMap:
         return self.aggregate_kernel(
             self.compute_kernel(tensor1, tensor2), are_pseudo_points
         )
 
-    def compute_kernel(
-        self, tensor1: TorchTensorMap, tensor2: TorchTensorMap
-    ) -> TorchTensorMap:
+    def compute_kernel(self, tensor1: TensorMap, tensor2: TensorMap) -> TensorMap:
         raise NotImplementedError("compute_kernel needs to be implemented.")
 
 
@@ -644,9 +641,7 @@ class TorchAggregateLinear(TorchAggregateKernel):
             tensor2 = self.aggregate_features(tensor2)
         return self.compute_kernel(tensor1, tensor2)
 
-    def compute_kernel(
-        self, tensor1: TorchTensorMap, tensor2: TorchTensorMap
-    ) -> TorchTensorMap:
+    def compute_kernel(self, tensor1: TorchTensorMap, tensor2: TorchTensorMap) -> TensorMap:
         return metatensor.torch.dot(tensor1, tensor2)
 
 
@@ -659,6 +654,7 @@ class TorchAggregatePolynomial(TorchAggregateKernel):
         degree: int = 2,
     ):
         super().__init__(aggregate_names, aggregate_type, structurewise_aggregate)
+        # TODO, why is this hardcoded?? - Filippo
         self._degree = 2
 
     def compute_kernel(self, tensor1: TorchTensorMap, tensor2: TorchTensorMap):
@@ -1062,11 +1058,11 @@ class SubsetOfRegressors:
             k_mm_block = k_mm.block(key)
             X_block = X.block(key)
             structures = metatensor.operations._dispatch.unique(
-                k_nm_block.samples["structure"]
+                k_nm_block.samples["system"]
             )
             n_atoms_per_structure = []
             for structure in structures:
-                n_atoms = np.sum(X_block.samples["structure"] == structure)
+                n_atoms = np.sum(X_block.samples["system"] == structure)
                 n_atoms_per_structure.append(float(n_atoms))
 
             # PR COMMENT removed delta because would say this is part of the standardizr

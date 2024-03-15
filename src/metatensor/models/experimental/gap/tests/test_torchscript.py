@@ -3,8 +3,9 @@ from metatensor.learn.data import Dataset
 from metatensor.torch.atomistic import ModelCapabilities, ModelOutput
 from omegaconf import OmegaConf
 
-from metatensor.models.sparse_gap import DEFAULT_HYPERS, Model, train
-from metatensor.models.utils.data.readers import read_structures, read_targets
+from metatensor.models.experimental.gap import DEFAULT_HYPERS, Model, train
+from metatensor.models.utils.data.readers import read_systems, read_targets
+from metatensor.models.utils.data import DatasetInfo, TargetInfo
 
 from . import DATASET_PATH
 
@@ -12,14 +13,13 @@ from . import DATASET_PATH
 def test_torchscript():
     """Tests that the model can be jitted."""
 
-    capabilities = ModelCapabilities(
+    dataset_info = DatasetInfo(
         length_unit="Angstrom",
-        species=[1, 6, 7, 8],
-        outputs={
-            "U0": ModelOutput(
+        targets={
+            "U0": TargetInfo(
                 quantity="energy",
                 unit="eV",
-            )
+            ),
         },
     )
     conf = {
@@ -33,27 +33,22 @@ def test_torchscript():
             "virial": False,
         }
     }
-    sparse_gap = Model(capabilities, DEFAULT_HYPERS["model"]).to(torch.float64)
     targets = read_targets(OmegaConf.create(conf))
-    structures = read_structures(DATASET_PATH)
+    systems = read_systems(DATASET_PATH)
     # PR COMMENT this is a temporary hack until kernel is properly implemented that can
     #            deal with tensor maps with different species pairs
-    for structure in structures:
-        structure.species = torch.ones(len(structure.species), dtype=torch.int32)
-    dataset = Dataset(structure=structures, U0=targets["U0"])
+    for system in systems:
+        system.types = torch.ones(len(system.types), dtype=torch.int32)
+    dataset = Dataset(system=systems, U0=targets["U0"])
 
     hypers = DEFAULT_HYPERS.copy()
     hypers["training"]["num_epochs"] = 2
-    sparse_gap = train([dataset], [dataset], capabilities, hypers)
-    scripted_sparse_gap = torch.jit.script(
-        sparse_gap, {"U0": sparse_gap.capabilities.outputs["U0"]}
-    )
+    gap = train([dataset], [dataset], dataset_info, hypers)
+    scripted_gap = torch.jit.script(gap, {"U0": gap.capabilities.outputs["U0"]})
 
-    ref_output = sparse_gap(
-        structures[:5], {"U0": sparse_gap.capabilities.outputs["U0"]}
-    )
-    scripted_output = scripted_sparse_gap(
-        structures[:5], {"U0": sparse_gap.capabilities.outputs["U0"]}
+    ref_output = gap(systems[:5], {"U0": gap.capabilities.outputs["U0"]})
+    scripted_output = scripted_gap(
+        systems[:5], {"U0": gap.capabilities.outputs["U0"]}
     )
 
     assert torch.allclose(
@@ -67,7 +62,7 @@ def test_torchscript_save():
 
     capabilities = ModelCapabilities(
         length_unit="Angstrom",
-        species=[1, 6, 7, 8],
+        atomic_types=[1, 6, 7, 8],
         outputs={
             "energy": ModelOutput(
                 quantity="energy",
@@ -75,10 +70,8 @@ def test_torchscript_save():
             )
         },
     )
-    sparse_gap = Model(capabilities, DEFAULT_HYPERS["model"]).to(torch.float64)
+    gap = Model(capabilities, DEFAULT_HYPERS["model"]).to(torch.float64)
     torch.jit.save(
-        torch.jit.script(
-            sparse_gap, {"energy": sparse_gap.capabilities.outputs["energy"]}
-        ),
-        "sparse_gap.pt",
+        torch.jit.script(gap, {"energy": gap.capabilities.outputs["energy"]}),
+        "gap.pt",
     )
