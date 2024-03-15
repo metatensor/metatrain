@@ -16,7 +16,7 @@ from metatensor.models.utils.data.readers import read_systems, read_targets
 from . import DATASET_ETHANOL_PATH, DATASET_PATH
 
 
-# from pathlib import Path
+torch.set_default_dtype(torch.float64)  # GAP only supports float64
 
 
 # reproducibility
@@ -38,7 +38,7 @@ def test_regression_init():
             )
         },
     )
-    Model(capabilities, DEFAULT_HYPERS["model"]).to(torch.float64)
+    Model(capabilities, DEFAULT_HYPERS["model"])
 
 
 def test_regression_train_and_invariance():
@@ -151,9 +151,9 @@ def test_ethanol_regression_train_and_invariance():
     dataset_info = DatasetInfo(
         length_unit="Angstrom",
         targets={
-            "U0": TargetInfo(
+            "energy": TargetInfo(
                 quantity="energy",
-                unit="eV",
+                unit="kcal/mol",
             ),
         },
     )

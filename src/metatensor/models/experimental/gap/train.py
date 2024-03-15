@@ -52,6 +52,8 @@ def train(
     # checks
     if continue_from is not None:
         raise ValueError("Training from a checkpoint is not supported in GAP.")
+    if torch.get_default_dtype() != torch.float64:
+        raise ValueError("GAP only supports float64")
     if device_str != "cpu":
         raise ValueError("GAP only supports cpu training")
     if len(dataset_info.targets) != 1:

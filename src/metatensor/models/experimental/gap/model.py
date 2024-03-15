@@ -12,13 +12,13 @@ import scipy
 import skmatter
 import torch
 from metatensor.torch import Labels as TorchLabels
-from metatensor.torch import TensorMap as TorchTensorMap
 from metatensor.torch import TensorBlock as TorchTensorBlock
+from metatensor.torch import TensorMap as TorchTensorMap
 from metatensor.torch.atomistic import ModelCapabilities, ModelOutput, System
 from omegaconf import OmegaConf
 from skmatter._selection import _FPS
 
-from metatensor import Labels, TensorMap, TensorBlock
+from metatensor import Labels, TensorBlock, TensorMap
 
 from ... import ARCHITECTURE_CONFIG_PATH
 
@@ -466,15 +466,15 @@ class AggregateKernel(torch.nn.Module):
 
     def forward(
         self,
-        tensor1: TorchTensorMap,
-        tensor2: TorchTensorMap,
+        tensor1: TensorMap,
+        tensor2: TensorMap,
         are_pseudo_points: Tuple[bool, bool] = (False, False),
-    ) -> TorchTensorMap:
+    ) -> TensorMap:
         return self.aggregate_kernel(
             self.compute_kernel(tensor1, tensor2), are_pseudo_points
         )
 
-    def compute_kernel(self, tensor1: TorchTensorMap, tensor2: TorchTensorMap) -> TensorMap:
+    def compute_kernel(self, tensor1: TensorMap, tensor2: TensorMap) -> TensorMap:
         raise NotImplementedError("compute_kernel needs to be implemented.")
 
 
@@ -552,7 +552,7 @@ class TorchAggregateKernel(torch.nn.Module):
         self._aggregate_type = aggregate_type
         self._structurewise_aggregate = structurewise_aggregate
 
-    def aggregate_features(self, tensor: TorchTensorMap) -> TensorMap:
+    def aggregate_features(self, tensor: TorchTensorMap) -> TorchTensorMap:
         if self._aggregate_type == "sum":
             return metatensor.torch.sum_over_samples(
                 tensor, sample_names=self._aggregate_names
@@ -606,15 +606,17 @@ class TorchAggregateKernel(torch.nn.Module):
 
     def forward(
         self,
-        tensor1: TensorMap,
-        tensor2: TensorMap,
+        tensor1: TorchTensorMap,
+        tensor2: TorchTensorMap,
         are_pseudo_points: Tuple[bool, bool] = (False, False),
-    ) -> TensorMap:
+    ) -> TorchTensorMap:
         return self.aggregate_kernel(
             self.compute_kernel(tensor1, tensor2), are_pseudo_points
         )
 
-    def compute_kernel(self, tensor1: TensorMap, tensor2: TensorMap) -> TensorMap:
+    def compute_kernel(
+        self, tensor1: TorchTensorMap, tensor2: TorchTensorMap
+    ) -> TorchTensorMap:
         raise NotImplementedError("compute_kernel needs to be implemented.")
 
 
@@ -641,7 +643,9 @@ class TorchAggregateLinear(TorchAggregateKernel):
             tensor2 = self.aggregate_features(tensor2)
         return self.compute_kernel(tensor1, tensor2)
 
-    def compute_kernel(self, tensor1: TorchTensorMap, tensor2: TorchTensorMap) -> TensorMap:
+    def compute_kernel(
+        self, tensor1: TorchTensorMap, tensor2: TorchTensorMap
+    ) -> TorchTensorMap:
         return metatensor.torch.dot(tensor1, tensor2)
 
 

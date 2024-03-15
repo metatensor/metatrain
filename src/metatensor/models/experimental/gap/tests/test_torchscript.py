@@ -4,10 +4,13 @@ from metatensor.torch.atomistic import ModelCapabilities, ModelOutput
 from omegaconf import OmegaConf
 
 from metatensor.models.experimental.gap import DEFAULT_HYPERS, Model, train
-from metatensor.models.utils.data.readers import read_systems, read_targets
 from metatensor.models.utils.data import DatasetInfo, TargetInfo
+from metatensor.models.utils.data.readers import read_systems, read_targets
 
 from . import DATASET_PATH
+
+
+torch.set_default_dtype(torch.float64)  # GAP only supports float64
 
 
 def test_torchscript():
@@ -47,9 +50,7 @@ def test_torchscript():
     scripted_gap = torch.jit.script(gap, {"U0": gap.capabilities.outputs["U0"]})
 
     ref_output = gap(systems[:5], {"U0": gap.capabilities.outputs["U0"]})
-    scripted_output = scripted_gap(
-        systems[:5], {"U0": gap.capabilities.outputs["U0"]}
-    )
+    scripted_output = scripted_gap(systems[:5], {"U0": gap.capabilities.outputs["U0"]})
 
     assert torch.allclose(
         ref_output["U0"].block().values,
@@ -70,7 +71,7 @@ def test_torchscript_save():
             )
         },
     )
-    gap = Model(capabilities, DEFAULT_HYPERS["model"]).to(torch.float64)
+    gap = Model(capabilities, DEFAULT_HYPERS["model"])
     torch.jit.save(
         torch.jit.script(gap, {"energy": gap.capabilities.outputs["energy"]}),
         "gap.pt",
