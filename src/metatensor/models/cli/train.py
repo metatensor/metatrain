@@ -15,12 +15,11 @@ import hydra
 import numpy as np
 import torch
 from metatensor.learn.data import Dataset
-from metatensor.torch.atomistic import ModelCapabilities, ModelOutput
 from omegaconf import DictConfig, OmegaConf
 from omegaconf.errors import ConfigKeyError
 
 from .. import CONFIG_PATH
-from ..utils.data import get_all_species, read_systems, read_targets
+from ..utils.data import DatasetInfo, TargetInfo, read_systems, read_targets
 from ..utils.data.dataset import _train_test_random_split
 from ..utils.errors import ArchitectureError
 from ..utils.io import export, save
@@ -358,21 +357,21 @@ def _train_model_hydra(options: DictConfig) -> None:
     architecture_name = options["architecture"]["name"]
     architecture = importlib.import_module(f"metatensor.models.{architecture_name}")
 
-    all_species = get_all_species(train_datasets)
-
-    outputs = {
-        key: ModelOutput(
-            quantity=value["quantity"],
-            unit=(value["unit"] if value["unit"] is not None else ""),
-        )
-        for train_options in train_options_list
-        for key, value in train_options["targets"].items()
-    }
-    length_unit = train_options_list[0]["systems"]["length_unit"]
-    requested_capabilities = ModelCapabilities(
-        length_unit=length_unit if length_unit is not None else "",
-        atomic_types=all_species,
-        outputs=outputs,
+    dataset_info = DatasetInfo(
+        length_unit=(
+            train_options_list[0]["systems"]["length_unit"]
+            if train_options_list[0]["systems"]["length_unit"] is not None
+            else ""
+        ),  # these units are guaranteed to be the same across all datasets
+        targets={
+            key: TargetInfo(
+                quantity=value["quantity"],
+                unit=(value["unit"] if value["unit"] is not None else ""),
+                per_atom=False,  # TODO: read this from the config
+            )
+            for train_options in train_options_list
+            for key, value in train_options["targets"].items()
+        },
     )
 
     logger.info("Calling architecture trainer")
@@ -380,7 +379,7 @@ def _train_model_hydra(options: DictConfig) -> None:
         model = architecture.train(
             train_datasets=train_datasets,
             validation_datasets=validation_datasets,
-            requested_capabilities=requested_capabilities,
+            dataset_info=dataset_info,
             hypers=OmegaConf.to_container(options["architecture"]),
             continue_from=options["continue_from"],
             output_dir=output_dir,
