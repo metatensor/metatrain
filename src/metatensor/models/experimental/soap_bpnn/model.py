@@ -22,8 +22,7 @@ class Identity(torch.nn.Module):
 
 class MLPMap(ModuleMap):
     def __init__(self, all_species: List[int], hypers: dict) -> None:
-        super().__init__()
-
+        # hardcoded for now, but could be a hyperparameter
         activation_function = torch.nn.SiLU()
 
         # Build a neural network for each species
@@ -51,11 +50,6 @@ class MLPMap(ModuleMap):
             "central_species",
             values=torch.tensor(all_species).reshape(-1, 1),
         )
-
-        # PR TODO check how to solve device issue
-        #         before the device was infered in the forward path
-        #         but now this does not work
-        #         need to now how device is generally determined
         out_properties = [
             Labels(
                 names=["properties"],
@@ -71,7 +65,7 @@ class MLPMap(ModuleMap):
 
 class LayerNormMap(ModuleMap):
     def __init__(self, all_species: List[int], n_layer: int) -> None:
-        # Initialize a layernorm for each species
+        # one layernorm for each species
         layernorm_per_species = []
         for _ in all_species:
             layernorm_per_species.append(torch.nn.LayerNorm((n_layer,)))
@@ -80,12 +74,14 @@ class LayerNormMap(ModuleMap):
             "central_species",
             values=torch.tensor(all_species).reshape(-1, 1),
         )
-
-        # PR COMMENT this removes properties labels information
-        #            do you think a flag in ModuleMap that uses
-        #            the property labels from the input for the output
-        #            is a useful flag for maps that don't change property size
-        super().__init__(in_keys, layernorm_per_species)
+        out_properties = [
+            Labels(
+                names=["properties"],
+                values=torch.arange(n_layer).reshape(-1, 1),
+            )
+            for _ in range(len(in_keys))
+        ]
+        super().__init__(in_keys, layernorm_per_species, out_properties)
 
 
 class Model(torch.nn.Module):
@@ -167,6 +163,14 @@ class Model(torch.nn.Module):
                     ),
                     in_features=n_inputs_last_layer,
                     out_features=1,
+                    bias=False,
+                    out_properties=[
+                        Labels(
+                            names=["energy"],
+                            values=torch.tensor([[0]]),
+                        )
+                        for _ in self.all_species
+                    ],
                 )
                 for output_name in capabilities.outputs.keys()
             }
@@ -238,7 +242,7 @@ class Model(torch.nn.Module):
                     device=self.composition_weights.device,  # type: ignore
                 ),
             ]
-        )  # type: ignore
+        )
         self.output_to_index[output_name] = len(self.output_to_index)
         # add a new linear layer to the last layers
         hypers_bpnn = self.hypers["bpnn"]
