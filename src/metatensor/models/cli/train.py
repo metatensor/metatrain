@@ -22,7 +22,7 @@ from omegaconf.errors import ConfigKeyError
 from .. import CONFIG_PATH
 from ..utils.data import get_all_species, read_systems, read_targets
 from ..utils.data.dataset import _train_test_random_split
-from ..utils.device import string_to_devices
+from ..utils.device import get_available_devices, pick_devices
 from ..utils.errors import ArchitectureError
 from ..utils.io import export, save
 from ..utils.omegaconf import check_options_list, check_units, expand_dataset_config
@@ -376,6 +376,12 @@ def _train_model_hydra(options: DictConfig) -> None:
         outputs=outputs,
     )
 
+    # process devices
+    architecture_devices = architecture.DEVICES
+    requested_device = options["device"]
+    available_devices = get_available_devices()
+    devices = pick_devices(requested_device, available_devices, architecture_devices)
+
     logger.info("Calling architecture trainer")
     try:
         model = architecture.train(
@@ -385,7 +391,7 @@ def _train_model_hydra(options: DictConfig) -> None:
             hypers=OmegaConf.to_container(options["architecture"]),
             continue_from=options["continue_from"],
             output_dir=output_dir,
-            devices=string_to_devices(options["device"]),
+            devices=devices,
         )
     except Exception as e:
         raise ArchitectureError(e)

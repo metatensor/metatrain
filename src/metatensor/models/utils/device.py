@@ -1,76 +1,115 @@
+import warnings
 from typing import List
 
 import torch
 
 
-cpu_options = ["cpu"]
-cuda_options = ["cuda"]
-mps_options = ["mps"]
-gpu_options = ["gpu"]
-multi_gpu_options = [
-    "multiple_gpu",
-    "multiple-gpu",
-    "multi_gpu",
-    "multi-gpu",
-]
-all_options = cpu_options + cuda_options + multi_gpu_options
+def get_available_devices() -> List[torch.device]:
+    """Returns a list of available torch devices.
+
+    This function returns a list of available torch devices, which can
+    be used to specify the devices on which to run a model.
+
+    :return: The list of available torch devices.
+    """
+    devices = [torch.device("cpu")]
+    if torch.cuda.is_available():
+        device_count = torch.cuda.device_count()
+        for i in range(device_count):
+            devices.append(torch.device(f"cuda:{i}"))
+    if torch.backends.mps.is_built() and torch.backends.mps.is_available():
+        devices.append(torch.device("mps"))
+    return devices
 
 
-def string_to_devices(string: str) -> List[torch.device]:
-    """Converts a string to a list of torch devices.
+def pick_devices(
+    requested_device: str,
+    available_devices: List[torch.device],
+    architecture_devices: List[str],
+) -> List[torch.device]:
+    """Picks the devices to use for training.
 
-    This function is used to convert a user-provided ``device`` string
-    into a list of ``torch.device`` objects, which can then be passed
-    to ``metatensor-models`` functions.
+    This function picks the devices to use for training based on the
+    requested device, the available devices, and the list of devices
+    supported by the architecture.
 
-    :param string: The string to convert.
+    The choice is based on the following logic.
 
-    :return: A list of torch devices.
+    :param requested_device: The requested device.
+    :param available_devices: The available devices.
+    :param architecture_devices: The devices supported by the architecture.
     """
 
-    if string.lower() in cpu_options:
-        return [torch.device("cpu")]
+    requested_device = requested_device.lower()
 
-    if string.lower() in cuda_options:
-        if not torch.cuda.is_available():
-            raise ValueError(
-                "CUDA is not available on this system, "
-                f"so the `{string}` option is not available."
-            )
-        return [torch.device("cuda")]
-
-    if string.lower() in mps_options:
-        if not torch.backends.mps.is_available():
-            raise ValueError(
-                "MPS is not available on this system, "
-                f"so the `{string}` option is not available."
-            )
-        return [torch.device("mps")]
-
-    if string.lower() in gpu_options:
-        if torch.cuda.is_available():
-            return [torch.device("cuda")]
-        if torch.backends.mps.is_available():
-            return [torch.device("mps")]
+    # first, we check that the requested device is supported
+    if requested_device not in ["cpu", "cuda", "mps", "gpu", "multi-gpu"]:
         raise ValueError(
-            "No GPUs were found on this system, "
-            f"so the `{string}` option is not available."
+            f"Unsupported device: {requested_device}, please choose from "
+            "cpu, cuda, mps, gpu, multi-gpu, multi-cuda"
         )
 
-    if string.lower() in multi_gpu_options:
-        device_count = torch.cuda.device_count()
-        if device_count == 0:
+    # we convert "gpu" and "multi-gpu" to "cuda" or "mps" if available
+    if requested_device == "gpu":
+        if torch.cuda.is_available():
+            requested_device = "cuda"
+        elif torch.backends.mps.is_built() and torch.backends.mps.is_available():
+            requested_device = "mps"
+        else:
             raise ValueError(
-                "No CUDA-capable GPUs were found on this system, "
-                f"so the `{string}` option is not available."
+                "Requested `gpu` device, but found no GPU (CUDA or MPS) devices"
             )
-        if device_count == 1:
-            raise ValueError(
-                "Only one CUDA-capable GPU was found on this system, "
-                f"so the `{string}` option is not available."
-            )
-        return [torch.device(f"cuda:{i}") for i in range(device_count)]
 
-    raise ValueError(
-        f"Unrecognized device string `{string}`. " f"Valid options are: {all_options}"
-    )
+    # we convert "multi-gpu" to "multi-cuda" if available
+    if requested_device == "multi-gpu":
+        if torch.cuda.is_available():
+            requested_device = "multi-cuda"
+        else:
+            raise ValueError("Requested `multi-gpu` device, but found no CUDA devices")
+
+    # check that the requested device is available
+    available_device_types = [device.type for device in available_devices]
+    available_device_strings = ["cpu"]  # always available
+    if "cuda" in available_device_types:
+        available_device_strings.append("cuda")
+    if "mps" in available_device_types:
+        available_device_strings.append("mps")
+    if available_device_strings.count("cuda") > 1:
+        available_device_strings.append("multi-cuda")
+
+    if requested_device not in available_device_strings:
+        if requested_device == "multi-cuda":
+            raise ValueError(
+                "Requested device `multi-gpu` or `multi-cuda`, but found only "
+                f"{available_device_strings.count('cuda')} cuda devices"
+            )
+        else:
+            raise ValueError(
+                f"Requested device {requested_device} is not available on this system"
+            )
+
+    # if the requested device is available, check it against the architecture's devices
+    if requested_device not in architecture_devices:
+        raise ValueError(
+            f"The requested device `{requested_device}` is not supported by the chosen "
+            f"architecture. Supported devices are {architecture_devices}."
+        )
+
+    # we check all the devices that come before the requested one in the
+    # list of architecture devices. If any of them are available, we warn
+
+    requested_device_index = architecture_devices.index(requested_device)
+    for device in architecture_devices[:requested_device_index]:
+        if device in available_device_strings:
+            warnings.warn(
+                f"Device `{requested_device}` was requested, but the chosen"
+                f"architecture prefers `{device}`, which was also found on your "
+                f"system. Consider using the `{device}` device.",
+                stacklevel=2,
+            )
+
+    # finally, we convert the requested device to a list of devices
+    if requested_device == "multi-cuda":
+        return [torch.device(f"cuda:{i}") for i in range(torch.cuda.device_count())]
+    else:
+        return [torch.device(requested_device)]
