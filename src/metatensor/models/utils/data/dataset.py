@@ -5,7 +5,6 @@ from typing import Dict, List, NamedTuple, Optional, Tuple, Union
 import torch
 from metatensor.learn.data import Dataset, group_and_join
 from metatensor.torch import TensorMap
-from metatensor.torch.atomistic import ModelCapabilities
 from torch import Generator, default_generator
 from torch.utils.data import Subset, random_split
 
@@ -74,8 +73,9 @@ def get_all_targets(datasets: Union[Dataset, List[Dataset]]) -> List[str]:
     """
     Returns the list of all targets present in a dataset or list of datasets.
 
-    :param datasets: the dataset(s)
-    :returns: list of targets present in the dataset(s).
+    :param datasets: the dataset(s).
+    :returns: list of targets present in the dataset(s), sorted according
+        to the ``sort()`` method of Python lists.
     """
 
     if not isinstance(datasets, list):
@@ -94,7 +94,10 @@ def get_all_targets(datasets: Union[Dataset, List[Dataset]]) -> List[str]:
             target_names += list(sample.keys())
 
     # Remove duplicates:
-    return list(set(target_names))
+    result = list(set(target_names))
+    result.sort()
+
+    return result
 
 
 def collate_fn(batch: List[NamedTuple]) -> Tuple[List, Dict[str, TensorMap]]:
@@ -112,64 +115,60 @@ def collate_fn(batch: List[NamedTuple]) -> Tuple[List, Dict[str, TensorMap]]:
 def check_datasets(
     train_datasets: List[Dataset],
     validation_datasets: List[Dataset],
-    capabilities: ModelCapabilities,
+    error: bool = True,
 ):
     """
     This is a helper function that checks that the training and validation sets
-    are compatible with one another and with the model's capabilities. Although
-    these checks will not fit all use cases, they will fit most.
+    are compatible with one another.
+
+    Although these checks will not fit all use cases, most models would be expected
+    to be able to use this function. If the validation set contains chemical species
+    or targets that are not present in the training set, this function will raise a
+    warning or an error, depending on the ``error`` flag.
+
+    The option to warn is intended for model fine tuning, where a species or target
+    in the validation set might not be present in the current training set, but it
+    might have been present in the training of the base model.
 
     :param train_datasets: A list of training datasets.
     :param validation_datasets: A list of validation datasets.
-    :param capabilities: The model's capabilities.
-
-    :raises ValueError: If the training and validation sets are not compatible
-        with the model's capabilities.
+    :param error: Whether to error (if ``true``) or warn (if ``false``) upon
+        detection of a chemical species or target in the validation set that is not
+        present in the training set.
     """
 
     # Get all targets in the training and validation sets:
-    train_targets = []
-    for dataset in train_datasets:
-        train_targets += get_all_targets(dataset)
-    validation_targets = []
-    for dataset in validation_datasets:
-        validation_targets += get_all_targets(dataset)
-
-    # Check that they are compatible with the model's capabilities:
-    for target in train_targets + validation_targets:
-        if target not in capabilities.outputs.keys():
-            raise ValueError(f"The target {target} is not in the model's capabilities.")
+    train_targets = get_all_targets(train_datasets)
+    validation_targets = get_all_targets(validation_datasets)
 
     # Check that the validation sets do not have targets that are not in the
     # training sets:
     for target in validation_targets:
         if target not in train_targets:
-            logger.warning(
-                f"The validation dataset has a target ({target}) "
-                "that is not in the training dataset."
-            )
+            error_or_warning = f"The validation dataset has a target ({target}) "
+            "that is not present in the training dataset."
+            if error:
+                raise ValueError(error_or_warning)
+            else:
+                logger.warning(error_or_warning)
 
     # Get all the species in the training and validation sets:
     all_training_species = get_all_species(train_datasets)
     all_validation_species = get_all_species(validation_datasets)
 
-    # Check that they are compatible with the model's capabilities:
-    for species in all_training_species + all_validation_species:
-        if species not in capabilities.atomic_types:
-            raise ValueError(
-                f"The species {species} is not in the model's capabilities."
-            )
-
     # Check that the validation sets do not have species that are not in the
     # training sets:
     for species in all_validation_species:
         if species not in all_training_species:
-            logger.warning(
-                f"The validation dataset has a species ({species}) "
-                "that is not in the training dataset. This could be "
-                "a result of a random train/validation split. You can "
-                "avoid this by providing a validation dataset manually."
-            )
+
+            error_or_warning = f"The validation dataset has a species ({species}) "
+            "that is not in the training dataset. This could be "
+            "a result of a random train/validation split. You can "
+            "avoid this by providing a validation dataset manually."
+            if error:
+                raise ValueError(error_or_warning)
+            else:
+                logger.warning(error_or_warning)
 
 
 def _train_test_random_split(

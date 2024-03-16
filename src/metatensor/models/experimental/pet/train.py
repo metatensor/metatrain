@@ -10,7 +10,7 @@ from pet.hypers import Hypers
 from pet.pet import PET
 from pet.train_model import fit_pet
 
-from ...utils.data import DatasetInfo, collate_fn, get_all_species
+from ...utils.data import DatasetInfo, check_datasets, collate_fn, get_all_species
 from ...utils.data.system_to_ase import system_to_ase
 from .model import DEFAULT_HYPERS, Model
 
@@ -49,6 +49,9 @@ def train(
     if continue_from is not None:
         hypers["FITTING_SCHEME"]["MODEL_TO_START_WITH"] = continue_from
 
+    logger.info("Checking datasets for consistency")
+    check_datasets(train_datasets, validation_datasets)
+
     train_dataset = train_datasets[0]
     validation_dataset = validation_datasets[0]
 
@@ -66,7 +69,7 @@ def train(
         collate_fn=collate_fn,
     )
 
-    # only energies or energies and forces?
+    # are we fitting on only energies or energies and forces?
     do_forces = next(iter(train_dataset))[1].block().has_gradient("positions")
     all_species = get_all_species(train_datasets + validation_datasets)
     if not do_forces:

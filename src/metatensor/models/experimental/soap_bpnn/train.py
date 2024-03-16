@@ -101,7 +101,7 @@ def train(
     check_datasets(
         train_datasets,
         validation_datasets,
-        model_capabilities,
+        error=continue_from is None,  # only error if we are not continuing
     )
 
     logger.info(f"Training on device {device_str}")
