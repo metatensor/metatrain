@@ -51,12 +51,12 @@ class Model(torch.nn.Module):
         for output in capabilities.outputs.values():
             if output.quantity != "energy":
                 raise ValueError(
-                    "SparseGAP only supports energy-like outputs, "
+                    "GAP only supports energy-like outputs, "
                     f"but a {output.quantity} was provided"
                 )
             if output.per_atom:
                 raise ValueError(
-                    "SparseGAP only supports per-structure outputs, "
+                    "GAP only supports per-structure outputs, "
                     "but a per-atom output was provided"
                 )
 
@@ -123,10 +123,6 @@ class Model(torch.nn.Module):
         outputs: Dict[str, ModelOutput],
         selected_atoms: Optional[TorchLabels] = None,
     ) -> Dict[str, TorchTensorMap]:
-        if selected_atoms is not None:
-            # change metatensor names to match rascaline
-            selected_atoms = selected_atoms.rename("system", "system")
-            selected_atoms = selected_atoms.rename("atom", "atom")
 
         soap_features = self._soap_torch_calculator(
             systems, selected_samples=selected_atoms, gradients=["positions"]
@@ -1026,13 +1022,10 @@ class SubsetOfRegressors:
         if isinstance(alpha, float):
             alpha_tensor = metatensor.ones_like(y)
 
-            samples = Labels(
-                names=y.sample_names,
-                values=np.zeros([1, len(y.sample_names)], dtype=int),
-            )
-
+            # TODO: I (Filippo) changed the labels in the following call to
+            # make it work. Please check this is correct!!
             alpha_tensor = metatensor.slice(
-                alpha_tensor, axis="samples", labels=samples
+                alpha_tensor, axis="samples", labels=y.block().samples
             )
             self._alpha = metatensor.multiply(alpha_tensor, alpha)
         elif isinstance(alpha, TensorMap):
@@ -1056,7 +1049,6 @@ class SubsetOfRegressors:
         weight_blocks = []
         for key, y_block in y.items():
             k_nm_block = k_nm.block(key)
-            # breakpoint()
             # TODO(Davide) include gradients into the k_nm_block
             k_nm_block = k_nm.block(key)
             k_mm_block = k_mm.block(key)

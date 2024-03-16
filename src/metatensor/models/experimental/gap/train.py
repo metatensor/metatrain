@@ -239,10 +239,8 @@ def train(
     #                {output_name: train_y}
     #              )
 
-    logger.info(
-        "Train RMSE:",
-        np.sqrt(np.mean((train_y_pred[0].values - train_y[0].values) ** 2)),
-    )
+    train_rmse = np.sqrt(np.mean((train_y_pred[0].values - train_y[0].values) ** 2))
+    logger.info(f"Train RMSE: {train_rmse}")
 
     # ... TODO val
     # logger.info(
