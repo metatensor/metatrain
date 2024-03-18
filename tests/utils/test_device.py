@@ -1,7 +1,7 @@
 import pytest
 import torch
 
-from metatensor.models.utils.device import pick_devices
+from metatensor.models.utils.devices import pick_devices
 
 
 def test_pick_devices_cpu():

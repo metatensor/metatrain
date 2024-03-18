@@ -22,7 +22,7 @@ from omegaconf.errors import ConfigKeyError
 from .. import CONFIG_PATH
 from ..utils.data import get_all_species, read_systems, read_targets
 from ..utils.data.dataset import _train_test_random_split
-from ..utils.device import get_available_devices, pick_devices
+from ..utils.devices import get_available_devices, pick_devices
 from ..utils.errors import ArchitectureError
 from ..utils.io import export, save
 from ..utils.omegaconf import check_options_list, check_units, expand_dataset_config
