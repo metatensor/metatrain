@@ -305,7 +305,7 @@ def _train_model_hydra(options: DictConfig) -> None:
         validation_size = validation_options
         train_size -= validation_size
 
-        if validation_size < 0 or validation_size >= 1:
+        if validation_size <= 0 or validation_size >= 1:
             raise ValueError("Validation set split must be between 0 and 1.")
 
         generator = torch.Generator()
@@ -350,16 +350,6 @@ def _train_model_hydra(options: DictConfig) -> None:
                 system=validation_systems, **validation_targets
             )
             validation_datasets.append(validation_dataset)
-
-    if (
-        sum([len(validation_dataset) for validation_dataset in validation_datasets])
-        == 0
-    ):
-        raise ValueError(
-            "The validation set is empty. Please provide a validation set, "
-            "either by setting a fraction of the training set or by providing it "
-            "explicitly."
-        )
 
     # Save fully expanded config
     OmegaConf.save(config=options, f=Path(output_dir) / "options.yaml")

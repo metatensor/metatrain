@@ -159,7 +159,7 @@ def test_empty_validation_set(monkeypatch, tmp_path, options):
     options["validation_set"] = 0.0
     options["test_set"] = 0.4
 
-    with pytest.raises(ValueError, match="The validation set is empty. Please provide"):
+    with pytest.raises(ValueError, match="must be between 0 and 1"):
         train_model(options)
 
 
@@ -177,7 +177,7 @@ def test_empty_test_set(monkeypatch, tmp_path, options):
     # check if the logging is correct
     with open(glob.glob("outputs/*/*/train.log")[0]) as f:
         log = f.read()
-    assert "This dataset is empty" in log
+    assert "This dataset is empty. No evaluation" in log
 
 
 @pytest.mark.parametrize(
