@@ -33,7 +33,15 @@ def pick_devices(
     requested device, the available devices, and the list of devices
     supported by the architecture.
 
-    The choice is based on the following logic.
+    The choice is based on the following logic. First, the requested
+    device is checked to see if it is supported (i.e., one of "cpu",
+    "cuda", "mps", "gpu", "multi-gpu", or "multi-cuda"). Then, the
+    requested device is checked to see if it is available on the system.
+    Finally, the requested device is checked to see if it is supported
+    by the architecture. If the requested device is not supported by the
+    architecture, a ValueError is raised. If the requested device is
+    supported by the architecture, but a different device is preferred
+    by the architecture and present on the system, a warning is issued.
 
     :param requested_device: The requested device.
     :param available_devices: The available devices.
@@ -43,7 +51,7 @@ def pick_devices(
     requested_device = requested_device.lower()
 
     # first, we check that the requested device is supported
-    if requested_device not in ["cpu", "cuda", "mps", "gpu", "multi-gpu"]:
+    if requested_device not in ["cpu", "cuda", "multi-cuda", "mps", "gpu", "multi-gpu"]:
         raise ValueError(
             f"Unsupported device: {requested_device}, please choose from "
             "cpu, cuda, mps, gpu, multi-gpu, multi-cuda"
@@ -60,12 +68,9 @@ def pick_devices(
                 "Requested `gpu` device, but found no GPU (CUDA or MPS) devices"
             )
 
-    # we convert "multi-gpu" to "multi-cuda" if available
+    # we convert "multi-gpu" to "multi-cuda"
     if requested_device == "multi-gpu":
-        if torch.cuda.is_available():
-            requested_device = "multi-cuda"
-        else:
-            raise ValueError("Requested `multi-gpu` device, but found no CUDA devices")
+        requested_device = "multi-cuda"
 
     # check that the requested device is available
     available_device_types = [device.type for device in available_devices]
@@ -79,10 +84,17 @@ def pick_devices(
 
     if requested_device not in available_device_strings:
         if requested_device == "multi-cuda":
-            raise ValueError(
-                "Requested device `multi-gpu` or `multi-cuda`, but found only "
-                f"{available_device_strings.count('cuda')} cuda devices"
-            )
+            if available_device_strings.count("cuda") == 0:
+                raise ValueError(
+                    "Requested device `multi-gpu` or `multi-cuda`, "
+                    "but found no cuda devices"
+                )
+            else:
+                raise ValueError(
+                    "Requested device `multi-gpu` or `multi-cuda`, "
+                    "but found only one cuda device. If you want to run on a "
+                    "single GPU, please use `gpu` or `cuda` instead."
+                )
         else:
             raise ValueError(
                 f"Requested device {requested_device} is not available on this system"
@@ -110,6 +122,6 @@ def pick_devices(
 
     # finally, we convert the requested device to a list of devices
     if requested_device == "multi-cuda":
-        return [torch.device(f"cuda:{i}") for i in range(torch.cuda.device_count())]
+        return [device for device in available_devices if device.type == "cuda"]
     else:
         return [torch.device(requested_device)]
