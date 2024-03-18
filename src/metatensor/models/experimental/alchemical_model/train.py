@@ -239,21 +239,18 @@ def train(
         finalized_validation_info = finalize_aggregated_info(aggregated_validation_info)
 
         # Now we log the information:
+        finalized_train_info["loss"] = train_loss
+        finalized_validation_info["loss"] = validation_loss
         if epoch == 0:
             metric_logger = MetricLogger(
-                model_capabilities,
-                train_loss,
-                validation_loss,
-                finalized_train_info,
-                finalized_validation_info,
+                model_capabilities=model_capabilities,
+                initial_metrics=[finalized_train_info, finalized_validation_info],
+                names=["train", "validation"],
             )
         if epoch % hypers_training["log_interval"] == 0:
             metric_logger.log(
-                epoch,
-                train_loss,
-                validation_loss,
-                finalized_train_info,
-                finalized_validation_info,
+                metrics=[finalized_train_info, finalized_validation_info],
+                epoch=epoch,
             )
 
         if epoch % hypers_training["checkpoint_interval"] == 0:

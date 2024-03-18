@@ -219,7 +219,6 @@ def eval_model(
         except Exception as e:
             raise ArchitectureError(e)
 
-        # TODO: adjust filename accordingly
         write_predictions(
             filename=f"{output.stem}{file_index_suffix}{output.suffix}",
             systems=eval_systems,

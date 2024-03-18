@@ -1,5 +1,5 @@
 import logging
-from typing import Dict, Tuple
+from typing import Dict, List, Optional, Tuple, Union
 
 import numpy as np
 from metatensor.torch.atomistic import ModelCapabilities
@@ -14,34 +14,34 @@ class MetricLogger:
     def __init__(
         self,
         model_capabilities: ModelCapabilities,
-        train_loss_0: float,
-        validation_loss_0: float,
-        train_info_0: Dict[str, float],
-        validation_info_0: Dict[str, float],
+        initial_metrics: Union[Dict[str, float], List[Dict[str, float]]],
+        names: Union[str, List[str]] = "",
     ):
         """
-        Initialize the logger with metrics that are supposed to
-        decrease during training.
+        Initialize the metric logger. The logger is initialized with the initial metrics
+        and names relative to the metrics (e.g., "train", "validation").
 
-        In this way, the logger can align the output to make it easier to read.
+        In this way, and by assuming that these metrics never increase, the logger can
+        align the output to make it easier to read.
 
         :param model_capabilities: The capabilities of the model.
-        :param train_loss_0: The initial training loss.
-        :param validation_loss_0: The initial validation loss.
-        :param train_info_0: The initial training metrics.
+        :param initial_metrics: The initial training metrics.
         :param validation_info_0: The initial validation metrics.
         """
+
+        if isinstance(initial_metrics, dict):
+            initial_metrics = [initial_metrics]
+        if isinstance(names, str):
+            names = [names]
+
+        self.names = names
 
         # Since the quantities are supposed to decrease, we want to store the
         # number of digits at the start of the training, so that we can align
         # the output later:
         self.digits = {}
-        self.digits["train_loss"] = _get_digits(train_loss_0)
-        self.digits["validation_loss"] = _get_digits(validation_loss_0)
-        for name, information_holder in zip(
-            ["train", "valid"], [train_info_0, validation_info_0]
-        ):
-            for key, value in information_holder.items():
+        for name, metrics_dict in zip(names, initial_metrics):
+            for key, value in metrics_dict.items():
                 self.digits[f"{name}_{key}"] = _get_digits(value)
 
         # This will be useful later for printing forces/virials/stresses:
@@ -54,42 +54,39 @@ class MetricLogger:
         else:
             self.only_one_energy = False
 
-        # Save the model capabilities for later use:
+        # Save the model capabilities. This will be useful to know
+        # what physical quantities we are printing
         self.model_capabilities = model_capabilities
 
     def log(
         self,
-        epoch: int,
-        train_loss: float,
-        validation_loss: float,
-        train_info: Dict[str, float],
-        validation_info: Dict[str, float],
+        metrics: Union[Dict[str, float], List[Dict[str, float]]],
+        epoch: Optional[int] = None,
     ):
         """
-        Log the training metrics.
+        Log the metrics.
 
-        The training metrics are automatically aligned to make them easier to read,
-        based on the order of magnitude of each metric at the start of the training.
+        The metrics are automatically aligned to make them easier to read,
+        based on the order of magnitude of each metric given to the class
+        at initialization.
 
-        :param epoch: The current epoch.
-        :param train_loss: The current training loss.
-        :param validation_loss: The current validation loss.
-        :param train_info: The current training metrics.
-        :param validation_info: The current validation metrics.
+        :param metrics: The current metrics to be printed.
+        :param epoch: The current epoch (optional).
         """
 
-        # The epoch is printed with 4 digits, assuming that the training
-        # will not last more than 9999 epochs
-        logging_string = (
-            f"Epoch {epoch:4}, train loss: "
-            f"{train_loss:{self.digits['train_loss'][0]}.{self.digits['train_loss'][1]}f}, "  # noqa: E501
-            f"validation loss: "
-            f"{validation_loss:{self.digits['validation_loss'][0]}.{self.digits['validation_loss'][1]}f}"  # noqa: E501
-        )
-        for name, information_holder in zip(
-            ["train", "valid"], [train_info, validation_info]
-        ):
-            for key, value in information_holder.items():
+        if isinstance(metrics, dict):
+            metrics = [metrics]
+
+        if epoch is None:
+            logging_string = ""
+        else:
+            # The epoch is printed with 4 digits, assuming that the training
+            # will not last more than 9999 epochs
+            logging_string = f"Epoch {epoch:4}"
+
+        for name, metrics_dict in zip(self.names, metrics):
+            for key, value in metrics_dict.items():
+                print(key, value)
                 new_key = key
                 if key.endswith("_positions_gradients"):
                     # check if this is a force
@@ -120,6 +117,11 @@ class MetricLogger:
                     f", {name} {new_key} RMSE: "
                     f"{value:{self.digits[f'{name}_{key}'][0]}.{self.digits[f'{name}_{key}'][1]}f}"  # noqa: E501
                 )
+
+        # If there is no epoch, the string will start with a comma. Remove it:
+        if logging_string.startswith(", "):
+            logging_string = logging_string[2:]
+
         logger.info(logging_string)
 
 
