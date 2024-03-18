@@ -83,9 +83,7 @@ def train(
         model_capabilities,
     )
 
-    if len(devices) > 1:
-        raise ValueError("SOAP-BPNN does not support multiple devices.")
-    device = devices[0]
+    device = devices[0]  # only one device, as we don't support multi-gpu for now
     logger.info(f"Training on device {device}")
     model.to(device)
 

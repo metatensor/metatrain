@@ -29,11 +29,6 @@ def train(
 ):
     if torch.get_default_dtype() != torch.float32:
         raise ValueError("PET only supports float32")
-    if len(devices) != 1:
-        raise ValueError("PET only supports a single device")
-    device = devices[0]
-    if device.type != "cuda":
-        raise ValueError("PET only supports cuda training on cuda devices")
     if len(requested_capabilities.outputs) != 1:
         raise ValueError("PET only supports a single output")
     target_name = next(iter(requested_capabilities.outputs.keys()))
@@ -107,6 +102,8 @@ def train(
                 .numpy()
             )
         ase_validation_dataset.append(ase_atoms)
+
+    device = devices[0]  # only one device, as we don't support multi-gpu for now
 
     fit_pet(
         ase_train_dataset, ase_validation_dataset, hypers, "pet", device, output_dir

@@ -102,12 +102,7 @@ def train(
     model.set_normalization_factor(average_number_of_atoms)
     model.set_basis_normalization_factor(average_number_of_neighbors)
 
-    if len(devices) > 1:
-        raise ValueError("The alchemical model does not support multiple devices.")
-    if devices[0].type == "mps":
-        # due to sphericart
-        raise ValueError("The alchemical model does not support MPS devices.")
-    device = devices[0]
+    device = devices[0]  # only one device, as we don't support multi-gpu for now
     logger.info(f"Training on device {device}")
     model.to(device)
 
