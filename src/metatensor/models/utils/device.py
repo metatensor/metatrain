@@ -53,7 +53,7 @@ def pick_devices(
     # first, we check that the requested device is supported
     if requested_device not in ["cpu", "cuda", "multi-cuda", "mps", "gpu", "multi-gpu"]:
         raise ValueError(
-            f"Unsupported device: {requested_device}, please choose from "
+            f"Unsupported device: `{requested_device}`. Please choose from "
             "cpu, cuda, mps, gpu, multi-gpu, multi-cuda"
         )
 
@@ -97,7 +97,7 @@ def pick_devices(
                 )
         else:
             raise ValueError(
-                f"Requested device {requested_device} is not available on this system"
+                f"Requested device `{requested_device}` is not available on this system"
             )
 
     # if the requested device is available, check it against the architecture's devices
@@ -114,7 +114,7 @@ def pick_devices(
     for device in architecture_devices[:requested_device_index]:
         if device in available_device_strings:
             warnings.warn(
-                f"Device `{requested_device}` was requested, but the chosen"
+                f"Device `{requested_device}` was requested, but the chosen "
                 f"architecture prefers `{device}`, which was also found on your "
                 f"system. Consider using the `{device}` device.",
                 stacklevel=2,
