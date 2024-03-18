@@ -62,11 +62,11 @@ def test_pick_devices_multi_cuda():
     ]
 
 
-def test_pick_devices_gpu_no_cuda():
+def test_pick_devices_cuda_no_cuda():
     available_devices = [torch.device("cpu")]
     architecture_devices = ["cpu"]
     with pytest.raises(ValueError, match="not available on this system"):
-        pick_devices("gpu", available_devices, architecture_devices)
+        pick_devices("cuda", available_devices, architecture_devices)
 
 
 def test_pick_devices_multi_gpu_single_cuda():
