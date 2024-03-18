@@ -83,7 +83,7 @@ def test_regression_train():
             )
         },
     )
-    soap_bpnn = train([dataset], [dataset], capabilities, hypers)
+    soap_bpnn = train([dataset], [dataset], capabilities, [torch.device("cpu")], hypers)
 
     # Predict on the first five systems
     output = soap_bpnn(systems[:5], {"U0": soap_bpnn.capabilities.outputs["U0"]})

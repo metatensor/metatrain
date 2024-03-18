@@ -40,10 +40,10 @@ def train(
     train_datasets: List[Union[_BaseDataset, torch.utils.data.Subset]],
     validation_datasets: List[Union[_BaseDataset, torch.utils.data.Subset]],
     requested_capabilities: ModelCapabilities,
+    devices: List[torch.device],
     hypers: Dict = DEFAULT_HYPERS,
     continue_from: Optional[str] = None,
     output_dir: str = ".",
-    devices: List[torch.device] = [torch.device("cpu")],  # noqa: B006, B008
 ):
     # Create the model:
     if continue_from is None:

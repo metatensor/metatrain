@@ -388,10 +388,10 @@ def _train_model_hydra(options: DictConfig) -> None:
             train_datasets=train_datasets,
             validation_datasets=validation_datasets,
             requested_capabilities=requested_capabilities,
+            devices=devices,
             hypers=OmegaConf.to_container(options["architecture"]),
             continue_from=options["continue_from"],
             output_dir=output_dir,
-            devices=devices,
         )
     except Exception as e:
         raise ArchitectureError(e)

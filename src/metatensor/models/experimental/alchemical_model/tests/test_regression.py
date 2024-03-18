@@ -116,6 +116,7 @@ def test_regression_train():
         train_datasets=[dataset],
         validation_datasets=[dataset],
         requested_capabilities=capabilities,
+        devices=[torch.device("cpu")],
         hypers=hypers,
     )
 
