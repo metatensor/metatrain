@@ -287,7 +287,7 @@ def systems_to_batch_dict(
 
         relative_positions = displacement_vectors[relative_positions_index]
         central_species = [
-            int(torch.where(all_species == specie)[0][0].item())
+            int(torch.where(all_species == specie.item())[0][0].item())
             for specie in system.types
         ]
 

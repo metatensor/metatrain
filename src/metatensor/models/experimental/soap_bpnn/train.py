@@ -3,7 +3,6 @@ import warnings
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple, Union
 
-import rascaline
 import torch
 from metatensor.learn.data import DataLoader
 from metatensor.learn.data.dataset import Dataset
@@ -31,9 +30,6 @@ from .model import DEFAULT_HYPERS, Model
 logger = logging.getLogger(__name__)
 
 
-# disable rascaline logger
-rascaline.set_logging_callback(lambda x, y: None)
-
 # Filter out the second derivative and device warnings from rascaline-torch
 warnings.filterwarnings("ignore", category=UserWarning, message="second derivative")
 warnings.filterwarnings(
@@ -55,7 +51,7 @@ def train(
         key: ModelOutput(
             quantity=value.quantity,
             unit=value.unit,
-            per_atom=value.per_atom,
+            per_atom=False,
         )
         for key, value in dataset_info.targets.items()
     }

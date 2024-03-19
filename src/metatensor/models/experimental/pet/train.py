@@ -10,7 +10,7 @@ from pet.hypers import Hypers
 from pet.pet import PET
 from pet.train_model import fit_pet
 
-from ...utils.data import DatasetInfo, check_datasets, collate_fn, get_all_species
+from ...utils.data import DatasetInfo, collate_fn, get_all_species
 from ...utils.data.system_to_ase import system_to_ase
 from .model import DEFAULT_HYPERS, Model
 
@@ -140,7 +140,7 @@ def train(
         key: ModelOutput(
             quantity=value.quantity,
             unit=value.unit,
-            per_atom=value.per_atom,
+            per_atom=False,
         )
         for key, value in dataset_info.targets.items()
     }

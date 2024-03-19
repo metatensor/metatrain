@@ -16,7 +16,6 @@ logger = logging.getLogger(__name__)
 class TargetInfo:
     """A class that contains information about a target.
 
-    :param name: The name of the target.
     :param quantity: The quantity of the target.
     :param unit: The unit of the target.
     :param per_atom: Whether the target is a per-atom quantity.
@@ -35,9 +34,7 @@ class DatasetInfo:
     training functions of the individual models.
 
     :param length_unit: The unit of length used in the dataset.
-    :param targets: The names of the targets in the dataset.
-    :param target_quantities: The quantities of the targets in the dataset.
-    :param target_units: The units of the targets in the dataset.
+    :param targets: The information about targets in the dataset.
     """
 
     length_unit: str
