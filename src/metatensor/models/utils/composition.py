@@ -1,14 +1,14 @@
 from typing import List, Tuple, Union
 
 import torch
-from metatensor.learn.data.dataset import _BaseDataset
+from metatensor.learn.data.dataset import Dataset
 from metatensor.torch import Labels, TensorBlock, TensorMap
 
 from metatensor.models.utils.data import get_all_species
 
 
 def calculate_composition_weights(
-    datasets: Union[_BaseDataset, List[_BaseDataset]], property: str
+    datasets: Union[Dataset, List[Dataset]], property: str
 ) -> Tuple[torch.Tensor, List[int]]:
     """Calculate the composition weights for a dataset.
 
