@@ -9,6 +9,7 @@ This is the API for the ``utils`` module of ``metatensor-models``.
    data/index
    composition
    compute_loss
+   devices
    errors
    extract_targets
    info
