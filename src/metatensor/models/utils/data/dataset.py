@@ -112,7 +112,7 @@ def collate_fn(batch: List[NamedTuple]) -> Tuple[List, Dict[str, TensorMap]]:
 def check_datasets(
     train_datasets: List[Dataset],
     validation_datasets: List[Dataset],
-    error: bool = True,
+    raise_incompatibility_error: bool = True,
 ):
     """
     This is a helper function that checks that the training and validation sets
@@ -121,7 +121,7 @@ def check_datasets(
     Although these checks will not fit all use cases, most models would be expected
     to be able to use this function. If the validation set contains chemical species
     or targets that are not present in the training set, this function will raise a
-    warning or an error, depending on the ``error`` flag.
+    warning or an error, depending on the ``raise_incompatibility_error`` flag.
 
     The option to warn is intended for model fine tuning, where a species or target
     in the validation set might not be present in the current training set, but it
@@ -129,9 +129,9 @@ def check_datasets(
 
     :param train_datasets: A list of training datasets.
     :param validation_datasets: A list of validation datasets.
-    :param error: Whether to error (if ``true``) or warn (if ``false``) upon
-        detection of a chemical species or target in the validation set that is not
-        present in the training set.
+    :param raise_incompatibility_error: Whether to error (if ``true``) or warn
+        (if ``false``) upon detection of a chemical species or target in the
+        validation set that is not present in the training set.
     """
 
     # Get all targets in the training and validation sets:
@@ -144,7 +144,7 @@ def check_datasets(
         if target not in train_targets:
             error_or_warning = f"The validation dataset has a target ({target}) "
             "that is not present in the training dataset."
-            if error:
+            if raise_incompatibility_error:
                 raise ValueError(error_or_warning)
             else:
                 logger.warning(error_or_warning)
@@ -162,7 +162,7 @@ def check_datasets(
             "that is not in the training dataset. This could be "
             "a result of a random train/validation split. You can "
             "avoid this by providing a validation dataset manually."
-            if error:
+            if raise_incompatibility_error:
                 raise ValueError(error_or_warning)
             else:
                 logger.warning(error_or_warning)

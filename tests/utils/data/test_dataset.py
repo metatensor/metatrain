@@ -137,8 +137,8 @@ def test_get_all_targets():
     assert get_all_targets([dataset, dataset_2]) == ["U0", "energy"]
 
 
-@pytest.mark.parametrize("error", [True, False])
-def test_check_datasets(error):
+@pytest.mark.parametrize("raise_incompatibility_error", [True, False])
+def test_check_datasets(raise_incompatibility_error):
     """Tests the check_datasets function."""
 
     systems_qm9 = read_systems(RESOURCES_PATH / "qm9_reduced_100.xyz")
@@ -171,22 +171,26 @@ def test_check_datasets(error):
     # everything ok
     training_set = Dataset(system=systems_qm9, **targets_qm9)
     validation_set = Dataset(system=systems_qm9, **targets_qm9)
-    check_datasets([training_set], [validation_set], error)
+    check_datasets([training_set], [validation_set], raise_incompatibility_error)
 
     # extra species in validation dataset
     training_set = Dataset(system=systems_ethanol, **targets_qm9)
     validation_set = Dataset(system=systems_qm9, **targets_qm9)
-    if error:
+    if raise_incompatibility_error:
         with pytest.raises(ValueError, match="The validation dataset has a species"):
-            check_datasets([training_set], [validation_set], error)
+            check_datasets(
+                [training_set], [validation_set], raise_incompatibility_error
+            )
     else:
-        check_datasets([training_set], [validation_set], error)
+        check_datasets([training_set], [validation_set], raise_incompatibility_error)
 
     # extra targets in validation dataset
     training_set = Dataset(system=systems_qm9, **targets_qm9)
     validation_set = Dataset(system=systems_qm9, **targets_ethanol)
-    if error:
+    if raise_incompatibility_error:
         with pytest.raises(ValueError, match="The validation dataset has a target"):
-            check_datasets([training_set], [validation_set], error)
+            check_datasets(
+                [training_set], [validation_set], raise_incompatibility_error
+            )
     else:
-        check_datasets([training_set], [validation_set], error)
+        check_datasets([training_set], [validation_set], raise_incompatibility_error)

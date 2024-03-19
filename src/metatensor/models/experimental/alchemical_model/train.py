@@ -93,7 +93,8 @@ def train(
     check_datasets(
         train_datasets,
         validation_datasets,
-        error=continue_from is None,  # only error if we are not continuing
+        raise_incompatibility_error=continue_from is None,
+        # only error if we are not continuing
     )
 
     # Calculating the neighbors lists for the training and validation datasets:
