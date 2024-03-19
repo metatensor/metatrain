@@ -41,10 +41,10 @@ def train(
     train_datasets: List[Union[Dataset, torch.utils.data.Subset]],
     validation_datasets: List[Union[Dataset, torch.utils.data.Subset]],
     dataset_info: DatasetInfo,
+    devices: List[torch.device],
     hypers: Dict = DEFAULT_HYPERS,
     continue_from: Optional[str] = None,
     output_dir: str = ".",
-    device_str: str = "cpu",
 ):
     all_species = get_all_species(train_datasets + validation_datasets)
     outputs = {
@@ -101,17 +101,8 @@ def train(
         # only error if we are not continuing
     )
 
-    logger.info(f"Training on device {device_str}")
-    if device_str == "gpu":
-        device_str = "cuda"
-    device = torch.device(device_str)
-    if device.type == "cuda":
-        if not torch.cuda.is_available():
-            raise ValueError("CUDA is not available on this machine.")
-        logger.info(
-            "A cuda device was requested. The neural network will be run on GPU, "
-            "but the SOAP features are calculated on CPU."
-        )
+    device = devices[0]  # only one device, as we don't support multi-gpu for now
+    logger.info(f"Training on device {device}")
     model.to(device)
 
     hypers_training = hypers["training"]

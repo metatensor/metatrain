@@ -68,7 +68,12 @@ def test_continue(monkeypatch, tmp_path):
         },
     )
     model_after = train(
-        [dataset], [dataset], dataset_info, hypers, continue_from="model.ckpt"
+        [dataset],
+        [dataset],
+        dataset_info,
+        [torch.device("cpu")],
+        hypers,
+        continue_from="model.ckpt",
     )
 
     # Predict on the first five systems
@@ -83,4 +88,11 @@ def test_continue(monkeypatch, tmp_path):
     with pytest.raises(
         ValueError, match="model is already exported and can't be used for continue"
     ):
-        train([dataset], [dataset], dataset_info, hypers, continue_from="exported.pt")
+        train(
+            [dataset],
+            [dataset],
+            dataset_info,
+            [torch.device("cpu")],
+            hypers,
+            continue_from="exported.pt",
+        )

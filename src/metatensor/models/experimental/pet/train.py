@@ -22,15 +22,13 @@ def train(
     train_datasets: List[Union[Dataset, torch.utils.data.Subset]],
     validation_datasets: List[Union[Dataset, torch.utils.data.Subset]],
     dataset_info: DatasetInfo,
+    devices: List[torch.device],
     hypers: Dict = DEFAULT_HYPERS,
     continue_from: Optional[str] = None,
     output_dir: str = ".",
-    device_str: str = "cpu",
 ):
     if torch.get_default_dtype() != torch.float32:
         raise ValueError("PET only supports float32")
-    if device_str != "cuda" and device_str != "gpu":
-        raise ValueError("PET only supports cuda (gpu) training")
     if len(dataset_info.targets) != 1:
         raise ValueError("PET only supports a single target")
     target_name = next(iter(dataset_info.targets.keys()))
@@ -42,9 +40,6 @@ def train(
         raise ValueError("PET only supports a single training dataset")
     if len(validation_datasets) != 1:
         raise ValueError("PET only supports a single validation dataset")
-
-    if device_str == "gpu":
-        device_str = "cuda"
 
     if continue_from is not None:
         hypers["FITTING_SCHEME"]["MODEL_TO_START_WITH"] = continue_from
@@ -111,8 +106,10 @@ def train(
             )
         ase_validation_dataset.append(ase_atoms)
 
+    device = devices[0]  # only one device, as we don't support multi-gpu for now
+
     fit_pet(
-        ase_train_dataset, ase_validation_dataset, hypers, "pet", device_str, output_dir
+        ase_train_dataset, ase_validation_dataset, hypers, "pet", device, output_dir
     )
 
     if do_forces:
