@@ -93,7 +93,8 @@ def train(
     check_datasets(
         train_datasets,
         validation_datasets,
-        model_capabilities,
+        raise_incompatibility_error=continue_from is None,
+        # only error if we are not continuing
     )
 
     # Calculating the neighbors lists for the training and validation datasets:
@@ -113,8 +114,6 @@ def train(
     # Given that currently multiple datasets are not supported, we can assume that:
     average_number_of_atoms = average_number_of_atoms[0]
     average_number_of_neighbors = average_number_of_neighbors[0]
-
-    # Set the normalization factor for the basis functions of the model:
 
     # Set the normalization factors for the model:
     model.set_normalization_factor(average_number_of_atoms)
