@@ -159,7 +159,7 @@ def test_empty_validation_set(monkeypatch, tmp_path, options):
     options["validation_set"] = 0.0
     options["test_set"] = 0.4
 
-    with pytest.raises(ValueError, match="must be between 0 and 1"):
+    with pytest.raises(ValueError, match="must be greater than 0"):
         train_model(options)
 
 

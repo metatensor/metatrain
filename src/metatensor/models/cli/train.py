@@ -256,7 +256,10 @@ def _train_model_hydra(options: DictConfig) -> None:
         train_size -= test_size
 
         if test_size < 0 or test_size >= 1:
-            raise ValueError("Test set split must be between 0 and 1.")
+            raise ValueError(
+                "Test set split must be greater "
+                "than (or equal to) 0 and lesser than 1."
+            )
 
         generator = torch.Generator()
         if options["seed"] is not None:
@@ -306,7 +309,9 @@ def _train_model_hydra(options: DictConfig) -> None:
         train_size -= validation_size
 
         if validation_size <= 0 or validation_size >= 1:
-            raise ValueError("Validation set split must be between 0 and 1.")
+            raise ValueError(
+                "Validation set split must be greater " "than 0 and lesser than 1."
+            )
 
         generator = torch.Generator()
         if options["seed"] is not None:
