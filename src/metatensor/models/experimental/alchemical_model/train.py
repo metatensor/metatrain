@@ -4,15 +4,17 @@ from typing import Dict, List, Optional, Tuple, Union
 
 import torch
 from metatensor.learn.data import DataLoader
-from metatensor.learn.data.dataset import _BaseDataset
-from metatensor.torch.atomistic import ModelCapabilities
+from metatensor.learn.data.dataset import Dataset
+from metatensor.torch.atomistic import ModelCapabilities, ModelOutput
 
 from ...utils.composition import calculate_composition_weights
 from ...utils.compute_loss import compute_model_loss
 from ...utils.data import (
+    DatasetInfo,
     check_datasets,
     collate_fn,
     combine_dataloaders,
+    get_all_species,
     get_all_targets,
 )
 from ...utils.extract_targets import get_outputs_dict
@@ -33,20 +35,36 @@ logger = logging.getLogger(__name__)
 
 
 def train(
-    train_datasets: List[Union[_BaseDataset, torch.utils.data.Subset]],
-    validation_datasets: List[Union[_BaseDataset, torch.utils.data.Subset]],
-    requested_capabilities: ModelCapabilities,
+    train_datasets: List[Union[Dataset, torch.utils.data.Subset]],
+    validation_datasets: List[Union[Dataset, torch.utils.data.Subset]],
+    dataset_info: DatasetInfo,
     hypers: Dict = DEFAULT_HYPERS,
     continue_from: Optional[str] = None,
     output_dir: str = ".",
     device_str: str = "cpu",
 ):
+    all_species = get_all_species(train_datasets + validation_datasets)
+    outputs = {
+        key: ModelOutput(
+            quantity=value.quantity,
+            unit=value.unit,
+            per_atom=False,
+        )
+        for key, value in dataset_info.targets.items()
+    }
+    new_capabilities = ModelCapabilities(
+        length_unit=dataset_info.length_unit,
+        outputs=outputs,
+        atomic_types=all_species,
+        supported_devices=["cpu", "cuda"],
+    )
+
     if continue_from is None:
         model = Model(
-            capabilities=requested_capabilities,
+            capabilities=new_capabilities,
             hypers=hypers["model"],
         )
-        new_capabilities = requested_capabilities
+        novel_capabilities = new_capabilities
     else:
         model = load(continue_from)
         if is_exported(model):
@@ -60,12 +78,12 @@ def train(
                 "training run. The new hyperparameters will be discarded."
             )
         # merge the model's capabilities with the requested capabilities
-        merged_capabilities, new_capabilities = merge_capabilities(
-            model.capabilities, requested_capabilities
+        merged_capabilities, novel_capabilities = merge_capabilities(
+            model.capabilities, new_capabilities
         )
         model.capabilities = merged_capabilities
         # make the new model capable of handling the new outputs
-        for output_name in new_capabilities.outputs.keys():
+        for output_name in novel_capabilities.outputs.keys():
             model.add_output(output_name)
 
     model_capabilities = model.capabilities
@@ -112,7 +130,7 @@ def train(
     model.to(device)
 
     # Calculate and set the composition weights for all targets:
-    for target_name in new_capabilities.outputs.keys():
+    for target_name in novel_capabilities.outputs.keys():
         # TODO: warn in the documentation that capabilities that are already
         # present in the model won't recalculate the composition weights
         # find the datasets that contain the target:
