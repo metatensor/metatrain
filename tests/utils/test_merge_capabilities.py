@@ -13,7 +13,7 @@ def test_merge_capabilities():
         },
     )
 
-    requested_capabilities = ModelCapabilities(
+    new_capabilities = ModelCapabilities(
         length_unit="angstrom",
         atomic_types=[1],
         outputs={
@@ -23,7 +23,7 @@ def test_merge_capabilities():
         },
     )
 
-    merged, new = merge_capabilities(old_capabilities, requested_capabilities)
+    merged, novel = merge_capabilities(old_capabilities, new_capabilities)
 
     assert merged.length_unit == "angstrom"
     assert merged.atomic_types == [1, 6]
@@ -34,7 +34,7 @@ def test_merge_capabilities():
     assert merged.outputs["stress"].quantity == "stress"
     assert merged.outputs["stress"].unit == "GPa"
 
-    assert new.length_unit == "angstrom"
-    assert new.atomic_types == [1, 6]
-    assert new.outputs["stress"].quantity == "stress"
-    assert new.outputs["stress"].unit == "GPa"
+    assert novel.length_unit == "angstrom"
+    assert novel.atomic_types == [1, 6]
+    assert novel.outputs["stress"].quantity == "stress"
+    assert novel.outputs["stress"].unit == "GPa"
