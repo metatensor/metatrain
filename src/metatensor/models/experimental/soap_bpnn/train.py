@@ -1,7 +1,7 @@
 import logging
 import warnings
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple, Union
+from typing import Dict, List, Optional, Union
 
 import torch
 from metatensor.learn.data import DataLoader
@@ -9,7 +9,6 @@ from metatensor.learn.data.dataset import Dataset
 from metatensor.torch.atomistic import ModelCapabilities, ModelOutput
 
 from ...utils.composition import calculate_composition_weights
-from ...utils.compute_loss import compute_model_loss
 from ...utils.data import (
     DatasetInfo,
     check_datasets,
@@ -18,12 +17,13 @@ from ...utils.data import (
     get_all_species,
     get_all_targets,
 )
+from ...utils.evaluate_model import evaluate_model
 from ...utils.extract_targets import get_outputs_dict
-from ...utils.info import finalize_aggregated_info, update_aggregated_info
 from ...utils.io import is_exported, load, save
 from ...utils.logging import MetricLogger
 from ...utils.loss import TensorMapDictLoss
 from ...utils.merge_capabilities import merge_capabilities
+from ...utils.metrics import RMSEAccumulator
 from .model import DEFAULT_HYPERS, Model
 
 
@@ -213,43 +213,58 @@ def train(
     # Train the model:
     logger.info("Starting training")
     for epoch in range(hypers_training["num_epochs"]):
-        # aggregated information holders:
-        aggregated_train_info: Dict[str, Tuple[float, int]] = {}
-        aggregated_validation_info: Dict[str, Tuple[float, int]] = {}
+        train_rmse_calculator = RMSEAccumulator()
+        validation_rmse_calculator = RMSEAccumulator()
 
         train_loss = 0.0
         for batch in train_dataloader:
             optimizer.zero_grad()
 
             systems, targets = batch
-            loss, info = compute_model_loss(
-                loss_fn, model, systems, targets, hypers_training["per_atom_targets"]
+            systems = [system.to(device=device) for system in systems]
+            targets = {key: value.to(device=device) for key, value in targets.items()}
+            predictions = evaluate_model(
+                model,
+                systems,
+                {
+                    name: tensormap.block().gradients_list()
+                    for name, tensormap in targets.items()
+                },
+                is_training=True,
             )
-
+            loss = loss_fn(predictions, targets)
             train_loss += loss.item()
             loss.backward()
             optimizer.step()
-            aggregated_train_info = update_aggregated_info(aggregated_train_info, info)
-        finalized_train_info = finalize_aggregated_info(aggregated_train_info)
+            train_rmse_calculator.update(predictions, targets)
+        finalized_train_info = train_rmse_calculator.finalize()
 
         validation_loss = 0.0
         for batch in validation_dataloader:
             systems, targets = batch
-            # TODO: specify that the model is not training here to save some autograd
-
-            loss, info = compute_model_loss(
-                loss_fn, model, systems, targets, hypers_training["per_atom_targets"]
+            systems = [system.to(device=device) for system in systems]
+            targets = {key: value.to(device=device) for key, value in targets.items()}
+            predictions = evaluate_model(
+                model,
+                systems,
+                {
+                    name: tensormap.block().gradients_list()
+                    for name, tensormap in targets.items()
+                },
+                is_training=False,
             )
 
             validation_loss += loss.item()
-            aggregated_validation_info = update_aggregated_info(
-                aggregated_validation_info, info
-            )
-        finalized_validation_info = finalize_aggregated_info(aggregated_validation_info)
+            validation_rmse_calculator.update(predictions, targets)
+        finalized_validation_info = validation_rmse_calculator.finalize()
 
         # Now we log the information:
-        finalized_train_info["loss"] = train_loss
-        finalized_validation_info["loss"] = validation_loss
+        finalized_train_info = {"loss": train_loss, **finalized_train_info}
+        finalized_validation_info = {
+            "loss": validation_loss,
+            **finalized_validation_info,
+        }
+
         if epoch == 0:
             metric_logger = MetricLogger(
                 model_capabilities=model_capabilities,

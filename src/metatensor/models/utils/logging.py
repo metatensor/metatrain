@@ -86,7 +86,6 @@ class MetricLogger:
 
         for name, metrics_dict in zip(self.names, metrics):
             for key, value in metrics_dict.items():
-                print(key, value)
                 new_key = key
                 if key.endswith("_positions_gradients"):
                     # check if this is a force
@@ -100,7 +99,7 @@ class MetricLogger:
                             new_key = "force"
                         else:
                             new_key = f"force[{target_name}]"
-                elif key.endswith("_strain_gradients"):
+                elif "_strain_gradients" in key:
                     # check if this is a virial/stress
                     target_name = key[: -len("_strain_gradients")]
                     if (
@@ -113,12 +112,14 @@ class MetricLogger:
                             new_key = "virial/stress"
                         else:
                             new_key = f"virial/stress[{target_name}]"
+                print(name)
                 logging_string += (
-                    f", {name} {new_key} RMSE: "
+                    f", {name} {new_key}: "
                     f"{value:{self.digits[f'{name}_{key}'][0]}.{self.digits[f'{name}_{key}'][1]}f}"  # noqa: E501
                 )
 
         # If there is no epoch, the string will start with a comma. Remove it:
+        print(logging_string)
         if logging_string.startswith(", "):
             logging_string = logging_string[2:]
 

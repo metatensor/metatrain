@@ -1,5 +1,5 @@
 import warnings
-from typing import Dict, List, Tuple, Union
+from typing import Dict, List, Union
 
 import torch
 from metatensor.torch import Labels, TensorBlock, TensorMap
@@ -9,9 +9,7 @@ from metatensor.torch.atomistic import (
     register_autograd_neighbors,
 )
 
-from .errors import ArchitectureError
 from .io import is_exported
-from .loss import TensorMapDictLoss
 from .output_gradient import compute_gradient
 
 
@@ -24,43 +22,31 @@ warnings.filterwarnings(
 )  # TODO: this is not filtering out the warning for some reason
 
 
-def compute_model_loss(
-    loss: TensorMapDictLoss,
+def evaluate_model(
     model: Union[torch.nn.Module, torch.jit._script.RecursiveScriptModule],
     systems: List[System],
-    targets: Dict[str, TensorMap],
-    per_atom_targets: List[str],
-) -> Tuple[torch.Tensor, Dict[str, Tuple[float, int]]]:
+    targets: Dict[str, List[str]],
+    is_training: bool,
+) -> Dict[str, TensorMap]:
     """
-    Compute the loss of a model on a set of targets, with an option to treat
-    specifed targets on a per atom basis. This implies that when some such
-    targets are specified, their contribution to the loss will accordingly be on
-    a per atom basis.
+    Evaluate the model on a set of requested targets.
 
-    :param loss: The loss function to use.
     :param model: The model to use. This can either be a model in training
         (``torch.nn.Module``) or an exported model
         (``torch.jit._script.RecursiveScriptModule``).
     :param systems: The systems to use.
-    :param targets: The targets to use.
-    :param per_atom_targets: The targets that should be treated on a per atom
-        basis during loss calculation.
+    :param targets: The names of the targets to evaluate (keys), along with
+        their associated gradients (values).
+    :param is_training: Whether the model is being computed during training.
 
-    :returns: The loss as a scalar `torch.Tensor`.
+    :returns: The predictions of the model for the requested targets.
     """
-    try:
-        device = next(model.parameters()).device
-        outputs_capabilities = _get_capabilities(model).outputs
-    except Exception as e:
-        raise ArchitectureError(e)
+    # TODO: MOVE STUFF TO DEVICE OUTSIDE!!!
 
     # Assert that all targets are within the model's capabilities:
+    outputs_capabilities = _get_capabilities(model).outputs
     if not set(targets.keys()).issubset(outputs_capabilities.keys()):
         raise ValueError("Not all targets are within the model's capabilities.")
-
-    # Infer move systems and targets to the same device:
-    systems = [system.to(device=device) for system in systems]
-    targets = {key: target.to(device=device) for key, target in targets.items()}
 
     # Find if there are any energy targets that require gradients:
     energy_targets = []
@@ -71,15 +57,17 @@ def compute_model_loss(
         if outputs_capabilities[target_name].quantity == "energy":
             energy_targets.append(target_name)
             # Check if the energy requires gradients:
-            if targets[target_name].block().has_gradient("positions"):
+            if "positions" in targets[target_name]:
                 energy_targets_that_require_position_gradients.append(target_name)
-            if targets[target_name].block().has_gradient("strain"):
+            if "strain" in targets[target_name]:
                 energy_targets_that_require_strain_gradients.append(target_name)
 
     if len(energy_targets_that_require_strain_gradients) > 0:
-        # TODO: raise an error if the systems do not have a cell
-        # if not all([system.has_cell for system in systems]):
-        #     raise ValueError("One or more systems does not have a cell.")
+        if not all([not torch.all(system.cell == 0) for system in systems]):
+            raise ValueError(
+                "One or more systems does not have a cell, "
+                "but strain gradients were requested."
+            )
         strains = [
             torch.eye(
                 3,
@@ -133,7 +121,7 @@ def compute_model_loss(
             gradients = compute_gradient(
                 model_outputs[energy_target].block().values,
                 [system.positions for system in systems] + strains,
-                is_training=True,
+                is_training=is_training,
             )
             old_energy_tensor_map = model_outputs[energy_target]
             new_block = old_energy_tensor_map.block().copy()
@@ -153,7 +141,7 @@ def compute_model_loss(
             gradients = compute_gradient(
                 model_outputs[energy_target].block().values,
                 [system.positions for system in systems],
-                is_training=True,
+                is_training=is_training,
             )
             old_energy_tensor_map = model_outputs[energy_target]
             new_block = old_energy_tensor_map.block().copy()
@@ -167,7 +155,7 @@ def compute_model_loss(
             gradients = compute_gradient(
                 model_outputs[energy_target].block().values,
                 strains,
-                is_training=True,
+                is_training=is_training,
             )
             old_energy_tensor_map = model_outputs[energy_target]
             new_block = old_energy_tensor_map.block().copy()
@@ -180,37 +168,7 @@ def compute_model_loss(
         else:
             pass
 
-    # Averaging by number of atoms for per atom targets
-    num_atoms = torch.tensor([len(s) for s in systems], device=device).unsqueeze(-1)
-
-    new_model_outputs = model_outputs.copy()
-    new_targets = targets.copy()
-
-    for pa_target in per_atom_targets:
-
-        # Update predictions
-        cur_model_block = new_model_outputs[pa_target].block()
-        new_model_block = _average_by_num_atoms(cur_model_block, num_atoms)
-
-        # Update targets
-        cur_target_block = new_targets[pa_target].block()
-        new_target_block = _average_by_num_atoms(cur_target_block, num_atoms)
-
-        new_model_tensor = TensorMap(
-            keys=new_model_outputs[pa_target].keys,
-            blocks=[new_model_block],
-        )
-
-        new_target_tensor = TensorMap(
-            keys=new_targets[pa_target].keys,
-            blocks=[new_target_block],
-        )
-
-        new_model_outputs[pa_target] = new_model_tensor
-        new_targets[pa_target] = new_target_tensor
-
-    # Compute and return the loss and associated info:
-    return loss(new_model_outputs, new_targets)
+    return model_outputs
 
 
 def _position_gradients_to_block(gradients_list):

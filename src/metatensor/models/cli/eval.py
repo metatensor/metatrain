@@ -1,20 +1,20 @@
 import argparse
 import logging
 from pathlib import Path
-from typing import Dict, Tuple, Union
+from typing import Dict, List, Optional, Union
 
+import metatensor.torch
 import torch
 from metatensor.learn.data.dataset import Dataset
-from metatensor.torch.atomistic import ModelEvaluationOptions
+from metatensor.torch import TensorMap
 from omegaconf import DictConfig, OmegaConf
 
-from ..utils.compute_loss import compute_model_loss
 from ..utils.data import collate_fn, read_systems, read_targets, write_predictions
 from ..utils.errors import ArchitectureError
-from ..utils.extract_targets import get_outputs_dict
-from ..utils.info import finalize_aggregated_info, update_aggregated_info
+from ..utils.evaluate_model import evaluate_model
 from ..utils.io import load
-from ..utils.loss import TensorMapDictLoss
+from ..utils.logging import MetricLogger
+from ..utils.metrics import RMSEAccumulator
 from ..utils.neighbors_lists import get_system_with_neighbors_lists
 from ..utils.omegaconf import expand_dataset_config
 from .formatter import CustomHelpFormatter
@@ -65,96 +65,70 @@ def _add_eval_model_parser(subparser: argparse._SubParsersAction) -> None:
     )
 
 
-def _eval_targets(model, dataset: Union[Dataset, torch.utils.data.Subset]) -> None:
-    """Evaluate an exported model on a dataset and print the RMSEs for each target."""
-    if len(dataset) == 0:
-        logger.info("This dataset is empty. No evaluation will be performed.")
-        return
+def _eval_targets(
+    model: torch.jit._script.RecursiveScriptModule,
+    dataset: Union[Dataset, torch.utils.data.Subset],
+    options: Dict[str, List[str]],
+    return_predictions: bool,
+) -> Optional[Dict[str, TensorMap]]:
+    """Evaluates an exported model on a dataset and print the RMSEs for each target.
+    Optionally, it also returns the predictions of the model."""
+
     # Attach neighbor lists to the systems:
-    requested_neighbor_lists = model.requested_neighbors_lists()
-    # working around https://github.com/lab-cosmo/metatensor/issues/521
-    # Desired:
-    # for system, _ in dataset:
-    #     attach_neighbor_lists(system, requested_neighbors_lists)
-    # Current:
+    # TODO: these might already be present... find a way to avoid recomputing
+    # if already present (e.g. if this function is called after training)
+    for sample in dataset:
+        system = sample.system
+        get_system_with_neighbors_lists(system, model.requested_neighbors_lists())
+
+    # Infer the device from the model
+    device = next(model.parameters()).device
+
+    # Create a dataloader
     dataloader = torch.utils.data.DataLoader(
-        dataset, batch_size=1, collate_fn=collate_fn
-    )
-    for (system,), _ in dataloader:
-        get_system_with_neighbors_lists(system, requested_neighbor_lists)
-
-    # Extract all the possible outputs and their gradients from the dataset:
-    outputs_dict = get_outputs_dict([dataset])
-    for output_name in outputs_dict.keys():
-        if output_name not in model.capabilities().outputs:
-            raise ValueError(
-                f"Output {output_name} is not in the model's capabilities."
-            )
-
-    # Create the loss function:
-    loss_weights_dict = {}
-    for output_name, value_or_gradient_list in outputs_dict.items():
-        loss_weights_dict[output_name] = {
-            value_or_gradient: 0.0 for value_or_gradient in value_or_gradient_list
-        }
-    loss_fn = TensorMapDictLoss(loss_weights_dict)
-
-    # Create a dataloader:
-    dataloader = torch.utils.data.DataLoader(
-        dataset=dataset,
-        batch_size=4,  # Choose small value to not crash the system at evaluation
-        shuffle=True,
+        dataset,
+        batch_size=1,  # TODO: allow to set from outside!!
         collate_fn=collate_fn,
+        shuffle=False,
     )
 
-    # Compute the RMSEs:
-    aggregated_info: Dict[str, Tuple[float, int]] = {}
+    # Initialize RMSE accumulator:
+    rmse_accumulator = RMSEAccumulator()
+
+    # If we're returning the predictions, we need to store them:
+    if return_predictions:
+        all_predictions = []
+
+    # Evaluate the model
     for batch in dataloader:
+        systems, targets = batch
+        systems = [system.to(device=device) for system in systems]
+        targets = {key: value.to(device=device) for key, value in targets.items()}
+        batch_predictions = evaluate_model(model, systems, options, is_training=False)
+        rmse_accumulator.update(batch_predictions, targets)
+        if return_predictions:
+            all_predictions.append(batch_predictions)
 
-        structures, targets = batch
-        _, info = compute_model_loss(loss_fn, model, structures, targets, [])
+    # Finalize the RMSEs
+    rmse_values = rmse_accumulator.finalize()
+    # print the RMSEs with MetricLogger
+    metric_logger = MetricLogger(
+        model_capabilities=model.capabilities(),
+        initial_metrics=rmse_values,
+    )
+    logger.info(metric_logger.log(rmse_values))
 
-        aggregated_info = update_aggregated_info(aggregated_info, info)
-    finalized_info = finalize_aggregated_info(aggregated_info)
-
-    energy_counter = 0
-
-    try:
-        outputs_capabilities = model.capabilities().outputs
-    except Exception as e:
-        raise ArchitectureError(e)
-
-    for output in outputs_capabilities.values():
-        if output.quantity == "energy":
-            energy_counter += 1
-    if energy_counter == 1:
-        only_one_energy = True
+    if return_predictions:
+        # concatenate the TensorMaps
+        all_predictions_joined = {
+            target: metatensor.torch.join(
+                [pred[target] for pred in all_predictions], axis="samples"
+            )
+            for target in all_predictions[0].keys()
+        }
+        return all_predictions_joined
     else:
-        only_one_energy = False
-
-    log_output = []
-    for key, value in finalized_info.items():
-        new_key = key
-        if key.endswith("_positions_gradients"):
-            # check if this is a force
-            target_name = key[: -len("_positions_gradients")]
-            if outputs_capabilities[target_name].quantity == "energy":
-                # if this is a force, replace the ugly name with "force"
-                if only_one_energy:
-                    new_key = "force"
-                else:
-                    new_key = f"force[{target_name}]"
-        elif key.endswith("_displacement_gradients"):
-            # check if this is a virial/stress
-            target_name = key[: -len("_displacement_gradients")]
-            if outputs_capabilities[target_name].quantity == "energy":
-                # if this is a virial/stress, replace the ugly name with "virial/stress"
-                if only_one_energy:
-                    new_key = "virial/stress"
-                else:
-                    new_key = f"virial/stress[{target_name}]"
-        log_output.append(f"{new_key} RMSE: {value}")
-    logger.info(", ".join(log_output))
+        return None
 
 
 def eval_model(
@@ -196,29 +170,32 @@ def eval_model(
             fileformat=options["systems"]["file_format"],
         )
 
-        # Predict targets
         if hasattr(options, "targets"):
+            # in this case, we only evaluate the targets specified in the options
             eval_targets = read_targets(options["targets"])
-            eval_dataset = Dataset(system=eval_systems, energy=eval_targets["energy"])
-            _eval_targets(model, eval_dataset)
+            eval_outputs = {
+                target: tensormaps[0].block().gradients_list()
+                for target, tensormaps in eval_targets.items()
+            }
         else:
-            # attach neighbors list to systems. This step is only required if no
-            # targets are present. Otherwise, the neighbors list have been already
-            # attached in `_eval_targets`.
-            eval_systems = [
-                get_system_with_neighbors_lists(
-                    system, model.requested_neighbors_lists()
-                )
-                for system in eval_systems
-            ]
+            # in this case, we have no targets: evaluate everything
+            # TODO: allow the user to specify which outputs to evaluate
+            eval_targets = {}
+            eval_outputs = {
+                target: ["positions", "strain"]
+                for target in model.capabilities().outputs.keys()
+            }
 
+        eval_dataset = Dataset(system=eval_systems, **eval_targets)
+
+        # Evaluate the model
         try:
-            # `length_unit` is only required for unit conversions in MD engines and
-            # superfluous here.
-            eval_options = ModelEvaluationOptions(
-                length_unit="", outputs=model.capabilities().outputs
+            predictions = _eval_targets(
+                model=model,
+                dataset=eval_dataset,
+                options=eval_outputs,
+                return_predictions=True,
             )
-            predictions = model(eval_systems, eval_options, check_consistency=True)
         except Exception as e:
             raise ArchitectureError(e)
 
