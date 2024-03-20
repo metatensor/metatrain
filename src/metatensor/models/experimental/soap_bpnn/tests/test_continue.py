@@ -8,7 +8,7 @@ from omegaconf import OmegaConf
 
 import metatensor.models
 from metatensor.models.experimental.soap_bpnn import DEFAULT_HYPERS, Model, train
-from metatensor.models.utils.data import get_all_species
+from metatensor.models.utils.data import DatasetInfo, TargetInfo
 from metatensor.models.utils.data.readers import read_systems, read_targets
 from metatensor.models.utils.io import export, save
 
@@ -58,18 +58,22 @@ def test_continue(monkeypatch, tmp_path):
     hypers = DEFAULT_HYPERS.copy()
     hypers["training"]["num_epochs"] = 0
 
-    capabilities = ModelCapabilities(
+    dataset_info = DatasetInfo(
         length_unit="Angstrom",
-        atomic_types=get_all_species(dataset),
-        outputs={
-            "U0": ModelOutput(
+        targets={
+            "U0": TargetInfo(
                 quantity="energy",
                 unit="eV",
-            )
+            ),
         },
     )
     model_after = train(
-        [dataset], [dataset], capabilities, hypers, continue_from="model.ckpt"
+        [dataset],
+        [dataset],
+        dataset_info,
+        [torch.device("cpu")],
+        hypers,
+        continue_from="model.ckpt",
     )
 
     # Predict on the first five systems
@@ -84,4 +88,11 @@ def test_continue(monkeypatch, tmp_path):
     with pytest.raises(
         ValueError, match="model is already exported and can't be used for continue"
     ):
-        train([dataset], [dataset], capabilities, hypers, continue_from="exported.pt")
+        train(
+            [dataset],
+            [dataset],
+            dataset_info,
+            [torch.device("cpu")],
+            hypers,
+            continue_from="exported.pt",
+        )

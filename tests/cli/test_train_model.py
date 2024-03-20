@@ -135,6 +135,51 @@ def test_train_multiple_datasets(monkeypatch, tmp_path, options):
     train_model(options)
 
 
+def test_empty_training_set(monkeypatch, tmp_path, options):
+    """Test that an error is raised if no training set is provided."""
+    monkeypatch.chdir(tmp_path)
+
+    shutil.copy(DATASET_PATH, "qm9_reduced_100.xyz")
+
+    options["validation_set"] = 0.6
+    options["test_set"] = 0.4
+
+    with pytest.raises(
+        ValueError, match="Fraction of the train set is smaller or equal to 0!"
+    ):
+        train_model(options)
+
+
+def test_empty_validation_set(monkeypatch, tmp_path, options):
+    """Test that an error is raised if no validation set is provided."""
+    monkeypatch.chdir(tmp_path)
+
+    shutil.copy(DATASET_PATH, "qm9_reduced_100.xyz")
+
+    options["validation_set"] = 0.0
+    options["test_set"] = 0.4
+
+    with pytest.raises(ValueError, match="must be greater than 0"):
+        train_model(options)
+
+
+def test_empty_test_set(monkeypatch, tmp_path, options):
+    """Test that no error is raised if no test set is provided."""
+    monkeypatch.chdir(tmp_path)
+
+    shutil.copy(DATASET_PATH, "qm9_reduced_100.xyz")
+
+    options["validation_set"] = 0.4
+    options["test_set"] = 0.0
+
+    train_model(options)
+
+    # check if the logging is correct
+    with open(glob.glob("outputs/*/*/train.log")[0]) as f:
+        log = f.read()
+    assert "This dataset is empty. No evaluation" in log
+
+
 @pytest.mark.parametrize(
     "test_set_file, validation_set_file", [(True, False), (False, True)]
 )
@@ -321,7 +366,7 @@ def test_error_base_precision(options, monkeypatch, tmp_path):
         train_model(options)
 
 
-def test_architectur_error(options, monkeypatch, tmp_path):
+def test_architecture_error(options, monkeypatch, tmp_path):
     """Test an error raise if there is problem wth the architecture."""
     monkeypatch.chdir(tmp_path)
     shutil.copy(DATASET_PATH, "qm9_reduced_100.xyz")
