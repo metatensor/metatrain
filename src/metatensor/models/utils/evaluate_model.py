@@ -41,7 +41,6 @@ def evaluate_model(
 
     :returns: The predictions of the model for the requested targets.
     """
-    # TODO: MOVE STUFF TO DEVICE OUTSIDE!!!
 
     # Assert that all targets are within the model's capabilities:
     outputs_capabilities = _get_capabilities(model).outputs

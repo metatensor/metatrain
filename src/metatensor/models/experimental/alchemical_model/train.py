@@ -247,8 +247,8 @@ def train(
         for batch in validation_dataloader:
             systems, targets = batch
             assert len(systems[0].known_neighbors_lists()) > 0
-            systems = [system.to(device) for system in systems]
-            targets = {key: value.to(device) for key, value in targets.items()}
+            systems = [system.to(device=device) for system in systems]
+            targets = {key: value.to(device=device) for key, value in targets.items()}
             predictions = evaluate_model(
                 model,
                 systems,

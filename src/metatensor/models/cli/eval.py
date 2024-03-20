@@ -6,7 +6,7 @@ from typing import Dict, List, Optional, Union
 import metatensor.torch
 import torch
 from metatensor.learn.data.dataset import Dataset
-from metatensor.torch import TensorMap
+from metatensor.torch import Labels, TensorBlock, TensorMap
 from omegaconf import DictConfig, OmegaConf
 
 from ..utils.data import collate_fn, read_systems, read_targets, write_predictions
@@ -65,6 +65,71 @@ def _add_eval_model_parser(subparser: argparse._SubParsersAction) -> None:
     )
 
 
+def _concatenate_tensormaps(
+    tensormaps: List[Dict[str, TensorMap]]
+) -> Dict[str, TensorMap]:
+    # Concatenating TensorMaps is tricky, because the model does not know the
+    # "number" of the system it is predicting. For example, if a model predicts
+    # 3 batches of 4 atoms each, the system labels will be [0, 1, 2, 3],
+    # [0, 1, 2, 3], [0, 1, 2, 3] for the three batches, respectively. Due
+    # to this, the join operation would not achieve the desired result
+    # ([0, 1, 2, ..., 11, 12]). Here, we fix this by renaming the system labels.
+
+    system_counter = 0
+    tensormaps_shifted_systems = []
+    for tensormap_dict in tensormaps:
+        tensormap_dict_shifted = {}
+        for name, tensormap in tensormap_dict.items():
+            new_keys = []
+            new_blocks = []
+            for key, block in tensormap.items():
+                new_key = key
+                where_system = block.samples.names.index("system")
+                n_systems = torch.max(block.samples.column("system")) + 1
+                new_samples_values = block.samples.values
+                new_samples_values[:, where_system] += system_counter
+                new_block = TensorBlock(
+                    values=block.values,
+                    samples=Labels(block.samples.names, values=new_samples_values),
+                    components=block.components,
+                    properties=block.properties,
+                )
+                for gradient_name, gradient_block in block.gradients():
+                    where_system = gradient_block.samples.names.index("system")
+                    new_samples_values = gradient_block.samples.values
+                    new_samples_values[:, where_system] += system_counter
+                    new_block.add_gradient(
+                        gradient_name,
+                        TensorBlock(
+                            values=gradient_block.values,
+                            samples=Labels(
+                                gradient_block.samples.names,
+                                new_samples_values,
+                            ),
+                            components=gradient_block.components,
+                            properties=gradient_block.properties,
+                        ),
+                    )
+                new_keys.append(new_key)
+                new_blocks.append(new_block)
+            tensormap_dict_shifted[name] = TensorMap(
+                keys=Labels(
+                    names=tensormap.keys.names,
+                    values=torch.stack([new_key.values for new_key in new_keys]),
+                ),
+                blocks=new_blocks,
+            )
+        tensormaps_shifted_systems.append(tensormap_dict_shifted)
+        system_counter += n_systems
+
+    return {
+        target: metatensor.torch.join(
+            [pred[target] for pred in tensormaps_shifted_systems], axis="samples"
+        )
+        for target in tensormaps_shifted_systems[0].keys()
+    }
+
+
 def _eval_targets(
     model: torch.jit._script.RecursiveScriptModule,
     dataset: Union[Dataset, torch.utils.data.Subset],
@@ -116,16 +181,11 @@ def _eval_targets(
         model_capabilities=model.capabilities(),
         initial_metrics=rmse_values,
     )
-    logger.info(metric_logger.log(rmse_values))
+    metric_logger.log(rmse_values)
 
     if return_predictions:
         # concatenate the TensorMaps
-        all_predictions_joined = {
-            target: metatensor.torch.join(
-                [pred[target] for pred in all_predictions], axis="samples"
-            )
-            for target in all_predictions[0].keys()
-        }
+        all_predictions_joined = _concatenate_tensormaps(all_predictions)
         return all_predictions_joined
     else:
         return None

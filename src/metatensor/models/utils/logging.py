@@ -112,14 +112,14 @@ class MetricLogger:
                             new_key = "virial/stress"
                         else:
                             new_key = f"virial/stress[{target_name}]"
-                print(name)
-                logging_string += (
-                    f", {name} {new_key}: "
-                    f"{value:{self.digits[f'{name}_{key}'][0]}.{self.digits[f'{name}_{key}'][1]}f}"  # noqa: E501
-                )
+
+                if name == "":
+                    logging_string += f", {new_key}: "
+                else:
+                    logging_string += f", {name} {new_key}: "
+                logging_string += f"{value:{self.digits[f'{name}_{key}'][0]}.{self.digits[f'{name}_{key}'][1]}f}"  # noqa: E501
 
         # If there is no epoch, the string will start with a comma. Remove it:
-        print(logging_string)
         if logging_string.startswith(", "):
             logging_string = logging_string[2:]
 
