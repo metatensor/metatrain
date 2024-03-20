@@ -64,34 +64,33 @@ class Model(torch.nn.Module):
     ) -> Dict[str, TensorMap]:
         options = self.requested_neighbors_lists()[0]
         batch = systems_to_batch_dict(systems, options, self.all_species)
+
         predictions = self.pet(batch)
         output_quantities: Dict[str, TensorMap] = {}
         for output_name in outputs:
+            energy_labels = Labels(
+                names=["energy"], values=torch.tensor([[0]], device=predictions.device)
+            )
             empty_labels = Labels(
                 names=["_"], values=torch.tensor([[0]], device=predictions.device)
             )
-            structure_index = torch.repeat_interleave(
-                torch.arange(len(systems), device=predictions.device),
-                torch.tensor(
-                    [len(system) for system in systems], device=predictions.device
-                ),
-            )
+            structure_index = batch["batch"]
+            _, counts = torch.unique(batch["batch"], return_counts=True)
             atom_index = torch.cat(
-                [
-                    torch.arange(len(system), device=predictions.device)
-                    for system in systems
-                ]
+                [torch.arange(count, device=predictions.device) for count in counts]
             )
             samples_values = torch.stack([structure_index, atom_index], dim=1)
             samples = Labels(names=["system", "atom"], values=samples_values)
             block = TensorBlock(
                 samples=samples,
                 components=[],
-                properties=empty_labels,
+                properties=energy_labels,
                 values=predictions,
             )
             if selected_atoms is not None:
-                block = metatensor.torch.slice_block(block, "samples", selected_atoms)
+                block = metatensor.torch.slice_block(
+                    block, axis="samples", labels=selected_atoms
+                )
             output_tmap = TensorMap(keys=empty_labels, blocks=[block])
             if not outputs[output_name].per_atom:
                 output_tmap = metatensor.torch.sum_over_samples(output_tmap, "atom")
