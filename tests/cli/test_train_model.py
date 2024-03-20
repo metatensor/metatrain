@@ -376,6 +376,16 @@ def test_different_base_precision(options, monkeypatch, tmp_path, base_precision
     train_model(options)
 
 
+def test_unsupported_dtype(options):
+    options["base_precision"] = 16
+    match = (
+        r"Requested dtype torch.float16 is not supported. experimental.soap_bpnn "
+        r"only supports \[torch.float64, torch.float32\]."
+    )
+    with pytest.raises(ValueError, match=match):
+        train_model(options)
+
+
 def test_architecture_error(options, monkeypatch, tmp_path):
     """Test an error raise if there is problem wth the architecture."""
     monkeypatch.chdir(tmp_path)

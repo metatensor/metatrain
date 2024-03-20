@@ -206,6 +206,21 @@ def _train_model_hydra(options: DictConfig) -> None:
     :param options: A dictionary-like object obtained from Hydra, containing all the
         necessary options for dataset preparation, model hyperparameters, and training.
     """
+
+    architecture_name = options["architecture"]["name"]
+    architecture = importlib.import_module(f"metatensor.models.{architecture_name}")
+    architecture_capbilities = architecture.__ARCHITECTURE_CAPABILITIES__
+
+    ###########################
+    # PROCESS BASE PARAMETERS #
+    ###########################
+    devices = pick_devices(
+        requested_device=options["device"],
+        available_devices=get_available_devices(),
+        architecture_devices=architecture_capbilities["supported_devices"],
+    )
+
+    # process dtypes
     if options["base_precision"] == 64:
         dtype = torch.float64
     elif options["base_precision"] == 32:
@@ -214,6 +229,12 @@ def _train_model_hydra(options: DictConfig) -> None:
         dtype = torch.float16
     else:
         raise ValueError("Only 64, 32 or 16 are possible values for `base_precision`.")
+
+    if dtype not in architecture_capbilities["supported_dtypes"]:
+        raise ValueError(
+            f"Requested dtype {dtype} is not supported. {architecture_name} only "
+            f"supports {architecture_capbilities['supported_dtypes']}."
+        )
 
     if options["seed"] is not None:
         if options["seed"] < 0:
@@ -230,6 +251,9 @@ def _train_model_hydra(options: DictConfig) -> None:
     output_dir = hydra.core.hydra_config.HydraConfig.get().runtime.output_dir
     logger.info(f"This log is also available in '{output_dir}/train.log'.")
 
+    ###########################
+    # SETUP DATA SETS #########
+    ###########################
     logger.info("Setting up training set")
     train_options_list = expand_dataset_config(options["training_set"])
     check_options_list(train_options_list)
@@ -355,9 +379,10 @@ def _train_model_hydra(options: DictConfig) -> None:
     # Save fully expanded config
     OmegaConf.save(config=options, f=Path(output_dir) / "options.yaml")
 
+    ###########################
+    # SETUP MODEL #############
+    ###########################
     logger.info("Setting up model")
-    architecture_name = options["architecture"]["name"]
-    architecture = importlib.import_module(f"metatensor.models.{architecture_name}")
 
     dataset_info = DatasetInfo(
         length_unit=(
@@ -375,12 +400,6 @@ def _train_model_hydra(options: DictConfig) -> None:
             for key, value in train_options["targets"].items()
         },
     )
-
-    # process devices
-    architecture_devices = architecture.DEVICES
-    requested_device = options["device"]
-    available_devices = get_available_devices()
-    devices = pick_devices(requested_device, available_devices, architecture_devices)
 
     logger.info("Calling architecture trainer")
     try:
