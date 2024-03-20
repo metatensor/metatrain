@@ -250,10 +250,10 @@ def train(
             epochs_without_improvement = 0
         else:
             epochs_without_improvement += 1
-            if epochs_without_improvement >= hypers_training["patience"]:
+            if epochs_without_improvement >= hypers_training["early_stopping_patience"]:
                 logger.info(
                     "Early stopping criterion reached after "
-                    f"{hypers_training['patience']} epochs without improvement."
+                    f"{hypers_training['early_stopping_patience']} epochs without improvement."
                 )
                 break
 
