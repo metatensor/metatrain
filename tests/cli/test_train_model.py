@@ -18,7 +18,7 @@ RESOURCES_PATH = Path(__file__).parent.resolve() / ".." / "resources"
 DATASET_PATH = RESOURCES_PATH / "qm9_reduced_100.xyz"
 DATASET_PATH_2 = RESOURCES_PATH / "ethanol_reduced_100.xyz"
 OPTIONS_PATH = RESOURCES_PATH / "options.yaml"
-MODEL_PATH = RESOURCES_PATH / "bpnn-model.ckpt"
+MODEL_PATH = RESOURCES_PATH / "model-32-bit.ckpt"
 
 
 @pytest.fixture

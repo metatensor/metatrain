@@ -1,5 +1,3 @@
-base_precision: 32
-
 architecture:
   name: experimental.soap_bpnn
   training:
@@ -8,10 +6,12 @@ architecture:
 
 training_set:
   systems:
-    read_from: "qm9_reduced_100.xyz"
+    read_from: qm9_reduced_100.xyz
+    length_unit: angstrom
   targets:
     energy:
-      key: "U0"
+      key: U0
+      unit: eV
 
 test_set: 0.5
 validation_set: 0.1
