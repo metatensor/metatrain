@@ -4,7 +4,7 @@ from pathlib import Path
 from typing import Dict, Tuple, Union
 
 import torch
-from metatensor.learn.data.dataset import Dataset, _BaseDataset
+from metatensor.learn.data.dataset import Dataset
 from metatensor.torch.atomistic import ModelEvaluationOptions
 from omegaconf import DictConfig, OmegaConf
 
@@ -13,8 +13,8 @@ from ..utils.data import collate_fn, read_systems, read_targets, write_predictio
 from ..utils.errors import ArchitectureError
 from ..utils.extract_targets import get_outputs_dict
 from ..utils.info import finalize_aggregated_info, update_aggregated_info
+from ..utils.io import load
 from ..utils.loss import TensorMapDictLoss
-from ..utils.model_io import load_exported_model
 from ..utils.neighbors_lists import get_system_with_neighbors_lists
 from ..utils.omegaconf import expand_dataset_config
 from .formatter import CustomHelpFormatter
@@ -46,7 +46,7 @@ def _add_eval_model_parser(subparser: argparse._SubParsersAction) -> None:
     parser.set_defaults(callable="eval_model")
     parser.add_argument(
         "model",
-        type=load_exported_model,
+        type=load,
         help="Saved exported model to be evaluated.",
     )
     parser.add_argument(
@@ -65,8 +65,11 @@ def _add_eval_model_parser(subparser: argparse._SubParsersAction) -> None:
     )
 
 
-def _eval_targets(model, dataset: Union[_BaseDataset, torch.utils.data.Subset]) -> None:
+def _eval_targets(model, dataset: Union[Dataset, torch.utils.data.Subset]) -> None:
     """Evaluate an exported model on a dataset and print the RMSEs for each target."""
+    if len(dataset) == 0:
+        logger.info("This dataset is empty. No evaluation will be performed.")
+        return
     # Attach neighbor lists to the systems:
     requested_neighbor_lists = model.requested_neighbors_lists()
     # working around https://github.com/lab-cosmo/metatensor/issues/521

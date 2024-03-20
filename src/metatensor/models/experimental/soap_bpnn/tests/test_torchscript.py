@@ -17,7 +17,7 @@ def test_torchscript():
             )
         },
     )
-    soap_bpnn = Model(capabilities, DEFAULT_HYPERS["model"]).to(torch.float64)
+    soap_bpnn = Model(capabilities, DEFAULT_HYPERS["model"])
     torch.jit.script(soap_bpnn, {"energy": soap_bpnn.capabilities.outputs["energy"]})
 
 
@@ -34,7 +34,7 @@ def test_torchscript_save():
             )
         },
     )
-    soap_bpnn = Model(capabilities, DEFAULT_HYPERS["model"]).to(torch.float64)
+    soap_bpnn = Model(capabilities, DEFAULT_HYPERS["model"])
     torch.jit.save(
         torch.jit.script(
             soap_bpnn, {"energy": soap_bpnn.capabilities.outputs["energy"]}

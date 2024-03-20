@@ -2,14 +2,13 @@ import random
 
 import ase.io
 import numpy as np
-import rascaline.torch
 import torch
 from metatensor.learn.data import Dataset
-from metatensor.torch.atomistic import ModelCapabilities, ModelOutput
+from metatensor.torch.atomistic import ModelCapabilities, ModelOutput, systems_to_torch
 from omegaconf import OmegaConf
 
 from metatensor.models.experimental.soap_bpnn import DEFAULT_HYPERS, Model, train
-from metatensor.models.utils.data import get_all_species
+from metatensor.models.utils.data import DatasetInfo, TargetInfo
 from metatensor.models.utils.data.readers import read_systems, read_targets
 
 from . import DATASET_PATH
@@ -41,7 +40,7 @@ def test_regression_init():
 
     output = soap_bpnn(
         [
-            rascaline.torch.systems_to_torch(system).to(torch.get_default_dtype())
+            systems_to_torch(system, dtype=torch.get_default_dtype())
             for system in systems
         ],
         {"U0": soap_bpnn.capabilities.outputs["U0"]},
@@ -74,17 +73,16 @@ def test_regression_train():
     hypers = DEFAULT_HYPERS.copy()
     hypers["training"]["num_epochs"] = 2
 
-    capabilities = ModelCapabilities(
+    dataset_info = DatasetInfo(
         length_unit="Angstrom",
-        atomic_types=get_all_species(dataset),
-        outputs={
-            "U0": ModelOutput(
+        targets={
+            "U0": TargetInfo(
                 quantity="energy",
                 unit="eV",
-            )
+            ),
         },
     )
-    soap_bpnn = train([dataset], [dataset], capabilities, hypers)
+    soap_bpnn = train([dataset], [dataset], dataset_info, [torch.device("cpu")], hypers)
 
     # Predict on the first five systems
     output = soap_bpnn(systems[:5], {"U0": soap_bpnn.capabilities.outputs["U0"]})

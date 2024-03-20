@@ -2,8 +2,6 @@ from typing import Dict, List, Tuple
 
 import torch
 from metatensor.torch.atomistic import NeighborsListOptions, System
-from metatensor.torch import Labels, TensorMap
-import metatensor.torch
 
 
 class NeighborIndexConstructor:

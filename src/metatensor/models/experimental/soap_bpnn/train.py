@@ -3,34 +3,32 @@ import warnings
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple, Union
 
-import rascaline
 import torch
 from metatensor.learn.data import DataLoader
-from metatensor.learn.data.dataset import _BaseDataset
-from metatensor.torch.atomistic import ModelCapabilities
+from metatensor.learn.data.dataset import Dataset
+from metatensor.torch.atomistic import ModelCapabilities, ModelOutput
 
 from ...utils.composition import calculate_composition_weights
 from ...utils.compute_loss import compute_model_loss
 from ...utils.data import (
+    DatasetInfo,
     check_datasets,
     collate_fn,
     combine_dataloaders,
+    get_all_species,
     get_all_targets,
 )
 from ...utils.extract_targets import get_outputs_dict
 from ...utils.info import finalize_aggregated_info, update_aggregated_info
+from ...utils.io import is_exported, load, save
 from ...utils.logging import MetricLogger
 from ...utils.loss import TensorMapDictLoss
 from ...utils.merge_capabilities import merge_capabilities
-from ...utils.model_io import load_checkpoint, save_model
 from .model import DEFAULT_HYPERS, Model
 
 
 logger = logging.getLogger(__name__)
 
-
-# disable rascaline logger
-rascaline.set_logging_callback(lambda x, y: None)
 
 # Filter out the second derivative and device warnings from rascaline-torch
 warnings.filterwarnings("ignore", category=UserWarning, message="second derivative")
@@ -40,23 +38,42 @@ warnings.filterwarnings(
 
 
 def train(
-    train_datasets: List[Union[_BaseDataset, torch.utils.data.Subset]],
-    validation_datasets: List[Union[_BaseDataset, torch.utils.data.Subset]],
-    requested_capabilities: ModelCapabilities,
+    train_datasets: List[Union[Dataset, torch.utils.data.Subset]],
+    validation_datasets: List[Union[Dataset, torch.utils.data.Subset]],
+    dataset_info: DatasetInfo,
+    devices: List[torch.device],
     hypers: Dict = DEFAULT_HYPERS,
     continue_from: Optional[str] = None,
     output_dir: str = ".",
-    device_str: str = "cpu",
 ):
+    all_species = get_all_species(train_datasets + validation_datasets)
+    outputs = {
+        key: ModelOutput(
+            quantity=value.quantity,
+            unit=value.unit,
+            per_atom=False,
+        )
+        for key, value in dataset_info.targets.items()
+    }
+    new_capabilities = ModelCapabilities(
+        length_unit=dataset_info.length_unit,
+        outputs=outputs,
+        atomic_types=all_species,
+        supported_devices=["cpu", "cuda"],
+    )
+
     # Create the model:
     if continue_from is None:
         model = Model(
-            capabilities=requested_capabilities,
+            capabilities=new_capabilities,
             hypers=hypers["model"],
         )
-        new_capabilities = requested_capabilities
+        novel_capabilities = new_capabilities
     else:
-        model = load_checkpoint(continue_from)
+        model = load(continue_from)
+        if is_exported(model):
+            raise ValueError("model is already exported and can't be used for continue")
+
         filtered_new_dict = {k: v for k, v in hypers["model"].items() if k != "restart"}
         filtered_old_dict = {k: v for k, v in model.hypers.items() if k != "restart"}
         if filtered_new_dict != filtered_old_dict:
@@ -65,12 +82,12 @@ def train(
                 "training run. The new hyperparameters will be discarded."
             )
         # merge the model's capabilities with the requested capabilities
-        merged_capabilities, new_capabilities = merge_capabilities(
-            model.capabilities, requested_capabilities
+        merged_capabilities, novel_capabilities = merge_capabilities(
+            model.capabilities, new_capabilities
         )
         model.capabilities = merged_capabilities
         # make the new model capable of handling the new outputs
-        for output_name in new_capabilities.outputs.keys():
+        for output_name in novel_capabilities.outputs.keys():
             model.add_output(output_name)
 
     model_capabilities = model.capabilities
@@ -80,43 +97,63 @@ def train(
     check_datasets(
         train_datasets,
         validation_datasets,
-        model_capabilities,
+        raise_incompatibility_error=continue_from is None,
+        # only error if we are not continuing
     )
 
-    logger.info(f"Training on device {device_str}")
-    if device_str == "gpu":
-        device_str = "cuda"
-    device = torch.device(device_str)
-    if device.type == "cuda":
-        if not torch.cuda.is_available():
-            raise ValueError("CUDA is not available on this machine.")
-        logger.info(
-            "A cuda device was requested. The neural network will be run on GPU, "
-            "but the SOAP features are calculated on CPU."
-        )
+    device = devices[0]  # only one device, as we don't support multi-gpu for now
+    logger.info(f"Training on device {device}")
     model.to(device)
+
+    hypers_training = hypers["training"]
 
     # Calculate and set the composition weights for all targets:
     logger.info("Calculating composition weights")
-    for target_name in new_capabilities.outputs.keys():
+    for target_name in novel_capabilities.outputs.keys():
         # TODO: warn in the documentation that capabilities that are already
         # present in the model won't recalculate the composition weights
         # find the datasets that contain the target:
-        train_datasets_with_target = []
-        for dataset in train_datasets:
-            if target_name in get_all_targets(dataset):
-                train_datasets_with_target.append(dataset)
-        if len(train_datasets_with_target) == 0:
-            raise ValueError(
-                f"Target {target_name} in the model's new capabilities is not "
-                "present in any of the training datasets."
-            )
-        composition_weights, species = calculate_composition_weights(
-            train_datasets_with_target, target_name
-        )
-        model.set_composition_weights(target_name, composition_weights, species)
 
-    hypers_training = hypers["training"]
+        if target_name in hypers_training["fixed_composition_weights"].keys():
+            logger.info(
+                f"For {target_name}, model will proceed with "
+                "user-supplied composition weights"
+            )
+
+            cur_weight_dict = hypers_training["fixed_composition_weights"][target_name]
+            species = []
+            num_species = len(cur_weight_dict)
+            fixed_weights = torch.zeros(num_species, device=device)
+
+            for ii, (key, weight) in enumerate(cur_weight_dict.items()):
+                species.append(key)
+                fixed_weights[ii] = weight
+
+            all_species = []
+            for dataset in train_datasets:
+                all_species += get_all_species(dataset)
+
+            if not set(species) == set(all_species):
+                raise ValueError(
+                    "Values were not supplied for all "
+                    "the species in present in the dataset"
+                )
+            model.set_composition_weights(target_name, fixed_weights, species)
+
+        else:
+            train_datasets_with_target = []
+            for dataset in train_datasets:
+                if target_name in get_all_targets(dataset):
+                    train_datasets_with_target.append(dataset)
+            if len(train_datasets_with_target) == 0:
+                raise ValueError(
+                    f"Target {target_name} in the model's new capabilities is not "
+                    "present in any of the training datasets."
+                )
+            composition_weights, species = calculate_composition_weights(
+                train_datasets_with_target, target_name
+            )
+            model.set_composition_weights(target_name, composition_weights, species)
 
     logger.info("Setting up data loaders")
 
@@ -229,7 +266,7 @@ def train(
             )
 
         if epoch % hypers_training["checkpoint_interval"] == 0:
-            save_model(
+            save(
                 model,
                 Path(output_dir) / f"model_{epoch}.ckpt",
             )

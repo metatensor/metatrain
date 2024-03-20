@@ -2,7 +2,6 @@ import random
 
 import ase.io
 import numpy as np
-import rascaline.torch
 import torch
 from metatensor.learn.data import Dataset
 from metatensor.torch.atomistic import (
@@ -11,11 +10,12 @@ from metatensor.torch.atomistic import (
     ModelEvaluationOptions,
     ModelMetadata,
     ModelOutput,
+    systems_to_torch,
 )
 from omegaconf import OmegaConf
 
 from metatensor.models.experimental.alchemical_model import DEFAULT_HYPERS, Model, train
-from metatensor.models.utils.data import get_all_species
+from metatensor.models.utils.data import DatasetInfo, TargetInfo
 from metatensor.models.utils.data.readers import read_systems, read_targets
 from metatensor.models.utils.neighbors_lists import get_system_with_neighbors_lists
 
@@ -46,8 +46,7 @@ def test_regression_init():
     # Predict on the first five systems
     systems = ase.io.read(DATASET_PATH, ":5")
     systems = [
-        rascaline.torch.systems_to_torch(system).to(torch.get_default_dtype())
-        for system in systems
+        systems_to_torch(system, dtype=torch.get_default_dtype()) for system in systems
     ]
     systems = [
         get_system_with_neighbors_lists(
@@ -102,21 +101,20 @@ def test_regression_train():
     hypers = DEFAULT_HYPERS.copy()
     hypers["training"]["num_epochs"] = 2
 
-    capabilities = ModelCapabilities(
+    dataset_info = DatasetInfo(
         length_unit="Angstrom",
-        atomic_types=get_all_species(dataset),
-        outputs={
-            "U0": ModelOutput(
+        targets={
+            "U0": TargetInfo(
                 quantity="energy",
                 unit="eV",
-            )
+            ),
         },
-        supported_devices=["cpu"],
     )
     alchemical_model = train(
         train_datasets=[dataset],
         validation_datasets=[dataset],
-        requested_capabilities=capabilities,
+        dataset_info=dataset_info,
+        devices=[torch.device("cpu")],
         hypers=hypers,
     )
 

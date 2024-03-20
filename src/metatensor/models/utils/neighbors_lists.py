@@ -1,6 +1,6 @@
 from typing import List
 
-import ase
+import ase.neighborlist
 import torch
 from metatensor.torch import Labels, TensorBlock
 from metatensor.torch.atomistic import (

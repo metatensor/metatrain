@@ -1,7 +1,7 @@
-Export
+Device
 ######
 
-.. automodule:: metatensor.models.utils.export
+.. automodule:: metatensor.models.utils.devices
     :members:
     :undoc-members:
     :show-inheritance:

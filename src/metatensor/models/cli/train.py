@@ -15,16 +15,15 @@ import hydra
 import numpy as np
 import torch
 from metatensor.learn.data import Dataset
-from metatensor.torch.atomistic import ModelCapabilities, ModelOutput
 from omegaconf import DictConfig, OmegaConf
 from omegaconf.errors import ConfigKeyError
 
 from .. import CONFIG_PATH
-from ..utils.data import get_all_species, read_systems, read_targets
+from ..utils.data import DatasetInfo, TargetInfo, read_systems, read_targets
 from ..utils.data.dataset import _train_test_random_split
+from ..utils.devices import get_available_devices, pick_devices
 from ..utils.errors import ArchitectureError
-from ..utils.export import export
-from ..utils.model_io import save_model
+from ..utils.io import export, save
 from ..utils.omegaconf import check_options_list, check_units, expand_dataset_config
 from .eval import _eval_targets
 from .formatter import CustomHelpFormatter
@@ -257,7 +256,10 @@ def _train_model_hydra(options: DictConfig) -> None:
         train_size -= test_size
 
         if test_size < 0 or test_size >= 1:
-            raise ValueError("Test set split must be between 0 and 1.")
+            raise ValueError(
+                "Test set split must be greater "
+                "than (or equal to) 0 and lesser than 1."
+            )
 
         generator = torch.Generator()
         if options["seed"] is not None:
@@ -306,8 +308,10 @@ def _train_model_hydra(options: DictConfig) -> None:
         validation_size = validation_options
         train_size -= validation_size
 
-        if validation_size < 0 or validation_size >= 1:
-            raise ValueError("Validation set split must be between 0 and 1.")
+        if validation_size <= 0 or validation_size >= 1:
+            raise ValueError(
+                "Validation set split must be greater " "than 0 and lesser than 1."
+            )
 
         generator = torch.Generator()
         if options["seed"] is not None:
@@ -359,38 +363,44 @@ def _train_model_hydra(options: DictConfig) -> None:
     architecture_name = options["architecture"]["name"]
     architecture = importlib.import_module(f"metatensor.models.{architecture_name}")
 
-    all_species = get_all_species(train_datasets)
-
-    outputs = {
-        key: ModelOutput(
-            quantity=value["quantity"],
-            unit=(value["unit"] if value["unit"] is not None else ""),
-        )
-        for train_options in train_options_list
-        for key, value in train_options["targets"].items()
-    }
-    length_unit = train_options_list[0]["systems"]["length_unit"]
-    requested_capabilities = ModelCapabilities(
-        length_unit=length_unit if length_unit is not None else "",
-        atomic_types=all_species,
-        outputs=outputs,
+    dataset_info = DatasetInfo(
+        length_unit=(
+            train_options_list[0]["systems"]["length_unit"]
+            if train_options_list[0]["systems"]["length_unit"] is not None
+            else ""
+        ),  # these units are guaranteed to be the same across all datasets
+        targets={
+            key: TargetInfo(
+                quantity=value["quantity"],
+                unit=(value["unit"] if value["unit"] is not None else ""),
+                per_atom=False,  # TODO: read this from the config
+            )
+            for train_options in train_options_list
+            for key, value in train_options["targets"].items()
+        },
     )
+
+    # process devices
+    architecture_devices = architecture.DEVICES
+    requested_device = options["device"]
+    available_devices = get_available_devices()
+    devices = pick_devices(requested_device, available_devices, architecture_devices)
 
     logger.info("Calling architecture trainer")
     try:
         model = architecture.train(
             train_datasets=train_datasets,
             validation_datasets=validation_datasets,
-            requested_capabilities=requested_capabilities,
+            dataset_info=dataset_info,
+            devices=devices,
             hypers=OmegaConf.to_container(options["architecture"]),
             continue_from=options["continue_from"],
             output_dir=output_dir,
-            device_str=options["device"],
         )
     except Exception as e:
         raise ArchitectureError(e)
 
-    save_model(model, f"{Path(options['output_path']).stem}.ckpt")
+    save(model, f"{Path(options['output_path']).stem}.ckpt")
     export(model, options["output_path"])
     exported_model = torch.jit.load(options["output_path"])
 

@@ -36,7 +36,9 @@ def test_compute_model_loss():
     model = soap_bpnn.Model(capabilities)
     # model = torch.jit.script(model)  # jit the model for good measure
 
-    systems = read_systems(RESOURCES_PATH / "alchemical_reduced_10.xyz")[:2]
+    systems = read_systems(
+        RESOURCES_PATH / "alchemical_reduced_10.xyz", dtype=torch.get_default_dtype()
+    )[:2]
 
     gradient_samples = Labels(
         names=["sample", "atom"],
