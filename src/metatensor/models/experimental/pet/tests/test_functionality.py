@@ -1,4 +1,6 @@
 import ase
+import torch
+from metatensor.torch import Labels
 from metatensor.torch.atomistic import (
     MetatensorAtomisticModel,
     ModelCapabilities,
@@ -102,7 +104,7 @@ def test_selected_atoms_functionality():
     structure = ase.Atoms(
         "O3", positions=[[0.0, 0.0, 0.0], [0.0, 0.0, 1.0], [0.0, 0.0, 2.0]]
     )
-    system = rascaline.torch.systems_to_torch(structure)
+    system = systems_to_torch(structure)
     system = get_system_with_neighbors_lists(system, model.requested_neighbors_lists())
 
     selected_atoms = Labels(

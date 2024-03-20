@@ -308,10 +308,10 @@ def systems_to_batch_dict(
 
         relative_positions = displacement_vectors[relative_positions_index]
         neighbors = system.get_neighbors_list(options)
-        i_list: torch.Tensor = neighbors.samples.column("first_atom")
-        j_list: torch.Tensor = neighbors.samples.column("second_atom")
+        i_list = neighbors.samples.column("first_atom")
+        j_list = neighbors.samples.column("second_atom")
         unique_index = torch.unique(torch.cat((i_list, j_list)))
-        species: torch.Tensor = system.types[unique_index]
+        species = system.types[unique_index]
         central_species = [
             int(torch.where(all_species == specie)[0][0].item()) for specie in species
         ]
