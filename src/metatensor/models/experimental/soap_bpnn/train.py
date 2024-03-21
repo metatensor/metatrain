@@ -206,6 +206,14 @@ def train(
         model.parameters(), lr=hypers_training["learning_rate"]
     )
 
+    # Create a scheduler:
+    lr_scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
+        optimizer,
+        mode="min",
+        factor=hypers_training["scheduler_factor"],
+        patience=hypers_training["scheduler_patience"],
+    )
+
     # counters for early stopping:
     best_validation_loss = float("inf")
     epochs_without_improvement = 0
@@ -258,6 +266,8 @@ def train(
             validation_rmse_calculator.update(predictions, targets)
         finalized_validation_info = validation_rmse_calculator.finalize()
 
+        lr_scheduler.step(validation_loss)
+
         # Now we log the information:
         finalized_train_info = {"loss": train_loss, **finalized_train_info}
         finalized_validation_info = {
@@ -289,10 +299,11 @@ def train(
             epochs_without_improvement = 0
         else:
             epochs_without_improvement += 1
-            if epochs_without_improvement >= 50:
+            if epochs_without_improvement >= hypers_training["early_stopping_patience"]:
                 logger.info(
-                    "Early stopping criterion reached after 50 "
-                    "epochs without improvement."
+                    "Early stopping criterion reached after "
+                    f"{hypers_training['early_stopping_patience']} epochs "
+                    "without improvement."
                 )
                 break
 
