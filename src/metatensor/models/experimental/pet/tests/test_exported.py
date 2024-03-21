@@ -16,7 +16,7 @@ from metatensor.models.utils.neighbors_lists import get_system_with_neighbors_li
 
 
 @pytest.mark.parametrize("device", ["cpu", "cuda"])
-def test_to(tmp_path, device, dtype):
+def test_to(tmp_path, device):
     """Tests that the `.to()` method of the exported model works."""
     if device == "cuda" and not torch.cuda.is_available():
         pytest.skip("CUDA is not available")
