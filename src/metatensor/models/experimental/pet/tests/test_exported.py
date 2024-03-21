@@ -16,14 +16,13 @@ from metatensor.models.utils.neighbors_lists import get_system_with_neighbors_li
 
 
 @pytest.mark.parametrize("device", ["cpu", "cuda"])
-@pytest.mark.parametrize("dtype", [torch.float32])
 def test_to(tmp_path, device, dtype):
     """Tests that the `.to()` method of the exported model works."""
     if device == "cuda" and not torch.cuda.is_available():
         pytest.skip("CUDA is not available")
 
     os.chdir(tmp_path)
-
+    dtype = torch.float32  # for now
     capabilities = ModelCapabilities(
         length_unit="Angstrom",
         atomic_types=[1, 6, 7, 8],

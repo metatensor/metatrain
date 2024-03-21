@@ -34,8 +34,6 @@ def train(
     target_name = next(iter(dataset_info.targets.keys()))
     if dataset_info.targets[target_name].quantity != "energy":
         raise ValueError("PET only supports energies as target")
-    if dataset_info.targets[target_name].per_atom:
-        raise ValueError("PET does not support per-atom energies")
     if len(train_datasets) != 1:
         raise ValueError("PET only supports a single training dataset")
     if len(validation_datasets) != 1:
@@ -137,7 +135,7 @@ def train(
         key: ModelOutput(
             quantity=value.quantity,
             unit=value.unit,
-            per_atom=False,
+            per_atom=value.per_atom,
         )
         for key, value in dataset_info.targets.items()
     }

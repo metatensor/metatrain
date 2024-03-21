@@ -14,9 +14,8 @@ from metatensor.models.experimental.pet import DEFAULT_HYPERS, Model
 from metatensor.models.utils.neighbors_lists import get_system_with_neighbors_lists
 
 
-def test_prediction_subset():
-    """Tests that the model can predict on a subset
-    of the elements it was trained on."""
+def test_prediction():
+    """Tests that the model runs without errors."""
 
     capabilities = ModelCapabilities(
         length_unit="Angstrom",
@@ -27,7 +26,7 @@ def test_prediction_subset():
                 unit="eV",
             )
         },
-        supported_devices=["cpu", "cuda"],
+        supported_devices=["cuda", "cpu"],
     )
 
     model = Model(capabilities, DEFAULT_HYPERS["ARCHITECTURAL_HYPERS"])
@@ -49,8 +48,8 @@ def test_prediction_subset():
 
 
 def test_per_atom_predictions_functionality():
-    """Tests that the model can predict on a subset
-    of the elements it was trained on."""
+    """Tests that the model can do predictions in
+    per-atom mode."""
 
     capabilities = ModelCapabilities(
         length_unit="Angstrom",
@@ -62,7 +61,7 @@ def test_per_atom_predictions_functionality():
                 per_atom=True,
             )
         },
-        supported_devices=["cpu", "cuda"],
+        supported_devices=["cuda", "cpu"],
     )
 
     model = Model(capabilities, DEFAULT_HYPERS["ARCHITECTURAL_HYPERS"])
@@ -84,8 +83,8 @@ def test_per_atom_predictions_functionality():
 
 
 def test_selected_atoms_functionality():
-    """Tests that the model can predict on a subset
-    of the elements it was trained on."""
+    """Tests that the model can do predictions for a selected
+    subset of the atoms in the system."""
 
     capabilities = ModelCapabilities(
         length_unit="Angstrom",
@@ -97,7 +96,7 @@ def test_selected_atoms_functionality():
                 per_atom=True,
             )
         },
-        supported_devices=["cpu", "cuda"],
+        supported_devices=["cuda", "cpu"],
     )
 
     model = Model(capabilities, DEFAULT_HYPERS["ARCHITECTURAL_HYPERS"])

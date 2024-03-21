@@ -246,20 +246,7 @@ def systems_to_batch_dict(
         species: torch.Tensor = system.types[unique_index]
 
         # REMAPPING TO CONTIGUOUS INDEXING
-        if len(unique_index) < i_list.max() or len(unique_index) < j_list.max():
-            index_map: Dict[int, int] = {
-                int(index): i for i, index in enumerate(unique_index)
-            }
-            i_list = torch.tensor(
-                [index_map[int(index)] for index in i_list],
-                dtype=i_list.dtype,
-                device=i_list.device,
-            )
-            j_list = torch.tensor(
-                [index_map[int(index)] for index in j_list],
-                dtype=j_list.dtype,
-                device=j_list.device,
-            )
+        i_list, j_list = remap_to_contiguous_indexing(i_list, j_list, unique_index)
 
         i_list = i_list.cpu()
         j_list = j_list.cpu()
@@ -330,3 +317,41 @@ def systems_to_batch_dict(
         graphs.append(graph_now)
 
     return collate_graph_dicts(graphs, device)
+
+
+def remap_to_contiguous_indexing(
+    i_list: torch.Tensor, j_list: torch.Tensor, unique_index: torch.Tensor
+) -> Tuple[torch.Tensor, torch.Tensor]:
+    """
+    This helper function remaps the indices of center and neighbor atoms
+    from arbitrary indexing to contgious indexing, i.e.
+
+    from
+    0, 1, 2, 54, 55, 56
+    to
+    0, 1, 2, 3, 4, 5.
+
+    This remapping is required by internal implementation of PET neighbor lists, where
+    indices of the atoms cannot exceed the total amount of atoms in the system.
+
+    Shifted indices come from LAMMPS neighborlists in the case of domain decomposition
+    enabled, since they contain not only the atoms in the unit cell, but also so-called
+    ghost atoms, which may have a different indexing. Thus, to avoid further errors, we
+    remap the indices to a contiguous format.
+
+    """
+    if len(unique_index) < i_list.max() or len(unique_index) < j_list.max():
+        index_map: Dict[int, int] = {
+            int(index): i for i, index in enumerate(unique_index)
+        }
+        i_list = torch.tensor(
+            [index_map[int(index)] for index in i_list],
+            dtype=i_list.dtype,
+            device=i_list.device,
+        )
+        j_list = torch.tensor(
+            [index_map[int(index)] for index in j_list],
+            dtype=j_list.dtype,
+            device=j_list.device,
+        )
+    return i_list, j_list
