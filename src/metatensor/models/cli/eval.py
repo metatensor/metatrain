@@ -95,20 +95,9 @@ def _concatenate_tensormaps(
                     properties=block.properties,
                 )
                 for gradient_name, gradient_block in block.gradients():
-                    where_system = gradient_block.samples.names.index("system")
-                    new_samples_values = gradient_block.samples.values
-                    new_samples_values[:, where_system] += system_counter
                     new_block.add_gradient(
                         gradient_name,
-                        TensorBlock(
-                            values=gradient_block.values,
-                            samples=Labels(
-                                gradient_block.samples.names,
-                                new_samples_values,
-                            ),
-                            components=gradient_block.components,
-                            properties=gradient_block.properties,
-                        ),
+                        gradient_block,
                     )
                 new_keys.append(new_key)
                 new_blocks.append(new_block)
@@ -138,6 +127,9 @@ def _eval_targets(
 ) -> Optional[Dict[str, TensorMap]]:
     """Evaluates an exported model on a dataset and print the RMSEs for each target.
     Optionally, it also returns the predictions of the model."""
+
+    if len(dataset) == 0:
+        logger.info("This dataset is empty. No evaluation will be performed.")
 
     # Attach neighbor lists to the systems:
     # TODO: these might already be present... find a way to avoid recomputing
@@ -241,9 +233,12 @@ def eval_model(
             # in this case, we have no targets: evaluate everything
             # TODO: allow the user to specify which outputs to evaluate
             eval_targets = {}
+            gradients = ["positions"]
+            if all(not torch.all(system.cell == 0) for system in eval_systems):
+                # only add strain if all structures have cells
+                gradients.append("strain")
             eval_outputs = {
-                target: ["positions", "strain"]
-                for target in model.capabilities().outputs.keys()
+                target: gradients for target in model.capabilities().outputs.keys()
             }
 
         eval_dataset = Dataset(system=eval_systems, **eval_targets)

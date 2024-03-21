@@ -65,14 +65,18 @@ def write_xyz(
                 arrays[target_name] = block.values.detach().cpu().numpy()
             for gradient_name, gradient_block in block.gradients():
                 # here, we assume that gradients are always an array, and never a scalar
-                if capabilities[gradient_name].quantity == "energy":
+                if capabilities.outputs[target_name].quantity == "energy":
                     if gradient_name == "positions":
                         if only_one_energy:
                             name_for_saving = "forces"
                         else:
                             name_for_saving = f"forces[{target_name}]"
                         arrays[name_for_saving] = (
-                            -gradient_block.values.detach().cpu().numpy()
+                            # squeeze the property dimension
+                            -gradient_block.values.detach()
+                            .cpu()
+                            .squeeze(-1)
+                            .numpy()
                         )
                     elif gradient_name == "strain":
                         strain_derivatives = (
@@ -95,10 +99,16 @@ def write_xyz(
                         arrays[name_for_saving] = strain_derivatives / cell_volume
                     else:
                         arrays[f"{target_name}_{gradient_name}_gradients"] = (
-                            gradient_block.values.detach().cpu().numpy()
+                            # squeeze the property dimension
+                            gradient_block.values.detach()
+                            .cpu()
+                            .squeeze(-1)
+                            .numpy()
                         )
 
-        atoms = ase.Atoms(symbols=system.types, positions=system.positions, info=info)
+        atoms = ase.Atoms(
+            symbols=system.types, positions=system.positions.detach(), info=info
+        )
 
         # assign cell and pbcs
         if torch.any(system.cell != 0):

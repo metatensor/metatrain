@@ -29,7 +29,7 @@ def evaluate_model(
     is_training: bool,
 ) -> Dict[str, TensorMap]:
     """
-    Evaluate the model on a set of requested targets.
+    Evaluate the model (in training or exported) on a set of requested targets.
 
     :param model: The model to use. This can either be a model in training
         (``torch.nn.Module``) or an exported model

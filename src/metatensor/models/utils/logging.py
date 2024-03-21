@@ -87,21 +87,23 @@ class MetricLogger:
         for name, metrics_dict in zip(self.names, metrics):
             for key, value in metrics_dict.items():
                 new_key = key
-                if key.endswith("_positions_gradients"):
+                if "_positions_gradients" in key:
                     # check if this is a force
-                    target_name = key[: -len("_positions_gradients")]
+                    target_name, metric = key.split(" ")
+                    target_name = target_name[: -len("_positions_gradients")]
                     if (
                         self.model_capabilities.outputs[target_name].quantity
                         == "energy"
                     ):
                         # if this is a force, replace the ugly name with "force"
                         if self.only_one_energy:
-                            new_key = "force"
+                            new_key = f"force {metric}"
                         else:
-                            new_key = f"force[{target_name}]"
+                            new_key = f"force[{target_name} {metric}]"
                 elif "_strain_gradients" in key:
                     # check if this is a virial/stress
-                    target_name = key[: -len("_strain_gradients")]
+                    target_name, metric = key.split(" ")
+                    target_name = target_name[: -len("_strain_gradients")]
                     if (
                         self.model_capabilities.outputs[target_name].quantity
                         == "energy"
@@ -109,9 +111,9 @@ class MetricLogger:
                         # if this is a virial/stress,
                         # replace the ugly name with "virial/stress"
                         if self.only_one_energy:
-                            new_key = "virial/stress"
+                            new_key = f"virial/stress {metric}"
                         else:
-                            new_key = f"virial/stress[{target_name}]"
+                            new_key = f"virial/stress[{target_name}] {metric}"
 
                 if name == "":
                     logging_string += f", {new_key}: "

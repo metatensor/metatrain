@@ -23,12 +23,15 @@ class RMSEAccumulator:
 
             for gradient_name, target_gradient in target.block().gradients():
                 if f"{target}_{gradient_name}_gradients" not in self.information:
-                    self.information[f"{target}_{gradient_name}_gradients"] = (0.0, 0)
-                prediction_gradient = prediction.block().gradients[gradient_name]
-                self.information[key] = (
-                    self.information[key][0]
-                    + ((prediction_gradient - target_gradient) ** 2).sum().item(),
-                    self.information[key][1] + prediction_gradient.numel(),
+                    self.information[f"{key}_{gradient_name}_gradients"] = (0.0, 0)
+                prediction_gradient = prediction.block().gradient(gradient_name)
+                self.information[f"{key}_{gradient_name}_gradients"] = (
+                    self.information[f"{key}_{gradient_name}_gradients"][0]
+                    + ((prediction_gradient.values - target_gradient.values) ** 2)
+                    .sum()
+                    .item(),
+                    self.information[f"{key}_{gradient_name}_gradients"][1]
+                    + prediction_gradient.values.numel(),
                 )
 
     def finalize(self) -> Dict[str, float]:

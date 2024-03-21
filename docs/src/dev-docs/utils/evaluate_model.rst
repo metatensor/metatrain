@@ -1,7 +1,7 @@
-Compute loss
-############
+Evaluating a model
+##################
 
-.. automodule:: metatensor.models.utils.compute_loss
+.. automodule:: metatensor.models.utils.evaluate_model
     :members:
     :undoc-members:
     :show-inheritance:
