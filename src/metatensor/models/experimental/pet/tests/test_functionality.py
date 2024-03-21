@@ -27,7 +27,7 @@ def test_prediction_subset():
                 unit="eV",
             )
         },
-        supported_devices=["cpu"],
+        supported_devices=["cpu", "cuda"],
     )
 
     model = Model(capabilities, DEFAULT_HYPERS["ARCHITECTURAL_HYPERS"])
@@ -62,6 +62,7 @@ def test_per_atom_predictions_functionality():
                 per_atom=True,
             )
         },
+        supported_devices=["cpu", "cuda"],
     )
 
     model = Model(capabilities, DEFAULT_HYPERS["ARCHITECTURAL_HYPERS"])
@@ -96,11 +97,10 @@ def test_selected_atoms_functionality():
                 per_atom=True,
             )
         },
+        supported_devices=["cpu", "cuda"],
     )
 
-    model = Model(capabilities, DEFAULT_HYPERS["ARCHITECTURAL_HYPERS"]).to(
-        torch.float64
-    )
+    model = Model(capabilities, DEFAULT_HYPERS["ARCHITECTURAL_HYPERS"])
     structure = ase.Atoms(
         "O3", positions=[[0.0, 0.0, 0.0], [0.0, 0.0, 1.0], [0.0, 0.0, 2.0]]
     )
