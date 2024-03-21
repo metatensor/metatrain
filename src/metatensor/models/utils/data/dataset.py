@@ -109,13 +109,13 @@ def check_datasets(train_datasets: List[Dataset], validation_datasets: List[Data
     """Check that the training and validation sets are compatible with one another
 
     Although these checks will not fit all use cases, most models would be expected
-    to be able to use this function. 
+    to be able to use this function.
 
     :param train_datasets: A list of training datasets.
     :param validation_datasets: A list of validation datasets.
     :raises TypeError: If the ``dtype`` within the datasets are inconsistent.
-    :raises ValueError: If the validation dataset has a target that is not present in
-        the training dataset.
+    :raises ValueError: If the `validation_datasets` has a target that is not present in
+        the ``train_datasets``.
     :raises ValueError: If the training or validation set contains chemical species
     or targets that are not present in the training set
     """
@@ -126,7 +126,7 @@ def check_datasets(train_datasets: List[Dataset], validation_datasets: List[Data
         actual_dtype = train_dataset[0].system.positions.dtype
         if actual_dtype != desired_dtype:
             raise TypeError(f"{msg}{actual_dtype} found in `train_datasets`")
-        
+
     for validation_dataset in validation_datasets:
         actual_dtype = validation_dataset[0].system.positions.dtype
         if actual_dtype != desired_dtype:

@@ -186,7 +186,8 @@ def test_check_datasets():
 
     # wrong dtype
     systems_qm9_64_bit = read_systems(
-        RESOURCES_PATH / "qm9_reduced_100.xyz", dtype=torch.float64)
+        RESOURCES_PATH / "qm9_reduced_100.xyz", dtype=torch.float64
+    )
     training_set_64_bit = Dataset(system=systems_qm9_64_bit, **targets_qm9)
     match = (
         "`dtype` between datasets is inconsistent, found torch.float32 and "
@@ -201,5 +202,3 @@ def test_check_datasets():
     )
     with pytest.raises(TypeError, match=match):
         check_datasets([training_set, training_set_64_bit], [validation_set])
-
-
