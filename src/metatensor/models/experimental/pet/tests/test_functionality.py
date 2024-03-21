@@ -54,7 +54,7 @@ def test_per_atom_predictions_functionality():
 
     capabilities = ModelCapabilities(
         length_unit="Angstrom",
-        species=[1, 6, 7, 8],
+        atomic_types=[1, 6, 7, 8],
         outputs={
             "energy": ModelOutput(
                 quantity="energy",
@@ -74,7 +74,7 @@ def test_per_atom_predictions_functionality():
         outputs=capabilities.outputs,
     )
 
-    model = MetatensorAtomisticModel(model.eval(), model.capabilities)
+    model = MetatensorAtomisticModel(model.eval(), ModelMetadata(), model.capabilities)
     model(
         [system],
         evaluation_options,
@@ -88,7 +88,7 @@ def test_selected_atoms_functionality():
 
     capabilities = ModelCapabilities(
         length_unit="Angstrom",
-        species=[1, 6, 7, 8],
+        atomic_types=[1, 6, 7, 8],
         outputs={
             "energy": ModelOutput(
                 quantity="energy",
@@ -118,7 +118,7 @@ def test_selected_atoms_functionality():
         selected_atoms=selected_atoms,
     )
 
-    model = MetatensorAtomisticModel(model.eval(), model.capabilities)
+    model = MetatensorAtomisticModel(model.eval(), ModelMetadata(), model.capabilities)
     model(
         [system],
         evaluation_options,
