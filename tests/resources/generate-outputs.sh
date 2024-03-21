@@ -1,4 +1,4 @@
-#/bin/bash
+#!/bin/bash
 
 cd `dirname "$(realpath $0)"`
 
