@@ -111,13 +111,13 @@ def check_datasets(train_datasets: List[Dataset], validation_datasets: List[Data
     Although these checks will not fit all use cases, most models would be expected
     to be able to use this function.
 
-    :param train_datasets: A list of training datasets.
-    :param validation_datasets: A list of validation datasets.
+    :param train_datasets: A list of training datasets to check.
+    :param validation_datasets: A list of validation datasets to check
     :raises TypeError: If the ``dtype`` within the datasets are inconsistent.
     :raises ValueError: If the `validation_datasets` has a target that is not present in
         the ``train_datasets``.
     :raises ValueError: If the training or validation set contains chemical species
-    or targets that are not present in the training set
+        or targets that are not present in the training set
     """
     # Check that system `dtypes` are consistent within datasets
     desired_dtype = train_datasets[0][0].system.positions.dtype
