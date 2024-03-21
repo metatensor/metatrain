@@ -94,12 +94,14 @@ def train(
 
     # Perform checks on the datasets:
     logger.info("Checking datasets for consistency")
-    check_datasets(
-        train_datasets,
-        validation_datasets,
-        raise_incompatibility_error=continue_from is None,
-        # only error if we are not continuing
-    )
+    try:
+        check_datasets(train_datasets, validation_datasets)
+    except ValueError as err:
+        if continue_from is not None:
+            logger.warning(err)
+        else:
+            # only error if we are not continuing
+            raise ValueError(err) from err
 
     device = devices[0]  # only one device, as we don't support multi-gpu for now
     dtype = train_datasets[0][0].system.positions.dtype
