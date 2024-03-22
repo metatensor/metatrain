@@ -246,7 +246,10 @@ def systems_to_batch_dict(
         species: torch.Tensor = system.types[unique_index]
 
         # REMAPPING TO CONTIGUOUS INDEXING
-        i_list, j_list = remap_to_contiguous_indexing(i_list, j_list, unique_index)
+        if (len(unique_index) > 0) and (
+            len(unique_index) < i_list.max() or len(unique_index) < j_list.max()
+        ):
+            i_list, j_list = remap_to_contiguous_indexing(i_list, j_list, unique_index)
 
         i_list = i_list.cpu()
         j_list = j_list.cpu()
@@ -340,18 +343,15 @@ def remap_to_contiguous_indexing(
     remap the indices to a contiguous format.
 
     """
-    if len(unique_index) < i_list.max() or len(unique_index) < j_list.max():
-        index_map: Dict[int, int] = {
-            int(index): i for i, index in enumerate(unique_index)
-        }
-        i_list = torch.tensor(
-            [index_map[int(index)] for index in i_list],
-            dtype=i_list.dtype,
-            device=i_list.device,
-        )
-        j_list = torch.tensor(
-            [index_map[int(index)] for index in j_list],
-            dtype=j_list.dtype,
-            device=j_list.device,
-        )
+    index_map: Dict[int, int] = {int(index): i for i, index in enumerate(unique_index)}
+    i_list = torch.tensor(
+        [index_map[int(index)] for index in i_list],
+        dtype=i_list.dtype,
+        device=i_list.device,
+    )
+    j_list = torch.tensor(
+        [index_map[int(index)] for index in j_list],
+        dtype=j_list.dtype,
+        device=j_list.device,
+    )
     return i_list, j_list
