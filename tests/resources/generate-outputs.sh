@@ -1,9 +1,11 @@
 #!/bin/bash
 set -e
 
+echo "Generate data for testing..."
+
 ROOT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 
 cd $ROOT_DIR
 
-metatensor-models train options.yaml -o model-32-bit.pt -y base_precision=32
-metatensor-models train options.yaml -o model-64-bit.pt -y base_precision=64
+metatensor-models train options.yaml -o model-32-bit.pt -y base_precision=32 > /dev/null
+metatensor-models train options.yaml -o model-64-bit.pt -y base_precision=64 > /dev/null
