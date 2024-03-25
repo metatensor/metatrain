@@ -209,7 +209,7 @@ def _train_model_hydra(options: DictConfig) -> None:
 
     architecture_name = options["architecture"]["name"]
     architecture = importlib.import_module(f"metatensor.models.{architecture_name}")
-    architecture_capbilities = architecture.__ARCHITECTURE_CAPABILITIES__
+    architecture_capabilities = architecture.__ARCHITECTURE_CAPABILITIES__
 
     ###########################
     # PROCESS BASE PARAMETERS #
@@ -217,7 +217,7 @@ def _train_model_hydra(options: DictConfig) -> None:
     devices = pick_devices(
         requested_device=options["device"],
         available_devices=get_available_devices(),
-        architecture_devices=architecture_capbilities["supported_devices"],
+        architecture_devices=architecture_capabilities["supported_devices"],
     )
 
     # process dtypes
@@ -230,10 +230,10 @@ def _train_model_hydra(options: DictConfig) -> None:
     else:
         raise ValueError("Only 64, 32 or 16 are possible values for `base_precision`.")
 
-    if dtype not in architecture_capbilities["supported_dtypes"]:
+    if dtype not in architecture_capabilities["supported_dtypes"]:
         raise ValueError(
             f"Requested dtype {dtype} is not supported. {architecture_name} only "
-            f"supports {architecture_capbilities['supported_dtypes']}."
+            f"supports {architecture_capabilities['supported_dtypes']}."
         )
 
     if options["seed"] is not None:

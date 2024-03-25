@@ -3,7 +3,7 @@ from .train import train  # noqa: F401
 import torch
 
 __ARCHITECTURE_CAPABILITIES__ = {
-    "supported_devices": ["cpu"],
+    "supported_devices": ["cuda"],
     "supported_dtypes": [torch.float32],
 }
 
