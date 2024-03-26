@@ -9,7 +9,7 @@ from metatensor.torch import Labels, TensorBlock
 def read_energy_ase(
     filename: str,
     key: str,
-    dtype: torch.dtype = torch.float64,
+    dtype: torch.dtype = torch.float32,
 ) -> List[TensorBlock]:
     """Store energy information in a List of :class:`metatensor.TensorBlock`.
 
@@ -43,7 +43,7 @@ def read_energy_ase(
 def read_forces_ase(
     filename: str,
     key: str = "energy",
-    dtype: torch.dtype = torch.float64,
+    dtype: torch.dtype = torch.float32,
 ) -> List[TensorBlock]:
     """Store force information in a List of :class:`metatensor.TensorBlock` which can be
     used as ``position`` gradients.
@@ -86,7 +86,7 @@ def read_forces_ase(
 def read_virial_ase(
     filename: str,
     key: str = "virial",
-    dtype: torch.dtype = torch.float64,
+    dtype: torch.dtype = torch.float32,
 ) -> List[TensorBlock]:
     """Store virial information in a List of :class:`metatensor.TensorBlock` which can
     be used as ``strain`` gradients.
@@ -106,7 +106,7 @@ def read_virial_ase(
 def read_stress_ase(
     filename: str,
     key: str = "stress",
-    dtype: torch.dtype = torch.float64,
+    dtype: torch.dtype = torch.float32,
 ) -> List[TensorBlock]:
     """Store stress information in a List of :class:`metatensor.TensorBlock` which can
     be used as ``strain`` gradients.
@@ -127,7 +127,7 @@ def _read_virial_stress_ase(
     filename: str,
     key: str,
     is_virial: bool = True,
-    dtype: torch.dtype = torch.float64,
+    dtype: torch.dtype = torch.float32,
 ) -> List[TensorBlock]:
     """Store stress or virial information in a List of :class:`metatensor.TensorBlock`
     which can be used as ``strain`` gradients.

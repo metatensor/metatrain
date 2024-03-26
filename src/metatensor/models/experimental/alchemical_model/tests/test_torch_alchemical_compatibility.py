@@ -31,7 +31,7 @@ random.seed(0)
 np.random.seed(0)
 torch.manual_seed(0)
 
-systems = read_systems(DATASET_PATH, dtype=torch.get_default_dtype())
+systems = read_systems(DATASET_PATH)
 nl_options = NeighborsListOptions(
     cutoff=5.0,
     full_list=True,
@@ -50,18 +50,18 @@ batch = next(iter(dataloader))
 
 def test_systems_to_torch_alchemical_batch():
     batch_dict = systems_to_torch_alchemical_batch(systems, nl_options)
-    assert torch.allclose(batch_dict["positions"], batch.pos)
-    assert torch.allclose(batch_dict["cells"], batch.cell)
-    assert torch.allclose(batch_dict["numbers"], batch.numbers)
+    torch.testing.assert_close(batch_dict["positions"], batch.pos)
+    torch.testing.assert_close(batch_dict["cells"], batch.cell)
+    torch.testing.assert_close(batch_dict["numbers"], batch.numbers)
     index_1, counts_1 = torch.unique(batch_dict["batch"], return_counts=True)
     index_2, counts_2 = torch.unique(batch.batch, return_counts=True)
-    assert torch.allclose(index_1, index_2)
-    assert torch.allclose(counts_1, counts_2)
+    torch.testing.assert_close(index_1, index_2)
+    torch.testing.assert_close(counts_1, counts_2)
     offset_1, counts_1 = torch.unique(batch_dict["edge_offsets"], return_counts=True)
     offset_2, counts_2 = torch.unique(batch.edge_offsets, return_counts=True)
-    assert torch.allclose(offset_1, offset_2)
-    assert torch.allclose(counts_1, counts_2)
-    assert torch.allclose(batch_dict["batch"], batch.batch)
+    torch.testing.assert_close(offset_1, offset_2)
+    torch.testing.assert_close(counts_1, counts_2)
+    torch.testing.assert_close(batch_dict["batch"], batch.batch)
 
 
 def test_alchemical_model_inference():
@@ -114,4 +114,4 @@ def test_alchemical_model_inference():
         edge_offsets=batch.edge_offsets,
         batch=batch.batch,
     )
-    assert torch.allclose(output["energy"].block().values, original_output)
+    torch.testing.assert_close(output["energy"].block().values, original_output)

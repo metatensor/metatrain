@@ -178,6 +178,10 @@ def eval_model(
         )
     logger.info("Setting up evaluation set.")
 
+    # TODO: once https://github.com/lab-cosmo/metatensor/pull/551 is merged and released
+    # use capabilities instead of this workaround
+    dtype = next(model.parameters()).dtype
+
     if isinstance(output, str):
         output = Path(output)
 
@@ -194,11 +198,12 @@ def eval_model(
         eval_systems = read_systems(
             filename=options["systems"]["read_from"],
             fileformat=options["systems"]["file_format"],
+            dtype=dtype,
         )
 
         # Predict targets
         if hasattr(options, "targets"):
-            eval_targets = read_targets(options["targets"])
+            eval_targets = read_targets(options["targets"], dtype=dtype)
             eval_dataset = Dataset(system=eval_systems, energy=eval_targets["energy"])
             _eval_targets(model, eval_dataset)
         else:
