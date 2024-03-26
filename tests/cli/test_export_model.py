@@ -16,7 +16,7 @@ RESOURCES_PATH = Path(__file__).parent.resolve() / ".." / "resources"
 def test_export(monkeypatch, tmp_path, output):
     """Test that the export cli runs without an error raise."""
     monkeypatch.chdir(tmp_path)
-    command = ["metatensor-models", "export", str(RESOURCES_PATH / "bpnn-model.ckpt")]
+    command = ["metatensor-models", "export", str(RESOURCES_PATH / "model-32-bit.ckpt")]
 
     if output is not None:
         command += ["-o", output]

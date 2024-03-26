@@ -16,13 +16,12 @@ def get_average_number_of_atoms(
     """
     average_number_of_atoms = []
     for dataset in datasets:
+        dtype = dataset[0].system.positions.dtype
         num_atoms = []
         for i in range(len(dataset)):
             system = dataset[i].system
             num_atoms.append(len(system))
-        average_number_of_atoms.append(
-            torch.mean(torch.tensor(num_atoms).to(torch.get_default_dtype()))
-        )
+        average_number_of_atoms.append(torch.mean(torch.tensor(num_atoms, dtype=dtype)))
     return torch.tensor(average_number_of_atoms)
 
 
@@ -38,6 +37,7 @@ def get_average_number_of_neighbors(
     average_number_of_neighbors = []
     for dataset in datasets:
         num_neighbors = []
+        dtype = dataset[0].system.positions.dtype
         for i in range(len(dataset)):
             system = dataset[i].system
             known_neighbors_lists = system.known_neighbors_lists()
@@ -51,7 +51,7 @@ def get_average_number_of_neighbors(
             num_neighbors.append(
                 torch.mean(
                     torch.unique(nl.samples["first_atom"], return_counts=True)[1].to(
-                        torch.get_default_dtype()
+                        dtype
                     )
                 )
             )

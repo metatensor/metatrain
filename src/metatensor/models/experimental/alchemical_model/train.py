@@ -90,12 +90,14 @@ def train(
 
     # Perform canonical checks on the datasets:
     logger.info("Checking datasets for consistency")
-    check_datasets(
-        train_datasets,
-        validation_datasets,
-        raise_incompatibility_error=continue_from is None,
-        # only error if we are not continuing
-    )
+    try:
+        check_datasets(train_datasets, validation_datasets)
+    except ValueError as err:
+        if continue_from is not None:
+            logger.warning(err)
+        else:
+            # only error if we are not continuing
+            raise ValueError(err) from err
 
     # Calculating the neighbors lists for the training and validation datasets:
     logger.info("Calculating neighbors lists for the datasets")
@@ -120,8 +122,10 @@ def train(
     model.set_basis_normalization_factor(average_number_of_neighbors)
 
     device = devices[0]  # only one device, as we don't support multi-gpu for now
-    logger.info(f"Training on device {device}")
-    model.to(device)
+    dtype = train_datasets[0][0].system.positions.dtype
+
+    logger.info(f"training on device {device} with dtype {dtype}")
+    model.to(device=device, dtype=dtype)
 
     # Calculate and set the composition weights for all targets:
     for target_name in novel_capabilities.outputs.keys():

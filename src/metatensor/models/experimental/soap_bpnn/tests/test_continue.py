@@ -22,7 +22,7 @@ def test_continue(monkeypatch, tmp_path):
     monkeypatch.chdir(tmp_path)
     shutil.copy(DATASET_PATH, "qm9_reduced_100.xyz")
 
-    systems = read_systems(DATASET_PATH, dtype=torch.get_default_dtype())
+    systems = read_systems(DATASET_PATH)
 
     capabilities = ModelCapabilities(
         length_unit="Angstrom",

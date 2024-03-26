@@ -1,8 +1,10 @@
 import re
 
 import pytest
+import torch
 from omegaconf import ListConfig, OmegaConf
 
+from metatensor.models.experimental import soap_bpnn
 from metatensor.models.utils.omegaconf import (
     check_options_list,
     check_units,
@@ -14,6 +16,47 @@ def test_file_format_resolver():
     conf = OmegaConf.create({"read_from": "foo.xyz", "file_format": "${file_format:}"})
 
     assert (conf["file_format"]) == ".xyz"
+
+
+@pytest.mark.parametrize(
+    "dtype, precision",
+    [(torch.float64, 64), (torch.double, 64), (torch.float32, 32), (torch.float16, 16)],
+)
+def test_default_precision_resolver(dtype, precision, monkeypatch):
+    patched_capabilities = {"supported_dtypes": [dtype]}
+    monkeypatch.setattr(
+        soap_bpnn, "__ARCHITECTURE_CAPABILITIES__", patched_capabilities, raising=True
+    )
+
+    conf = OmegaConf.create(
+        {
+            "base_precision": "${default_precision:}",
+            "architecture": {"name": "experimental.soap_bpnn"},
+        }
+    )
+
+    assert conf["base_precision"] == precision
+
+
+def test_default_precision_resolver_unknown_dtype(monkeypatch):
+    patched_capabilities = {"supported_dtypes": [torch.int64]}
+    monkeypatch.setattr(
+        soap_bpnn, "__ARCHITECTURE_CAPABILITIES__", patched_capabilities, raising=True
+    )
+
+    conf = OmegaConf.create(
+        {
+            "base_precision": "${default_precision:}",
+            "architecture": {"name": "experimental.soap_bpnn"},
+        }
+    )
+
+    match = (
+        r"architectures `default_dtype` \(torch.int64\) refers to an unknown torch "
+        "dtype. This should not happen."
+    )
+    with pytest.raises(ValueError, match=match):
+        conf["base_precision"]
 
 
 @pytest.mark.parametrize("n_datasets", [1, 2])
