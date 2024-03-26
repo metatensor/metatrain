@@ -17,6 +17,10 @@ def write_xyz(
 ) -> None:
     """An ase-based xyz file writer. Writes the systems and predictions to an xyz file.
 
+    According to ASE practice, arrays which have a dimension corresponding
+    to each atom are saved inside atoms.arrays, while any other arrays are
+    saved inside atoms.info.
+
     :param filename: name of the file to read.
     :param systems: structures to be written to the file.
     :param: capabilities: capabilities of the model.
@@ -59,10 +63,16 @@ def write_xyz(
                     "written to xyz files for the moment."
                 )
             block = target_map.block()
-            if block.values.numel() == 1:  # this is a scalar
-                info[target_name] = block.values.item()
-            else:  # this is an array
+            if "atom" in block.samples.names:
+                # save inside arrays
                 arrays[target_name] = block.values.detach().cpu().numpy()
+            else:
+                # save inside info
+                if block.values.numel() == 1:
+                    info[target_name] = block.values.item()
+                else:
+                    info[target_name] = block.values.detach().cpu().numpy()
+
             for gradient_name, gradient_block in block.gradients():
                 # here, we assume that gradients are always an array, and never a scalar
                 if capabilities.outputs[target_name].quantity == "energy":
@@ -80,13 +90,17 @@ def write_xyz(
                         )
                     elif gradient_name == "strain":
                         strain_derivatives = (
-                            gradient_block.values.detach().cpu().numpy()
+                            # squeeze the property dimension
+                            gradient_block.values.detach()
+                            .cpu()
+                            .squeeze(-1)
+                            .numpy()
                         )
                         if not torch.any(system.cell != 0):
                             raise ValueError(
                                 "stresses cannot be written for non-periodic systems."
                             )
-                        cell_volume = torch.det(system.cell)
+                        cell_volume = torch.det(system.cell).item()
                         if cell_volume == 0:
                             raise ValueError(
                                 "stresses cannot be written for "
@@ -96,9 +110,9 @@ def write_xyz(
                             name_for_saving = "stress"
                         else:
                             name_for_saving = f"stress[{target_name}]"
-                        arrays[name_for_saving] = strain_derivatives / cell_volume
+                        info[name_for_saving] = strain_derivatives / cell_volume
                     else:
-                        arrays[f"{target_name}_{gradient_name}_gradients"] = (
+                        info[f"{target_name}_{gradient_name}_gradients"] = (
                             # squeeze the property dimension
                             gradient_block.values.detach()
                             .cpu()
@@ -113,7 +127,7 @@ def write_xyz(
         # assign cell and pbcs
         if torch.any(system.cell != 0):
             atoms.pbc = True
-            atoms.cell = system.cell
+            atoms.cell = system.cell.detach().cpu().numpy()
 
         # assign arrays
         for array_name, array in arrays.items():

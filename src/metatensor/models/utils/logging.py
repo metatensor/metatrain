@@ -66,12 +66,13 @@ class MetricLogger:
         """
         Log the metrics.
 
-        The metrics are automatically aligned to make them easier to read,
-        based on the order of magnitude of each metric given to the class
-        at initialization.
+        The metrics are automatically aligned to make them easier to read, based on
+        the order of magnitude of each metric given to the class at initialization.
 
         :param metrics: The current metrics to be printed.
-        :param epoch: The current epoch (optional).
+        :param epoch: The current epoch (optional). If :py:class:`None`, the epoch
+            will not be printed, and the logging string will start with the first
+            metric in the ``metrics`` dictionary.
         """
 
         if isinstance(metrics, dict):

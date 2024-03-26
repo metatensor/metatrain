@@ -30,6 +30,29 @@ def systems_capabilities_predictions(cell: torch.tensor = None) -> List[System]:
         components=[],
         properties=Labels(["energy"], torch.tensor([(0,)])),
     )
+    block.add_gradient(
+        "positions",
+        TensorBlock(
+            values=torch.arange(12, dtype=torch.get_default_dtype()).reshape(4, 3, 1),
+            samples=Labels(
+                ["sample", "atom"], torch.tensor([[0, 0], [0, 1], [1, 0], [1, 1]])
+            ),
+            components=[Labels.range("xyz", 3)],
+            properties=Labels(["energy"], torch.tensor([(0,)])),
+        ),
+    )
+    if not torch.all(cell == 0):
+        block.add_gradient(
+            "strain",
+            TensorBlock(
+                values=torch.arange(18, dtype=torch.get_default_dtype()).reshape(
+                    2, 3, 3, 1
+                ),
+                samples=Labels(["sample"], torch.tensor([0, 1]).reshape(-1, 1)),
+                components=[Labels.range("xyz_1", 3), Labels.range("xyz_2", 3)],
+                properties=Labels(["energy"], torch.tensor([(0,)])),
+            ),
+        )
 
     predictions = {"energy": TensorMap(Labels.single(), [block])}
 
@@ -61,7 +84,7 @@ def test_write_xyz(monkeypatch, tmp_path):
 def test_write_xyz_cell(monkeypatch, tmp_path):
     monkeypatch.chdir(tmp_path)
 
-    cell = torch.ones(3, 3)
+    cell = torch.eye(3)
     systems, capabilities, predictions = systems_capabilities_predictions(cell=cell)
 
     filename = "test_output.xyz"
@@ -78,10 +101,11 @@ def test_write_xyz_cell(monkeypatch, tmp_path):
 
 
 @pytest.mark.parametrize("fileformat", (None, ".xyz"))
-def test_write_predictions(fileformat, monkeypatch, tmp_path):
+@pytest.mark.parametrize("cell", (None, torch.eye(3)))
+def test_write_predictions(fileformat, cell, monkeypatch, tmp_path):
     monkeypatch.chdir(tmp_path)
 
-    systems, capabilities, predictions = systems_capabilities_predictions()
+    systems, capabilities, predictions = systems_capabilities_predictions(cell=cell)
 
     filename = "test_output.xyz"
 
@@ -93,6 +117,9 @@ def test_write_predictions(fileformat, monkeypatch, tmp_path):
     assert len(frames) == len(systems)
     for i, frame in enumerate(frames):
         assert frame.info["energy"] == float(predictions["energy"].block().values[i, 0])
+        assert frame.arrays["forces"].shape == (2, 3)
+        if cell is not None:
+            assert frame.info["stress"].shape == (3, 3)
 
 
 def test_write_predictions_unknown_fileformat():

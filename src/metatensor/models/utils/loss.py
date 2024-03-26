@@ -16,11 +16,13 @@ class TensorMapLoss:
     At the moment, this loss function assumes that all the gradients
     declared at initialization are present in both TensorMaps.
 
-    :param reduction: The reduction to apply to the loss. See `torch.nn.MSELoss`.
+    :param reduction: The reduction to apply to the loss.
+        See :py:class:`torch.nn.MSELoss`.
     :param weight: The weight to apply to the loss on the block values.
     :param gradient_weights: The weights to apply to the loss on the gradients.
 
-    :returns: The loss as a scalar `torch.Tensor`.
+    :returns: The loss as a zero-dimensional :py:class:`torch.Tensor`
+        (with one entry).
     """
 
     def __init__(
@@ -118,9 +120,11 @@ class TensorMapDictLoss:
         a dictionary mapping "values" to the weight to apply to the loss on the
         block values, and gradient names to the weights to apply to the loss on
         the gradients.
-    :param reduction: The reduction to apply to the loss. See `torch.nn.MSELoss`.
+    :param reduction: The reduction to apply to the loss.
+        See :py:class:`torch.nn.MSELoss`.
 
-    :returns: The loss as a scalar `torch.Tensor`.
+    :returns: The loss as a zero-dimensional :py:class:`torch.Tensor`
+        (with one entry).
     """
 
     def __init__(
