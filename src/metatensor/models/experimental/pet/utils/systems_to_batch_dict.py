@@ -57,11 +57,10 @@ class NeighborIndexConstructor:
                 self.relative_positions.append(torch.empty(0, dtype=torch.long))
 
     def get_max_num(self) -> int:
-        maximum: int = 0
+        maximum: int = -1
         for chunk in self.relative_positions:
-            if len(chunk) > 0:
-                if chunk.shape[0] > maximum:
-                    maximum = chunk.shape[0]
+            if chunk.shape[0] > maximum:
+                maximum = chunk.shape[0]
         return maximum
 
     def get_neighbor_index(self, max_num: int, all_species: torch.Tensor) -> Tuple[
@@ -275,7 +274,6 @@ def systems_to_batch_dict(
 
     graphs: List[Dict[str, torch.Tensor]] = []
     device = "cpu"  # initial value to make torch script happy; to be overwritten
-
     for neighbor_index_constructor, system in zip(neighbor_index_constructors, systems):
         (
             neighbors_pos,
@@ -296,8 +294,11 @@ def systems_to_batch_dict(
         neighbor_species = neighbor_species.to(device)
         relative_positions_index = relative_positions_index.to(device)
         if len(displacement_vectors) == 0:
-            relative_positions = torch.empty(
-                size=(0, max_num, 3), device=device, dtype=torch.float32
+            shape = relative_positions_index.shape
+            relative_positions = torch.zeros(
+                size=(shape[0], shape[1], 3),
+                device=device,
+                dtype=torch.float32,
             )
         else:
             relative_positions = displacement_vectors[relative_positions_index]
