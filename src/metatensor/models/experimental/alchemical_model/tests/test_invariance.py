@@ -35,11 +35,11 @@ def test_rotational_invariance():
     system = ase.io.read(DATASET_PATH)
     original_system = copy.deepcopy(system)
     system.rotate(48, "y")
-    original_system = systems_to_torch(original_system, dtype=torch.get_default_dtype())
+    original_system = systems_to_torch(original_system)
     original_system = get_system_with_neighbors_lists(
         original_system, alchemical_model.requested_neighbors_lists()
     )
-    system = systems_to_torch(system, dtype=torch.get_default_dtype())
+    system = systems_to_torch(system)
     system = get_system_with_neighbors_lists(
         system, alchemical_model.requested_neighbors_lists()
     )
@@ -63,7 +63,7 @@ def test_rotational_invariance():
         check_consistency=True,
     )
 
-    assert torch.allclose(
+    torch.testing.assert_close(
         original_output["energy"].block().values,
         rotated_output["energy"].block().values,
     )

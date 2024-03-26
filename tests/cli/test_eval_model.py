@@ -12,7 +12,7 @@ from metatensor.models.cli.eval import eval_model
 
 
 RESOURCES_PATH = Path(__file__).parent.resolve() / ".." / "resources"
-MODEL_PATH = RESOURCES_PATH / "bpnn-model.pt"
+MODEL_PATH = RESOURCES_PATH / "model-32-bit.pt"
 OPTIONS_PATH = RESOURCES_PATH / "eval.yaml"
 
 
@@ -45,12 +45,15 @@ def test_eval_cli(monkeypatch, tmp_path, capsys):
     assert Path("output.xyz").is_file()
 
 
-def test_eval(monkeypatch, tmp_path, caplog, model, options):
+@pytest.mark.parametrize("model_name", ["model-32-bit.pt", "model-64-bit.pt"])
+def test_eval(monkeypatch, tmp_path, caplog, model_name, options):
     """Test that eval via python API runs without an error raise."""
     monkeypatch.chdir(tmp_path)
     caplog.set_level(logging.INFO)
 
     shutil.copy(RESOURCES_PATH / "qm9_reduced_100.xyz", "qm9_reduced_100.xyz")
+
+    model = torch.jit.load(RESOURCES_PATH / model_name)
 
     eval_model(
         model=model,

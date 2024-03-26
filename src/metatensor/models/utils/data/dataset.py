@@ -1,4 +1,3 @@
-import logging
 from dataclasses import dataclass
 from typing import Dict, List, NamedTuple, Optional, Tuple, Union
 
@@ -7,9 +6,6 @@ from metatensor.learn.data import Dataset, group_and_join
 from metatensor.torch import TensorMap
 from torch import Generator, default_generator
 from torch.utils.data import Subset, random_split
-
-
-logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -109,30 +105,32 @@ def collate_fn(batch: List[NamedTuple]) -> Tuple[List, Dict[str, TensorMap]]:
     return systems, collated_targets
 
 
-def check_datasets(
-    train_datasets: List[Dataset],
-    validation_datasets: List[Dataset],
-    raise_incompatibility_error: bool = True,
-):
-    """
-    This is a helper function that checks that the training and validation sets
-    are compatible with one another.
+def check_datasets(train_datasets: List[Dataset], validation_datasets: List[Dataset]):
+    """Check that the training and validation sets are compatible with one another
 
     Although these checks will not fit all use cases, most models would be expected
-    to be able to use this function. If the validation set contains chemical species
-    or targets that are not present in the training set, this function will raise a
-    warning or an error, depending on the ``raise_incompatibility_error`` flag.
+    to be able to use this function.
 
-    The option to warn is intended for model fine tuning, where a species or target
-    in the validation set might not be present in the current training set, but it
-    might have been present in the training of the base model.
-
-    :param train_datasets: A list of training datasets.
-    :param validation_datasets: A list of validation datasets.
-    :param raise_incompatibility_error: Whether to error (if ``true``) or warn
-        (if ``false``) upon detection of a chemical species or target in the
-        validation set that is not present in the training set.
+    :param train_datasets: A list of training datasets to check.
+    :param validation_datasets: A list of validation datasets to check
+    :raises TypeError: If the ``dtype`` within the datasets are inconsistent.
+    :raises ValueError: If the `validation_datasets` has a target that is not present in
+        the ``train_datasets``.
+    :raises ValueError: If the training or validation set contains chemical species
+        or targets that are not present in the training set
     """
+    # Check that system `dtypes` are consistent within datasets
+    desired_dtype = train_datasets[0][0].system.positions.dtype
+    msg = f"`dtype` between datasets is inconsistent, found {desired_dtype} and "
+    for train_dataset in train_datasets:
+        actual_dtype = train_dataset[0].system.positions.dtype
+        if actual_dtype != desired_dtype:
+            raise TypeError(f"{msg}{actual_dtype} found in `train_datasets`")
+
+    for validation_dataset in validation_datasets:
+        actual_dtype = validation_dataset[0].system.positions.dtype
+        if actual_dtype != desired_dtype:
+            raise TypeError(f"{msg}{actual_dtype} found in `validation_datasets`")
 
     # Get all targets in the training and validation sets:
     train_targets = get_all_targets(train_datasets)
@@ -142,13 +140,10 @@ def check_datasets(
     # training sets:
     for target in validation_targets:
         if target not in train_targets:
-            error_or_warning = f"The validation dataset has a target ({target}) "
-            "that is not present in the training dataset."
-            if raise_incompatibility_error:
-                raise ValueError(error_or_warning)
-            else:
-                logger.warning(error_or_warning)
-
+            raise ValueError(
+                f"The validation dataset has a target ({target}) that is not present "
+                "in the training dataset."
+            )
     # Get all the species in the training and validation sets:
     all_training_species = get_all_species(train_datasets)
     all_validation_species = get_all_species(validation_datasets)
@@ -157,15 +152,11 @@ def check_datasets(
     # training sets:
     for species in all_validation_species:
         if species not in all_training_species:
-
-            error_or_warning = f"The validation dataset has a species ({species}) "
-            "that is not in the training dataset. This could be "
-            "a result of a random train/validation split. You can "
-            "avoid this by providing a validation dataset manually."
-            if raise_incompatibility_error:
-                raise ValueError(error_or_warning)
-            else:
-                logger.warning(error_or_warning)
+            raise ValueError(
+                f"The validation dataset has a species ({species}) that is not in the "
+                "training dataset. This could be a result of a random train/validation "
+                "split. You can avoid this by providing a validation dataset manually."
+            )
 
 
 def _train_test_random_split(

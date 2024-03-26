@@ -18,7 +18,7 @@ def _base_reader(
     readers: dict,
     filename: str,
     fileformat: Optional[str] = None,
-    dtype: torch.dtype = torch.float64,
+    dtype: torch.dtype = torch.float32,
     **reader_kwargs,
 ):
     if fileformat is None:
@@ -36,7 +36,7 @@ def read_energy(
     filename: str,
     target_value: str = "energy",
     fileformat: Optional[str] = None,
-    dtype: torch.dtype = torch.float64,
+    dtype: torch.dtype = torch.float32,
 ) -> List[TensorBlock]:
     """Read energy informations from a file.
 
@@ -60,7 +60,7 @@ def read_forces(
     filename: str,
     target_value: str = "forces",
     fileformat: Optional[str] = None,
-    dtype: torch.dtype = torch.float64,
+    dtype: torch.dtype = torch.float32,
 ) -> List[TensorBlock]:
     """Read force informations from a file.
 
@@ -84,7 +84,7 @@ def read_stress(
     filename: str,
     target_value: str = "stress",
     fileformat: Optional[str] = None,
-    dtype: torch.dtype = torch.float64,
+    dtype: torch.dtype = torch.float32,
 ) -> List[TensorBlock]:
     """Read stress informations from a file.
 
@@ -107,7 +107,7 @@ def read_stress(
 def read_systems(
     filename: str,
     fileformat: Optional[str] = None,
-    dtype: torch.dtype = torch.float64,
+    dtype: torch.dtype = torch.float32,
 ) -> List[System]:
     """Read system informations from a file.
 
@@ -129,7 +129,7 @@ def read_virial(
     filename: str,
     target_value: str = "virial",
     fileformat: Optional[str] = None,
-    dtype: torch.dtype = torch.float64,
+    dtype: torch.dtype = torch.float32,
 ) -> List[TensorBlock]:
     """Read virial informations from a file.
 
@@ -151,7 +151,7 @@ def read_virial(
 
 def read_targets(
     conf: DictConfig,
-    dtype: torch.dtype = torch.float64,
+    dtype: torch.dtype = torch.float32,
 ) -> Dict[str, List[TensorMap]]:
     """Reading all target information from a fully expanded config.
 

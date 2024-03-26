@@ -1,10 +1,13 @@
+import importlib
 from pathlib import Path
 from typing import Union
 
-from omegaconf import DictConfig, ListConfig, OmegaConf
+import torch
+from omegaconf import Container, DictConfig, ListConfig, OmegaConf
+from omegaconf.basecontainer import BaseContainer
 
 
-def file_format(_parent_: DictConfig) -> str:
+def file_format(_parent_: Container) -> str:
     """Custom OmegaConf resolver to find the file format.
 
     File format is obtained based on the suffix of the ``read_from`` field in the same
@@ -12,8 +15,36 @@ def file_format(_parent_: DictConfig) -> str:
     return Path(_parent_["read_from"]).suffix
 
 
+def default_precision(_root_: BaseContainer) -> int:
+    """Custom OmegaConf resolver to find the default precision of an architecture.
+
+    File format is obtained based on the architecture name and its first entry in the
+    ``supported_dtypes`` list."""
+
+    architecture_name = _root_["architecture"]["name"]
+    architecture = importlib.import_module(f"metatensor.models.{architecture_name}")
+    architecture_capabilities = architecture.__ARCHITECTURE_CAPABILITIES__
+
+    # desired `dtype` is the first entry
+    default_dtype = architecture_capabilities["supported_dtypes"][0]
+
+    # base_precision has to be a integere and not a torch dtype
+    if default_dtype in [torch.float64, torch.double]:
+        return 64
+    elif default_dtype == torch.float32:
+        return 32
+    elif default_dtype == torch.float16:
+        return 16
+    else:
+        raise ValueError(
+            f"architectures `default_dtype` ({default_dtype}) refers to an unknown "
+            "torch dtype. This should not happen."
+        )
+
+
 # Register custom resolvers
 OmegaConf.register_new_resolver("file_format", file_format)
+OmegaConf.register_new_resolver("default_precision", default_precision)
 
 
 def _resolve_single_str(config: str) -> DictConfig:
