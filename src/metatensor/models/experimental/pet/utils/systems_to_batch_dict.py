@@ -57,7 +57,7 @@ class NeighborIndexConstructor:
                 self.relative_positions.append(torch.empty(0, dtype=torch.long))
 
     def get_max_num(self) -> int:
-        maximum: int = -1
+        maximum: int = 0
         for chunk in self.relative_positions:
             if len(chunk) > 0:
                 if chunk.shape[0] > maximum:
@@ -243,9 +243,10 @@ def systems_to_batch_dict(
         S_list = S_list.transpose(0, 1)
 
         unique_index = torch.unique(torch.cat((i_list, j_list)))
-        species: torch.Tensor = system.types[unique_index]
+        species: torch.Tensor = system.types
 
-        # REMAPPING TO CONTIGUOUS INDEXING
+        # Remapping to contiguous indexing (see `remap_to_contiguous_indexing`
+        # docstring)
         if (len(unique_index) > 0) and (
             len(unique_index) < i_list.max() or len(unique_index) < j_list.max()
         ):
@@ -287,7 +288,6 @@ def systems_to_batch_dict(
 
         neighbors = system.get_neighbors_list(options)
         displacement_vectors = neighbors.values[:, :, 0].to(torch.float32)
-
         device = str(displacement_vectors.device)
         neighbors_pos = neighbors_pos.to(device)
         neighbors_index = neighbors_index.to(device)
@@ -295,13 +295,13 @@ def systems_to_batch_dict(
         mask = mask.to(device)
         neighbor_species = neighbor_species.to(device)
         relative_positions_index = relative_positions_index.to(device)
-
-        relative_positions = displacement_vectors[relative_positions_index]
-        neighbors = system.get_neighbors_list(options)
-        i_list = neighbors.samples.column("first_atom")
-        j_list = neighbors.samples.column("second_atom")
-        unique_index = torch.unique(torch.cat((i_list, j_list)))
-        species = system.types[unique_index]
+        if len(displacement_vectors) == 0:
+            relative_positions = torch.empty(
+                size=(0, max_num, 3), device=device, dtype=torch.float32
+            )
+        else:
+            relative_positions = displacement_vectors[relative_positions_index]
+        species = system.types
         central_species = [
             int(torch.where(all_species == specie)[0][0].item()) for specie in species
         ]

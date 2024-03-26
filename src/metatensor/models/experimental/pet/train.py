@@ -132,11 +132,7 @@ def train(
     raw_pet.load_state_dict(new_state_dict)
 
     outputs = {
-        key: ModelOutput(
-            quantity=value.quantity,
-            unit=value.unit,
-            per_atom=value.per_atom,
-        )
+        key: ModelOutput(quantity=value.quantity, unit=value.unit, per_atom=True)
         for key, value in dataset_info.targets.items()
     }
     capabilities = ModelCapabilities(
