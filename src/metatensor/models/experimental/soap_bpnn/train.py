@@ -6,6 +6,7 @@ from typing import Dict, List, Optional, Union
 import torch
 from metatensor.learn.data import DataLoader
 from metatensor.learn.data.dataset import Dataset
+from metatensor.torch import TensorMap
 from metatensor.torch.atomistic import ModelCapabilities, ModelOutput
 
 from ...utils.composition import calculate_composition_weights
@@ -24,6 +25,7 @@ from ...utils.logging import MetricLogger
 from ...utils.loss import TensorMapDictLoss
 from ...utils.merge_capabilities import merge_capabilities
 from ...utils.metrics import RMSEAccumulator
+from ...utils.per_atom import average_block_by_num_atoms
 from .model import DEFAULT_HYPERS, Model
 
 
@@ -218,6 +220,9 @@ def train(
     best_validation_loss = float("inf")
     epochs_without_improvement = 0
 
+    # per-atom targets:
+    per_atom_targets = hypers_training["per_atom_targets"]
+
     # Train the model:
     logger.info("Starting training")
     for epoch in range(hypers_training["num_epochs"]):
@@ -240,6 +245,25 @@ def train(
                 },
                 is_training=True,
             )
+
+            # average by the number of atoms (if requested)
+            num_atoms = torch.tensor(
+                [len(s) for s in systems], device=device
+            ).unsqueeze(-1)
+            for pa_target in per_atom_targets:
+                predictions[pa_target] = TensorMap(
+                    predictions[pa_target].keys,
+                    [
+                        average_block_by_num_atoms(
+                            predictions[pa_target].block(), num_atoms
+                        )
+                    ],
+                )
+                targets[pa_target] = TensorMap(
+                    targets[pa_target].keys,
+                    [average_block_by_num_atoms(targets[pa_target].block(), num_atoms)],
+                )
+
             loss = loss_fn(predictions, targets)
             train_loss += loss.item()
             loss.backward()
@@ -261,6 +285,24 @@ def train(
                 },
                 is_training=False,
             )
+
+            # average by the number of atoms (if requested)
+            num_atoms = torch.tensor(
+                [len(s) for s in systems], device=device
+            ).unsqueeze(-1)
+            for pa_target in per_atom_targets:
+                predictions[pa_target] = TensorMap(
+                    predictions[pa_target].keys,
+                    [
+                        average_block_by_num_atoms(
+                            predictions[pa_target].block(), num_atoms
+                        )
+                    ],
+                )
+                targets[pa_target] = TensorMap(
+                    targets[pa_target].keys,
+                    [average_block_by_num_atoms(targets[pa_target].block(), num_atoms)],
+                )
 
             validation_loss += loss.item()
             validation_rmse_calculator.update(predictions, targets)
