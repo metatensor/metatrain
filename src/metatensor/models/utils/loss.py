@@ -16,13 +16,13 @@ class TensorMapLoss:
     At the moment, this loss function assumes that all the gradients
     declared at initialization are present in both TensorMaps.
 
-    :param reduction: The reduction to apply to the loss. See `torch.nn.MSELoss`.
+    :param reduction: The reduction to apply to the loss.
+        See :py:class:`torch.nn.MSELoss`.
     :param weight: The weight to apply to the loss on the block values.
     :param gradient_weights: The weights to apply to the loss on the gradients.
 
-    :returns: The loss as a scalar `torch.Tensor`, as well as an information
-        dictionary with the sum of squared errors and number of samples for values
-        and each of the gradients.
+    :returns: The loss as a zero-dimensional :py:class:`torch.Tensor`
+        (with one entry).
     """
 
     def __init__(
@@ -88,32 +88,23 @@ class TensorMapLoss:
                 "TensorMapLoss does not yet support multiple symmetry keys."
             )
 
-        # Compute the loss and info:
+        # Compute the loss:
         loss = torch.zeros(
             (),
             dtype=tensor_map_1.block().values.dtype,
             device=tensor_map_1.block().values.device,
         )
-        info = {}
 
         values_1 = tensor_map_1.block().values
         values_2 = tensor_map_2.block().values
         loss += self.weight * self.loss(values_1, values_2)
-        info["values"] = (
-            torch.sum((values_1 - values_2) ** 2).item(),
-            values_1.numel(),
-        )
 
         for gradient_name, gradient_weight in self.gradient_weights.items():
             values_1 = tensor_map_1.block().gradient(gradient_name).values
             values_2 = tensor_map_2.block().gradient(gradient_name).values
             loss += gradient_weight * self.loss(values_1, values_2)
-            info[gradient_name] = (
-                torch.sum((values_1 - values_2) ** 2).item(),
-                values_1.numel(),
-            )
 
-        return loss, info
+        return loss
 
 
 class TensorMapDictLoss:
@@ -129,11 +120,11 @@ class TensorMapDictLoss:
         a dictionary mapping "values" to the weight to apply to the loss on the
         block values, and gradient names to the weights to apply to the loss on
         the gradients.
-    :param reduction: The reduction to apply to the loss. See `torch.nn.MSELoss`.
+    :param reduction: The reduction to apply to the loss.
+        See :py:class:`torch.nn.MSELoss`.
 
-    :returns: The loss as a scalar `torch.Tensor`, as well as an information
-        dictionary with the sum of squared errors and number of samples for values
-        and each of the gradients.
+    :returns: The loss as a zero-dimensional :py:class:`torch.Tensor`
+        (with one entry).
     """
 
     def __init__(
@@ -154,26 +145,19 @@ class TensorMapDictLoss:
         self,
         tensor_map_dict_1: Dict[str, TensorMap],
         tensor_map_dict_2: Dict[str, TensorMap],
-    ) -> Tuple[torch.Tensor, Dict[str, Tuple[float, int]]]:
+    ) -> torch.Tensor:
         # Assert that the two have the keys:
         assert set(tensor_map_dict_1.keys()) == set(tensor_map_dict_2.keys())
 
         # Initialize the loss:
         first_values = next(iter(tensor_map_dict_1.values())).block(0).values
         loss = torch.zeros((), dtype=first_values.dtype, device=first_values.device)
-        info = {}
 
-        # Compute the loss and associated info:
+        # Compute the loss:
         for target in tensor_map_dict_1.keys():
-            target_loss, target_info = self.losses[target](
+            target_loss = self.losses[target](
                 tensor_map_dict_1[target], tensor_map_dict_2[target]
             )
             loss += target_loss
-            info[target] = target_info["values"]
-            for gradient_name in target_info.keys():
-                if gradient_name != "values":
-                    info[f"{target}_{gradient_name}_gradients"] = target_info[
-                        gradient_name
-                    ]
 
-        return loss, info
+        return loss
