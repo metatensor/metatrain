@@ -1,14 +1,14 @@
 import logging
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple, Union
+from typing import Dict, List, Optional, Union
 
 import torch
 from metatensor.learn.data import DataLoader
 from metatensor.learn.data.dataset import Dataset
+from metatensor.torch import TensorMap
 from metatensor.torch.atomistic import ModelCapabilities, ModelOutput
 
 from ...utils.composition import calculate_composition_weights
-from ...utils.compute_loss import compute_model_loss
 from ...utils.data import (
     DatasetInfo,
     check_datasets,
@@ -17,13 +17,15 @@ from ...utils.data import (
     get_all_species,
     get_all_targets,
 )
+from ...utils.evaluate_model import evaluate_model
 from ...utils.extract_targets import get_outputs_dict
-from ...utils.info import finalize_aggregated_info, update_aggregated_info
 from ...utils.io import is_exported, load, save
 from ...utils.logging import MetricLogger
 from ...utils.loss import TensorMapDictLoss
 from ...utils.merge_capabilities import merge_capabilities
+from ...utils.metrics import RMSEAccumulator
 from ...utils.neighbors_lists import get_system_with_neighbors_lists
+from ...utils.per_atom import average_block_by_num_atoms
 from .model import DEFAULT_HYPERS, Model
 from .utils.normalize import (
     get_average_number_of_atoms,
@@ -224,12 +226,14 @@ def train(
     best_validation_loss = float("inf")
     epochs_without_improvement = 0
 
+    # per-atom targets:
+    per_atom_targets = hypers_training["per_atom_targets"]
+
     # Train the model:
     logger.info("Starting training")
     for epoch in range(hypers_training["num_epochs"]):
-        # aggregated information holders:
-        aggregated_train_info: Dict[str, Tuple[float, int]] = {}
-        aggregated_validation_info: Dict[str, Tuple[float, int]] = {}
+        train_rmse_calculator = RMSEAccumulator()
+        validation_rmse_calculator = RMSEAccumulator()
 
         train_loss = 0.0
         for batch in train_dataloader:
@@ -237,49 +241,101 @@ def train(
 
             systems, targets = batch
             assert len(systems[0].known_neighbors_lists()) > 0
-            loss, info = compute_model_loss(
-                loss_fn, model, systems, targets, hypers_training["per_atom_targets"]
+            systems = [system.to(device=device) for system in systems]
+            targets = {key: value.to(device=device) for key, value in targets.items()}
+            predictions = evaluate_model(
+                model,
+                systems,
+                {
+                    name: tensormap.block().gradients_list()
+                    for name, tensormap in targets.items()
+                },
+                is_training=True,
             )
 
+            # average by the number of atoms (if requested)
+            num_atoms = torch.tensor(
+                [len(s) for s in systems], device=device
+            ).unsqueeze(-1)
+            for pa_target in per_atom_targets:
+                predictions[pa_target] = TensorMap(
+                    predictions[pa_target].keys,
+                    [
+                        average_block_by_num_atoms(
+                            predictions[pa_target].block(), num_atoms
+                        )
+                    ],
+                )
+                targets[pa_target] = TensorMap(
+                    targets[pa_target].keys,
+                    [average_block_by_num_atoms(targets[pa_target].block(), num_atoms)],
+                )
+
+            loss = loss_fn(predictions, targets)
             train_loss += loss.item()
             loss.backward()
             optimizer.step()
-            aggregated_train_info = update_aggregated_info(aggregated_train_info, info)
-        finalized_train_info = finalize_aggregated_info(aggregated_train_info)
+            train_rmse_calculator.update(predictions, targets)
+        finalized_train_info = train_rmse_calculator.finalize()
 
         validation_loss = 0.0
         for batch in validation_dataloader:
             systems, targets = batch
-            # TODO: specify that the model is not training here to save some autograd
-
-            loss, info = compute_model_loss(
-                loss_fn, model, systems, targets, hypers_training["per_atom_targets"]
+            assert len(systems[0].known_neighbors_lists()) > 0
+            systems = [system.to(device=device) for system in systems]
+            targets = {key: value.to(device=device) for key, value in targets.items()}
+            predictions = evaluate_model(
+                model,
+                systems,
+                {
+                    name: tensormap.block().gradients_list()
+                    for name, tensormap in targets.items()
+                },
+                is_training=False,
             )
 
+            # average by the number of atoms (if requested)
+            num_atoms = torch.tensor(
+                [len(s) for s in systems], device=device
+            ).unsqueeze(-1)
+            for pa_target in per_atom_targets:
+                predictions[pa_target] = TensorMap(
+                    predictions[pa_target].keys,
+                    [
+                        average_block_by_num_atoms(
+                            predictions[pa_target].block(), num_atoms
+                        )
+                    ],
+                )
+                targets[pa_target] = TensorMap(
+                    targets[pa_target].keys,
+                    [average_block_by_num_atoms(targets[pa_target].block(), num_atoms)],
+                )
+
+            loss = loss_fn(predictions, targets)
             validation_loss += loss.item()
-            aggregated_validation_info = update_aggregated_info(
-                aggregated_validation_info, info
-            )
-        finalized_validation_info = finalize_aggregated_info(aggregated_validation_info)
+            validation_rmse_calculator.update(predictions, targets)
+        finalized_validation_info = validation_rmse_calculator.finalize()
 
         lr_scheduler.step(validation_loss)
 
         # Now we log the information:
+        finalized_train_info = {"loss": train_loss, **finalized_train_info}
+        finalized_validation_info = {
+            "loss": validation_loss,
+            **finalized_validation_info,
+        }
+
         if epoch == 0:
             metric_logger = MetricLogger(
-                model_capabilities,
-                train_loss,
-                validation_loss,
-                finalized_train_info,
-                finalized_validation_info,
+                model_capabilities=model_capabilities,
+                initial_metrics=[finalized_train_info, finalized_validation_info],
+                names=["train", "validation"],
             )
         if epoch % hypers_training["log_interval"] == 0:
             metric_logger.log(
-                epoch,
-                train_loss,
-                validation_loss,
-                finalized_train_info,
-                finalized_validation_info,
+                metrics=[finalized_train_info, finalized_validation_info],
+                epoch=epoch,
             )
 
         if epoch % hypers_training["checkpoint_interval"] == 0:

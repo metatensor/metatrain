@@ -121,31 +121,27 @@ def test_tmap_loss_no_gradients():
         ],
     )
 
-    loss_value, info = loss(tensor_map_1, tensor_map_1)
+    loss_value = loss(tensor_map_1, tensor_map_1)
     torch.testing.assert_close(loss_value, torch.tensor(0.0))
-    assert set(info.keys()) == set(["values"])
 
     # Expected result: 1.0/3.0 (there are three values)
-    loss_value, info = loss(tensor_map_1, tensor_map_2)
+    loss_value = loss(tensor_map_1, tensor_map_2)
     torch.testing.assert_close(loss_value, torch.tensor(1.0 / 3.0))
-    assert set(info.keys()) == set(["values"])
 
 
 def test_tmap_loss_with_gradients(tensor_map_with_grad_1, tensor_map_with_grad_2):
     """Test that the loss is computed correctly when there are gradients."""
     loss = TensorMapLoss(gradient_weights={"gradient": 0.5})
 
-    loss_value, info = loss(tensor_map_with_grad_1, tensor_map_with_grad_1)
+    loss_value = loss(tensor_map_with_grad_1, tensor_map_with_grad_1)
     torch.testing.assert_close(loss_value, torch.tensor(0.0))
-    assert set(info.keys()) == set(["values", "gradient"])
 
     # Expected result: 1.0/3.0 + 0.5 * 4.0 / 3.0 (there are three values)
-    loss_value, info = loss(tensor_map_with_grad_1, tensor_map_with_grad_2)
+    loss_value = loss(tensor_map_with_grad_1, tensor_map_with_grad_2)
     torch.testing.assert_close(
         loss_value,
         torch.tensor(1.0 / 3.0 + 0.5 * 4.0 / 3.0),
     )
-    assert set(info.keys()) == set(["values", "gradient"])
 
 
 def test_tmap_dict_loss(
@@ -204,16 +200,8 @@ def test_tmap_dict_loss(
         .mean()
     )
 
-    loss_value, info = loss(output_dict, target_dict)
+    loss_value = loss(output_dict, target_dict)
     torch.testing.assert_close(loss_value, expected_result)
-    assert set(info.keys()) == set(
-        [
-            "output_1",
-            "output_1_gradient_gradients",
-            "output_2",
-            "output_2_gradient_gradients",
-        ]
-    )
 
 
 def test_tmap_dict_loss_subset(tensor_map_with_grad_1, tensor_map_with_grad_3):
@@ -252,6 +240,5 @@ def test_tmap_dict_loss_subset(tensor_map_with_grad_1, tensor_map_with_grad_3):
         .mean()
     )
 
-    loss_value, info = loss(output_dict, target_dict)
+    loss_value = loss(output_dict, target_dict)
     torch.testing.assert_close(loss_value, expected_result)
-    assert set(info.keys()) == set(["output_1", "output_1_gradient_gradients"])

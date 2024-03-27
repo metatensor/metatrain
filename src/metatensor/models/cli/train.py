@@ -426,7 +426,14 @@ def _train_model_hydra(options: DictConfig) -> None:
             extra_log_message = f" with index {i}"
 
         logger.info(f"Evaluating training dataset{extra_log_message}")
-        _eval_targets(exported_model, train_dataset)
+        eval_options = {
+            target: tensormap.block().gradients_list()
+            for target, tensormap in train_dataset[0]._asdict().items()
+            if target != "system"
+        }
+        _eval_targets(
+            exported_model, train_dataset, eval_options, return_predictions=False
+        )
 
     for i, validation_dataset in enumerate(validation_datasets):
         if len(validation_datasets) == 1:
@@ -435,7 +442,14 @@ def _train_model_hydra(options: DictConfig) -> None:
             extra_log_message = f" with index {i}"
 
         logger.info(f"Evaluating validation dataset{extra_log_message}")
-        _eval_targets(exported_model, validation_dataset)
+        eval_options = {
+            target: tensormap.block().gradients_list()
+            for target, tensormap in validation_dataset[0]._asdict().items()
+            if target != "system"
+        }
+        _eval_targets(
+            exported_model, validation_dataset, eval_options, return_predictions=False
+        )
 
     for i, test_dataset in enumerate(test_datasets):
         if len(test_datasets) == 1:
@@ -444,4 +458,14 @@ def _train_model_hydra(options: DictConfig) -> None:
             extra_log_message = f" with index {i}"
 
         logger.info(f"Evaluating test dataset{extra_log_message}")
-        _eval_targets(exported_model, test_dataset)
+        if len(test_dataset) == 0:
+            eval_options = {}
+        else:
+            eval_options = {
+                target: tensormap.block().gradients_list()
+                for target, tensormap in test_dataset[0]._asdict().items()
+                if target != "system"
+            }
+        _eval_targets(
+            exported_model, test_dataset, eval_options, return_predictions=False
+        )
