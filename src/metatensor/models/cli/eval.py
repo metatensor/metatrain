@@ -125,7 +125,7 @@ def _eval_targets(
     options: Dict[str, List[str]],
     return_predictions: bool,
 ) -> Optional[Dict[str, TensorMap]]:
-    """Evaluates an exported model on a dataset and print the RMSEs for each target.
+    """Evaluates an exported model on a dataset and prints the RMSEs for each target.
     Optionally, it also returns the predictions of the model."""
 
     if len(dataset) == 0:
@@ -229,13 +229,15 @@ def eval_model(
 
         if hasattr(options, "targets"):
             # in this case, we only evaluate the targets specified in the options
+            # and we calculate RMSEs
             eval_targets = read_targets(options["targets"], dtype=dtype)
             eval_outputs = {
                 target: tensormaps[0].block().gradients_list()
                 for target, tensormaps in eval_targets.items()
             }
         else:
-            # in this case, we have no targets: evaluate everything
+            # in this case, we have no targets: we evaluate everything
+            # (but we don't/can't calculate RMSEs)
             # TODO: allow the user to specify which outputs to evaluate
             eval_targets = {}
             gradients = ["positions"]
