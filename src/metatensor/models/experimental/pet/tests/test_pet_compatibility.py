@@ -1,4 +1,5 @@
 import ase
+import pytest
 import torch
 from metatensor.torch.atomistic import (
     MetatensorAtomisticModel,
@@ -9,13 +10,11 @@ from metatensor.torch.atomistic import (
     NeighborsListOptions,
     systems_to_torch,
 )
+from pet.data_preparation import get_pyg_graphs
+from pet.hypers import Hypers
 
 from metatensor.models.experimental.pet import DEFAULT_HYPERS, Model
 from metatensor.models.utils.neighbors_lists import get_system_with_neighbors_lists
-
-from pet.data_preparation import get_pyg_graphs
-from pet.hypers import Hypers
-import pytest
 
 
 @pytest.mark.parametrize("cutoff", [0.25, 5.0])
