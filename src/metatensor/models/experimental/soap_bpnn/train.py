@@ -48,20 +48,29 @@ def train(
     continue_from: Optional[str] = None,
     output_dir: str = ".",
 ):
+    # TODO: check that we're only training on energy targets.
+    # also in alchemical
+
     all_species = get_all_species(train_datasets + validation_datasets)
     outputs = {
         key: ModelOutput(
             quantity=value.quantity,
             unit=value.unit,
-            per_atom=False,
+            per_atom=True,
         )
         for key, value in dataset_info.targets.items()
     }
+    # the model is always capable of outputting the last layer features
+    outputs["last_layer_features"] = ModelOutput(
+        quantity="",
+        unit="",
+        per_atom=True,
+    )
     new_capabilities = ModelCapabilities(
         length_unit=dataset_info.length_unit,
         outputs=outputs,
         atomic_types=all_species,
-        supported_devices=["cpu", "cuda"],
+        supported_devices=["cuda", "cpu"],
     )
 
     # Create the model:
@@ -116,6 +125,8 @@ def train(
     # Calculate and set the composition weights for all targets:
     logger.info("Calculating composition weights")
     for target_name in novel_capabilities.outputs.keys():
+        if target_name == "last_layer_features":
+            continue
         # TODO: warn in the documentation that capabilities that are already
         # present in the model won't recalculate the composition weights
         # find the datasets that contain the target:
@@ -242,10 +253,7 @@ def train(
             predictions = evaluate_model(
                 model,
                 systems,
-                {
-                    name: tensormap.block().gradients_list()
-                    for name, tensormap in targets.items()
-                },
+                {key: dataset_info.targets[key] for key in targets.keys()},
                 is_training=True,
             )
 
@@ -282,10 +290,7 @@ def train(
             predictions = evaluate_model(
                 model,
                 systems,
-                {
-                    name: tensormap.block().gradients_list()
-                    for name, tensormap in targets.items()
-                },
+                {key: dataset_info.targets[key] for key in targets.keys()},
                 is_training=False,
             )
 

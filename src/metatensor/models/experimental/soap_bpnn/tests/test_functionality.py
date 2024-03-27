@@ -93,3 +93,95 @@ def test_prediction_subset_atoms():
     assert metatensor.torch.allclose(
         energy_monomer["energy"], energy_monomer_in_dimer["energy"]
     )
+
+
+def test_output_last_layer_features():
+    """Tests that the model can output its last layer features."""
+    capabilities = ModelCapabilities(
+        length_unit="Angstrom",
+        atomic_types=[1, 6, 7, 8],
+        outputs={
+            "last_layer_features": ModelOutput(
+                quantity="",
+                unit="",
+                per_atom=True,
+            ),
+            "energy": ModelOutput(
+                quantity="energy",
+                unit="eV",
+            ),
+        },
+    )
+
+    soap_bpnn = Model(capabilities, DEFAULT_HYPERS["model"])
+
+    system = ase.Atoms(
+        "CHON",
+        positions=[[0.0, 0.0, 0.0], [0.0, 0.0, 1.0], [0.0, 0.0, 2.0], [0.0, 0.0, 3.0]],
+    )
+
+    # last-layer features per atom:
+    ll_output_options = ModelOutput(
+        quantity="",
+        unit="",
+        per_atom=True,
+    )
+    outputs = soap_bpnn(
+        [systems_to_torch(system, dtype=torch.get_default_dtype())],
+        {
+            "energy": soap_bpnn.capabilities.outputs["energy"],
+            "last_layer_features": ll_output_options,
+        },
+    )
+    assert "energy" in outputs
+    assert "last_layer_features" in outputs
+    assert outputs["last_layer_features"].block().samples.names == ["system", "atom"]
+    assert outputs["last_layer_features"].block().values.shape == (4, 32)
+
+    # last-layer features per system:
+    ll_output_options = ModelOutput(
+        quantity="",
+        unit="",
+        per_atom=False,
+    )
+    outputs = soap_bpnn(
+        [systems_to_torch(system, dtype=torch.get_default_dtype())],
+        {
+            "energy": soap_bpnn.capabilities.outputs["energy"],
+            "last_layer_features": ll_output_options,
+        },
+    )
+    assert "energy" in outputs
+    assert "last_layer_features" in outputs
+    assert outputs["last_layer_features"].block().samples.names == ["system"]
+    assert outputs["last_layer_features"].block().values.shape == (1, 32)
+
+
+def test_output_per_atom():
+    """Tests that the model can output per-atom quantities."""
+    capabilities = ModelCapabilities(
+        length_unit="Angstrom",
+        atomic_types=[1, 6, 7, 8],
+        outputs={
+            "energy": ModelOutput(
+                quantity="energy",
+                unit="eV",
+                per_atom=True,
+            )
+        },
+    )
+
+    soap_bpnn = Model(capabilities, DEFAULT_HYPERS["model"])
+
+    system = ase.Atoms(
+        "CHON",
+        positions=[[0.0, 0.0, 0.0], [0.0, 0.0, 1.0], [0.0, 0.0, 2.0], [0.0, 0.0, 3.0]],
+    )
+
+    outputs = soap_bpnn(
+        [systems_to_torch(system, dtype=torch.get_default_dtype())],
+        {"energy": soap_bpnn.capabilities.outputs["energy"]},
+    )
+
+    assert outputs["energy"].block().samples.names == ["system", "atom"]
+    assert outputs["energy"].block().values.shape == (4, 1)

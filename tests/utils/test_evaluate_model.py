@@ -6,7 +6,7 @@ import torch
 from metatensor.torch.atomistic import ModelCapabilities, ModelOutput
 
 from metatensor.models.experimental import soap_bpnn
-from metatensor.models.utils.data import read_systems
+from metatensor.models.utils.data import TargetInfo, read_systems
 from metatensor.models.utils.evaluate_model import evaluate_model
 from metatensor.models.utils.io import export
 from metatensor.models.utils.neighbors_lists import get_system_with_neighbors_lists
@@ -49,12 +49,14 @@ def test_evaluate_model(tmp_path, training, exported):
             for system in systems
         ]
 
-    targets = {"energy": ["positions", "strain"]}
+    target_info = {
+        "energy": TargetInfo(quantity="energy", gradients=["positions", "strain"])
+    }
 
     outputs = evaluate_model(
         model,
         systems,
-        targets,
+        target_info,
         is_training=training,
     )
 

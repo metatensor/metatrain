@@ -1,4 +1,4 @@
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Dict, List, NamedTuple, Optional, Tuple, Union
 
 import torch
@@ -18,8 +18,9 @@ class TargetInfo:
     """
 
     quantity: str
-    unit: str
+    unit: str = ""
     per_atom: bool = False
+    gradients: List[str] = field(default_factory=list)
 
 
 @dataclass

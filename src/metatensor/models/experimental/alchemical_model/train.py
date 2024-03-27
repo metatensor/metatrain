@@ -22,7 +22,6 @@ from ...utils.extract_targets import get_outputs_dict
 from ...utils.io import is_exported, load, save
 from ...utils.logging import MetricLogger
 from ...utils.loss import TensorMapDictLoss
-from ...utils.merge_capabilities import merge_capabilities
 from ...utils.metrics import RMSEAccumulator
 from ...utils.neighbors_lists import get_system_with_neighbors_lists
 from ...utils.per_atom import average_block_by_num_atoms
@@ -46,27 +45,32 @@ def train(
     output_dir: str = ".",
 ):
     all_species = get_all_species(train_datasets + validation_datasets)
-    outputs = {
-        key: ModelOutput(
-            quantity=value.quantity,
-            unit=value.unit,
-            per_atom=False,
-        )
-        for key, value in dataset_info.targets.items()
-    }
-    new_capabilities = ModelCapabilities(
-        length_unit=dataset_info.length_unit,
-        outputs=outputs,
-        atomic_types=all_species,
-        supported_devices=["cpu", "cuda"],
-    )
+    if len(dataset_info.targets) != 1:
+        raise ValueError("The Alchemical Model only supports a single target")
+    target_name = next(iter(dataset_info.targets.keys()))
+    if dataset_info.targets[target_name].quantity != "energy":
+        raise ValueError("The Alchemical Model only supports energies as target")
+    if dataset_info.targets[target_name].per_atom:
+        raise ValueError("The Alchemical Model does not support per-atom training")
 
     if continue_from is None:
+        outputs = {
+            target_name: ModelOutput(
+                quantity=dataset_info.targets[target_name].quantity,
+                unit=dataset_info.targets[target_name].unit,
+                per_atom=False,
+            )
+        }
+        capabilities = ModelCapabilities(
+            length_unit=dataset_info.length_unit,
+            outputs=outputs,
+            atomic_types=all_species,
+            supported_devices=["cpu", "cuda"],
+        )
         model = Model(
-            capabilities=new_capabilities,
+            capabilities=capabilities,
             hypers=hypers["model"],
         )
-        novel_capabilities = new_capabilities
     else:
         model = load(continue_from)
         if is_exported(model):
@@ -79,14 +83,13 @@ def train(
                 "The hyperparameters of the model have changed since the last "
                 "training run. The new hyperparameters will be discarded."
             )
-        # merge the model's capabilities with the requested capabilities
-        merged_capabilities, novel_capabilities = merge_capabilities(
-            model.capabilities, new_capabilities
-        )
-        model.capabilities = merged_capabilities
-        # make the new model capable of handling the new outputs
-        for output_name in novel_capabilities.outputs.keys():
-            model.add_output(output_name)
+        old_target_name = next(iter(model.capabilities.outputs.keys()))
+        if old_target_name != target_name:
+            raise ValueError(
+                f"The model was trained on {old_target_name}, but attempting to "
+                f"continue training on {target_name}. The Alchemical Model only "
+                "supports a single target."
+            )
 
     model_capabilities = model.capabilities
 
@@ -107,7 +110,7 @@ def train(
     for dataset in train_datasets + validation_datasets:
         for i in range(len(dataset)):
             system = dataset[i].system
-            # The following line attached the neighbors lists to the system,
+            # The following line attaches the neighbors lists to the system,
             # and doesn't require to reassign the system to the dataset:
             _ = get_system_with_neighbors_lists(system, requested_neighbor_lists)
 
@@ -126,27 +129,26 @@ def train(
     device = devices[0]  # only one device, as we don't support multi-gpu for now
     dtype = train_datasets[0][0].system.positions.dtype
 
-    logger.info(f"training on device {device} with dtype {dtype}")
+    logger.info(f"Training on device {device} with dtype {dtype}")
     model.to(device=device, dtype=dtype)
 
-    # Calculate and set the composition weights for all targets:
-    for target_name in novel_capabilities.outputs.keys():
-        # TODO: warn in the documentation that capabilities that are already
-        # present in the model won't recalculate the composition weights
-        # find the datasets that contain the target:
-        train_datasets_with_target = []
-        for dataset in train_datasets:
-            if target_name in get_all_targets(dataset):
-                train_datasets_with_target.append(dataset)
-        if len(train_datasets_with_target) == 0:
-            raise ValueError(
-                f"Target {target_name} in the model's new capabilities is not "
-                "present in any of the training datasets."
+    # Calculate and set the composition weights, but only if
+    # this is the first training run:
+    if continue_from is None:
+        for target_name in model_capabilities.outputs.keys():
+            train_datasets_with_target = []
+            for dataset in train_datasets:
+                if target_name in get_all_targets(dataset):
+                    train_datasets_with_target.append(dataset)
+            if len(train_datasets_with_target) == 0:
+                raise ValueError(
+                    f"Target {target_name} in the model's new capabilities is not "
+                    "present in any of the training datasets."
+                )
+            composition_weights, species = calculate_composition_weights(
+                train_datasets_with_target, target_name
             )
-        composition_weights, species = calculate_composition_weights(
-            train_datasets_with_target, target_name
-        )
-        model.set_composition_weights(composition_weights.unsqueeze(0), species)
+            model.set_composition_weights(composition_weights.unsqueeze(0), species)
 
     hypers_training = hypers["training"]
 
@@ -246,10 +248,7 @@ def train(
             predictions = evaluate_model(
                 model,
                 systems,
-                {
-                    name: tensormap.block().gradients_list()
-                    for name, tensormap in targets.items()
-                },
+                {key: dataset_info.targets[key] for key in targets.keys()},
                 is_training=True,
             )
 
@@ -287,10 +286,7 @@ def train(
             predictions = evaluate_model(
                 model,
                 systems,
-                {
-                    name: tensormap.block().gradients_list()
-                    for name, tensormap in targets.items()
-                },
+                {key: dataset_info.targets[key] for key in targets.keys()},
                 is_training=False,
             )
 

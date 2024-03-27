@@ -202,19 +202,6 @@ class Model(torch.nn.Module):
         super().__init__()
         self.name = ARCHITECTURE_NAME
 
-        # Check capabilities
-        for output in capabilities.outputs.values():
-            if output.quantity != "energy":
-                raise ValueError(
-                    "SOAP-BPNN only supports energy-like outputs, "
-                    f"but a {output.quantity} was provided"
-                )
-            if output.per_atom:
-                raise ValueError(
-                    "SOAP-BPNN only supports per-system outputs, "
-                    "but a per-atom output was provided"
-                )
-
         self.capabilities = capabilities
         self.all_species = capabilities.atomic_types
         self.hypers = hypers
@@ -269,6 +256,7 @@ class Model(torch.nn.Module):
             {
                 output_name: LinearMap(self.all_species, n_inputs_last_layer)
                 for output_name in capabilities.outputs.keys()
+                if output_name != "last_layer_features"
             }
         )
 
@@ -278,6 +266,8 @@ class Model(torch.nn.Module):
         outputs: Dict[str, ModelOutput],
         selected_atoms: Optional[Labels] = None,
     ) -> Dict[str, TensorMap]:
+        # initialize the return dictionary
+        return_dict: Dict[str, TensorMap] = {}
 
         soap_features = self.soap_calculator(systems, selected_samples=selected_atoms)
 
@@ -291,27 +281,46 @@ class Model(torch.nn.Module):
 
         soap_features = self.layernorm(soap_features)
 
-        hidden_features = self.bpnn(soap_features)
+        last_layer_features = self.bpnn(soap_features)
+
+        # output the hidden features, if requested:
+        if "last_layer_features" in outputs.keys():
+            last_layer_features_options = outputs["last_layer_features"]
+            out_features = last_layer_features.keys_to_samples("center_type")
+            if last_layer_features_options.per_atom:
+                # this operation should just remove the center_type label
+                return_dict["last_layer_features"] = metatensor.torch.sum_over_samples(
+                    out_features, ["center_type"]
+                )
+            else:
+                return_dict["last_layer_features"] = metatensor.torch.sum_over_samples(
+                    out_features, ["atom", "center_type"]
+                )
 
         atomic_energies: Dict[str, TensorMap] = {}
         for output_name, output_layer in self.last_layers.items():
             if output_name in outputs:
                 atomic_energies[output_name] = apply_composition_contribution(
-                    output_layer(hidden_features),
+                    output_layer(last_layer_features),
                     self.composition_weights[  # type: ignore
                         self.output_to_index[output_name]
                     ],
                 )
 
         # Sum the atomic energies coming from the BPNN to get the total energy
-        total_energies: Dict[str, TensorMap] = {}
         for output_name, atomic_energy in atomic_energies.items():
             atomic_energy = atomic_energy.keys_to_samples("center_type")
-            total_energies[output_name] = metatensor.torch.sum_over_samples(
-                atomic_energy, ["atom", "center_type"]
-            )
+            if outputs[output_name].per_atom:
+                # this operation should just remove the center_type label
+                return_dict[output_name] = metatensor.torch.sum_over_samples(
+                    atomic_energy, ["center_type"]
+                )
+            else:
+                return_dict[output_name] = metatensor.torch.sum_over_samples(
+                    atomic_energy, ["atom", "center_type"]
+                )
 
-        return total_energies
+        return return_dict
 
     def set_composition_weights(
         self,
