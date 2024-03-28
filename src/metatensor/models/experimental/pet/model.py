@@ -63,7 +63,9 @@ class Model(torch.nn.Module):
         selected_atoms: Optional[Labels] = None,
     ) -> Dict[str, TensorMap]:
         options = self.requested_neighbors_lists()[0]
-        batch = systems_to_batch_dict(systems, options, self.all_species)
+        batch = systems_to_batch_dict(
+            systems, options, self.all_species, selected_atoms
+        )
 
         predictions = self.pet(batch)
         output_quantities: Dict[str, TensorMap] = {}
