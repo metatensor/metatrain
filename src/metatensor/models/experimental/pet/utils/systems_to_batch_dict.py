@@ -236,12 +236,12 @@ def systems_to_batch_dict(
 
         i_list: torch.Tensor = neighbors.samples.column("first_atom")
         j_list: torch.Tensor = neighbors.samples.column("second_atom")
+        unique_neighbors_index = torch.unique(torch.cat((i_list, j_list)))
 
         if selected_atoms is not None:
             selected_atoms_index = selected_atoms.values[:, 1][
                 selected_atoms.values[:, 0] == i
             ]
-            unique_neighbors_index = torch.unique(torch.cat((i_list, j_list)))
             unique_index = torch.unique(
                 torch.cat((selected_atoms_index, unique_neighbors_index))
             )
@@ -262,8 +262,9 @@ def systems_to_batch_dict(
 
         # Remapping to contiguous indexing (see `remap_to_contiguous_indexing`
         # docstring)
-        if (len(unique_index) > 0) and (
-            len(unique_index) < i_list.max() or len(unique_index) < j_list.max()
+        if (len(unique_neighbors_index) > 0) and (
+            len(unique_neighbors_index) < i_list.max()
+            or len(unique_neighbors_index) < j_list.max()
         ):
             i_list, j_list = remap_to_contiguous_indexing(i_list, j_list, unique_index)
 
