@@ -206,14 +206,35 @@ def _train_model_hydra(options: DictConfig) -> None:
     :param options: A dictionary-like object obtained from Hydra, containing all the
         necessary options for dataset preparation, model hyperparameters, and training.
     """
+
+    architecture_name = options["architecture"]["name"]
+    architecture = importlib.import_module(f"metatensor.models.{architecture_name}")
+    architecture_capabilities = architecture.__ARCHITECTURE_CAPABILITIES__
+
+    ###########################
+    # PROCESS BASE PARAMETERS #
+    ###########################
+    devices = pick_devices(
+        requested_device=options["device"],
+        available_devices=get_available_devices(),
+        architecture_devices=architecture_capabilities["supported_devices"],
+    )
+
+    # process dtypes
     if options["base_precision"] == 64:
-        torch.set_default_dtype(torch.float64)
+        dtype = torch.float64
     elif options["base_precision"] == 32:
-        torch.set_default_dtype(torch.float32)
+        dtype = torch.float32
     elif options["base_precision"] == 16:
-        torch.set_default_dtype(torch.float16)
+        dtype = torch.float16
     else:
         raise ValueError("Only 64, 32 or 16 are possible values for `base_precision`.")
+
+    if dtype not in architecture_capabilities["supported_dtypes"]:
+        raise ValueError(
+            f"Requested dtype {dtype} is not supported. {architecture_name} only "
+            f"supports {architecture_capabilities['supported_dtypes']}."
+        )
 
     if options["seed"] is not None:
         if options["seed"] < 0:
@@ -230,6 +251,9 @@ def _train_model_hydra(options: DictConfig) -> None:
     output_dir = hydra.core.hydra_config.HydraConfig.get().runtime.output_dir
     logger.info(f"This log is also available in '{output_dir}/train.log'.")
 
+    ###########################
+    # SETUP DATA SETS #########
+    ###########################
     logger.info("Setting up training set")
     train_options_list = expand_dataset_config(options["training_set"])
     check_options_list(train_options_list)
@@ -239,11 +263,9 @@ def _train_model_hydra(options: DictConfig) -> None:
         train_systems = read_systems(
             filename=train_options["systems"]["read_from"],
             fileformat=train_options["systems"]["file_format"],
-            dtype=torch.get_default_dtype(),
+            dtype=dtype,
         )
-        train_targets = read_targets(
-            conf=train_options["targets"], dtype=torch.get_default_dtype()
-        )
+        train_targets = read_targets(conf=train_options["targets"], dtype=dtype)
         train_datasets.append(Dataset(system=train_systems, **train_targets))
 
     train_size = 1.0
@@ -293,11 +315,9 @@ def _train_model_hydra(options: DictConfig) -> None:
             test_systems = read_systems(
                 filename=test_options["systems"]["read_from"],
                 fileformat=test_options["systems"]["file_format"],
-                dtype=torch.get_default_dtype(),
+                dtype=dtype,
             )
-            test_targets = read_targets(
-                conf=test_options["targets"], dtype=torch.get_default_dtype()
-            )
+            test_targets = read_targets(conf=test_options["targets"], dtype=dtype)
             test_dataset = Dataset(system=test_systems, **test_targets)
             test_datasets.append(test_dataset)
 
@@ -346,10 +366,10 @@ def _train_model_hydra(options: DictConfig) -> None:
             validation_systems = read_systems(
                 filename=validation_options["systems"]["read_from"],
                 fileformat=validation_options["systems"]["file_format"],
-                dtype=torch.get_default_dtype(),
+                dtype=dtype,
             )
             validation_targets = read_targets(
-                conf=validation_options["targets"], dtype=torch.get_default_dtype()
+                conf=validation_options["targets"], dtype=dtype
             )
             validation_dataset = Dataset(
                 system=validation_systems, **validation_targets
@@ -359,9 +379,10 @@ def _train_model_hydra(options: DictConfig) -> None:
     # Save fully expanded config
     OmegaConf.save(config=options, f=Path(output_dir) / "options.yaml")
 
+    ###########################
+    # SETUP MODEL #############
+    ###########################
     logger.info("Setting up model")
-    architecture_name = options["architecture"]["name"]
-    architecture = importlib.import_module(f"metatensor.models.{architecture_name}")
 
     dataset_info = DatasetInfo(
         length_unit=(
@@ -379,12 +400,6 @@ def _train_model_hydra(options: DictConfig) -> None:
             for key, value in train_options["targets"].items()
         },
     )
-
-    # process devices
-    architecture_devices = architecture.DEVICES
-    requested_device = options["device"]
-    available_devices = get_available_devices()
-    devices = pick_devices(requested_device, available_devices, architecture_devices)
 
     logger.info("Calling architecture trainer")
     try:
@@ -411,7 +426,14 @@ def _train_model_hydra(options: DictConfig) -> None:
             extra_log_message = f" with index {i}"
 
         logger.info(f"Evaluating training dataset{extra_log_message}")
-        _eval_targets(exported_model, train_dataset)
+        eval_options = {
+            target: tensormap.block().gradients_list()
+            for target, tensormap in train_dataset[0]._asdict().items()
+            if target != "system"
+        }
+        _eval_targets(
+            exported_model, train_dataset, eval_options, return_predictions=False
+        )
 
     for i, validation_dataset in enumerate(validation_datasets):
         if len(validation_datasets) == 1:
@@ -420,7 +442,14 @@ def _train_model_hydra(options: DictConfig) -> None:
             extra_log_message = f" with index {i}"
 
         logger.info(f"Evaluating validation dataset{extra_log_message}")
-        _eval_targets(exported_model, validation_dataset)
+        eval_options = {
+            target: tensormap.block().gradients_list()
+            for target, tensormap in validation_dataset[0]._asdict().items()
+            if target != "system"
+        }
+        _eval_targets(
+            exported_model, validation_dataset, eval_options, return_predictions=False
+        )
 
     for i, test_dataset in enumerate(test_datasets):
         if len(test_datasets) == 1:
@@ -429,4 +458,14 @@ def _train_model_hydra(options: DictConfig) -> None:
             extra_log_message = f" with index {i}"
 
         logger.info(f"Evaluating test dataset{extra_log_message}")
-        _eval_targets(exported_model, test_dataset)
+        if len(test_dataset) == 0:
+            eval_options = {}
+        else:
+            eval_options = {
+                target: tensormap.block().gradients_list()
+                for target, tensormap in test_dataset[0]._asdict().items()
+                if target != "system"
+            }
+        _eval_targets(
+            exported_model, test_dataset, eval_options, return_predictions=False
+        )

@@ -137,8 +137,7 @@ def test_get_all_targets():
     assert get_all_targets([dataset, dataset_2]) == ["U0", "energy"]
 
 
-@pytest.mark.parametrize("raise_incompatibility_error", [True, False])
-def test_check_datasets(raise_incompatibility_error):
+def test_check_datasets():
     """Tests the check_datasets function."""
 
     systems_qm9 = read_systems(RESOURCES_PATH / "qm9_reduced_100.xyz")
@@ -171,26 +170,35 @@ def test_check_datasets(raise_incompatibility_error):
     # everything ok
     training_set = Dataset(system=systems_qm9, **targets_qm9)
     validation_set = Dataset(system=systems_qm9, **targets_qm9)
-    check_datasets([training_set], [validation_set], raise_incompatibility_error)
+    check_datasets([training_set], [validation_set])
 
     # extra species in validation dataset
     training_set = Dataset(system=systems_ethanol, **targets_qm9)
     validation_set = Dataset(system=systems_qm9, **targets_qm9)
-    if raise_incompatibility_error:
-        with pytest.raises(ValueError, match="The validation dataset has a species"):
-            check_datasets(
-                [training_set], [validation_set], raise_incompatibility_error
-            )
-    else:
-        check_datasets([training_set], [validation_set], raise_incompatibility_error)
+    with pytest.raises(ValueError, match="The validation dataset has a species"):
+        check_datasets([training_set], [validation_set])
 
     # extra targets in validation dataset
     training_set = Dataset(system=systems_qm9, **targets_qm9)
     validation_set = Dataset(system=systems_qm9, **targets_ethanol)
-    if raise_incompatibility_error:
-        with pytest.raises(ValueError, match="The validation dataset has a target"):
-            check_datasets(
-                [training_set], [validation_set], raise_incompatibility_error
-            )
-    else:
-        check_datasets([training_set], [validation_set], raise_incompatibility_error)
+    with pytest.raises(ValueError, match="The validation dataset has a target"):
+        check_datasets([training_set], [validation_set])
+
+    # wrong dtype
+    systems_qm9_64_bit = read_systems(
+        RESOURCES_PATH / "qm9_reduced_100.xyz", dtype=torch.float64
+    )
+    training_set_64_bit = Dataset(system=systems_qm9_64_bit, **targets_qm9)
+    match = (
+        "`dtype` between datasets is inconsistent, found torch.float32 and "
+        "torch.float64 found in `validation_datasets`"
+    )
+    with pytest.raises(TypeError, match=match):
+        check_datasets([training_set], [training_set_64_bit])
+
+    match = (
+        "`dtype` between datasets is inconsistent, found torch.float32 and "
+        "torch.float64 found in `train_datasets`"
+    )
+    with pytest.raises(TypeError, match=match):
+        check_datasets([training_set, training_set_64_bit], [validation_set])

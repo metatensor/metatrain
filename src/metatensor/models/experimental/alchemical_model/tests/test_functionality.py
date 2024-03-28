@@ -1,5 +1,4 @@
 import ase
-import torch
 from metatensor.torch.atomistic import (
     MetatensorAtomisticModel,
     ModelCapabilities,
@@ -31,7 +30,7 @@ def test_prediction_subset():
 
     alchemical_model = Model(capabilities, DEFAULT_HYPERS["model"])
     system = ase.Atoms("O2", positions=[[0.0, 0.0, 0.0], [0.0, 0.0, 1.0]])
-    system = systems_to_torch(system, dtype=torch.get_default_dtype())
+    system = systems_to_torch(system)
     system = get_system_with_neighbors_lists(
         system, alchemical_model.requested_neighbors_lists()
     )

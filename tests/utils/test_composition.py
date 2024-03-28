@@ -68,4 +68,4 @@ def test_calculate_composition_weights():
     assert len(weights) == len(species)
     assert len(weights) == 2
     assert species == [1, 8]
-    assert torch.allclose(weights, torch.tensor([2.0, 1.0]))
+    torch.testing.assert_close(weights, torch.tensor([2.0, 1.0]))

@@ -27,5 +27,10 @@ def test_read_ase(monkeypatch, tmp_path):
     assert len(result) == 1
     assert isinstance(result[0], torch.ScriptObject)
 
-    torch.testing.assert_close(result[0].positions, torch.tensor(systems.positions))
-    torch.testing.assert_close(result[0].types, torch.tensor([1, 1], dtype=torch.int32))
+    positions_actual = result[0].positions
+    positions_expected = torch.tensor(systems.positions, dtype=positions_actual.dtype)
+    torch.testing.assert_close(positions_actual, positions_expected)
+
+    types_expected = result[0].types
+    types_actual = torch.tensor([1, 1], dtype=types_expected.dtype)
+    torch.testing.assert_close(types_expected, types_actual)

@@ -2,7 +2,6 @@ from pathlib import Path
 
 import metatensor.torch
 import pytest
-import torch
 from metatensor.torch.atomistic import ModelCapabilities, ModelOutput
 
 from metatensor.models.experimental.soap_bpnn import Model
@@ -30,9 +29,7 @@ def test_save_load_checkpoint(monkeypatch, tmp_path, path):
     )
 
     model = Model(capabilities)
-    systems = read_systems(
-        RESOURCES_PATH / "qm9_reduced_100.xyz", dtype=torch.get_default_dtype()
-    )
+    systems = read_systems(RESOURCES_PATH / "qm9_reduced_100.xyz")
 
     output_before_save = model(
         systems,
@@ -75,7 +72,8 @@ def test_missing_extension(monkeypatch, tmp_path):
 
 
 @pytest.mark.parametrize(
-    "path", [RESOURCES_PATH / "bpnn-model.pt", str(RESOURCES_PATH / "bpnn-model.pt")]
+    "path",
+    [RESOURCES_PATH / "model-32-bit.pt", str(RESOURCES_PATH / "model-32-bit.pt")],
 )
 def test_load_exported_model(path):
     model = load(path)
@@ -138,8 +136,8 @@ def test_reexport(monkeypatch, tmp_path):
 def test_is_exported():
     """Tests the is_exported function"""
 
-    checkpoint = load(RESOURCES_PATH / "bpnn-model.ckpt")
-    exported_model = load(RESOURCES_PATH / "bpnn-model.pt")
+    checkpoint = load(RESOURCES_PATH / "model-32-bit.ckpt")
+    exported_model = load(RESOURCES_PATH / "model-32-bit.pt")
 
     assert is_exported(exported_model)
     assert not is_exported(checkpoint)

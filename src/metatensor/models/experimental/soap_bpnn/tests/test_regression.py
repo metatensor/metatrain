@@ -39,22 +39,21 @@ def test_regression_init():
     systems = ase.io.read(DATASET_PATH, ":5")
 
     output = soap_bpnn(
-        [
-            systems_to_torch(system, dtype=torch.get_default_dtype())
-            for system in systems
-        ],
+        [systems_to_torch(system) for system in systems],
         {"U0": soap_bpnn.capabilities.outputs["U0"]},
     )
     expected_output = torch.tensor([[0.0739], [0.0758], [0.1782], [-0.3517], [-0.3251]])
 
-    assert torch.allclose(output["U0"].block().values, expected_output, rtol=1e-3)
+    torch.testing.assert_close(
+        output["U0"].block().values, expected_output, rtol=1e-3, atol=1e-08
+    )
 
 
 def test_regression_train():
     """Perform a regression test on the model when
     trained for 2 epoch on a small dataset"""
 
-    systems = read_systems(DATASET_PATH, dtype=torch.get_default_dtype())
+    systems = read_systems(DATASET_PATH)
 
     conf = {
         "U0": {
@@ -67,7 +66,7 @@ def test_regression_train():
             "virial": False,
         }
     }
-    targets = read_targets(OmegaConf.create(conf), dtype=torch.get_default_dtype())
+    targets = read_targets(OmegaConf.create(conf))
     dataset = Dataset(system=systems, U0=targets["U0"])
 
     hypers = DEFAULT_HYPERS.copy()
@@ -91,4 +90,6 @@ def test_regression_train():
         [[-40.3951], [-56.4275], [-76.4008], [-77.3751], [-93.4227]]
     )
 
-    assert torch.allclose(output["U0"].block().values, expected_output, rtol=1e-3)
+    torch.testing.assert_close(
+        output["U0"].block().values, expected_output, rtol=1e-3, atol=1e-08
+    )
