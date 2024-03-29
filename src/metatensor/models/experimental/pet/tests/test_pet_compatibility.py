@@ -19,7 +19,8 @@ from metatensor.models.utils.neighbors_lists import get_system_with_neighbors_li
 
 @pytest.mark.parametrize("cutoff", [0.25, 5.0])
 def test_predictions_compatibility(cutoff):
-    """Tests that the model runs without errors."""
+    """Tests that predictions of the MTM implemetation of PET
+    are consistent with the predictions of the original PET implementation."""
 
     all_species = [1, 6, 7, 8]
 
