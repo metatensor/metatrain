@@ -307,6 +307,7 @@ def train(
                     [average_block_by_num_atoms(targets[pa_target].block(), num_atoms)],
                 )
 
+            loss = loss_fn(predictions, targets)
             validation_loss += loss.item()
             validation_rmse_calculator.update(predictions, targets)
         finalized_validation_info = validation_rmse_calculator.finalize()
