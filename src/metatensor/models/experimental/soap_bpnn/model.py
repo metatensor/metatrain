@@ -526,15 +526,15 @@ class LLPRModel(torch.nn.Module):
             output = self.forward(systems, output_dict)
 
             ll_feats = output["last_layer_features"].block().values
-            ll_feat_grads = []
+            ll_feat_grad_list = []
             for i in range(ll_feats.shape[-1]):
                 ll_feat_grad = compute_gradient(
                     ll_feats[:, i],
                     [system.positions for system in systems],
                     is_training=training,
                 )
-                ll_feat_grads.append(torch.cat(ll_feat_grad, dim=0))
-            ll_feat_grads = torch.stack(ll_feat_grads)
+                ll_feat_grad_list.append(torch.cat(ll_feat_grad, dim=0))
+            ll_feat_grads = torch.stack(ll_feat_grad_list)
             ll_feat_grads = ll_feat_grads.permute(1, 2, 0)
             ll_feat_grads = ll_feat_grads.reshape(-1, ll_feats.shape[-1])
             self.covariance += ll_feat_grads.T @ ll_feat_grads
@@ -554,15 +554,3 @@ class LLPRModel(torch.nn.Module):
             + sigma**2 * torch.eye(self.ll_feat_size, device=self.covariance.device)
         )
         self.inv_covariance_computed = True
-
-    def reset_matrices(self) -> None:
-        # Utility function to reset covariance and inv covariance matrices.
-        self.covariance = torch.zeros(
-            self.covariance.shape, device=self.covariance.device
-        )
-        self.inv_covariance = torch.zeros(
-            self.covariance.shape, device=self.covariance.device
-        )
-        self.covariance_computed = False
-        self.inv_covariance_computed = False
-        self.covariance_gradients_computed = False
