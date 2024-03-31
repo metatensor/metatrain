@@ -136,7 +136,11 @@ def test_output_last_layer_features():
     assert "energy" in outputs
     assert "last_layer_features" in outputs
     assert outputs["last_layer_features"].block().samples.names == ["system", "atom"]
-    assert outputs["last_layer_features"].block().values.shape == (4, 32)
+    assert outputs["last_layer_features"].block().values.shape == (4, 128)
+    assert outputs["last_layer_features"].block().properties.names == [
+        "center_type",
+        "properties",
+    ]
 
     # last-layer features per system:
     ll_output_options = ModelOutput(
@@ -154,7 +158,11 @@ def test_output_last_layer_features():
     assert "energy" in outputs
     assert "last_layer_features" in outputs
     assert outputs["last_layer_features"].block().samples.names == ["system"]
-    assert outputs["last_layer_features"].block().values.shape == (1, 32)
+    assert outputs["last_layer_features"].block().values.shape == (1, 128)
+    assert outputs["last_layer_features"].block().properties.names == [
+        "center_type",
+        "properties",
+    ]
 
 
 def test_output_per_atom():

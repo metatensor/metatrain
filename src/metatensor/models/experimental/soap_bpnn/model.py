@@ -246,6 +246,10 @@ class Model(torch.nn.Module):
             names=["neighbor_2_type"],
             values=torch.tensor(self.all_species).reshape(-1, 1),
         )
+        self.center_type_labels = Labels(
+            names=["center_type"],
+            values=torch.tensor(self.all_species).reshape(-1, 1),
+        )
 
         if hypers_bpnn["num_hidden_layers"] == 0:
             n_inputs_last_layer = hypers_bpnn["input_size"]
@@ -286,15 +290,15 @@ class Model(torch.nn.Module):
         # output the hidden features, if requested:
         if "last_layer_features" in outputs.keys():
             last_layer_features_options = outputs["last_layer_features"]
-            out_features = last_layer_features.keys_to_samples("center_type")
+            out_features = last_layer_features.keys_to_properties(
+                self.center_type_labels.to(device)
+            )
             if last_layer_features_options.per_atom:
                 # this operation should just remove the center_type label
-                return_dict["last_layer_features"] = metatensor.torch.sum_over_samples(
-                    out_features, ["center_type"]
-                )
+                return_dict["last_layer_features"] = out_features
             else:
                 return_dict["last_layer_features"] = metatensor.torch.sum_over_samples(
-                    out_features, ["atom", "center_type"]
+                    out_features, ["atom"]
                 )
 
         atomic_energies: Dict[str, TensorMap] = {}
