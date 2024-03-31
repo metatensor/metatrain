@@ -252,6 +252,10 @@ class Model(torch.nn.Module):
             names=["center_type"],
             values=torch.tensor(self.all_species).reshape(-1, 1),
         )
+        self.center_type_labels = Labels(
+            names=["center_type"],
+            values=torch.tensor(self.all_species).reshape(-1, 1),
+        )
 
         if hypers_bpnn["num_hidden_layers"] == 0:
             self.n_inputs_last_layer = hypers_bpnn["input_size"]
@@ -310,7 +314,9 @@ class Model(torch.nn.Module):
 
         # Sum the atomic energies coming from the BPNN to get the total energy
         for output_name, atomic_energy in atomic_energies.items():
-            atomic_energy = atomic_energy.keys_to_samples("center_type")
+            atomic_energy = atomic_energy.keys_to_samples(
+                self.center_type_labels.to(device)
+            )
             if outputs[output_name].per_atom:
                 # this operation should just remove the center_type label
                 return_dict[output_name] = metatensor.torch.remove_dimension(
