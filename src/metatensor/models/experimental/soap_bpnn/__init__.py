@@ -1,3 +1,5 @@
+from .model import Model, LLPRModel, DEFAULT_HYPERS  # noqa: F401
+from .train import train  # noqa: F401
 import torch
 from typing import Dict
 from ...utils.architectures import get_default_hypers, get_architecture_name
@@ -14,6 +16,7 @@ DEFAULT_MODEL_HYPERS: Dict = DEFAULT_HYPERS["model"]
 
 __authors__ = [
     ("Filippo Bigi <filippo.bigi@epfl.ch>", "@frostedoyster"),
+    ("Sanggyu Chong <sanggyu.chong@epfl.ch>", "@SanggyuChong"),
 ]
 
 __maintainers__ = [

@@ -1,8 +1,10 @@
+import copy
 from typing import Dict, List, Optional
 
 import metatensor.torch
 import rascaline.torch
 import torch
+from metatensor.learn.data import DataLoader
 from metatensor.torch import Labels, TensorBlock, TensorMap
 from metatensor.torch.atomistic import ModelCapabilities, ModelOutput, System
 
@@ -252,13 +254,13 @@ class Model(torch.nn.Module):
         )
 
         if hypers_bpnn["num_hidden_layers"] == 0:
-            n_inputs_last_layer = hypers_bpnn["input_size"]
+            self.n_inputs_last_layer = hypers_bpnn["input_size"]
         else:
-            n_inputs_last_layer = hypers_bpnn["num_neurons_per_layer"]
+            self.n_inputs_last_layer = hypers_bpnn["num_neurons_per_layer"]
 
         self.last_layers = torch.nn.ModuleDict(
             {
-                output_name: LinearMap(self.all_species, n_inputs_last_layer)
+                output_name: LinearMap(self.all_species, self.n_inputs_last_layer)
                 for output_name in capabilities.outputs.keys()
                 if "mtm::aux::" not in output_name
             }
@@ -377,3 +379,127 @@ def _remove_center_type_from_properties(tensor_map: TensorMap) -> TensorMap:
             )
         )
     return TensorMap(keys=tensor_map.keys, blocks=new_blocks)
+
+
+class LLPRModel(torch.nn.Module):
+    def __init__(
+        self,
+        model: Model,
+    ) -> None:
+
+        super().__init__()
+        self.orig_model = copy.deepcopy(model)
+
+        # initialize (inv_)covariance matrices
+        self.ll_feat_size = self.orig_model.n_inputs_last_layer
+        self.register_buffer(
+            "covariance",
+            torch.zeros(
+                (self.ll_feat_size, self.ll_feat_size),
+                device=next(self.orig_model.parameters()).device,
+            ),
+        )
+        self.register_buffer(
+            "inv_covariance",
+            torch.zeros(
+                (self.ll_feat_size, self.ll_feat_size),
+                device=next(self.orig_model.parameters()).device,
+            ),
+        )
+
+        self.covariance_computed = False
+        self.covariance_gradients_computed = False
+        self.inv_covariance_computed = False
+
+    def forward(
+        self,
+        systems: List[System],
+        outputs: Dict[str, ModelOutput],
+        selected_atoms: Optional[Labels] = None,
+    ) -> Dict[str, TensorMap]:
+
+        return_dict = self.orig_model(systems, outputs, selected_atoms)
+        last_layer_features_options = outputs["last_layer_features"]
+
+        # automatically provide uncertainties if inv_covariance is computed
+        if self.inv_covariance_computed:
+
+            cur_ll_feat_map = return_dict["last_layer_features"]
+
+            if last_layer_features_options.per_atom:
+
+                lpr_values = torch.einsum(
+                    "ij, jk, ik -> i",
+                    cur_ll_feat_map.block().values,
+                    self.inv_covariance,
+                    cur_ll_feat_map.block().values,
+                )
+                lpr_values = lpr_values.unsqueeze(1)
+
+                lpr_map = TensorMap(
+                    keys=Labels.single(),
+                    blocks=[
+                        TensorBlock(
+                            values=lpr_values,
+                            samples=cur_ll_feat_map.block().samples,
+                            components=cur_ll_feat_map.block().comonents,
+                            properties=cur_ll_feat_map.block().properties,
+                        )
+                    ],
+                )
+                return_dict["LPR"] = lpr_map
+
+                cur_ll_feat_map = metatensor.torch.sum_over_samples(
+                    cur_ll_feat_map, ["atom"]
+                )
+
+            uncertainty_values = torch.einsum(
+                "ij, jk, ik -> i",
+                cur_ll_feat_map.block().values,
+                self.inv_covariance,
+                cur_ll_feat_map.block().values,
+            )
+            uncertainty_values = uncertainty_values.unsqueeze(1)
+
+            uncertainty_map = TensorMap(
+                keys=Labels.single(),
+                blocks=[
+                    TensorBlock(
+                        values=uncertainty_values,
+                        samples=cur_ll_feat_map.block().samples,
+                        components=cur_ll_feat_map.block().comonents,
+                        properties=cur_ll_feat_map.block().properties,
+                    )
+                ],
+            )
+            return_dict["energy_uncertainty"] = uncertainty_map
+
+        return return_dict
+
+    def compute_covariance(self, train_loader: DataLoader) -> None:
+        # Utility function to compute the covariance matrix for a training set.
+        for batch in train_loader:
+
+            device = self.covariance.device
+            systems, _ = batch
+            systems = [system.to(device=device) for system in systems]
+            output_dict = {
+                "last_layer_features": ModelOutput(quantity="", unit="")
+                }
+            output = self.forward(systems, output_dict)
+            ll_feats = output["last_layer_features"].block().values.detach()
+            self.covariance += ll_feats.T @ ll_feats
+        self.covariance_computed = True
+
+    def compute_inv_covariance(self, C: float, sigma: float) -> None:
+        # Utility function to set the hyperparameters of the uncertainty model.
+        if not self.covariance_computed:
+            raise RuntimeError(
+                "You must compute the covariance matrix before "
+                "computing the inverse covariance matrix!"
+            )
+        self.inv_covariance = C * torch.linalg.inv(
+            self.covariance
+            + sigma**2 * torch.eye(self.hidden_size_sum, device=self.covariance.device)
+        )
+        self.inv_covariance_computed = True
