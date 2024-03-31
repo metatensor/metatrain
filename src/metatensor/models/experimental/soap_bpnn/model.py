@@ -270,6 +270,9 @@ class Model(torch.nn.Module):
             }
         )
 
+        # attribute for wrapper models using the last layer features
+        self.ll_feat_size = self.n_inputs_last_layer * len(self.all_species)
+
     def forward(
         self,
         systems: List[System],
@@ -314,9 +317,7 @@ class Model(torch.nn.Module):
 
         # Sum the atomic energies coming from the BPNN to get the total energy
         for output_name, atomic_energy in atomic_energies.items():
-            atomic_energy = atomic_energy.keys_to_samples(
-                self.center_type_labels.to(device)
-            )
+            atomic_energy = atomic_energy.keys_to_samples("center_type")
             if outputs[output_name].per_atom:
                 # this operation should just remove the center_type label
                 return_dict[output_name] = metatensor.torch.remove_dimension(
@@ -397,7 +398,7 @@ class LLPRModel(torch.nn.Module):
         self.orig_model = copy.deepcopy(model)
 
         # initialize (inv_)covariance matrices
-        self.ll_feat_size = self.orig_model.n_inputs_last_layer
+        self.ll_feat_size = self.orig_model.ll_feat_size
         self.register_buffer(
             "covariance",
             torch.zeros(
@@ -448,8 +449,8 @@ class LLPRModel(torch.nn.Module):
                         TensorBlock(
                             values=lpr_values,
                             samples=cur_ll_feat_map.block().samples,
-                            components=cur_ll_feat_map.block().comonents,
-                            properties=cur_ll_feat_map.block().properties,
+                            components=cur_ll_feat_map.block().components,
+                            properties=Labels.single(),
                         )
                     ],
                 )
@@ -473,8 +474,8 @@ class LLPRModel(torch.nn.Module):
                     TensorBlock(
                         values=uncertainty_values,
                         samples=cur_ll_feat_map.block().samples,
-                        components=cur_ll_feat_map.block().comonents,
-                        properties=cur_ll_feat_map.block().properties,
+                        components=cur_ll_feat_map.block().components,
+                        properties=Labels.single(),
                     )
                 ],
             )
@@ -489,9 +490,7 @@ class LLPRModel(torch.nn.Module):
             device = self.covariance.device
             systems, _ = batch
             systems = [system.to(device=device) for system in systems]
-            output_dict = {
-                "last_layer_features": ModelOutput(quantity="", unit="")
-                }
+            output_dict = {"last_layer_features": ModelOutput(quantity="", unit="")}
             output = self.forward(systems, output_dict)
             ll_feats = output["last_layer_features"].block().values.detach()
             self.covariance += ll_feats.T @ ll_feats
