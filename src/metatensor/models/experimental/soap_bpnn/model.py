@@ -506,6 +506,6 @@ class LLPRModel(torch.nn.Module):
             )
         self.inv_covariance = C * torch.linalg.inv(
             self.covariance
-            + sigma**2 * torch.eye(self.hidden_size_sum, device=self.covariance.device)
+            + sigma**2 * torch.eye(self.ll_feat_size, device=self.covariance.device)
         )
         self.inv_covariance_computed = True
