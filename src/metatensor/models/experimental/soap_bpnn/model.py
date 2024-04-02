@@ -485,26 +485,29 @@ class LLPRModel(torch.nn.Module):
 
         return return_dict
 
-    def compute_covariance(self, train_loader: DataLoader) -> None:
+    def compute_covariance(self, systems: List[System]) -> None:
+        # Utility function to compute the covariance matrix for a training set.
+        device = self.covariance.device
+        systems = [system.to(device=device) for system in systems]
+        output_dict = {
+            "last_layer_features": ModelOutput(
+                quantity="",
+                unit="",
+                per_atom=True,
+            )
+        }
+        output = self.forward(systems, output_dict)
+        ll_featmap = output["last_layer_features"]
+        ll_featmap = metatensor.torch.mean_over_samples(ll_featmap, ["atom"])
+        ll_feats = ll_featmap.block().values
+        self.covariance += ll_feats.T @ ll_feats
+        self.covariance_computed = True
+
+    def compute_covariance_dataloader(self, train_loader: DataLoader) -> None:
         # Utility function to compute the covariance matrix for a training set.
         for batch in train_loader:
-            device = self.covariance.device
             systems, _ = batch
-            systems = [system.to(device=device) for system in systems]
-            output_dict = {
-                "last_layer_features": ModelOutput(
-                    quantity="",
-                    unit="",
-                    per_atom=True,
-                )
-            }
-            output = self.forward(systems, output_dict)
-            ll_featmap = output["last_layer_features"]
-            ll_featmap = metatensor.torch.mean_over_samples(ll_featmap, ["atom"])
-            ll_feats = ll_featmap.block().values
-            self.covariance += ll_feats.T @ ll_feats
-
-        self.covariance_computed = True
+            self.compute_covariance(systems)
 
     def add_gradients_to_covariance(
         self,
@@ -571,3 +574,47 @@ class LLPRModel(torch.nn.Module):
         else:
             self.inv_covariance = C * torch.linalg.inv(cov_prime)
             self.inv_covariance_computed = True
+
+    def get_ll_feats_dataloader(self, train_loader: DataLoader) -> TensorMap:
+        # Utility function to get the ll feats with a dataloader
+        device = self.covariance.device
+        ll_featmap_list = []
+        for batch in train_loader:
+            systems, _ = batch
+            systems = [system.to(device=device) for system in systems]
+            output_dict = {
+                "last_layer_features": ModelOutput(
+                    quantity="",
+                    unit="",
+                    per_atom=True,
+                )
+            }
+            output = self.forward(systems, output_dict)
+            ll_featmap = output["last_layer_features"]
+            ll_featmap_list.append(ll_featmap)
+        return metatensor.torch.join(ll_featmap_list, axis="samples")
+
+    def get_lpr_dataloader(self, train_loader: DataLoader) -> TensorMap:
+        # Utility function to get the LPRs with a dataloader
+        if not self.covariance_computed:
+            raise RuntimeError(
+                "You must compute the covariance matrix before "
+                "computing the LPR!"
+            )
+        # Utility function to compute the covariance matrix for a training set.
+        device = self.covariance.device
+        LPR_featmap_list = []
+        for batch in train_loader:
+            systems, _ = batch
+            systems = [system.to(device=device) for system in systems]
+            output_dict = {
+                "last_layer_features": ModelOutput(
+                    quantity="",
+                    unit="",
+                    per_atom=True,
+                )
+            }
+            output = self.forward(systems, output_dict)
+            LPR_featmap = output["LPR"]
+            LPR_featmap_list.append(LPR_featmap)
+        return metatensor.torch.join(LPR_featmap_list, axis="samples")
