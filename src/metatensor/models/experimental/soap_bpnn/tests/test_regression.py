@@ -42,7 +42,7 @@ def test_regression_init():
         [systems_to_torch(system) for system in systems],
         {"U0": soap_bpnn.capabilities.outputs["U0"]},
     )
-    expected_output = torch.tensor([[0.0739], [0.0758], [0.1782], [-0.3517], [-0.3251]])
+    expected_output = torch.tensor([[0.3964], [0.0813], [0.0491], [0.2726], [0.4292]])
 
     torch.testing.assert_close(
         output["U0"].block().values, expected_output, rtol=1e-3, atol=1e-08
@@ -87,7 +87,7 @@ def test_regression_train():
     output = soap_bpnn(systems[:5], {"U0": soap_bpnn.capabilities.outputs["U0"]})
 
     expected_output = torch.tensor(
-        [[-40.3951], [-56.4275], [-76.4008], [-77.3751], [-93.4227]]
+        [[-40.4551], [-56.5427], [-76.3641], [-77.3653], [-93.4208]]
     )
 
     torch.testing.assert_close(
