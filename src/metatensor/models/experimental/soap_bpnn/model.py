@@ -209,7 +209,7 @@ class Model(torch.nn.Module):
         self.neighbor_combinations = torch.combinations(
             torch.Tensor(self.all_species),
             with_replacement=True,
-        ).to(torch.int)        
+        ).to(torch.int)
         self.hypers = hypers
 
         # creates a composition weight tensor that can be directly indexed by species,
@@ -443,7 +443,7 @@ class LLPRModel(torch.nn.Module):
                     self.inv_covariance,
                     cur_ll_feat_map.block().values,
                 )
-                lpr_values = lpr_values.unsqueeze(1)
+                lpr_values = 1 / lpr_values.unsqueeze(1)
 
                 lpr_map = TensorMap(
                     keys=Labels.single(),
@@ -491,10 +491,19 @@ class LLPRModel(torch.nn.Module):
             device = self.covariance.device
             systems, _ = batch
             systems = [system.to(device=device) for system in systems]
-            output_dict = {"last_layer_features": ModelOutput(quantity="", unit="")}
+            output_dict = {
+                "last_layer_features": ModelOutput(
+                    quantity="",
+                    unit="",
+                    per_atom=True,
+                )
+            }
             output = self.forward(systems, output_dict)
-            ll_feats = output["last_layer_features"].block().values.detach()
+            ll_featmap = output["last_layer_features"]
+            ll_featmap = metatensor.torch.mean_over_samples(ll_featmap, ["atom"])
+            ll_feats = ll_featmap.block().values
             self.covariance += ll_feats.T @ ll_feats
+
         self.covariance_computed = True
 
     def add_gradients_to_covariance(
@@ -551,8 +560,14 @@ class LLPRModel(torch.nn.Module):
                 "You must compute the covariance matrix before "
                 "computing the inverse covariance matrix!"
             )
-        self.inv_covariance = C * torch.linalg.inv(
-            self.covariance
-            + sigma**2 * torch.eye(self.ll_feat_size, device=self.covariance.device)
+        cov_prime = self.covariance + sigma**2 * torch.eye(
+            self.ll_feat_size, device=self.covariance.device
         )
-        self.inv_covariance_computed = True
+
+        if torch.linalg.matrix_rank(cov_prime) < self.covariance.shape[0]:
+            raise RuntimeError(
+                "Provided sigma value does not result in a full rank matrix!"
+            )
+        else:
+            self.inv_covariance = C * torch.linalg.inv(cov_prime)
+            self.inv_covariance_computed = True
