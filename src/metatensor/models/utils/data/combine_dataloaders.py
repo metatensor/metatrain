@@ -5,7 +5,24 @@ import torch
 
 
 class CombinedDataLoader:
+    """
+    Combines multiple dataloaders into a single dataloader.
+
+    This is useful for learning from multiple datasets at the same time,
+    each of which may have different batch sizes, properties, etc.
+    """
+
     def __init__(self, dataloaders: List[torch.utils.data.DataLoader], shuffle: bool):
+        """Creates the combined dataloader.
+
+        :param dataloaders: list of dataloaders to combine
+        :param shuffle: whether to shuffle the combined dataloader (this does not
+            act on the individual batches, but it shuffles the order in which
+            they are returned)
+
+        :return: the combined dataloader
+        """
+
         self.dataloaders = dataloaders
         self.shuffle = shuffle
 
