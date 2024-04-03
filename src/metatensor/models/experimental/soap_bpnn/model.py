@@ -436,7 +436,6 @@ class LLPRModel(torch.nn.Module):
             cur_ll_feat_map = return_dict["last_layer_features"]
 
             if last_layer_features_options.per_atom:
-
                 lpr_values = torch.einsum(
                     "ij, jk, ik -> i",
                     cur_ll_feat_map.block().values,
@@ -458,10 +457,36 @@ class LLPRModel(torch.nn.Module):
                 )
                 return_dict["LPR"] = lpr_map
 
+                # modify ll feats to sums to output uncertainties
                 cur_ll_feat_map = metatensor.torch.sum_over_samples(
                     cur_ll_feat_map, ["atom"]
                 )
 
+            else:
+                num_atoms = torch.Tensor([len(sys) for sys in systems]).unsqueeze(-1)
+                pr_values = torch.einsum(
+                    "ij, jk, ik -> i",
+                    cur_ll_feat_map.block().values / num_atoms,
+                    self.inv_covariance,
+                    cur_ll_feat_map.block().values / num_atoms,
+                )
+                pr_values = 1 / pr_values.unsqueeze(1)
+
+                pr_map = TensorMap(
+                    keys=Labels.single(),
+                    blocks=[
+                        TensorBlock(
+                            values=pr_values,
+                            samples=cur_ll_feat_map.block().samples,
+                            components=cur_ll_feat_map.block().components,
+                            properties=Labels.single(),
+                        )
+                    ],
+                )
+                return_dict["PR"] = pr_map
+
+            # output EXTENSIVE uncertainties
+            # (computed with the sum of atomic ll feats)
             uncertainty_values = torch.einsum(
                 "ij, jk, ik -> i",
                 cur_ll_feat_map.block().values,
@@ -511,50 +536,44 @@ class LLPRModel(torch.nn.Module):
 
     def add_gradients_to_covariance(
         self,
-        train_loader: DataLoader,
+        systems: List[System],
+        F_E_loss_ratio: float,
         training: bool = True,
     ) -> None:
 
-        if not self.covariance_computed:
-            # Enforce calculation of covariance with energy before considering gradients
-            raise RuntimeError(
-                "You must first compute the covariance matrix "
-                "with energies before adding the feature "
-                "gradients to the covariance matrix!"
+        device = self.covariance.device
+        systems = [system.to(device=device) for system in systems]
+        for system in systems:
+            system.positions.requires_grad_(True)
+        output_dict = {"last_layer_features": ModelOutput(quantity="", unit="")}
+        output = self.forward(systems, output_dict)
+
+        # Compute gradients, feature by feature
+        ll_feats = output["last_layer_features"].block().values
+        ll_feat_grad_list = []
+        for i in range(ll_feats.shape[-1]):
+            ll_feat_grad = compute_gradient(
+                ll_feats[:, i],
+                [system.positions for system in systems],
+                is_training=training,
             )
+            ll_feat_grad_list.append(torch.cat(ll_feat_grad, dim=0).detach())
+        ll_feat_grads = torch.stack(ll_feat_grad_list)
+        ll_feat_grads = ll_feat_grads.permute(1, 2, 0)  # (n_atoms, 3, n_feats)
 
-        if self.covariance_gradients_computed:
-            # Enforce calculation of covariance with energy before considering gradients
-            raise RuntimeError(
-                "You have already accounted for gradients in your "
-                "covariance matrix. You are advised to reset the "
-                "covariance and inverse covariance matrices before "
-                "continuing!"
-            )
-
-        for batch in train_loader:
-            device = self.covariance.device
-            systems, _ = batch
-            systems = [system.to(device=device) for system in systems]
-            output_dict = {"last_layer_features": ModelOutput(quantity="", unit="")}
-            output = self.forward(systems, output_dict)
-
-            ll_feats = output["last_layer_features"].block().values
-            ll_feat_grad_list = []
-            for i in range(ll_feats.shape[-1]):
-                ll_feat_grad = compute_gradient(
-                    ll_feats[:, i],
-                    [system.positions for system in systems],
-                    is_training=training,
-                )
-                ll_feat_grad_list.append(torch.cat(ll_feat_grad, dim=0))
-            ll_feat_grads = torch.stack(ll_feat_grad_list)
-            ll_feat_grads = ll_feat_grads.permute(1, 2, 0)
-            ll_feat_grads = ll_feat_grads.reshape(-1, ll_feats.shape[-1])
-            self.covariance += ll_feat_grads.T @ ll_feat_grads
+        # Reshape and add the gradients to covariance matrix,
+        # Multiply by the force-to-energy loss ratio
+        ll_feat_grads = ll_feat_grads.reshape(-1, ll_feats.shape[-1]) * F_E_loss_ratio
+        self.covariance += ll_feat_grads.T @ ll_feat_grads
 
         self.covariance_gradients_computed = True
         self.inv_covariance_computed = False  # Force re-calibration for uncertainties
+
+    def add_gradients_to_covariance_dataloader(self, train_loader: DataLoader) -> None:
+        # Utility function to compute the covariance matrix for a training set.
+        for batch in train_loader:
+            systems, _ = batch
+            self.add_gradients_to_covariance(systems)
 
     def compute_inv_covariance(self, C: float, sigma: float) -> None:
         # Utility function to set the hyperparameters of the uncertainty model.
@@ -593,28 +612,3 @@ class LLPRModel(torch.nn.Module):
             ll_featmap = output["last_layer_features"]
             ll_featmap_list.append(ll_featmap)
         return metatensor.torch.join(ll_featmap_list, axis="samples")
-
-    def get_lpr_dataloader(self, train_loader: DataLoader) -> TensorMap:
-        # Utility function to get the LPRs with a dataloader
-        if not self.covariance_computed:
-            raise RuntimeError(
-                "You must compute the covariance matrix before "
-                "computing the LPR!"
-            )
-        # Utility function to compute the covariance matrix for a training set.
-        device = self.covariance.device
-        LPR_featmap_list = []
-        for batch in train_loader:
-            systems, _ = batch
-            systems = [system.to(device=device) for system in systems]
-            output_dict = {
-                "last_layer_features": ModelOutput(
-                    quantity="",
-                    unit="",
-                    per_atom=True,
-                )
-            }
-            output = self.forward(systems, output_dict)
-            LPR_featmap = output["LPR"]
-            LPR_featmap_list.append(LPR_featmap)
-        return metatensor.torch.join(LPR_featmap_list, axis="samples")
