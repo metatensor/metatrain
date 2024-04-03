@@ -200,7 +200,7 @@ class Identity(torch.nn.Module):
   def __init__(self):
     super().__init__()
 
-  def forward(x: TensorMap) -> TensorMap:
+  def forward(self, x: TensorMap) -> TensorMap:
     return x
 
 class Model(torch.nn.Module):
