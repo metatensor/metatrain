@@ -21,7 +21,7 @@ from omegaconf.errors import ConfigKeyError
 from .. import CONFIG_PATH
 from ..utils.data import DatasetInfo, TargetInfo, read_systems, read_targets
 from ..utils.data.dataset import _train_test_random_split
-from ..utils.devices import get_available_devices, pick_devices
+from ..utils.devices import pick_devices
 from ..utils.errors import ArchitectureError
 from ..utils.io import export, save
 from ..utils.omegaconf import check_options_list, check_units, expand_dataset_config
@@ -215,9 +215,8 @@ def _train_model_hydra(options: DictConfig) -> None:
     # PROCESS BASE PARAMETERS #
     ###########################
     devices = pick_devices(
-        requested_device=options["device"],
-        available_devices=get_available_devices(),
         architecture_devices=architecture_capabilities["supported_devices"],
+        desired_device=options["device"],
     )
 
     # process dtypes
