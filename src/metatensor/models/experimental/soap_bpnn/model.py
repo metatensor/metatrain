@@ -537,7 +537,7 @@ class LLPRModel(torch.nn.Module):
     def add_gradients_to_covariance(
         self,
         systems: List[System],
-        F_E_loss_ratio: float,
+        F_E_loss_ratio: float = 1,
         training: bool = True,
     ) -> None:
 
@@ -569,7 +569,11 @@ class LLPRModel(torch.nn.Module):
         self.covariance_gradients_computed = True
         self.inv_covariance_computed = False  # Force re-calibration for uncertainties
 
-    def add_gradients_to_covariance_dataloader(self, train_loader: DataLoader) -> None:
+    def add_gradients_to_covariance_dataloader(
+        self,
+        train_loader: DataLoader,
+        F_E_loss_ratio: float = 1,
+    ) -> None:
         # Utility function to compute the covariance matrix for a training set.
         for batch in train_loader:
             systems, _ = batch
