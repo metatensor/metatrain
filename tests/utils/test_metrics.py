@@ -55,6 +55,10 @@ def test_rmse_accumulator(tensor_map_with_grad_1, tensor_map_with_grad_2):
         rmse_accumulator.update(
             {"energy": tensor_map_with_grad_1}, {"energy": tensor_map_with_grad_2}
         )
+
+    assert rmse_accumulator.information["energy"][1] == 30
+    assert rmse_accumulator.information["energy_gradient_gradients"][1] == 30
+
     rmses = rmse_accumulator.finalize()
 
     assert "energy RMSE" in rmses

@@ -35,7 +35,7 @@ class RMSEAccumulator:
             )
 
             for gradient_name, target_gradient in target.block().gradients():
-                if f"{target}_{gradient_name}_gradients" not in self.information:
+                if f"{key}_{gradient_name}_gradients" not in self.information:
                     self.information[f"{key}_{gradient_name}_gradients"] = (0.0, 0)
                 prediction_gradient = prediction.block().gradient(gradient_name)
                 self.information[f"{key}_{gradient_name}_gradients"] = (
