@@ -11,10 +11,10 @@ from metatensor.torch.atomistic import ModelCapabilities, ModelOutput
 
 from ...utils.composition import calculate_composition_weights
 from ...utils.data import (
+    CombinedDataLoader,
     DatasetInfo,
     check_datasets,
     collate_fn,
-    combine_dataloaders,
     get_all_species,
     get_all_targets,
 )
@@ -173,7 +173,7 @@ def train(
                 collate_fn=collate_fn,
             )
         )
-    train_dataloader = combine_dataloaders(train_dataloaders, shuffle=True)
+    train_dataloader = CombinedDataLoader(train_dataloaders, shuffle=True)
 
     # Create dataloader for the validation datasets:
     validation_dataloaders = []
@@ -186,7 +186,7 @@ def train(
                 collate_fn=collate_fn,
             )
         )
-    validation_dataloader = combine_dataloaders(validation_dataloaders, shuffle=False)
+    validation_dataloader = CombinedDataLoader(validation_dataloaders, shuffle=False)
 
     # Extract all the possible outputs and their gradients from the training set:
     outputs_dict = get_outputs_dict(train_datasets)
