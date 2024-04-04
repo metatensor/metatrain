@@ -18,6 +18,14 @@ DEFAULT_HYPERS = OmegaConf.to_container(
 DEFAULT_MODEL_HYPERS = DEFAULT_HYPERS["model"]
 
 
+class Identity(torch.nn.Module):
+    def __init__(self):
+        super().__init__()
+
+    def forward(self, x: TensorMap) -> TensorMap:
+        return x
+
+
 class MLPMap(torch.nn.Module):
     def __init__(self, all_species: List[int], hypers: dict) -> None:
         super().__init__()
@@ -248,7 +256,7 @@ class Model(torch.nn.Module):
         if hypers_bpnn["layernorm"]:
             self.layernorm = LayerNormMap(self.all_species, soap_size)
         else:
-            self.layernorm = torch.nn.Identity()
+            self.layernorm = Identity()
 
         self.bpnn = MLPMap(self.all_species, hypers_bpnn)
 
