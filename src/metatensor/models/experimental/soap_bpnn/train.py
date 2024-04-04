@@ -267,9 +267,9 @@ def train(
                     [average_block_by_num_atoms(targets[pa_target].block(), num_atoms)],
                 )
 
-            loss = loss_fn(predictions, targets)
-            train_loss += loss.item()
-            loss.backward()
+            train_loss_batch = loss_fn(predictions, targets)
+            train_loss += train_loss_batch.item()
+            train_loss_batch.backward()
             optimizer.step()
             train_rmse_calculator.update(predictions, targets)
         finalized_train_info = train_rmse_calculator.finalize()
@@ -307,7 +307,8 @@ def train(
                     [average_block_by_num_atoms(targets[pa_target].block(), num_atoms)],
                 )
 
-            validation_loss += loss.item()
+            validation_loss_batch = loss_fn(predictions, targets)
+            validation_loss += validation_loss_batch.item()
             validation_rmse_calculator.update(predictions, targets)
         finalized_validation_info = validation_rmse_calculator.finalize()
 
