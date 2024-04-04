@@ -10,19 +10,16 @@ class CombinedDataLoader:
 
     This is useful for learning from multiple datasets at the same time,
     each of which may have different batch sizes, properties, etc.
+
+    :param dataloaders: list of dataloaders to combine
+    :param shuffle: whether to shuffle the combined dataloader (this does not
+        act on the individual batches, but it shuffles the order in which
+        they are returned)
+
+    :return: the combined dataloader
     """
 
     def __init__(self, dataloaders: List[torch.utils.data.DataLoader], shuffle: bool):
-        """Creates the combined dataloader.
-
-        :param dataloaders: list of dataloaders to combine
-        :param shuffle: whether to shuffle the combined dataloader (this does not
-            act on the individual batches, but it shuffles the order in which
-            they are returned)
-
-        :return: the combined dataloader
-        """
-
         self.dataloaders = dataloaders
         self.shuffle = shuffle
 
@@ -52,7 +49,12 @@ class CombinedDataLoader:
         return self.full_list[idx]
 
     def __len__(self):
-        # this returns the total number of batches in all dataloaders
-        # (as opposed to the total number of samples or the number of
-        # individual dataloaders)
+        """Returns the total number of batches in all dataloaders.
+
+        This returns the total number of batches in all dataloaders
+        (as opposed to the total number of samples or the number of
+        individual dataloaders).
+
+        :return: the total number of batches in all dataloaders
+        """
         return sum(len(dl) for dl in self.dataloaders)
