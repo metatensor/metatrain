@@ -47,7 +47,7 @@ def test_torchscript_with_identity():
         },
     )
     hypers = copy.deepcopy(DEFAULT_HYPERS["model"])
-    hypers["model"]["bpnn"]["layernorm"] = False
+    hypers["bpnn"]["layernorm"] = False
     soap_bpnn = Model(capabilities, hypers)
     soap_bpnn = torch.jit.script(soap_bpnn)
 
