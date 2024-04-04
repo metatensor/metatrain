@@ -197,14 +197,6 @@ class LinearMap(torch.nn.Module):
         return TensorMap(keys=new_keys_labels, blocks=new_blocks)
 
 
-class Identity(torch.nn.Module):
-    def __init__(self):
-        super().__init__()
-
-    def forward(self, x: TensorMap) -> TensorMap:
-        return x
-
-
 class Model(torch.nn.Module):
     def __init__(
         self, capabilities: ModelCapabilities, hypers: Dict = DEFAULT_MODEL_HYPERS
