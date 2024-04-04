@@ -210,6 +210,11 @@ def train(
     # HOT FIX FOR FARADAY DISCUSSIONS
     if "positions" in loss_weights_dict["energy"].keys():
         loss_weights_dict["energy"]["positions"] = 0.01
+    logger.info("!!! HOT FIX FOR FARADAY DISCUSSIONS APPLIED ON THE LOSS WEIGHTS !!!")
+
+    for key in loss_weights_dict.keys():
+        for subkey in loss_weights_dict[key].keys():
+            logger.info(f"{key}, {subkey}: {loss_weights_dict[key][subkey]}")
 
     # Create a loss function:
     loss_fn = TensorMapDictLoss(loss_weights_dict)
