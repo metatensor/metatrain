@@ -581,11 +581,6 @@ class LLPRModel(torch.nn.Module):
 
     def compute_inv_covariance(self, C: float, sigma: float) -> None:
         # Utility function to set the hyperparameters of the uncertainty model.
-        if not self.covariance_computed:
-            raise RuntimeError(
-                "You must compute the covariance matrix before "
-                "computing the inverse covariance matrix!"
-            )
         cov_prime = self.covariance + sigma**2 * torch.eye(
             self.ll_feat_size, device=self.covariance.device
         )
@@ -616,3 +611,34 @@ class LLPRModel(torch.nn.Module):
             ll_featmap = output["last_layer_features"]
             ll_featmap_list.append(ll_featmap)
         return metatensor.torch.join(ll_featmap_list, axis="samples")
+
+    def compute_PR(
+        self,
+        ll_featmap: TensorMap,
+        num_atoms: Optional[torch.Tensor] = None,
+    ) -> TensorMap:
+        # Utility function to compute the PR outside `forward`
+
+        if num_atoms is None:
+            num_atoms = torch.ones(ll_featmap.block().values.shape[0]).unsqueeze(-1)
+
+        pr_values = torch.einsum(
+            "ij, jk, ik -> i",
+            ll_featmap.block().values / num_atoms,
+            self.inv_covariance,
+            ll_featmap.block().values / num_atoms,
+        )
+        pr_values = 1 / pr_values.unsqueeze(1)
+
+        pr_map = TensorMap(
+            keys=Labels.single(),
+            blocks=[
+                TensorBlock(
+                    values=pr_values,
+                    samples=ll_featmap.block().samples,
+                    components=ll_featmap.block().components,
+                    properties=Labels.single(),
+                )
+            ],
+        )
+        return pr_map
