@@ -612,33 +612,3 @@ class LLPRModel(torch.nn.Module):
             ll_featmap_list.append(ll_featmap)
         return metatensor.torch.join(ll_featmap_list, axis="samples")
 
-    def compute_PR(
-        self,
-        ll_featmap: TensorMap,
-        num_atoms: Optional[torch.Tensor] = None,
-    ) -> TensorMap:
-        # Utility function to compute the PR outside `forward`
-
-        if num_atoms is None:
-            num_atoms = torch.ones(ll_featmap.block().values.shape[0]).unsqueeze(-1)
-
-        pr_values = torch.einsum(
-            "ij, jk, ik -> i",
-            ll_featmap.block().values / num_atoms,
-            self.inv_covariance,
-            ll_featmap.block().values / num_atoms,
-        )
-        pr_values = 1 / pr_values.unsqueeze(1)
-
-        pr_map = TensorMap(
-            keys=Labels.single(),
-            blocks=[
-                TensorBlock(
-                    values=pr_values,
-                    samples=ll_featmap.block().samples,
-                    components=ll_featmap.block().components,
-                    properties=Labels.single(),
-                )
-            ],
-        )
-        return pr_map
