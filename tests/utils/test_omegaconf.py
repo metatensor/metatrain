@@ -5,6 +5,7 @@ import torch
 from omegaconf import ListConfig, OmegaConf
 
 from metatensor.models.experimental import soap_bpnn
+from metatensor.models.utils import omegaconf
 from metatensor.models.utils.omegaconf import (
     check_options_list,
     check_units,
@@ -18,6 +19,33 @@ def test_file_format_resolver():
     assert (conf["file_format"]) == ".xyz"
 
 
+def test_default_device_resolver():
+    conf = OmegaConf.create(
+        {
+            "device": "${default_device:}",
+            "architecture": {"name": "experimental.soap_bpnn"},
+        }
+    )
+
+    assert conf["device"] == "cpu"
+
+
+def test_default_device_resolver_multi(monkeypatch):
+    def pick_devices(architecture_devices):
+        return [torch.device("cuda:0"), torch.device("cuda:1")]
+
+    monkeypatch.setattr(omegaconf, "pick_devices", pick_devices)
+
+    conf = OmegaConf.create(
+        {
+            "device": "${default_device:}",
+            "architecture": {"name": "experimental.soap_bpnn"},
+        }
+    )
+
+    assert conf["device"] == "multi-cuda"
+
+
 @pytest.mark.parametrize(
     "dtype, precision",
     [(torch.float64, 64), (torch.double, 64), (torch.float32, 32), (torch.float16, 16)],
@@ -25,7 +53,7 @@ def test_file_format_resolver():
 def test_default_precision_resolver(dtype, precision, monkeypatch):
     patched_capabilities = {"supported_dtypes": [dtype]}
     monkeypatch.setattr(
-        soap_bpnn, "__ARCHITECTURE_CAPABILITIES__", patched_capabilities, raising=True
+        soap_bpnn, "__ARCHITECTURE_CAPABILITIES__", patched_capabilities
     )
 
     conf = OmegaConf.create(
@@ -41,7 +69,7 @@ def test_default_precision_resolver(dtype, precision, monkeypatch):
 def test_default_precision_resolver_unknown_dtype(monkeypatch):
     patched_capabilities = {"supported_dtypes": [torch.int64]}
     monkeypatch.setattr(
-        soap_bpnn, "__ARCHITECTURE_CAPABILITIES__", patched_capabilities, raising=True
+        soap_bpnn, "__ARCHITECTURE_CAPABILITIES__", patched_capabilities
     )
 
     conf = OmegaConf.create(

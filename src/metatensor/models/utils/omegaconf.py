@@ -1,10 +1,12 @@
 import importlib
 from pathlib import Path
-from typing import Union
+from typing import Dict, List, Union
 
 import torch
 from omegaconf import Container, DictConfig, ListConfig, OmegaConf
 from omegaconf.basecontainer import BaseContainer
+
+from .devices import pick_devices
 
 
 def file_format(_parent_: Container) -> str:
@@ -15,15 +17,34 @@ def file_format(_parent_: Container) -> str:
     return Path(_parent_["read_from"]).suffix
 
 
+def _get_architecture_capabilities(conf: BaseContainer) -> Dict[str, List[str]]:
+    architecture_name = conf["architecture"]["name"]
+    architecture = importlib.import_module(f"metatensor.models.{architecture_name}")
+    return architecture.__ARCHITECTURE_CAPABILITIES__
+
+
+def default_device(_root_: BaseContainer) -> str:
+    """Custom OmegaConf resolver to find the default device of an architecture.
+
+    Device is found using the :py:func:metatensor.models.utils.devices.pick_devices`
+    function."""
+
+    architecture_capabilities = _get_architecture_capabilities(_root_)
+    desired_device = pick_devices(architecture_capabilities["supported_devices"])
+
+    if len(desired_device) > 1:
+        return "multi-cuda"
+    else:
+        return desired_device[0].type
+
+
 def default_precision(_root_: BaseContainer) -> int:
     """Custom OmegaConf resolver to find the default precision of an architecture.
 
     File format is obtained based on the architecture name and its first entry in the
     ``supported_dtypes`` list."""
 
-    architecture_name = _root_["architecture"]["name"]
-    architecture = importlib.import_module(f"metatensor.models.{architecture_name}")
-    architecture_capabilities = architecture.__ARCHITECTURE_CAPABILITIES__
+    architecture_capabilities = _get_architecture_capabilities(_root_)
 
     # desired `dtype` is the first entry
     default_dtype = architecture_capabilities["supported_dtypes"][0]
@@ -44,6 +65,7 @@ def default_precision(_root_: BaseContainer) -> int:
 
 # Register custom resolvers
 OmegaConf.register_new_resolver("file_format", file_format)
+OmegaConf.register_new_resolver("default_device", default_device)
 OmegaConf.register_new_resolver("default_precision", default_precision)
 
 
