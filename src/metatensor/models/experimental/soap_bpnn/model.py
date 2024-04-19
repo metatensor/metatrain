@@ -394,13 +394,21 @@ class LLPRModel(torch.nn.Module):
     def __init__(
         self,
         model: Model,
+        jitscript: bool = True,
     ) -> None:
 
         super().__init__()
         self.orig_model = copy.deepcopy(model)
 
         # initialize (inv_)covariance matrices
-        self.ll_feat_size = self.orig_model.ll_feat_size
+        if jitscript:
+            self.ll_feat_size = 0
+            for name, weight in self.orig_model._module.last_layers.named_parameters():
+                if "weight" in name:
+                    self.ll_feat_size += len(weight.flatten())
+        else:
+            self.ll_feat_size = self.orig_model.ll_feat_size
+
         self.register_buffer(
             "covariance",
             torch.zeros(
@@ -611,4 +619,3 @@ class LLPRModel(torch.nn.Module):
             ll_featmap = output["last_layer_features"]
             ll_featmap_list.append(ll_featmap)
         return metatensor.torch.join(ll_featmap_list, axis="samples")
-
