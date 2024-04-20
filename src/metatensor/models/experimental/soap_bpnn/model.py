@@ -394,14 +394,15 @@ class LLPRModel(torch.nn.Module):
     def __init__(
         self,
         model: Model,
-        jitscript: bool = True,
+        exported: bool = False,
     ) -> None:
 
         super().__init__()
         self.orig_model = copy.deepcopy(model)
+        self.exported = exported
 
         # initialize (inv_)covariance matrices
-        if jitscript:
+        if self.exported:
             self.ll_feat_size = 0
             for name, weight in self.orig_model._module.last_layers.named_parameters():
                 if "weight" in name:
@@ -435,7 +436,14 @@ class LLPRModel(torch.nn.Module):
         selected_atoms: Optional[Labels] = None,
     ) -> Dict[str, TensorMap]:
 
-        return_dict = self.orig_model(systems, outputs, selected_atoms)
+        if self.exported:
+            options = ModelEvaluationOptions(
+                length_unit="",
+                outputs=outputs,
+            )
+            return_dict = self.orig_model(systems, options, check_consistency=True)
+        else:
+            return_dict = self.orig_model(systems, outputs, selected_atoms)
         last_layer_features_options = outputs["last_layer_features"]
 
         # automatically provide uncertainties if inv_covariance is computed
@@ -585,7 +593,7 @@ class LLPRModel(torch.nn.Module):
         # Utility function to compute the covariance matrix for a training set.
         for batch in train_loader:
             systems, _ = batch
-            self.add_gradients_to_covariance(systems)
+            self.add_gradients_to_covariance(systems, F_E_loss_ratio=F_E_loss_ratio)
 
     def compute_inv_covariance(self, C: float, sigma: float) -> None:
         # Utility function to set the hyperparameters of the uncertainty model.
