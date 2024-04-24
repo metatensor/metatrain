@@ -72,7 +72,7 @@ def _compute_single_neighbor_list(
 
         selected.append(pair_i)
 
-    selected = np.array(selected)
+    selected = np.array(selected, dtype=np.int32)
     n_pairs = len(selected)
 
     if options.full_list:
