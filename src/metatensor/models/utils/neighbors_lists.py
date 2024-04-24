@@ -1,6 +1,7 @@
 from typing import List
 
 import ase.neighborlist
+import numpy as np
 import torch
 from metatensor.torch import Labels, TensorBlock
 from metatensor.torch.atomistic import (
@@ -42,45 +43,61 @@ def _compute_single_neighbor_list(
     atoms: ase.Atoms, options: NeighborsListOptions
 ) -> TensorBlock:
     # Computes a single neighbor list for an ASE atoms object
+    # (as in metatensor.torch.atomistic)
 
-    nl = ase.neighborlist.NeighborList(
-        cutoffs=[options.cutoff] * len(atoms),
-        skin=0.0,
-        sorted=False,
-        self_interaction=False,
-        bothways=options.full_list,
-        primitive=ase.neighborlist.NewPrimitiveNeighborList,
+    nl_i, nl_j, nl_S, nl_D = ase.neighborlist.neighbor_list(
+        "ijSD",
+        atoms,
+        cutoff=options.cutoff,
     )
-    nl.update(atoms)
 
-    cell = torch.from_numpy(atoms.cell[:])
-    positions = torch.from_numpy(atoms.positions)
-
-    samples = []
-    distances = []
-    cutoff2 = options.cutoff * options.cutoff
-    for i in range(len(atoms)):
-        indices, offsets = nl.get_neighbors(i)
-        for j, offset in zip(indices, offsets):
-            distance = positions[j] - positions[i] + offset.dot(cell)
-
-            distance2 = torch.dot(distance, distance).item()
-
-            if distance2 > cutoff2:
+    selected = []
+    for pair_i, (i, j, S) in enumerate(zip(nl_i, nl_j, nl_S)):
+        # we want a half neighbor list, so drop all duplicated neighbors
+        if j < i:
+            continue
+        elif i == j:
+            if S[0] == 0 and S[1] == 0 and S[2] == 0:
+                # only create pairs with the same atom twice if the pair spans more
+                # than one unit cell
+                continue
+            elif S[0] + S[1] + S[2] < 0 or (
+                (S[0] + S[1] + S[2] == 0) and (S[2] < 0 or (S[2] == 0 and S[1] < 0))
+            ):
+                # When creating pairs between an atom and one of its periodic
+                # images, the code generate multiple redundant pairs (e.g. with
+                # shifts 0 1 1 and 0 -1 -1); and we want to only keep one of these.
+                # We keep the pair in the positive half plane of shifts.
                 continue
 
-            samples.append((i, j, offset[0], offset[1], offset[2]))
-            distances.append(distance.to(dtype=torch.float64))
+        selected.append(pair_i)
 
-    if len(distances) == 0:
-        stacked_distances = torch.zeros((0, 3), dtype=positions.dtype)
-        samples = torch.zeros((0, 5), dtype=torch.int32)
+    selected = np.array(selected)
+    n_pairs = len(selected)
+
+    if options.full_list:
+        distances = np.empty((2 * n_pairs, 3), dtype=np.float64)
+        samples = np.empty((2 * n_pairs, 5), dtype=np.int32)
     else:
-        samples = torch.tensor(samples, dtype=torch.int32)
-        stacked_distances = torch.vstack(distances)
+        distances = np.empty((n_pairs, 3), dtype=np.float64)
+        samples = np.empty((n_pairs, 5), dtype=np.int32)
 
+    samples[:n_pairs, 0] = nl_i[selected]
+    samples[:n_pairs, 1] = nl_j[selected]
+    samples[:n_pairs, 2:] = nl_S[selected]
+
+    distances[:n_pairs] = nl_D[selected]
+
+    if options.full_list:
+        samples[n_pairs:, 0] = nl_j[selected]
+        samples[n_pairs:, 1] = nl_i[selected]
+        samples[n_pairs:, 2:] = -nl_S[selected]
+
+        distances[n_pairs:] = -nl_D[selected]
+
+    distances = torch.from_numpy(distances)
     return TensorBlock(
-        values=stacked_distances.reshape(-1, 3, 1),
+        values=distances.reshape(-1, 3, 1),
         samples=Labels(
             names=[
                 "first_atom",
@@ -89,7 +106,7 @@ def _compute_single_neighbor_list(
                 "cell_shift_b",
                 "cell_shift_c",
             ],
-            values=samples,
+            values=torch.from_numpy(samples),
         ),
         components=[Labels.range("xyz", 3)],
         properties=Labels.range("distance", 1),
