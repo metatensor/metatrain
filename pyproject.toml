@@ -12,9 +12,9 @@ dependencies = [
     "ase",
     "torch",
     "hydra-core",
+    "metatensor-learn==0.2.1",
     "metatensor-operations==0.2.1",
     "metatensor-torch==0.3.0",
-    "metatensor-learn==0.2.1",
 ]
 
 keywords = ["machine learning", "molecular modeling"]
