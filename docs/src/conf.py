@@ -45,6 +45,11 @@ release = metatensor.models.__version__
 
 # -- General configuration ---------------------------------------------------
 
+# issue with the sphinx cache for sphinx >= 7.3 and sphinx-gallery 0.15.0
+# https://github.com/sphinx-gallery/sphinx-gallery/issues/1286
+# Remove the line below once a new version is relased
+suppress_warnings = ["config.cache"]
+
 
 def generate_examples():
     # we can not run sphinx-gallery in the same process as the normal sphinx, since they
