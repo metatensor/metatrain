@@ -441,7 +441,7 @@ class LLPRModel(torch.nn.Module):
                 length_unit="",
                 outputs=outputs,
             )
-            return_dict = self.orig_model(systems, options, check_consistency=True)
+            return_dict = self.orig_model(systems, options, check_consistency=False)
         else:
             return_dict = self.orig_model(systems, outputs, selected_atoms)
         last_layer_features_options = outputs["last_layer_features"]
