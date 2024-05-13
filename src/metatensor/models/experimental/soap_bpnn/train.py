@@ -6,7 +6,6 @@ from typing import Dict, List, Optional, Union
 import torch
 from metatensor.learn.data import DataLoader
 from metatensor.learn.data.dataset import Dataset
-from metatensor.torch import TensorMap
 from metatensor.torch.atomistic import ModelCapabilities, ModelOutput
 
 from ...utils.composition import calculate_composition_weights
@@ -25,7 +24,7 @@ from ...utils.logging import MetricLogger
 from ...utils.loss import TensorMapDictLoss
 from ...utils.merge_capabilities import merge_capabilities
 from ...utils.metrics import RMSEAccumulator
-from ...utils.per_atom import average_block_by_num_atoms
+from ...utils.per_atom import divide_by_num_atoms
 from .model import DEFAULT_HYPERS, Model
 
 
@@ -224,7 +223,7 @@ def train(
     epochs_without_improvement = 0
 
     # per-atom targets:
-    per_atom_targets = hypers_training["per_atom_targets"]
+    per_structure_targets = hypers_training["per_structure_targets"]
 
     # Train the model:
     logger.info("Starting training")
@@ -249,23 +248,15 @@ def train(
                 is_training=True,
             )
 
-            # average by the number of atoms (if requested)
-            num_atoms = torch.tensor(
-                [len(s) for s in systems], device=device
-            ).unsqueeze(-1)
-            for pa_target in per_atom_targets:
-                predictions[pa_target] = TensorMap(
-                    predictions[pa_target].keys,
-                    [
-                        average_block_by_num_atoms(
-                            predictions[pa_target].block(), num_atoms
-                        )
-                    ],
+            # average by the number of atoms (if not disabled)
+            num_atoms = torch.tensor([len(s) for s in systems], device=device)
+            for target in targets.keys():
+                if target in per_structure_targets:
+                    continue
+                predictions[target] = divide_by_num_atoms(
+                    predictions[target], num_atoms
                 )
-                targets[pa_target] = TensorMap(
-                    targets[pa_target].keys,
-                    [average_block_by_num_atoms(targets[pa_target].block(), num_atoms)],
-                )
+                targets[target] = divide_by_num_atoms(targets[target], num_atoms)
 
             train_loss_batch = loss_fn(predictions, targets)
             train_loss += train_loss_batch.item()
@@ -289,23 +280,15 @@ def train(
                 is_training=False,
             )
 
-            # average by the number of atoms (if requested)
-            num_atoms = torch.tensor(
-                [len(s) for s in systems], device=device
-            ).unsqueeze(-1)
-            for pa_target in per_atom_targets:
-                predictions[pa_target] = TensorMap(
-                    predictions[pa_target].keys,
-                    [
-                        average_block_by_num_atoms(
-                            predictions[pa_target].block(), num_atoms
-                        )
-                    ],
+            # average by the number of atoms (if not disabled)
+            num_atoms = torch.tensor([len(s) for s in systems], device=device)
+            for target in targets.keys():
+                if target in per_structure_targets:
+                    continue
+                predictions[target] = divide_by_num_atoms(
+                    predictions[target], num_atoms
                 )
-                targets[pa_target] = TensorMap(
-                    targets[pa_target].keys,
-                    [average_block_by_num_atoms(targets[pa_target].block(), num_atoms)],
-                )
+                targets[target] = divide_by_num_atoms(targets[target], num_atoms)
 
             validation_loss_batch = loss_fn(predictions, targets)
             validation_loss += validation_loss_batch.item()
