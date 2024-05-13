@@ -19,6 +19,6 @@ auxiliary outputs:
 +-----------------------------------------+-----------+------------------+-----+
 | Auxiliary output                        | SOAP-BPNN | Alchemical model | PET |
 +=========================================+===========+==================+=====+
-| mts-models::aux::last_layer_features    | Yes       |       No         | No  |
+| `mts-models::aux::last_layer_features`  | Yes       |       No         | No  |
 +-----------------------------------------+-----------+------------------+-----+
 
