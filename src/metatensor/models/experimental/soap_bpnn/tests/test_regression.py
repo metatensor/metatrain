@@ -43,7 +43,7 @@ def test_regression_init():
         {"U0": soap_bpnn.capabilities.outputs["U0"]},
     )
     expected_output = torch.tensor(
-        [[0.1506], [-0.1971], [-0.1740], [0.0608], [-0.1197]]
+        [[-0.0840], [0.0352], [0.0389], [-0.3115], [-0.1372]]
     )
 
     print(output["U0"].block().values)
@@ -90,7 +90,7 @@ def test_regression_train():
     output = soap_bpnn(systems[:5], {"U0": ModelOutput(quantity="energy")})
 
     expected_output = torch.tensor(
-        [[-40.3951], [-56.4275], [-76.4008], [-77.3751], [-93.4227]]
+        [[-40.4913], [-56.5962], [-76.5165], [-77.3447], [-93.4256]]
     )
 
     print(output["U0"].block().values)

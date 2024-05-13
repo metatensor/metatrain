@@ -127,7 +127,7 @@ class NeighborIndexConstructor:
 
 
 def collate_graph_dicts(
-    graph_dicts: List[Dict[str, torch.Tensor]], device: str
+    graph_dicts: List[Dict[str, torch.Tensor]]
 ) -> Dict[str, torch.Tensor]:
     """
     Collates a list of graphs into a single graph.
@@ -136,7 +136,7 @@ def collate_graph_dicts(
 
     :return: The collated grap (batch).
     """
-
+    device = graph_dicts[0]["x"].device
     simple_concatenate_keys: List[str] = [
         "central_species",
         "x",
@@ -145,7 +145,6 @@ def collate_graph_dicts(
         "nums",
         "mask",
     ]
-
     cumulative_adjust_keys: List[str] = ["neighbors_index"]
 
     result: Dict[str, List[torch.Tensor]] = {}
@@ -195,7 +194,6 @@ def collate_graph_dicts(
         result_final[key] = torch.cat(now_3, dim=0)
 
     result_final["batch"] = torch.cat(result["batch"], dim=0).to(device)
-
     return result_final
 
 
@@ -218,8 +216,8 @@ def systems_to_batch_dict(
 
     :return: Batch compatible with PET.
     """
-
-    all_species: torch.Tensor = torch.LongTensor(all_species_list)
+    device = systems[0].positions.device
+    all_species: torch.Tensor = torch.LongTensor(all_species_list).to(device)
     neighbor_index_constructors: List[NeighborIndexConstructor] = []
 
     for i, system in enumerate(systems):
@@ -289,7 +287,6 @@ def systems_to_batch_dict(
     max_num: int = max(max_nums)
 
     graphs: List[Dict[str, torch.Tensor]] = []
-    device = "cpu"  # initial value to make torch script happy; to be overwritten
     for i, (neighbor_index_constructor, system) in enumerate(
         zip(neighbor_index_constructors, systems)
     ):
@@ -350,8 +347,7 @@ def systems_to_batch_dict(
             "mask": mask,
         }
         graphs.append(graph_now)
-
-    return collate_graph_dicts(graphs, device)
+    return collate_graph_dicts(graphs)
 
 
 def remap_to_contiguous_indexing(

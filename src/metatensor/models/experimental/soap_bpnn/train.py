@@ -11,10 +11,10 @@ from metatensor.torch.atomistic import ModelCapabilities, ModelOutput
 
 from ...utils.composition import calculate_composition_weights
 from ...utils.data import (
+    CombinedDataLoader,
     DatasetInfo,
     check_datasets,
     collate_fn,
-    combine_dataloaders,
     get_all_species,
     get_all_targets,
 )
@@ -184,7 +184,7 @@ def train(
                 collate_fn=collate_fn,
             )
         )
-    train_dataloader = combine_dataloaders(train_dataloaders, shuffle=True)
+    train_dataloader = CombinedDataLoader(train_dataloaders, shuffle=True)
 
     # Create dataloader for the validation datasets:
     validation_dataloaders = []
@@ -197,7 +197,7 @@ def train(
                 collate_fn=collate_fn,
             )
         )
-    validation_dataloader = combine_dataloaders(validation_dataloaders, shuffle=False)
+    validation_dataloader = CombinedDataLoader(validation_dataloaders, shuffle=False)
 
     # Extract all the possible outputs and their gradients from the training set:
     outputs_dict = get_outputs_dict(train_datasets)
@@ -275,9 +275,9 @@ def train(
                     [average_block_by_num_atoms(targets[pa_target].block(), num_atoms)],
                 )
 
-            loss = loss_fn(predictions, targets)
-            train_loss += loss.item()
-            loss.backward()
+            train_loss_batch = loss_fn(predictions, targets)
+            train_loss += train_loss_batch.item()
+            train_loss_batch.backward()
             optimizer.step()
             train_rmse_calculator.update(predictions, targets)
         finalized_train_info = train_rmse_calculator.finalize()
@@ -312,7 +312,8 @@ def train(
                     [average_block_by_num_atoms(targets[pa_target].block(), num_atoms)],
                 )
 
-            validation_loss += loss.item()
+            validation_loss_batch = loss_fn(predictions, targets)
+            validation_loss += validation_loss_batch.item()
             validation_rmse_calculator.update(predictions, targets)
         finalized_validation_info = validation_rmse_calculator.finalize()
 
