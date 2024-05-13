@@ -18,6 +18,14 @@ DEFAULT_HYPERS = OmegaConf.to_container(
 DEFAULT_MODEL_HYPERS = DEFAULT_HYPERS["model"]
 
 
+class Identity(torch.nn.Module):
+    def __init__(self):
+        super().__init__()
+
+    def forward(self, x: TensorMap) -> TensorMap:
+        return x
+
+
 class MLPMap(torch.nn.Module):
     def __init__(self, all_species: List[int], hypers: dict) -> None:
         super().__init__()
@@ -224,7 +232,7 @@ class Model(torch.nn.Module):
             radial_basis={"Gto": {}}, **hypers["soap"]
         )
         soap_size = (
-            len(self.all_species) ** 2
+            (len(self.all_species) * (len(self.all_species) + 1) // 2)
             * hypers["soap"]["max_radial"] ** 2
             * (hypers["soap"]["max_angular"] + 1)
         )
@@ -235,16 +243,16 @@ class Model(torch.nn.Module):
         if hypers_bpnn["layernorm"]:
             self.layernorm = LayerNormMap(self.all_species, soap_size)
         else:
-            self.layernorm = torch.nn.Identity()
+            self.layernorm = Identity()
 
         self.bpnn = MLPMap(self.all_species, hypers_bpnn)
-        self.neighbor_species_1_labels = Labels(
-            names=["neighbor_1_type"],
-            values=torch.tensor(self.all_species).reshape(-1, 1),
-        )
-        self.neighbor_species_2_labels = Labels(
-            names=["neighbor_2_type"],
-            values=torch.tensor(self.all_species).reshape(-1, 1),
+
+        self.neighbor_species_labels = Labels(
+            names=["neighbor_1_type", "neighbor_2_type"],
+            values=torch.combinations(
+                torch.tensor(self.all_species, dtype=torch.int),
+                with_replacement=True,
+            ),
         )
         self.center_type_labels = Labels(
             names=["center_type"],
@@ -277,10 +285,7 @@ class Model(torch.nn.Module):
 
         device = soap_features.block(0).values.device
         soap_features = soap_features.keys_to_properties(
-            self.neighbor_species_1_labels.to(device)
-        )
-        soap_features = soap_features.keys_to_properties(
-            self.neighbor_species_2_labels.to(device)
+            self.neighbor_species_labels.to(device)
         )
 
         soap_features = self.layernorm(soap_features)

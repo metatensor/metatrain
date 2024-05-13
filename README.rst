@@ -19,7 +19,7 @@ What is metatensor-models?
 ##########################
 
 The idea behind ``metatensor-models`` is to have a general hub
-that provide an homogeneous enviroment and user interface to
+that provide an homogeneous environment and user interface to
 train, export and evaluate ML models and to
 connect those models with various MD engines (e.g. ``LAMMPS``, ``i-PI``, ``ASE`` ...).
 ``metatensor-models`` is the tool that transforms every ML architecture in an

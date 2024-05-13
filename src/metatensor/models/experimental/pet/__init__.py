@@ -8,12 +8,12 @@ __ARCHITECTURE_CAPABILITIES__ = {
 }
 
 __authors__ = [
-    ("Sergey Pozdnyakov <sergey.pozdnyakov@epfl.ch>", "@serfg"),
+    ("Sergey Pozdnyakov <sergey.pozdnyakov@epfl.ch>", "@spozdn"),
     ("Arslan Mazitov <arslan.mazitov@epfl.ch>", "@abmazitov"),
     ("Filippo Bigi <filippo.bigi@epfl.ch>", "@frostedoyster"),
 ]
 
 __maintainers__ = [
-    ("Sergey Pozdnyakov <sergey.pozdnyakov@epfl.ch>", "@serfg"),
+    ("Sergey Pozdnyakov <sergey.pozdnyakov@epfl.ch>", "@spozdn"),
     ("Arslan Mazitov <arslan.mazitov@epfl.ch>", "@abmazitov"),
 ]
