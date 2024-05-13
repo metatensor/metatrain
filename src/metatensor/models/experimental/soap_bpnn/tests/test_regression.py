@@ -46,6 +46,7 @@ def test_regression_init():
         [[0.1506], [-0.1971], [-0.1740], [0.0608], [-0.1197]]
     )
 
+    print(output["U0"].block().values)
     torch.testing.assert_close(
         output["U0"].block().values, expected_output, rtol=1e-3, atol=1e-08
     )
@@ -92,6 +93,7 @@ def test_regression_train():
         [[-40.3951], [-56.4275], [-76.4008], [-77.3751], [-93.4227]]
     )
 
+    print(output["U0"].block().values)
     torch.testing.assert_close(
         output["U0"].block().values, expected_output, rtol=1e-3, atol=1e-08
     )

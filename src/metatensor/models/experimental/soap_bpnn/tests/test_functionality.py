@@ -135,8 +135,14 @@ def test_output_last_layer_features():
     )
     assert "energy" in outputs
     assert "mts-models::aux::last_layer_features" in outputs
-    assert outputs["mts-models::aux::last_layer_features"].block().samples.names == ["system", "atom"]
-    assert outputs["mts-models::aux::last_layer_features"].block().values.shape == (4, 128)
+    assert outputs["mts-models::aux::last_layer_features"].block().samples.names == [
+        "system",
+        "atom",
+    ]
+    assert outputs["mts-models::aux::last_layer_features"].block().values.shape == (
+        4,
+        128,
+    )
     assert outputs["mts-models::aux::last_layer_features"].block().properties.names == [
         "center_type",
         "properties",
@@ -157,8 +163,13 @@ def test_output_last_layer_features():
     )
     assert "energy" in outputs
     assert "mts-models::aux::last_layer_features" in outputs
-    assert outputs["mts-models::aux::last_layer_features"].block().samples.names == ["system"]
-    assert outputs["mts-models::aux::last_layer_features"].block().values.shape == (1, 128)
+    assert outputs["mts-models::aux::last_layer_features"].block().samples.names == [
+        "system"
+    ]
+    assert outputs["mts-models::aux::last_layer_features"].block().values.shape == (
+        1,
+        128,
+    )
     assert outputs["mts-models::aux::last_layer_features"].block().properties.names == [
         "center_type",
         "properties",

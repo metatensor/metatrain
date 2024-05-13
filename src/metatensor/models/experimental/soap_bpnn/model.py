@@ -289,7 +289,9 @@ class Model(torch.nn.Module):
 
         # output the hidden features, if requested:
         if "mts-models::aux::last_layer_features" in outputs.keys():
-            last_layer_features_options = outputs["mts-models::aux::last_layer_features"]
+            last_layer_features_options = outputs[
+                "mts-models::aux::last_layer_features"
+            ]
             out_features = last_layer_features.keys_to_properties(
                 self.center_type_labels.to(device)
             )
@@ -297,8 +299,8 @@ class Model(torch.nn.Module):
                 # this operation should just remove the center_type label
                 return_dict["mts-models::aux::last_layer_features"] = out_features
             else:
-                return_dict["mts-models::aux::last_layer_features"] = metatensor.torch.sum_over_samples(
-                    out_features, ["atom"]
+                return_dict["mts-models::aux::last_layer_features"] = (
+                    metatensor.torch.sum_over_samples(out_features, ["atom"])
                 )
 
         atomic_energies: Dict[str, TensorMap] = {}
