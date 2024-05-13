@@ -254,7 +254,9 @@ def train(
             train_loss_batch.backward()
             optimizer.step()
             train_rmse_calculator.update(predictions, targets)
-        finalized_train_info = train_rmse_calculator.finalize()
+        finalized_train_info = train_rmse_calculator.finalize(
+            not_per_atom=["positions_gradients"] + per_structure_targets
+        )
 
         validation_loss = 0.0
         for batch in validation_dataloader:
@@ -285,7 +287,9 @@ def train(
             validation_loss_batch = loss_fn(predictions, targets)
             validation_loss += validation_loss_batch.item()
             validation_rmse_calculator.update(predictions, targets)
-        finalized_validation_info = validation_rmse_calculator.finalize()
+        finalized_validation_info = validation_rmse_calculator.finalize(
+            not_per_atom=["positions_gradients"] + per_structure_targets
+        )
 
         lr_scheduler.step(validation_loss)
 
