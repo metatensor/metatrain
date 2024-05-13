@@ -137,8 +137,6 @@ def test_regression_train():
         [[-123.0245], [-109.3167], [-129.6946], [-160.1561], [-138.4090]]
     )
 
-    print(output["U0"].block().values)
-
     torch.testing.assert_close(
         output["U0"].block().values, expected_output, rtol=1e-05, atol=1e-4
     )
