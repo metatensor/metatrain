@@ -28,7 +28,7 @@ auxiliary outputs:
 mts-models::aux::last_layer_features
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
-.. list-table:: Metadata for energy output
+.. list-table:: Metadata for last-layer features
   :widths: 2 3 7
   :header-rows: 1
 
