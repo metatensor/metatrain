@@ -102,19 +102,18 @@ class MetricLogger:
                         else:
                             new_key = f"force[{target_name} {metric}]"
                 elif "_strain_gradients" in key:
-                    # check if this is a virial/stress
+                    # check if this is a virial
                     target_name, metric = key.split(" ")
                     target_name = target_name[: -len("_strain_gradients")]
                     if (
                         self.model_capabilities.outputs[target_name].quantity
                         == "energy"
                     ):
-                        # if this is a virial/stress,
-                        # replace the ugly name with "virial/stress"
+                        # if this is a virial, replace the ugly name with "virial"
                         if self.only_one_energy:
-                            new_key = f"virial/stress {metric}"
+                            new_key = f"virial {metric}"
                         else:
-                            new_key = f"virial/stress[{target_name}] {metric}"
+                            new_key = f"virial[{target_name}] {metric}"
 
                 if name == "":
                     logging_string += f", {new_key}: "
