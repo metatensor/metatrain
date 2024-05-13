@@ -260,7 +260,7 @@ class Model(torch.nn.Module):
             {
                 output_name: LinearMap(self.all_species, n_inputs_last_layer)
                 for output_name in capabilities.outputs.keys()
-                if output_name != "last_layer_features"
+                if "mts-models::aux::" not in output_name
             }
         )
 
@@ -288,16 +288,16 @@ class Model(torch.nn.Module):
         last_layer_features = self.bpnn(soap_features)
 
         # output the hidden features, if requested:
-        if "last_layer_features" in outputs.keys():
-            last_layer_features_options = outputs["last_layer_features"]
+        if "mts-models::aux::last_layer_features" in outputs.keys():
+            last_layer_features_options = outputs["mts-models::aux::last_layer_features"]
             out_features = last_layer_features.keys_to_properties(
                 self.center_type_labels.to(device)
             )
             if last_layer_features_options.per_atom:
                 # this operation should just remove the center_type label
-                return_dict["last_layer_features"] = out_features
+                return_dict["mts-models::aux::last_layer_features"] = out_features
             else:
-                return_dict["last_layer_features"] = metatensor.torch.sum_over_samples(
+                return_dict["mts-models::aux::last_layer_features"] = metatensor.torch.sum_over_samples(
                     out_features, ["atom"]
                 )
 

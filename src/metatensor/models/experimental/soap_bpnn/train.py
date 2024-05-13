@@ -61,7 +61,7 @@ def train(
         for key, value in dataset_info.targets.items()
     }
     # the model is always capable of outputting the last layer features
-    outputs["last_layer_features"] = ModelOutput(
+    outputs["mts-models::aux::last_layer_features"] = ModelOutput(
         quantity="",
         unit="",
         per_atom=True,
@@ -125,7 +125,7 @@ def train(
     # Calculate and set the composition weights for all targets:
     logger.info("Calculating composition weights")
     for target_name in novel_capabilities.outputs.keys():
-        if target_name == "last_layer_features":
+        if "mts-models::aux::" in target_name:
             continue
         # TODO: warn in the documentation that capabilities that are already
         # present in the model won't recalculate the composition weights
