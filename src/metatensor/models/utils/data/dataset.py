@@ -15,6 +15,7 @@ class TargetInfo:
     :param quantity: The quantity of the target.
     :param unit: The unit of the target.
     :param per_atom: Whether the target is a per-atom quantity.
+    :param gradients: The gradients of the target.
     """
 
     quantity: str

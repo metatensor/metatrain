@@ -61,11 +61,7 @@ def train(
         for key, value in dataset_info.targets.items()
     }
     # the model is always capable of outputting the last layer features
-    outputs["mts-models::aux::last_layer_features"] = ModelOutput(
-        quantity="",
-        unit="",
-        per_atom=True,
-    )
+    outputs["mts-models::aux::last_layer_features"] = ModelOutput(per_atom=True)
     new_capabilities = ModelCapabilities(
         length_unit=dataset_info.length_unit,
         outputs=outputs,

@@ -45,6 +45,8 @@ def test_regression_init():
 
     expected_output = torch.tensor([[0.1999], [0.2515], [-0.1011], [0.0920], [0.0674]])
 
+    print(output["U0"].block().values)
+
     torch.testing.assert_close(
         output["U0"].block().values, expected_output, rtol=1e-3, atol=1e-08
     )

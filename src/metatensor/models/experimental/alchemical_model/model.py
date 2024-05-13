@@ -54,6 +54,9 @@ class Model(torch.nn.Module):
         outputs: Dict[str, ModelOutput],
         selected_atoms: Optional[Labels] = None,
     ) -> Dict[str, TensorMap]:
+        assert len(outputs.keys()) == 1
+        output_name = list(outputs.keys())[0]
+
         if selected_atoms is not None:
             raise NotImplementedError(
                 "Alchemical Model does not support selected atoms."
@@ -70,7 +73,6 @@ class Model(torch.nn.Module):
         )
 
         total_energies: Dict[str, TensorMap] = {}
-        output_name = list(outputs.keys())[0]  # only one output
         keys = Labels(
             "_", torch.zeros((1, 1), dtype=torch.int32, device=predictions.device)
         )

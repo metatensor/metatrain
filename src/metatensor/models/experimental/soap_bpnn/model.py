@@ -301,7 +301,6 @@ class Model(torch.nn.Module):
                 self.center_type_labels.to(device)
             )
             if last_layer_features_options.per_atom:
-                # this operation should just remove the center_type label
                 return_dict["mts-models::aux::last_layer_features"] = out_features
             else:
                 return_dict["mts-models::aux::last_layer_features"] = (
@@ -323,8 +322,8 @@ class Model(torch.nn.Module):
             atomic_energy = atomic_energy.keys_to_samples("center_type")
             if outputs[output_name].per_atom:
                 # this operation should just remove the center_type label
-                return_dict[output_name] = metatensor.torch.sum_over_samples(
-                    atomic_energy, ["center_type"]
+                return_dict[output_name] = metatensor.torch.remove_dimension(
+                    atomic_energy, axis="samples", name="center_type"
                 )
             else:
                 return_dict[output_name] = metatensor.torch.sum_over_samples(

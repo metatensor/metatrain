@@ -2,8 +2,9 @@ Output naming
 =============
 
 The name and format of the outputs in ``metatensor-models`` are based on
-those of the :py:mod:`metatensor.torch.atomistic` package. An immediate example
-is given by the ``energy`` output.
+those of the ``metatensor.torch.atomistic``
+<https://lab-cosmo.github.io/metatensor/latest/atomistic/outputs.html>_
+package. An immediate example is given by the ``energy`` output.
 
 Any additional outputs present within the library are denoted by the
 ``mts-models::`` prefix. For example, some models can output their last-layer
