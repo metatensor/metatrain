@@ -6,7 +6,6 @@ from typing import Dict, List, Optional, Union
 import torch
 import torch.distributed
 from metatensor.learn.data.dataset import Dataset
-from metatensor.torch import TensorMap
 from metatensor.torch.atomistic import ModelCapabilities, ModelOutput
 from torch.nn.parallel import DistributedDataParallel
 from torch.utils.data import DataLoader, DistributedSampler
@@ -28,7 +27,7 @@ from ...utils.logging import MetricLogger
 from ...utils.loss import TensorMapDictLoss
 from ...utils.merge_capabilities import merge_capabilities
 from ...utils.metrics import RMSEAccumulator
-from ...utils.per_atom import average_block_by_num_atoms
+from ...utils.per_atom import divide_by_num_atoms
 from .model import DEFAULT_HYPERS, Model
 
 
@@ -49,7 +48,7 @@ def train(
     devices: List[torch.device],
     hypers: Dict = DEFAULT_HYPERS,
     continue_from: Optional[str] = None,
-    output_dir: str = ".",
+    checkpoint_dir: str = ".",
 ):
 
     is_distributed = hypers["training"]["distributed"]
@@ -272,7 +271,7 @@ def train(
     epochs_without_improvement = 0
 
     # per-atom targets:
-    per_atom_targets = hypers_training["per_atom_targets"]
+    per_structure_targets = hypers_training["per_structure_targets"]
 
     # Train the model:
     logger.info("Starting training")
@@ -300,33 +299,22 @@ def train(
                 is_distributed=is_distributed,
             )
 
-            # average by the number of atoms (if requested)
-            num_atoms = torch.tensor(
-                [len(s) for s in systems], device=device
-            ).unsqueeze(-1)
-            for pa_target in per_atom_targets:
-                predictions[pa_target] = TensorMap(
-                    predictions[pa_target].keys,
-                    [
-                        average_block_by_num_atoms(
-                            predictions[pa_target].block(), num_atoms
-                        )
-                    ],
-                )
-                targets[pa_target] = TensorMap(
-                    targets[pa_target].keys,
-                    [average_block_by_num_atoms(targets[pa_target].block(), num_atoms)],
-                )
+            # average by the number of atoms
+            predictions, targets = _average_by_num_atoms(
+                predictions, targets, systems, per_structure_targets
+            )
 
             train_loss_batch = loss_fn(predictions, targets)
             train_loss_batch.backward()
             optimizer.step()
 
             if is_distributed:
-                train_loss_batch = torch.distributed.all_reduce(train_loss_batch)
+                torch.distributed.all_reduce(train_loss_batch)
             train_loss += train_loss_batch.item()
             train_rmse_calculator.update(predictions, targets)
-        finalized_train_info = train_rmse_calculator.finalize()
+        finalized_train_info = train_rmse_calculator.finalize(
+            not_per_atom=["positions_gradients"] + per_structure_targets
+        )
 
         if is_distributed:
             torch.distributed.barrier()
@@ -347,33 +335,22 @@ def train(
                 is_distributed=is_distributed,
             )
 
-            # average by the number of atoms (if requested)
-            num_atoms = torch.tensor(
-                [len(s) for s in systems], device=device
-            ).unsqueeze(-1)
-            for pa_target in per_atom_targets:
-                predictions[pa_target] = TensorMap(
-                    predictions[pa_target].keys,
-                    [
-                        average_block_by_num_atoms(
-                            predictions[pa_target].block(), num_atoms
-                        )
-                    ],
-                )
-                targets[pa_target] = TensorMap(
-                    targets[pa_target].keys,
-                    [average_block_by_num_atoms(targets[pa_target].block(), num_atoms)],
-                )
+            # average by the number of atoms
+            predictions, targets = _average_by_num_atoms(
+                predictions, targets, systems, per_structure_targets
+            )
 
             validation_loss_batch = loss_fn(predictions, targets)
 
             if is_distributed:
-                validation_loss_batch = torch.distributed.all_reduce(
+                torch.distributed.all_reduce(
                     validation_loss_batch
                 )
             validation_loss += validation_loss_batch.item()
             validation_rmse_calculator.update(predictions, targets)
-        finalized_validation_info = validation_rmse_calculator.finalize()
+        finalized_validation_info = validation_rmse_calculator.finalize(
+            not_per_atom=["positions_gradients"] + per_structure_targets
+        )
 
         lr_scheduler.step(validation_loss)
 
@@ -401,7 +378,7 @@ def train(
                 torch.distributed.barrier()
             save(
                 (model.module if is_distributed else model),
-                Path(output_dir) / f"model_{epoch}.ckpt",
+                Path(checkpoint_dir) / f"model_{epoch}.ckpt",
             )
 
         # early stopping criterion:
@@ -422,3 +399,15 @@ def train(
         torch.distributed.barrier()
 
     return model.module if is_distributed else model
+
+
+def _average_by_num_atoms(predictions, targets, systems, per_structure_targets):
+    device = systems[0].device
+    num_atoms = torch.tensor([len(s) for s in systems], device=device)
+    for target in targets.keys():
+        if target in per_structure_targets:
+            continue
+        predictions[target] = divide_by_num_atoms(predictions[target], num_atoms)
+        targets[target] = divide_by_num_atoms(targets[target], num_atoms)
+
+    return predictions, targets

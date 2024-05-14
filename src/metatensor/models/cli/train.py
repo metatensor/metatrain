@@ -4,26 +4,22 @@ import importlib
 import logging
 import os
 import random
-import sys
-import tempfile
-import warnings
 from importlib.util import find_spec
 from pathlib import Path
-from typing import List, Optional
+from typing import Optional, Union
 
-import hydra
 import numpy as np
 import torch
 from metatensor.learn.data import Dataset
 from omegaconf import DictConfig, OmegaConf
 from omegaconf.errors import ConfigKeyError
 
-from .. import CONFIG_PATH
+from .. import ARCHITECTURE_CONFIG_PATH, CONFIG_PATH
 from ..utils.data import DatasetInfo, TargetInfo, read_systems, read_targets
 from ..utils.data.dataset import _train_test_random_split
 from ..utils.devices import pick_devices
 from ..utils.errors import ArchitectureError
-from ..utils.io import export, save
+from ..utils.io import check_suffix, export, save
 from ..utils.omegaconf import check_options_list, check_units, expand_dataset_config
 from .eval import _eval_targets
 from .formatter import CustomHelpFormatter
@@ -33,10 +29,7 @@ logger = logging.getLogger(__name__)
 
 
 def _add_train_model_parser(subparser: argparse._SubParsersAction) -> None:
-    """Add basic the `train_model` paramaters to an argparse (sub)-parser.
-
-    This is just the first layer of arguments. Additional arguments are allowed and will
-    be parsed by the hydra CLI."""
+    """Add `train_model` paramaters to an argparse (sub)-parser."""
 
     if train_model.__doc__ is not None:
         description = train_model.__doc__.split(r":param")[0]
@@ -75,12 +68,11 @@ def _add_train_model_parser(subparser: argparse._SubParsersAction) -> None:
         help="File to continue training from.",
     )
     parser.add_argument(
-        "-y",
-        "--hydra",
-        dest="hydra_parameters",
-        nargs="+",
-        type=str,
-        help="Hydra's command line and override flags.",
+        "-r",
+        "--override",
+        dest="override_options",
+        type=lambda string: OmegaConf.from_dotlist(string.split()),
+        help="Command line override flags.",
     )
 
 
@@ -130,11 +122,11 @@ def check_architecture_name(name: str) -> None:
 def train_model(
     options: DictConfig,
     output: str = "model.pt",
+    checkpoint_dir: Union[str, Path] = ".",
     continue_from: Optional[str] = None,
-    hydra_parameters: Optional[List[str]] = None,
+    override_options: Optional[DictConfig] = None,
 ) -> None:
-    """
-    Train an atomistic machine learning model using configurations provided by Hydra.
+    """Train an atomistic machine learning model using provided ``options``.
 
     This function sets up the dataset and model architecture, then runs the training
     process. The dataset is prepared by reading structural data and target values from
@@ -142,15 +134,12 @@ def train_model(
     based on the configuration. Training is executed with the specified hyperparameters,
     and the trained model is saved to a designated output path.
 
-    Hydra is used for command-line configuration management, allowing for dynamic
-    parameter setting at runtime. See
-    https://hydra.cc/docs/advanced/hydra-command-line-flags/ and
-    https://hydra.cc/docs/advanced/override_grammar/basic/ for details.
-
     :param options: DictConfig containing the training options
     :param output: Path to save the final model
+    :param checkpoint_dir: Path to save checkpoints and other intermediate output files
+        like the fully expanded training options for a later restart.
     :param continue_from: File to continue training from.
-    :param hydra_parameters: Hydra's command line and override flags
+    :param override_options: Extra options to override values in ``options``.
     """
     try:
         architecture_name = options["architecture"]["name"]
@@ -158,58 +147,25 @@ def train_model(
         raise ConfigKeyError("Architecture name is not defined!") from exc
 
     check_architecture_name(architecture_name)
-
-    options["defaults"] = [
-        "base",
-        {"architecture": architecture_name},
-        {"override hydra/job_logging": "custom"},
-        "_self_",
-    ]
-
-    # HACK: Hydra parses command line arguments directlty from `sys.argv`. We override
-    # `sys.argv` and write files to a tempory directory to be hydra compatible with our
-    # CLI architecture.
-    with tempfile.TemporaryDirectory() as tmpdirname:
-        options_new = Path(tmpdirname) / "options.yaml"
-        OmegaConf.save(config=options, f=options_new)
-
-        if continue_from is None:
-            continue_from = "null"
-
-        if not output.endswith(".pt"):
-            warnings.warn(
-                "The output file should have a '.pt' extension. The user requested "
-                f"the model to be saved as '{output}', but it will be saved as "
-                f"'{output}.pt'.",
-                stacklevel=1,
-            )
-            output = f"{output}.pt"
-
-        argv = sys.argv[:1]
-        argv.append(f"--config-dir={options_new.parent}")
-        argv.append(f"--config-name={options_new.name}")
-        argv.append(f"+output_path={output}")
-        argv.append(f"+continue_from={continue_from}")
-
-        if hydra_parameters is not None:
-            argv += hydra_parameters
-
-        sys.argv = argv
-
-        _train_model_hydra()
-
-
-@hydra.main(config_path=str(CONFIG_PATH), version_base=None)
-def _train_model_hydra(options: DictConfig) -> None:
-    """Actual fit function called in :func:`train_model`.
-
-    :param options: A dictionary-like object obtained from Hydra, containing all the
-        necessary options for dataset preparation, model hyperparameters, and training.
-    """
-
-    architecture_name = options["architecture"]["name"]
     architecture = importlib.import_module(f"metatensor.models.{architecture_name}")
     architecture_capabilities = architecture.__ARCHITECTURE_CAPABILITIES__
+
+    # Create training options merging base, architecture, user and override options in
+    # order of importance.
+    base_options = OmegaConf.load(f"{CONFIG_PATH}/base.yaml")
+    architecture_options = OmegaConf.create(
+        {
+            "architecture": OmegaConf.load(
+                f"{ARCHITECTURE_CONFIG_PATH}/{architecture_name}.yaml"
+            )
+        }
+    )
+    if override_options is None:
+        override_options = OmegaConf.create({})
+
+    options = OmegaConf.merge(
+        base_options, architecture_options, options, override_options
+    )
 
     ###########################
     # PROCESS BASE PARAMETERS #
@@ -235,20 +191,17 @@ def _train_model_hydra(options: DictConfig) -> None:
             f"supports {architecture_capabilities['supported_dtypes']}."
         )
 
-    if options["seed"] is not None:
-        if options["seed"] < 0:
-            raise ValueError("`seed` should be a positive number or None.")
-        else:
-            torch.manual_seed(options["seed"])
-            np.random.seed(options["seed"])
-            random.seed(options["seed"])
-            os.environ["PYTHONHASHSEED"] = str(options["seed"])
-            if torch.cuda.is_available():
-                torch.cuda.manual_seed(options["seed"])
-                torch.cuda.manual_seed_all(options["seed"])
-
-    output_dir = hydra.core.hydra_config.HydraConfig.get().runtime.output_dir
-    logger.info(f"This log is also available in '{output_dir}/train.log'.")
+    if options["seed"] < 0:
+        raise ValueError("`seed` should be a positive number")
+    else:
+        logger.info(f"random seed of this run is {options['seed']}")
+        torch.manual_seed(options["seed"])
+        np.random.seed(options["seed"])
+        random.seed(options["seed"])
+        os.environ["PYTHONHASHSEED"] = str(options["seed"])
+        if torch.cuda.is_available():
+            torch.cuda.manual_seed(options["seed"])
+            torch.cuda.manual_seed_all(options["seed"])
 
     ###########################
     # SETUP DATA SETS #########
@@ -376,7 +329,9 @@ def _train_model_hydra(options: DictConfig) -> None:
             validation_datasets.append(validation_dataset)
 
     # Save fully expanded config
-    OmegaConf.save(config=options, f=Path(output_dir) / "options.yaml")
+    OmegaConf.save(
+        config=options, f=Path(checkpoint_dir) / "options_restart.yaml", resolve=True
+    )
 
     ###########################
     # SETUP MODEL #############
@@ -408,15 +363,17 @@ def _train_model_hydra(options: DictConfig) -> None:
             dataset_info=dataset_info,
             devices=devices,
             hypers=OmegaConf.to_container(options["architecture"]),
-            continue_from=options["continue_from"],
-            output_dir=output_dir,
+            continue_from=continue_from,
+            checkpoint_dir=str(checkpoint_dir),
         )
     except Exception as e:
         raise ArchitectureError(e)
 
-    save(model, f"{Path(options['output_path']).stem}.ckpt")
-    export(model, options["output_path"])
-    exported_model = torch.jit.load(options["output_path"])
+    # TODO: Backup already existing output file?
+    output_checked = Path(check_suffix(filename=output, suffix=".pt"))
+    save(model, f"{output_checked.stem}.ckpt")
+    export(model, output_checked)
+    exported_model = torch.jit.load(str(output_checked))
 
     for i, train_dataset in enumerate(train_datasets):
         if len(train_datasets) == 1:

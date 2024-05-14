@@ -12,10 +12,9 @@ be adjusted. They should be written without indentation in the ``options.yaml`` 
     default an optimal precision is obtained from the architecture. Changing this will
     have an effect on the memory consumption during training and maybe also on the
     accuracy of the model. Possible values: ``64``, ``32`` or ``16``.
-:param seed: Seed used to start the training. Set all the seeds
-    of ``numpy.random``, ``random``, ``torch`` and ``torch.cuda`` (if available)
-    to the same value ``seed``.
-    If ``seed=None`` all the seeds are set to a random number. Default: ``None``
-    Note: in a ``.yaml`` file ``None`` is ``null``.
+:param seed: Seed used to start the training. Set all the seeds of ``numpy.random``,
+    ``random``, ``torch`` and ``torch.cuda`` (if available) to the same value ``seed``.
+    If ``seed`` is not the initial seed will be set to a random number. This initial
+    seed will be reported in the output folder
 
 In the next tutorials we show how to override the default parameters of an architecture.

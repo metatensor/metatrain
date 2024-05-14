@@ -282,19 +282,3 @@ def _get_model_outputs(
                 for key in targets
             },
         )
-
-
-def _average_by_num_atoms(block: TensorBlock, num_atoms: torch.Tensor) -> TensorBlock:
-    """Taking the average values per atom of a `TensorBlock`."""
-
-    new_values = block.values / num_atoms
-    new_block = TensorBlock(
-        values=new_values,
-        samples=block.samples,
-        components=block.components,
-        properties=block.properties,
-    )
-    for param, gradient in block.gradients():
-        new_block.add_gradient(param, gradient)
-
-    return new_block

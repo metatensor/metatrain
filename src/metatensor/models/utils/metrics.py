@@ -1,4 +1,4 @@
-from typing import Dict, Tuple
+from typing import Dict, List, Tuple
 
 import torch.distributed
 from metatensor.torch import TensorMap
@@ -48,15 +48,18 @@ class RMSEAccumulator:
                     + prediction_gradient.values.numel(),
                 )
 
-    def finalize(self, is_distributed: bool = False) -> Dict[str, float]:
+    def finalize(self, not_per_atom: List[str], is_distributed: bool = False) -> Dict[str, float]:
         """Finalizes the accumulator and return the RMSE for each key.
+
+        All keys will be returned as "{key} RMSE (per atom)" in the output dictionary,
+        unless ``key`` contains one or more of the strings in ``not_per_atom``,
+        in which case "{key} RMSE" will be returned.
 
         :param is_distributed: if true, the RMSE will be computed across all ranks
             of the distributed system.
         """
 
         if is_distributed:
-
             for key, value in self.information.items():
                 value = torch.tensor(value[0]).to(torch.cuda.current_device())
                 n_elems = torch.tensor(value[1]).to(torch.cuda.current_device())
@@ -66,6 +69,10 @@ class RMSEAccumulator:
 
         finalized_info = {}
         for key, value in self.information.items():
-            finalized_info[f"{key} RMSE"] = (value[0] / value[1]) ** 0.5
+            if any([s in key for s in not_per_atom]):
+                out_key = f"{key} RMSE"
+            else:
+                out_key = f"{key} RMSE (per atom)"
+            finalized_info[out_key] = (value[0] / value[1]) ** 0.5
 
         return finalized_info
