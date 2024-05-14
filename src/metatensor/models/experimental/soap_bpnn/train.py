@@ -4,7 +4,10 @@ from pathlib import Path
 from typing import Dict, List, Optional, Union
 
 import torch
-from metatensor.learn.data import DataLoader
+import torch.distributed
+from torch.nn.parallel import DistributedDataParallel
+from torch.utils.data import DataLoader, DistributedSampler
+
 from metatensor.learn.data.dataset import Dataset
 from metatensor.torch import TensorMap
 from metatensor.torch.atomistic import ModelCapabilities, ModelOutput
@@ -18,6 +21,8 @@ from ...utils.data import (
     get_all_species,
     get_all_targets,
 )
+
+from ...utils.distributed.slurm_environment import DistributedEnvironment
 from ...utils.evaluate_model import evaluate_model
 from ...utils.extract_targets import get_outputs_dict
 from ...utils.io import is_exported, load, save
@@ -48,6 +53,17 @@ def train(
     continue_from: Optional[str] = None,
     output_dir: str = ".",
 ):
+
+    is_distributed = hypers["training"]["distributed"]
+
+    if is_distributed:
+        distr_env = DistributedEnvironment()
+        torch.distributed.init_process_group(backend="nccl")
+        world_size = torch.distributed.get_world_size()
+        rank = torch.distributed.get_rank()
+    else:
+        rank = 0
+
     all_species = get_all_species(train_datasets + validation_datasets)
     outputs = {
         key: ModelOutput(
@@ -105,11 +121,17 @@ def train(
             # only error if we are not continuing
             raise ValueError(err) from err
 
-    device = devices[0]  # only one device, as we don't support multi-gpu for now
+
+    if is_distributed:
+        device = torch.device("cuda", distr_env.local_rank)
+    else:
+        device = devices[0]  # only one device, as we don't support multi-gpu for now
     dtype = train_datasets[0][0].system.positions.dtype
 
     logger.info(f"training on device {device} with dtype {dtype}")
     model.to(device=device, dtype=dtype)
+    if is_distributed:
+        model = DistributedDataParallel(model, device_ids=[device])
 
     hypers_training = hypers["training"]
 
@@ -143,7 +165,10 @@ def train(
                     "Values were not supplied for all "
                     "the species in present in the dataset"
                 )
-            model.set_composition_weights(target_name, fixed_weights, species)
+            if is_distributed:
+                model.module.set_composition_weights(target_name, fixed_weights, species)
+            else:
+                model.set_composition_weights(target_name, fixed_weights, species)
 
         else:
             train_datasets_with_target = []
@@ -158,35 +183,67 @@ def train(
             composition_weights, species = calculate_composition_weights(
                 train_datasets_with_target, target_name
             )
-            model.set_composition_weights(target_name, composition_weights, species)
+            if is_distributed:
+                model.module.set_composition_weights(target_name, composition_weights, species)
+            else:
+                model.set_composition_weights(target_name, composition_weights, species)
 
     logger.info("Setting up data loaders")
 
+    if is_distributed:
+        train_samplers = [
+            torch.utils.data.distributed.DistributedSampler(
+                train_dataset,
+                num_replicas=world_size,
+                rank=rank,
+                shuffle=True,
+                drop_last=True,
+            ) for train_dataset in train_datasets
+        ] 
+        validation_samplers = [
+            torch.utils.data.distributed.DistributedSampler(
+                validation_dataset,
+                num_replicas=world_size,
+                rank=rank,
+                shuffle=True,
+                drop_last=True,
+            ) for validation_dataset in validation_datasets
+        ]
+    else:
+        train_samplers = [None] * len(train_datasets)
+        validation_samplers = [None] * len(validation_datasets)
+
     # Create dataloader for the training datasets:
     train_dataloaders = []
-    for dataset in train_datasets:
+    for dataset, sampler in zip(train_datasets, train_samplers):
         train_dataloaders.append(
             DataLoader(
                 dataset=dataset,
                 batch_size=hypers_training["batch_size"],
-                shuffle=True,
+                sampler=sampler,
+                shuffle=(sampler is None),
+                drop_last=(sampler is None),
                 collate_fn=collate_fn,
             )
         )
-    train_dataloader = CombinedDataLoader(train_dataloaders, shuffle=True)
+    # train_dataloader = CombinedDataLoader(train_dataloaders, shuffle=True)
+    train_dataloader = train_dataloaders[0]
 
     # Create dataloader for the validation datasets:
     validation_dataloaders = []
-    for dataset in validation_datasets:
+    for dataset, sampler in zip(validation_datasets, validation_samplers):
         validation_dataloaders.append(
             DataLoader(
                 dataset=dataset,
                 batch_size=hypers_training["batch_size"],
+                sampler=sampler,
                 shuffle=False,
+                drop_last=False,
                 collate_fn=collate_fn,
             )
         )
-    validation_dataloader = CombinedDataLoader(validation_dataloaders, shuffle=False)
+    # validation_dataloader = CombinedDataLoader(validation_dataloaders, shuffle=False)
+    validation_dataloader = validation_dataloaders[0]
 
     # Extract all the possible outputs and their gradients from the training set:
     outputs_dict = get_outputs_dict(train_datasets)
@@ -229,6 +286,8 @@ def train(
     # Train the model:
     logger.info("Starting training")
     for epoch in range(hypers_training["num_epochs"]):
+        if is_distributed:
+            torch.distributed.barrier()
         train_rmse_calculator = RMSEAccumulator()
         validation_rmse_calculator = RMSEAccumulator()
 
@@ -247,25 +306,26 @@ def train(
                     for name, tensormap in targets.items()
                 },
                 is_training=True,
+                is_distributed=is_distributed,
             )
 
-            # average by the number of atoms (if requested)
-            num_atoms = torch.tensor(
-                [len(s) for s in systems], device=device
-            ).unsqueeze(-1)
-            for pa_target in per_atom_targets:
-                predictions[pa_target] = TensorMap(
-                    predictions[pa_target].keys,
-                    [
-                        average_block_by_num_atoms(
-                            predictions[pa_target].block(), num_atoms
-                        )
-                    ],
-                )
-                targets[pa_target] = TensorMap(
-                    targets[pa_target].keys,
-                    [average_block_by_num_atoms(targets[pa_target].block(), num_atoms)],
-                )
+            # # average by the number of atoms (if requested)
+            # num_atoms = torch.tensor(
+            #     [len(s) for s in systems], device=device
+            # ).unsqueeze(-1)
+            # for pa_target in per_atom_targets:
+            #     predictions[pa_target] = TensorMap(
+            #         predictions[pa_target].keys,
+            #         [
+            #             average_block_by_num_atoms(
+            #                 predictions[pa_target].block(), num_atoms
+            #             )
+            #         ],
+            #     )
+            #     targets[pa_target] = TensorMap(
+            #         targets[pa_target].keys,
+            #         [average_block_by_num_atoms(targets[pa_target].block(), num_atoms)],
+            #     )
 
             train_loss_batch = loss_fn(predictions, targets)
             train_loss += train_loss_batch.item()
@@ -273,6 +333,9 @@ def train(
             optimizer.step()
             train_rmse_calculator.update(predictions, targets)
         finalized_train_info = train_rmse_calculator.finalize()
+
+        if is_distributed:
+            torch.distributed.barrier()
 
         validation_loss = 0.0
         for batch in validation_dataloader:
@@ -287,6 +350,7 @@ def train(
                     for name, tensormap in targets.items()
                 },
                 is_training=False,
+                is_distributed=is_distributed,
             )
 
             # average by the number of atoms (if requested)
@@ -334,8 +398,10 @@ def train(
             )
 
         if epoch % hypers_training["checkpoint_interval"] == 0:
+            if is_distributed:
+                torch.distributed.barrier()
             save(
-                model,
+                (model.module if is_distributed else model),
                 Path(output_dir) / f"model_{epoch}.ckpt",
             )
 
@@ -353,4 +419,7 @@ def train(
                 )
                 break
 
-    return model
+    if is_distributed:
+        torch.distributed.barrier()
+
+    return (model.module if is_distributed else model)

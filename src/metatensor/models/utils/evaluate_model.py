@@ -27,6 +27,7 @@ def evaluate_model(
     systems: List[System],
     targets: Dict[str, List[str]],
     is_training: bool,
+    is_distributed: bool = False,
 ) -> Dict[str, TensorMap]:
     """
     Evaluate the model (in training or exported) on a set of requested targets.
@@ -43,7 +44,7 @@ def evaluate_model(
     """
 
     # Assert that all targets are within the model's capabilities:
-    outputs_capabilities = _get_capabilities(model).outputs
+    outputs_capabilities = _get_capabilities(model, is_distributed).outputs
     if not set(targets.keys()).issubset(outputs_capabilities.keys()):
         raise ValueError("Not all targets are within the model's capabilities.")
 
@@ -106,7 +107,7 @@ def evaluate_model(
                 system.positions.requires_grad_(True)
 
     # Based on the keys of the targets, get the outputs of the model:
-    model_outputs = _get_model_outputs(model, systems, list(targets.keys()))
+    model_outputs = _get_model_outputs(model, systems, list(targets.keys()), is_distributed)
 
     for energy_target in energy_targets:
         # If the energy target requires gradients, compute them:
@@ -242,30 +243,34 @@ def _strain_gradients_to_block(gradients_list):
 
 
 def _get_capabilities(
-    model: Union[torch.nn.Module, torch.jit._script.RecursiveScriptModule]
+    model: Union[torch.nn.Module, torch.jit._script.RecursiveScriptModule], is_distributed: bool
 ):
     if is_exported(model):
         return model.capabilities()
     else:
-        return model.capabilities
+        if is_distributed:
+            return model.module.capabilities
+        else:
+            return model.capabilities
 
 
 def _get_model_outputs(
     model: Union[torch.nn.Module, torch.jit._script.RecursiveScriptModule],
     systems: List[System],
     targets: List[str],
+    is_distributed: bool,
 ) -> Dict[str, TensorMap]:
     if is_exported(model):
         # put together an EvaluationOptions object
         options = ModelEvaluationOptions(
             length_unit="",  # this is only needed for unit conversions in MD engines
-            outputs={key: _get_capabilities(model).outputs[key] for key in targets},
+            outputs={key: _get_capabilities(model, is_distributed).outputs[key] for key in targets},
         )
         # we check consistency here because this could be called from eval
         return model(systems, options, check_consistency=True)
     else:
         return model(
-            systems, {key: _get_capabilities(model).outputs[key] for key in targets}
+            systems, {key: _get_capabilities(model, is_distributed).outputs[key] for key in targets}
         )
 
 
