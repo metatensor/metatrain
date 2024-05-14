@@ -239,15 +239,10 @@ def train(
                 is_training=True,
             )
 
-            # average by the number of atoms (if not disabled)
-            num_atoms = torch.tensor([len(s) for s in systems], device=device)
-            for target in targets.keys():
-                if target in per_structure_targets:
-                    continue
-                predictions[target] = divide_by_num_atoms(
-                    predictions[target], num_atoms
-                )
-                targets[target] = divide_by_num_atoms(targets[target], num_atoms)
+            # average by the number of atoms
+            predictions, targets = _average_by_num_atoms(
+                predictions, targets, systems, per_structure_targets
+            )
 
             train_loss_batch = loss_fn(predictions, targets)
             train_loss += train_loss_batch.item()
@@ -274,15 +269,10 @@ def train(
                 is_training=False,
             )
 
-            # average by the number of atoms (if not disabled)
-            num_atoms = torch.tensor([len(s) for s in systems], device=device)
-            for target in targets.keys():
-                if target in per_structure_targets:
-                    continue
-                predictions[target] = divide_by_num_atoms(
-                    predictions[target], num_atoms
-                )
-                targets[target] = divide_by_num_atoms(targets[target], num_atoms)
+            # average by the number of atoms
+            predictions, targets = _average_by_num_atoms(
+                predictions, targets, systems, per_structure_targets
+            )
 
             validation_loss_batch = loss_fn(predictions, targets)
             validation_loss += validation_loss_batch.item()
@@ -333,3 +323,15 @@ def train(
                 break
 
     return model
+
+
+def _average_by_num_atoms(predictions, targets, systems, per_structure_targets):
+    device = systems[0].device
+    num_atoms = torch.tensor([len(s) for s in systems], device=device)
+    for target in targets.keys():
+        if target in per_structure_targets:
+            continue
+        predictions[target] = divide_by_num_atoms(predictions[target], num_atoms)
+        targets[target] = divide_by_num_atoms(targets[target], num_atoms)
+
+    return predictions, targets
