@@ -29,4 +29,4 @@ training:
   log_interval: 10
   checkpoint_interval: 25
   fixed_composition_weights: {}
-  per_atom_targets: []
+  per_structure_targets: []

@@ -167,7 +167,7 @@ def _eval_targets(
             all_predictions.append(batch_predictions)
 
     # Finalize the RMSEs
-    rmse_values = rmse_accumulator.finalize()
+    rmse_values = rmse_accumulator.finalize(not_per_atom=["positions_gradients"])
     # print the RMSEs with MetricLogger
     metric_logger = MetricLogger(
         model_capabilities=model.capabilities(),

@@ -134,7 +134,7 @@ def test_regression_train():
     )
 
     expected_output = torch.tensor(
-        [[-123.0245], [-109.3167], [-129.6946], [-160.1561], [-138.4090]]
+        [[-126.6899], [-113.0781], [-135.8210], [-179.1740], [-149.5980]]
     )
 
     torch.testing.assert_close(
