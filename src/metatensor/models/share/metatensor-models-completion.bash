@@ -25,7 +25,7 @@ _metatensor-models()
           COMPREPLY=( $( compgen -f -X "$ckpt" -- "${cur_word}") )
           return 0
           ;;
-        -y|--hydra)
+        -r|--override)
           COMPREPLY=( )
           return 0
           ;;
@@ -36,7 +36,7 @@ _metatensor-models()
           fi
           ;;
       esac
-      local opts="-h --help -o --output -c --continue -y --hydra"
+      local opts="-h --help -o --output -c --continue -r --override"
       COMPREPLY=( $(compgen -W "${opts}" -- "${cur_word}") )
       return 0
       ;;

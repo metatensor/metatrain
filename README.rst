@@ -33,15 +33,14 @@ relies on external models that implement the various architectures.
 Features
 ########
 
-- **Custom ML Architecture**: Integrate any TorchScriptable ML model
-  to explore innovative architectures.
+- **Custom ML Architecture**: Integrate any TorchScriptable ML model to explore
+  innovative architectures.
 
-- **MD Engine Compatibility**: Supports various MD engines for diverse research
-  and application needs.
+- **MD Engine Compatibility**: Supports various MD engines for diverse research and
+  application needs.
 
-- **Streamlined Training**: Automated process leveraging MD-generated data to
-  optimize ML models with minimal effort. It uses the ``hydra`` module to
-  easy management of folder and files.
+- **Streamlined Training**: Automated process leveraging MD-generated data to optimize
+  ML models with minimal effort.
 
 - **HPC Compatibility**: Efficient in HPC environments for extensive simulations.
 
@@ -68,6 +67,9 @@ atomistic model.
    * - Alchemical Model
      - A Behler-Parrinello neural network with SOAP features
        and Alchemical Compression of the composition space
+
+   * - PET
+     - Point Edge Transformer (PET), interatomic machine learning potential
 
 .. marker-documentation
 

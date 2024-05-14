@@ -19,6 +19,17 @@ def test_file_format_resolver():
     assert (conf["file_format"]) == ".xyz"
 
 
+def test_random_seed_resolver():
+    conf = OmegaConf.create({"seed": "${default_random_seed:}"})
+
+    seed = conf["seed"]
+    assert type(seed) is int
+    assert seed > 0
+
+    # assert that seed does not change if requested again
+    assert seed == conf["seed"]
+
+
 def test_default_device_resolver():
     conf = OmegaConf.create(
         {

@@ -6,6 +6,7 @@ import torch
 from omegaconf import Container, DictConfig, ListConfig, OmegaConf
 from omegaconf.basecontainer import BaseContainer
 
+from .. import RANDOM_SEED
 from .devices import pick_devices
 
 
@@ -63,10 +64,16 @@ def default_precision(_root_: BaseContainer) -> int:
         )
 
 
+def default_random_seed() -> int:
+    """Return session seed in the range [0, 2**32)."""
+    return RANDOM_SEED
+
+
 # Register custom resolvers
 OmegaConf.register_new_resolver("file_format", file_format)
 OmegaConf.register_new_resolver("default_device", default_device)
 OmegaConf.register_new_resolver("default_precision", default_precision)
+OmegaConf.register_new_resolver("default_random_seed", default_random_seed)
 
 
 def _resolve_single_str(config: str) -> DictConfig:

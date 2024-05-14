@@ -1,4 +1,6 @@
 import glob
+import logging
+import re
 import shutil
 import subprocess
 from pathlib import Path
@@ -27,7 +29,7 @@ def options():
 
 
 @pytest.mark.parametrize("output", [None, "mymodel.pt"])
-def test_train(monkeypatch, tmp_path, output):
+def test_train(capfd, monkeypatch, tmp_path, output):
     """Test that training via the training cli runs without an error raise."""
     monkeypatch.chdir(tmp_path)
     shutil.copy(DATASET_PATH, "qm9_reduced_100.xyz")
@@ -43,24 +45,64 @@ def test_train(monkeypatch, tmp_path, output):
     subprocess.check_call(command)
     assert Path(output).is_file()
 
-    # Test if fully expanded options.yaml file is written
-    assert len(glob.glob("outputs/*/*/options.yaml")) == 1
+    # Test if restart_options.yaml file is written
+    restart_glob = glob.glob("outputs/*/*/options_restart.yaml")
+    assert len(restart_glob) == 1
+
+    # Open restart options an check that default parameters are overwritten
+    restart_options = OmegaConf.load(restart_glob[0])
+    assert restart_options["architecture"]["training"]["num_epochs"] == 1
 
     # Test if logfile is written
-    assert len(glob.glob("outputs/*/*/train.log")) == 1
+    log_glob = glob.glob("outputs/*/*/train.log")
+    assert len(log_glob) == 1
 
     # Open the log file and check if the logging is correct
-    with open(glob.glob("outputs/*/*/train.log")[0]) as f:
-        log = f.read()
+    with open(log_glob[0]) as f:
+        file_log = f.read()
 
-    assert "This log is also available"
-    assert "[INFO]" in log
-    assert "Epoch" in log
-    assert "loss" in log
-    assert "validation" in log
-    assert "train" in log
-    assert "energy" in log
-    assert "with index" not in log  # index only printed for more than 1 dataset
+    stdout_log = capfd.readouterr().out
+
+    assert file_log == stdout_log
+
+    for logtext in [stdout_log, file_log]:
+        assert "This log is also available"
+        assert re.search(r"random seed of this run is [1-9]\d*", logtext)
+        assert "[INFO]" in logtext
+        assert "Epoch" in logtext
+        assert "loss" in logtext
+        assert "validation" in logtext
+        assert "train" in logtext
+        assert "energy" in logtext
+        assert "with index" not in logtext  # index only printed for more than 1 dataset
+
+
+@pytest.mark.parametrize(
+    "overrides",
+    [
+        "architecture.training.num_epochs=2",
+        "architecture.training.num_epochs=2 architecture.training.batch_size=3",
+    ],
+)
+def test_command_line_override(monkeypatch, tmp_path, overrides):
+    """Test that training options can be overwritten from the command line."""
+    monkeypatch.chdir(tmp_path)
+    shutil.copy(DATASET_PATH, "qm9_reduced_100.xyz")
+    shutil.copy(OPTIONS_PATH, "options.yaml")
+
+    command = ["metatensor-models", "train", "options.yaml", "-r", overrides]
+
+    subprocess.check_call(command)
+
+    restart_glob = glob.glob("outputs/*/*/options_restart.yaml")
+    assert len(restart_glob) == 1
+
+    restart_options = OmegaConf.load(restart_glob[0])
+    print(restart_options)
+    assert restart_options["architecture"]["training"]["num_epochs"] == 2
+
+    if len(overrides.split()) == 2:
+        assert restart_options["architecture"]["training"]["batch_size"] == 3
 
 
 @pytest.mark.parametrize("n_datasets", [1, 2])
@@ -69,7 +111,7 @@ def test_train(monkeypatch, tmp_path, output):
 def test_train_explicit_validation_test(
     monkeypatch,
     tmp_path,
-    capsys,
+    caplog,
     n_datasets,
     test_set_file,
     validation_set_file,
@@ -78,6 +120,7 @@ def test_train_explicit_validation_test(
     """Test that training via the training cli runs without an error raise
     also when the validation and test sets are provided explicitly."""
     monkeypatch.chdir(tmp_path)
+    caplog.set_level(logging.DEBUG)
 
     systems = ase.io.read(DATASET_PATH, ":")
 
@@ -101,8 +144,8 @@ def test_train_explicit_validation_test(
 
     train_model(options)
 
-    # Test log messages which are written by hydra to STDOUT
-    log = capsys.readouterr().out
+    # Test log messages which are written to STDOUT
+    log = caplog.text
     for set_type in ["training", "test", "validation"]:
         for i in range(n_datasets):
             if n_datasets == 1:
@@ -163,9 +206,10 @@ def test_empty_validation_set(monkeypatch, tmp_path, options):
         train_model(options)
 
 
-def test_empty_test_set(monkeypatch, tmp_path, options):
+def test_empty_test_set(caplog, monkeypatch, tmp_path, options):
     """Test that no error is raised if no test set is provided."""
     monkeypatch.chdir(tmp_path)
+    caplog.set_level(logging.DEBUG)
 
     shutil.copy(DATASET_PATH, "qm9_reduced_100.xyz")
 
@@ -175,9 +219,7 @@ def test_empty_test_set(monkeypatch, tmp_path, options):
     train_model(options)
 
     # check if the logging is correct
-    with open(glob.glob("outputs/*/*/train.log")[0]) as f:
-        log = f.read()
-    assert "This dataset is empty. No evaluation" in log
+    assert "This dataset is empty. No evaluation" in caplog.text
 
 
 @pytest.mark.parametrize(
@@ -300,16 +342,6 @@ def test_continue_different_dataset(options, monkeypatch, tmp_path):
     train_model(options, continue_from=MODEL_PATH)
 
 
-def test_hydra_arguments():
-    """Test if hydra arguments work."""
-    option_path = str(RESOURCES_PATH / "options.yaml")
-    out = subprocess.check_output(
-        ["metatensor-models", "train", option_path, "--hydra=--help"]
-    )
-    # Check that num_epochs is override is succesful
-    assert "num_epochs: 1" in str(out)
-
-
 def test_no_architecture_name(options):
     """Test error raise if architecture.name is not set."""
     options["architecture"].pop("name")
@@ -318,7 +350,7 @@ def test_no_architecture_name(options):
         train_model(options)
 
 
-@pytest.mark.parametrize("seed", [1234, None, 0, -123])
+@pytest.mark.parametrize("seed", [1234, 0, -123])
 @pytest.mark.parametrize("architecture_name", ["experimental.soap_bpnn"])
 def test_model_consistency_with_seed(
     options, monkeypatch, tmp_path, architecture_name, seed
@@ -331,7 +363,7 @@ def test_model_consistency_with_seed(
     options["seed"] = seed
 
     if seed is not None and seed < 0:
-        with pytest.raises(ValueError, match="should be a positive number or None."):
+        with pytest.raises(ValueError, match="`seed` should be a positive number"):
             train_model(options)
         return
 

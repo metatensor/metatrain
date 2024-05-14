@@ -21,11 +21,6 @@ from .formatter import CustomHelpFormatter
 
 
 logger = logging.getLogger(__name__)
-logging.basicConfig(
-    level=logging.INFO,
-    format="[%(asctime)s][%(levelname)s] - %(message)s",
-    datefmt="%Y-%m-%d %H:%M:%S",
-)
 
 
 def _add_eval_model_parser(subparser: argparse._SubParsersAction) -> None:
