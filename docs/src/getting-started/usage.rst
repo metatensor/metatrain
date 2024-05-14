@@ -18,14 +18,13 @@ from our :download:`website <../../static/qm9/qm9_reduced_100.xyz>`.
 Training
 ########
 
-To train models, `metatensor-models` uses the hydra framework. Hydra is a framework
-developed by Facebook AI for elegantly configuring complex applications. It's primarily
-used for managing command-line arguments in Python applications, allowing for a
-structured and dynamic approach to configuration. It allows to dynamical composition and
-override of config files and the command line and has powerful tools to create multiple
-training runs with a single command. We will not explain here how to use hydra in
-detail, as we only use a few functions ins this example but rather refer to their good
-package documentation.
+To train models, `metatensor-models` uses a dynamic override strategy for your training
+options. We allow a dynamical composition and override of the default architecture with
+either your custom ``options.yaml`` and even command line override grammar. For
+reference and reproducibility purposes `metatensor-models` always writes the fully
+expanded, including the overwritten option to ``options_restart.yaml``. The restart
+options file is written into a subfolder named with the current `date` and `time` inside
+the ``output`` directory of your current training run.
 
 The sub-command to start a model training is
 
@@ -45,12 +44,10 @@ training using the default hyperparameters of an SOAP BPNN model
    :language: yaml
 
 For each training run a new output directory in the format
-``output/YYYY-MM-DD/HH-MM-SS`` based on the current date and time is created. By
-default, this output directory is used to store Hydra's output for the run
-(configuration, Logs etc). You can `override
-<https://hydra.cc/docs/tutorials/basic/running_your_app/working_directory/>`_ this
-behavior in the options file. To start the training create an ``options.yaml`` file in
-the current directory and type
+``output/YYYY-MM-DD/HH-MM-SS`` based on the current `date` and `time` is created. We use
+this output directory to store checkpoints, the ``train.log`` log file  as well the
+restart ``options_restart.yaml`` file. To start the training create an ``options.yaml``
+file in the current directory and type
 
 .. literalinclude:: ../../../examples/basic_usage/usage.sh
     :language: bash

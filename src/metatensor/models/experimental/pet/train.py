@@ -25,7 +25,7 @@ def train(
     devices: List[torch.device],
     hypers: Dict = DEFAULT_HYPERS,
     continue_from: Optional[str] = None,
-    output_dir: str = ".",
+    checkpoint_dir: str = ".",
 ):
     if len(dataset_info.targets) != 1:
         raise ValueError("PET only supports a single target")
@@ -105,13 +105,17 @@ def train(
     device = devices[0]  # only one device, as we don't support multi-gpu for now
 
     fit_pet(
-        ase_train_dataset, ase_validation_dataset, hypers, "pet", device, output_dir
+        ase_train_dataset, ase_validation_dataset, hypers, "pet", device, checkpoint_dir
     )
 
     if do_forces:
-        load_path = Path(output_dir) / "pet" / "best_val_rmse_forces_model_state_dict"
+        load_path = (
+            Path(checkpoint_dir) / "pet" / "best_val_rmse_forces_model_state_dict"
+        )
     else:
-        load_path = Path(output_dir) / "pet" / "best_val_rmse_energies_model_state_dict"
+        load_path = (
+            Path(checkpoint_dir) / "pet" / "best_val_rmse_energies_model_state_dict"
+        )
 
     state_dict = torch.load(load_path)
 
