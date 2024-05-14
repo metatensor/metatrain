@@ -188,7 +188,7 @@ def read_targets(
                     )
                 except KeyError:
                     logger.warning(
-                        f"Forces not found in section {target_key!r}. "
+                        f"No Forces found in section {target_key!r}. "
                         "Continue without forces!"
                     )
                 else:
@@ -214,7 +214,7 @@ def read_targets(
                     )
                 except KeyError:
                     logger.warning(
-                        f"Stress not found in section {target_key!r}. "
+                        f"No Stress found in section {target_key!r}. "
                         "Continue without stress!"
                     )
                 else:
@@ -235,7 +235,7 @@ def read_targets(
                     )
                 except KeyError:
                     logger.warning(
-                        f"Virial not found in section {target_key!r}. "
+                        f"No Virial found in section {target_key!r}. "
                         "Continue without virial!"
                     )
                 else:

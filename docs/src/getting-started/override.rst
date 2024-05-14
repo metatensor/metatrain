@@ -46,19 +46,19 @@ hyperparameters. The adjustments for ``num_epochs`` and ``cutoff`` look like thi
 Modifying Parameters (Command Line Overrides)
 ---------------------------------------------
 
-For quick adjustments, command-line overrides are also an option. The changes above can
-be achieved by:
+For quick adjustments or additions to an options file, command-line overrides are also
+possibility. The changes above can be achieved by typing:
 
 .. code-block:: bash
 
    metatensor-models train options.yaml \
-      -y architecture.model.soap.cutoff=7.0 architecture.training.num_epochs=200
+      -r architecture.model.soap.cutoff=7.0 architecture.training.num_epochs=200
 
-Here, the ``-y`` flag is used to parse the override flags. More details on override
-syntax are available at https://hydra.cc/docs/advanced/override_grammar/basic/.
+Here, the ``-r`` or equivalent ``--override`` flag is used to parse the override flags.
+The syntax follows a dotlist-style string format where each level of the options is
+seperated by a ``.``. For example to use single precision as the base precision for your
+training use ``-r base_precision=32``
 
 .. note::
-
-   For your reference and reproducibility purposes `metatensor-models` always writes the
-   fully expanded options to the ``.hydra`` subdirectory inside the ``output``
-   directory of your current training run.
+   Command line overrides allow adding new values to your training parameters and
+   override the architectures as well as the parameters of your provided options file.

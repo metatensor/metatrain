@@ -232,12 +232,12 @@ def test_read_targets_warnings(stress_dict, virial_dict, monkeypatch, tmp_path, 
     caplog.set_level(logging.WARNING)
     read_targets(OmegaConf.create(conf))  # , slice_samples_by="system")
 
-    assert any(["Forces not found" in rec.message for rec in caplog.records])
+    assert any(["No Forces found" in rec.message for rec in caplog.records])
 
     if stress_dict:
-        assert any(["Stress not found" in rec.message for rec in caplog.records])
+        assert any(["No Stress found" in rec.message for rec in caplog.records])
     if virial_dict:
-        assert any(["Virial not found" in rec.message for rec in caplog.records])
+        assert any(["No Virial found" in rec.message for rec in caplog.records])
 
 
 def test_read_targets_error(monkeypatch, tmp_path):
