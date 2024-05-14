@@ -1,3 +1,4 @@
+seed: 42
 device: cuda
 
 architecture:

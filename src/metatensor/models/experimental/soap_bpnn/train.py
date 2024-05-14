@@ -165,10 +165,7 @@ def train(
                     "Values were not supplied for all "
                     "the species in present in the dataset"
                 )
-            if is_distributed:
-                model.module.set_composition_weights(target_name, fixed_weights, species)
-            else:
-                model.set_composition_weights(target_name, fixed_weights, species)
+            (model.module if is_distributed else model).set_composition_weights(target_name, fixed_weights, species)
 
         else:
             train_datasets_with_target = []
@@ -183,10 +180,7 @@ def train(
             composition_weights, species = calculate_composition_weights(
                 train_datasets_with_target, target_name
             )
-            if is_distributed:
-                model.module.set_composition_weights(target_name, composition_weights, species)
-            else:
-                model.set_composition_weights(target_name, composition_weights, species)
+            (model.module if is_distributed else model).set_composition_weights(target_name, composition_weights, species)
 
     logger.info("Setting up data loaders")
 
@@ -226,8 +220,7 @@ def train(
                 collate_fn=collate_fn,
             )
         )
-    # train_dataloader = CombinedDataLoader(train_dataloaders, shuffle=True)
-    train_dataloader = train_dataloaders[0]
+    train_dataloader = CombinedDataLoader(train_dataloaders, shuffle=True)
 
     # Create dataloader for the validation datasets:
     validation_dataloaders = []
@@ -242,8 +235,7 @@ def train(
                 collate_fn=collate_fn,
             )
         )
-    # validation_dataloader = CombinedDataLoader(validation_dataloaders, shuffle=False)
-    validation_dataloader = validation_dataloaders[0]
+    validation_dataloader = CombinedDataLoader(validation_dataloaders, shuffle=False)
 
     # Extract all the possible outputs and their gradients from the training set:
     outputs_dict = get_outputs_dict(train_datasets)
@@ -309,23 +301,23 @@ def train(
                 is_distributed=is_distributed,
             )
 
-            # # average by the number of atoms (if requested)
-            # num_atoms = torch.tensor(
-            #     [len(s) for s in systems], device=device
-            # ).unsqueeze(-1)
-            # for pa_target in per_atom_targets:
-            #     predictions[pa_target] = TensorMap(
-            #         predictions[pa_target].keys,
-            #         [
-            #             average_block_by_num_atoms(
-            #                 predictions[pa_target].block(), num_atoms
-            #             )
-            #         ],
-            #     )
-            #     targets[pa_target] = TensorMap(
-            #         targets[pa_target].keys,
-            #         [average_block_by_num_atoms(targets[pa_target].block(), num_atoms)],
-            #     )
+            # average by the number of atoms (if requested)
+            num_atoms = torch.tensor(
+                [len(s) for s in systems], device=device
+            ).unsqueeze(-1)
+            for pa_target in per_atom_targets:
+                predictions[pa_target] = TensorMap(
+                    predictions[pa_target].keys,
+                    [
+                        average_block_by_num_atoms(
+                            predictions[pa_target].block(), num_atoms
+                        )
+                    ],
+                )
+                targets[pa_target] = TensorMap(
+                    targets[pa_target].keys,
+                    [average_block_by_num_atoms(targets[pa_target].block(), num_atoms)],
+                )
 
             train_loss_batch = loss_fn(predictions, targets)
             train_loss += train_loss_batch.item()

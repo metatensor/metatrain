@@ -1,0 +1,74 @@
+STARTING AT Tue May 14 02:05:04 PM CEST 2024
+[2024-05-14 14:05:13][INFO] - This log is also available in '/home/bigi/metatensor-models/tests/resources/outputs/2024-05-14/14-05-06/train.log'.
+[2024-05-14 14:05:13][INFO] - This log is also available in '/home/bigi/metatensor-models/tests/resources/outputs/2024-05-14/14-05-06/train.log'.
+[2024-05-14 14:05:13][INFO] - Setting up training set
+[2024-05-14 14:05:13][INFO] - Setting up training set
+[2024-05-14 14:05:13][INFO] - Forces found in section 'energy'. Forces are taken for training!
+[2024-05-14 14:05:13][INFO] - Forces found in section 'energy'. Forces are taken for training!
+[2024-05-14 14:05:13][WARNING] - Stress not found in section 'energy'. Continue without stress!
+[2024-05-14 14:05:13][INFO] - Setting up test set
+/home/bigi/virtualenv-i/lib/python3.10/site-packages/torch/utils/data/dataset.py:449: UserWarning: Length of split at index 1 is 0. This might result in an empty dataset.
+  warnings.warn(f"Length of split at index {i} is 0. "
+[2024-05-14 14:05:13][INFO] - Setting up validation set
+[2024-05-14 14:05:13][WARNING] - Stress not found in section 'energy'. Continue without stress!
+[2024-05-14 14:05:13][INFO] - Setting up model
+[2024-05-14 14:05:13][INFO] - Calling architecture trainer
+[2024-05-14 14:05:13][INFO] - Setting up test set
+/home/bigi/virtualenv-i/lib/python3.10/site-packages/torch/utils/data/dataset.py:449: UserWarning: Length of split at index 1 is 0. This might result in an empty dataset.
+  warnings.warn(f"Length of split at index {i} is 0. "
+[2024-05-14 14:05:13][INFO] - Setting up validation set
+[2024-05-14 14:05:13][INFO] - Setting up model
+[2024-05-14 14:05:13][INFO] - Calling architecture trainer
+[2024-05-14 14:05:14][INFO] - Checking datasets for consistency
+[2024-05-14 14:05:14][INFO] - Checking datasets for consistency
+[2024-05-14 14:05:14][INFO] - training on device cuda:1 with dtype torch.float64
+[2024-05-14 14:05:14][INFO] - training on device cuda:0 with dtype torch.float64
+[2024-05-14 14:05:15][INFO] - Calculating composition weights
+[2024-05-14 14:05:15][INFO] - Calculating composition weights
+[2024-05-14 14:05:15][INFO] - Setting up data loaders
+[2024-05-14 14:05:15][INFO] - Setting up data loaders
+[2024-05-14 14:05:15][INFO] - Starting training
+[2024-05-14 14:05:15][INFO] - Starting training
+/home/bigi/virtualenv-i/lib/python3.10/site-packages/torch/autograd/__init__.py:266: UserWarning: Grad strides do not match bucket view strides. This may indicate grad was not created according to the gradient layout contract, or that the param's strides changed since DDP was constructed.  This is not an error, but may impair performance.
+grad.sizes() = [1, 32], strides() = [1, 1]
+bucket_view.sizes() = [1, 32], strides() = [32, 1] (Triggered internally at ../torch/csrc/distributed/c10d/reducer.cpp:322.)
+  Variable._execution_engine.run_backward(  # Calls into the C++ engine to run the backward pass
+/home/bigi/virtualenv-i/lib/python3.10/site-packages/torch/autograd/__init__.py:266: UserWarning: Grad strides do not match bucket view strides. This may indicate grad was not created according to the gradient layout contract, or that the param's strides changed since DDP was constructed.  This is not an error, but may impair performance.
+grad.sizes() = [1, 32], strides() = [1, 1]
+bucket_view.sizes() = [1, 32], strides() = [32, 1] (Triggered internally at ../torch/csrc/distributed/c10d/reducer.cpp:322.)
+  Variable._execution_engine.run_backward(  # Calls into the C++ engine to run the backward pass
+[2024-05-14 14:05:16][INFO] - Epoch    0, train loss: 807.42, train energy RMSE: 4.4257, train force RMSE: 28.068, validation loss: 709.24, validation energy RMSE: 3.0006, validation force RMSE: 26.462
+[2024-05-14 14:05:16][INFO] - Epoch    0, train loss: 789.59, train energy RMSE: 3.3911, train force RMSE: 27.894, validation loss: 717.81, validation energy RMSE: 4.4839, validation force RMSE: 26.414
+[2024-05-14 14:05:27][INFO] - Epoch   10, train loss: 717.73, train energy RMSE: 4.4084, train force RMSE: 26.425, validation loss: 614.49, validation energy RMSE: 2.5863, validation force RMSE: 24.654
+[2024-05-14 14:05:27][INFO] - Epoch   10, train loss: 715.40, train energy RMSE: 3.1572, train force RMSE: 26.560, validation loss: 689.05, validation energy RMSE: 3.6862, validation force RMSE: 25.990
+[2024-05-14 14:05:31][INFO] - Epoch   20, train loss: 540.23, train energy RMSE: 3.8286, train force RMSE: 22.925, validation loss: 454.38, validation energy RMSE: 2.6346, validation force RMSE: 21.153
+[2024-05-14 14:05:31][INFO] - Epoch   20, train loss: 545.33, train energy RMSE: 2.5713, train force RMSE: 23.210, validation loss: 512.27, validation energy RMSE: 2.5544, validation force RMSE: 22.489
+[2024-05-14 14:05:35][INFO] - Epoch   30, train loss: 303.28, train energy RMSE: 3.3417, train force RMSE: 17.091, validation loss: 251.23, validation energy RMSE: 2.3270, validation force RMSE: 15.679
+[2024-05-14 14:05:35][INFO] - Epoch   30, train loss: 301.31, train energy RMSE: 2.8167, train force RMSE: 17.128, validation loss: 275.24, validation energy RMSE: 1.8296, validation force RMSE: 16.489
+[2024-05-14 14:05:39][INFO] - Epoch   40, train loss: 129.61, train energy RMSE: 2.7591, train force RMSE: 11.045, validation loss: 101.43, validation energy RMSE: 1.1688, validation force RMSE: 10.003
+[2024-05-14 14:05:39][INFO] - Epoch   40, train loss: 122.36, train energy RMSE: 2.3710, train force RMSE: 10.804, validation loss: 115.77, validation energy RMSE: 2.1876, validation force RMSE: 10.535
+[2024-05-14 14:05:43][INFO] - Epoch   50, train loss:  60.22, train energy RMSE: 2.4863, train force RMSE:  7.351, validation loss:  47.69, validation energy RMSE: 1.9802, validation force RMSE:  6.616
+[2024-05-14 14:05:43][INFO] - Epoch   50, train loss:  53.66, train energy RMSE: 2.2922, train force RMSE:  6.957, validation loss:  64.37, validation energy RMSE: 2.4882, validation force RMSE:  7.628
+[2024-05-14 14:05:47][INFO] - Epoch   60, train loss:  41.61, train energy RMSE: 2.2530, train force RMSE:  6.045, validation loss:  33.44, validation energy RMSE: 1.3027, validation force RMSE:  5.634
+[2024-05-14 14:05:47][INFO] - Epoch   60, train loss:  37.58, train energy RMSE: 2.0612, train force RMSE:  5.773, validation loss:  47.34, validation energy RMSE: 1.8849, validation force RMSE:  6.617
+[2024-05-14 14:05:51][INFO] - Epoch   70, train loss:  31.51, train energy RMSE: 1.5223, train force RMSE:  5.403, validation loss:  25.01, validation energy RMSE: 0.8976, validation force RMSE:  4.920
+[2024-05-14 14:05:51][INFO] - Epoch   70, train loss:  28.66, train energy RMSE: 1.2545, train force RMSE:  5.205, validation loss:  39.17, validation energy RMSE: 1.5515, validation force RMSE:  6.063
+[2024-05-14 14:05:55][INFO] - Epoch   80, train loss:  26.73, train energy RMSE: 1.4492, train force RMSE:  4.963, validation loss:  20.92, validation energy RMSE: 0.8109, validation force RMSE:  4.501
+[2024-05-14 14:05:55][INFO] - Epoch   80, train loss:  24.12, train energy RMSE: 1.1312, train force RMSE:  4.779, validation loss:  33.62, validation energy RMSE: 1.5050, validation force RMSE:  5.599
+[2024-05-14 14:05:59][INFO] - Epoch   90, train loss:  20.87, train energy RMSE: 1.1945, train force RMSE:  4.409, validation loss:  30.14, validation energy RMSE: 1.3723, validation force RMSE:  5.316
+[2024-05-14 14:05:59][INFO] - Epoch   90, train loss:  22.90, train energy RMSE: 1.4552, train force RMSE:  4.558, validation loss:  18.55, validation energy RMSE: 1.0916, validation force RMSE:  4.166
+[2024-05-14 14:06:03][INFO] - Evaluating training dataset
+[2024-05-14 14:06:03][INFO] - Evaluating training dataset
+[2024-05-14 14:06:07][INFO] - energy RMSE: 1.3332, force RMSE: 4.1652
+[2024-05-14 14:06:07][INFO] - Evaluating validation dataset
+[2024-05-14 14:06:08][INFO] - energy RMSE: 1.3332, force RMSE: 4.1652
+[2024-05-14 14:06:08][INFO] - Evaluating validation dataset
+[2024-05-14 14:06:08][INFO] - energy RMSE: 1.3655, force RMSE: 4.4988
+[2024-05-14 14:06:08][INFO] - Evaluating test dataset
+[2024-05-14 14:06:08][INFO] - This dataset is empty. No evaluation will be performed.
+[2024-05-14 14:06:08][INFO] - 
+[2024-05-14 14:06:08][INFO] - energy RMSE: 1.3655, force RMSE: 4.4988
+[2024-05-14 14:06:08][INFO] - Evaluating test dataset
+[2024-05-14 14:06:08][INFO] - This dataset is empty. No evaluation will be performed.
+[2024-05-14 14:06:08][INFO] - 
+FINISHED at Tue May 14 02:06:09 PM CEST 2024
