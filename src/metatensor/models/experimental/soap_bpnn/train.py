@@ -5,12 +5,11 @@ from typing import Dict, List, Optional, Union
 
 import torch
 import torch.distributed
-from torch.nn.parallel import DistributedDataParallel
-from torch.utils.data import DataLoader, DistributedSampler
-
 from metatensor.learn.data.dataset import Dataset
 from metatensor.torch import TensorMap
 from metatensor.torch.atomistic import ModelCapabilities, ModelOutput
+from torch.nn.parallel import DistributedDataParallel
+from torch.utils.data import DataLoader, DistributedSampler
 
 from ...utils.composition import calculate_composition_weights
 from ...utils.data import (
@@ -21,7 +20,6 @@ from ...utils.data import (
     get_all_species,
     get_all_targets,
 )
-
 from ...utils.distributed.slurm_environment import DistributedEnvironment
 from ...utils.evaluate_model import evaluate_model
 from ...utils.extract_targets import get_outputs_dict
@@ -121,7 +119,6 @@ def train(
             # only error if we are not continuing
             raise ValueError(err) from err
 
-
     if is_distributed:
         device = torch.device("cuda", distr_env.local_rank)
     else:
@@ -166,7 +163,9 @@ def train(
                     "the species in present in the dataset"
                 )
             if is_distributed:
-                model.module.set_composition_weights(target_name, fixed_weights, species)
+                model.module.set_composition_weights(
+                    target_name, fixed_weights, species
+                )
             else:
                 model.set_composition_weights(target_name, fixed_weights, species)
 
@@ -184,7 +183,9 @@ def train(
                 train_datasets_with_target, target_name
             )
             if is_distributed:
-                model.module.set_composition_weights(target_name, composition_weights, species)
+                model.module.set_composition_weights(
+                    target_name, composition_weights, species
+                )
             else:
                 model.set_composition_weights(target_name, composition_weights, species)
 
@@ -192,22 +193,24 @@ def train(
 
     if is_distributed:
         train_samplers = [
-            torch.utils.data.distributed.DistributedSampler(
+            DistributedSampler(
                 train_dataset,
                 num_replicas=world_size,
                 rank=rank,
                 shuffle=True,
                 drop_last=True,
-            ) for train_dataset in train_datasets
-        ] 
+            )
+            for train_dataset in train_datasets
+        ]
         validation_samplers = [
-            torch.utils.data.distributed.DistributedSampler(
+            DistributedSampler(
                 validation_dataset,
                 num_replicas=world_size,
                 rank=rank,
                 shuffle=True,
                 drop_last=True,
-            ) for validation_dataset in validation_datasets
+            )
+            for validation_dataset in validation_datasets
         ]
     else:
         train_samplers = [None] * len(train_datasets)
@@ -226,8 +229,7 @@ def train(
                 collate_fn=collate_fn,
             )
         )
-    # train_dataloader = CombinedDataLoader(train_dataloaders, shuffle=True)
-    train_dataloader = train_dataloaders[0]
+    train_dataloader = CombinedDataLoader(train_dataloaders, shuffle=True)
 
     # Create dataloader for the validation datasets:
     validation_dataloaders = []
@@ -242,8 +244,7 @@ def train(
                 collate_fn=collate_fn,
             )
         )
-    # validation_dataloader = CombinedDataLoader(validation_dataloaders, shuffle=False)
-    validation_dataloader = validation_dataloaders[0]
+    validation_dataloader = CombinedDataLoader(validation_dataloaders, shuffle=False)
 
     # Extract all the possible outputs and their gradients from the training set:
     outputs_dict = get_outputs_dict(train_datasets)
@@ -309,28 +310,31 @@ def train(
                 is_distributed=is_distributed,
             )
 
-            # # average by the number of atoms (if requested)
-            # num_atoms = torch.tensor(
-            #     [len(s) for s in systems], device=device
-            # ).unsqueeze(-1)
-            # for pa_target in per_atom_targets:
-            #     predictions[pa_target] = TensorMap(
-            #         predictions[pa_target].keys,
-            #         [
-            #             average_block_by_num_atoms(
-            #                 predictions[pa_target].block(), num_atoms
-            #             )
-            #         ],
-            #     )
-            #     targets[pa_target] = TensorMap(
-            #         targets[pa_target].keys,
-            #         [average_block_by_num_atoms(targets[pa_target].block(), num_atoms)],
-            #     )
+            # average by the number of atoms (if requested)
+            num_atoms = torch.tensor(
+                [len(s) for s in systems], device=device
+            ).unsqueeze(-1)
+            for pa_target in per_atom_targets:
+                predictions[pa_target] = TensorMap(
+                    predictions[pa_target].keys,
+                    [
+                        average_block_by_num_atoms(
+                            predictions[pa_target].block(), num_atoms
+                        )
+                    ],
+                )
+                targets[pa_target] = TensorMap(
+                    targets[pa_target].keys,
+                    [average_block_by_num_atoms(targets[pa_target].block(), num_atoms)],
+                )
 
             train_loss_batch = loss_fn(predictions, targets)
-            train_loss += train_loss_batch.item()
             train_loss_batch.backward()
             optimizer.step()
+
+            if is_distributed:
+                train_loss_batch = torch.distributed.all_reduce(train_loss_batch)
+            train_loss += train_loss_batch.item()
             train_rmse_calculator.update(predictions, targets)
         finalized_train_info = train_rmse_calculator.finalize()
 
@@ -372,6 +376,11 @@ def train(
                 )
 
             validation_loss_batch = loss_fn(predictions, targets)
+
+            if is_distributed:
+                validation_loss_batch = torch.distributed.all_reduce(
+                    validation_loss_batch
+                )
             validation_loss += validation_loss_batch.item()
             validation_rmse_calculator.update(predictions, targets)
         finalized_validation_info = validation_rmse_calculator.finalize()
@@ -422,4 +431,4 @@ def train(
     if is_distributed:
         torch.distributed.barrier()
 
-    return (model.module if is_distributed else model)
+    return model.module if is_distributed else model

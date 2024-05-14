@@ -1,5 +1,6 @@
 from typing import Dict, Tuple
 
+import torch.distributed
 from metatensor.torch import TensorMap
 
 
@@ -47,8 +48,21 @@ class RMSEAccumulator:
                     + prediction_gradient.values.numel(),
                 )
 
-    def finalize(self) -> Dict[str, float]:
-        """Finalizes the accumulator and return the RMSE for each key."""
+    def finalize(self, is_distributed: bool = False) -> Dict[str, float]:
+        """Finalizes the accumulator and return the RMSE for each key.
+
+        :param is_distributed: if true, the RMSE will be computed across all ranks
+            of the distributed system.
+        """
+
+        if is_distributed:
+
+            for key, value in self.information.items():
+                value = torch.tensor(value[0]).to(torch.cuda.current_device())
+                n_elems = torch.tensor(value[1]).to(torch.cuda.current_device())
+                torch.distributed.all_reduce(value)
+                torch.distributed.all_reduce(n_elems)
+                self.information[key] = (value.item(), n_elems.item())  # type: ignore
 
         finalized_info = {}
         for key, value in self.information.items():
