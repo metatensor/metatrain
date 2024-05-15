@@ -185,6 +185,7 @@ def export(model: torch.nn.Module, path: Union[str, Path]) -> None:
         atomic_types=model.capabilities.atomic_types,
         outputs=model.capabilities.outputs,
         supported_devices=["cpu", "cuda"],
+        interaction_range=model.capabilities.interaction_range,
     )
 
     wrapper = MetatensorAtomisticModel(

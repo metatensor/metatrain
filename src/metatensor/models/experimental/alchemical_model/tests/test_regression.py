@@ -40,6 +40,7 @@ def test_regression_init():
             )
         },
         supported_devices=["cpu"],
+        interaction_range=DEFAULT_HYPERS["model"]["cutoff"],
     )
     alchemical_model = Model(capabilities, DEFAULT_HYPERS["model"])
 

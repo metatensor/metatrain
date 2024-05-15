@@ -32,6 +32,7 @@ def test_regression_init():
                 unit="eV",
             )
         },
+        interaction_range=DEFAULT_HYPERS["model"]["cutoff"],
     )
     soap_bpnn = Model(capabilities, DEFAULT_HYPERS["model"])
 

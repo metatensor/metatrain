@@ -142,6 +142,8 @@ def train(
         outputs=outputs,
         atomic_types=all_species,
         supported_devices=["cpu", "cuda"],
+        interaction_range=ARCHITECTURAL_HYPERS["N_GNN_LAYERS"]
+        * ARCHITECTURAL_HYPERS["R_CUT"],
     )
 
     model = Model(capabilities, ARCHITECTURAL_HYPERS)

@@ -26,6 +26,7 @@ def test_prediction_subset():
             )
         },
         supported_devices=["cpu"],
+        interaction_range=DEFAULT_HYPERS["model"]["cutoff"],
     )
 
     alchemical_model = Model(capabilities, DEFAULT_HYPERS["model"])

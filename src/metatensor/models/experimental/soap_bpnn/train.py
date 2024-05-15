@@ -61,6 +61,7 @@ def train(
         outputs=outputs,
         atomic_types=all_species,
         supported_devices=["cpu", "cuda"],
+        interaction_range=hypers["model"]["cutoff"],
     )
 
     # Create the model:

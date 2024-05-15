@@ -19,6 +19,7 @@ def test_torchscript():
                 unit="eV",
             )
         },
+        interaction_range=DEFAULT_HYPERS["model"]["cutoff"],
     )
     soap_bpnn = Model(capabilities, DEFAULT_HYPERS["model"])
     soap_bpnn = torch.jit.script(soap_bpnn)
@@ -45,6 +46,7 @@ def test_torchscript_with_identity():
                 unit="eV",
             )
         },
+        interaction_range=DEFAULT_HYPERS["model"]["cutoff"],
     )
     hypers = copy.deepcopy(DEFAULT_HYPERS["model"])
     hypers["bpnn"]["layernorm"] = False
@@ -73,6 +75,7 @@ def test_torchscript_save():
                 unit="eV",
             )
         },
+        interaction_range=DEFAULT_HYPERS["model"]["cutoff"],
     )
     soap_bpnn = Model(capabilities, DEFAULT_HYPERS["model"])
     torch.jit.save(

@@ -30,6 +30,7 @@ def test_rotational_invariance():
             )
         },
         supported_devices=["cpu"],
+        interaction_range=DEFAULT_HYPERS["model"]["cutoff"],
     )
     alchemical_model = Model(capabilities, DEFAULT_HYPERS["model"])
     system = ase.io.read(DATASET_PATH)

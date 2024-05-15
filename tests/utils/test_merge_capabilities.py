@@ -11,6 +11,7 @@ def test_merge_capabilities():
             "energy": ModelOutput(quantity="energy", unit="eV"),
             "forces": ModelOutput(quantity="forces", unit="eV/Angstrom"),
         },
+        interaction_range=1.0,
     )
 
     new_capabilities = ModelCapabilities(
@@ -21,6 +22,7 @@ def test_merge_capabilities():
             "forces": ModelOutput(quantity="forces", unit="eV/Angstrom"),
             "stress": ModelOutput(quantity="stress", unit="GPa"),
         },
+        interaction_range=1.0,
     )
 
     merged, novel = merge_capabilities(old_capabilities, new_capabilities)

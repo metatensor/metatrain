@@ -19,6 +19,7 @@ def test_torchscript():
                 unit="eV",
             )
         },
+        interaction_range=DEFAULT_HYPERS["model"]["cutoff"],
     )
     alchemical_model = Model(capabilities, DEFAULT_HYPERS["model"])
     torch.jit.script(
@@ -38,6 +39,7 @@ def test_torchscript_save():
                 unit="eV",
             )
         },
+        interaction_range=DEFAULT_HYPERS["model"]["cutoff"],
     )
     alchemical_model = Model(capabilities, DEFAULT_HYPERS["model"])
     torch.jit.save(
