@@ -28,34 +28,34 @@ def get_average_number_of_atoms(
 def get_average_number_of_neighbors(
     datasets: List[Union[Dataset, torch.utils.data.Subset]]
 ) -> torch.Tensor:
-    """Calculate the average number of neighbors in a dataset.
+    """Calculate the average number of neighbor in a dataset.
 
     :param datasets: A list of datasets.
 
-    :return: A `torch.Tensor` object with the average number of neighbors.
+    :return: A `torch.Tensor` object with the average number of neighbor.
     """
     average_number_of_neighbors = []
     for dataset in datasets:
-        num_neighbors = []
+        num_neighbor = []
         dtype = dataset[0].system.positions.dtype
         for i in range(len(dataset)):
             system = dataset[i].system
-            known_neighbors_lists = system.known_neighbors_lists()
-            if len(known_neighbors_lists) == 0:
-                raise ValueError(f"system {system} does not have a neighbors list")
-            elif len(known_neighbors_lists) > 1:
+            known_neighbor_lists = system.known_neighbor_lists()
+            if len(known_neighbor_lists) == 0:
+                raise ValueError(f"system {system} does not have a neighbor list")
+            elif len(known_neighbor_lists) > 1:
                 raise ValueError(
-                    "More than one neighbors list per system is not yet supported"
+                    "More than one neighbor list per system is not yet supported"
                 )
-            nl = system.get_neighbors_list(known_neighbors_lists[0])
-            num_neighbors.append(
+            nl = system.get_neighbor_list(known_neighbor_lists[0])
+            num_neighbor.append(
                 torch.mean(
                     torch.unique(nl.samples["first_atom"], return_counts=True)[1].to(
                         dtype
                     )
                 )
             )
-        average_number_of_neighbors.append(torch.mean(torch.tensor(num_neighbors)))
+        average_number_of_neighbors.append(torch.mean(torch.tensor(num_neighbor)))
     return torch.tensor(average_number_of_neighbors)
 
 

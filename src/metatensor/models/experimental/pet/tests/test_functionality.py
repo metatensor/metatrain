@@ -11,7 +11,7 @@ from metatensor.torch.atomistic import (
 )
 
 from metatensor.models.experimental.pet import DEFAULT_HYPERS, Model
-from metatensor.models.utils.neighbors_lists import get_system_with_neighbors_lists
+from metatensor.models.utils.neighbor_lists import get_system_with_neighbor_lists
 
 
 def test_prediction():
@@ -32,7 +32,7 @@ def test_prediction():
     model = Model(capabilities, DEFAULT_HYPERS["ARCHITECTURAL_HYPERS"])
     structure = ase.Atoms("O2", positions=[[0.0, 0.0, 0.0], [0.0, 0.0, 1.0]])
     system = systems_to_torch(structure)
-    system = get_system_with_neighbors_lists(system, model.requested_neighbors_lists())
+    system = get_system_with_neighbor_lists(system, model.requested_neighbor_lists())
 
     evaluation_options = ModelEvaluationOptions(
         length_unit=capabilities.length_unit,
@@ -67,7 +67,7 @@ def test_per_atom_predictions_functionality():
     model = Model(capabilities, DEFAULT_HYPERS["ARCHITECTURAL_HYPERS"])
     structure = ase.Atoms("O2", positions=[[0.0, 0.0, 0.0], [0.0, 0.0, 1.0]])
     system = systems_to_torch(structure)
-    system = get_system_with_neighbors_lists(system, model.requested_neighbors_lists())
+    system = get_system_with_neighbor_lists(system, model.requested_neighbor_lists())
 
     evaluation_options = ModelEvaluationOptions(
         length_unit=capabilities.length_unit,
@@ -104,7 +104,7 @@ def test_selected_atoms_functionality():
         "O3", positions=[[0.0, 0.0, 0.0], [0.0, 0.0, 1.0], [0.0, 0.0, 2.0]]
     )
     system = systems_to_torch(structure)
-    system = get_system_with_neighbors_lists(system, model.requested_neighbors_lists())
+    system = get_system_with_neighbor_lists(system, model.requested_neighbor_lists())
 
     selected_atoms = Labels(
         ["system", "atom"],

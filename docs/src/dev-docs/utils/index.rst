@@ -17,6 +17,6 @@ This is the API for the ``utils`` module of ``metatensor-models``.
    loss
    merge_capabilities
    metrics
-   neighbors_lists
+   neighbor_lists
    omegaconf
    output_gradient

@@ -7,14 +7,14 @@ from metatensor.torch.atomistic import (
     ModelEvaluationOptions,
     ModelMetadata,
     ModelOutput,
-    NeighborsListOptions,
+    NeighborListOptions,
     systems_to_torch,
 )
 from pet.data_preparation import get_pyg_graphs
 from pet.hypers import Hypers
 
 from metatensor.models.experimental.pet import DEFAULT_HYPERS, Model
-from metatensor.models.utils.neighbors_lists import get_system_with_neighbors_lists
+from metatensor.models.utils.neighbor_lists import get_system_with_neighbor_lists
 
 
 @pytest.mark.parametrize("cutoff", [0.25, 5.0])
@@ -41,9 +41,9 @@ def test_predictions_compatibility(cutoff):
     structure = ase.Atoms("O2", positions=[[0.0, 0.0, 0.0], [0.0, 0.0, 1.0]])
     system = systems_to_torch(structure)
 
-    options = NeighborsListOptions(cutoff=cutoff, full_list=True)
+    options = NeighborListOptions(cutoff=cutoff, full_list=True)
 
-    system = get_system_with_neighbors_lists(system, [options])
+    system = get_system_with_neighbor_lists(system, [options])
 
     evaluation_options = ModelEvaluationOptions(
         length_unit=capabilities.length_unit,
@@ -78,8 +78,8 @@ def test_predictions_compatibility(cutoff):
         "mask": batch.mask,
         "batch": torch.tensor([0] * len(batch.central_species)),
         "nums": batch.nums,
-        "neighbors_index": batch.neighbors_index.transpose(0, 1),
-        "neighbors_pos": batch.neighbors_pos,
+        "neighbor_index": batch.neighbor_index.transpose(0, 1),
+        "neighbor_pos": batch.neighbor_pos,
     }
 
     pet = model._module.pet

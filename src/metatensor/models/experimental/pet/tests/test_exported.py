@@ -12,7 +12,7 @@ from metatensor.torch.atomistic import (
 
 from metatensor.models.experimental.pet import DEFAULT_HYPERS, Model
 from metatensor.models.utils.io import export, load
-from metatensor.models.utils.neighbors_lists import get_system_with_neighbors_lists
+from metatensor.models.utils.neighbor_lists import get_system_with_neighbor_lists
 
 
 @pytest.mark.parametrize("device", ["cpu", "cuda"])
@@ -41,9 +41,7 @@ def test_to(tmp_path, device):
 
     system = ase.Atoms("O2", positions=[[0.0, 0.0, 0.0], [0.0, 0.0, 1.0]])
     system = systems_to_torch(system, dtype=torch.get_default_dtype())
-    system = get_system_with_neighbors_lists(
-        system, exported.requested_neighbors_lists()
-    )
+    system = get_system_with_neighbor_lists(system, exported.requested_neighbor_lists())
     system = system.to(device=device, dtype=dtype)
 
     evaluation_options = ModelEvaluationOptions(

@@ -9,7 +9,7 @@ from metatensor.models.experimental import soap_bpnn
 from metatensor.models.utils.data import read_systems
 from metatensor.models.utils.evaluate_model import evaluate_model
 from metatensor.models.utils.io import export
-from metatensor.models.utils.neighbors_lists import get_system_with_neighbors_lists
+from metatensor.models.utils.neighbor_lists import get_system_with_neighbor_lists
 
 
 RESOURCES_PATH = Path(__file__).parent.resolve() / ".." / "resources"
@@ -45,7 +45,7 @@ def test_evaluate_model(tmp_path, training, exported):
         export(model, "model.pt")
         model = torch.jit.load("model.pt")
         systems = [
-            get_system_with_neighbors_lists(system, model.requested_neighbors_lists())
+            get_system_with_neighbor_lists(system, model.requested_neighbor_lists())
             for system in systems
         ]
 

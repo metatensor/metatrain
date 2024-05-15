@@ -1,11 +1,11 @@
 from typing import Dict, List
 
 import torch
-from metatensor.torch.atomistic import NeighborsListOptions, System
+from metatensor.torch.atomistic import NeighborListOptions, System
 
 
 def systems_to_torch_alchemical_batch(
-    systems: List[System], nl_options: NeighborsListOptions
+    systems: List[System], nl_options: NeighborListOptions
 ) -> Dict[str, torch.Tensor]:
     """
     Convert a list of metatensor.torch.atomistic.Systems to a dictionary of torch
@@ -22,7 +22,7 @@ def systems_to_torch_alchemical_batch(
     edge_index_list = []
     edge_offsets_list = []
     for i, system in enumerate(systems):
-        nl = system.get_neighbors_list(nl_options)
+        nl = system.get_neighbor_list(nl_options)
         samples = nl.samples
         edge_index_item = torch.stack(
             (samples.column("first_atom"), samples.column("second_atom")), dim=0

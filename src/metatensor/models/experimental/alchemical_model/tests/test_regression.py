@@ -17,7 +17,7 @@ from omegaconf import OmegaConf
 from metatensor.models.experimental.alchemical_model import DEFAULT_HYPERS, Model, train
 from metatensor.models.utils.data import DatasetInfo, TargetInfo
 from metatensor.models.utils.data.readers import read_systems, read_targets
-from metatensor.models.utils.neighbors_lists import get_system_with_neighbors_lists
+from metatensor.models.utils.neighbor_lists import get_system_with_neighbor_lists
 
 from . import DATASET_PATH
 
@@ -47,8 +47,8 @@ def test_regression_init():
     systems = ase.io.read(DATASET_PATH, ":5")
     systems = [systems_to_torch(system) for system in systems]
     systems = [
-        get_system_with_neighbors_lists(
-            system, alchemical_model.requested_neighbors_lists()
+        get_system_with_neighbor_lists(
+            system, alchemical_model.requested_neighbor_lists()
         )
         for system in systems
     ]

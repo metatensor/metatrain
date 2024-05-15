@@ -5,7 +5,7 @@ from metatensor.torch import Labels, TensorBlock, TensorMap
 from metatensor.torch.atomistic import (
     ModelCapabilities,
     ModelOutput,
-    NeighborsListOptions,
+    NeighborListOptions,
     System,
 )
 from omegaconf import OmegaConf
@@ -38,11 +38,11 @@ class Model(torch.nn.Module):
             unique_numbers=self.all_species, **hypers["soap"], **hypers["bpnn"]
         )
 
-    def requested_neighbors_lists(
+    def requested_neighbor_lists(
         self,
-    ) -> List[NeighborsListOptions]:
+    ) -> List[NeighborListOptions]:
         return [
-            NeighborsListOptions(
+            NeighborListOptions(
                 cutoff=self.cutoff,
                 full_list=True,
             )
@@ -58,7 +58,7 @@ class Model(torch.nn.Module):
             raise NotImplementedError(
                 "Alchemical Model does not support selected atoms."
             )
-        options = self.requested_neighbors_lists()[0]
+        options = self.requested_neighbor_lists()[0]
         batch = systems_to_torch_alchemical_batch(systems, options)
         predictions = self.alchemical_model(
             positions=batch["positions"],
