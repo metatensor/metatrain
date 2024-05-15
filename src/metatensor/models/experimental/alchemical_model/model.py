@@ -8,20 +8,10 @@ from metatensor.torch.atomistic import (
     NeighborsListOptions,
     System,
 )
-from omegaconf import OmegaConf
 from torch_alchemical.models import AlchemicalModel
 
-from ... import ARCHITECTURE_CONFIG_PATH
+from . import ARCHITECTURE_NAME, DEFAULT_MODEL_HYPERS
 from .utils import systems_to_torch_alchemical_batch
-
-
-DEFAULT_HYPERS = OmegaConf.to_container(
-    OmegaConf.load(ARCHITECTURE_CONFIG_PATH / "experimental.alchemical_model.yaml")
-)
-
-DEFAULT_MODEL_HYPERS = DEFAULT_HYPERS["model"]
-
-ARCHITECTURE_NAME = "experimental.alchemical_model"
 
 
 class Model(torch.nn.Module):

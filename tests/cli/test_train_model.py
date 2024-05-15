@@ -12,7 +12,7 @@ import torch
 from omegaconf import OmegaConf
 from omegaconf.errors import ConfigKeyError
 
-from metatensor.models.cli.train import check_architecture_name, train_model
+from metatensor.models.cli.train import train_model
 from metatensor.models.utils.errors import ArchitectureError
 
 
@@ -427,26 +427,3 @@ def test_architecture_error(options, monkeypatch, tmp_path):
 
     with pytest.raises(ArchitectureError, match="originates from an architecture"):
         train_model(options)
-
-
-def test_check_architecture_name():
-    check_architecture_name("experimental.soap_bpnn")
-
-
-def test_check_architecture_name_suggest():
-    name = "soap-bpnn"
-    match = f"Architecture {name!r} is not a valid architecture."
-    with pytest.raises(ValueError, match=match):
-        check_architecture_name(name)
-
-
-def test_check_architecture_name_experimental():
-    with pytest.raises(
-        ValueError, match="experimental architecture with the same name"
-    ):
-        check_architecture_name("soap_bpnn")
-
-
-def test_check_architecture_name_deprecated():
-    # Create once a deprecated architecture exist
-    pass
