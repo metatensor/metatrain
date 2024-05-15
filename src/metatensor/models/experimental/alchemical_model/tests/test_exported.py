@@ -45,11 +45,11 @@ def test_to(tmp_path, device, dtype):
         interaction_range=DEFAULT_HYPERS["model"]["soap"]["cutoff"],
         dtype=dtype_string,
     )
-    model = Model(capabilities, DEFAULT_HYPERS["model"])
+    model = Model(capabilities, DEFAULT_HYPERS["model"]).to(dtype=dtype)
     export(model, "model.pt")
     exported = load("model.pt")
 
-    exported.to(device=device, dtype=dtype)
+    exported.to(device=device)
 
     system = ase.Atoms("O2", positions=[[0.0, 0.0, 0.0], [0.0, 0.0, 1.0]])
     system = systems_to_torch(system, dtype=torch.get_default_dtype())
