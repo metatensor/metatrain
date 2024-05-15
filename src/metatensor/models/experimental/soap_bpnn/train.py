@@ -25,7 +25,8 @@ from ...utils.loss import TensorMapDictLoss
 from ...utils.merge_capabilities import merge_capabilities
 from ...utils.metrics import RMSEAccumulator
 from ...utils.per_atom import divide_by_num_atoms
-from .model import DEFAULT_HYPERS, Model
+from . import DEFAULT_HYPERS
+from .model import Model
 
 
 logger = logging.getLogger(__name__)

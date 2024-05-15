@@ -7,6 +7,7 @@ This is the API for the ``utils`` module of ``metatensor-models``.
    :maxdepth: 1
 
    data/index
+   architectures
    composition
    devices
    errors

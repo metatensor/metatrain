@@ -12,7 +12,8 @@ from pet.train_model import fit_pet
 
 from ...utils.data import DatasetInfo, check_datasets, collate_fn, get_all_species
 from ...utils.data.system_to_ase import system_to_ase
-from .model import DEFAULT_HYPERS, Model
+from . import DEFAULT_HYPERS
+from .model import Model
 
 
 logger = logging.getLogger(__name__)

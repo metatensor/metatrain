@@ -25,7 +25,8 @@ from ...utils.merge_capabilities import merge_capabilities
 from ...utils.metrics import RMSEAccumulator
 from ...utils.neighbor_lists import get_system_with_neighbor_lists
 from ...utils.per_atom import divide_by_num_atoms
-from .model import DEFAULT_HYPERS, Model
+from . import DEFAULT_HYPERS
+from .model import Model
 from .utils.normalize import (
     get_average_number_of_atoms,
     get_average_number_of_neighbors,

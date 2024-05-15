@@ -9,26 +9,11 @@ from metatensor.torch.atomistic import (
     NeighborListOptions,
     System,
 )
-from omegaconf import OmegaConf
 from pet.hypers import Hypers
 from pet.pet import PET
 
-from ... import ARCHITECTURE_CONFIG_PATH
+from . import ARCHITECTURE_NAME, DEFAULT_MODEL_HYPERS
 from .utils import systems_to_batch_dict
-
-
-DEFAULT_HYPERS = OmegaConf.to_container(
-    OmegaConf.load(ARCHITECTURE_CONFIG_PATH / "experimental.pet.yaml")
-)
-
-DEFAULT_MODEL_HYPERS = DEFAULT_HYPERS["ARCHITECTURAL_HYPERS"]
-
-# We hardcode some of the hypers to make PET work as a MLIP.
-DEFAULT_MODEL_HYPERS.update(
-    {"D_OUTPUT": 1, "TARGET_TYPE": "atomic", "TARGET_AGGREGATION": "sum"}
-)
-
-ARCHITECTURE_NAME = "experimental.pet"
 
 
 class Model(torch.nn.Module):

@@ -5,17 +5,9 @@ import rascaline.torch
 import torch
 from metatensor.torch import Labels, TensorBlock, TensorMap
 from metatensor.torch.atomistic import ModelCapabilities, ModelOutput, System
-from omegaconf import OmegaConf
 
-from ... import ARCHITECTURE_CONFIG_PATH
 from ...utils.composition import apply_composition_contribution
-
-
-ARCHITECTURE_NAME = "experimental.soap_bpnn"
-DEFAULT_HYPERS = OmegaConf.to_container(
-    OmegaConf.load(ARCHITECTURE_CONFIG_PATH / f"{ARCHITECTURE_NAME}.yaml")
-)
-DEFAULT_MODEL_HYPERS = DEFAULT_HYPERS["model"]
+from . import ARCHITECTURE_NAME, DEFAULT_MODEL_HYPERS
 
 
 class Identity(torch.nn.Module):
