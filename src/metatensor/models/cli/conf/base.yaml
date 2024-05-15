@@ -1,3 +1,0 @@
-device: ${default_device:}
-base_precision: ${default_precision:}
-seed: ${default_random_seed:}

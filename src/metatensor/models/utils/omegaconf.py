@@ -81,6 +81,15 @@ def _resolve_single_str(config: str) -> DictConfig:
 
 
 # BASE CONFIGURATIONS
+BASE_OPTIONS = OmegaConf.create(
+    {
+        "device": "${default_device:}",
+        "base_precision": "${default_precision:}",
+        "seed": "${default_random_seed:}",
+    }
+)
+
+
 CONF_SYSTEMS = OmegaConf.create(
     {
         "read_from": "${..read_from}",

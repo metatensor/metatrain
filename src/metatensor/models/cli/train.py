@@ -1,10 +1,8 @@
 import argparse
-import difflib
 import importlib
 import logging
 import os
 import random
-from importlib.util import find_spec
 from pathlib import Path
 from typing import Dict, Optional, Union
 
@@ -14,13 +12,18 @@ from metatensor.learn.data import Dataset
 from omegaconf import DictConfig, OmegaConf
 from omegaconf.errors import ConfigKeyError
 
-from .. import ARCHITECTURE_CONFIG_PATH, CONFIG_PATH
+from ..utils.architectures import check_architecture_name
 from ..utils.data import DatasetInfo, TargetInfo, read_systems, read_targets
 from ..utils.data.dataset import _train_test_random_split
 from ..utils.devices import pick_devices
 from ..utils.errors import ArchitectureError
 from ..utils.io import check_suffix, export, save
-from ..utils.omegaconf import check_options_list, check_units, expand_dataset_config
+from ..utils.omegaconf import (
+    BASE_OPTIONS,
+    check_options_list,
+    check_units,
+    expand_dataset_config,
+)
 from .eval import _eval_targets
 from .formatter import CustomHelpFormatter
 
@@ -76,49 +79,6 @@ def _add_train_model_parser(subparser: argparse._SubParsersAction) -> None:
     )
 
 
-def check_architecture_name(name: str) -> None:
-    """Check if the requested architecture is avalible.
-
-    If the architecture is not found an :func:`ValueError` is raised. If an architecture
-    with the same name as an experimental or deprecated architecture exist, this
-    architecture is suggested. If no architecture exist the closest architecture is
-    given to help debugging typos.
-
-    :param name: name of the architecture
-    :raises ValueError: if the architecture is not found
-    """
-    try:
-        if find_spec(f"metatensor.models.{name}") is not None:
-            return
-        elif find_spec(f"metatensor.models.experimental.{name}") is not None:
-            msg = (
-                f"Architecture {name!r} is not a stable architecture. An "
-                "experimental architecture with the same name was found. Set "
-                f"`name: experimental.{name}` in your options file to use this "
-                "experimental architecture."
-            )
-        elif find_spec(f"metatensor.models.deprecated.{name}") is not None:
-            msg = (
-                f"Architecture {name!r} is not a stable architecture. A "
-                "deprecated architecture with the same name was found. Set "
-                f"`name: deprecated.{name}` in your options file to use this "
-                "deprecated architecture."
-            )
-    except ModuleNotFoundError:
-        arch_avail = [
-            f.stem
-            for f in (Path(CONFIG_PATH) / "architecture").iterdir()
-            if f.is_file()
-        ]
-        closest_match = difflib.get_close_matches(name, arch_avail, cutoff=0.3)
-        msg = (
-            f"Architecture {name!r} is not a valid architecture. Do you mean "
-            f"{', '.join(closest_match)}?"
-        )
-
-    raise ValueError(msg)
-
-
 def train_model(
     options: Union[DictConfig, Dict],
     output: str = "model.pt",
@@ -150,16 +110,8 @@ def train_model(
 
     # Create training options merging base, architecture, user and override options in
     # order of importance.
-    base_options = OmegaConf.load(f"{CONFIG_PATH}/base.yaml")
-    architecture_options = OmegaConf.create(
-        {
-            "architecture": OmegaConf.load(
-                f"{ARCHITECTURE_CONFIG_PATH}/{architecture_name}.yaml"
-            )
-        }
-    )
-
-    options = OmegaConf.merge(base_options, architecture_options, options)
+    architecture_default_hypers = {"architecture": architecture.DEFAULT_HYPERS}
+    options = OmegaConf.merge(BASE_OPTIONS, architecture_default_hypers, options)
 
     ###########################
     # PROCESS BASE PARAMETERS #
