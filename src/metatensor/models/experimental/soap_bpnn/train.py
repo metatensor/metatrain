@@ -48,9 +48,6 @@ def train(
     continue_from: Optional[str] = None,
     checkpoint_dir: str = ".",
 ):
-    # TODO: check that we're only training on energy targets.
-    # also in alchemical
-
     all_species = get_all_species(train_datasets + validation_datasets)
     outputs = {
         key: ModelOutput(

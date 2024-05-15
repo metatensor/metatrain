@@ -284,7 +284,8 @@ def train_model(
     ###########################
     logger.info("Setting up model")
 
-    # TODO: make gradients more flexible and explicit in the extraction
+    # TODO: A more direct way to look up the gradients would be to get them from
+    # the configuration dict of the training run.
     gradients: Dict[str, List[str]] = {}
     for train_options in train_options_list:
         for key in train_options["targets"].keys():

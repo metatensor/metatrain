@@ -285,19 +285,16 @@ class Model(torch.nn.Module):
         last_layer_features = self.bpnn(soap_features)
 
         # output the hidden features, if requested:
-        if "mtm::aux::last_layer_features" in outputs.keys():
-            last_layer_features_options = outputs[
-                "mtm::aux::last_layer_features"
-            ]
+        if "mtm::aux::last_layer_features" in outputs:
+            last_layer_features_options = outputs["mtm::aux::last_layer_features"]
             out_features = last_layer_features.keys_to_properties(
                 self.center_type_labels.to(device)
             )
-            if last_layer_features_options.per_atom:
-                return_dict["mtm::aux::last_layer_features"] = out_features
-            else:
-                return_dict["mtm::aux::last_layer_features"] = (
-                    metatensor.torch.sum_over_samples(out_features, ["atom"])
-                )
+            if not last_layer_features_options.per_atom:
+                out_features = metatensor.torch.sum_over_samples(out_features, ["atom"])
+            return_dict["mtm::aux::last_layer_features"] = (
+                _remove_center_type_from_properties(out_features)
+            )
 
         atomic_energies: Dict[str, TensorMap] = {}
         for output_name, output_layer in self.last_layers.items():
@@ -361,3 +358,22 @@ class Model(torch.nn.Module):
         else:
             n_inputs_last_layer = hypers_bpnn["num_neurons_per_layer"]
         self.last_layers[output_name] = LinearMap(self.all_species, n_inputs_last_layer)
+
+
+def _remove_center_type_from_properties(tensor_map: TensorMap) -> TensorMap:
+    new_blocks: List[TensorBlock] = []
+    for block in tensor_map.blocks():
+        new_blocks.append(
+            TensorBlock(
+                values=block.values,
+                samples=block.samples,
+                components=block.components,
+                properties=Labels(
+                    names=["properties"],
+                    values=torch.arange(
+                        block.values.shape[-1], device=block.values.device
+                    ).reshape(-1, 1),
+                ),
+            )
+        )
+    return TensorMap(keys=tensor_map.keys, blocks=new_blocks)

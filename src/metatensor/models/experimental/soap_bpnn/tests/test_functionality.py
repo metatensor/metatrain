@@ -135,16 +135,16 @@ def test_output_last_layer_features():
     )
     assert "energy" in outputs
     assert "mtm::aux::last_layer_features" in outputs
-    assert outputs["mtm::aux::last_layer_features"].block().samples.names == [
+    last_layer_features = outputs["mts-models::aux::last_layer_features"].block()
+    assert last_layer_features.samples.names == [
         "system",
         "atom",
     ]
-    assert outputs["mtm::aux::last_layer_features"].block().values.shape == (
+    assert last_layer_features.values.shape == (
         4,
         128,
     )
-    assert outputs["mtm::aux::last_layer_features"].block().properties.names == [
-        "center_type",
+    assert last_layer_features.properties.names == [
         "properties",
     ]
 
@@ -163,9 +163,7 @@ def test_output_last_layer_features():
     )
     assert "energy" in outputs
     assert "mtm::aux::last_layer_features" in outputs
-    assert outputs["mtm::aux::last_layer_features"].block().samples.names == [
-        "system"
-    ]
+    assert outputs["mtm::aux::last_layer_features"].block().samples.names == ["system"]
     assert outputs["mtm::aux::last_layer_features"].block().values.shape == (
         1,
         128,
