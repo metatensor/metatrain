@@ -2,10 +2,10 @@ from pathlib import Path
 
 import pytest
 import torch
-from metatensor.learn.data import Dataset
 from omegaconf import OmegaConf
 
 from metatensor.models.utils.data import (
+    Dataset,
     DatasetInfo,
     TargetInfo,
     check_datasets,
@@ -56,7 +56,7 @@ def test_dataset():
         }
     }
     targets = read_targets(OmegaConf.create(conf))
-    dataset = Dataset(system=systems, energy=targets["energy"])
+    dataset = Dataset({"system": systems, "energy": targets["energy"]})
     dataloader = torch.utils.data.DataLoader(
         dataset, batch_size=10, collate_fn=collate_fn
     )
@@ -94,8 +94,8 @@ def test_get_all_species():
     }
     targets = read_targets(OmegaConf.create(conf))
     targets_2 = read_targets(OmegaConf.create(conf_2))
-    dataset = Dataset(system=systems, **targets)
-    dataset_2 = Dataset(system=systems_2, **targets_2)
+    dataset = Dataset({"system": systems, **targets})
+    dataset_2 = Dataset({"system": systems_2, **targets_2})
     assert get_all_species(dataset) == [1, 6, 7, 8]
     assert get_all_species(dataset_2) == [1, 6, 8]
     assert get_all_species([dataset, dataset_2]) == [1, 6, 7, 8]
@@ -130,8 +130,8 @@ def test_get_all_targets():
     }
     targets = read_targets(OmegaConf.create(conf))
     targets_2 = read_targets(OmegaConf.create(conf_2))
-    dataset = Dataset(system=systems, **targets)
-    dataset_2 = Dataset(system=systems_2, **targets_2)
+    dataset = Dataset({"system": systems, **targets})
+    dataset_2 = Dataset({"system": systems_2, **targets_2})
     assert get_all_targets(dataset) == ["U0"]
     assert get_all_targets(dataset_2) == ["energy"]
     assert get_all_targets([dataset, dataset_2]) == ["U0", "energy"]
@@ -168,19 +168,19 @@ def test_check_datasets():
     targets_ethanol = read_targets(OmegaConf.create(conf_ethanol))
 
     # everything ok
-    training_set = Dataset(system=systems_qm9, **targets_qm9)
-    validation_set = Dataset(system=systems_qm9, **targets_qm9)
+    training_set = Dataset({"system": systems_qm9, **targets_qm9})
+    validation_set = Dataset({"system": systems_qm9, **targets_qm9})
     check_datasets([training_set], [validation_set])
 
     # extra species in validation dataset
-    training_set = Dataset(system=systems_ethanol, **targets_qm9)
-    validation_set = Dataset(system=systems_qm9, **targets_qm9)
+    training_set = Dataset({"system": systems_ethanol, **targets_qm9})
+    validation_set = Dataset({"system": systems_qm9, **targets_qm9})
     with pytest.raises(ValueError, match="The validation dataset has a species"):
         check_datasets([training_set], [validation_set])
 
     # extra targets in validation dataset
-    training_set = Dataset(system=systems_qm9, **targets_qm9)
-    validation_set = Dataset(system=systems_qm9, **targets_ethanol)
+    training_set = Dataset({"system": systems_qm9, **targets_qm9})
+    validation_set = Dataset({"system": systems_qm9, **targets_ethanol})
     with pytest.raises(ValueError, match="The validation dataset has a target"):
         check_datasets([training_set], [validation_set])
 
@@ -188,7 +188,7 @@ def test_check_datasets():
     systems_qm9_64_bit = read_systems(
         RESOURCES_PATH / "qm9_reduced_100.xyz", dtype=torch.float64
     )
-    training_set_64_bit = Dataset(system=systems_qm9_64_bit, **targets_qm9)
+    training_set_64_bit = Dataset({"system": systems_qm9_64_bit, **targets_qm9})
     match = (
         "`dtype` between datasets is inconsistent, found torch.float32 and "
         "torch.float64 found in `validation_datasets`"

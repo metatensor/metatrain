@@ -5,11 +5,16 @@ from typing import Dict, List, Optional, Union
 
 import metatensor.torch
 import torch
-from metatensor.learn.data.dataset import Dataset
 from metatensor.torch import Labels, TensorBlock, TensorMap
 from omegaconf import DictConfig, OmegaConf
 
-from ..utils.data import collate_fn, read_systems, read_targets, write_predictions
+from ..utils.data import (
+    Dataset,
+    collate_fn,
+    read_systems,
+    read_targets,
+    write_predictions,
+)
 from ..utils.errors import ArchitectureError
 from ..utils.evaluate_model import evaluate_model
 from ..utils.io import load
@@ -243,7 +248,7 @@ def eval_model(
                 target: gradients for target in model.capabilities().outputs.keys()
             }
 
-        eval_dataset = Dataset(system=eval_systems, **eval_targets)
+        eval_dataset = Dataset({"system": eval_systems, **eval_targets})
 
         # Evaluate the model
         try:

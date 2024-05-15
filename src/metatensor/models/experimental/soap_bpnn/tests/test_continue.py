@@ -2,13 +2,12 @@ import shutil
 
 import pytest
 import torch
-from metatensor.learn.data import Dataset
 from metatensor.torch.atomistic import ModelCapabilities, ModelOutput
 from omegaconf import OmegaConf
 
 import metatensor.models
 from metatensor.models.experimental.soap_bpnn import DEFAULT_HYPERS, Model, train
-from metatensor.models.utils.data import DatasetInfo, TargetInfo
+from metatensor.models.utils.data import Dataset, DatasetInfo, TargetInfo
 from metatensor.models.utils.data.readers import read_systems, read_targets
 from metatensor.models.utils.io import export, save
 
@@ -28,7 +27,7 @@ def test_continue(monkeypatch, tmp_path):
         length_unit="Angstrom",
         atomic_types=[1, 6, 7, 8],
         outputs={
-            "metatensor-models::U0": ModelOutput(
+            "mtm::U0": ModelOutput(
                 quantity="energy",
                 unit="eV",
             )
@@ -38,13 +37,13 @@ def test_continue(monkeypatch, tmp_path):
     )
     model_before = Model(capabilities, DEFAULT_HYPERS["model"])
     output_before = model_before(
-        systems[:5], {"metatensor-models::U0": model_before.capabilities.outputs["U0"]}
+        systems[:5], {"mtm::U0": model_before.capabilities.outputs["mtm::U0"]}
     )
 
     save(model_before, "model.ckpt")
 
     conf = {
-        "metatensor-models::U0": {
+        "mtm::U0": {
             "quantity": "energy",
             "read_from": DATASET_PATH,
             "file_format": ".xyz",
@@ -55,7 +54,7 @@ def test_continue(monkeypatch, tmp_path):
         }
     }
     targets = read_targets(OmegaConf.create(conf))
-    dataset = Dataset(system=systems, U0=targets["U0"])
+    dataset = Dataset({"system": systems, "mtm::U0": targets["mtm::U0"]})
 
     hypers = DEFAULT_HYPERS.copy()
     hypers["training"]["num_epochs"] = 0
@@ -63,7 +62,7 @@ def test_continue(monkeypatch, tmp_path):
     dataset_info = DatasetInfo(
         length_unit="Angstrom",
         targets={
-            "metatensor-models::U0": TargetInfo(
+            "mtm::U0": TargetInfo(
                 quantity="energy",
                 unit="eV",
             ),
@@ -80,10 +79,10 @@ def test_continue(monkeypatch, tmp_path):
 
     # Predict on the first five systems
     output_after = model_after(
-        systems[:5], {"metatensor-models::U0": model_after.capabilities.outputs["U0"]}
+        systems[:5], {"mtm::U0": model_after.capabilities.outputs["mtm::U0"]}
     )
 
-    assert metatensor.torch.allclose(output_before["U0"], output_after["U0"])
+    assert metatensor.torch.allclose(output_before["mtm::U0"], output_after["mtm::U0"])
 
     # test error raise of model is already exported
     export(model_before, "exported.pt")

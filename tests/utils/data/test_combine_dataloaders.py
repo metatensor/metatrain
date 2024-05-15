@@ -1,11 +1,12 @@
 from pathlib import Path
 
 import numpy as np
-from metatensor.learn.data import DataLoader, Dataset
 from omegaconf import OmegaConf
+from torch.utils.data import DataLoader
 
 from metatensor.models.utils.data import (
     CombinedDataLoader,
+    Dataset,
     collate_fn,
     read_systems,
     read_targets,
@@ -34,7 +35,7 @@ def test_without_shuffling():
         }
     }
     targets = read_targets(OmegaConf.create(conf))
-    dataset = Dataset(system=systems, U0=targets["U0"])
+    dataset = Dataset({"system": systems, "mtm::U0": targets["mtm::U0"]})
     dataloader_qm9 = DataLoader(dataset, batch_size=10, collate_fn=collate_fn)
     # will yield 10 batches of 10
 
@@ -52,7 +53,9 @@ def test_without_shuffling():
         }
     }
     targets = read_targets(OmegaConf.create(conf))
-    dataset = Dataset(system=systems, free_energy=targets["free_energy"])
+    dataset = Dataset(
+        {"system": systems, "mtm::free_energy": targets["mtm::free_energy"]}
+    )
     dataloader_alchemical = DataLoader(dataset, batch_size=2, collate_fn=collate_fn)
     # will yield 5 batches of 2
 
@@ -87,7 +90,7 @@ def test_with_shuffling():
         }
     }
     targets = read_targets(OmegaConf.create(conf))
-    dataset = Dataset(system=systems, U0=targets["U0"])
+    dataset = Dataset({"system": systems, "mtm::U0": targets["mtm::U0"]})
     dataloader_qm9 = DataLoader(
         dataset, batch_size=10, collate_fn=collate_fn, shuffle=True
     )
@@ -107,7 +110,9 @@ def test_with_shuffling():
         }
     }
     targets = read_targets(OmegaConf.create(conf))
-    dataset = Dataset(system=systems, free_energy=targets["free_energy"])
+    dataset = Dataset(
+        {"system": systems, "mtm::free_energy": targets["mtm::free_energy"]}
+    )
     dataloader_alchemical = DataLoader(
         dataset, batch_size=2, collate_fn=collate_fn, shuffle=True
     )

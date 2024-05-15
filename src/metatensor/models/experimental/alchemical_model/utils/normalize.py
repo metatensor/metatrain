@@ -1,8 +1,9 @@
 from typing import List, Union
 
 import torch
-from metatensor.learn.data.dataset import Dataset
 from metatensor.torch import TensorBlock, TensorMap
+
+from metatensor.models.utils.data import Dataset
 
 
 def get_average_number_of_atoms(
@@ -39,10 +40,10 @@ def get_average_number_of_neighbors(
         num_neighbor = []
         dtype = dataset[0].system.positions.dtype
         for i in range(len(dataset)):
-            system = dataset[i].system
-            known_neighbor_lists = system.known_neighbor_lists()
+            system = dataset[i]["system"]
+            known_neighbor_lists = system.known_neighbors_lists()
             if len(known_neighbor_lists) == 0:
-                raise ValueError(f"system {system} does not have a neighbor list")
+                raise ValueError(f"system {system} does not have a neighbors list")
             elif len(known_neighbor_lists) > 1:
                 raise ValueError(
                     "More than one neighbor list per system is not yet supported"

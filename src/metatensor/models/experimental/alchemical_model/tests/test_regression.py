@@ -3,7 +3,6 @@ import random
 import ase.io
 import numpy as np
 import torch
-from metatensor.learn.data import Dataset
 from metatensor.torch.atomistic import (
     MetatensorAtomisticModel,
     ModelCapabilities,
@@ -15,7 +14,7 @@ from metatensor.torch.atomistic import (
 from omegaconf import OmegaConf
 
 from metatensor.models.experimental.alchemical_model import DEFAULT_HYPERS, Model, train
-from metatensor.models.utils.data import DatasetInfo, TargetInfo
+from metatensor.models.utils.data import Dataset, DatasetInfo, TargetInfo
 from metatensor.models.utils.data.readers import read_systems, read_targets
 from metatensor.models.utils.neighbor_lists import get_system_with_neighbor_lists
 
@@ -98,7 +97,7 @@ def test_regression_train():
         }
     }
     targets = read_targets(OmegaConf.create(conf))
-    dataset = Dataset(system=systems, U0=targets["U0"])
+    dataset = Dataset({"system": systems, "mtm::U0": targets["mtm::U0"]})
 
     hypers = DEFAULT_HYPERS.copy()
     hypers["training"]["num_epochs"] = 2
@@ -106,7 +105,7 @@ def test_regression_train():
     dataset_info = DatasetInfo(
         length_unit="Angstrom",
         targets={
-            "metatensor-models::U0": TargetInfo(
+            "mtm::U0": TargetInfo(
                 quantity="energy",
                 unit="eV",
             ),

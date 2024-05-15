@@ -4,13 +4,18 @@ from typing import Dict, List, Optional, Union
 
 import torch
 from metatensor.learn.data import DataLoader
-from metatensor.learn.data.dataset import Dataset
 from metatensor.torch.atomistic import ModelCapabilities, ModelOutput
 from pet.hypers import Hypers
 from pet.pet import PET
 from pet.train_model import fit_pet
 
-from ...utils.data import DatasetInfo, check_datasets, collate_fn, get_all_species
+from ...utils.data import (
+    Dataset,
+    DatasetInfo,
+    check_datasets,
+    collate_fn,
+    get_all_species,
+)
 from ...utils.data.system_to_ase import system_to_ase
 from . import DEFAULT_HYPERS
 from .model import Model

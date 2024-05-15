@@ -5,12 +5,12 @@ from typing import Dict, List, Optional, Union
 
 import torch
 from metatensor.learn.data import DataLoader
-from metatensor.learn.data.dataset import Dataset
 from metatensor.torch.atomistic import ModelCapabilities, ModelOutput
 
 from ...utils.composition import calculate_composition_weights
 from ...utils.data import (
     CombinedDataLoader,
+    Dataset,
     DatasetInfo,
     check_datasets,
     collate_fn,
@@ -57,7 +57,7 @@ def train(
         )
         for key, value in dataset_info.targets.items()
     }
-    dtype = train_datasets[0][0].system.positions.dtype
+    dtype = train_datasets[0][0]["system"].positions.dtype
     if dtype == torch.float64:
         dtype_string = "float64"
     elif dtype == torch.float32:
