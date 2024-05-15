@@ -24,6 +24,13 @@ def test_to(tmp_path, device, dtype):
 
     os.chdir(tmp_path)
 
+    if dtype == torch.float32:
+        dtype_string = "float32"
+    elif dtype == torch.float64:
+        dtype_string = "float64"
+    else:
+        raise ValueError(f"Unsupported dtype: {dtype}")
+
     capabilities = ModelCapabilities(
         length_unit="Angstrom",
         atomic_types=[1, 6, 7, 8],
@@ -34,7 +41,7 @@ def test_to(tmp_path, device, dtype):
             )
         },
         interaction_range=DEFAULT_HYPERS["model"]["soap"]["cutoff"],
-        dtype="float32",
+        dtype=dtype_string,
     )
     model = Model(capabilities, DEFAULT_HYPERS["model"])
     export(model, "model.pt")
