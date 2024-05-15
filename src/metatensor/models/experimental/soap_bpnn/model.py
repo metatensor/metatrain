@@ -260,7 +260,7 @@ class Model(torch.nn.Module):
 
         self.bpnn = MLPMap(self.all_species, hypers_bpnn)
 
-        self.neighbor_species_labels = Labels(
+        self.neighbors_species_labels = Labels(
             names=["neighbor_1_type", "neighbor_2_type"],
             values=torch.combinations(
                 torch.tensor(self.all_species, dtype=torch.int),
@@ -291,7 +291,7 @@ class Model(torch.nn.Module):
 
         device = soap_features.block(0).values.device
         soap_features = soap_features.keys_to_properties(
-            self.neighbor_species_labels.to(device)
+            self.neighbors_species_labels.to(device)
         )
 
         soap_features = self.layernorm(soap_features)

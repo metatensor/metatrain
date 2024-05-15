@@ -81,8 +81,8 @@ def test_predictions_compatibility(cutoff):
         "mask": batch.mask,
         "batch": torch.tensor([0] * len(batch.central_species)),
         "nums": batch.nums,
-        "neighbor_index": batch.neighbor_index.transpose(0, 1),
-        "neighbor_pos": batch.neighbor_pos,
+        "neighbors_index": batch.neighbors_index.transpose(0, 1),
+        "neighbors_pos": batch.neighbors_pos,
     }
 
     pet = model._module.pet
