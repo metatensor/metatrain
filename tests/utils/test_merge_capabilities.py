@@ -12,6 +12,7 @@ def test_merge_capabilities():
             "forces": ModelOutput(quantity="forces", unit="eV/Angstrom"),
         },
         interaction_range=1.0,
+        dtype="float32",
     )
 
     new_capabilities = ModelCapabilities(
@@ -23,6 +24,7 @@ def test_merge_capabilities():
             "stress": ModelOutput(quantity="stress", unit="GPa"),
         },
         interaction_range=1.0,
+        dtype="float32",
     )
 
     merged, novel = merge_capabilities(old_capabilities, new_capabilities)
@@ -35,8 +37,12 @@ def test_merge_capabilities():
     assert merged.outputs["forces"].unit == "eV/Angstrom"
     assert merged.outputs["stress"].quantity == "stress"
     assert merged.outputs["stress"].unit == "GPa"
+    assert merged.interaction_range == 1.0
+    assert merged.dtype == "float32"
 
     assert novel.length_unit == "angstrom"
     assert novel.atomic_types == [1, 6]
     assert novel.outputs["stress"].quantity == "stress"
     assert novel.outputs["stress"].unit == "GPa"
+    assert novel.interaction_range == 1.0
+    assert novel.dtype == "float32"

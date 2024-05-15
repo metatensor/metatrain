@@ -26,7 +26,8 @@ def test_forces(is_training):
                 unit="eV",
             )
         },
-        interaction_range=soap_bpnn.DEFAULT_HYPERS["model"]["cutoff"],
+        interaction_range=soap_bpnn.DEFAULT_HYPERS["model"]["soap"]["cutoff"],
+        dtype="float32",
     )
 
     model = soap_bpnn.Model(capabilities)
@@ -84,7 +85,8 @@ def test_virial(is_training):
                 unit="eV",
             )
         },
-        interaction_range=soap_bpnn.DEFAULT_HYPERS["model"]["cutoff"],
+        interaction_range=soap_bpnn.DEFAULT_HYPERS["model"]["soap"]["cutoff"],
+        dtype="float32",
     )
 
     model = soap_bpnn.Model(capabilities)
@@ -155,7 +157,8 @@ def test_both(is_training):
                 unit="eV",
             )
         },
-        interaction_range=soap_bpnn.DEFAULT_HYPERS["model"]["cutoff"],
+        interaction_range=soap_bpnn.DEFAULT_HYPERS["model"]["soap"]["cutoff"],
+        dtype="float32",
     )
 
     model = soap_bpnn.Model(capabilities)

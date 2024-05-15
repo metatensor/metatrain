@@ -33,7 +33,8 @@ def test_continue(monkeypatch, tmp_path):
                 unit="eV",
             )
         },
-        interaction_range=DEFAULT_HYPERS["model"]["cutoff"],
+        interaction_range=DEFAULT_HYPERS["model"]["soap"]["cutoff"],
+        dtype="float32",
     )
     model_before = Model(capabilities, DEFAULT_HYPERS["model"])
     output_before = model_before(

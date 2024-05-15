@@ -53,12 +53,20 @@ def train(
         )
         for key, value in dataset_info.targets.items()
     }
+    dtype = train_datasets[0][0].system.positions.dtype
+    if dtype == torch.float64:
+        dtype_string = "float64"
+    elif dtype == torch.float32:
+        dtype_string = "float32"
+    else:
+        raise ValueError(f"Unsupported dtype {dtype} for Alchemical Model.")
     new_capabilities = ModelCapabilities(
         length_unit=dataset_info.length_unit,
         outputs=outputs,
         atomic_types=all_species,
         supported_devices=["cpu", "cuda"],
-        interaction_range=hypers["model"]["cutoff"],
+        interaction_range=hypers["model"]["soap"]["cutoff"],
+        dtype=dtype_string,
     )
 
     if continue_from is None:
@@ -124,7 +132,6 @@ def train(
     model.set_basis_normalization_factor(average_number_of_neighbors)
 
     device = devices[0]  # only one device, as we don't support multi-gpu for now
-    dtype = train_datasets[0][0].system.positions.dtype
 
     logger.info(f"training on device {device} with dtype {dtype}")
     model.to(device=device, dtype=dtype)

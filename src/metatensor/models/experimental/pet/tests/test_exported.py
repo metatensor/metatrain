@@ -34,6 +34,7 @@ def test_to(tmp_path, device):
         },
         interaction_range=DEFAULT_HYPERS["ARCHITECTURAL_HYPERS"]["N_GNN_LAYERS"]
         * DEFAULT_HYPERS["ARCHITECTURAL_HYPERS"]["R_CUT"],
+        dtype="float32",
     )
     pet = Model(capabilities, DEFAULT_HYPERS["ARCHITECTURAL_HYPERS"])
     export(pet, "pet.pt")

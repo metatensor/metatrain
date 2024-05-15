@@ -36,6 +36,7 @@ def test_predictions_compatibility(cutoff):
         supported_devices=["cuda", "cpu"],
         interaction_range=DEFAULT_HYPERS["ARCHITECTURAL_HYPERS"]["N_GNN_LAYERS"]
         * DEFAULT_HYPERS["ARCHITECTURAL_HYPERS"]["R_CUT"],
+        dtype="float32",
     )
     hypers = DEFAULT_HYPERS["ARCHITECTURAL_HYPERS"]
     hypers["R_CUT"] = cutoff

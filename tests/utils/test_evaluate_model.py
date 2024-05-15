@@ -37,7 +37,8 @@ def test_evaluate_model(tmp_path, training, exported):
                 unit="eV",
             )
         },
-        interaction_range=soap_bpnn.DEFAULT_HYPERS["model"]["cutoff"],
+        interaction_range=soap_bpnn.DEFAULT_HYPERS["model"]["soap"]["cutoff"],
+        dtype="float32",
     )
 
     model = soap_bpnn.Model(capabilities)

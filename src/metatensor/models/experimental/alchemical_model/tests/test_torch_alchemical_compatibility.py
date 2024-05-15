@@ -79,7 +79,8 @@ def test_alchemical_model_inference():
             )
         },
         supported_devices=["cpu"],
-        interaction_range=DEFAULT_HYPERS["model"]["cutoff"],
+        interaction_range=DEFAULT_HYPERS["model"]["soap"]["cutoff"],
+        dtype="float32",
     )
 
     alchemical_model = Model(capabilities, DEFAULT_HYPERS["model"])

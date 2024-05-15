@@ -29,6 +29,7 @@ def test_prediction():
         supported_devices=["cuda", "cpu"],
         interaction_range=DEFAULT_HYPERS["ARCHITECTURAL_HYPERS"]["N_GNN_LAYERS"]
         * DEFAULT_HYPERS["ARCHITECTURAL_HYPERS"]["R_CUT"],
+        dtype="float32",
     )
 
     model = Model(capabilities, DEFAULT_HYPERS["ARCHITECTURAL_HYPERS"])
@@ -66,6 +67,7 @@ def test_per_atom_predictions_functionality():
         supported_devices=["cuda", "cpu"],
         interaction_range=DEFAULT_HYPERS["ARCHITECTURAL_HYPERS"]["N_GNN_LAYERS"]
         * DEFAULT_HYPERS["ARCHITECTURAL_HYPERS"]["R_CUT"],
+        dtype="float32",
     )
 
     model = Model(capabilities, DEFAULT_HYPERS["ARCHITECTURAL_HYPERS"])
@@ -103,6 +105,7 @@ def test_selected_atoms_functionality():
         supported_devices=["cuda", "cpu"],
         interaction_range=DEFAULT_HYPERS["ARCHITECTURAL_HYPERS"]["N_GNN_LAYERS"]
         * DEFAULT_HYPERS["ARCHITECTURAL_HYPERS"]["R_CUT"],
+        dtype="float32",
     )
 
     model = Model(capabilities, DEFAULT_HYPERS["ARCHITECTURAL_HYPERS"])

@@ -26,7 +26,8 @@ def test_save_load_checkpoint(monkeypatch, tmp_path, path):
                 unit="eV",
             )
         },
-        interaction_range=DEFAULT_HYPERS["model"]["cutoff"],
+        interaction_range=DEFAULT_HYPERS["model"]["soap"]["cutoff"],
+        dtype="float32",
     )
 
     model = Model(capabilities)
@@ -62,7 +63,8 @@ def test_missing_extension(monkeypatch, tmp_path):
                 unit="eV",
             )
         },
-        interaction_range=DEFAULT_HYPERS["model"]["cutoff"],
+        interaction_range=DEFAULT_HYPERS["model"]["soap"]["cutoff"],
+        dtype="float32",
     )
 
     model = Model(capabilities)
@@ -103,7 +105,8 @@ def test_export(monkeypatch, tmp_path, path):
         capabilities=ModelCapabilities(
             atomic_types=[1],
             length_unit="angstrom",
-            interaction_range=DEFAULT_HYPERS["model"]["cutoff"],
+            interaction_range=DEFAULT_HYPERS["model"]["soap"]["cutoff"],
+            dtype="float32",
         )
     )
     export(model, path)
@@ -118,7 +121,8 @@ def test_export_warning(monkeypatch, tmp_path):
         capabilities=ModelCapabilities(
             atomic_types=[1],
             length_unit="angstrom",
-            interaction_range=DEFAULT_HYPERS["model"]["cutoff"],
+            interaction_range=DEFAULT_HYPERS["model"]["soap"]["cutoff"],
+            dtype="float32",
         )
     )
 
@@ -136,7 +140,8 @@ def test_reexport(monkeypatch, tmp_path):
         capabilities=ModelCapabilities(
             atomic_types=[1],
             length_unit="angstrom",
-            interaction_range=DEFAULT_HYPERS["model"]["cutoff"],
+            interaction_range=DEFAULT_HYPERS["model"]["soap"]["cutoff"],
+            dtype="float32",
         )
     )
     export(model, "exported.pt")
@@ -161,7 +166,8 @@ def test_length_units_warning(monkeypatch, tmp_path):
     model = Model(
         capabilities=ModelCapabilities(
             atomic_types=[1],
-            interaction_range=DEFAULT_HYPERS["model"]["cutoff"],
+            interaction_range=DEFAULT_HYPERS["model"]["soap"]["cutoff"],
+            dtype="float32",
         )
     )
 
@@ -179,7 +185,8 @@ def test_units_warning(monkeypatch, tmp_path):
             atomic_types=[1],
             outputs=outputs,
             length_unit="angstrom",
-            interaction_range=DEFAULT_HYPERS["model"]["cutoff"],
+            interaction_range=DEFAULT_HYPERS["model"]["soap"]["cutoff"],
+            dtype="float32",
         )
     )
 

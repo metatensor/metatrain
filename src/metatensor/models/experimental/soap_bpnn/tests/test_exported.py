@@ -33,7 +33,8 @@ def test_to(tmp_path, device, dtype):
                 unit="eV",
             )
         },
-        interaction_range=DEFAULT_HYPERS["model"]["cutoff"],
+        interaction_range=DEFAULT_HYPERS["model"]["soap"]["cutoff"],
+        dtype="float32",
     )
     model = Model(capabilities, DEFAULT_HYPERS["model"])
     export(model, "model.pt")
