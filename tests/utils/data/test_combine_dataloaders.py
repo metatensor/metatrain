@@ -24,7 +24,7 @@ def test_without_shuffling():
     systems = read_systems(RESOURCES_PATH / "qm9_reduced_100.xyz")
 
     conf = {
-        "metatensor-models::U0": {
+        "mtm::U0": {
             "quantity": "energy",
             "read_from": RESOURCES_PATH / "qm9_reduced_100.xyz",
             "file_format": ".xyz",
@@ -66,7 +66,7 @@ def test_without_shuffling():
     assert len(combined_dataloader) == 15
     for i_batch, batch in enumerate(combined_dataloader):
         if i_batch < 10:
-            assert batch[1]["U0"].block().values.shape == (10, 1)
+            assert batch[1]["mtm::U0"].block().values.shape == (10, 1)
         else:
             assert batch[1]["free_energy"].block().values.shape == (2, 1)
 
@@ -79,7 +79,7 @@ def test_with_shuffling():
     systems = read_systems(RESOURCES_PATH / "qm9_reduced_100.xyz")
 
     conf = {
-        "metatensor-models::U0": {
+        "mtm::U0": {
             "quantity": "energy",
             "read_from": RESOURCES_PATH / "qm9_reduced_100.xyz",
             "file_format": ".xyz",
@@ -132,11 +132,11 @@ def test_with_shuffling():
     alchemical_samples = []
 
     for batch in combined_dataloader:
-        if "U0" in batch[1]:
+        if "mtm::U0" in batch[1]:
             qm9_batch_count += 1
-            assert batch[1]["U0"].block().values.shape == (10, 1)
+            assert batch[1]["mtm::U0"].block().values.shape == (10, 1)
             actual_ordering.append("qm9")
-            qm9_samples.append(batch[1]["U0"].block().samples.column("system"))
+            qm9_samples.append(batch[1]["mtm::U0"].block().samples.column("system"))
         else:
             alchemical_batch_count += 1
             assert batch[1]["free_energy"].block().values.shape == (2, 1)

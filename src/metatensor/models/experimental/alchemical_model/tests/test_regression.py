@@ -33,7 +33,7 @@ def test_regression_init():
         length_unit="Angstrom",
         atomic_types=[1, 6, 7, 8],
         outputs={
-            "metatensor-models::U0": ModelOutput(
+            "mtm::U0": ModelOutput(
                 quantity="energy",
                 unit="eV",
             )
@@ -71,7 +71,7 @@ def test_regression_init():
     expected_output = torch.tensor([[-1.9819], [0.1507], [1.6116], [3.4118], [0.8383]])
 
     torch.testing.assert_close(
-        output["U0"].block().values, expected_output, rtol=1e-05, atol=1e-4
+        output["mtm::U0"].block().values, expected_output, rtol=1e-05, atol=1e-4
     )
 
 
@@ -86,7 +86,7 @@ def test_regression_train():
 
     systems = read_systems(DATASET_PATH)
     conf = {
-        "metatensor-models::U0": {
+        "mtm::U0": {
             "quantity": "energy",
             "read_from": DATASET_PATH,
             "file_format": ".xyz",
@@ -139,5 +139,5 @@ def test_regression_train():
     )
 
     torch.testing.assert_close(
-        output["U0"].block().values, expected_output, rtol=1e-05, atol=1e-4
+        output["mtm::U0"].block().values, expected_output, rtol=1e-05, atol=1e-4
     )

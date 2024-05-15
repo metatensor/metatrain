@@ -27,15 +27,15 @@ def test_dataset_info():
         length_unit="angstrom",
         targets={
             "energy": TargetInfo(quantity="energy", unit="kcal/mol"),
-            "metatensor-models::U0": TargetInfo(quantity="energy", unit="kcal/mol"),
+            "mtm::U0": TargetInfo(quantity="energy", unit="kcal/mol"),
         },
     )
 
     assert dataset_info.length_unit == "angstrom"
     assert dataset_info.targets["energy"].quantity == "energy"
     assert dataset_info.targets["energy"].unit == "kcal/mol"
-    assert dataset_info.targets["U0"].quantity == "energy"
-    assert dataset_info.targets["U0"].unit == "kcal/mol"
+    assert dataset_info.targets["mtm::U0"].quantity == "energy"
+    assert dataset_info.targets["mtm::U0"].unit == "kcal/mol"
 
 
 def test_dataset():
@@ -70,7 +70,7 @@ def test_get_all_species():
 
     systems = read_systems(RESOURCES_PATH / "qm9_reduced_100.xyz")
     conf = {
-        "metatensor-models::U0": {
+        "mtm::U0": {
             "quantity": "energy",
             "read_from": str(RESOURCES_PATH / "qm9_reduced_100.xyz"),
             "file_format": ".xyz",
@@ -106,7 +106,7 @@ def test_get_all_targets():
 
     systems = read_systems(RESOURCES_PATH / "qm9_reduced_100.xyz")
     conf = {
-        "metatensor-models::U0": {
+        "mtm::U0": {
             "quantity": "energy",
             "read_from": str(RESOURCES_PATH / "qm9_reduced_100.xyz"),
             "file_format": ".xyz",
@@ -132,9 +132,9 @@ def test_get_all_targets():
     targets_2 = read_targets(OmegaConf.create(conf_2))
     dataset = Dataset({"system": systems, **targets})
     dataset_2 = Dataset({"system": systems_2, **targets_2})
-    assert get_all_targets(dataset) == ["U0"]
+    assert get_all_targets(dataset) == ["mtm::U0"]
     assert get_all_targets(dataset_2) == ["energy"]
-    assert get_all_targets([dataset, dataset_2]) == ["U0", "energy"]
+    assert get_all_targets([dataset, dataset_2]) == ["mtm::U0", "energy"]
 
 
 def test_check_datasets():
@@ -142,7 +142,7 @@ def test_check_datasets():
 
     systems_qm9 = read_systems(RESOURCES_PATH / "qm9_reduced_100.xyz")
     conf_qm9 = {
-        "metatensor-models::U0": {
+        "mtm::U0": {
             "quantity": "energy",
             "read_from": str(RESOURCES_PATH / "qm9_reduced_100.xyz"),
             "file_format": ".xyz",
