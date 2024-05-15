@@ -101,7 +101,7 @@ def test_output_last_layer_features():
         length_unit="Angstrom",
         atomic_types=[1, 6, 7, 8],
         outputs={
-            "mts-models::aux::last_layer_features": ModelOutput(
+            "mts_models::aux::last_layer_features": ModelOutput(
                 quantity="",
                 unit="",
                 per_atom=True,
@@ -130,20 +130,20 @@ def test_output_last_layer_features():
         [systems_to_torch(system, dtype=torch.get_default_dtype())],
         {
             "energy": soap_bpnn.capabilities.outputs["energy"],
-            "mts-models::aux::last_layer_features": ll_output_options,
+            "mts_models::aux::last_layer_features": ll_output_options,
         },
     )
     assert "energy" in outputs
-    assert "mts-models::aux::last_layer_features" in outputs
-    assert outputs["mts-models::aux::last_layer_features"].block().samples.names == [
+    assert "mts_models::aux::last_layer_features" in outputs
+    assert outputs["mts_models::aux::last_layer_features"].block().samples.names == [
         "system",
         "atom",
     ]
-    assert outputs["mts-models::aux::last_layer_features"].block().values.shape == (
+    assert outputs["mts_models::aux::last_layer_features"].block().values.shape == (
         4,
         128,
     )
-    assert outputs["mts-models::aux::last_layer_features"].block().properties.names == [
+    assert outputs["mts_models::aux::last_layer_features"].block().properties.names == [
         "center_type",
         "properties",
     ]
@@ -158,19 +158,19 @@ def test_output_last_layer_features():
         [systems_to_torch(system, dtype=torch.get_default_dtype())],
         {
             "energy": soap_bpnn.capabilities.outputs["energy"],
-            "mts-models::aux::last_layer_features": ll_output_options,
+            "mts_models::aux::last_layer_features": ll_output_options,
         },
     )
     assert "energy" in outputs
-    assert "mts-models::aux::last_layer_features" in outputs
-    assert outputs["mts-models::aux::last_layer_features"].block().samples.names == [
+    assert "mts_models::aux::last_layer_features" in outputs
+    assert outputs["mts_models::aux::last_layer_features"].block().samples.names == [
         "system"
     ]
-    assert outputs["mts-models::aux::last_layer_features"].block().values.shape == (
+    assert outputs["mts_models::aux::last_layer_features"].block().values.shape == (
         1,
         128,
     )
-    assert outputs["mts-models::aux::last_layer_features"].block().properties.names == [
+    assert outputs["mts_models::aux::last_layer_features"].block().properties.names == [
         "center_type",
         "properties",
     ]
