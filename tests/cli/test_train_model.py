@@ -173,9 +173,7 @@ def test_train_multiple_datasets(monkeypatch, tmp_path, options):
     options["training_set"][1]["systems"]["read_from"] = "ethanol_reduced_100.xyz"
     options["training_set"][1]["targets"]["energy"]["key"] = "energy"
     options["training_set"][0]["targets"].pop("energy")
-    options["training_set"][0]["targets"]["mtm::U0"] = OmegaConf.create(
-        {"key": "mtm::U0"}
-    )
+    options["training_set"][0]["targets"]["mtm::U0"] = OmegaConf.create({"key": "U0"})
 
     train_model(options)
 

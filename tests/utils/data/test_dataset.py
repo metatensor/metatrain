@@ -134,7 +134,7 @@ def test_get_all_targets():
     dataset_2 = Dataset({"system": systems_2, **targets_2})
     assert get_all_targets(dataset) == ["mtm::U0"]
     assert get_all_targets(dataset_2) == ["energy"]
-    assert get_all_targets([dataset, dataset_2]) == ["mtm::U0", "energy"]
+    assert get_all_targets([dataset, dataset_2]) == ["energy", "mtm::U0"]
 
 
 def test_check_datasets():
