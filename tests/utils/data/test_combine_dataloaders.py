@@ -23,7 +23,7 @@ def test_without_shuffling():
     systems = read_systems(RESOURCES_PATH / "qm9_reduced_100.xyz")
 
     conf = {
-        "U0": {
+        "metatensor-models::U0": {
             "quantity": "energy",
             "read_from": RESOURCES_PATH / "qm9_reduced_100.xyz",
             "file_format": ".xyz",
@@ -76,7 +76,7 @@ def test_with_shuffling():
     systems = read_systems(RESOURCES_PATH / "qm9_reduced_100.xyz")
 
     conf = {
-        "U0": {
+        "metatensor-models::U0": {
             "quantity": "energy",
             "read_from": RESOURCES_PATH / "qm9_reduced_100.xyz",
             "file_format": ".xyz",

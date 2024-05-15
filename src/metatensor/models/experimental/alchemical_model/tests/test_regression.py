@@ -34,7 +34,7 @@ def test_regression_init():
         length_unit="Angstrom",
         atomic_types=[1, 6, 7, 8],
         outputs={
-            "U0": ModelOutput(
+            "metatensor-models::U0": ModelOutput(
                 quantity="energy",
                 unit="eV",
             )
@@ -87,7 +87,7 @@ def test_regression_train():
 
     systems = read_systems(DATASET_PATH)
     conf = {
-        "U0": {
+        "metatensor-models::U0": {
             "quantity": "energy",
             "read_from": DATASET_PATH,
             "file_format": ".xyz",
@@ -106,7 +106,7 @@ def test_regression_train():
     dataset_info = DatasetInfo(
         length_unit="Angstrom",
         targets={
-            "U0": TargetInfo(
+            "metatensor-models::U0": TargetInfo(
                 quantity="energy",
                 unit="eV",
             ),

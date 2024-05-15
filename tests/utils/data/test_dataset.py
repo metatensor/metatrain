@@ -27,7 +27,7 @@ def test_dataset_info():
         length_unit="angstrom",
         targets={
             "energy": TargetInfo(quantity="energy", unit="kcal/mol"),
-            "U0": TargetInfo(quantity="energy", unit="kcal/mol"),
+            "metatensor-models::U0": TargetInfo(quantity="energy", unit="kcal/mol"),
         },
     )
 
@@ -70,7 +70,7 @@ def test_get_all_species():
 
     systems = read_systems(RESOURCES_PATH / "qm9_reduced_100.xyz")
     conf = {
-        "U0": {
+        "metatensor-models::U0": {
             "quantity": "energy",
             "read_from": str(RESOURCES_PATH / "qm9_reduced_100.xyz"),
             "file_format": ".xyz",
@@ -106,7 +106,7 @@ def test_get_all_targets():
 
     systems = read_systems(RESOURCES_PATH / "qm9_reduced_100.xyz")
     conf = {
-        "U0": {
+        "metatensor-models::U0": {
             "quantity": "energy",
             "read_from": str(RESOURCES_PATH / "qm9_reduced_100.xyz"),
             "file_format": ".xyz",
@@ -142,7 +142,7 @@ def test_check_datasets():
 
     systems_qm9 = read_systems(RESOURCES_PATH / "qm9_reduced_100.xyz")
     conf_qm9 = {
-        "U0": {
+        "metatensor-models::U0": {
             "quantity": "energy",
             "read_from": str(RESOURCES_PATH / "qm9_reduced_100.xyz"),
             "file_format": ".xyz",

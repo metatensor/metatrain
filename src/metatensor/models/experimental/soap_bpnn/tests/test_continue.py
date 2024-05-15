@@ -28,7 +28,7 @@ def test_continue(monkeypatch, tmp_path):
         length_unit="Angstrom",
         atomic_types=[1, 6, 7, 8],
         outputs={
-            "U0": ModelOutput(
+            "metatensor-models::U0": ModelOutput(
                 quantity="energy",
                 unit="eV",
             )
@@ -38,13 +38,13 @@ def test_continue(monkeypatch, tmp_path):
     )
     model_before = Model(capabilities, DEFAULT_HYPERS["model"])
     output_before = model_before(
-        systems[:5], {"U0": model_before.capabilities.outputs["U0"]}
+        systems[:5], {"metatensor-models::U0": model_before.capabilities.outputs["U0"]}
     )
 
     save(model_before, "model.ckpt")
 
     conf = {
-        "U0": {
+        "metatensor-models::U0": {
             "quantity": "energy",
             "read_from": DATASET_PATH,
             "file_format": ".xyz",
@@ -63,7 +63,7 @@ def test_continue(monkeypatch, tmp_path):
     dataset_info = DatasetInfo(
         length_unit="Angstrom",
         targets={
-            "U0": TargetInfo(
+            "metatensor-models::U0": TargetInfo(
                 quantity="energy",
                 unit="eV",
             ),
@@ -80,7 +80,7 @@ def test_continue(monkeypatch, tmp_path):
 
     # Predict on the first five systems
     output_after = model_after(
-        systems[:5], {"U0": model_after.capabilities.outputs["U0"]}
+        systems[:5], {"metatensor-models::U0": model_after.capabilities.outputs["U0"]}
     )
 
     assert metatensor.torch.allclose(output_before["U0"], output_after["U0"])

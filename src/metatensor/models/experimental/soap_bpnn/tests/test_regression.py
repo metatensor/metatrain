@@ -27,7 +27,7 @@ def test_regression_init():
         length_unit="Angstrom",
         atomic_types=[1, 6, 7, 8],
         outputs={
-            "U0": ModelOutput(
+            "metatensor-models::U0": ModelOutput(
                 quantity="energy",
                 unit="eV",
             )
@@ -42,7 +42,7 @@ def test_regression_init():
 
     output = soap_bpnn(
         [systems_to_torch(system) for system in systems],
-        {"U0": soap_bpnn.capabilities.outputs["U0"]},
+        {"metatensor-models::U0": soap_bpnn.capabilities.outputs["U0"]},
     )
     expected_output = torch.tensor(
         [[-0.0840], [0.0352], [0.0389], [-0.3115], [-0.1372]]
@@ -60,7 +60,7 @@ def test_regression_train():
     systems = read_systems(DATASET_PATH)
 
     conf = {
-        "U0": {
+        "metatensor-models::U0": {
             "quantity": "energy",
             "read_from": DATASET_PATH,
             "file_format": ".xyz",
@@ -79,7 +79,7 @@ def test_regression_train():
     dataset_info = DatasetInfo(
         length_unit="Angstrom",
         targets={
-            "U0": TargetInfo(
+            "metatensor-models::U0": TargetInfo(
                 quantity="energy",
                 unit="eV",
             ),
@@ -88,7 +88,9 @@ def test_regression_train():
     soap_bpnn = train([dataset], [dataset], dataset_info, [torch.device("cpu")], hypers)
 
     # Predict on the first five systems
-    output = soap_bpnn(systems[:5], {"U0": soap_bpnn.capabilities.outputs["U0"]})
+    output = soap_bpnn(
+        systems[:5], {"metatensor-models::U0": soap_bpnn.capabilities.outputs["U0"]}
+    )
 
     expected_output = torch.tensor(
         [[-40.6094], [-56.5482], [-76.5713], [-77.3526], [-93.4935]]
