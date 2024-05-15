@@ -25,7 +25,8 @@ from ...utils.loss import TensorMapDictLoss
 from ...utils.merge_capabilities import merge_capabilities
 from ...utils.metrics import RMSEAccumulator
 from ...utils.per_atom import divide_by_num_atoms
-from .model import DEFAULT_HYPERS, Model
+from . import DEFAULT_HYPERS
+from .model import Model
 
 
 logger = logging.getLogger(__name__)
@@ -60,7 +61,7 @@ def train(
         for key, value in dataset_info.targets.items()
     }
     # the model is always capable of outputting the last layer features
-    outputs["mts_models::aux::last_layer_features"] = ModelOutput(per_atom=True)
+    outputs["mtm::aux::last_layer_features"] = ModelOutput(per_atom=True)
     new_capabilities = ModelCapabilities(
         length_unit=dataset_info.length_unit,
         outputs=outputs,
@@ -120,7 +121,7 @@ def train(
     # Calculate and set the composition weights for all targets:
     logger.info("Calculating composition weights")
     for target_name in novel_capabilities.outputs.keys():
-        if "mts_models::aux::" in target_name:
+        if "mtm::aux::" in target_name:
             continue
         # TODO: warn in the documentation that capabilities that are already
         # present in the model won't recalculate the composition weights

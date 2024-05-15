@@ -7,9 +7,9 @@ those of the ``metatensor.torch.atomistic``
 package. An immediate example is given by the ``energy`` output.
 
 Any additional outputs present within the library are denoted by the
-``mts_models::`` prefix. For example, some models can output their last-layer
-features, which are named as ``mts_models::aux::last_layer_features``, where
+``mtm::`` prefix. For example, some models can output their last-layer
+features, which are named as ``mtm::aux::last_layer_features``, where
 ``aux`` denotes an auxiliary output.
 
 Outputs that are specific to a particular model should be named as
-``mts_models::<model_name>::<output_name>``.
+``mtm::<model_name>::<output_name>``.

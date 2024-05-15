@@ -9,6 +9,8 @@ import warnings
 from datetime import datetime
 from pathlib import Path
 
+from omegaconf import OmegaConf
+
 from . import __version__
 from .cli.eval import _add_eval_model_parser, eval_model
 from .cli.export import _add_export_model_parser
@@ -75,13 +77,21 @@ def main():
         level = logging.INFO
         warnings.filterwarnings("ignore")  # ignore all warnings if not in debug mode
 
-    # Only save log to file for train command
     if callable == "train_model":
+        # define and create `checkpoint_dir` based on current directory and date/time
         checkpoint_dir = _datetime_output_path(now=datetime.now())
         os.makedirs(checkpoint_dir)
+        args.__dict__["checkpoint_dir"] = checkpoint_dir
+
+        # save log to file
         logfile = checkpoint_dir / "train.log"
 
-        args.__dict__["checkpoint_dir"] = checkpoint_dir
+        # merge/override file options with command line options
+        override_options = args.__dict__.pop("override_options")
+        if override_options is None:
+            override_options = {}
+
+        args.options = OmegaConf.merge(args.options, override_options)
     else:
         logfile = None
 

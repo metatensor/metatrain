@@ -5,17 +5,9 @@ import rascaline.torch
 import torch
 from metatensor.torch import Labels, TensorBlock, TensorMap
 from metatensor.torch.atomistic import ModelCapabilities, ModelOutput, System
-from omegaconf import OmegaConf
 
-from ... import ARCHITECTURE_CONFIG_PATH
 from ...utils.composition import apply_composition_contribution
-
-
-ARCHITECTURE_NAME = "experimental.soap_bpnn"
-DEFAULT_HYPERS = OmegaConf.to_container(
-    OmegaConf.load(ARCHITECTURE_CONFIG_PATH / f"{ARCHITECTURE_NAME}.yaml")
-)
-DEFAULT_MODEL_HYPERS = DEFAULT_HYPERS["model"]
+from . import ARCHITECTURE_NAME, DEFAULT_MODEL_HYPERS
 
 
 class Identity(torch.nn.Module):
@@ -268,7 +260,7 @@ class Model(torch.nn.Module):
             {
                 output_name: LinearMap(self.all_species, n_inputs_last_layer)
                 for output_name in capabilities.outputs.keys()
-                if "mts_models::aux::" not in output_name
+                if "mtm::aux::" not in output_name
             }
         )
 
@@ -293,17 +285,17 @@ class Model(torch.nn.Module):
         last_layer_features = self.bpnn(soap_features)
 
         # output the hidden features, if requested:
-        if "mts_models::aux::last_layer_features" in outputs.keys():
+        if "mtm::aux::last_layer_features" in outputs.keys():
             last_layer_features_options = outputs[
-                "mts_models::aux::last_layer_features"
+                "mtm::aux::last_layer_features"
             ]
             out_features = last_layer_features.keys_to_properties(
                 self.center_type_labels.to(device)
             )
             if last_layer_features_options.per_atom:
-                return_dict["mts_models::aux::last_layer_features"] = out_features
+                return_dict["mtm::aux::last_layer_features"] = out_features
             else:
-                return_dict["mts_models::aux::last_layer_features"] = (
+                return_dict["mtm::aux::last_layer_features"] = (
                     metatensor.torch.sum_over_samples(out_features, ["atom"])
                 )
 
