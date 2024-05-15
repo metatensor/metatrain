@@ -74,7 +74,7 @@ def test_continue(monkeypatch, tmp_path):
         dataset_info,
         [torch.device("cpu")],
         hypers,
-        continue_from="model-32-bit.ckpt",
+        continue_from="model.ckpt",
     )
 
     # Predict on the first five systems

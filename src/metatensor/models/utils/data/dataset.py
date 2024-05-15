@@ -9,12 +9,16 @@ from torch.utils.data import Subset, random_split
 
 
 class Dataset:
-    def __init__(self, dict: Dict):
-        """A version of the `metatensor.learn.Dataset` class that allows for
-        the use of `mtm::` prefixes in the keys of the dictionary.
+    """A version of the `metatensor.learn.Dataset` class that allows for
+    the use of `mtm::` prefixes in the keys of the dictionary.
 
-        Instead of named tuples, this class accepts and returns dictionaries.
-        """
+    It is important to note that, instead of named tuples, this class
+    accepts and returns dictionaries.
+
+    :param dict: A dictionary with the data to be stored in the dataset.
+    """
+
+    def __init__(self, dict: Dict):
 
         new_dict = {}
         for key, value in dict.items():
@@ -212,6 +216,11 @@ def group_and_join(
 ) -> Dict[str, Any]:
     """
     Same as metatenor.learn.data.group_and_join, but joins dicts and not named tuples.
+
+    :param batch: A list of dictionaries, each containing the data for a single sample.
+
+    :returns: A single dictionary with the data fields joined together among all
+        samples.
     """
     data: List[Union[TensorMap, torch.Tensor]] = []
     names = batch[0].keys()
