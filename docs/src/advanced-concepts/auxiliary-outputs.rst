@@ -26,7 +26,7 @@ The following tables show the metadata that is expected for each of the
 auxiliary outputs:
 
 mtm::aux::last_layer_features
-^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
 .. list-table:: Metadata for last-layer features
   :widths: 2 3 7
