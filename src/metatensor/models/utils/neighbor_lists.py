@@ -53,7 +53,7 @@ def _compute_single_neighbor_list(
 
     selected = []
     for pair_i, (i, j, S) in enumerate(zip(nl_i, nl_j, nl_S)):
-        # we want a half neighbor list, so drop all duplicated neighbor
+        # we want a half neighbor list, so drop all duplicated neighbors
         if j < i:
             continue
         elif i == j:
