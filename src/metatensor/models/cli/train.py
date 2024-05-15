@@ -6,7 +6,7 @@ import os
 import random
 from importlib.util import find_spec
 from pathlib import Path
-from typing import Optional, Union
+from typing import Dict, Optional, Union
 
 import numpy as np
 import torch
@@ -120,11 +120,10 @@ def check_architecture_name(name: str) -> None:
 
 
 def train_model(
-    options: DictConfig,
+    options: Union[DictConfig, Dict],
     output: str = "model.pt",
     checkpoint_dir: Union[str, Path] = ".",
     continue_from: Optional[str] = None,
-    override_options: Optional[DictConfig] = None,
 ) -> None:
     """Train an atomistic machine learning model using provided ``options``.
 
@@ -139,7 +138,6 @@ def train_model(
     :param checkpoint_dir: Path to save checkpoints and other intermediate output files
         like the fully expanded training options for a later restart.
     :param continue_from: File to continue training from.
-    :param override_options: Extra options to override values in ``options``.
     """
     try:
         architecture_name = options["architecture"]["name"]
@@ -160,12 +158,8 @@ def train_model(
             )
         }
     )
-    if override_options is None:
-        override_options = OmegaConf.create({})
 
-    options = OmegaConf.merge(
-        base_options, architecture_options, options, override_options
-    )
+    options = OmegaConf.merge(base_options, architecture_options, options)
 
     ###########################
     # PROCESS BASE PARAMETERS #
