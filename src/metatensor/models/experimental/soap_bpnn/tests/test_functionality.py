@@ -135,7 +135,7 @@ def test_output_last_layer_features():
     )
     assert "energy" in outputs
     assert "mtm::aux::last_layer_features" in outputs
-    last_layer_features = outputs["mts-models::aux::last_layer_features"].block()
+    last_layer_features = outputs["mtm::aux::last_layer_features"].block()
     assert last_layer_features.samples.names == [
         "system",
         "atom",
@@ -169,7 +169,6 @@ def test_output_last_layer_features():
         128,
     )
     assert outputs["mtm::aux::last_layer_features"].block().properties.names == [
-        "center_type",
         "properties",
     ]
 

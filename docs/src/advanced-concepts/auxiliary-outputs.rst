@@ -19,7 +19,7 @@ auxiliary outputs:
 +------------------------------------------+-----------+------------------+-----+
 | Auxiliary output                         | SOAP-BPNN | Alchemical Model | PET |
 +------------------------------------------+-----------+------------------+-----+
-| ``mtm::aux::last_layer_features`` | Yes       |       No         | No  |
+| ``mtm::aux::last_layer_features``        | Yes       |       No         | No  |
 +------------------------------------------+-----------+------------------+-----+
 
 The following tables show the metadata that is expected for each of the
