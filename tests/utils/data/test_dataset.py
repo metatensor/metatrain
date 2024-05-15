@@ -202,3 +202,29 @@ def test_check_datasets():
     )
     with pytest.raises(TypeError, match=match):
         check_datasets([training_set, training_set_64_bit], [validation_set])
+
+
+def test_collate_fn():
+    """Tests the collate_fn function."""
+
+    systems = read_systems(RESOURCES_PATH / "qm9_reduced_100.xyz")
+    conf = {
+        "mtm::U0": {
+            "quantity": "energy",
+            "read_from": str(RESOURCES_PATH / "qm9_reduced_100.xyz"),
+            "file_format": ".xyz",
+            "key": "U0",
+            "forces": False,
+            "stress": False,
+            "virial": False,
+        }
+    }
+    targets = read_targets(OmegaConf.create(conf))
+    dataset = Dataset({"system": systems, "mtm::U0": targets["mtm::U0"]})
+
+    batch = collate_fn([dataset[0], dataset[1], dataset[2]])
+
+    assert len(batch) == 2
+    assert isinstance(batch[0], tuple)
+    assert len(batch[0]) == 3
+    assert isinstance(batch[1], dict)
