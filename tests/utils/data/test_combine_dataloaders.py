@@ -42,7 +42,7 @@ def test_without_shuffling():
     systems = read_systems(RESOURCES_PATH / "alchemical_reduced_10.xyz")
 
     conf = {
-        "free_energy": {
+        "mtm::free_energy": {
             "quantity": "energy",
             "read_from": RESOURCES_PATH / "alchemical_reduced_10.xyz",
             "file_format": ".xyz",
@@ -68,7 +68,7 @@ def test_without_shuffling():
         if i_batch < 10:
             assert batch[1]["mtm::U0"].block().values.shape == (10, 1)
         else:
-            assert batch[1]["free_energy"].block().values.shape == (2, 1)
+            assert batch[1]["mtm::free_energy"].block().values.shape == (2, 1)
 
 
 def test_with_shuffling():
@@ -99,7 +99,7 @@ def test_with_shuffling():
     systems = read_systems(RESOURCES_PATH / "alchemical_reduced_10.xyz")
 
     conf = {
-        "free_energy": {
+        "mtm::free_energy": {
             "quantity": "energy",
             "read_from": RESOURCES_PATH / "alchemical_reduced_10.xyz",
             "file_format": ".xyz",
@@ -139,10 +139,10 @@ def test_with_shuffling():
             qm9_samples.append(batch[1]["mtm::U0"].block().samples.column("system"))
         else:
             alchemical_batch_count += 1
-            assert batch[1]["free_energy"].block().values.shape == (2, 1)
+            assert batch[1]["mtm::free_energy"].block().values.shape == (2, 1)
             actual_ordering.append("alchemical")
             alchemical_samples.append(
-                batch[1]["free_energy"].block().samples.column("system")
+                batch[1]["mtm::free_energy"].block().samples.column("system")
             )
 
     assert qm9_batch_count == 10

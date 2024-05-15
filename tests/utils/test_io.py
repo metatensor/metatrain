@@ -179,7 +179,7 @@ def test_length_units_warning(monkeypatch, tmp_path):
 def test_units_warning(monkeypatch, tmp_path):
     monkeypatch.chdir(tmp_path)
 
-    outputs = {"output": ModelOutput(quantity="energy")}
+    outputs = {"mtm::output": ModelOutput(quantity="energy")}
     model = Model(
         capabilities=ModelCapabilities(
             atomic_types=[1],
@@ -190,7 +190,7 @@ def test_units_warning(monkeypatch, tmp_path):
         )
     )
 
-    with pytest.warns(match="No target units were provided for output 'output'"):
+    with pytest.warns(match="No target units were provided for output 'mtm::output'"):
         export(model, "exported.pt")
 
 
