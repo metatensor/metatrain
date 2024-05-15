@@ -135,7 +135,7 @@ def _eval_targets(
     # TODO: these might already be present... find a way to avoid recomputing
     # if already present (e.g. if this function is called after training)
     for sample in dataset:
-        system = sample.system
+        system = sample["system"]
         get_system_with_neighbor_lists(system, model.requested_neighbor_lists())
 
     # Infer the device from the model
