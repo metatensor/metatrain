@@ -1,4 +1,3 @@
-import re
 from pathlib import Path
 
 import pytest
@@ -70,11 +69,15 @@ def test_get_architecture_name(path_type, path):
     assert get_architecture_name(path_type(path)) == "experimental.soap_bpnn"
 
 
-@pytest.mark.parametrize("path", [PACKAGE_ROOT / "foo", PACKAGE_ROOT])
-def test_get_architecture_name_err(path):
-    match = re.escape(
-        f"`absolute_architecture_path` {str(path)!r} does not point to a valid "
-        "architecture folder"
-    )
+def test_get_architecture_name_err_no_such_path():
+    path = PACKAGE_ROOT / "foo"
+    match = f"`path` {str(path)!r} does not exist"
+    with pytest.raises(ValueError, match=match):
+        get_architecture_name(path)
+
+
+def test_get_architecture_name_err_no_such_arch():
+    path = PACKAGE_ROOT
+    match = f"`path` {str(path)!r} does not point to a valid architecture folder"
     with pytest.raises(ValueError, match=match):
         get_architecture_name(path)

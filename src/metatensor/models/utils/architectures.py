@@ -50,8 +50,8 @@ def check_architecture_name(name: str) -> None:
     raise ValueError(msg)
 
 
-def get_architecture_name(absolute_architecture_path: Union[str, Path]) -> str:
-    """Name of an architecture based on the directory name of an architecture.
+def get_architecture_name(path: Union[str, Path]) -> str:
+    """Name of an architecture based on path to pointing inside an architecture.
 
     The function should be used to determine the ``ARCHITECTURE_NAME`` based on the name
     of the folder.
@@ -65,27 +65,24 @@ def get_architecture_name(absolute_architecture_path: Union[str, Path]) -> str:
         :py:func:`get_architecture_path` to get the relative path within the metatensor
         models project of an architecture name.
     """
-    absolute_architecture_path = Path(absolute_architecture_path)
+    path = Path(path)
 
-    err_msg = (
-        f"`absolute_architecture_path` {str(absolute_architecture_path)!r} does "
-        "not point to a valid architecture folder"
-    )
-
-    if absolute_architecture_path.is_dir():
-        architecture_dir = absolute_architecture_path
-    elif absolute_architecture_path.is_file():
-        architecture_dir = absolute_architecture_path.parent
+    if path.is_dir():
+        directory = path
+    elif path.is_file():
+        directory = path.parent
     else:
-        raise ValueError(err_msg)
+        raise ValueError(f"`path` {str(path)!r} does not exist")
 
-    relative_architecture_path = architecture_dir.relative_to(PACKAGE_ROOT)
-    name = str(relative_architecture_path).replace("/", ".")
+    architecture_path = directory.relative_to(PACKAGE_ROOT)
+    name = str(architecture_path).replace("/", ".")
 
     try:
         check_architecture_name(name)
     except ValueError as err:
-        raise ValueError(err_msg) from err
+        raise ValueError(
+            f"`path` {str(path)!r} does not point to a valid architecture folder"
+        ) from err
 
     return name
 
