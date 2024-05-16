@@ -1,11 +1,49 @@
 from dataclasses import dataclass
-from typing import Dict, List, NamedTuple, Optional, Tuple, Union
+from typing import Any, Dict, List, Optional, Tuple, Union
 
+import metatensor.learn
 import torch
-from metatensor.learn.data import Dataset, group_and_join
 from metatensor.torch import TensorMap
 from torch import Generator, default_generator
 from torch.utils.data import Subset, random_split
+
+
+class Dataset:
+    """A version of the `metatensor.learn.Dataset` class that allows for
+    the use of `mtm::` prefixes in the keys of the dictionary. See
+    https://github.com/lab-cosmo/metatensor/issues/621.
+
+    It is important to note that, instead of named tuples, this class
+    accepts and returns dictionaries.
+
+    :param dict: A dictionary with the data to be stored in the dataset.
+    """
+
+    def __init__(self, dict: Dict):
+
+        new_dict = {}
+        for key, value in dict.items():
+            key = key.replace("mtm::", "mtm_")
+            new_dict[key] = value
+
+        self.mts_learn_dataset = metatensor.learn.Dataset(**new_dict)
+
+    def __getitem__(self, idx: int) -> Dict:
+
+        mts_dataset_item = self.mts_learn_dataset[idx]._asdict()
+        new_dict = {}
+        for key, value in mts_dataset_item.items():
+            key = key.replace("mtm_", "mtm::")
+            new_dict[key] = value
+
+        return new_dict
+
+    def __len__(self) -> int:
+        return len(self.mts_learn_dataset)
+
+    def __iter__(self):
+        for i in range(len(self)):
+            yield self[i]
 
 
 @dataclass
@@ -52,7 +90,7 @@ def get_all_species(datasets: Union[Dataset, List[Dataset]]) -> List[int]:
     species = []
     for dataset in datasets:
         for index in range(len(dataset)):
-            system = dataset[index][0]  # extract the system from the NamedTuple
+            system = dataset[index]["system"]
             species += system.types.tolist()
 
     # Remove duplicates and sort:
@@ -82,7 +120,6 @@ def get_all_targets(datasets: Union[Dataset, List[Dataset]]) -> List[str]:
     target_names = []
     for dataset in datasets:
         for sample in dataset:
-            sample = sample._asdict()  # NamedTuple -> dict
             sample.pop("system")  # system not needed
             target_names += list(sample.keys())
 
@@ -93,14 +130,14 @@ def get_all_targets(datasets: Union[Dataset, List[Dataset]]) -> List[str]:
     return result
 
 
-def collate_fn(batch: List[NamedTuple]) -> Tuple[List, Dict[str, TensorMap]]:
+def collate_fn(batch: List[Dict[str, Any]]) -> Tuple[List, Dict[str, TensorMap]]:
     """
-    Wraps the `metatensor-learn` default collate function `group_and_join` to
+    Wraps `group_and_join` to
     return the data fields as a list of systems, and a dictionary of nameed
     targets.
     """
 
-    collated_targets = group_and_join(batch)._asdict()
+    collated_targets = group_and_join(batch)
     systems = collated_targets.pop("system")
     return systems, collated_targets
 
@@ -120,15 +157,15 @@ def check_datasets(train_datasets: List[Dataset], validation_datasets: List[Data
         or targets that are not present in the training set
     """
     # Check that system `dtypes` are consistent within datasets
-    desired_dtype = train_datasets[0][0].system.positions.dtype
+    desired_dtype = train_datasets[0][0]["system"].positions.dtype
     msg = f"`dtype` between datasets is inconsistent, found {desired_dtype} and "
     for train_dataset in train_datasets:
-        actual_dtype = train_dataset[0].system.positions.dtype
+        actual_dtype = train_dataset[0]["system"].positions.dtype
         if actual_dtype != desired_dtype:
             raise TypeError(f"{msg}{actual_dtype} found in `train_datasets`")
 
     for validation_dataset in validation_datasets:
-        actual_dtype = validation_dataset[0].system.positions.dtype
+        actual_dtype = validation_dataset[0]["system"].positions.dtype
         if actual_dtype != desired_dtype:
             raise TypeError(f"{msg}{actual_dtype} found in `validation_datasets`")
 
@@ -173,3 +210,33 @@ def _train_test_random_split(
     lengths /= lengths.sum()
 
     return random_split(dataset=train_dataset, lengths=lengths, generator=generator)
+
+
+def group_and_join(
+    batch: List[Dict[str, Any]],
+) -> Dict[str, Any]:
+    """
+    Same as metatenor.learn.data.group_and_join, but joins dicts and not named tuples.
+
+    :param batch: A list of dictionaries, each containing the data for a single sample.
+
+    :returns: A single dictionary with the data fields joined together among all
+        samples.
+    """
+    data: List[Union[TensorMap, torch.Tensor]] = []
+    names = batch[0].keys()
+    for name, field in zip(names, zip(*(item.values() for item in batch))):
+        if name == "sample_id":  # special case, keep as is
+            data.append(field)
+            continue
+
+        if isinstance(field[0], torch.ScriptObject) and field[0]._has_method(
+            "keys_to_properties"
+        ):  # inferred metatensor.torch.TensorMap type
+            data.append(metatensor.torch.join(field, axis="samples"))
+        elif isinstance(field[0], torch.Tensor):  # torch.Tensor type
+            data.append(torch.vstack(field))
+        else:  # otherwise just keep as a list
+            data.append(field)
+
+    return {name: value for name, value in zip(names, data)}

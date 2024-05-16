@@ -4,12 +4,12 @@ from typing import Dict, List, Optional, Union
 
 import torch
 from metatensor.learn.data import DataLoader
-from metatensor.learn.data.dataset import Dataset
 from metatensor.torch.atomistic import ModelCapabilities, ModelOutput
 
 from ...utils.composition import calculate_composition_weights
 from ...utils.data import (
     CombinedDataLoader,
+    Dataset,
     DatasetInfo,
     check_datasets,
     collate_fn,
@@ -23,7 +23,7 @@ from ...utils.logging import MetricLogger
 from ...utils.loss import TensorMapDictLoss
 from ...utils.merge_capabilities import merge_capabilities
 from ...utils.metrics import RMSEAccumulator
-from ...utils.neighbors_lists import get_system_with_neighbors_lists
+from ...utils.neighbor_lists import get_system_with_neighbor_lists
 from ...utils.per_atom import divide_by_num_atoms
 from . import DEFAULT_HYPERS
 from .model import Model
@@ -54,11 +54,20 @@ def train(
         )
         for key, value in dataset_info.targets.items()
     }
+    dtype = train_datasets[0][0]["system"].positions.dtype
+    if dtype == torch.float64:
+        dtype_string = "float64"
+    elif dtype == torch.float32:
+        dtype_string = "float32"
+    else:
+        raise ValueError(f"Unsupported dtype {dtype} for Alchemical Model.")
     new_capabilities = ModelCapabilities(
         length_unit=dataset_info.length_unit,
         outputs=outputs,
         atomic_types=all_species,
         supported_devices=["cpu", "cuda"],
+        interaction_range=hypers["model"]["soap"]["cutoff"],
+        dtype=dtype_string,
     )
 
     if continue_from is None:
@@ -101,17 +110,17 @@ def train(
             # only error if we are not continuing
             raise ValueError(err) from err
 
-    # Calculating the neighbors lists for the training and validation datasets:
-    logger.info("Calculating neighbors lists for the datasets")
-    requested_neighbor_lists = model.requested_neighbors_lists()
+    # Calculating the neighbor lists for the training and validation datasets:
+    logger.info("Calculating neighbor lists for the datasets")
+    requested_neighbor_lists = model.requested_neighbor_lists()
     for dataset in train_datasets + validation_datasets:
         for i in range(len(dataset)):
-            system = dataset[i].system
-            # The following line attached the neighbors lists to the system,
+            system = dataset[i]["system"]
+            # The following line attaches the neighbors lists to the system,
             # and doesn't require to reassign the system to the dataset:
-            _ = get_system_with_neighbors_lists(system, requested_neighbor_lists)
+            _ = get_system_with_neighbor_lists(system, requested_neighbor_lists)
 
-    # Calculate the average number of atoms and neighbors in the training datasets:
+    # Calculate the average number of atoms and neighbor in the training datasets:
     average_number_of_atoms = get_average_number_of_atoms(train_datasets)
     average_number_of_neighbors = get_average_number_of_neighbors(train_datasets)
 
@@ -124,7 +133,6 @@ def train(
     model.set_basis_normalization_factor(average_number_of_neighbors)
 
     device = devices[0]  # only one device, as we don't support multi-gpu for now
-    dtype = train_datasets[0][0].system.positions.dtype
 
     logger.info(f"training on device {device} with dtype {dtype}")
     model.to(device=device, dtype=dtype)
@@ -227,7 +235,7 @@ def train(
             optimizer.zero_grad()
 
             systems, targets = batch
-            assert len(systems[0].known_neighbors_lists()) > 0
+            assert len(systems[0].known_neighbor_lists()) > 0
             systems = [system.to(device=device) for system in systems]
             targets = {key: value.to(device=device) for key, value in targets.items()}
             predictions = evaluate_model(
@@ -257,7 +265,7 @@ def train(
         validation_loss = 0.0
         for batch in validation_dataloader:
             systems, targets = batch
-            assert len(systems[0].known_neighbors_lists()) > 0
+            assert len(systems[0].known_neighbor_lists()) > 0
             systems = [system.to(device=device) for system in systems]
             targets = {key: value.to(device=device) for key, value in targets.items()}
             predictions = evaluate_model(

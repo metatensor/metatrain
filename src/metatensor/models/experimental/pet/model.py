@@ -6,7 +6,7 @@ from metatensor.torch import Labels, TensorBlock, TensorMap
 from metatensor.torch.atomistic import (
     ModelCapabilities,
     ModelOutput,
-    NeighborsListOptions,
+    NeighborListOptions,
     System,
 )
 from pet.hypers import Hypers
@@ -31,11 +31,11 @@ class Model(torch.nn.Module):
     def set_trained_model(self, trained_model: torch.nn.Module) -> None:
         self.pet = trained_model
 
-    def requested_neighbors_lists(
+    def requested_neighbor_lists(
         self,
-    ) -> List[NeighborsListOptions]:
+    ) -> List[NeighborListOptions]:
         return [
-            NeighborsListOptions(
+            NeighborListOptions(
                 cutoff=self.cutoff,
                 full_list=True,
             )
@@ -47,7 +47,7 @@ class Model(torch.nn.Module):
         outputs: Dict[str, ModelOutput],
         selected_atoms: Optional[Labels] = None,
     ) -> Dict[str, TensorMap]:
-        options = self.requested_neighbors_lists()[0]
+        options = self.requested_neighbor_lists()[0]
         batch = systems_to_batch_dict(
             systems, options, self.all_species, selected_atoms
         )

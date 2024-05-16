@@ -5,7 +5,7 @@ import numpy as np
 import torch
 from metatensor.torch import Labels, TensorBlock
 from metatensor.torch.atomistic import (
-    NeighborsListOptions,
+    NeighborListOptions,
     System,
     register_autograd_neighbors,
 )
@@ -13,13 +13,13 @@ from metatensor.torch.atomistic import (
 from .data.system_to_ase import system_to_ase
 
 
-def get_system_with_neighbors_lists(
-    system: System, neighbor_lists: List[NeighborsListOptions]
+def get_system_with_neighbor_lists(
+    system: System, neighbor_lists: List[NeighborListOptions]
 ) -> System:
     """Attaches neighbor lists to a `System` object.
 
     :param system: The system for which to calculate neighbor lists.
-    :param neighbor_lists: A list of `NeighborsListOptions` objects,
+    :param neighbor_lists: A list of `NeighborListOptions` objects,
         each of which specifies the parameters for a neighbor list.
 
     :return: The `System` object with the neighbor lists added.
@@ -29,18 +29,18 @@ def get_system_with_neighbors_lists(
 
     # Compute the neighbor lists
     for options in neighbor_lists:
-        if options not in system.known_neighbors_lists():
+        if options not in system.known_neighbor_lists():
             neighbor_list = _compute_single_neighbor_list(atoms, options).to(
                 device=system.device, dtype=system.dtype
             )
             register_autograd_neighbors(system, neighbor_list)
-            system.add_neighbors_list(options, neighbor_list)
+            system.add_neighbor_list(options, neighbor_list)
 
     return system
 
 
 def _compute_single_neighbor_list(
-    atoms: ase.Atoms, options: NeighborsListOptions
+    atoms: ase.Atoms, options: NeighborListOptions
 ) -> TensorBlock:
     # Computes a single neighbor list for an ASE atoms object
     # (as in metatensor.torch.atomistic)
