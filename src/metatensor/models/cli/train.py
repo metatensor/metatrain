@@ -4,7 +4,7 @@ import logging
 import os
 import random
 from pathlib import Path
-from typing import Dict, List, Optional, Union
+from typing import Dict, Optional, Union
 
 import numpy as np
 import torch
@@ -282,16 +282,6 @@ def train_model(
     # SETUP MODEL #############
     ###########################
     logger.info("Setting up model")
-
-    # TODO: A more direct way to look up the gradients would be to get them from
-    # the configuration dict of the training run.
-    gradients: Dict[str, List[str]] = {}
-    for train_options in train_options_list:
-        for key in train_options["targets"].keys():
-            # look inside training sets and find gradients
-            for train_dataset in train_datasets:
-                if key in train_dataset[0].keys():
-                    gradients[key] = train_dataset[0][key].block().gradients_list()
 
     dataset_info = DatasetInfo(
         length_unit=(
