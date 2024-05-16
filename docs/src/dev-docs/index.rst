@@ -9,7 +9,7 @@ module.
 .. toctree::
    :maxdepth: 1
 
-   adding-models
    architecture-life-cycle
+   adding-architectures/index
    cli/index
    utils/index
