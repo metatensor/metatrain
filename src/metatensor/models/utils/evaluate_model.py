@@ -5,10 +5,12 @@ import torch
 from metatensor.torch import Labels, TensorBlock, TensorMap
 from metatensor.torch.atomistic import (
     ModelEvaluationOptions,
+    ModelOutput,
     System,
     register_autograd_neighbors,
 )
 
+from .data import TargetInfo
 from .io import is_exported
 from .output_gradient import compute_gradient
 
@@ -25,7 +27,7 @@ warnings.filterwarnings(
 def evaluate_model(
     model: Union[torch.nn.Module, torch.jit._script.RecursiveScriptModule],
     systems: List[System],
-    targets: Dict[str, List[str]],
+    targets: Dict[str, TargetInfo],
     is_training: bool,
 ) -> Dict[str, TensorMap]:
     """
@@ -56,9 +58,9 @@ def evaluate_model(
         if outputs_capabilities[target_name].quantity == "energy":
             energy_targets.append(target_name)
             # Check if the energy requires gradients:
-            if "positions" in targets[target_name]:
+            if "positions" in targets[target_name].gradients:
                 energy_targets_that_require_position_gradients.append(target_name)
-            if "strain" in targets[target_name]:
+            if "strain" in targets[target_name].gradients:
                 energy_targets_that_require_strain_gradients.append(target_name)
 
     if len(energy_targets_that_require_strain_gradients) > 0:
@@ -106,7 +108,7 @@ def evaluate_model(
                 system.positions.requires_grad_(True)
 
     # Based on the keys of the targets, get the outputs of the model:
-    model_outputs = _get_model_outputs(model, systems, list(targets.keys()))
+    model_outputs = _get_model_outputs(model, systems, targets)
 
     for energy_target in energy_targets:
         # If the energy target requires gradients, compute them:
@@ -253,17 +255,28 @@ def _get_capabilities(
 def _get_model_outputs(
     model: Union[torch.nn.Module, torch.jit._script.RecursiveScriptModule],
     systems: List[System],
-    targets: List[str],
+    targets: Dict[str, TargetInfo],
 ) -> Dict[str, TensorMap]:
     if is_exported(model):
         # put together an EvaluationOptions object
         options = ModelEvaluationOptions(
             length_unit="",  # this is only needed for unit conversions in MD engines
-            outputs={key: _get_capabilities(model).outputs[key] for key in targets},
+            outputs={
+                key: ModelOutput(
+                    quantity=value.quantity, unit=value.unit, per_atom=value.per_atom
+                )
+                for key, value in targets.items()
+            },
         )
         # we check consistency here because this could be called from eval
         return model(systems, options, check_consistency=True)
     else:
         return model(
-            systems, {key: _get_capabilities(model).outputs[key] for key in targets}
+            systems,
+            {
+                key: ModelOutput(
+                    quantity=value.quantity, unit=value.unit, per_atom=value.per_atom
+                )
+                for key, value in targets.items()
+            },
         )
