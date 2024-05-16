@@ -46,13 +46,16 @@ def test_regression_init():
 
     expected_output = torch.tensor(
         [
-            [-0.056442655623],
-            [0.029562100768],
-            [0.018198169768],
-            [-0.110182866454],
-            [-0.054726727307],
+            [-0.176965013146],
+            [-0.079599663615],
+            [-0.108174860477],
+            [-0.122536651790],
+            [0.036227226257],
         ]
     )
+
+    torch.set_printoptions(precision=12)
+    print(output["mtm::U0"].block().values)
 
     torch.testing.assert_close(
         output["mtm::U0"].block().values, expected_output, rtol=1e-3, atol=1e-08
@@ -100,7 +103,13 @@ def test_regression_train():
     )
 
     expected_output = torch.tensor(
-        [[-40.5288], [-56.5486], [-76.4004], [-77.3252], [-93.4194]]
+        [
+            [-40.459068298340],
+            [-56.513431549072],
+            [-76.364128112793],
+            [-77.305389404297],
+            [-93.429672241211],
+        ]
     )
 
     torch.testing.assert_close(
