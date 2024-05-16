@@ -156,7 +156,7 @@ def test_read_targets(stress_dict, virial_dict, monkeypatch, tmp_path, caplog):
 
     conf = {
         "energy": energy_section,
-        "energy2": energy_section,
+        "mtm::energy2": energy_section,
     }
 
     caplog.set_level(logging.INFO)
@@ -266,7 +266,7 @@ def test_read_targets_error(monkeypatch, tmp_path):
         read_targets(OmegaConf.create(conf))
 
 
-def test_unsopprted_quantity():
+def test_unsupported_quantity():
     conf = {
         "energy": {
             "quantity": "foo",
@@ -276,5 +276,19 @@ def test_unsopprted_quantity():
     with pytest.raises(
         ValueError,
         match="Quantity: 'foo' is not supported. Choose 'energy'.",
+    ):
+        read_targets(OmegaConf.create(conf))
+
+
+def test_unsupported_target_name():
+    conf = {
+        "free_energy": {
+            "quantity": "energy",
+        }
+    }
+
+    with pytest.raises(
+        ValueError,
+        match="start with `mtm::`",
     ):
         read_targets(OmegaConf.create(conf))

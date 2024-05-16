@@ -59,6 +59,8 @@ def systems_capabilities_predictions(cell: torch.tensor = None) -> List[System]:
     capabilities = ModelCapabilities(
         length_unit="angstrom",
         outputs={"energy": ModelOutput(quantity="energy", unit="kcal/mol")},
+        interaction_range=1.0,
+        dtype="float32",
     )
 
     return systems, capabilities, predictions

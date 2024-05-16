@@ -5,17 +5,22 @@ from typing import Dict, List, Optional, Union
 
 import metatensor.torch
 import torch
-from metatensor.learn.data.dataset import Dataset
 from metatensor.torch import Labels, TensorBlock, TensorMap
 from omegaconf import DictConfig, OmegaConf
 
-from ..utils.data import collate_fn, read_systems, read_targets, write_predictions
+from ..utils.data import (
+    Dataset,
+    collate_fn,
+    read_systems,
+    read_targets,
+    write_predictions,
+)
 from ..utils.errors import ArchitectureError
 from ..utils.evaluate_model import evaluate_model
 from ..utils.io import load
 from ..utils.logging import MetricLogger
 from ..utils.metrics import RMSEAccumulator
-from ..utils.neighbors_lists import get_system_with_neighbors_lists
+from ..utils.neighbor_lists import get_system_with_neighbor_lists
 from ..utils.omegaconf import expand_dataset_config
 from .formatter import CustomHelpFormatter
 
@@ -130,8 +135,8 @@ def _eval_targets(
     # TODO: these might already be present... find a way to avoid recomputing
     # if already present (e.g. if this function is called after training)
     for sample in dataset:
-        system = sample.system
-        get_system_with_neighbors_lists(system, model.requested_neighbors_lists())
+        system = sample["system"]
+        get_system_with_neighbor_lists(system, model.requested_neighbor_lists())
 
     # Infer the device from the model
     device = next(model.parameters()).device
@@ -243,7 +248,7 @@ def eval_model(
                 target: gradients for target in model.capabilities().outputs.keys()
             }
 
-        eval_dataset = Dataset(system=eval_systems, **eval_targets)
+        eval_dataset = Dataset({"system": eval_systems, **eval_targets})
 
         # Evaluate the model
         try:

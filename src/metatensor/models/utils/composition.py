@@ -1,10 +1,9 @@
 from typing import List, Tuple, Union
 
 import torch
-from metatensor.learn.data.dataset import Dataset
 from metatensor.torch import Labels, TensorBlock, TensorMap
 
-from metatensor.models.utils.data import get_all_species
+from metatensor.models.utils.data import Dataset, get_all_species
 
 
 def calculate_composition_weights(
@@ -26,17 +25,11 @@ def calculate_composition_weights(
     # as well, because the species are sorted in the composition features
 
     targets = torch.stack(
-        [
-            sample._asdict()[property].block().values
-            for dataset in datasets
-            for sample in dataset
-        ]
+        [sample[property].block().values for dataset in datasets for sample in dataset]
     )
     targets = targets.squeeze(dim=(1, 2))  # remove component and property dimensions
 
-    structure_list = [
-        sample._asdict()["system"] for dataset in datasets for sample in dataset
-    ]
+    structure_list = [sample["system"] for dataset in datasets for sample in dataset]
 
     dtype = structure_list[0].positions.dtype
     composition_features = torch.empty((len(structure_list), len(species)), dtype=dtype)
