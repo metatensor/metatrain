@@ -10,7 +10,8 @@ from torch.utils.data import Subset, random_split
 
 class Dataset:
     """A version of the `metatensor.learn.Dataset` class that allows for
-    the use of `mtm::` prefixes in the keys of the dictionary.
+    the use of `mtm::` prefixes in the keys of the dictionary. See
+    https://github.com/lab-cosmo/metatensor/issues/621.
 
     It is important to note that, instead of named tuples, this class
     accepts and returns dictionaries.
