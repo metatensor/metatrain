@@ -4,7 +4,7 @@ import metatensor.torch
 import pytest
 from metatensor.torch.atomistic import ModelCapabilities, ModelOutput
 
-from metatensor.models.experimental.soap_bpnn import Model
+from metatensor.models.experimental.soap_bpnn import DEFAULT_HYPERS, Model
 from metatensor.models.utils.data import read_systems
 from metatensor.models.utils.io import check_suffix, export, is_exported, load, save
 
@@ -26,6 +26,8 @@ def test_save_load_checkpoint(monkeypatch, tmp_path, path):
                 unit="eV",
             )
         },
+        interaction_range=DEFAULT_HYPERS["model"]["soap"]["cutoff"],
+        dtype="float32",
     )
 
     model = Model(capabilities)
@@ -61,6 +63,8 @@ def test_missing_extension(monkeypatch, tmp_path):
                 unit="eV",
             )
         },
+        interaction_range=DEFAULT_HYPERS["model"]["soap"]["cutoff"],
+        dtype="float32",
     )
 
     model = Model(capabilities)
@@ -98,7 +102,12 @@ def test_export(monkeypatch, tmp_path, path):
     monkeypatch.chdir(tmp_path)
 
     model = Model(
-        capabilities=ModelCapabilities(atomic_types=[1], length_unit="angstrom")
+        capabilities=ModelCapabilities(
+            atomic_types=[1],
+            length_unit="angstrom",
+            interaction_range=DEFAULT_HYPERS["model"]["soap"]["cutoff"],
+            dtype="float32",
+        )
     )
     export(model, path)
 
@@ -109,7 +118,12 @@ def test_export_warning(monkeypatch, tmp_path):
     monkeypatch.chdir(tmp_path)
 
     model = Model(
-        capabilities=ModelCapabilities(atomic_types=[1], length_unit="angstrom")
+        capabilities=ModelCapabilities(
+            atomic_types=[1],
+            length_unit="angstrom",
+            interaction_range=DEFAULT_HYPERS["model"]["soap"]["cutoff"],
+            dtype="float32",
+        )
     )
 
     with pytest.warns(
@@ -123,7 +137,12 @@ def test_reexport(monkeypatch, tmp_path):
     monkeypatch.chdir(tmp_path)
 
     model = Model(
-        capabilities=ModelCapabilities(atomic_types=[1], length_unit="angstrom")
+        capabilities=ModelCapabilities(
+            atomic_types=[1],
+            length_unit="angstrom",
+            interaction_range=DEFAULT_HYPERS["model"]["soap"]["cutoff"],
+            dtype="float32",
+        )
     )
     export(model, "exported.pt")
 
@@ -144,7 +163,13 @@ def test_is_exported():
 
 
 def test_length_units_warning(monkeypatch, tmp_path):
-    model = Model(capabilities=ModelCapabilities(atomic_types=[1]))
+    model = Model(
+        capabilities=ModelCapabilities(
+            atomic_types=[1],
+            interaction_range=DEFAULT_HYPERS["model"]["soap"]["cutoff"],
+            dtype="float32",
+        )
+    )
 
     monkeypatch.chdir(tmp_path)
     with pytest.warns(match="No `length_unit` was provided for the model."):
@@ -154,14 +179,18 @@ def test_length_units_warning(monkeypatch, tmp_path):
 def test_units_warning(monkeypatch, tmp_path):
     monkeypatch.chdir(tmp_path)
 
-    outputs = {"output": ModelOutput(quantity="energy")}
+    outputs = {"mtm::output": ModelOutput(quantity="energy")}
     model = Model(
         capabilities=ModelCapabilities(
-            atomic_types=[1], outputs=outputs, length_unit="angstrom"
+            atomic_types=[1],
+            outputs=outputs,
+            length_unit="angstrom",
+            interaction_range=DEFAULT_HYPERS["model"]["soap"]["cutoff"],
+            dtype="float32",
         )
     )
 
-    with pytest.warns(match="No target units were provided for output 'output'"):
+    with pytest.warns(match="No target units were provided for output 'mtm::output'"):
         export(model, "exported.pt")
 
 

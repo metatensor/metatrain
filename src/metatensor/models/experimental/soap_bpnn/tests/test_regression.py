@@ -3,12 +3,11 @@ import random
 import ase.io
 import numpy as np
 import torch
-from metatensor.learn.data import Dataset
 from metatensor.torch.atomistic import ModelCapabilities, ModelOutput, systems_to_torch
 from omegaconf import OmegaConf
 
 from metatensor.models.experimental.soap_bpnn import DEFAULT_HYPERS, Model, train
-from metatensor.models.utils.data import DatasetInfo, TargetInfo
+from metatensor.models.utils.data import Dataset, DatasetInfo, TargetInfo
 from metatensor.models.utils.data.readers import read_systems, read_targets
 
 from . import DATASET_PATH
@@ -27,11 +26,13 @@ def test_regression_init():
         length_unit="Angstrom",
         atomic_types=[1, 6, 7, 8],
         outputs={
-            "U0": ModelOutput(
+            "mtm::U0": ModelOutput(
                 quantity="energy",
                 unit="eV",
             )
         },
+        interaction_range=DEFAULT_HYPERS["model"]["soap"]["cutoff"],
+        dtype="float32",
     )
     soap_bpnn = Model(capabilities, DEFAULT_HYPERS["model"])
 
@@ -40,13 +41,21 @@ def test_regression_init():
 
     output = soap_bpnn(
         [systems_to_torch(system) for system in systems],
-        {"U0": soap_bpnn.capabilities.outputs["U0"]},
+        {"mtm::U0": soap_bpnn.capabilities.outputs["mtm::U0"]},
     )
 
-    expected_output = torch.tensor([[0.1999], [0.2515], [-0.1011], [0.0920], [0.0674]])
+    expected_output = torch.tensor(
+        [
+            [0.554494261742],
+            [0.554337739944],
+            [0.293447971344],
+            [0.212114095688],
+            [0.265181243420],
+        ]
+    )
 
     torch.testing.assert_close(
-        output["U0"].block().values, expected_output, rtol=1e-3, atol=1e-08
+        output["mtm::U0"].block().values, expected_output, rtol=1e-3, atol=1e-08
     )
 
 
@@ -57,7 +66,7 @@ def test_regression_train():
     systems = read_systems(DATASET_PATH)
 
     conf = {
-        "U0": {
+        "mtm::U0": {
             "quantity": "energy",
             "read_from": DATASET_PATH,
             "file_format": ".xyz",
@@ -68,7 +77,7 @@ def test_regression_train():
         }
     }
     targets = read_targets(OmegaConf.create(conf))
-    dataset = Dataset(system=systems, U0=targets["U0"])
+    dataset = Dataset({"system": systems, "mtm::U0": targets["mtm::U0"]})
 
     hypers = DEFAULT_HYPERS.copy()
     hypers["training"]["num_epochs"] = 2
@@ -76,7 +85,7 @@ def test_regression_train():
     dataset_info = DatasetInfo(
         length_unit="Angstrom",
         targets={
-            "U0": TargetInfo(
+            "mtm::U0": TargetInfo(
                 quantity="energy",
                 unit="eV",
             ),
@@ -85,12 +94,21 @@ def test_regression_train():
     soap_bpnn = train([dataset], [dataset], dataset_info, [torch.device("cpu")], hypers)
 
     # Predict on the first five systems
-    output = soap_bpnn(systems[:5], {"U0": ModelOutput(quantity="energy")})
+    output = soap_bpnn(
+        systems[:5],
+        {"mtm::U0": ModelOutput(quantity="energy", unit="", per_atom=False)},
+    )
 
     expected_output = torch.tensor(
-        [[-40.5288], [-56.5486], [-76.4004], [-77.3252], [-93.4194]]
+        [
+            [-40.459068298340],
+            [-56.513431549072],
+            [-76.364128112793],
+            [-77.305389404297],
+            [-93.429672241211],
+        ]
     )
 
     torch.testing.assert_close(
-        output["U0"].block().values, expected_output, rtol=1e-3, atol=1e-08
+        output["mtm::U0"].block().values, expected_output, rtol=1e-3, atol=1e-08
     )

@@ -19,6 +19,8 @@ def test_prediction_subset_elements():
                 unit="eV",
             )
         },
+        interaction_range=DEFAULT_HYPERS["model"]["soap"]["cutoff"],
+        dtype="float32",
     )
 
     soap_bpnn = Model(capabilities, DEFAULT_HYPERS["model"])
@@ -43,6 +45,8 @@ def test_prediction_subset_atoms():
                 unit="eV",
             )
         },
+        interaction_range=DEFAULT_HYPERS["model"]["soap"]["cutoff"],
+        dtype="float32",
     )
 
     soap_bpnn = Model(capabilities, DEFAULT_HYPERS["model"])

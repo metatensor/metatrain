@@ -46,11 +46,11 @@ mtm::aux::last_layer_features
 
   * - samples
     - ``["system", "atom"]`` or ``["system"]``
-    - if doing ``per_atom`` output, the sample names must be ``["system",
-      "atom"]``, otherwise the sample names must be ``["system"]``.
+    - if a ``per_atom`` output is requested, the sample names will be
+      ``["system", "atom"]``, otherwise they will be ``["system"]``.
 
-      ``"system"`` must range from 0 to the number of systems given as input to
-      the model. ``"atom"`` must range between 0 and the number of
+      ``"system"`` ranges from 0 to the number of systems given as input to
+      the model. ``"atom"`` ranges between 0 and the number of
       atoms/particles in the corresponding system.
 
   * - components
@@ -60,6 +60,6 @@ mtm::aux::last_layer_features
 
   * - properties
     - ``"properties"``
-    - the last-layer features must have a single property dimension named
+    - the last-layer features have a single property dimension named
       ``"property"``, with entries ranging from 0 to the number of features
       in the last layer.
