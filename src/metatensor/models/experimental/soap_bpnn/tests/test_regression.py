@@ -87,7 +87,8 @@ def test_regression_train():
 
     # Predict on the first five systems
     output = soap_bpnn(
-        systems[:5], {"mtm::U0": soap_bpnn.capabilities.outputs["mtm::U0"]}
+        systems[:5],
+        {"mtm::U0": ModelOutput(quantity="energy", unit="", per_atom=False)},
     )
 
     expected_output = torch.tensor(
