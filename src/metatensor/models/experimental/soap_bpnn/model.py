@@ -261,7 +261,22 @@ class Model(torch.nn.Module):
             n_inputs_last_layer = hypers_bpnn["input_size"]
         else:
             n_inputs_last_layer = hypers_bpnn["num_neurons_per_layer"]
-        self.last_layers[output_name] = LinearMap(self.all_species, n_inputs_last_layer)
+        self.last_layers[output_name] = LinearMap(
+            Labels(
+                "central_species",
+                values=torch.tensor(self.all_species).reshape(-1, 1),
+            ),
+            in_features=n_inputs_last_layer,
+            out_features=1,
+            bias=False,
+            out_properties=[
+                Labels(
+                    names=["energy"],
+                    values=torch.tensor([[0]]),
+                )
+                for _ in self.all_species
+            ],
+        )
 
 
 def _remove_center_type_from_properties(tensor_map: TensorMap) -> TensorMap:
