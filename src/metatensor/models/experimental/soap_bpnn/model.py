@@ -3,7 +3,7 @@ from typing import Dict, List, Optional
 import metatensor.torch
 import rascaline.torch
 import torch
-from metatensor.torch import Labels, TensorMap
+from metatensor.torch import Labels, TensorBlock, TensorMap
 from metatensor.torch.atomistic import ModelCapabilities, ModelOutput, System
 from metatensor.torch.learn.nn import Linear as LinearMap
 from metatensor.torch.learn.nn import ModuleMap
