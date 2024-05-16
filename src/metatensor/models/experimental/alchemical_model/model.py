@@ -44,6 +44,9 @@ class Model(torch.nn.Module):
         outputs: Dict[str, ModelOutput],
         selected_atoms: Optional[Labels] = None,
     ) -> Dict[str, TensorMap]:
+        assert len(outputs.keys()) == 1
+        output_name = list(outputs.keys())[0]
+
         if selected_atoms is not None:
             raise NotImplementedError(
                 "Alchemical Model does not support selected atoms."
@@ -60,31 +63,30 @@ class Model(torch.nn.Module):
         )
 
         total_energies: Dict[str, TensorMap] = {}
-        for output_name in outputs:
-            keys = Labels(
-                "_", torch.zeros((1, 1), dtype=torch.int32, device=predictions.device)
-            )
-            properties = Labels(
-                "energy",
-                torch.zeros((1, 1), dtype=torch.int32, device=predictions.device),
-            )
-            samples = Labels(
-                names=["system"],
-                values=torch.arange(
-                    len(predictions),
-                    device=predictions.device,
-                ).view(-1, 1),
-            )
-            block = TensorBlock(
-                samples=samples,
-                components=[],
-                properties=properties,
-                values=predictions,
-            )
-            total_energies[output_name] = TensorMap(
-                keys=keys,
-                blocks=[block],
-            )
+        keys = Labels(
+            "_", torch.zeros((1, 1), dtype=torch.int32, device=predictions.device)
+        )
+        properties = Labels(
+            "energy",
+            torch.zeros((1, 1), dtype=torch.int32, device=predictions.device),
+        )
+        samples = Labels(
+            names=["system"],
+            values=torch.arange(
+                len(predictions),
+                device=predictions.device,
+            ).view(-1, 1),
+        )
+        block = TensorBlock(
+            samples=samples,
+            components=[],
+            properties=properties,
+            values=predictions,
+        )
+        total_energies[output_name] = TensorMap(
+            keys=keys,
+            blocks=[block],
+        )
         return total_energies
 
     def set_composition_weights(

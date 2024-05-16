@@ -53,10 +53,11 @@ def train(
         key: ModelOutput(
             quantity=value.quantity,
             unit=value.unit,
-            per_atom=False,
+            per_atom=True,
         )
         for key, value in dataset_info.targets.items()
     }
+
     dtype = train_datasets[0][0]["system"].positions.dtype
     if dtype == torch.float64:
         dtype_string = "float64"
@@ -64,11 +65,15 @@ def train(
         dtype_string = "float32"
     else:
         raise ValueError(f"Unsupported dtype {dtype} in SOAP-BPNN")
+
+    # the model is always capable of outputting the last layer features
+    outputs["mtm::aux::last_layer_features"] = ModelOutput(per_atom=True)
+
     new_capabilities = ModelCapabilities(
         length_unit=dataset_info.length_unit,
         outputs=outputs,
         atomic_types=all_species,
-        supported_devices=["cpu", "cuda"],
+        supported_devices=["cuda", "cpu"],
         interaction_range=hypers["model"]["soap"]["cutoff"],
         dtype=dtype_string,
     )
@@ -124,6 +129,8 @@ def train(
     # Calculate and set the composition weights for all targets:
     logger.info("Calculating composition weights")
     for target_name in novel_capabilities.outputs.keys():
+        if "mtm::aux::" in target_name:
+            continue
         # TODO: warn in the documentation that capabilities that are already
         # present in the model won't recalculate the composition weights
         # find the datasets that contain the target:
@@ -250,10 +257,7 @@ def train(
             predictions = evaluate_model(
                 model,
                 systems,
-                {
-                    name: tensormap.block().gradients_list()
-                    for name, tensormap in targets.items()
-                },
+                {key: dataset_info.targets[key] for key in targets.keys()},
                 is_training=True,
             )
 
@@ -279,10 +283,7 @@ def train(
             predictions = evaluate_model(
                 model,
                 systems,
-                {
-                    name: tensormap.block().gradients_list()
-                    for name, tensormap in targets.items()
-                },
+                {key: dataset_info.targets[key] for key in targets.keys()},
                 is_training=False,
             )
 

@@ -1,4 +1,4 @@
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional, Tuple, Union
 
 import metatensor.learn
@@ -53,11 +53,14 @@ class TargetInfo:
     :param quantity: The quantity of the target.
     :param unit: The unit of the target.
     :param per_atom: Whether the target is a per-atom quantity.
+    :param gradients: Gradients of the target that are defined
+        in the current dataset.
     """
 
     quantity: str
-    unit: str
+    unit: str = ""
     per_atom: bool = False
+    gradients: List[str] = field(default_factory=list)
 
 
 @dataclass
@@ -225,18 +228,18 @@ def group_and_join(
     """
     data: List[Union[TensorMap, torch.Tensor]] = []
     names = batch[0].keys()
-    for name, field in zip(names, zip(*(item.values() for item in batch))):
+    for name, f in zip(names, zip(*(item.values() for item in batch))):
         if name == "sample_id":  # special case, keep as is
-            data.append(field)
+            data.append(f)
             continue
 
-        if isinstance(field[0], torch.ScriptObject) and field[0]._has_method(
+        if isinstance(f[0], torch.ScriptObject) and f[0]._has_method(
             "keys_to_properties"
         ):  # inferred metatensor.torch.TensorMap type
-            data.append(metatensor.torch.join(field, axis="samples"))
-        elif isinstance(field[0], torch.Tensor):  # torch.Tensor type
-            data.append(torch.vstack(field))
+            data.append(metatensor.torch.join(f, axis="samples"))
+        elif isinstance(f[0], torch.Tensor):  # torch.Tensor type
+            data.append(torch.vstack(f))
         else:  # otherwise just keep as a list
-            data.append(field)
+            data.append(f)
 
     return {name: value for name, value in zip(names, data)}
