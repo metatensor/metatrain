@@ -24,9 +24,9 @@ class Model(torch.nn.Module):
         self.name = ARCHITECTURE_NAME
         self.hypers = Hypers(hypers) if isinstance(hypers, dict) else hypers
         self.cutoff = self.hypers.R_CUT
-        self.all_species: List[int] = capabilities.atomic_types
+        self.species: List[int] = capabilities.atomic_types
         self.capabilities = capabilities
-        self.pet = PET(self.hypers, 0.0, len(self.all_species))
+        self.pet = PET(self.hypers, 0.0, len(self.species))
 
     def set_trained_model(self, trained_model: torch.nn.Module) -> None:
         self.pet = trained_model
@@ -48,9 +48,7 @@ class Model(torch.nn.Module):
         selected_atoms: Optional[Labels] = None,
     ) -> Dict[str, TensorMap]:
         options = self.requested_neighbor_lists()[0]
-        batch = systems_to_batch_dict(
-            systems, options, self.all_species, selected_atoms
-        )
+        batch = systems_to_batch_dict(systems, options, self.species, selected_atoms)
 
         predictions = self.pet(batch)
         output_quantities: Dict[str, TensorMap] = {}

@@ -10,7 +10,6 @@ import metatensor.torch  # noqa
 import pytest
 import torch
 from omegaconf import OmegaConf
-from omegaconf.errors import ConfigKeyError
 
 from metatensor.models.cli.train import train_model
 from metatensor.models.utils.errors import ArchitectureError
@@ -68,7 +67,7 @@ def test_train(capfd, monkeypatch, tmp_path, output):
 
     for logtext in [stdout_log, file_log]:
         assert "This log is also available"
-        assert re.search(r"random seed of this run is [1-9]\d*", logtext)
+        assert re.search(r"Random seed of this run is [1-9]\d*", logtext)
         assert "[INFO]" in logtext
         assert "Epoch" in logtext
         assert "loss" in logtext
@@ -193,16 +192,33 @@ def test_empty_training_set(monkeypatch, tmp_path, options):
         train_model(options)
 
 
-def test_empty_validation_set(monkeypatch, tmp_path, options):
-    """Test that an error is raised if no validation set is provided."""
+@pytest.mark.parametrize("split", [-0.1, 1.1])
+def test_wrong_test_split_size(split, monkeypatch, tmp_path, options):
+    """Test that an error is raised if the test split has the wrong size"""
     monkeypatch.chdir(tmp_path)
 
     shutil.copy(DATASET_PATH, "qm9_reduced_100.xyz")
 
-    options["validation_set"] = 0.0
-    options["test_set"] = 0.4
+    options["validation_set"] = 0.1
+    options["test_set"] = split
 
-    with pytest.raises(ValueError, match="must be greater than 0"):
+    match = r"Test set split must be greater or equal than 0 and lesser than 1."
+    with pytest.raises(ValueError, match=match):
+        train_model(options)
+
+
+@pytest.mark.parametrize("split", [0.0, 1.1])
+def test_wrong_validation_split_size(split, monkeypatch, tmp_path, options):
+    """Test that an error is raised if the validation split has the wrong size"""
+    monkeypatch.chdir(tmp_path)
+
+    shutil.copy(DATASET_PATH, "qm9_reduced_100.xyz")
+
+    options["validation_set"] = split
+    options["test_set"] = 0.1
+
+    match = r"Validation set split must be greater than 0 and lesser than 1."
+    with pytest.raises(ValueError, match=match):
         train_model(options)
 
 
@@ -346,7 +362,7 @@ def test_no_architecture_name(options):
     """Test error raise if architecture.name is not set."""
     options["architecture"].pop("name")
 
-    with pytest.raises(ConfigKeyError, match="Architecture name is not defined!"):
+    with pytest.raises(ValueError, match="Architecture name is not defined!"):
         train_model(options)
 
 

@@ -7,34 +7,35 @@ from pathlib import Path
 from typing import Dict, List, Optional, Tuple, Union
 
 import numpy as np
-from metatensor.torch.atomistic import ModelCapabilities
+from metatensor.torch.atomistic import ModelOutput
 
 from .io import check_suffix
 
 
-logger = logging.getLogger(__name__)
-
-
 class MetricLogger:
-    """This class provides a simple interface to log training metrics to a file."""
-
     def __init__(
         self,
-        model_capabilities: ModelCapabilities,
+        logobj: logging.Logger,
+        model_outputs: Dict[str, ModelOutput],
         initial_metrics: Union[Dict[str, float], List[Dict[str, float]]],
         names: Union[str, List[str]] = "",
     ):
         """
+        Simple interface to log training metrics logging instance.
+
         Initialize the metric logger. The logger is initialized with the initial metrics
         and names relative to the metrics (e.g., "train", "validation").
 
         In this way, and by assuming that these metrics never increase, the logger can
         align the output to make it easier to read.
 
-        :param model_capabilities: The capabilities of the model.
-        :param initial_metrics: The initial training metrics.
-        :param validation_info_0: The initial validation metrics.
+        :param logobj: A logging instance
+        :param model_outputs: outputs of the model
+        :param initial_metrics: initial training metrics
+        :param validation_info_0: initial validation metrics
         """
+        self.logobj = logobj
+        self.model_outputs = model_outputs
 
         if isinstance(initial_metrics, dict):
             initial_metrics = [initial_metrics]
@@ -43,9 +44,8 @@ class MetricLogger:
 
         self.names = names
 
-        # Since the quantities are supposed to decrease, we want to store the
-        # number of digits at the start of the training, so that we can align
-        # the output later:
+        # Since the quantities are supposed to decrease, we want to store the number of
+        # digits at the start of the training, so that we can align the output later:
         self.digits = {}
         for name, metrics_dict in zip(names, initial_metrics):
             for key, value in metrics_dict.items():
@@ -53,17 +53,13 @@ class MetricLogger:
 
         # This will be useful later for printing forces/virials/stresses:
         energy_counter = 0
-        for output in model_capabilities.outputs.values():
+        for output in model_outputs.values():
             if output.quantity == "energy":
                 energy_counter += 1
         if energy_counter == 1:
             self.only_one_energy = True
         else:
             self.only_one_energy = False
-
-        # Save the model capabilities. This will be useful to know
-        # what physical quantities we are printing
-        self.model_capabilities = model_capabilities
 
     def log(
         self,
@@ -99,10 +95,7 @@ class MetricLogger:
                     # check if this is a force
                     target_name, metric = key.split(" ")
                     target_name = target_name[: -len("_positions_gradients")]
-                    if (
-                        self.model_capabilities.outputs[target_name].quantity
-                        == "energy"
-                    ):
+                    if self.model_outputs[target_name].quantity == "energy":
                         # if this is a force, replace the ugly name with "force"
                         if self.only_one_energy:
                             new_key = f"force {metric}"
@@ -112,10 +105,7 @@ class MetricLogger:
                     # check if this is a virial
                     target_name, metric = key.split(" ")
                     target_name = target_name[: -len("_strain_gradients")]
-                    if (
-                        self.model_capabilities.outputs[target_name].quantity
-                        == "energy"
-                    ):
+                    if self.model_outputs[target_name].quantity == "energy":
                         # if this is a virial, replace the ugly name with "virial"
                         if self.only_one_energy:
                             new_key = f"virial {metric}"
@@ -132,7 +122,7 @@ class MetricLogger:
         if logging_string.startswith(", "):
             logging_string = logging_string[2:]
 
-        logger.info(logging_string)
+        self.logobj.info(logging_string)
 
 
 def _get_digits(value: float) -> Tuple[int, int]:

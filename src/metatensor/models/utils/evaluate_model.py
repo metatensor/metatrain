@@ -48,9 +48,9 @@ def evaluate_model(
 
     :returns: The predictions of the model for the requested targets.
     """
-    outputs_capabilities = _get_capabilities(model).outputs
+    model_outputs = _get_outputs(model)
     # Assert that all targets are within the model's capabilities:
-    if not set(targets.keys()).issubset(outputs_capabilities.keys()):
+    if not set(targets.keys()).issubset(model_outputs.keys()):
         raise ValueError("Not all targets are within the model's capabilities.")
 
     # Find if there are any energy targets that require gradients:
@@ -59,7 +59,7 @@ def evaluate_model(
     energy_targets_that_require_strain_gradients = []
     for target_name in targets.keys():
         # Check if the target is an energy:
-        if outputs_capabilities[target_name].quantity == "energy":
+        if model_outputs[target_name].quantity == "energy":
             energy_targets.append(target_name)
             # Check if the energy requires gradients:
             if "positions" in targets[target_name].gradients:
@@ -247,13 +247,13 @@ def _strain_gradients_to_block(gradients_list):
     )
 
 
-def _get_capabilities(
+def _get_outputs(
     model: Union[torch.nn.Module, torch.jit._script.RecursiveScriptModule]
 ):
     if is_exported(model):
-        return model.capabilities()
+        return model.capabilities().outputs
     else:
-        return model.capabilities
+        return model.outputs
 
 
 def _get_model_outputs(

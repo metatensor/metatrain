@@ -2,15 +2,17 @@ from pathlib import Path
 
 import pytest
 import torch
-from metatensor.torch.atomistic import ModelCapabilities, ModelOutput
+from metatensor.torch.atomistic import ModelCapabilities
 
-from metatensor.models.experimental import soap_bpnn
-from metatensor.models.utils.data import TargetInfo, read_systems
+from metatensor.models.experimental.soap_bpnn import __model__
+from metatensor.models.utils.architectures import get_default_hypers
+from metatensor.models.utils.data import DatasetInfo, TargetInfo, read_systems
 from metatensor.models.utils.evaluate_model import evaluate_model
 from metatensor.models.utils.export import export
 from metatensor.models.utils.neighbor_lists import get_system_with_neighbor_lists
 
 
+MODEL_HYPERS = get_default_hypers("experimental.soap_bpnn")["model"]
 RESOURCES_PATH = Path(__file__).parent.resolve() / ".." / "resources"
 
 
@@ -23,41 +25,37 @@ def test_evaluate_model(training, exported):
         RESOURCES_PATH / "alchemical_reduced_10.xyz", dtype=torch.get_default_dtype()
     )[:2]
 
-    atomic_types = list(
+    all_types = list(
         torch.unique(torch.concatenate([system.types for system in systems]))
     )
 
-    capabilities = ModelCapabilities(
-        length_unit="Angstrom",
-        atomic_types=atomic_types,
-        outputs={
-            "energy": ModelOutput(
-                quantity="energy",
-                unit="eV",
-            )
-        },
-        interaction_range=soap_bpnn.DEFAULT_HYPERS["model"]["soap"]["cutoff"],
-        dtype="float32",
-    )
+    targets = {
+        "energy": TargetInfo(quantity="energy", gradients=["positions", "strain"])
+    }
 
-    model = soap_bpnn.Model(capabilities)
+    dataset_info = DatasetInfo(
+        length_unit="angstrom", all_types=all_types, targets=targets
+    )
+    model = __model__(model_hypers=MODEL_HYPERS, dataset_info=dataset_info)
+
     if exported:
-        model = export(model)
+
+        capabilities = ModelCapabilities(
+            length_unit=model.dataset_info.length_unit,
+            outputs=model.outputs,
+            atomic_types=model.all_types,
+            supported_devices=model.__supported_devices__,
+            interaction_range=model.hypers["soap"]["cutoff"],
+            dtype="float32",
+        )
+
+        model = export(model, capabilities)
         systems = [
             get_system_with_neighbor_lists(system, model.requested_neighbor_lists())
             for system in systems
         ]
 
-    target_info = {
-        "energy": TargetInfo(quantity="energy", gradients=["positions", "strain"])
-    }
-
-    outputs = evaluate_model(
-        model,
-        systems,
-        target_info,
-        is_training=training,
-    )
+    outputs = evaluate_model(model, systems, targets, is_training=training)
 
     assert isinstance(outputs, dict)
     assert "energy" in outputs

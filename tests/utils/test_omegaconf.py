@@ -63,9 +63,7 @@ def test_default_device_resolver_multi(monkeypatch):
 )
 def test_default_precision_resolver(dtype, precision, monkeypatch):
     patched_capabilities = {"supported_dtypes": [dtype]}
-    monkeypatch.setattr(
-        soap_bpnn, "__ARCHITECTURE_CAPABILITIES__", patched_capabilities
-    )
+    monkeypatch.setattr(soap_bpnn, "__capabilities__", patched_capabilities)
 
     conf = OmegaConf.create(
         {
@@ -79,9 +77,7 @@ def test_default_precision_resolver(dtype, precision, monkeypatch):
 
 def test_default_precision_resolver_unknown_dtype(monkeypatch):
     patched_capabilities = {"supported_dtypes": [torch.int64]}
-    monkeypatch.setattr(
-        soap_bpnn, "__ARCHITECTURE_CAPABILITIES__", patched_capabilities
-    )
+    monkeypatch.setattr(soap_bpnn, "__capabilities__", patched_capabilities)
 
     conf = OmegaConf.create(
         {
