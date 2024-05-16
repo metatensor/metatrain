@@ -6,7 +6,7 @@ from metatensor.models.utils.logging import setup_logging
 
 def assert_log_entry(logtext: str, loglevel: str, message: str) -> None:
     pattern = (
-        r"\[\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2},\d{3}\]\["
+        r"\[\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}\]\["
         + re.escape(loglevel.strip())
         + r"\] - "
         + re.escape(message)
