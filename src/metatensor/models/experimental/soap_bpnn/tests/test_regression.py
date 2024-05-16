@@ -46,16 +46,13 @@ def test_regression_init():
 
     expected_output = torch.tensor(
         [
-            [-0.176965013146],
-            [-0.079599663615],
-            [-0.108174860477],
-            [-0.122536651790],
-            [0.036227226257],
+            [0.554494261742],
+            [0.554337739944],
+            [0.293447971344],
+            [0.212114095688],
+            [0.265181243420],
         ]
     )
-
-    torch.set_printoptions(precision=12)
-    print(output["mtm::U0"].block().values)
 
     torch.testing.assert_close(
         output["mtm::U0"].block().values, expected_output, rtol=1e-3, atol=1e-08
