@@ -12,4 +12,5 @@ Welcome to metatensor-models!
    getting-started/index
    tutorials/index
    architectures/index
+   advanced-concepts/index
    dev-docs/index

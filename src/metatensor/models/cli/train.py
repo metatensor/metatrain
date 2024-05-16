@@ -4,7 +4,7 @@ import logging
 import os
 import random
 from pathlib import Path
-from typing import Dict, Optional, Union
+from typing import Dict, List, Optional, Union
 
 import numpy as np
 import torch
@@ -283,6 +283,16 @@ def train_model(
     ###########################
     logger.info("Setting up model")
 
+    # TODO: A more direct way to look up the gradients would be to get them from
+    # the configuration dict of the training run.
+    gradients: Dict[str, List[str]] = {}
+    for train_options in train_options_list:
+        for key in train_options["targets"].keys():
+            # look inside training sets and find gradients
+            for train_dataset in train_datasets:
+                if key in train_dataset[0].keys():
+                    gradients[key] = train_dataset[0][key].block().gradients_list()
+
     dataset_info = DatasetInfo(
         length_unit=(
             train_options_list[0]["systems"]["length_unit"]
@@ -294,6 +304,7 @@ def train_model(
                 quantity=value["quantity"],
                 unit=(value["unit"] if value["unit"] is not None else ""),
                 per_atom=False,  # TODO: read this from the config
+                gradients=gradients[key],
             )
             for train_options in train_options_list
             for key, value in train_options["targets"].items()
@@ -327,13 +338,11 @@ def train_model(
             extra_log_message = f" with index {i}"
 
         logger.info(f"Evaluating training dataset{extra_log_message}")
-        eval_options = {
-            target: tensormap.block().gradients_list()
-            for target, tensormap in train_dataset[0].items()
-            if target != "system"
-        }
         _eval_targets(
-            exported_model, train_dataset, eval_options, return_predictions=False
+            exported_model,
+            train_dataset,
+            dataset_info.targets,
+            return_predictions=False,
         )
 
     for i, validation_dataset in enumerate(validation_datasets):
@@ -343,13 +352,11 @@ def train_model(
             extra_log_message = f" with index {i}"
 
         logger.info(f"Evaluating validation dataset{extra_log_message}")
-        eval_options = {
-            target: tensormap.block().gradients_list()
-            for target, tensormap in validation_dataset[0].items()
-            if target != "system"
-        }
         _eval_targets(
-            exported_model, validation_dataset, eval_options, return_predictions=False
+            exported_model,
+            validation_dataset,
+            dataset_info.targets,
+            return_predictions=False,
         )
 
     for i, test_dataset in enumerate(test_datasets):
@@ -359,14 +366,6 @@ def train_model(
             extra_log_message = f" with index {i}"
 
         logger.info(f"Evaluating test dataset{extra_log_message}")
-        if len(test_dataset) == 0:
-            eval_options = {}
-        else:
-            eval_options = {
-                target: tensormap.block().gradients_list()
-                for target, tensormap in test_dataset[0].items()
-                if target != "system"
-            }
         _eval_targets(
-            exported_model, test_dataset, eval_options, return_predictions=False
+            exported_model, test_dataset, dataset_info.targets, return_predictions=False
         )

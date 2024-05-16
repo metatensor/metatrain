@@ -10,6 +10,7 @@ from omegaconf import DictConfig, OmegaConf
 
 from ..utils.data import (
     Dataset,
+    TargetInfo,
     collate_fn,
     read_systems,
     read_targets,
@@ -122,7 +123,7 @@ def _concatenate_tensormaps(
 def _eval_targets(
     model: torch.jit._script.RecursiveScriptModule,
     dataset: Union[Dataset, torch.utils.data.Subset],
-    options: Dict[str, List[str]],
+    options: Dict[str, TargetInfo],
     return_predictions: bool,
 ) -> Optional[Dict[str, TensorMap]]:
     """Evaluates an exported model on a dataset and prints the RMSEs for each target.
@@ -232,8 +233,13 @@ def eval_model(
             # and we calculate RMSEs
             eval_targets = read_targets(options["targets"], dtype=dtype)
             eval_outputs = {
-                target: tensormaps[0].block().gradients_list()
-                for target, tensormaps in eval_targets.items()
+                key: TargetInfo(
+                    quantity=model.capabilities().outputs[key].quantity,
+                    unit=model.capabilities().outputs[key].unit,
+                    per_atom=False,  # TODO: allow the user to specify this
+                    gradients=tensormaps[0].block().gradients_list(),
+                )
+                for key, tensormaps in eval_targets.items()
             }
         else:
             # in this case, we have no targets: we evaluate everything
@@ -245,7 +251,13 @@ def eval_model(
                 # only add strain if all structures have cells
                 gradients.append("strain")
             eval_outputs = {
-                target: gradients for target in model.capabilities().outputs.keys()
+                key: TargetInfo(
+                    quantity=model.capabilities().outputs[key].quantity,
+                    unit=model.capabilities().outputs[key].unit,
+                    per_atom=False,  # TODO: allow the user to specify this
+                    gradients=gradients,
+                )
+                for key in model.capabilities().outputs.keys()
             }
 
         eval_dataset = Dataset({"system": eval_systems, **eval_targets})
