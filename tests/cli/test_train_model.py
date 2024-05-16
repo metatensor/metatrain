@@ -21,6 +21,7 @@ DATASET_PATH = RESOURCES_PATH / "qm9_reduced_100.xyz"
 DATASET_PATH_2 = RESOURCES_PATH / "ethanol_reduced_100.xyz"
 OPTIONS_PATH = RESOURCES_PATH / "options.yaml"
 MODEL_PATH = RESOURCES_PATH / "model-32-bit.ckpt"
+MODEL_PATH_64_BIT = RESOURCES_PATH / "model-64-bit.ckpt"
 
 
 @pytest.fixture
@@ -173,7 +174,7 @@ def test_train_multiple_datasets(monkeypatch, tmp_path, options):
     options["training_set"][1]["systems"]["read_from"] = "ethanol_reduced_100.xyz"
     options["training_set"][1]["targets"]["energy"]["key"] = "energy"
     options["training_set"][0]["targets"].pop("energy")
-    options["training_set"][0]["targets"]["U0"] = OmegaConf.create({"key": "U0"})
+    options["training_set"][0]["targets"]["mtm::U0"] = OmegaConf.create({"key": "U0"})
 
     train_model(options)
 
@@ -327,7 +328,7 @@ def test_continue(options, monkeypatch, tmp_path):
     monkeypatch.chdir(tmp_path)
     shutil.copy(DATASET_PATH, "qm9_reduced_100.xyz")
 
-    train_model(options, continue_from=MODEL_PATH)
+    train_model(options, continue_from=MODEL_PATH_64_BIT)
 
 
 def test_continue_different_dataset(options, monkeypatch, tmp_path):
@@ -339,7 +340,7 @@ def test_continue_different_dataset(options, monkeypatch, tmp_path):
     options["training_set"]["systems"]["read_from"] = "ethanol_reduced_100.xyz"
     options["training_set"]["targets"]["energy"]["key"] = "energy"
 
-    train_model(options, continue_from=MODEL_PATH)
+    train_model(options, continue_from=MODEL_PATH_64_BIT)
 
 
 def test_no_architecture_name(options):

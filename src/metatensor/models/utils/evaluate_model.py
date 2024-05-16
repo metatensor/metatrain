@@ -20,7 +20,7 @@ from .output_gradient import compute_gradient
 warnings.filterwarnings(
     "ignore",
     category=UserWarning,
-    message="neighbors",
+    message="neighbor",
 )  # TODO: this is not filtering out the warning for some reason
 
 
@@ -86,8 +86,8 @@ def evaluate_model(
                 cell=system.cell @ strain,
                 types=system.types,
             )
-            for nl_options in system.known_neighbors_lists():
-                nl = system.get_neighbors_list(nl_options)
+            for nl_options in system.known_neighbor_lists():
+                nl = system.get_neighbor_list(nl_options)
                 register_autograd_neighbors(
                     new_system,
                     TensorBlock(
@@ -98,7 +98,7 @@ def evaluate_model(
                     ),
                     check_consistency=True,
                 )
-                new_system.add_neighbors_list(nl_options, nl)
+                new_system.add_neighbor_list(nl_options, nl)
             new_systems.append(new_system)
         systems = new_systems
     else:

@@ -8,12 +8,11 @@ from typing import Dict, List, Optional, Union
 
 import numpy as np
 import torch
-from metatensor.learn.data import Dataset
 from omegaconf import DictConfig, OmegaConf
 from omegaconf.errors import ConfigKeyError
 
 from ..utils.architectures import check_architecture_name
-from ..utils.data import DatasetInfo, TargetInfo, read_systems, read_targets
+from ..utils.data import Dataset, DatasetInfo, TargetInfo, read_systems, read_targets
 from ..utils.data.dataset import _train_test_random_split
 from ..utils.devices import pick_devices
 from ..utils.errors import ArchitectureError
@@ -164,7 +163,7 @@ def train_model(
             dtype=dtype,
         )
         train_targets = read_targets(conf=train_options["targets"], dtype=dtype)
-        train_datasets.append(Dataset(system=train_systems, **train_targets))
+        train_datasets.append(Dataset({"system": train_systems, **train_targets}))
 
     train_size = 1.0
 
@@ -216,7 +215,7 @@ def train_model(
                 dtype=dtype,
             )
             test_targets = read_targets(conf=test_options["targets"], dtype=dtype)
-            test_dataset = Dataset(system=test_systems, **test_targets)
+            test_dataset = Dataset({"system": test_systems, **test_targets})
             test_datasets.append(test_dataset)
 
     logger.info("Setting up validation set")
@@ -270,7 +269,7 @@ def train_model(
                 conf=validation_options["targets"], dtype=dtype
             )
             validation_dataset = Dataset(
-                system=validation_systems, **validation_targets
+                {"system": validation_systems, **validation_targets}
             )
             validation_datasets.append(validation_dataset)
 
@@ -291,10 +290,8 @@ def train_model(
         for key in train_options["targets"].keys():
             # look inside training sets and find gradients
             for train_dataset in train_datasets:
-                if key in train_dataset[0]._asdict().keys():
-                    gradients[key] = (
-                        train_dataset[0]._asdict()[key].block().gradients_list()
-                    )
+                if key in train_dataset[0].keys():
+                    gradients[key] = train_dataset[0][key].block().gradients_list()
 
     dataset_info = DatasetInfo(
         length_unit=(
