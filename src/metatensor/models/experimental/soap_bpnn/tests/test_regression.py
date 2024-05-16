@@ -95,8 +95,6 @@ def test_regression_train():
         [[-40.4387], [-56.4573], [-76.2703], [-77.3089], [-93.4303]]
     )
 
-    print(output["mtm::U0"].block().values)
-
     torch.testing.assert_close(
         output["mtm::U0"].block().values, expected_output, rtol=1e-3, atol=1e-08
     )
