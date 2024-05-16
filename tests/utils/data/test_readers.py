@@ -266,7 +266,7 @@ def test_read_targets_error(monkeypatch, tmp_path):
         read_targets(OmegaConf.create(conf))
 
 
-def test_unsupprted_quantity():
+def test_unsupported_quantity():
     conf = {
         "energy": {
             "quantity": "foo",
@@ -280,7 +280,7 @@ def test_unsupprted_quantity():
         read_targets(OmegaConf.create(conf))
 
 
-def test_unsupprted_target_name():
+def test_unsupported_target_name():
     conf = {
         "free_energy": {
             "quantity": "energy",
