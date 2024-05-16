@@ -14,7 +14,7 @@ from ...utils.data import (
     DatasetInfo,
     check_datasets,
     collate_fn,
-    get_all_species,
+    get_all_types,
 )
 from ...utils.data.system_to_ase import system_to_ase
 from . import DEFAULT_HYPERS
@@ -68,7 +68,7 @@ def train(
 
     # are we fitting on only energies or energies and forces?
     do_forces = next(iter(train_dataset))[1].block().has_gradient("positions")
-    all_species = get_all_species(train_datasets + validation_datasets)
+    all_types = get_all_types(train_datasets + validation_datasets)
     if not do_forces:
         hypers["MLIP_SETTINGS"]["USE_FORCES"] = False
 
@@ -130,7 +130,7 @@ def train(
     ARCHITECTURAL_HYPERS.TARGET_TYPE = "structural"  # energy is structural property
     ARCHITECTURAL_HYPERS.TARGET_AGGREGATION = "sum"  # sum of atomic energies
 
-    raw_pet = PET(ARCHITECTURAL_HYPERS, 0.0, len(all_species))
+    raw_pet = PET(ARCHITECTURAL_HYPERS, 0.0, len(all_types))
 
     new_state_dict = {}
     for name, value in state_dict.items():
@@ -146,7 +146,7 @@ def train(
     capabilities = ModelCapabilities(
         length_unit=dataset_info.length_unit,
         outputs=outputs,
-        atomic_types=all_species,
+        atomic_types=all_types,
         supported_devices=["cpu", "cuda"],
         interaction_range=ARCHITECTURAL_HYPERS["N_GNN_LAYERS"]
         * ARCHITECTURAL_HYPERS["R_CUT"],

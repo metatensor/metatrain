@@ -70,34 +70,36 @@ class DatasetInfo:
     This dataclass is used to communicate additional dataset details to the
     training functions of the individual models.
 
-    :param length_unit: The unit of length used in the dataset.
-    :param targets: The information about targets in the dataset.
+    :param length_unit: unit of length used in the dataset
+    :param all_types: all possible atom in the dataset
+    :param targets: information about targets in the dataset
     """
 
     length_unit: str
+    all_types: List[int]
     targets: Dict[str, TargetInfo]
 
 
-def get_all_species(datasets: Union[Dataset, List[Dataset]]) -> List[int]:
+def get_all_types(datasets: Union[Dataset, List[Dataset]]) -> List[int]:
     """
-    Returns the list of all species present in a dataset or list of datasets.
+    Returns the list of all types present in a dataset or list of datasets.
 
-    :param datasets: the dataset, or list of datasets.
-    :returns: The sorted list of species present in the datasets.
+    :param datasets: the dataset, or list of datasets
+    :returns: sorted list of all types present in the datasets
     """
 
     if not isinstance(datasets, list):
         datasets = [datasets]
 
     # Iterate over all single instances of the dataset:
-    species = []
+    types = []
     for dataset in datasets:
         for index in range(len(dataset)):
             system = dataset[index]["system"]
-            species += system.types.tolist()
+            types += system.types.tolist()
 
     # Remove duplicates and sort:
-    result = list(set(species))
+    result = list(set(types))
     result.sort()
 
     return result
@@ -185,8 +187,8 @@ def check_datasets(train_datasets: List[Dataset], validation_datasets: List[Data
                 "in the training dataset."
             )
     # Get all the species in the training and validation sets:
-    all_training_species = get_all_species(train_datasets)
-    all_validation_species = get_all_species(validation_datasets)
+    all_training_species = get_all_types(train_datasets)
+    all_validation_species = get_all_types(validation_datasets)
 
     # Check that the validation sets do not have species that are not in the
     # training sets:

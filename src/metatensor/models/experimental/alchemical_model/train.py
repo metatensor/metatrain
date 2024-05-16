@@ -13,8 +13,8 @@ from ...utils.data import (
     DatasetInfo,
     check_datasets,
     collate_fn,
-    get_all_species,
     get_all_targets,
+    get_all_types,
 )
 from ...utils.evaluate_model import evaluate_model
 from ...utils.export import is_exported
@@ -45,7 +45,7 @@ def train(
     continue_from: Optional[str] = None,
     checkpoint_dir: str = ".",
 ):
-    all_species = get_all_species(train_datasets + validation_datasets)
+    all_types = get_all_types(train_datasets + validation_datasets)
     if len(dataset_info.targets) != 1:
         raise ValueError("The Alchemical Model only supports a single target")
     target_name = next(iter(dataset_info.targets.keys()))
@@ -72,7 +72,7 @@ def train(
     capabilities = ModelCapabilities(
         length_unit=dataset_info.length_unit,
         outputs=outputs,
-        atomic_types=all_species,
+        atomic_types=all_types,
         supported_devices=["cuda", "cpu"],
         interaction_range=hypers["model"]["soap"]["cutoff"],
         dtype=dtype_string,
@@ -309,7 +309,8 @@ def train(
 
         if epoch == 0:
             metric_logger = MetricLogger(
-                model_capabilities=model_capabilities,
+                logobj=logger,
+                model_outputs=model.outputs,
                 initial_metrics=[finalized_train_info, finalized_validation_info],
                 names=["train", "validation"],
             )

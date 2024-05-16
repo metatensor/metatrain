@@ -22,10 +22,10 @@ class Model(torch.nn.Module):
         self.name = ARCHITECTURE_NAME
         self.hypers = hypers
         self.cutoff = self.hypers["soap"]["cutoff"]
-        self.all_species: List[int] = capabilities.atomic_types
+        self.species: List[int] = capabilities.atomic_types
         self.capabilities = capabilities
         self.alchemical_model = AlchemicalModel(
-            unique_numbers=self.all_species, **hypers["soap"], **hypers["bpnn"]
+            unique_numbers=self.species, **hypers["soap"], **hypers["bpnn"]
         )
 
     def requested_neighbor_lists(
@@ -99,7 +99,7 @@ class Model(torch.nn.Module):
             dtype=self.alchemical_model.composition_weights.dtype,
             device=self.alchemical_model.composition_weights.device,
         )
-        index = [self.all_species.index(s) for s in species]
+        index = [self.species.index(s) for s in species]
         composition_weights = input_composition_weights[:, index]
         self.alchemical_model.set_composition_weights(composition_weights)
 

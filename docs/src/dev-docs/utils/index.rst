@@ -10,6 +10,7 @@ This is the API for the ``utils`` module of ``metatensor-models``.
    architectures
    composition
    devices
+   dtype
    errors
    evaluate_model
    export

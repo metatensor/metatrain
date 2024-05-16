@@ -3,13 +3,15 @@ from pathlib import Path
 import metatensor.torch
 import pytest
 import torch
-from metatensor.torch.atomistic import ModelCapabilities, ModelOutput, System
+from metatensor.torch.atomistic import System
 
-from metatensor.models.experimental import soap_bpnn
-from metatensor.models.utils.data import read_systems
+from metatensor.models.experimental.soap_bpnn import __model__
+from metatensor.models.utils.architectures import get_default_hypers
+from metatensor.models.utils.data import DatasetInfo, TargetInfo, read_systems
 from metatensor.models.utils.output_gradient import compute_gradient
 
 
+MODEL_HYPERS = get_default_hypers("experimental.soap_bpnn")["model"]
 RESOURCES_PATH = Path(__file__).parent.resolve() / ".." / "resources"
 
 
@@ -17,20 +19,17 @@ RESOURCES_PATH = Path(__file__).parent.resolve() / ".." / "resources"
 def test_forces(is_training):
     """Test that the forces are calculated correctly"""
 
-    capabilities = ModelCapabilities(
-        length_unit="Angstrom",
-        atomic_types=[1, 6, 7, 8],
-        outputs={
-            "energy": ModelOutput(
-                quantity="energy",
-                unit="eV",
+    dataset_info = DatasetInfo(
+        length_unit="angstrom",
+        all_types=[1, 6, 7, 8],
+        targets={
+            "energy": TargetInfo(
+                quantity="energy", unit="eV", per_atom=False, gradients=["positions"]
             )
         },
-        interaction_range=soap_bpnn.DEFAULT_HYPERS["model"]["soap"]["cutoff"],
-        dtype="float32",
     )
+    model = __model__(model_hypers=MODEL_HYPERS, dataset_info=dataset_info)
 
-    model = soap_bpnn.Model(capabilities)
     systems = read_systems(RESOURCES_PATH / "qm9_reduced_100.xyz")[:5]
     systems = [
         System(
@@ -40,7 +39,7 @@ def test_forces(is_training):
         )
         for system in systems
     ]
-    output = model(systems, {"energy": model.capabilities.outputs["energy"]})
+    output = model(systems, {"energy": model.outputs["energy"]})
     position_gradients = compute_gradient(
         output["energy"].block().values,
         [system.positions for system in systems],
@@ -58,7 +57,7 @@ def test_forces(is_training):
         )
         for system in systems
     ]
-    output = jitted_model(systems, {"energy": model.capabilities.outputs["energy"]})
+    output = jitted_model(systems, {"energy": model.outputs["energy"]})
     jitted_position_gradients = compute_gradient(
         output["energy"].block().values,
         [system.positions for system in systems],
@@ -76,9 +75,9 @@ def test_forces(is_training):
 def test_virial(is_training):
     """Test that the virial is calculated correctly"""
 
-    capabilities = ModelCapabilities(
-        length_unit="Angstrom",
-        atomic_types=[
+    dataset_info = DatasetInfo(
+        length_unit="angstrom",
+        all_types=[
             21,
             23,
             24,
@@ -98,17 +97,14 @@ def test_virial(is_training):
             77,
             78,
         ],
-        outputs={
-            "energy": ModelOutput(
-                quantity="energy",
-                unit="eV",
+        targets={
+            "energy": TargetInfo(
+                quantity="energy", unit="eV", per_atom=False, gradients=["strain"]
             )
         },
-        interaction_range=soap_bpnn.DEFAULT_HYPERS["model"]["soap"]["cutoff"],
-        dtype="float32",
     )
+    model = __model__(model_hypers=MODEL_HYPERS, dataset_info=dataset_info)
 
-    model = soap_bpnn.Model(capabilities)
     systems = read_systems(RESOURCES_PATH / "alchemical_reduced_10.xyz")[:2]
 
     strains = [
@@ -126,7 +122,7 @@ def test_virial(is_training):
         for system, strain in zip(systems, strains)
     ]
 
-    output = model(systems, {"energy": model.capabilities.outputs["energy"]})
+    output = model(systems, {"energy": model.outputs["energy"]})
     strain_gradients = compute_gradient(
         output["energy"].block().values,
         strains,
@@ -151,7 +147,7 @@ def test_virial(is_training):
         for system, strain in zip(systems, strains)
     ]
 
-    output = jitted_model(systems, {"energy": model.capabilities.outputs["energy"]})
+    output = jitted_model(systems, {"energy": model.outputs["energy"]})
     jitted_strain_gradients = compute_gradient(
         output["energy"].block().values,
         strains,
@@ -166,10 +162,9 @@ def test_virial(is_training):
 @pytest.mark.parametrize("is_training", [True, False])
 def test_both(is_training):
     """Test that the forces and virial are calculated correctly together"""
-
-    capabilities = ModelCapabilities(
-        length_unit="Angstrom",
-        atomic_types=[
+    dataset_info = DatasetInfo(
+        length_unit="angstrom",
+        all_types=[
             21,
             23,
             24,
@@ -189,17 +184,16 @@ def test_both(is_training):
             77,
             78,
         ],
-        outputs={
-            "energy": ModelOutput(
+        targets={
+            "energy": TargetInfo(
                 quantity="energy",
                 unit="eV",
+                per_atom=False,
+                gradients=["positions", "strain"],
             )
         },
-        interaction_range=soap_bpnn.DEFAULT_HYPERS["model"]["soap"]["cutoff"],
-        dtype="float32",
     )
-
-    model = soap_bpnn.Model(capabilities)
+    model = __model__(model_hypers=MODEL_HYPERS, dataset_info=dataset_info)
     systems = read_systems(RESOURCES_PATH / "alchemical_reduced_10.xyz")[:2]
 
     # Here we re-create strains and systems, otherwise torch
@@ -219,7 +213,7 @@ def test_both(is_training):
         for system, strain in zip(systems, strains)
     ]
 
-    output = model(systems, {"energy": model.capabilities.outputs["energy"]})
+    output = model(systems, {"energy": model.outputs["energy"]})
     gradients = compute_gradient(
         output["energy"].block().values,
         [system.positions for system in systems] + strains,
@@ -243,7 +237,7 @@ def test_both(is_training):
     ]
 
     jitted_model = torch.jit.script(model)
-    output = jitted_model(systems, {"energy": model.capabilities.outputs["energy"]})
+    output = jitted_model(systems, {"energy": model.outputs["energy"]})
     jitted_gradients = compute_gradient(
         output["energy"].block().values,
         [system.positions for system in systems] + strains,

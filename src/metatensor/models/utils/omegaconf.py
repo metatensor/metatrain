@@ -21,7 +21,7 @@ def file_format(_parent_: Container) -> str:
 def _get_architecture_capabilities(conf: BaseContainer) -> Dict[str, List[str]]:
     architecture_name = conf["architecture"]["name"]
     architecture = importlib.import_module(f"metatensor.models.{architecture_name}")
-    return architecture.__ARCHITECTURE_CAPABILITIES__
+    return architecture.__capabilities__
 
 
 def default_device(_root_: BaseContainer) -> str:
