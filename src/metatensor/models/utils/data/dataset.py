@@ -1,31 +1,66 @@
-import logging
-from dataclasses import dataclass
-from typing import Dict, List, NamedTuple, Optional, Tuple, Union
+from dataclasses import dataclass, field
+from typing import Any, Dict, List, Optional, Tuple, Union
 
+import metatensor.learn
 import torch
-from metatensor.learn.data import Dataset, group_and_join
 from metatensor.torch import TensorMap
-from metatensor.torch.atomistic import ModelCapabilities
 from torch import Generator, default_generator
 from torch.utils.data import Subset, random_split
 
 
-logger = logging.getLogger(__name__)
+class Dataset:
+    """A version of the `metatensor.learn.Dataset` class that allows for
+    the use of `mtm::` prefixes in the keys of the dictionary. See
+    https://github.com/lab-cosmo/metatensor/issues/621.
+
+    It is important to note that, instead of named tuples, this class
+    accepts and returns dictionaries.
+
+    :param dict: A dictionary with the data to be stored in the dataset.
+    """
+
+    def __init__(self, dict: Dict):
+
+        new_dict = {}
+        for key, value in dict.items():
+            key = key.replace("mtm::", "mtm_")
+            new_dict[key] = value
+
+        self.mts_learn_dataset = metatensor.learn.Dataset(**new_dict)
+
+    def __getitem__(self, idx: int) -> Dict:
+
+        mts_dataset_item = self.mts_learn_dataset[idx]._asdict()
+        new_dict = {}
+        for key, value in mts_dataset_item.items():
+            key = key.replace("mtm_", "mtm::")
+            new_dict[key] = value
+
+        return new_dict
+
+    def __len__(self) -> int:
+        return len(self.mts_learn_dataset)
+
+    def __iter__(self):
+        for i in range(len(self)):
+            yield self[i]
 
 
 @dataclass
 class TargetInfo:
     """A class that contains information about a target.
 
-    :param name: The name of the target.
     :param quantity: The quantity of the target.
     :param unit: The unit of the target.
     :param per_atom: Whether the target is a per-atom quantity.
+    :param gradients: Gradients of the target that are defined
+        in the current dataset.
     """
 
     quantity: str
-    unit: str
+    unit: str = ""
     per_atom: bool = False
+    gradients: List[str] = field(default_factory=list)
 
 
 @dataclass
@@ -36,9 +71,7 @@ class DatasetInfo:
     training functions of the individual models.
 
     :param length_unit: The unit of length used in the dataset.
-    :param targets: The names of the targets in the dataset.
-    :param target_quantities: The quantities of the targets in the dataset.
-    :param target_units: The units of the targets in the dataset.
+    :param targets: The information about targets in the dataset.
     """
 
     length_unit: str
@@ -60,7 +93,7 @@ def get_all_species(datasets: Union[Dataset, List[Dataset]]) -> List[int]:
     species = []
     for dataset in datasets:
         for index in range(len(dataset)):
-            system = dataset[index][0]  # extract the system from the NamedTuple
+            system = dataset[index]["system"]
             species += system.types.tolist()
 
     # Remove duplicates and sort:
@@ -74,8 +107,9 @@ def get_all_targets(datasets: Union[Dataset, List[Dataset]]) -> List[str]:
     """
     Returns the list of all targets present in a dataset or list of datasets.
 
-    :param datasets: the dataset(s)
-    :returns: list of targets present in the dataset(s).
+    :param datasets: the dataset(s).
+    :returns: list of targets present in the dataset(s), sorted according
+        to the ``sort()`` method of Python lists.
     """
 
     if not isinstance(datasets, list):
@@ -89,86 +123,79 @@ def get_all_targets(datasets: Union[Dataset, List[Dataset]]) -> List[str]:
     target_names = []
     for dataset in datasets:
         for sample in dataset:
-            sample = sample._asdict()  # NamedTuple -> dict
             sample.pop("system")  # system not needed
             target_names += list(sample.keys())
 
     # Remove duplicates:
-    return list(set(target_names))
+    result = list(set(target_names))
+    result.sort()
+
+    return result
 
 
-def collate_fn(batch: List[NamedTuple]) -> Tuple[List, Dict[str, TensorMap]]:
+def collate_fn(batch: List[Dict[str, Any]]) -> Tuple[List, Dict[str, TensorMap]]:
     """
-    Wraps the `metatensor-learn` default collate function `group_and_join` to
+    Wraps `group_and_join` to
     return the data fields as a list of systems, and a dictionary of nameed
     targets.
     """
 
-    collated_targets = group_and_join(batch)._asdict()
+    collated_targets = group_and_join(batch)
     systems = collated_targets.pop("system")
     return systems, collated_targets
 
 
-def check_datasets(
-    train_datasets: List[Dataset],
-    validation_datasets: List[Dataset],
-    capabilities: ModelCapabilities,
-):
-    """
-    This is a helper function that checks that the training and validation sets
-    are compatible with one another and with the model's capabilities. Although
-    these checks will not fit all use cases, they will fit most.
+def check_datasets(train_datasets: List[Dataset], validation_datasets: List[Dataset]):
+    """Check that the training and validation sets are compatible with one another
 
-    :param train_datasets: A list of training datasets.
-    :param validation_datasets: A list of validation datasets.
-    :param capabilities: The model's capabilities.
+    Although these checks will not fit all use cases, most models would be expected
+    to be able to use this function.
 
-    :raises ValueError: If the training and validation sets are not compatible
-        with the model's capabilities.
+    :param train_datasets: A list of training datasets to check.
+    :param validation_datasets: A list of validation datasets to check
+    :raises TypeError: If the ``dtype`` within the datasets are inconsistent.
+    :raises ValueError: If the `validation_datasets` has a target that is not present in
+        the ``train_datasets``.
+    :raises ValueError: If the training or validation set contains chemical species
+        or targets that are not present in the training set
     """
+    # Check that system `dtypes` are consistent within datasets
+    desired_dtype = train_datasets[0][0]["system"].positions.dtype
+    msg = f"`dtype` between datasets is inconsistent, found {desired_dtype} and "
+    for train_dataset in train_datasets:
+        actual_dtype = train_dataset[0]["system"].positions.dtype
+        if actual_dtype != desired_dtype:
+            raise TypeError(f"{msg}{actual_dtype} found in `train_datasets`")
+
+    for validation_dataset in validation_datasets:
+        actual_dtype = validation_dataset[0]["system"].positions.dtype
+        if actual_dtype != desired_dtype:
+            raise TypeError(f"{msg}{actual_dtype} found in `validation_datasets`")
 
     # Get all targets in the training and validation sets:
-    train_targets = []
-    for dataset in train_datasets:
-        train_targets += get_all_targets(dataset)
-    validation_targets = []
-    for dataset in validation_datasets:
-        validation_targets += get_all_targets(dataset)
-
-    # Check that they are compatible with the model's capabilities:
-    for target in train_targets + validation_targets:
-        if target not in capabilities.outputs.keys():
-            raise ValueError(f"The target {target} is not in the model's capabilities.")
+    train_targets = get_all_targets(train_datasets)
+    validation_targets = get_all_targets(validation_datasets)
 
     # Check that the validation sets do not have targets that are not in the
     # training sets:
     for target in validation_targets:
         if target not in train_targets:
-            logger.warning(
-                f"The validation dataset has a target ({target}) "
-                "that is not in the training dataset."
+            raise ValueError(
+                f"The validation dataset has a target ({target}) that is not present "
+                "in the training dataset."
             )
-
     # Get all the species in the training and validation sets:
     all_training_species = get_all_species(train_datasets)
     all_validation_species = get_all_species(validation_datasets)
-
-    # Check that they are compatible with the model's capabilities:
-    for species in all_training_species + all_validation_species:
-        if species not in capabilities.atomic_types:
-            raise ValueError(
-                f"The species {species} is not in the model's capabilities."
-            )
 
     # Check that the validation sets do not have species that are not in the
     # training sets:
     for species in all_validation_species:
         if species not in all_training_species:
-            logger.warning(
-                f"The validation dataset has a species ({species}) "
-                "that is not in the training dataset. This could be "
-                "a result of a random train/validation split. You can "
-                "avoid this by providing a validation dataset manually."
+            raise ValueError(
+                f"The validation dataset has a species ({species}) that is not in the "
+                "training dataset. This could be a result of a random train/validation "
+                "split. You can avoid this by providing a validation dataset manually."
             )
 
 
@@ -186,3 +213,33 @@ def _train_test_random_split(
     lengths /= lengths.sum()
 
     return random_split(dataset=train_dataset, lengths=lengths, generator=generator)
+
+
+def group_and_join(
+    batch: List[Dict[str, Any]],
+) -> Dict[str, Any]:
+    """
+    Same as metatenor.learn.data.group_and_join, but joins dicts and not named tuples.
+
+    :param batch: A list of dictionaries, each containing the data for a single sample.
+
+    :returns: A single dictionary with the data fields joined together among all
+        samples.
+    """
+    data: List[Union[TensorMap, torch.Tensor]] = []
+    names = batch[0].keys()
+    for name, f in zip(names, zip(*(item.values() for item in batch))):
+        if name == "sample_id":  # special case, keep as is
+            data.append(f)
+            continue
+
+        if isinstance(f[0], torch.ScriptObject) and f[0]._has_method(
+            "keys_to_properties"
+        ):  # inferred metatensor.torch.TensorMap type
+            data.append(metatensor.torch.join(f, axis="samples"))
+        elif isinstance(f[0], torch.Tensor):  # torch.Tensor type
+            data.append(torch.vstack(f))
+        else:  # otherwise just keep as a list
+            data.append(f)
+
+    return {name: value for name, value in zip(names, data)}

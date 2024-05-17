@@ -1,30 +1,32 @@
 import logging
 import warnings
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple, Union
+from typing import Dict, List, Optional, Union
 
 import torch
 from metatensor.learn.data import DataLoader
-from metatensor.learn.data.dataset import Dataset
 from metatensor.torch.atomistic import ModelCapabilities, ModelOutput
 
 from ...utils.composition import calculate_composition_weights
-from ...utils.compute_loss import compute_model_loss
 from ...utils.data import (
+    CombinedDataLoader,
+    Dataset,
     DatasetInfo,
     check_datasets,
     collate_fn,
-    combine_dataloaders,
     get_all_species,
     get_all_targets,
 )
+from ...utils.evaluate_model import evaluate_model
 from ...utils.extract_targets import get_outputs_dict
-from ...utils.info import finalize_aggregated_info, update_aggregated_info
 from ...utils.io import is_exported, load, save
 from ...utils.logging import MetricLogger
 from ...utils.loss import TensorMapDictLoss
 from ...utils.merge_capabilities import merge_capabilities
-from .model import DEFAULT_HYPERS, Model
+from ...utils.metrics import RMSEAccumulator
+from ...utils.per_atom import divide_by_num_atoms
+from . import DEFAULT_HYPERS
+from .model import Model
 
 
 logger = logging.getLogger(__name__)
@@ -41,25 +43,39 @@ def train(
     train_datasets: List[Union[Dataset, torch.utils.data.Subset]],
     validation_datasets: List[Union[Dataset, torch.utils.data.Subset]],
     dataset_info: DatasetInfo,
+    devices: List[torch.device],
     hypers: Dict = DEFAULT_HYPERS,
     continue_from: Optional[str] = None,
-    output_dir: str = ".",
-    device_str: str = "cpu",
+    checkpoint_dir: str = ".",
 ):
     all_species = get_all_species(train_datasets + validation_datasets)
     outputs = {
         key: ModelOutput(
             quantity=value.quantity,
             unit=value.unit,
-            per_atom=False,
+            per_atom=True,
         )
         for key, value in dataset_info.targets.items()
     }
+
+    dtype = train_datasets[0][0]["system"].positions.dtype
+    if dtype == torch.float64:
+        dtype_string = "float64"
+    elif dtype == torch.float32:
+        dtype_string = "float32"
+    else:
+        raise ValueError(f"Unsupported dtype {dtype} in SOAP-BPNN")
+
+    # the model is always capable of outputting the last layer features
+    outputs["mtm::aux::last_layer_features"] = ModelOutput(per_atom=True)
+
     new_capabilities = ModelCapabilities(
         length_unit=dataset_info.length_unit,
         outputs=outputs,
         atomic_types=all_species,
-        supported_devices=["cpu", "cuda"],
+        supported_devices=["cuda", "cpu"],
+        interaction_range=hypers["model"]["soap"]["cutoff"],
+        dtype=dtype_string,
     )
 
     # Create the model:
@@ -94,30 +110,27 @@ def train(
 
     # Perform checks on the datasets:
     logger.info("Checking datasets for consistency")
-    check_datasets(
-        train_datasets,
-        validation_datasets,
-        model_capabilities,
-    )
+    try:
+        check_datasets(train_datasets, validation_datasets)
+    except ValueError as err:
+        if continue_from is not None:
+            logger.warning(err)
+        else:
+            # only error if we are not continuing
+            raise ValueError(err) from err
 
-    logger.info(f"Training on device {device_str}")
-    if device_str == "gpu":
-        device_str = "cuda"
-    device = torch.device(device_str)
-    if device.type == "cuda":
-        if not torch.cuda.is_available():
-            raise ValueError("CUDA is not available on this machine.")
-        logger.info(
-            "A cuda device was requested. The neural network will be run on GPU, "
-            "but the SOAP features are calculated on CPU."
-        )
-    model.to(device)
+    device = devices[0]  # only one device, as we don't support multi-gpu for now
+
+    logger.info(f"training on device {device} with dtype {dtype}")
+    model.to(device=device, dtype=dtype)
 
     hypers_training = hypers["training"]
 
     # Calculate and set the composition weights for all targets:
     logger.info("Calculating composition weights")
     for target_name in novel_capabilities.outputs.keys():
+        if "mtm::aux::" in target_name:
+            continue
         # TODO: warn in the documentation that capabilities that are already
         # present in the model won't recalculate the composition weights
         # find the datasets that contain the target:
@@ -127,11 +140,10 @@ def train(
                 f"For {target_name}, model will proceed with "
                 "user-supplied composition weights"
             )
-
             cur_weight_dict = hypers_training["fixed_composition_weights"][target_name]
             species = []
             num_species = len(cur_weight_dict)
-            fixed_weights = torch.zeros(num_species, device=device)
+            fixed_weights = torch.zeros(num_species, dtype=dtype, device=device)
 
             for ii, (key, weight) in enumerate(cur_weight_dict.items()):
                 species.append(key)
@@ -176,7 +188,7 @@ def train(
                 collate_fn=collate_fn,
             )
         )
-    train_dataloader = combine_dataloaders(train_dataloaders, shuffle=True)
+    train_dataloader = CombinedDataLoader(train_dataloaders, shuffle=True)
 
     # Create dataloader for the validation datasets:
     validation_dataloaders = []
@@ -189,7 +201,7 @@ def train(
                 collate_fn=collate_fn,
             )
         )
-    validation_dataloader = combine_dataloaders(validation_dataloaders, shuffle=False)
+    validation_dataloader = CombinedDataLoader(validation_dataloaders, shuffle=False)
 
     # Extract all the possible outputs and their gradients from the training set:
     outputs_dict = get_outputs_dict(train_datasets)
@@ -214,69 +226,104 @@ def train(
         model.parameters(), lr=hypers_training["learning_rate"]
     )
 
+    # Create a scheduler:
+    lr_scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
+        optimizer,
+        mode="min",
+        factor=hypers_training["scheduler_factor"],
+        patience=hypers_training["scheduler_patience"],
+    )
+
     # counters for early stopping:
     best_validation_loss = float("inf")
     epochs_without_improvement = 0
 
+    # per-atom targets:
+    per_structure_targets = hypers_training["per_structure_targets"]
+
     # Train the model:
     logger.info("Starting training")
     for epoch in range(hypers_training["num_epochs"]):
-        # aggregated information holders:
-        aggregated_train_info: Dict[str, Tuple[float, int]] = {}
-        aggregated_validation_info: Dict[str, Tuple[float, int]] = {}
+        train_rmse_calculator = RMSEAccumulator()
+        validation_rmse_calculator = RMSEAccumulator()
 
         train_loss = 0.0
         for batch in train_dataloader:
             optimizer.zero_grad()
 
             systems, targets = batch
-            loss, info = compute_model_loss(
-                loss_fn, model, systems, targets, hypers_training["per_atom_targets"]
+            systems = [system.to(device=device) for system in systems]
+            targets = {key: value.to(device=device) for key, value in targets.items()}
+            predictions = evaluate_model(
+                model,
+                systems,
+                {key: dataset_info.targets[key] for key in targets.keys()},
+                is_training=True,
             )
 
-            train_loss += loss.item()
-            loss.backward()
+            # average by the number of atoms
+            predictions, targets = _average_by_num_atoms(
+                predictions, targets, systems, per_structure_targets
+            )
+
+            train_loss_batch = loss_fn(predictions, targets)
+            train_loss += train_loss_batch.item()
+            train_loss_batch.backward()
             optimizer.step()
-            aggregated_train_info = update_aggregated_info(aggregated_train_info, info)
-        finalized_train_info = finalize_aggregated_info(aggregated_train_info)
+            train_rmse_calculator.update(predictions, targets)
+        finalized_train_info = train_rmse_calculator.finalize(
+            not_per_atom=["positions_gradients"] + per_structure_targets
+        )
 
         validation_loss = 0.0
         for batch in validation_dataloader:
             systems, targets = batch
-            # TODO: specify that the model is not training here to save some autograd
-
-            loss, info = compute_model_loss(
-                loss_fn, model, systems, targets, hypers_training["per_atom_targets"]
+            systems = [system.to(device=device) for system in systems]
+            targets = {key: value.to(device=device) for key, value in targets.items()}
+            predictions = evaluate_model(
+                model,
+                systems,
+                {key: dataset_info.targets[key] for key in targets.keys()},
+                is_training=False,
             )
 
-            validation_loss += loss.item()
-            aggregated_validation_info = update_aggregated_info(
-                aggregated_validation_info, info
+            # average by the number of atoms
+            predictions, targets = _average_by_num_atoms(
+                predictions, targets, systems, per_structure_targets
             )
-        finalized_validation_info = finalize_aggregated_info(aggregated_validation_info)
+
+            validation_loss_batch = loss_fn(predictions, targets)
+            validation_loss += validation_loss_batch.item()
+            validation_rmse_calculator.update(predictions, targets)
+        finalized_validation_info = validation_rmse_calculator.finalize(
+            not_per_atom=["positions_gradients"] + per_structure_targets
+        )
+
+        lr_scheduler.step(validation_loss)
 
         # Now we log the information:
+        finalized_train_info = {"loss": train_loss, **finalized_train_info}
+        finalized_validation_info = {
+            "loss": validation_loss,
+            **finalized_validation_info,
+        }
+
         if epoch == 0:
             metric_logger = MetricLogger(
-                model_capabilities,
-                train_loss,
-                validation_loss,
-                finalized_train_info,
-                finalized_validation_info,
+                model_capabilities=model_capabilities,
+                initial_metrics=[finalized_train_info, finalized_validation_info],
+                names=["train", "validation"],
             )
         if epoch % hypers_training["log_interval"] == 0:
             metric_logger.log(
-                epoch,
-                train_loss,
-                validation_loss,
-                finalized_train_info,
-                finalized_validation_info,
+                metrics=[finalized_train_info, finalized_validation_info],
+                epoch=epoch,
             )
 
         if epoch % hypers_training["checkpoint_interval"] == 0:
             save(
                 model,
-                Path(output_dir) / f"model_{epoch}.ckpt",
+                Path(checkpoint_dir) / f"model_{epoch}.ckpt",
             )
 
         # early stopping criterion:
@@ -285,11 +332,24 @@ def train(
             epochs_without_improvement = 0
         else:
             epochs_without_improvement += 1
-            if epochs_without_improvement >= 50:
+            if epochs_without_improvement >= hypers_training["early_stopping_patience"]:
                 logger.info(
-                    "Early stopping criterion reached after 50 "
-                    "epochs without improvement."
+                    "Early stopping criterion reached after "
+                    f"{hypers_training['early_stopping_patience']} epochs "
+                    "without improvement."
                 )
                 break
 
     return model
+
+
+def _average_by_num_atoms(predictions, targets, systems, per_structure_targets):
+    device = systems[0].device
+    num_atoms = torch.tensor([len(s) for s in systems], device=device)
+    for target in targets.keys():
+        if target in per_structure_targets:
+            continue
+        predictions[target] = divide_by_num_atoms(predictions[target], num_atoms)
+        targets[target] = divide_by_num_atoms(targets[target], num_atoms)
+
+    return predictions, targets

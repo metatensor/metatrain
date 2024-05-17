@@ -1,10 +1,16 @@
+import importlib
 from pathlib import Path
-from typing import Union
+from typing import Dict, List, Union
 
-from omegaconf import DictConfig, ListConfig, OmegaConf
+import torch
+from omegaconf import Container, DictConfig, ListConfig, OmegaConf
+from omegaconf.basecontainer import BaseContainer
+
+from .. import RANDOM_SEED
+from .devices import pick_devices
 
 
-def file_format(_parent_: DictConfig) -> str:
+def file_format(_parent_: Container) -> str:
     """Custom OmegaConf resolver to find the file format.
 
     File format is obtained based on the suffix of the ``read_from`` field in the same
@@ -12,8 +18,62 @@ def file_format(_parent_: DictConfig) -> str:
     return Path(_parent_["read_from"]).suffix
 
 
+def _get_architecture_capabilities(conf: BaseContainer) -> Dict[str, List[str]]:
+    architecture_name = conf["architecture"]["name"]
+    architecture = importlib.import_module(f"metatensor.models.{architecture_name}")
+    return architecture.__ARCHITECTURE_CAPABILITIES__
+
+
+def default_device(_root_: BaseContainer) -> str:
+    """Custom OmegaConf resolver to find the default device of an architecture.
+
+    Device is found using the :py:func:metatensor.models.utils.devices.pick_devices`
+    function."""
+
+    architecture_capabilities = _get_architecture_capabilities(_root_)
+    desired_device = pick_devices(architecture_capabilities["supported_devices"])
+
+    if len(desired_device) > 1:
+        return "multi-cuda"
+    else:
+        return desired_device[0].type
+
+
+def default_precision(_root_: BaseContainer) -> int:
+    """Custom OmegaConf resolver to find the default precision of an architecture.
+
+    File format is obtained based on the architecture name and its first entry in the
+    ``supported_dtypes`` list."""
+
+    architecture_capabilities = _get_architecture_capabilities(_root_)
+
+    # desired `dtype` is the first entry
+    default_dtype = architecture_capabilities["supported_dtypes"][0]
+
+    # base_precision has to be a integere and not a torch dtype
+    if default_dtype in [torch.float64, torch.double]:
+        return 64
+    elif default_dtype == torch.float32:
+        return 32
+    elif default_dtype == torch.float16:
+        return 16
+    else:
+        raise ValueError(
+            f"architectures `default_dtype` ({default_dtype}) refers to an unknown "
+            "torch dtype. This should not happen."
+        )
+
+
+def default_random_seed() -> int:
+    """Return session seed in the range [0, 2**32)."""
+    return RANDOM_SEED
+
+
 # Register custom resolvers
 OmegaConf.register_new_resolver("file_format", file_format)
+OmegaConf.register_new_resolver("default_device", default_device)
+OmegaConf.register_new_resolver("default_precision", default_precision)
+OmegaConf.register_new_resolver("default_random_seed", default_random_seed)
 
 
 def _resolve_single_str(config: str) -> DictConfig:
@@ -21,6 +81,15 @@ def _resolve_single_str(config: str) -> DictConfig:
 
 
 # BASE CONFIGURATIONS
+BASE_OPTIONS = OmegaConf.create(
+    {
+        "device": "${default_device:}",
+        "base_precision": "${default_precision:}",
+        "seed": "${default_random_seed:}",
+    }
+)
+
+
 CONF_SYSTEMS = OmegaConf.create(
     {
         "read_from": "${..read_from}",

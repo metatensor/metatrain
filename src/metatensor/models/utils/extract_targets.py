@@ -1,7 +1,8 @@
 from typing import List, Union
 
 import torch
-from metatensor.learn.data import Dataset
+
+from metatensor.models.utils.data import Dataset
 
 
 def get_outputs_dict(datasets: List[Union[Dataset, torch.utils.data.Subset]]):
@@ -17,7 +18,7 @@ def get_outputs_dict(datasets: List[Union[Dataset, torch.utils.data.Subset]]):
 
     outputs_dict = {}
     for dataset in datasets:
-        targets = next(iter(dataset))._asdict()
+        targets = next(iter(dataset))
         targets.pop("system")  # system not needed
 
         # targets is now a dictionary of TensorMaps

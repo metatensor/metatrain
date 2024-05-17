@@ -16,6 +16,9 @@ def test_torchscript():
                 unit="eV",
             )
         },
+        interaction_range=DEFAULT_HYPERS["ARCHITECTURAL_HYPERS"]["N_GNN_LAYERS"]
+        * DEFAULT_HYPERS["ARCHITECTURAL_HYPERS"]["R_CUT"],
+        dtype="float32",
     )
     pet = Model(capabilities, DEFAULT_HYPERS["ARCHITECTURAL_HYPERS"])
     torch.jit.script(pet)
@@ -33,6 +36,9 @@ def test_torchscript_save():
                 unit="eV",
             )
         },
+        interaction_range=DEFAULT_HYPERS["ARCHITECTURAL_HYPERS"]["N_GNN_LAYERS"]
+        * DEFAULT_HYPERS["ARCHITECTURAL_HYPERS"]["R_CUT"],
+        dtype="float32",
     )
     pet = Model(capabilities, DEFAULT_HYPERS["ARCHITECTURAL_HYPERS"])
     torch.jit.save(

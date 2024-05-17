@@ -3,7 +3,6 @@ import random
 import ase.io
 import numpy as np
 import torch
-from metatensor.learn.data import Dataset
 from metatensor.torch.atomistic import (
     MetatensorAtomisticModel,
     ModelCapabilities,
@@ -15,9 +14,9 @@ from metatensor.torch.atomistic import (
 from omegaconf import OmegaConf
 
 from metatensor.models.experimental.alchemical_model import DEFAULT_HYPERS, Model, train
-from metatensor.models.utils.data import DatasetInfo, TargetInfo
+from metatensor.models.utils.data import Dataset, DatasetInfo, TargetInfo
 from metatensor.models.utils.data.readers import read_systems, read_targets
-from metatensor.models.utils.neighbors_lists import get_system_with_neighbors_lists
+from metatensor.models.utils.neighbor_lists import get_system_with_neighbor_lists
 
 from . import DATASET_PATH
 
@@ -34,23 +33,23 @@ def test_regression_init():
         length_unit="Angstrom",
         atomic_types=[1, 6, 7, 8],
         outputs={
-            "U0": ModelOutput(
+            "mtm::U0": ModelOutput(
                 quantity="energy",
                 unit="eV",
             )
         },
         supported_devices=["cpu"],
+        interaction_range=DEFAULT_HYPERS["model"]["soap"]["cutoff"],
+        dtype="float32",
     )
     alchemical_model = Model(capabilities, DEFAULT_HYPERS["model"])
 
     # Predict on the first five systems
     systems = ase.io.read(DATASET_PATH, ":5")
+    systems = [systems_to_torch(system) for system in systems]
     systems = [
-        systems_to_torch(system, dtype=torch.get_default_dtype()) for system in systems
-    ]
-    systems = [
-        get_system_with_neighbors_lists(
-            system, alchemical_model.requested_neighbors_lists()
+        get_system_with_neighbor_lists(
+            system, alchemical_model.requested_neighbor_lists()
         )
         for system in systems
     ]
@@ -71,7 +70,9 @@ def test_regression_init():
 
     expected_output = torch.tensor([[-1.9819], [0.1507], [1.6116], [3.4118], [0.8383]])
 
-    assert torch.allclose(output["U0"].block().values, expected_output, atol=1e-4)
+    torch.testing.assert_close(
+        output["mtm::U0"].block().values, expected_output, rtol=1e-05, atol=1e-4
+    )
 
 
 def test_regression_train():
@@ -83,9 +84,9 @@ def test_regression_train():
     np.random.seed(0)
     torch.manual_seed(0)
 
-    systems = read_systems(DATASET_PATH, dtype=torch.get_default_dtype())
+    systems = read_systems(DATASET_PATH)
     conf = {
-        "U0": {
+        "mtm::U0": {
             "quantity": "energy",
             "read_from": DATASET_PATH,
             "file_format": ".xyz",
@@ -95,8 +96,8 @@ def test_regression_train():
             "virial": False,
         }
     }
-    targets = read_targets(OmegaConf.create(conf), dtype=torch.get_default_dtype())
-    dataset = Dataset(system=systems, U0=targets["U0"])
+    targets = read_targets(OmegaConf.create(conf))
+    dataset = Dataset({"system": systems, "mtm::U0": targets["mtm::U0"]})
 
     hypers = DEFAULT_HYPERS.copy()
     hypers["training"]["num_epochs"] = 2
@@ -104,7 +105,7 @@ def test_regression_train():
     dataset_info = DatasetInfo(
         length_unit="Angstrom",
         targets={
-            "U0": TargetInfo(
+            "mtm::U0": TargetInfo(
                 quantity="energy",
                 unit="eV",
             ),
@@ -114,6 +115,7 @@ def test_regression_train():
         train_datasets=[dataset],
         validation_datasets=[dataset],
         dataset_info=dataset_info,
+        devices=[torch.device("cpu")],
         hypers=hypers,
     )
 
@@ -133,7 +135,9 @@ def test_regression_train():
     )
 
     expected_output = torch.tensor(
-        [[-118.6454], [-106.1644], [-137.0310], [-164.7832], [-139.8678]]
+        [[-126.6899], [-113.0781], [-135.8210], [-179.1740], [-149.5980]]
     )
 
-    assert torch.allclose(output["U0"].block().values, expected_output, atol=1e-4)
+    torch.testing.assert_close(
+        output["mtm::U0"].block().values, expected_output, rtol=1e-05, atol=1e-4
+    )

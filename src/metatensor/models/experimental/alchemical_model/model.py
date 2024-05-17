@@ -5,23 +5,13 @@ from metatensor.torch import Labels, TensorBlock, TensorMap
 from metatensor.torch.atomistic import (
     ModelCapabilities,
     ModelOutput,
-    NeighborsListOptions,
+    NeighborListOptions,
     System,
 )
-from omegaconf import OmegaConf
 from torch_alchemical.models import AlchemicalModel
 
-from ... import ARCHITECTURE_CONFIG_PATH
+from . import ARCHITECTURE_NAME, DEFAULT_MODEL_HYPERS
 from .utils import systems_to_torch_alchemical_batch
-
-
-DEFAULT_HYPERS = OmegaConf.to_container(
-    OmegaConf.load(ARCHITECTURE_CONFIG_PATH / "experimental.alchemical_model.yaml")
-)
-
-DEFAULT_MODEL_HYPERS = DEFAULT_HYPERS["model"]
-
-ARCHITECTURE_NAME = "experimental.alchemical_model"
 
 
 class Model(torch.nn.Module):
@@ -38,11 +28,11 @@ class Model(torch.nn.Module):
             unique_numbers=self.all_species, **hypers["soap"], **hypers["bpnn"]
         )
 
-    def requested_neighbors_lists(
+    def requested_neighbor_lists(
         self,
-    ) -> List[NeighborsListOptions]:
+    ) -> List[NeighborListOptions]:
         return [
-            NeighborsListOptions(
+            NeighborListOptions(
                 cutoff=self.cutoff,
                 full_list=True,
             )
@@ -54,11 +44,14 @@ class Model(torch.nn.Module):
         outputs: Dict[str, ModelOutput],
         selected_atoms: Optional[Labels] = None,
     ) -> Dict[str, TensorMap]:
+        assert len(outputs.keys()) == 1
+        output_name = list(outputs.keys())[0]
+
         if selected_atoms is not None:
             raise NotImplementedError(
                 "Alchemical Model does not support selected atoms."
             )
-        options = self.requested_neighbors_lists()[0]
+        options = self.requested_neighbor_lists()[0]
         batch = systems_to_torch_alchemical_batch(systems, options)
         predictions = self.alchemical_model(
             positions=batch["positions"],
@@ -70,31 +63,30 @@ class Model(torch.nn.Module):
         )
 
         total_energies: Dict[str, TensorMap] = {}
-        for output_name in outputs:
-            keys = Labels(
-                "_", torch.zeros((1, 1), dtype=torch.int32, device=predictions.device)
-            )
-            properties = Labels(
-                "energy",
-                torch.zeros((1, 1), dtype=torch.int32, device=predictions.device),
-            )
-            samples = Labels(
-                names=["system"],
-                values=torch.arange(
-                    len(predictions),
-                    device=predictions.device,
-                ).view(-1, 1),
-            )
-            block = TensorBlock(
-                samples=samples,
-                components=[],
-                properties=properties,
-                values=predictions,
-            )
-            total_energies[output_name] = TensorMap(
-                keys=keys,
-                blocks=[block],
-            )
+        keys = Labels(
+            "_", torch.zeros((1, 1), dtype=torch.int32, device=predictions.device)
+        )
+        properties = Labels(
+            "energy",
+            torch.zeros((1, 1), dtype=torch.int32, device=predictions.device),
+        )
+        samples = Labels(
+            names=["system"],
+            values=torch.arange(
+                len(predictions),
+                device=predictions.device,
+            ).view(-1, 1),
+        )
+        block = TensorBlock(
+            samples=samples,
+            components=[],
+            properties=properties,
+            values=predictions,
+        )
+        total_energies[output_name] = TensorMap(
+            keys=keys,
+            blocks=[block],
+        )
         return total_energies
 
     def set_composition_weights(

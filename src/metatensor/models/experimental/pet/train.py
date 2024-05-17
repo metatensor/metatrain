@@ -4,15 +4,21 @@ from typing import Dict, List, Optional, Union
 
 import torch
 from metatensor.learn.data import DataLoader
-from metatensor.learn.data.dataset import Dataset
 from metatensor.torch.atomistic import ModelCapabilities, ModelOutput
 from pet.hypers import Hypers
 from pet.pet import PET
 from pet.train_model import fit_pet
 
-from ...utils.data import DatasetInfo, collate_fn, get_all_species
+from ...utils.data import (
+    Dataset,
+    DatasetInfo,
+    check_datasets,
+    collate_fn,
+    get_all_species,
+)
 from ...utils.data.system_to_ase import system_to_ase
-from .model import DEFAULT_HYPERS, Model
+from . import DEFAULT_HYPERS
+from .model import Model
 
 
 logger = logging.getLogger(__name__)
@@ -22,32 +28,26 @@ def train(
     train_datasets: List[Union[Dataset, torch.utils.data.Subset]],
     validation_datasets: List[Union[Dataset, torch.utils.data.Subset]],
     dataset_info: DatasetInfo,
+    devices: List[torch.device],
     hypers: Dict = DEFAULT_HYPERS,
     continue_from: Optional[str] = None,
-    output_dir: str = ".",
-    device_str: str = "cpu",
+    checkpoint_dir: str = ".",
 ):
-    if torch.get_default_dtype() != torch.float32:
-        raise ValueError("PET only supports float32")
-    if device_str != "cuda" and device_str != "gpu":
-        raise ValueError("PET only supports cuda (gpu) training")
     if len(dataset_info.targets) != 1:
         raise ValueError("PET only supports a single target")
     target_name = next(iter(dataset_info.targets.keys()))
     if dataset_info.targets[target_name].quantity != "energy":
         raise ValueError("PET only supports energies as target")
-    if dataset_info.targets[target_name].per_atom:
-        raise ValueError("PET does not support per-atom energies")
     if len(train_datasets) != 1:
         raise ValueError("PET only supports a single training dataset")
     if len(validation_datasets) != 1:
         raise ValueError("PET only supports a single validation dataset")
 
-    if device_str == "gpu":
-        device_str = "cuda"
-
     if continue_from is not None:
         hypers["FITTING_SCHEME"]["MODEL_TO_START_WITH"] = continue_from
+
+    logger.info("Checking datasets for consistency")
+    check_datasets(train_datasets, validation_datasets)
 
     train_dataset = train_datasets[0]
     validation_dataset = validation_datasets[0]
@@ -66,7 +66,7 @@ def train(
         collate_fn=collate_fn,
     )
 
-    # only energies or energies and forces?
+    # are we fitting on only energies or energies and forces?
     do_forces = next(iter(train_dataset))[1].block().has_gradient("positions")
     all_species = get_all_species(train_datasets + validation_datasets)
     if not do_forces:
@@ -108,14 +108,20 @@ def train(
             )
         ase_validation_dataset.append(ase_atoms)
 
+    device = devices[0]  # only one device, as we don't support multi-gpu for now
+
     fit_pet(
-        ase_train_dataset, ase_validation_dataset, hypers, "pet", device_str, output_dir
+        ase_train_dataset, ase_validation_dataset, hypers, "pet", device, checkpoint_dir
     )
 
     if do_forces:
-        load_path = Path(output_dir) / "pet" / "best_val_rmse_forces_model_state_dict"
+        load_path = (
+            Path(checkpoint_dir) / "pet" / "best_val_rmse_forces_model_state_dict"
+        )
     else:
-        load_path = Path(output_dir) / "pet" / "best_val_rmse_energies_model_state_dict"
+        load_path = (
+            Path(checkpoint_dir) / "pet" / "best_val_rmse_energies_model_state_dict"
+        )
 
     state_dict = torch.load(load_path)
 
@@ -134,11 +140,7 @@ def train(
     raw_pet.load_state_dict(new_state_dict)
 
     outputs = {
-        key: ModelOutput(
-            quantity=value.quantity,
-            unit=value.unit,
-            per_atom=False,
-        )
+        key: ModelOutput(quantity=value.quantity, unit=value.unit, per_atom=True)
         for key, value in dataset_info.targets.items()
     }
     capabilities = ModelCapabilities(
@@ -146,6 +148,9 @@ def train(
         outputs=outputs,
         atomic_types=all_species,
         supported_devices=["cpu", "cuda"],
+        interaction_range=ARCHITECTURAL_HYPERS["N_GNN_LAYERS"]
+        * ARCHITECTURAL_HYPERS["R_CUT"],
+        dtype="float32",
     )
 
     model = Model(capabilities, ARCHITECTURAL_HYPERS)

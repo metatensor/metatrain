@@ -4,9 +4,8 @@ metatensor-models
 |tests| |codecov| |docs|
 
 .. warning::
-
-    **metatensor-models is still very early in the concept stage. You should not use it
-    for anything important.**
+  **metatensor-models is still very early in the concept stage. You should not use it
+  for anything important.**
 
 This is a repository for models using metatensor, in one shape or another. The only
 requirement is for these models to be able to take metatensor objects as inputs and
@@ -17,63 +16,53 @@ case, this repository can simply contain a wrapper to an external model.
 
 What is metatensor-models?
 ##########################
-
-The idea behind ``metatensor-models`` is to have a general hub
-that provide an homogeneous enviroment and user interface to
-train, export and evaluate ML models and to
-connect those models with various MD engines (e.g. ``LAMMPS``, ``i-PI``, ``ASE`` ...).
-``metatensor-models`` is the tool that transforms every ML architecture in an
-end-to-end model. Any custom ML architecture compatible with TorchScript
-can be integrated in ``metatensor-models``, gaining automatic access to
-a training and evaluation interface, as well as compatibility with various MD engines.
+The idea behind ``metatensor-models`` is to have a general hub that provide an
+homogeneous environment and user interface to train, export and evaluate ML models and
+to connect those models with various MD engines (e.g. ``LAMMPS``, ``i-PI``, ``ASE``
+...). ``metatensor-models`` is the tool that transforms every ML architecture in an
+end-to-end model. Any custom ML architecture compatible with TorchScript can be
+integrated in ``metatensor-models``, gaining automatic access to a training and
+evaluation interface, as well as compatibility with various MD engines.
 
 Note: ``metatensor-models`` does not provide `per se` mathematical functionalities but
 relies on external models that implement the various architectures.
 
 Features
 ########
-
-- **Custom ML Architecture**: Integrate any TorchScriptable ML model
-  to explore innovative architectures.
-
-- **MD Engine Compatibility**: Supports various MD engines for diverse research
-  and application needs.
-
-- **Streamlined Training**: Automated process leveraging MD-generated data to
-  optimize ML models with minimal effort. It uses the ``hydra`` module to
-  easy management of folder and files.
-
+- **Custom ML Architecture**: Integrate any TorchScriptable ML model to explore
+  innova
+- **MD Engine Compatibility**: Supports various MD engines for diverse research and
+  application needs.
+- **Streamlined Training**: Automated process leveraging MD-generated data to optimize
+  ML models with minimal effort.
 - **HPC Compatibility**: Efficient in HPC environments for extensive simulations.
-
 - **Future-Proof**: Extensible to accommodate advancements in ML and MD fields.
 
 .. marker-architectures
 
 List of Implemented Architectures
 #################################
-
 Currently metatensor-models supports the following architectures for building an
 atomistic model.
 
 .. list-table::
-   :widths: 34 66
-   :header-rows: 1
+  :widths: 34 66
+  :header-rows: 1
 
-   * - Name
-     - Description
-
-   * - SOAP BPNN
-     - A Behler-Parrinello neural network with SOAP features
-
-   * - Alchemical Model
-     - A Behler-Parrinello neural network with SOAP features
-       and Alchemical Compression of the composition space
+  * - Name
+    - Description
+  * - SOAP BPNN
+    - A Behler-Parrinello neural network with SOAP features
+  * - Alchemical Model
+    - A Behler-Parrinello neural network with SOAP features and Alchemical Compression
+      of the composition space
+  * - PET
+    - Point Edge Transformer (PET), interatomic machine learning potential
 
 .. marker-documentation
 
 Documentation
 -------------
-
 For details, tutorials, and examples, please have a look at our
 `documentation <https://lab-cosmo.github.io/metatensor-models/latest/>`_.
 
@@ -81,7 +70,6 @@ For details, tutorials, and examples, please have a look at our
 
 Installation
 ------------
-
 You can install metatensor-models with pip:
 
 .. code-block:: bash
@@ -104,9 +92,9 @@ Shell Completion
 ``zsh``. Since it is difficult to automatically configure shell completions in a robust
 manner, you must manually configure your shell to enable its completion support.
 
-To make the completions available, source the definitions as
-part of your shell's startup. Add the following to your ``~/.bash_profile``,
-``~/.zshrc`` (or, if they don't exist, ``~/.profile``):
+To make the completions available, source the definitions as part of your shell's
+startup. Add the following to your ``~/.bash_profile``, ``~/.zshrc`` (or, if they don't
+exist, ``~/.profile``):
 
 .. code-block:: bash
 
@@ -116,7 +104,6 @@ part of your shell's startup. Add the following to your ``~/.bash_profile``,
 
 Having problems or ideas?
 -------------------------
-
 Having a problem with metatensor-models? Please let us know by `submitting an issue
 <https://github.com/metatensor-models/issues>`_.
 
@@ -127,21 +114,19 @@ Submit new features or bug fixes through a `pull request
 
 Contributors
 ------------
-
 Thanks goes to all people that make metatensor-models possible:
 
 .. image:: https://contrib.rocks/image?repo=lab-cosmo/metatensor-models
-   :target: https://github.com/lab-cosmo/metatensor-models/graphs/contributors
+  :target: https://github.com/lab-cosmo/metatensor-models/graphs/contributors
 
 .. |tests| image:: https://github.com/lab-cosmo/metatensor-models/workflows/Tests/badge.svg
-   :alt: Github Actions Tests Job Status
-   :target: (https://github.com/lab-cosmo/metatensor-models/\
-                actions?query=workflow%3ATests)
+  :alt: Github Actions Tests Job Status
+  :target: https://github.com/lab-cosmo/metatensor-models/actions?query=workflow%3ATests
 
 .. |codecov| image:: https://codecov.io/gh/lab-cosmo/metatensor-models/branch/main/graph/badge.svg
-   :alt: Code coverage
-   :target: https://codecov.io/gh/lab-cosmo/metatensor-models
+  :alt: Code coverage
+  :target: https://codecov.io/gh/lab-cosmo/metatensor-models
 
 .. |docs| image:: https://img.shields.io/badge/documentation-latest-sucess
-   :alt: Documentation
-   :target: https://lab-cosmo.github.io/metatensor-models/latest/
+  :alt: Documentation
+  :target: https://lab-cosmo.github.io/metatensor-models/latest/

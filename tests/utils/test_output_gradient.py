@@ -26,12 +26,12 @@ def test_forces(is_training):
                 unit="eV",
             )
         },
+        interaction_range=soap_bpnn.DEFAULT_HYPERS["model"]["soap"]["cutoff"],
+        dtype="float32",
     )
 
     model = soap_bpnn.Model(capabilities)
-    systems = read_systems(
-        RESOURCES_PATH / "qm9_reduced_100.xyz", dtype=torch.get_default_dtype()
-    )[:5]
+    systems = read_systems(RESOURCES_PATH / "qm9_reduced_100.xyz")[:5]
     systems = [
         System(
             positions=system.positions.requires_grad_(True),
@@ -49,9 +49,7 @@ def test_forces(is_training):
     forces = [-position_gradient for position_gradient in position_gradients]
 
     jitted_model = torch.jit.script(model)
-    systems = read_systems(
-        RESOURCES_PATH / "qm9_reduced_100.xyz", dtype=torch.get_default_dtype()
-    )[:5]
+    systems = read_systems(RESOURCES_PATH / "qm9_reduced_100.xyz")[:5]
     systems = [
         System(
             positions=system.positions.requires_grad_(True),
@@ -71,7 +69,7 @@ def test_forces(is_training):
     ]
 
     for f, jf in zip(forces, jitted_forces):
-        assert torch.allclose(f, jf)
+        torch.testing.assert_close(f, jf)
 
 
 @pytest.mark.parametrize("is_training", [True, False])
@@ -80,19 +78,38 @@ def test_virial(is_training):
 
     capabilities = ModelCapabilities(
         length_unit="Angstrom",
-        atomic_types=[21, 23, 24, 27, 29, 39, 40, 41, 72, 74, 78],
+        atomic_types=[
+            21,
+            23,
+            24,
+            26,
+            27,
+            29,
+            30,
+            39,
+            40,
+            41,
+            44,
+            45,
+            46,
+            47,
+            72,
+            74,
+            77,
+            78,
+        ],
         outputs={
             "energy": ModelOutput(
                 quantity="energy",
                 unit="eV",
             )
         },
+        interaction_range=soap_bpnn.DEFAULT_HYPERS["model"]["soap"]["cutoff"],
+        dtype="float32",
     )
 
     model = soap_bpnn.Model(capabilities)
-    systems = read_systems(
-        RESOURCES_PATH / "alchemical_reduced_10.xyz", dtype=torch.get_default_dtype()
-    )[:2]
+    systems = read_systems(RESOURCES_PATH / "alchemical_reduced_10.xyz")[:2]
 
     strains = [
         torch.eye(
@@ -143,7 +160,7 @@ def test_virial(is_training):
     jitted_virial = [-cell_gradient for cell_gradient in jitted_strain_gradients]
 
     for v, jv in zip(virial, jitted_virial):
-        assert torch.allclose(v, jv)
+        torch.testing.assert_close(v, jv)
 
 
 @pytest.mark.parametrize("is_training", [True, False])
@@ -152,19 +169,38 @@ def test_both(is_training):
 
     capabilities = ModelCapabilities(
         length_unit="Angstrom",
-        atomic_types=[21, 23, 24, 27, 29, 39, 40, 41, 72, 74, 78],
+        atomic_types=[
+            21,
+            23,
+            24,
+            26,
+            27,
+            29,
+            30,
+            39,
+            40,
+            41,
+            44,
+            45,
+            46,
+            47,
+            72,
+            74,
+            77,
+            78,
+        ],
         outputs={
             "energy": ModelOutput(
                 quantity="energy",
                 unit="eV",
             )
         },
+        interaction_range=soap_bpnn.DEFAULT_HYPERS["model"]["soap"]["cutoff"],
+        dtype="float32",
     )
 
     model = soap_bpnn.Model(capabilities)
-    systems = read_systems(
-        RESOURCES_PATH / "alchemical_reduced_10.xyz", dtype=torch.get_default_dtype()
-    )[:2]
+    systems = read_systems(RESOURCES_PATH / "alchemical_reduced_10.xyz")[:2]
 
     # Here we re-create strains and systems, otherwise torch
     # complains that the graph has already beeen freed in the last grad call
@@ -216,4 +252,4 @@ def test_both(is_training):
     jitted_f_and_v = [-jitted_gradient for jitted_gradient in jitted_gradients]
 
     for fv, jfv in zip(f_and_v, jitted_f_and_v):
-        assert torch.allclose(fv, jfv)
+        torch.testing.assert_close(fv, jfv)
