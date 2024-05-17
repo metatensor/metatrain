@@ -13,11 +13,12 @@ DEFAULT_HYPERS: Dict = get_default_hypers(ARCHITECTURE_NAME)
 DEFAULT_MODEL_HYPERS: Dict = DEFAULT_HYPERS["model"]
 
 __authors__ = [
-    # todo Alex and Davide  alex.goscinski@posteo.de
+    ("Alexander Goscinski <alex.goscinski@posteo.de>", "@agosckinski"),
+    ("Davide Tisi <davide.tisi@epfl.ch>", "@DavideTisi"),
 ]
 
 __maintainers__ = [
-    # todo Davide
+    ("Davide Tisi <davide.tisi@epfl.ch>", "@DavideTisi"),
 ]
 
 # load Model in train at the end to avoid circular imports
