@@ -5,7 +5,7 @@ import torch
 from metatensor.torch.atomistic import System, systems_to_torch
 
 
-def read_systems_ase(filename: str, dtype: torch.dtype = torch.float64) -> List[System]:
+def read_systems_ase(filename: str, dtype: torch.dtype = torch.float32) -> List[System]:
     """Store system informations using ase.
 
     :param filename: name of the file to read

@@ -21,6 +21,8 @@ def test_rotational_invariance():
                 unit="eV",
             )
         },
+        interaction_range=DEFAULT_HYPERS["model"]["soap"]["cutoff"],
+        dtype="float32",
     )
     soap_bpnn = Model(capabilities, DEFAULT_HYPERS["model"])
 
@@ -37,7 +39,7 @@ def test_rotational_invariance():
         {"energy": soap_bpnn.capabilities.outputs["energy"]},
     )
 
-    assert torch.allclose(
+    torch.testing.assert_close(
         original_output["energy"].block().values,
         rotated_output["energy"].block().values,
     )

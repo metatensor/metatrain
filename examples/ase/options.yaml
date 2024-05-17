@@ -1,3 +1,5 @@
+device: cpu
+
 architecture:
   name: experimental.soap_bpnn
   training:

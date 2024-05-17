@@ -1,7 +1,8 @@
-from typing import Dict, List, Tuple
+from typing import Dict, List, Optional, Tuple
 
 import torch
-from metatensor.torch.atomistic import NeighborsListOptions, System
+from metatensor.torch import Labels
+from metatensor.torch.atomistic import NeighborListOptions, System
 
 
 class NeighborIndexConstructor:
@@ -22,14 +23,14 @@ class NeighborIndexConstructor:
             neighbors_index_now: List[int] = []
             self.neighbors_index.append(neighbors_index_now)
 
-        self.neighbors_shift: List[List[torch.Tensor]] = []
+        self.neighbor_shift: List[List[torch.Tensor]] = []
         for _ in range(n_atoms):
-            neighbors_shift_now: List[torch.Tensor] = []
-            self.neighbors_shift.append(neighbors_shift_now)
+            neighbor_shift_now: List[torch.Tensor] = []
+            self.neighbor_shift.append(neighbor_shift_now)
 
         for i, j, _, S in zip(i_list, j_list, range(len(i_list)), S_list):
             self.neighbors_index[i].append(j)
-            self.neighbors_shift[i].append(S)
+            self.neighbor_shift[i].append(S)
 
         self.relative_positions_raw: List[List[torch.Tensor]] = [
             [] for i in range(n_atoms)
@@ -46,12 +47,15 @@ class NeighborIndexConstructor:
             self.neighbor_species[i].append(species[j])
             for k in range(len(self.neighbors_index[j])):
                 if (self.neighbors_index[j][k] == i) and torch.equal(
-                    self.neighbors_shift[j][k], -S
+                    self.neighbor_shift[j][k], -S
                 ):
                     self.neighbors_pos[i].append(torch.LongTensor([k]))
-        self.relative_positions = [
-            torch.cat(chunk, dim=0) for chunk in self.relative_positions_raw
-        ]
+        self.relative_positions: List[torch.Tensor] = []
+        for chunk in self.relative_positions_raw:
+            if chunk:
+                self.relative_positions.append(torch.cat(chunk, dim=0))
+            else:
+                self.relative_positions.append(torch.empty(0, dtype=torch.long))
 
     def get_max_num(self) -> int:
         maximum: int = -1
@@ -60,7 +64,7 @@ class NeighborIndexConstructor:
                 maximum = chunk.shape[0]
         return maximum
 
-    def get_neighbor_index(self, max_num: int, all_species: torch.Tensor) -> Tuple[
+    def get_neighbors_index(self, max_num: int, all_species: torch.Tensor) -> Tuple[
         torch.Tensor,
         torch.Tensor,
         torch.Tensor,
@@ -123,7 +127,7 @@ class NeighborIndexConstructor:
 
 
 def collate_graph_dicts(
-    graph_dicts: List[Dict[str, torch.Tensor]], device: str
+    graph_dicts: List[Dict[str, torch.Tensor]]
 ) -> Dict[str, torch.Tensor]:
     """
     Collates a list of graphs into a single graph.
@@ -132,7 +136,7 @@ def collate_graph_dicts(
 
     :return: The collated grap (batch).
     """
-
+    device = graph_dicts[0]["x"].device
     simple_concatenate_keys: List[str] = [
         "central_species",
         "x",
@@ -141,7 +145,6 @@ def collate_graph_dicts(
         "nums",
         "mask",
     ]
-
     cumulative_adjust_keys: List[str] = ["neighbors_index"]
 
     result: Dict[str, List[torch.Tensor]] = {}
@@ -191,12 +194,14 @@ def collate_graph_dicts(
         result_final[key] = torch.cat(now_3, dim=0)
 
     result_final["batch"] = torch.cat(result["batch"], dim=0).to(device)
-
     return result_final
 
 
 def systems_to_batch_dict(
-    systems: List[System], options: NeighborsListOptions, all_species_list: List[int]
+    systems: List[System],
+    options: NeighborListOptions,
+    all_species_list: List[int],
+    selected_atoms: Optional[Labels] = None,
 ) -> Dict[str, torch.Tensor]:
     """
     Converts a standatd input data format of `metatensor-models` to a
@@ -204,41 +209,61 @@ def systems_to_batch_dict(
 
     :param systems: The list of systems in `metatensor.torch.atomistic.System`
     format, that needs to be converted.
-    :param options: A `NeighborsListOptions` objects specifying the parameters
+    :param options: A `NeighborListOptions` objects specifying the parameters
     for a neighbor list, which will be used during the convertation.
     :param all_species: A `torch.Tensor` with all the species present in the
     systems.
 
     :return: Batch compatible with PET.
     """
+    device = systems[0].positions.device
+    all_species: torch.Tensor = torch.LongTensor(all_species_list).to(device)
+    neighbors_index_constructors: List[NeighborIndexConstructor] = []
 
-    all_species: torch.Tensor = torch.LongTensor(all_species_list)
-    neighbor_index_constructors: List[NeighborIndexConstructor] = []
-
-    for system in systems:
-        known_neighbors_lists = system.known_neighbors_lists()
+    for i, system in enumerate(systems):
+        known_neighbor_lists = system.known_neighbor_lists()
         if not torch.any(
-            torch.tensor([known == options for known in known_neighbors_lists])
+            torch.tensor([known == options for known in known_neighbor_lists])
         ):
             raise ValueError(
                 f"System does not have the neighbor list with the options {options}"
             )
 
-        neighbors = system.get_neighbors_list(options)
+        neighbor = system.get_neighbor_list(options)
 
-        i_list: torch.Tensor = neighbors.samples.column("first_atom")
-        j_list: torch.Tensor = neighbors.samples.column("second_atom")
+        i_list: torch.Tensor = neighbor.samples.column("first_atom")
+        j_list: torch.Tensor = neighbor.samples.column("second_atom")
+        unique_neighbors_index = torch.unique(torch.cat((i_list, j_list)))
+
+        if selected_atoms is not None:
+            selected_atoms_index = selected_atoms.values[:, 1][
+                selected_atoms.values[:, 0] == i
+            ]
+            unique_index = torch.unique(
+                torch.cat((selected_atoms_index, unique_neighbors_index))
+            )
+        else:
+            unique_index = torch.arange(len(system))
 
         S_list_raw: List[torch.Tensor] = [
-            neighbors.samples.column("cell_shift_a")[None],
-            neighbors.samples.column("cell_shift_b")[None],
-            neighbors.samples.column("cell_shift_c")[None],
+            neighbor.samples.column("cell_shift_a")[None],
+            neighbor.samples.column("cell_shift_b")[None],
+            neighbor.samples.column("cell_shift_c")[None],
         ]
 
         S_list: torch.Tensor = torch.cat(S_list_raw)
         S_list = S_list.transpose(0, 1)
 
-        species: torch.Tensor = system.types
+        # unique_index = torch.unique(torch.cat((i_list, j_list)))
+        species: torch.Tensor = system.types[unique_index]
+
+        # Remapping to contiguous indexing (see `remap_to_contiguous_indexing`
+        # docstring)
+        if (len(unique_neighbors_index) > 0) and (
+            len(unique_neighbors_index) < i_list.max()
+            or len(unique_neighbors_index) < j_list.max()
+        ):
+            i_list, j_list = remap_to_contiguous_indexing(i_list, j_list, unique_index)
 
         i_list = i_list.cpu()
         j_list = j_list.cpu()
@@ -250,21 +275,23 @@ def systems_to_batch_dict(
         S_list_proper: List[torch.Tensor] = [el.to(dtype=torch.long) for el in S_list]
         species_proper: List[int] = [int(el.item()) for el in species]
 
-        neighbor_index_constructor: NeighborIndexConstructor = NeighborIndexConstructor(
-            i_list_proper, j_list_proper, S_list_proper, species_proper
+        neighbors_index_constructor: NeighborIndexConstructor = (
+            NeighborIndexConstructor(
+                i_list_proper, j_list_proper, S_list_proper, species_proper
+            )
         )
-        neighbor_index_constructors.append(neighbor_index_constructor)
+        neighbors_index_constructors.append(neighbors_index_constructor)
 
     max_nums: List[int] = [
-        neighbor_index_constructor.get_max_num()
-        for neighbor_index_constructor in neighbor_index_constructors
+        neighbors_index_constructor.get_max_num()
+        for neighbors_index_constructor in neighbors_index_constructors
     ]
     max_num: int = max(max_nums)
 
     graphs: List[Dict[str, torch.Tensor]] = []
-    device = "cpu"  # initial value to make torch script happy; to be overwritten
-
-    for neighbor_index_constructor, system in zip(neighbor_index_constructors, systems):
+    for i, (neighbors_index_constructor, system) in enumerate(
+        zip(neighbors_index_constructors, systems)
+    ):
         (
             neighbors_pos,
             neighbors_index,
@@ -272,11 +299,10 @@ def systems_to_batch_dict(
             mask,
             neighbor_species,
             relative_positions_index,
-        ) = neighbor_index_constructor.get_neighbor_index(max_num, all_species)
+        ) = neighbors_index_constructor.get_neighbors_index(max_num, all_species)
 
-        neighbors = system.get_neighbors_list(options)
-        displacement_vectors = neighbors.values[:, :, 0]
-
+        neighbor = system.get_neighbor_list(options)
+        displacement_vectors = neighbor.values[:, :, 0].to(torch.float32)
         device = str(displacement_vectors.device)
         neighbors_pos = neighbors_pos.to(device)
         neighbors_index = neighbors_index.to(device)
@@ -284,11 +310,31 @@ def systems_to_batch_dict(
         mask = mask.to(device)
         neighbor_species = neighbor_species.to(device)
         relative_positions_index = relative_positions_index.to(device)
-
-        relative_positions = displacement_vectors[relative_positions_index]
+        if len(displacement_vectors) == 0:
+            shape = relative_positions_index.shape
+            relative_positions = torch.zeros(
+                size=(shape[0], shape[1], 3),
+                device=device,
+                dtype=torch.float32,
+            )
+        else:
+            relative_positions = displacement_vectors[relative_positions_index]
+        if selected_atoms is not None:
+            neighbor = system.get_neighbor_list(options)
+            i_list = neighbor.samples.column("first_atom")
+            j_list = neighbor.samples.column("second_atom")
+            selected_atoms_index = selected_atoms.values[:, 1][
+                selected_atoms.values[:, 0] == i
+            ]
+            unique_neighbors_index = torch.unique(torch.cat((i_list, j_list)))
+            unique_index = torch.unique(
+                torch.cat((selected_atoms_index, unique_neighbors_index))
+            )
+        else:
+            unique_index = torch.arange(len(system))
+        species = system.types[unique_index]
         central_species = [
-            int(torch.where(all_species == specie)[0][0].item())
-            for specie in system.types
+            int(torch.where(all_species == specie)[0][0].item()) for specie in species
         ]
 
         central_species = torch.LongTensor(central_species).to(device)
@@ -303,5 +349,39 @@ def systems_to_batch_dict(
             "mask": mask,
         }
         graphs.append(graph_now)
+    return collate_graph_dicts(graphs)
 
-    return collate_graph_dicts(graphs, device)
+
+def remap_to_contiguous_indexing(
+    i_list: torch.Tensor, j_list: torch.Tensor, unique_index: torch.Tensor
+) -> Tuple[torch.Tensor, torch.Tensor]:
+    """
+    This helper function remaps the indices of center and neighbor atoms
+    from arbitrary indexing to contgious indexing, i.e.
+
+    from
+    0, 1, 2, 54, 55, 56
+    to
+    0, 1, 2, 3, 4, 5.
+
+    This remapping is required by internal implementation of PET neighbor lists, where
+    indices of the atoms cannot exceed the total amount of atoms in the system.
+
+    Shifted indices come from LAMMPS neighborlists in the case of domain decomposition
+    enabled, since they contain not only the atoms in the unit cell, but also so-called
+    ghost atoms, which may have a different indexing. Thus, to avoid further errors, we
+    remap the indices to a contiguous format.
+
+    """
+    index_map: Dict[int, int] = {int(index): i for i, index in enumerate(unique_index)}
+    i_list = torch.tensor(
+        [index_map[int(index)] for index in i_list],
+        dtype=i_list.dtype,
+        device=i_list.device,
+    )
+    j_list = torch.tensor(
+        [index_map[int(index)] for index in j_list],
+        dtype=j_list.dtype,
+        device=j_list.device,
+    )
+    return i_list, j_list

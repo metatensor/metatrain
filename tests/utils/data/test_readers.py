@@ -156,7 +156,7 @@ def test_read_targets(stress_dict, virial_dict, monkeypatch, tmp_path, caplog):
 
     conf = {
         "energy": energy_section,
-        "energy2": energy_section,
+        "mtm::energy2": energy_section,
     }
 
     caplog.set_level(logging.INFO)
@@ -232,12 +232,12 @@ def test_read_targets_warnings(stress_dict, virial_dict, monkeypatch, tmp_path, 
     caplog.set_level(logging.WARNING)
     read_targets(OmegaConf.create(conf))  # , slice_samples_by="system")
 
-    assert any(["Forces not found" in rec.message for rec in caplog.records])
+    assert any(["No Forces found" in rec.message for rec in caplog.records])
 
     if stress_dict:
-        assert any(["Stress not found" in rec.message for rec in caplog.records])
+        assert any(["No Stress found" in rec.message for rec in caplog.records])
     if virial_dict:
-        assert any(["Virial not found" in rec.message for rec in caplog.records])
+        assert any(["No Virial found" in rec.message for rec in caplog.records])
 
 
 def test_read_targets_error(monkeypatch, tmp_path):
@@ -266,7 +266,7 @@ def test_read_targets_error(monkeypatch, tmp_path):
         read_targets(OmegaConf.create(conf))
 
 
-def test_unsopprted_quantity():
+def test_unsupported_quantity():
     conf = {
         "energy": {
             "quantity": "foo",
@@ -276,5 +276,19 @@ def test_unsopprted_quantity():
     with pytest.raises(
         ValueError,
         match="Quantity: 'foo' is not supported. Choose 'energy'.",
+    ):
+        read_targets(OmegaConf.create(conf))
+
+
+def test_unsupported_target_name():
+    conf = {
+        "free_energy": {
+            "quantity": "energy",
+        }
+    }
+
+    with pytest.raises(
+        ValueError,
+        match="start with `mtm::`",
     ):
         read_targets(OmegaConf.create(conf))

@@ -18,7 +18,7 @@ def _base_reader(
     readers: dict,
     filename: str,
     fileformat: Optional[str] = None,
-    dtype: torch.dtype = torch.float64,
+    dtype: torch.dtype = torch.float32,
     **reader_kwargs,
 ):
     if fileformat is None:
@@ -36,7 +36,7 @@ def read_energy(
     filename: str,
     target_value: str = "energy",
     fileformat: Optional[str] = None,
-    dtype: torch.dtype = torch.float64,
+    dtype: torch.dtype = torch.float32,
 ) -> List[TensorBlock]:
     """Read energy informations from a file.
 
@@ -60,7 +60,7 @@ def read_forces(
     filename: str,
     target_value: str = "forces",
     fileformat: Optional[str] = None,
-    dtype: torch.dtype = torch.float64,
+    dtype: torch.dtype = torch.float32,
 ) -> List[TensorBlock]:
     """Read force informations from a file.
 
@@ -84,7 +84,7 @@ def read_stress(
     filename: str,
     target_value: str = "stress",
     fileformat: Optional[str] = None,
-    dtype: torch.dtype = torch.float64,
+    dtype: torch.dtype = torch.float32,
 ) -> List[TensorBlock]:
     """Read stress informations from a file.
 
@@ -107,7 +107,7 @@ def read_stress(
 def read_systems(
     filename: str,
     fileformat: Optional[str] = None,
-    dtype: torch.dtype = torch.float64,
+    dtype: torch.dtype = torch.float32,
 ) -> List[System]:
     """Read system informations from a file.
 
@@ -129,7 +129,7 @@ def read_virial(
     filename: str,
     target_value: str = "virial",
     fileformat: Optional[str] = None,
-    dtype: torch.dtype = torch.float64,
+    dtype: torch.dtype = torch.float32,
 ) -> List[TensorBlock]:
     """Read virial informations from a file.
 
@@ -151,7 +151,7 @@ def read_virial(
 
 def read_targets(
     conf: DictConfig,
-    dtype: torch.dtype = torch.float64,
+    dtype: torch.dtype = torch.float32,
 ) -> Dict[str, List[TensorMap]]:
     """Reading all target information from a fully expanded config.
 
@@ -166,10 +166,24 @@ def read_targets(
     :param conf: config containing the keys for what should be read.
     :param dtype: desired data type of returned tensor
     :returns: Dictionary containing one TensorMaps for each target section in the
-        config."""
+        config.
+
+    :raises ValueError: if the target name is not valid. Valid target names are
+        those that either start with ``mtm::`` or those that are in the list of
+        standard outputs of ``metatensor.torch.atomistic`` (see
+        https://docs.metatensor.org/latest/atomistic/outputs.html)
+    """
     target_dictionary = {}
+    standard_outputs_list = ["energy"]
 
     for target_key, target in conf.items():
+        if target_key not in standard_outputs_list and not target_key.startswith(
+            "mtm::"
+        ):
+            raise ValueError(
+                f"Target names must either be one of {standard_outputs_list} "
+                "or start with `mtm::`."
+            )
         if target["quantity"] == "energy":
             blocks = read_energy(
                 filename=target["read_from"],
@@ -188,7 +202,7 @@ def read_targets(
                     )
                 except KeyError:
                     logger.warning(
-                        f"Forces not found in section {target_key!r}. "
+                        f"No Forces found in section {target_key!r}. "
                         "Continue without forces!"
                     )
                 else:
@@ -214,7 +228,7 @@ def read_targets(
                     )
                 except KeyError:
                     logger.warning(
-                        f"Stress not found in section {target_key!r}. "
+                        f"No Stress found in section {target_key!r}. "
                         "Continue without stress!"
                     )
                 else:
@@ -235,7 +249,7 @@ def read_targets(
                     )
                 except KeyError:
                     logger.warning(
-                        f"Virial not found in section {target_key!r}. "
+                        f"No Virial found in section {target_key!r}. "
                         "Continue without virial!"
                     )
                 else:

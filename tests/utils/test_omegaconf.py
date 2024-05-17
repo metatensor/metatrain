@@ -1,8 +1,11 @@
 import re
 
 import pytest
+import torch
 from omegaconf import ListConfig, OmegaConf
 
+from metatensor.models.experimental import soap_bpnn
+from metatensor.models.utils import omegaconf
 from metatensor.models.utils.omegaconf import (
     check_options_list,
     check_units,
@@ -14,6 +17,85 @@ def test_file_format_resolver():
     conf = OmegaConf.create({"read_from": "foo.xyz", "file_format": "${file_format:}"})
 
     assert (conf["file_format"]) == ".xyz"
+
+
+def test_random_seed_resolver():
+    conf = OmegaConf.create({"seed": "${default_random_seed:}"})
+
+    seed = conf["seed"]
+    assert type(seed) is int
+    assert seed > 0
+
+    # assert that seed does not change if requested again
+    assert seed == conf["seed"]
+
+
+def test_default_device_resolver():
+    conf = OmegaConf.create(
+        {
+            "device": "${default_device:}",
+            "architecture": {"name": "experimental.soap_bpnn"},
+        }
+    )
+
+    assert conf["device"] == "cpu"
+
+
+def test_default_device_resolver_multi(monkeypatch):
+    def pick_devices(architecture_devices):
+        return [torch.device("cuda:0"), torch.device("cuda:1")]
+
+    monkeypatch.setattr(omegaconf, "pick_devices", pick_devices)
+
+    conf = OmegaConf.create(
+        {
+            "device": "${default_device:}",
+            "architecture": {"name": "experimental.soap_bpnn"},
+        }
+    )
+
+    assert conf["device"] == "multi-cuda"
+
+
+@pytest.mark.parametrize(
+    "dtype, precision",
+    [(torch.float64, 64), (torch.double, 64), (torch.float32, 32), (torch.float16, 16)],
+)
+def test_default_precision_resolver(dtype, precision, monkeypatch):
+    patched_capabilities = {"supported_dtypes": [dtype]}
+    monkeypatch.setattr(
+        soap_bpnn, "__ARCHITECTURE_CAPABILITIES__", patched_capabilities
+    )
+
+    conf = OmegaConf.create(
+        {
+            "base_precision": "${default_precision:}",
+            "architecture": {"name": "experimental.soap_bpnn"},
+        }
+    )
+
+    assert conf["base_precision"] == precision
+
+
+def test_default_precision_resolver_unknown_dtype(monkeypatch):
+    patched_capabilities = {"supported_dtypes": [torch.int64]}
+    monkeypatch.setattr(
+        soap_bpnn, "__ARCHITECTURE_CAPABILITIES__", patched_capabilities
+    )
+
+    conf = OmegaConf.create(
+        {
+            "base_precision": "${default_precision:}",
+            "architecture": {"name": "experimental.soap_bpnn"},
+        }
+    )
+
+    match = (
+        r"architectures `default_dtype` \(torch.int64\) refers to an unknown torch "
+        "dtype. This should not happen."
+    )
+    with pytest.raises(ValueError, match=match):
+        conf["base_precision"]
 
 
 @pytest.mark.parametrize("n_datasets", [1, 2])

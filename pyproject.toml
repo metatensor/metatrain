@@ -1,7 +1,7 @@
 [project]
 name = "metatensor-models"
 dynamic = ["version"]
-requires-python = ">=3.8"
+requires-python = ">=3.9"
 
 readme = "README.md"
 license = {text = "BSD-3-Clause"}
@@ -10,11 +10,11 @@ authors = [{name = "metatensor-models developers"}]
 
 dependencies = [
     "ase",
-    "torch",
-    "hydra-core",
+    "metatensor-learn==0.2.2",
     "metatensor-operations==0.2.1",
-    "metatensor-torch==0.3.0",
-    "metatensor-learn==0.2.1",
+    "metatensor-torch==0.5.1",
+    "omegaconf",
+    "torch",
 ]
 
 keywords = ["machine learning", "molecular modeling"]
@@ -55,13 +55,13 @@ build-backend = "setuptools.build_meta"
 
 [project.optional-dependencies]
 soap-bpnn = [
-    "rascaline-torch @ git+https://github.com/luthaf/rascaline@ae05064#subdirectory=python/rascaline-torch",
+    "rascaline-torch @ git+https://github.com/luthaf/rascaline@4746196#subdirectory=python/rascaline-torch",
 ]
 alchemical-model = [
-  "torch_alchemical @ git+https://github.com/abmazitov/torch_alchemical.git@357a01f",
+  "torch_alchemical @ git+https://github.com/abmazitov/torch_alchemical.git@51ff519",
 ]
 pet = [
-  "pet @ git+https://github.com/serfg/pet.git@5668bda",
+  "pet @ git+https://github.com/spozdn/pet.git@ad3dc8a",
 ]
 
 [tool.setuptools.packages.find]

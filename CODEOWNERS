@@ -1,0 +1,7 @@
+# This file defines code owners for the different architectures, ensuring
+# that they get asked for a review whenever the code for this architecture
+# is modified.
+
+**/soap_bpnn            @frostedoyster
+**/alchemical_model     @abmazitov
+**/pet                  @spozdn @abmazitov

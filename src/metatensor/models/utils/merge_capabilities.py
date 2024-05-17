@@ -4,37 +4,56 @@ from metatensor.torch.atomistic import ModelCapabilities
 
 
 def merge_capabilities(
-    old_capabilities: ModelCapabilities, requested_capabilities: ModelCapabilities
+    old_capabilities: ModelCapabilities, new_capabilities: ModelCapabilities
 ) -> Tuple[ModelCapabilities, ModelCapabilities]:
     """
     Merge the capabilities of a model with the requested capabilities.
 
     :param old_capabilities: The old capabilities of the model.
-    :param requested_capabilities: The requested capabilities.
+    :param new_capabilities: The requested capabilities.
 
-    :return: The merged capabilities and the new capabilities that
-        were not present in the old capabilities. The order will
-        be preserved.
+    :return: The merged capabilities and the "novel" capabilities that
+        were not present in the old capabilities, but are present in the new
+        capabilities. The order is preserved, both in the merged and novel
+        capabilities.
     """
     # Check that the length units are the same:
-    if old_capabilities.length_unit != requested_capabilities.length_unit:
+    if old_capabilities.length_unit != new_capabilities.length_unit:
         raise ValueError(
-            "The length units of the old and new capabilities are not the same."
+            "The length units of the old and new capabilities are not the same. "
+            f"Found `{old_capabilities.length_unit}` and "
+            f"`{new_capabilities.length_unit}`."
         )
 
     # Check that there are no new species:
-    for species in requested_capabilities.atomic_types:
+    for species in new_capabilities.atomic_types:
         if species not in old_capabilities.atomic_types:
             raise ValueError(
                 f"The species {species} is not within "
                 "the capabilities of the loaded model."
             )
 
+    # Check that the interaction ranges are the same:
+    if old_capabilities.interaction_range != new_capabilities.interaction_range:
+        raise ValueError(
+            "The interaction ranges of the old and new capabilities are not the same. "
+            f"Found `{old_capabilities.interaction_range}` and "
+            f"`{new_capabilities.interaction_range}`."
+        )
+
+    # Check that the dtype is the same:
+    if old_capabilities.dtype != new_capabilities.dtype:
+        raise ValueError(
+            "The dtypes of the old and new capabilities are not the same. "
+            f"Found `{old_capabilities.dtype}` and "
+            f"`{new_capabilities.dtype}`."
+        )
+
     # Merge the outputs:
     outputs = {}
     for key, value in old_capabilities.outputs.items():
         outputs[key] = value
-    for key, value in requested_capabilities.outputs.items():
+    for key, value in new_capabilities.outputs.items():
         if key not in outputs:
             outputs[key] = value
         else:
@@ -44,20 +63,24 @@ def merge_capabilities(
 
     # Find the new outputs:
     new_outputs = {}
-    for key, value in requested_capabilities.outputs.items():
+    for key, value in new_capabilities.outputs.items():
         if key not in old_capabilities.outputs:
             new_outputs[key] = value
 
     merged_capabilities = ModelCapabilities(
-        length_unit=requested_capabilities.length_unit,
+        length_unit=new_capabilities.length_unit,
         atomic_types=old_capabilities.atomic_types,
         outputs=outputs,
+        interaction_range=old_capabilities.interaction_range,
+        dtype=old_capabilities.dtype,
     )
 
-    new_capabilities = ModelCapabilities(
-        length_unit=requested_capabilities.length_unit,
+    novel_capabilities = ModelCapabilities(
+        length_unit=new_capabilities.length_unit,
         atomic_types=old_capabilities.atomic_types,
         outputs=new_outputs,
+        interaction_range=old_capabilities.interaction_range,
+        dtype=old_capabilities.dtype,
     )
 
-    return merged_capabilities, new_capabilities
+    return merged_capabilities, novel_capabilities

@@ -7,16 +7,17 @@ This is the API for the ``utils`` module of ``metatensor-models``.
    :maxdepth: 1
 
    data/index
+   architectures
    composition
-   compute_loss
+   devices
    errors
-   export
+   evaluate_model
    extract_targets
-   info
+   io
    logging
    loss
    merge_capabilities
-   model-io
-   neighbors_lists
+   metrics
+   neighbor_lists
    omegaconf
    output_gradient

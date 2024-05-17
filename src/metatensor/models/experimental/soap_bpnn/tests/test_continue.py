@@ -1,15 +1,15 @@
 import shutil
 
+import pytest
 import torch
-from metatensor.learn.data import Dataset
 from metatensor.torch.atomistic import ModelCapabilities, ModelOutput
 from omegaconf import OmegaConf
 
 import metatensor.models
 from metatensor.models.experimental.soap_bpnn import DEFAULT_HYPERS, Model, train
-from metatensor.models.utils.data import get_all_species
+from metatensor.models.utils.data import Dataset, DatasetInfo, TargetInfo
 from metatensor.models.utils.data.readers import read_systems, read_targets
-from metatensor.models.utils.model_io import save_model
+from metatensor.models.utils.io import export, save
 
 from . import DATASET_PATH
 
@@ -21,27 +21,29 @@ def test_continue(monkeypatch, tmp_path):
     monkeypatch.chdir(tmp_path)
     shutil.copy(DATASET_PATH, "qm9_reduced_100.xyz")
 
-    systems = read_systems(DATASET_PATH, dtype=torch.get_default_dtype())
+    systems = read_systems(DATASET_PATH)
 
     capabilities = ModelCapabilities(
         length_unit="Angstrom",
         atomic_types=[1, 6, 7, 8],
         outputs={
-            "U0": ModelOutput(
+            "mtm::U0": ModelOutput(
                 quantity="energy",
                 unit="eV",
             )
         },
+        interaction_range=DEFAULT_HYPERS["model"]["soap"]["cutoff"],
+        dtype="float32",
     )
     model_before = Model(capabilities, DEFAULT_HYPERS["model"])
     output_before = model_before(
-        systems[:5], {"U0": model_before.capabilities.outputs["U0"]}
+        systems[:5], {"mtm::U0": model_before.capabilities.outputs["mtm::U0"]}
     )
 
-    save_model(model_before, "model.ckpt")
+    save(model_before, "model.ckpt")
 
     conf = {
-        "U0": {
+        "mtm::U0": {
             "quantity": "energy",
             "read_from": DATASET_PATH,
             "file_format": ".xyz",
@@ -52,28 +54,46 @@ def test_continue(monkeypatch, tmp_path):
         }
     }
     targets = read_targets(OmegaConf.create(conf))
-    dataset = Dataset(system=systems, U0=targets["U0"])
+    dataset = Dataset({"system": systems, "mtm::U0": targets["mtm::U0"]})
 
     hypers = DEFAULT_HYPERS.copy()
     hypers["training"]["num_epochs"] = 0
 
-    capabilities = ModelCapabilities(
+    dataset_info = DatasetInfo(
         length_unit="Angstrom",
-        atomic_types=get_all_species(dataset),
-        outputs={
-            "U0": ModelOutput(
+        targets={
+            "mtm::U0": TargetInfo(
                 quantity="energy",
                 unit="eV",
-            )
+            ),
         },
     )
     model_after = train(
-        [dataset], [dataset], capabilities, hypers, continue_from="model.ckpt"
+        [dataset],
+        [dataset],
+        dataset_info,
+        [torch.device("cpu")],
+        hypers,
+        continue_from="model.ckpt",
     )
 
     # Predict on the first five systems
     output_after = model_after(
-        systems[:5], {"U0": model_after.capabilities.outputs["U0"]}
+        systems[:5], {"mtm::U0": model_after.capabilities.outputs["mtm::U0"]}
     )
 
-    assert metatensor.torch.allclose(output_before["U0"], output_after["U0"])
+    assert metatensor.torch.allclose(output_before["mtm::U0"], output_after["mtm::U0"])
+
+    # test error raise of model is already exported
+    export(model_before, "exported.pt")
+    with pytest.raises(
+        ValueError, match="model is already exported and can't be used for continue"
+    ):
+        train(
+            [dataset],
+            [dataset],
+            dataset_info,
+            [torch.device("cpu")],
+            hypers,
+            continue_from="exported.pt",
+        )
