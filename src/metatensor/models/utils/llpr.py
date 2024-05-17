@@ -21,7 +21,7 @@ class LLPRModel(torch.nn.Module):
         super().__init__()
 
         self.model = model
-        self.ll_feat_size = self.model.wrapped_module().last_layer_feature_size
+        self.ll_feat_size = self.model._module.last_layer_feature_size
 
         # update capabilities: now we have additional outputs for the uncertainty
         old_capabilities = self.model.capabilities()
@@ -30,17 +30,20 @@ class LLPRModel(torch.nn.Module):
         for name, output in old_capabilities.outputs.items():
             if name.startswith("mtm::aux"):
                 continue  # auxiliary output
-            new_name = name.replace("mtm::", "")  # remove mtm:: prefix
-            additional_capabilities[new_name] = ModelOutput(
-                f"mtm::aux::{name}_uncertainty",
+            uncertainty_name = f"mtm::aux::{name.replace("mtm::", "")}_uncertainty"
+            additional_capabilities[uncertainty_name] = ModelOutput(
                 quantity="",
                 unit=f"({output.unit})^2",
                 per_atom=True,
             )
-            self.uncertainty_multipliers[new_name] = 1.0
+            self.uncertainty_multipliers[uncertainty_name] = 1.0
         self.capabilities = ModelCapabilities(
-            old_capabilities.length_unit,
             outputs={**old_capabilities.outputs, **additional_capabilities},
+            atomic_types=old_capabilities.atomic_types,
+            interaction_range=old_capabilities.interaction_range,
+            length_unit=old_capabilities.length_unit,
+            supported_devices=old_capabilities.supported_devices,
+            dtype=old_capabilities.dtype,
         )
 
         # register covariance and inverse covariance buffers
@@ -49,6 +52,7 @@ class LLPRModel(torch.nn.Module):
             torch.zeros(
                 (self.ll_feat_size, self.ll_feat_size),
                 device=next(self.model.parameters()).device,
+                dtype=next(self.model.parameters()).dtype,
             ),
         )
         self.register_buffer(
@@ -56,6 +60,7 @@ class LLPRModel(torch.nn.Module):
             torch.zeros(
                 (self.ll_feat_size, self.ll_feat_size),
                 device=next(self.model.parameters()).device,
+                dtype=next(self.model.parameters()).dtype,
             ),
         )
 
@@ -88,7 +93,7 @@ class LLPRModel(torch.nn.Module):
                 "atom or not per atom with LLPR."
             )
         per_atom = per_atom_all_targets[0]
-        outputs_with_last_layer = {
+        outputs_for_model = {
             "mtm::aux::last_layer_features": ModelOutput(
                 quantity="",
                 unit="",
@@ -96,11 +101,15 @@ class LLPRModel(torch.nn.Module):
             ),
         }
         for name, output in outputs.items():
-            outputs_with_last_layer[name] = output
+            # remove uncertainties from the requested outputs for the
+            # wrapped model
+            if name.startswith("mtm::aux") and name.endswith("_uncertainty"):
+                continue
+            outputs_for_model[name] = output
 
         options = ModelEvaluationOptions(
             length_unit="",
-            outputs=outputs_with_last_layer,
+            outputs=outputs_for_model,
         )
         return_dict = self.model(
             systems, options, check_consistency=True
@@ -156,7 +165,13 @@ class LLPRModel(torch.nn.Module):
                     per_atom=False,
                 )
             }
-            output = self.forward(systems, outputs)
+            options = ModelEvaluationOptions(
+                length_unit="",
+                outputs=outputs,
+            )
+            output = self.model(
+                systems, options, check_consistency=True
+            )  # TODO: True or False here?
             ll_feat_tmap = output["mtm::aux::last_layer_features"]
             ll_feats = ll_feat_tmap.block().values / n_atoms.unsqueeze(1)
             self.covariance += ll_feats.T @ ll_feats
@@ -166,11 +181,11 @@ class LLPRModel(torch.nn.Module):
         # Try with an increasingly high regularization parameter until
         # the matrix is invertible
 
-        for sigma_squared in torch.geomspace(1e-16, 1e16, 33):
+        for log10_sigma_squared in torch.linspace(-16.0, 16.0, 33):
             try:
                 self.inv_covariance = torch.inverse(
                     self.covariance
-                    + sigma_squared
+                    + 10**log10_sigma_squared
                     * torch.eye(self.ll_feat_size, device=self.covariance.device)
                 )
                 break
@@ -198,8 +213,7 @@ class LLPRModel(torch.nn.Module):
                     unit="",
                     per_atom=False,
                 )
-                uncertainty_name = name.replace("mtm::", "")
-                uncertainty_name = f"mtm::aux::{uncertainty_name}_uncertainty"
+                uncertainty_name = f"mtm::aux::{name.replace("mtm::", "")}_uncertainty"
                 requested_outputs[uncertainty_name] = ModelOutput(
                     quantity="",
                     unit="",
@@ -207,8 +221,7 @@ class LLPRModel(torch.nn.Module):
                 )
             outputs = self.forward(systems, requested_outputs)
             for name, target in targets.items():
-                uncertainty_name = name.replace("mtm::", "")
-                uncertainty_name = f"mtm::aux::{uncertainty_name}_uncertainty"
+                uncertainty_name = f"mtm::aux::{name.replace("mtm::", "")}_uncertainty"
                 if name not in all_predictions:
                     all_predictions[name] = []
                     all_targets[name] = []
@@ -222,8 +235,7 @@ class LLPRModel(torch.nn.Module):
         for name in all_predictions:
             all_predictions[name] = torch.cat(all_predictions[name], dim=0)
             all_targets[name] = torch.cat(all_targets[name], dim=0)
-            uncertainty_name = name.replace("mtm::", "")
-            uncertainty_name = f"mtm::aux::{uncertainty_name}_uncertainty"
+            uncertainty_name = f"mtm::aux::{name.replace("mtm::", "")}_uncertainty"
             all_uncertainties[uncertainty_name] = torch.cat(
                 all_uncertainties[uncertainty_name], dim=0
             )
@@ -231,8 +243,7 @@ class LLPRModel(torch.nn.Module):
         for name in all_predictions:
             # compute the uncertainty multiplier
             residuals = all_predictions[name] - all_targets[name]
-            uncertainty_name = name.replace("mtm::", "")
-            uncertainty_name = f"mtm::aux::{uncertainty_name}_uncertainty"
+            uncertainty_name = f"mtm::aux::{name.replace("mtm::", "")}_uncertainty"
             uncertainties = all_uncertainties[uncertainty_name]
             self.uncertainty_multipliers[name] = torch.mean(
                 residuals**2 / uncertainties
