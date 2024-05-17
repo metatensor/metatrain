@@ -18,10 +18,6 @@ from metatensor import Labels, TensorBlock, TensorMap
 from . import ARCHITECTURE_NAME, DEFAULT_MODEL_HYPERS
 
 
-# TODO needed when we apply composition features
-# from ...utils.composition import apply_composition_contribution
-
-
 class Model(torch.nn.Module):
     def __init__(
         self, capabilities: ModelCapabilities, hypers: Dict = DEFAULT_MODEL_HYPERS
@@ -96,10 +92,6 @@ class Model(torch.nn.Module):
             dummy_weights, dummy_X_pseudo
         )
         self._species_labels: TorchLabels = TorchLabels.empty("_")
-        self._train_y_mean: TorchTensorMap = TorchTensorMap(
-            TorchLabels(["_"], torch.tensor([[0]])),
-            [metatensor.torch.block_from_array(torch.empty(1, 1))],
-        )
 
     def forward(
         self,
@@ -118,7 +110,9 @@ class Model(torch.nn.Module):
         # (with samples "system", "atom" = 0, 0)
         # given the values are all zeros, it does not introduce an error
         dummyblock: TorchTensorBlock = TorchTensorBlock(
-            values=torch.zeros((1, len(soap_features[0].properties))),
+            values=torch.zeros(
+                (1, len(soap_features[0].properties)), dtype=systems[0].positions.dtype
+            ),
             samples=TorchLabels(["system", "atom"], torch.IntTensor([[0, 0]])),
             properties=soap_features[0].properties,
             components=[],
@@ -131,7 +125,8 @@ class Model(torch.nn.Module):
                             1,
                             soap_features[0].gradient(grad).values.shape[1 + idx],
                             len(soap_features[0].gradient(grad).properties),
-                        )
+                        ),
+                        dtype=systems[0].positions.dtype,
                     ),
                     samples=TorchLabels(
                         ["sample", "system", "atom"], torch.IntTensor([[0, 0, 0]])
@@ -157,12 +152,46 @@ class Model(torch.nn.Module):
         )
         soap_features = TorchTensorMap(self._keys, soap_features.blocks())
         output_key = list(outputs.keys())[0]
-        # TODO: do a proper composition model instead of taking off the mean
-        out_tensor = self._subset_of_regressors_torch(soap_features)
-        out_tensor = metatensor.torch.add(
-            out_tensor, float(self._train_y_mean[0].values)
-        )
+        energies = self._subset_of_regressors_torch(soap_features)
+        out_tensor = self.apply_composition_weights(systems, energies)
         return {output_key: out_tensor}
+
+    def set_composition_weights(
+        self,
+        output_name: str,
+        input_composition_weights: torch.Tensor,
+        species: List[int],
+    ) -> None:
+        """Set the composition weights for a given output."""
+        # all species that are not present retain their weight of zero
+        self.composition_weights[self.output_to_index[output_name]][  # type: ignore
+            species
+        ] = input_composition_weights.to(
+            dtype=self.composition_weights.dtype,  # type: ignore
+            device=self.composition_weights.device,  # type: ignore
+        )
+
+    def apply_composition_weights(
+        self, systems: List[System], energies: TorchTensorMap
+    ) -> TorchTensorMap:
+        """Apply the composition weights to the energies."""
+        new_blocks: List[TorchTensorBlock] = []
+        for block in energies.blocks():
+            atomic_species = [system.types for system in systems]
+            new_values = block.values
+            for i in range(len(new_values)):
+                for s in atomic_species[i]:
+                    new_values[i] += self.composition_weights[0, s]
+            new_blocks.append(
+                TorchTensorBlock(
+                    values=new_values,
+                    samples=block.samples,
+                    components=block.components,
+                    properties=block.properties,
+                )
+            )
+
+        return TorchTensorMap(energies.keys, new_blocks)
 
 
 ########################################################################################

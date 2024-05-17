@@ -11,6 +11,7 @@ from metatensor.torch.atomistic import ModelCapabilities, ModelOutput
 import metatensor
 from metatensor.models.utils.data import Dataset
 
+from ...utils.composition import calculate_composition_weights
 from ...utils.data import DatasetInfo, check_datasets, get_all_species
 from ...utils.extract_targets import get_outputs_dict
 from . import DEFAULT_HYPERS
@@ -101,26 +102,13 @@ def train(
     if len(outputs_dict.keys()) > 1:
         raise NotImplementedError("More than one output is not supported yet.")
     output_name = next(iter(outputs_dict.keys()))
-    # Calculate and set the composition weights for all targets:
-    # TODO skipping just to make progress faster
-    # logger.info("Calculating composition weights")
-    # for target_name in capabilities.outputs.keys():
-    #    # TODO: warn in the documentation that capabilities that are already
-    #    # present in the model won't recalculate the composition weights
-    #    # find the datasets that contain the target:
-    #    train_datasets_with_target = []
-    #    for dataset in train_datasets:
-    #        if target_name in get_all_targets(dataset):
-    #            train_datasets_with_target.append(dataset)
-    #    if len(train_datasets_with_target) == 0:
-    #        raise ValueError(
-    #            f"Target {target_name} in the model's new capabilities is not "
-    #            "present in any of the training datasets."
-    #        )
-    #    composition_weights = calculate_composition_weights(
-    #        train_datasets_with_target, target_name
-    #    )
-    #    model.set_composition_weights(target_name, composition_weights)
+
+    # Calculate and set the composition weights:
+    logger.info("Calculating composition weights")
+    composition_weights, species = calculate_composition_weights(
+        train_datasets, target_name
+    )
+    model.set_composition_weights(target_name, composition_weights, species)
 
     logger.info("Setting up data loaders")
 
@@ -135,10 +123,27 @@ def train(
         axis="samples",
         remove_tensor_name=True,
     )
-    train_structures = [sample["system"] for sample in train_dataset]
-    model._train_y_mean = metatensor.torch.mean_over_samples(train_y, ["system"])
-    train_y = metatensor.torch.subtract(train_y, float(model._train_y_mean[0].values))
     model._keys = train_y.keys
+    train_structures = [sample["system"] for sample in train_dataset]
+    composition_energies = torch.zeros(len(train_y.block().values), dtype=dtype)
+    for i, structure in enumerate(train_structures):
+        for j, s in enumerate(species):
+            composition_energies[i] += (
+                torch.sum(structure.types == s) * composition_weights[j]
+            )
+    train_y_values = train_y.block().values
+    train_y_values = train_y_values - composition_energies.reshape(-1, 1)
+    train_y = metatensor.torch.TensorMap(
+        train_y.keys,
+        [
+            metatensor.torch.TensorBlock(
+                values=train_y_values,
+                samples=train_y.block().samples,
+                components=train_y.block().components,
+                properties=train_y.block().properties,
+            )
+        ],
+    )
 
     if len(train_y[0].gradients_list()) > 0:
         train_tensor = model._soap_torch_calculator.compute(
@@ -164,7 +169,6 @@ def train(
     model._subset_of_regressors.fit(
         train_tensor, sparse_points, train_y, alpha=hypers["training"]["regularizer"]
     )
-
     # TODO: weight energies and forces differently (see regularizer section of model.py)
 
     # we export a torch scriptable regressor TorchSubsetofRegressors that is used in
