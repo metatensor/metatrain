@@ -5,11 +5,11 @@ from typing import Dict, List, Optional, Union
 import metatensor.torch
 import rascaline
 import torch
-from metatensor.learn.data import Dataset
 from metatensor.torch import TensorMap
 from metatensor.torch.atomistic import ModelCapabilities, ModelOutput
 
 import metatensor
+from metatensor.models.utils.data import Dataset
 
 from ...utils.data import DatasetInfo, check_datasets, get_all_species
 from ...utils.extract_targets import get_outputs_dict
@@ -42,7 +42,7 @@ def train(
     assert devices == [torch.device("cpu")]
     if continue_from is not None:
         raise ValueError("Training from a checkpoint is not supported in GAP.")
-    dtype = dtype = train_datasets[0][0]["system"].positions.dtype
+    dtype = train_datasets[0][0]["system"].positions.dtype
     if dtype != torch.float64:
         raise ValueError("GAP only supports float64")
     if len(dataset_info.targets) != 1:
@@ -124,51 +124,20 @@ def train(
 
     logger.info("Setting up data loaders")
 
-    # Information:
-    # train_datasets: List[Union[_BaseDataset, torch.utils.data.Subset]],
-    # train_datasets[datasets]._data["system"][structures]
-    # train_datasets[0:N_DATASETS]._data["system"][0:N_STRUCTURES] # AtomicSystems
-    # train_datasets[0:N_DATASETS]._data[output_name][0:N_STRUCTURES] # TensorMap
-    if isinstance(train_datasets[0], Dataset):
-        if len(train_datasets[0][0][output_name].keys) > 1:
-            raise NotImplementedError(
-                "Found more than 1 key in properties. Assuming "
-                "equivariant learning which is not supported yet."
-            )
-        train_y = metatensor.torch.join(
-            [
-                output
-                for dataset in train_datasets
-                for output in dataset._data[output_name]
-            ],
-            axis="samples",
-            remove_tensor_name=True,
-        )
-        train_structures = [
-            structure
-            for dataset in train_datasets
-            for structure in dataset._data["system"]
-        ]
-    elif isinstance(train_datasets[0], torch.utils.data.Subset):
-        if len(train_datasets[0][0][output_name].keys) > 1:
-            raise NotImplementedError(
-                "Found more than 1 key in targets. Assuming "
-                "equivariant learning which is not supported yet."
-            )
-        train_dataset = train_datasets[0]
-        train_y = metatensor.torch.join(
-            [sample[output_name] for sample in train_dataset],
-            axis="samples",
-            remove_tensor_name=True,
-        )
-        train_structures = [sample["system"] for sample in train_dataset]
-    else:
+    if len(train_datasets[0][0][output_name].keys) > 1:
         raise NotImplementedError(
-            "train_datasets should be a list of _BaseDataset or torch.utils.data.Subset"
+            "Found more than 1 key in targets. Assuming "
+            "equivariant learning which is not supported yet."
         )
+    train_dataset = train_datasets[0]
+    train_y = metatensor.torch.join(
+        [sample[output_name] for sample in train_dataset],
+        axis="samples",
+        remove_tensor_name=True,
+    )
+    train_structures = [sample["system"] for sample in train_dataset]
     model._train_y_mean = metatensor.torch.mean_over_samples(train_y, ["system"])
     train_y = metatensor.torch.subtract(train_y, float(model._train_y_mean[0].values))
-    # this contains "tensor" due to the use of metatensor.join, we could remove it
     model._keys = train_y.keys
 
     if len(train_y[0].gradients_list()) > 0:

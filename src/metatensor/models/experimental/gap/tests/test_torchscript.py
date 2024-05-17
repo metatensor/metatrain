@@ -1,10 +1,9 @@
 import torch
-from metatensor.learn.data import Dataset
 from metatensor.torch.atomistic import ModelCapabilities, ModelOutput
 from omegaconf import OmegaConf
 
 from metatensor.models.experimental.gap import DEFAULT_HYPERS, Model, train
-from metatensor.models.utils.data import DatasetInfo, TargetInfo
+from metatensor.models.utils.data import Dataset, DatasetInfo, TargetInfo
 from metatensor.models.utils.data.readers import read_systems, read_targets
 
 from . import DATASET_PATH
@@ -36,16 +35,15 @@ def test_torchscript():
             "virial": False,
         }
     }
-    targets = read_targets(OmegaConf.create(conf))
-    systems = read_systems(DATASET_PATH)
+    targets = read_targets(OmegaConf.create(conf), dtype=torch.float64)
+    systems = read_systems(DATASET_PATH, dtype=torch.float64)
 
     for system in systems:
         system.types = torch.ones(len(system.types), dtype=torch.int32)
-    dataset = Dataset(system=systems, U0=targets["mtm::U0"])
+    dataset = Dataset({"system": systems, "U0": targets["mtm::U0"]})
 
     hypers = DEFAULT_HYPERS.copy()
-    hypers["training"]["num_epochs"] = 2
-    gap = train([dataset], [dataset], dataset_info, hypers)
+    gap = train([dataset], [dataset], dataset_info, [torch.device("cpu")], hypers)
     scripted_gap = torch.jit.script(gap)
 
     ref_output = gap(systems[:5], {"mtm::U0": gap.capabilities.outputs["mtm::U0"]})
