@@ -15,25 +15,15 @@ from metatensor.torch import Labels as TorchLabels
 from metatensor.torch import TensorBlock as TorchTensorBlock
 from metatensor.torch import TensorMap as TorchTensorMap
 from metatensor.torch.atomistic import ModelCapabilities, ModelOutput, System
-from omegaconf import OmegaConf
 from skmatter._selection import _FPS
 
 from metatensor import Labels, TensorBlock, TensorMap
 
-from ... import ARCHITECTURE_CONFIG_PATH
+from . import ARCHITECTURE_NAME, DEFAULT_MODEL_HYPERS
 
 
 # TODO needed when we apply composition features
 # from ...utils.composition import apply_composition_contribution
-
-
-DEFAULT_HYPERS = OmegaConf.to_container(
-    OmegaConf.load(ARCHITECTURE_CONFIG_PATH / "experimental.gap.yaml")
-)
-
-DEFAULT_MODEL_HYPERS = DEFAULT_HYPERS["model"]
-
-ARCHITECTURE_NAME = "gap"
 
 
 class Model(torch.nn.Module):

@@ -1,5 +1,5 @@
 architecture:
-  name: experimental.soap_bpnn
+  name: experimental.gap
   training:
     batch_size: 2
     num_epochs: 1

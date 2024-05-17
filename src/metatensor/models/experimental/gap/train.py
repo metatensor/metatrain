@@ -19,7 +19,8 @@ from ...utils.extract_targets import get_outputs_dict
 
 # TODO might be important when we support mulitple capabilities
 # from ..utils.merge_capabilities import merge_capabilities
-from .model import DEFAULT_HYPERS, Model, torch_tensor_map_to_core
+from . import DEFAULT_HYPERS
+from .model import Model, torch_tensor_map_to_core
 
 
 # from metatensor.torch.atomistic import ModelCapabilities
@@ -44,18 +45,18 @@ def train(
     train_datasets: List[Union[Dataset, torch.utils.data.Subset]],
     validation_datasets: List[Union[Dataset, torch.utils.data.Subset]],
     dataset_info: DatasetInfo,
+    devices: List[torch.device],
     hypers: Dict = DEFAULT_HYPERS,
-    output_dir: str = ".",
-    device_str: str = "cpu",
     continue_from: Optional[str] = None,
+    checkpoint_dir: str = ".",
 ):
     # checks
+    assert devices == [torch.device("cpu")]
     if continue_from is not None:
         raise ValueError("Training from a checkpoint is not supported in GAP.")
-    if torch.get_default_dtype() != torch.float64:
+    dtype = dtype = train_datasets[0][0]["system"].positions.dtype
+    if dtype != torch.float64:
         raise ValueError("GAP only supports float64")
-    if device_str != "cpu":
-        raise ValueError("GAP only supports cpu training")
     if len(dataset_info.targets) != 1:
         raise ValueError("GAP only supports a single target")
     target_name = next(iter(dataset_info.targets.keys()))
@@ -94,11 +95,7 @@ def train(
 
     # Perform checks on the datasets:
     logger.info("Checking datasets for consistency")
-    check_datasets(
-        train_datasets,
-        validation_datasets,
-        model_capabilities,
-    )
+    check_datasets(train_datasets, validation_datasets)
 
     # Create the model:
     model = Model(
@@ -107,17 +104,6 @@ def train(
     )
 
     logger.info("Training on device cpu")
-    if device_str == "gpu":
-        raise NotImplementedError("GPU support is not yet supported")
-        device_str = "cuda"
-    device = torch.device(device_str)
-    if device.type == "cuda":
-        if not torch.cuda.is_available():
-            raise ValueError("CUDA is not available on this machine.")
-        logger.info(
-            "A cuda device was requested. The neural network will be run on GPU, "
-            "but the SOAP features are calculated on CPU."
-        )
 
     outputs_dict = get_outputs_dict(train_datasets)
     if len(outputs_dict.keys()) > 1:
@@ -152,7 +138,7 @@ def train(
     # train_datasets[0:N_DATASETS]._data["system"][0:N_STRUCTURES] # AtomicSystems
     # train_datasets[0:N_DATASETS]._data[output_name][0:N_STRUCTURES] # TensorMap
     if isinstance(train_datasets[0], Dataset):
-        if len(train_datasets[0]._data[output_name][0].keys) > 1:
+        if len(train_datasets[0][0][output_name].keys) > 1:
             raise NotImplementedError(
                 "Found more than 1 key in properties. Assuming "
                 "equivariant learning which is not supported yet."
@@ -172,18 +158,18 @@ def train(
             for structure in dataset._data["system"]
         ]
     elif isinstance(train_datasets[0], torch.utils.data.Subset):
-        if len(train_datasets[0][0][1].keys) > 1:
+        if len(train_datasets[0][0][output_name].keys) > 1:
             raise NotImplementedError(
-                "Found more than 1 key in properties. Assuming "
+                "Found more than 1 key in targets. Assuming "
                 "equivariant learning which is not supported yet."
             )
-        train_datasets = train_datasets[0]  # hope is correct
+        train_dataset = train_datasets[0]
         train_y = metatensor.torch.join(
-            [output for dataset in train_datasets for output in dataset[1:]],
+            [sample[output_name] for sample in train_dataset],
             axis="samples",
             remove_tensor_name=True,
         )
-        train_structures = [dataset[0] for dataset in train_datasets]
+        train_structures = [sample["system"] for sample in train_dataset]
     else:
         raise NotImplementedError(
             "train_datasets should be a list of _BaseDataset or torch.utils.data.Subset"
