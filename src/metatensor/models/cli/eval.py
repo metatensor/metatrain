@@ -1,4 +1,5 @@
 import argparse
+import itertools
 import logging
 from pathlib import Path
 from typing import Dict, List, Optional, Union
@@ -140,7 +141,7 @@ def _eval_targets(
         get_system_with_neighbor_lists(system, model.requested_neighbor_lists())
 
     # Infer the device from the model
-    device = next(model.parameters()).device
+    device = next(itertools.chain(model.parameters(), model.buffers())).device
 
     # Create a dataloader
     dataloader = torch.utils.data.DataLoader(

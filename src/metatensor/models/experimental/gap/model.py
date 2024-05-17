@@ -1,7 +1,3 @@
-# postpones evaluation of annotations
-# see https://stackoverflow.com/a/33533514
-from __future__ import annotations
-
 from typing import Dict, List, Optional, Tuple, Type, Union
 
 import metatensor.torch
@@ -34,8 +30,7 @@ class Model(torch.nn.Module):
         self.name = ARCHITECTURE_NAME
 
         if len(capabilities.outputs) > 1:
-            # PR COMMENT
-            raise NotImplementedError("I don't understand how it is used in SOAP-BPNN")
+            raise NotImplementedError("GAP only supports a single output")
 
         # Check capabilities
         for output in capabilities.outputs.values():
@@ -76,7 +71,6 @@ class Model(torch.nn.Module):
         )
         self._soap_calculator = rascaline.SoapPowerSpectrum(**hypers["soap"])
 
-        # TODO is always sum energy kernel, keep in mind for property
         kernel_kwargs = {
             "degree": hypers["krr"]["degree"],
             "aggregate_names": ["atom", "center_type"],
@@ -115,16 +109,14 @@ class Model(torch.nn.Module):
     ) -> Dict[str, TorchTensorMap]:
 
         soap_features = self._soap_torch_calculator(
-            systems, selected_samples=selected_atoms, gradients=["positions"]
+            systems, selected_samples=selected_atoms
         )
 
         new_blocks: List[TorchTensorBlock] = []
-        # hack to add zeros
-        # it add the missing key to
-        # "system", "atom" = 0, 0
-        # given the values are all zeros it does not
-        # introduce an error
-        # breakpoint()
+        # HACK: to add a block of zeros if there are missing species
+        # which were present at training time
+        # (with samples "system", "atom" = 0, 0)
+        # given the values are all zeros, it does not introduce an error
         dummyblock: TorchTensorBlock = TorchTensorBlock(
             values=torch.zeros((1, len(soap_features[0].properties))),
             samples=TorchLabels(["system", "atom"], torch.IntTensor([[0, 0]])),
@@ -156,20 +148,16 @@ class Model(torch.nn.Module):
             else:
                 new_blocks.append(dummyblock)
         soap_features = TorchTensorMap(keys=self._species_labels, blocks=new_blocks)
-        # soap_features = metatensor.torch.add(
-        #    soap_features, float(self._train_y_mean[0].values)
-        # )
-        # TODO implement accumulate_key_names so we do not loose sparsity
         soap_features = soap_features.keys_to_samples("center_type")
+        # here, we move to properties to use metatensor operations to aggregate
+        # later on. Perhaps we could retain the sparsity all the way to the kernels
+        # of the soap features with a lot more implementation effort
         soap_features = soap_features.keys_to_properties(
             ["neighbor_1_type", "neighbor_2_type"]
         )
         soap_features = TorchTensorMap(self._keys, soap_features.blocks())
-        # TODO we assume only one output for the moment, ask Filippo what he has done in
-        #      SOAP-BPNN
         output_key = list(outputs.keys())[0]
-        # TODO does not work if different species are present in systems
-        #      should work if we implement kernels properly
+        # TODO: do a proper composition model instead of taking off the mean
         out_tensor = self._subset_of_regressors_torch(soap_features)
         out_tensor = metatensor.torch.add(
             out_tensor, float(self._train_y_mean[0].values)
@@ -429,21 +417,17 @@ class AggregateKernel(torch.nn.Module):
             if not are_pseudo_points[0]:
                 kernel = metatensor.sum_over_samples(kernel, self._aggregate_names)
             if not are_pseudo_points[1]:
-                # TODO {sum,mean}_over_properties does not exist
                 raise NotImplementedError(
                     "properties dimenson cannot be aggregated for the moment"
                 )
-                kernel = metatensor.sum_over_properties(kernel, self._aggregate_names)
             return kernel
         elif self._aggregate_type == "mean":
             if not are_pseudo_points[0]:
                 kernel = metatensor.mean_over_samples(kernel, self._aggregate_names)
             if not are_pseudo_points[1]:
-                # TODO {sum,mean}_over_properties does not exist
                 raise NotImplementedError(
                     "properties dimenson cannot be aggregated for the moment"
                 )
-                kernel = metatensor.mean_over_properties(kernel, self._aggregate_names)
             return kernel
         else:
             raise NotImplementedError(
@@ -563,12 +547,8 @@ class TorchAggregateKernel(torch.nn.Module):
                     kernel, self._aggregate_names
                 )
             if not are_pseudo_points[1]:
-                # TODO {sum,mean}_over_properties does not exist
                 raise NotImplementedError(
                     "properties dimenson cannot be aggregated for the moment"
-                )
-                kernel = metatensor.torch.sum_over_properties(
-                    kernel, self._aggregate_names
                 )
             return kernel
         elif self._aggregate_type == "mean":
@@ -577,12 +557,8 @@ class TorchAggregateKernel(torch.nn.Module):
                     kernel, self._aggregate_names
                 )
             if not are_pseudo_points[1]:
-                # TODO {sum,mean}_over_properties does not exist
                 raise NotImplementedError(
                     "properties dimenson cannot be aggregated for the moment"
-                )
-                kernel = metatensor.torch.mean_over_properties(
-                    kernel, self._aggregate_names
                 )
             return kernel
         else:
@@ -644,8 +620,7 @@ class TorchAggregatePolynomial(TorchAggregateKernel):
         degree: int = 2,
     ):
         super().__init__(aggregate_names, aggregate_type, structurewise_aggregate)
-        # TODO, why is this hardcoded?? - Filippo
-        self._degree = 2
+        self._degree = degree
 
     def compute_kernel(self, tensor1: TorchTensorMap, tensor2: TorchTensorMap):
         return metatensor.torch.pow(
@@ -697,7 +672,7 @@ class GreedySelector:
 
         return self._support
 
-    def fit(self, X: TensorMap, warm_start: bool = False) -> GreedySelector:
+    def fit(self, X: TensorMap, warm_start: bool = False):  # -> GreedySelector:
         """Learn the features to select.
 
         :param X:
@@ -953,7 +928,6 @@ class SubsetOfRegressors:
         X_pseudo: TensorMap,
         y: TensorMap,
         alpha: Union[float, TensorMap] = 1.0,
-        accumulate_key_names: Optional[List[str]] = None,  # TODO implementation
         solver: str = "RKHS-QR",
         rcond: Optional[float] = None,
     ):
@@ -1011,12 +985,10 @@ class SubsetOfRegressors:
         """
         if isinstance(alpha, float):
             alpha_tensor = metatensor.ones_like(y)
-
-            # TODO: I (Filippo) changed the labels in the following call to
-            # make it work. Please check this is correct!!
-            alpha_tensor = metatensor.slice(
-                alpha_tensor, axis="samples", labels=y.block().samples
-            )
+            # here we should change the keys in case we shuffle the samples
+            # alpha_tensor = metatensor.slice(
+            #     alpha_tensor, axis="samples", labels=y.block().samples
+            # )
             self._alpha = metatensor.multiply(alpha_tensor, alpha)
         elif isinstance(alpha, TensorMap):
             raise NotImplementedError("TensorMaps are not yet supported")
@@ -1036,10 +1008,9 @@ class SubsetOfRegressors:
             k_nm = self._kernel(X, X_pseudo, are_pseudo_points=(False, True))
 
         # solve
+        # TODO: allow for different regularizer for energies and forces
         weight_blocks = []
         for key, y_block in y.items():
-            k_nm_block = k_nm.block(key)
-            # TODO(Davide) include gradients into the k_nm_block
             k_nm_block = k_nm.block(key)
             k_mm_block = k_mm.block(key)
             X_block = X.block(key)
@@ -1051,7 +1022,6 @@ class SubsetOfRegressors:
                 n_atoms = np.sum(X_block.samples["system"] == structure)
                 n_atoms_per_structure.append(float(n_atoms))
 
-            # PR COMMENT removed delta because would say this is part of the standardizr
             n_atoms_per_structure = np.array(n_atoms_per_structure)
             normalization = metatensor.operations._dispatch.sqrt(n_atoms_per_structure)
             alpha_values = self._alpha.block(key).values

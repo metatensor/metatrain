@@ -32,7 +32,7 @@ def test_regression_init():
         length_unit="Angstrom",
         atomic_types=[1, 6, 7, 8],
         outputs={
-            "U0": ModelOutput(
+            "mtm::U0": ModelOutput(
                 quantity="energy",
                 unit="eV",
             )
@@ -48,13 +48,9 @@ def test_regression_train_and_invariance():
     """
 
     systems = read_systems(DATASET_PATH, dtype=torch.get_default_dtype())
-    # PR COMMENT this is a temporary hack until kernel is properly implemented that can
-    #            deal with tensor maps with different species pairs
-    # for system in systems:
-    #    system.species = torch.ones(len(system.species), dtype=torch.int32)
 
     conf = {
-        "U0": {
+        "mtm::U0": {
             "quantity": "energy",
             "read_from": DATASET_PATH,
             "file_format": ".xyz",
@@ -65,7 +61,7 @@ def test_regression_train_and_invariance():
         }
     }
     targets = read_targets(OmegaConf.create(conf))
-    dataset = Dataset(system=systems, U0=targets["U0"])
+    dataset = Dataset(system=systems, U0=targets["mtm::U0"])
 
     hypers = DEFAULT_HYPERS.copy()
     hypers["training"]["num_epochs"] = 2
@@ -73,7 +69,7 @@ def test_regression_train_and_invariance():
     dataset_info = DatasetInfo(
         length_unit="Angstrom",
         targets={
-            "U0": TargetInfo(
+            "mtm::U0": TargetInfo(
                 quantity="energy",
                 unit="eV",
             ),
@@ -82,18 +78,16 @@ def test_regression_train_and_invariance():
     gap = train([dataset], [dataset], dataset_info, hypers)
 
     # Predict on the first five systems
-    output = gap(systems[:5], {"U0": gap.capabilities.outputs["U0"]})
+    output = gap(systems[:5], {"mtm::U0": gap.capabilities.outputs["mtm::U0"]})
 
     expected_output = torch.tensor(
         [[-40.5891], [-56.7122], [-76.4146], [-77.3364], [-93.4905]]
     )
 
-    assert torch.allclose(output["U0"].block().values, expected_output, rtol=0.3)
+    assert torch.allclose(output["mtm::U0"].block().values, expected_output, rtol=0.3)
 
     # Tests that the model is rotationally invariant
     system = ase.io.read(DATASET_PATH)
-    # PR COMMENT this is a temporary hack until kernel is properly implemented that can
-    #            deal with tensor maps with different species pairs
     system.numbers = np.ones(len(system.numbers))
 
     original_system = copy.deepcopy(system)
@@ -101,16 +95,16 @@ def test_regression_train_and_invariance():
 
     original_output = gap(
         [rascaline.torch.systems_to_torch(original_system)],
-        {"U0": gap.capabilities.outputs["U0"]},
+        {"mtm::U0": gap.capabilities.outputs["mtm::U0"]},
     )
     rotated_output = gap(
         [rascaline.torch.systems_to_torch(system)],
-        {"U0": gap.capabilities.outputs["U0"]},
+        {"mtm::U0": gap.capabilities.outputs["mtm::U0"]},
     )
 
     assert torch.allclose(
-        original_output["U0"].block().values,
-        rotated_output["U0"].block().values,
+        original_output["mtm::U0"].block().values,
+        rotated_output["mtm::U0"].block().values,
     )
 
 
@@ -121,10 +115,6 @@ def test_ethanol_regression_train_and_invariance():
     """
 
     systems = read_systems(DATASET_ETHANOL_PATH)
-    # PR COMMENT this is a temporary hack until kernel is properly implemented that can
-    #            deal with tensor maps with different species pairs
-    # for system in systems:
-    #    system.species = torch.ones(len(system.species), dtype=torch.int32)
 
     conf = {
         "energy": {
@@ -177,12 +167,8 @@ def test_ethanol_regression_train_and_invariance():
         torch.Tensor(expected_forces.reshape(-1)),
         rtol=20,
     )
-    # breakpoint()
     # Tests that the model is rotationally invariant
     system = ase.io.read(DATASET_ETHANOL_PATH)
-    # PR COMMENT this is a temporary hack until kernel is properly implemented that can
-    #            deal with tensor maps with different species pairs
-    # system.numbers = np.ones(len(system.numbers))
 
     original_system = copy.deepcopy(system)
     system.rotate(48, "y")

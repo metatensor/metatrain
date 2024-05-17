@@ -3,7 +3,6 @@ import warnings
 from typing import Dict, List, Optional, Union
 
 import metatensor.torch
-import numpy as np
 import rascaline
 import torch
 from metatensor.learn.data import Dataset
@@ -12,21 +11,10 @@ from metatensor.torch.atomistic import ModelCapabilities, ModelOutput
 
 import metatensor
 
-# TODO will be needed once we support more outputs
-# from ...utils.data import get_all_targets
 from ...utils.data import DatasetInfo, check_datasets, get_all_species
 from ...utils.extract_targets import get_outputs_dict
-
-# TODO might be important when we support mulitple capabilities
-# from ..utils.merge_capabilities import merge_capabilities
 from . import DEFAULT_HYPERS
 from .model import Model, torch_tensor_map_to_core
-
-
-# from metatensor.torch.atomistic import ModelCapabilities
-
-# TODO use this for composition
-# from ..utils.composition import calculate_composition_weights
 
 
 logger = logging.getLogger(__name__)
@@ -83,7 +71,11 @@ def train(
         outputs=outputs,
         atomic_types=all_species,
         supported_devices=["cpu", "cuda"],
+        interaction_range=hypers["model"]["soap"]["cutoff"],
+        dtype="float64",
     )
+
+    # TODO: EXPLAIN THAT IT CAN ONLY TRAIN ON CPU BUT ALSO RUN ON GPU
 
     # Create the model:
     model = Model(
@@ -175,11 +167,9 @@ def train(
             "train_datasets should be a list of _BaseDataset or torch.utils.data.Subset"
         )
     model._train_y_mean = metatensor.torch.mean_over_samples(train_y, ["system"])
-    # breakpoint()
     train_y = metatensor.torch.subtract(train_y, float(model._train_y_mean[0].values))
+    # this contains "tensor" due to the use of metatensor.join, we could remove it
     model._keys = train_y.keys
-    # breakpoint()
-    # TODO why is there a tensor due to join?
 
     if len(train_y[0].gradients_list()) > 0:
         train_tensor = model._soap_torch_calculator.compute(
@@ -189,7 +179,9 @@ def train(
         train_tensor = model._soap_torch_calculator.compute(train_structures)
     model._species_labels = train_tensor.keys
     train_tensor = train_tensor.keys_to_samples("center_type")
-    # TODO implement accumulate_key_names so we do not loose sparsity
+    # here, we move to properties to use metatensor operations to aggregate
+    # later on. Perhaps we could retain the sparsity all the way to the kernels
+    # of the soap features with a lot more implementation effort
     train_tensor = train_tensor.keys_to_properties(
         ["neighbor_1_type", "neighbor_2_type"]
     )
@@ -203,60 +195,13 @@ def train(
     model._subset_of_regressors.fit(
         train_tensor, sparse_points, train_y, alpha=hypers["training"]["regularizer"]
     )
-    train_y_pred = model._subset_of_regressors.predict(train_tensor)
 
-    # logger.info(
-    #    "Train MAE:",
-    #    metatensor.mean_over_samples(
-    #        metatensor.abs(metatensor.subtract(train_y_pred, train_y)), "system"
-    #    )[0].values[0, 0],
-    # )
+    # TODO: weight energies and forces differently (see regularizer section of model.py)
 
-    # PR COMMENT tried to use compute loss function utils but seems not working
-    #            when I already aggregated the train_y before
-    # loss_weights_dict = {}
-    # for output_name, value_or_gradient_list in outputs_dict.items():
-    #    loss_weights_dict[output_name] = {
-    #        value_or_gradient: 1.0 for value_or_gradient in value_or_gradient_list
-    #    }
-    # loss_fn = TensorMapDictLoss(loss_weights_dict)
-    # loss, info = compute_model_loss(
-    #                loss_fn, model, train_structures,
-    #                {output_name: train_y}
-    #              )
-
-    train_rmse = np.sqrt(np.mean((train_y_pred[0].values - train_y[0].values) ** 2))
-    logger.info(f"Train RMSE: {train_rmse}")
-
-    # ... TODO val
-    # logger.info(
-    #    "Validation MAE:",
-    #    metatensor.mean_over_samples(
-    #        metatensor.abs(metatensor.subtract(val_y_pred, val_y)), "system"
-    #    )[0].values[0, 0],
-    # )
-
-    # TODO consider these later
-    # Extract all the possible outputs and their gradients from the training set:
-    # outputs_dict = get_outputs_dict(train_datasets)
-    # for output_name in outputs_dict.keys():
-    #    if output_name not in model_capabilities.outputs:
-    #        raise ValueError(
-    #            f"Output {output_name} is not in the model's capabilities."
-    #        )
-    # Create a loss weight dict:
-    # loss_weights_dict = {}
-    # for output_name, value_or_gradient_list in outputs_dict.items():
-    #    loss_weights_dict[output_name] = {
-    #        value_or_gradient: 1.0 for value_or_gradient in value_or_gradient_list
-    #    }
-
-    # we export a torch scrip'table regressor TorchSubsetofRegressors that is used in
+    # we export a torch scriptable regressor TorchSubsetofRegressors that is used in
     # the forward path
     model._subset_of_regressors_torch = (
         model._subset_of_regressors.export_torch_script_model()
     )
 
-    # TODO
-    # model.to(device)
     return model

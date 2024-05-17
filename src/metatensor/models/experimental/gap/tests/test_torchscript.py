@@ -19,14 +19,14 @@ def test_torchscript():
     dataset_info = DatasetInfo(
         length_unit="Angstrom",
         targets={
-            "U0": TargetInfo(
+            "mtm::U0": TargetInfo(
                 quantity="energy",
                 unit="eV",
             ),
         },
     )
     conf = {
-        "U0": {
+        "mtm::U0": {
             "quantity": "energy",
             "read_from": DATASET_PATH,
             "file_format": ".xyz",
@@ -38,23 +38,27 @@ def test_torchscript():
     }
     targets = read_targets(OmegaConf.create(conf))
     systems = read_systems(DATASET_PATH)
-    # PR COMMENT this is a temporary hack until kernel is properly implemented that can
-    #            deal with tensor maps with different species pairs
+
     for system in systems:
         system.types = torch.ones(len(system.types), dtype=torch.int32)
-    dataset = Dataset(system=systems, U0=targets["U0"])
+    dataset = Dataset(system=systems, U0=targets["mtm::U0"])
 
     hypers = DEFAULT_HYPERS.copy()
     hypers["training"]["num_epochs"] = 2
     gap = train([dataset], [dataset], dataset_info, hypers)
-    scripted_gap = torch.jit.script(gap, {"U0": gap.capabilities.outputs["U0"]})
+    scripted_gap = torch.jit.script(gap)
 
-    ref_output = gap(systems[:5], {"U0": gap.capabilities.outputs["U0"]})
-    scripted_output = scripted_gap(systems[:5], {"U0": gap.capabilities.outputs["U0"]})
+    ref_output = gap(systems[:5], {"mtm::U0": gap.capabilities.outputs["mtm::U0"]})
+    scripted_output = scripted_gap(
+        systems[:5], {"mtm::U0": gap.capabilities.outputs["mtm::U0"]}
+    )
+
+    print(ref_output["mtm::U0"].block().values)
+    print(scripted_output["mtm::U0"].block().values)
 
     assert torch.allclose(
-        ref_output["U0"].block().values,
-        scripted_output["U0"].block().values,
+        ref_output["mtm::U0"].block().values,
+        scripted_output["mtm::U0"].block().values,
     )
 
 
