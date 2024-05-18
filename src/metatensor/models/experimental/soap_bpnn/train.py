@@ -24,7 +24,7 @@ from ...utils.logging import MetricLogger
 from ...utils.loss import TensorMapDictLoss
 from ...utils.merge_capabilities import merge_capabilities
 from ...utils.metrics import RMSEAccumulator
-from ...utils.per_atom import divide_by_num_atoms
+from ...utils.per_atom import average_predictions_and_targets_by_num_atoms
 from . import DEFAULT_HYPERS
 from .model import Model
 
@@ -262,7 +262,7 @@ def train(
             )
 
             # average by the number of atoms
-            predictions, targets = _average_by_num_atoms(
+            predictions, targets = average_predictions_and_targets_by_num_atoms(
                 predictions, targets, systems, per_structure_targets
             )
 
@@ -288,7 +288,7 @@ def train(
             )
 
             # average by the number of atoms
-            predictions, targets = _average_by_num_atoms(
+            predictions, targets = average_predictions_and_targets_by_num_atoms(
                 predictions, targets, systems, per_structure_targets
             )
 
@@ -341,15 +341,3 @@ def train(
                 break
 
     return model
-
-
-def _average_by_num_atoms(predictions, targets, systems, per_structure_targets):
-    device = systems[0].device
-    num_atoms = torch.tensor([len(s) for s in systems], device=device)
-    for target in targets.keys():
-        if target in per_structure_targets:
-            continue
-        predictions[target] = divide_by_num_atoms(predictions[target], num_atoms)
-        targets[target] = divide_by_num_atoms(targets[target], num_atoms)
-
-    return predictions, targets

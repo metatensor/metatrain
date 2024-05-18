@@ -1,5 +1,43 @@
+from typing import Dict, List
+
 import torch
 from metatensor.torch import TensorBlock, TensorMap
+from metatensor.torch.atomistic import System
+
+
+def average_predictions_and_targets_by_num_atoms(
+    predictions: Dict[str, TensorMap],
+    targets: Dict[str, TensorMap],
+    systems: List[System],
+    per_structure_targets: List[str],
+):
+    """Averages predictions and targets by the number of atoms in each system.
+
+    This function averages predictions and targets by the number of atoms
+    in each system. Targets that are present in ``per_structure_targets`` will
+    not be averaged.
+
+    :param predictions: A dictionary of predictions.
+    :param targets: A dictionary of targets.
+    :param systems: The systems used to compute the predictions.
+    :param per_structure_targets: A list of targets that should not be averaged.
+
+    :return: A tuple containing the averaged predictions and targets.
+    """
+    averaged_predictions = {}
+    averaged_targets = {}
+    device = systems[0].device
+    num_atoms = torch.tensor([len(s) for s in systems], device=device)
+    for target in targets.keys():
+        if target in per_structure_targets:
+            averaged_predictions[target] = predictions[target]
+            averaged_targets[target] = targets[target]
+        averaged_predictions[target] = divide_by_num_atoms(
+            predictions[target], num_atoms
+        )
+        averaged_targets[target] = divide_by_num_atoms(targets[target], num_atoms)
+
+    return averaged_predictions, averaged_targets
 
 
 def divide_by_num_atoms(tensor_map: TensorMap, num_atoms: torch.Tensor) -> TensorMap:
@@ -12,6 +50,11 @@ def divide_by_num_atoms(tensor_map: TensorMap, num_atoms: torch.Tensor) -> Tenso
     the majority of the cases, including energies, forces, and virials, where
     the energies and virials should be divided by the number of atoms, while
     the forces should not.
+
+    :param tensor_map: The input tensor map.
+    :param num_atoms: The number of atoms in each system.
+
+    :return: A new tensor map with the values divided by the number of atoms.
     """
 
     blocks = []
