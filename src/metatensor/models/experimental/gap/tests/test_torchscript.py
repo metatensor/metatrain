@@ -40,7 +40,7 @@ def test_torchscript():
 
     for system in systems:
         system.types = torch.ones(len(system.types), dtype=torch.int32)
-    dataset = Dataset({"system": systems, "U0": targets["mtm::U0"]})
+    dataset = Dataset({"system": systems, "mtm::U0": targets["mtm::U0"]})
 
     hypers = DEFAULT_HYPERS.copy()
     gap = train([dataset], [dataset], dataset_info, [torch.device("cpu")], hypers)

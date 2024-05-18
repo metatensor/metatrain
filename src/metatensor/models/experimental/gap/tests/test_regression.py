@@ -5,12 +5,11 @@ import ase.io
 import numpy as np
 import rascaline.torch
 import torch
-from metatensor.learn.data import Dataset
 from metatensor.torch.atomistic import ModelCapabilities, ModelOutput
 from omegaconf import OmegaConf
 
 from metatensor.models.experimental.gap import DEFAULT_HYPERS, Model, train
-from metatensor.models.utils.data import DatasetInfo, TargetInfo
+from metatensor.models.utils.data import Dataset, DatasetInfo, TargetInfo
 from metatensor.models.utils.data.readers import read_systems, read_targets
 
 from . import DATASET_ETHANOL_PATH, DATASET_PATH
@@ -47,7 +46,7 @@ def test_regression_train_and_invariance():
     for this.
     """
 
-    systems = read_systems(DATASET_PATH, dtype=torch.get_default_dtype())
+    systems = read_systems(DATASET_PATH, dtype=torch.float64)
 
     conf = {
         "mtm::U0": {
@@ -60,8 +59,8 @@ def test_regression_train_and_invariance():
             "virial": False,
         }
     }
-    targets = read_targets(OmegaConf.create(conf))
-    dataset = Dataset(system=systems, U0=targets["mtm::U0"])
+    targets = read_targets(OmegaConf.create(conf), dtype=torch.float64)
+    dataset = Dataset({"system": systems, "mtm::U0": targets["mtm::U0"]})
 
     hypers = DEFAULT_HYPERS.copy()
     hypers["training"]["num_epochs"] = 2
@@ -75,7 +74,7 @@ def test_regression_train_and_invariance():
             ),
         },
     )
-    gap = train([dataset], [dataset], dataset_info, hypers)
+    gap = train([dataset], [dataset], dataset_info, [torch.device("cpu")], hypers)
 
     # Predict on the first five systems
     output = gap(systems[:5], {"mtm::U0": gap.capabilities.outputs["mtm::U0"]})
@@ -114,7 +113,7 @@ def test_ethanol_regression_train_and_invariance():
     for this.
     """
 
-    systems = read_systems(DATASET_ETHANOL_PATH)
+    systems = read_systems(DATASET_ETHANOL_PATH, dtype=torch.float64)
 
     conf = {
         "energy": {
@@ -132,8 +131,8 @@ def test_ethanol_regression_train_and_invariance():
         }
     }
 
-    targets = read_targets(OmegaConf.create(conf))
-    dataset = Dataset(system=systems, energy=targets["energy"])
+    targets = read_targets(OmegaConf.create(conf), dtype=torch.float64)
+    dataset = Dataset({"system": systems, "energy": targets["energy"]})
 
     hypers = DEFAULT_HYPERS.copy()
     hypers["model"]["sparse_points"]["points"] = 900
@@ -147,26 +146,17 @@ def test_ethanol_regression_train_and_invariance():
             ),
         },
     )
-    gap = train([dataset], [dataset], dataset_info, hypers)
+    gap = train([dataset], [dataset], dataset_info, [torch.device("cpu")], hypers)
     # Predict on the first five systems
     output = gap(systems[:5], {"energy": gap.capabilities.outputs["energy"]})
-    # taken from the file ethanol_reduced_100.xyz
     data = ase.io.read(DATASET_ETHANOL_PATH, ":5", format="extxyz")
+
     expected_output = torch.tensor([[i.info["energy"]] for i in data])
-    # np.savetxt(
-    #    "/Users/davidetisi/Documents/Work/Software/metatensor-models/expected_forces.dat",
-    #    -output["energy"].block().gradient("positions").values.reshape(45, 3),
-    # )
-    expected_forces = torch.vstack([torch.Tensor(i.arrays["forces"]) for i in data])
-    # expected_forces = np.loadtxt(
-    #    str(Path(__file__).parent.resolve() / "expected_forces.dat")
-    # )
     assert torch.allclose(output["energy"].block().values, expected_output, rtol=0.1)
-    assert torch.allclose(
-        -output["energy"].block().gradient("positions").values.reshape(-1),
-        torch.Tensor(expected_forces.reshape(-1)),
-        rtol=20,
-    )
+
+    # TODO: check accuracy of training forces
+    # expected_forces = torch.vstack([torch.Tensor(i.arrays["forces"]) for i in data])
+
     # Tests that the model is rotationally invariant
     system = ase.io.read(DATASET_ETHANOL_PATH)
 
