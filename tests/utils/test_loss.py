@@ -124,9 +124,9 @@ def test_tmap_loss_no_gradients():
     loss_value = loss(tensor_map_1, tensor_map_1)
     torch.testing.assert_close(loss_value, torch.tensor(0.0))
 
-    # Expected result: 1.0/3.0 (there are three values)
+    # Expected result: 1.0
     loss_value = loss(tensor_map_1, tensor_map_2)
-    torch.testing.assert_close(loss_value, torch.tensor(1.0 / 3.0))
+    torch.testing.assert_close(loss_value, torch.tensor(1.0))
 
 
 def test_tmap_loss_with_gradients(tensor_map_with_grad_1, tensor_map_with_grad_2):
@@ -136,11 +136,11 @@ def test_tmap_loss_with_gradients(tensor_map_with_grad_1, tensor_map_with_grad_2
     loss_value = loss(tensor_map_with_grad_1, tensor_map_with_grad_1)
     torch.testing.assert_close(loss_value, torch.tensor(0.0))
 
-    # Expected result: 1.0/3.0 + 0.5 * 4.0 / 3.0 (there are three values)
+    # Expected result: 1.0 + 0.5 * 4.0
     loss_value = loss(tensor_map_with_grad_1, tensor_map_with_grad_2)
     torch.testing.assert_close(
         loss_value,
-        torch.tensor(1.0 / 3.0 + 0.5 * 4.0 / 3.0),
+        torch.tensor(1.0 + 0.5 * 4.0),
     )
 
 
@@ -154,8 +154,10 @@ def test_tmap_dict_loss(
 
     loss = TensorMapDictLoss(
         weights={
-            "output_1": {"values": 1.0, "gradient": 0.5},
-            "output_2": {"values": 1.0, "gradient": 0.5},
+            "output_1": 0.6,
+            "output_2": 1.0,
+            "output_1_gradient_gradients": 0.5,
+            "output_2_gradient_gradients": 0.5,
         }
     )
 
@@ -170,34 +172,34 @@ def test_tmap_dict_loss(
     }
 
     expected_result = (
-        1.0
+        0.6
         * (
             tensor_map_with_grad_1.block().values
             - tensor_map_with_grad_3.block().values
         )
         .pow(2)
-        .mean()
+        .sum()
         + 0.5
         * (
             tensor_map_with_grad_1.block().gradient("gradient").values
             - tensor_map_with_grad_3.block().gradient("gradient").values
         )
         .pow(2)
-        .mean()
+        .sum()
         + 1.0
         * (
             tensor_map_with_grad_2.block().values
             - tensor_map_with_grad_4.block().values
         )
         .pow(2)
-        .mean()
+        .sum()
         + 0.5
         * (
             tensor_map_with_grad_2.block().gradient("gradient").values
             - tensor_map_with_grad_4.block().gradient("gradient").values
         )
         .pow(2)
-        .mean()
+        .sum()
     )
 
     loss_value = loss(output_dict, target_dict)
@@ -210,8 +212,10 @@ def test_tmap_dict_loss_subset(tensor_map_with_grad_1, tensor_map_with_grad_3):
 
     loss = TensorMapDictLoss(
         weights={
-            "output_1": {"values": 1.0, "gradient": 0.5},
-            "output_2": {"values": 1.0, "gradient": 0.5},
+            "output_1": 1.0,
+            "output_2": 1.0,
+            "output_1_gradient_gradients": 0.5,
+            "output_2_gradient_gradients": 0.5,
         }
     )
 
@@ -230,14 +234,14 @@ def test_tmap_dict_loss_subset(tensor_map_with_grad_1, tensor_map_with_grad_3):
             - tensor_map_with_grad_3.block().values
         )
         .pow(2)
-        .mean()
+        .sum()
         + 0.5
         * (
             tensor_map_with_grad_1.block().gradient("gradient").values
             - tensor_map_with_grad_3.block().gradient("gradient").values
         )
         .pow(2)
-        .mean()
+        .sum()
     )
 
     loss_value = loss(output_dict, target_dict)
