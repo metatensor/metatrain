@@ -1,10 +1,12 @@
 from .dataset import (  # noqa: F401
+    Dataset,
     TargetInfo,
     DatasetInfo,
     get_all_species,
     get_all_targets,
     collate_fn,
     check_datasets,
+    group_and_join,
 )
 from .readers import (  # noqa: F401
     read_energy,

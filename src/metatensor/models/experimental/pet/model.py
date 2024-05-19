@@ -6,29 +6,14 @@ from metatensor.torch import Labels, TensorBlock, TensorMap
 from metatensor.torch.atomistic import (
     ModelCapabilities,
     ModelOutput,
-    NeighborsListOptions,
+    NeighborListOptions,
     System,
 )
-from omegaconf import OmegaConf
 from pet.hypers import Hypers
 from pet.pet import PET
 
-from ... import ARCHITECTURE_CONFIG_PATH
+from . import ARCHITECTURE_NAME, DEFAULT_MODEL_HYPERS
 from .utils import systems_to_batch_dict
-
-
-DEFAULT_HYPERS = OmegaConf.to_container(
-    OmegaConf.load(ARCHITECTURE_CONFIG_PATH / "experimental.pet.yaml")
-)
-
-DEFAULT_MODEL_HYPERS = DEFAULT_HYPERS["ARCHITECTURAL_HYPERS"]
-
-# We hardcode some of the hypers to make PET work as a MLIP.
-DEFAULT_MODEL_HYPERS.update(
-    {"D_OUTPUT": 1, "TARGET_TYPE": "atomic", "TARGET_AGGREGATION": "sum"}
-)
-
-ARCHITECTURE_NAME = "experimental.pet"
 
 
 class Model(torch.nn.Module):
@@ -46,11 +31,11 @@ class Model(torch.nn.Module):
     def set_trained_model(self, trained_model: torch.nn.Module) -> None:
         self.pet = trained_model
 
-    def requested_neighbors_lists(
+    def requested_neighbor_lists(
         self,
-    ) -> List[NeighborsListOptions]:
+    ) -> List[NeighborListOptions]:
         return [
-            NeighborsListOptions(
+            NeighborListOptions(
                 cutoff=self.cutoff,
                 full_list=True,
             )
@@ -62,7 +47,7 @@ class Model(torch.nn.Module):
         outputs: Dict[str, ModelOutput],
         selected_atoms: Optional[Labels] = None,
     ) -> Dict[str, TensorMap]:
-        options = self.requested_neighbors_lists()[0]
+        options = self.requested_neighbor_lists()[0]
         batch = systems_to_batch_dict(
             systems, options, self.all_species, selected_atoms
         )

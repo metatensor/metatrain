@@ -9,7 +9,7 @@ from metatensor.torch.atomistic import (
 )
 
 from metatensor.models.experimental.alchemical_model import DEFAULT_HYPERS, Model
-from metatensor.models.utils.neighbors_lists import get_system_with_neighbors_lists
+from metatensor.models.utils.neighbor_lists import get_system_with_neighbor_lists
 
 
 def test_prediction_subset():
@@ -26,13 +26,15 @@ def test_prediction_subset():
             )
         },
         supported_devices=["cpu"],
+        interaction_range=DEFAULT_HYPERS["model"]["soap"]["cutoff"],
+        dtype="float32",
     )
 
     alchemical_model = Model(capabilities, DEFAULT_HYPERS["model"])
     system = ase.Atoms("O2", positions=[[0.0, 0.0, 0.0], [0.0, 0.0, 1.0]])
     system = systems_to_torch(system)
-    system = get_system_with_neighbors_lists(
-        system, alchemical_model.requested_neighbors_lists()
+    system = get_system_with_neighbor_lists(
+        system, alchemical_model.requested_neighbor_lists()
     )
 
     evaluation_options = ModelEvaluationOptions(

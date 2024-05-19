@@ -4,13 +4,12 @@ from typing import Dict, List, Optional, Union
 
 import torch
 from metatensor.learn.data import DataLoader
-from metatensor.learn.data.dataset import Dataset
-from metatensor.torch import TensorMap
 from metatensor.torch.atomistic import ModelCapabilities, ModelOutput
 
 from ...utils.composition import calculate_composition_weights
 from ...utils.data import (
     CombinedDataLoader,
+    Dataset,
     DatasetInfo,
     check_datasets,
     collate_fn,
@@ -22,11 +21,11 @@ from ...utils.extract_targets import get_outputs_dict
 from ...utils.io import is_exported, load, save
 from ...utils.logging import MetricLogger
 from ...utils.loss import TensorMapDictLoss
-from ...utils.merge_capabilities import merge_capabilities
 from ...utils.metrics import RMSEAccumulator
-from ...utils.neighbors_lists import get_system_with_neighbors_lists
-from ...utils.per_atom import average_block_by_num_atoms
-from .model import DEFAULT_HYPERS, Model
+from ...utils.neighbor_lists import get_system_with_neighbor_lists
+from ...utils.per_atom import divide_by_num_atoms
+from . import DEFAULT_HYPERS
+from .model import Model
 from .utils.normalize import (
     get_average_number_of_atoms,
     get_average_number_of_neighbors,
@@ -43,9 +42,17 @@ def train(
     devices: List[torch.device],
     hypers: Dict = DEFAULT_HYPERS,
     continue_from: Optional[str] = None,
-    output_dir: str = ".",
+    checkpoint_dir: str = ".",
 ):
     all_species = get_all_species(train_datasets + validation_datasets)
+    if len(dataset_info.targets) != 1:
+        raise ValueError("The Alchemical Model only supports a single target")
+    target_name = next(iter(dataset_info.targets.keys()))
+    if dataset_info.targets[target_name].quantity != "energy":
+        raise ValueError("The Alchemical Model only supports energies as target")
+    if dataset_info.targets[target_name].per_atom:
+        raise ValueError("The Alchemical Model does not support per-atom training")
+
     outputs = {
         key: ModelOutput(
             quantity=value.quantity,
@@ -54,19 +61,34 @@ def train(
         )
         for key, value in dataset_info.targets.items()
     }
-    new_capabilities = ModelCapabilities(
+    dtype = train_datasets[0][0]["system"].positions.dtype
+    if dtype == torch.float64:
+        dtype_string = "float64"
+    elif dtype == torch.float32:
+        dtype_string = "float32"
+    else:
+        raise ValueError(f"Unsupported dtype {dtype} for Alchemical Model.")
+    capabilities = ModelCapabilities(
         length_unit=dataset_info.length_unit,
         outputs=outputs,
         atomic_types=all_species,
-        supported_devices=["cpu", "cuda"],
+        supported_devices=["cuda", "cpu"],
+        interaction_range=hypers["model"]["soap"]["cutoff"],
+        dtype=dtype_string,
     )
 
     if continue_from is None:
+        outputs = {
+            target_name: ModelOutput(
+                quantity=dataset_info.targets[target_name].quantity,
+                unit=dataset_info.targets[target_name].unit,
+                per_atom=False,
+            )
+        }
         model = Model(
-            capabilities=new_capabilities,
+            capabilities=capabilities,
             hypers=hypers["model"],
         )
-        novel_capabilities = new_capabilities
     else:
         model = load(continue_from)
         if is_exported(model):
@@ -79,14 +101,13 @@ def train(
                 "The hyperparameters of the model have changed since the last "
                 "training run. The new hyperparameters will be discarded."
             )
-        # merge the model's capabilities with the requested capabilities
-        merged_capabilities, novel_capabilities = merge_capabilities(
-            model.capabilities, new_capabilities
-        )
-        model.capabilities = merged_capabilities
-        # make the new model capable of handling the new outputs
-        for output_name in novel_capabilities.outputs.keys():
-            model.add_output(output_name)
+        old_target_name = next(iter(model.capabilities.outputs.keys()))
+        if old_target_name != target_name:
+            raise ValueError(
+                f"The model was trained on {old_target_name}, but attempting to "
+                f"continue training on {target_name}. The Alchemical Model only "
+                "supports a single target."
+            )
 
     model_capabilities = model.capabilities
 
@@ -101,17 +122,17 @@ def train(
             # only error if we are not continuing
             raise ValueError(err) from err
 
-    # Calculating the neighbors lists for the training and validation datasets:
-    logger.info("Calculating neighbors lists for the datasets")
-    requested_neighbor_lists = model.requested_neighbors_lists()
+    # Calculating the neighbor lists for the training and validation datasets:
+    logger.info("Calculating neighbor lists for the datasets")
+    requested_neighbor_lists = model.requested_neighbor_lists()
     for dataset in train_datasets + validation_datasets:
         for i in range(len(dataset)):
-            system = dataset[i].system
-            # The following line attached the neighbors lists to the system,
+            system = dataset[i]["system"]
+            # The following line attaches the neighbors lists to the system,
             # and doesn't require to reassign the system to the dataset:
-            _ = get_system_with_neighbors_lists(system, requested_neighbor_lists)
+            _ = get_system_with_neighbor_lists(system, requested_neighbor_lists)
 
-    # Calculate the average number of atoms and neighbors in the training datasets:
+    # Calculate the average number of atoms and neighbor in the training datasets:
     average_number_of_atoms = get_average_number_of_atoms(train_datasets)
     average_number_of_neighbors = get_average_number_of_neighbors(train_datasets)
 
@@ -124,29 +145,27 @@ def train(
     model.set_basis_normalization_factor(average_number_of_neighbors)
 
     device = devices[0]  # only one device, as we don't support multi-gpu for now
-    dtype = train_datasets[0][0].system.positions.dtype
 
-    logger.info(f"training on device {device} with dtype {dtype}")
+    logger.info(f"Training on device {device} with dtype {dtype}")
     model.to(device=device, dtype=dtype)
 
-    # Calculate and set the composition weights for all targets:
-    for target_name in novel_capabilities.outputs.keys():
-        # TODO: warn in the documentation that capabilities that are already
-        # present in the model won't recalculate the composition weights
-        # find the datasets that contain the target:
-        train_datasets_with_target = []
-        for dataset in train_datasets:
-            if target_name in get_all_targets(dataset):
-                train_datasets_with_target.append(dataset)
-        if len(train_datasets_with_target) == 0:
-            raise ValueError(
-                f"Target {target_name} in the model's new capabilities is not "
-                "present in any of the training datasets."
+    # Calculate and set the composition weights, but only if
+    # this is the first training run:
+    if continue_from is None:
+        for target_name in model_capabilities.outputs.keys():
+            train_datasets_with_target = []
+            for dataset in train_datasets:
+                if target_name in get_all_targets(dataset):
+                    train_datasets_with_target.append(dataset)
+            if len(train_datasets_with_target) == 0:
+                raise ValueError(
+                    f"Target {target_name} in the model's new capabilities is not "
+                    "present in any of the training datasets."
+                )
+            composition_weights, species = calculate_composition_weights(
+                train_datasets_with_target, target_name
             )
-        composition_weights, species = calculate_composition_weights(
-            train_datasets_with_target, target_name
-        )
-        model.set_composition_weights(composition_weights.unsqueeze(0), species)
+            model.set_composition_weights(composition_weights.unsqueeze(0), species)
 
     hypers_training = hypers["training"]
 
@@ -214,7 +233,7 @@ def train(
     epochs_without_improvement = 0
 
     # per-atom targets:
-    per_atom_targets = hypers_training["per_atom_targets"]
+    per_structure_targets = hypers_training["per_structure_targets"]
 
     # Train the model:
     logger.info("Starting training")
@@ -227,82 +246,54 @@ def train(
             optimizer.zero_grad()
 
             systems, targets = batch
-            assert len(systems[0].known_neighbors_lists()) > 0
+            assert len(systems[0].known_neighbor_lists()) > 0
             systems = [system.to(device=device) for system in systems]
             targets = {key: value.to(device=device) for key, value in targets.items()}
             predictions = evaluate_model(
                 model,
                 systems,
-                {
-                    name: tensormap.block().gradients_list()
-                    for name, tensormap in targets.items()
-                },
+                {key: dataset_info.targets[key] for key in targets.keys()},
                 is_training=True,
             )
 
-            # average by the number of atoms (if requested)
-            num_atoms = torch.tensor(
-                [len(s) for s in systems], device=device
-            ).unsqueeze(-1)
-            for pa_target in per_atom_targets:
-                predictions[pa_target] = TensorMap(
-                    predictions[pa_target].keys,
-                    [
-                        average_block_by_num_atoms(
-                            predictions[pa_target].block(), num_atoms
-                        )
-                    ],
-                )
-                targets[pa_target] = TensorMap(
-                    targets[pa_target].keys,
-                    [average_block_by_num_atoms(targets[pa_target].block(), num_atoms)],
-                )
+            # average by the number of atoms
+            predictions, targets = _average_by_num_atoms(
+                predictions, targets, systems, per_structure_targets
+            )
 
             train_loss_batch = loss_fn(predictions, targets)
             train_loss += train_loss_batch.item()
             train_loss_batch.backward()
             optimizer.step()
             train_rmse_calculator.update(predictions, targets)
-        finalized_train_info = train_rmse_calculator.finalize()
+        finalized_train_info = train_rmse_calculator.finalize(
+            not_per_atom=["positions_gradients"] + per_structure_targets
+        )
 
         validation_loss = 0.0
         for batch in validation_dataloader:
             systems, targets = batch
-            assert len(systems[0].known_neighbors_lists()) > 0
+            assert len(systems[0].known_neighbor_lists()) > 0
             systems = [system.to(device=device) for system in systems]
             targets = {key: value.to(device=device) for key, value in targets.items()}
             predictions = evaluate_model(
                 model,
                 systems,
-                {
-                    name: tensormap.block().gradients_list()
-                    for name, tensormap in targets.items()
-                },
+                {key: dataset_info.targets[key] for key in targets.keys()},
                 is_training=False,
             )
 
-            # average by the number of atoms (if requested)
-            num_atoms = torch.tensor(
-                [len(s) for s in systems], device=device
-            ).unsqueeze(-1)
-            for pa_target in per_atom_targets:
-                predictions[pa_target] = TensorMap(
-                    predictions[pa_target].keys,
-                    [
-                        average_block_by_num_atoms(
-                            predictions[pa_target].block(), num_atoms
-                        )
-                    ],
-                )
-                targets[pa_target] = TensorMap(
-                    targets[pa_target].keys,
-                    [average_block_by_num_atoms(targets[pa_target].block(), num_atoms)],
-                )
+            # average by the number of atoms
+            predictions, targets = _average_by_num_atoms(
+                predictions, targets, systems, per_structure_targets
+            )
 
             validation_loss_batch = loss_fn(predictions, targets)
             validation_loss += validation_loss_batch.item()
             validation_rmse_calculator.update(predictions, targets)
-        finalized_validation_info = validation_rmse_calculator.finalize()
+        finalized_validation_info = validation_rmse_calculator.finalize(
+            not_per_atom=["positions_gradients"] + per_structure_targets
+        )
 
         lr_scheduler.step(validation_loss)
 
@@ -328,7 +319,7 @@ def train(
         if epoch % hypers_training["checkpoint_interval"] == 0:
             save(
                 model,
-                Path(output_dir) / f"model_{epoch}.pt",
+                Path(checkpoint_dir) / f"model_{epoch}.pt",
             )
 
         # early stopping criterion:
@@ -346,3 +337,15 @@ def train(
                 break
 
     return model
+
+
+def _average_by_num_atoms(predictions, targets, systems, per_structure_targets):
+    device = systems[0].device
+    num_atoms = torch.tensor([len(s) for s in systems], device=device)
+    for target in targets.keys():
+        if target in per_structure_targets:
+            continue
+        predictions[target] = divide_by_num_atoms(predictions[target], num_atoms)
+        targets[target] = divide_by_num_atoms(targets[target], num_atoms)
+
+    return predictions, targets

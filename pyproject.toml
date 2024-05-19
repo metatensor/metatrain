@@ -10,11 +10,11 @@ authors = [{name = "metatensor-models developers"}]
 
 dependencies = [
     "ase",
-    "torch",
-    "hydra-core",
-    "metatensor-learn==0.2.1",
+    "metatensor-learn==0.2.2",
     "metatensor-operations==0.2.1",
-    "metatensor-torch==0.3.0",
+    "metatensor-torch==0.5.1",
+    "omegaconf",
+    "torch",
 ]
 
 keywords = ["machine learning", "molecular modeling"]
@@ -55,7 +55,7 @@ build-backend = "setuptools.build_meta"
 
 [project.optional-dependencies]
 soap-bpnn = [
-    "rascaline-torch @ git+https://github.com/luthaf/rascaline@211511f#subdirectory=python/rascaline-torch",
+    "rascaline-torch @ git+https://github.com/luthaf/rascaline@4746196#subdirectory=python/rascaline-torch",
 ]
 alchemical-model = [
   "torch_alchemical @ git+https://github.com/abmazitov/torch_alchemical.git@51ff519",

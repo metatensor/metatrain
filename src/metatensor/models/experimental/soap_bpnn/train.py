@@ -5,8 +5,8 @@ from typing import Dict, List, Optional, Union
 
 import torch
 import torch.distributed
-from metatensor.learn.data.dataset import Dataset
 from metatensor.torch import TensorMap
+from metatensor.learn.data import DataLoader
 from metatensor.torch.atomistic import ModelCapabilities, ModelOutput
 from torch.nn.parallel import DistributedDataParallel
 from torch.utils.data import DataLoader, DistributedSampler
@@ -14,6 +14,7 @@ from torch.utils.data import DataLoader, DistributedSampler
 from ...utils.composition import calculate_composition_weights
 from ...utils.data import (
     CombinedDataLoader,
+    Dataset,
     DatasetInfo,
     check_datasets,
     collate_fn,
@@ -28,8 +29,9 @@ from ...utils.logging import MetricLogger
 from ...utils.loss import TensorMapDictLoss
 from ...utils.merge_capabilities import merge_capabilities
 from ...utils.metrics import RMSEAccumulator
-from ...utils.per_atom import average_block_by_num_atoms
-from .model import DEFAULT_HYPERS, Model
+from ...utils.per_atom import divide_by_num_atoms
+from . import DEFAULT_HYPERS
+from .model import Model
 
 
 logger = logging.getLogger(__name__)
@@ -49,7 +51,7 @@ def train(
     devices: List[torch.device],
     hypers: Dict = DEFAULT_HYPERS,
     continue_from: Optional[str] = None,
-    output_dir: str = ".",
+    checkpoint_dir: str = ".",
 ):
 
     is_distributed = hypers["training"]["distributed"]
@@ -67,15 +69,29 @@ def train(
         key: ModelOutput(
             quantity=value.quantity,
             unit=value.unit,
-            per_atom=False,
+            per_atom=True,
         )
         for key, value in dataset_info.targets.items()
     }
+
+    dtype = train_datasets[0][0]["system"].positions.dtype
+    if dtype == torch.float64:
+        dtype_string = "float64"
+    elif dtype == torch.float32:
+        dtype_string = "float32"
+    else:
+        raise ValueError(f"Unsupported dtype {dtype} in SOAP-BPNN")
+
+    # the model is always capable of outputting the last layer features
+    outputs["mtm::aux::last_layer_features"] = ModelOutput(per_atom=True)
+
     new_capabilities = ModelCapabilities(
         length_unit=dataset_info.length_unit,
         outputs=outputs,
         atomic_types=all_species,
-        supported_devices=["cpu", "cuda"],
+        supported_devices=["cuda", "cpu"],
+        interaction_range=hypers["model"]["soap"]["cutoff"],
+        dtype=dtype_string,
     )
 
     # Create the model:
@@ -135,6 +151,8 @@ def train(
     # Calculate and set the composition weights for all targets:
     logger.info("Calculating composition weights")
     for target_name in novel_capabilities.outputs.keys():
+        if "mtm::aux::" in target_name:
+            continue
         # TODO: warn in the documentation that capabilities that are already
         # present in the model won't recalculate the composition weights
         # find the datasets that contain the target:
@@ -282,7 +300,7 @@ def train(
     epochs_without_improvement = 0
 
     # per-atom targets:
-    per_atom_targets = hypers_training["per_atom_targets"]
+    per_structure_targets = hypers_training["per_structure_targets"]
 
     # Train the model:
     logger.info("Starting training")
@@ -302,31 +320,15 @@ def train(
             predictions = evaluate_model(
                 model,
                 systems,
-                {
-                    name: tensormap.block().gradients_list()
-                    for name, tensormap in targets.items()
-                },
+                {key: dataset_info.targets[key] for key in targets.keys()},
                 is_training=True,
                 is_distributed=is_distributed,
             )
 
-            # average by the number of atoms (if requested)
-            num_atoms = torch.tensor(
-                [len(s) for s in systems], device=device
-            ).unsqueeze(-1)
-            for pa_target in per_atom_targets:
-                predictions[pa_target] = TensorMap(
-                    predictions[pa_target].keys,
-                    [
-                        average_block_by_num_atoms(
-                            predictions[pa_target].block(), num_atoms
-                        )
-                    ],
-                )
-                targets[pa_target] = TensorMap(
-                    targets[pa_target].keys,
-                    [average_block_by_num_atoms(targets[pa_target].block(), num_atoms)],
-                )
+            # average by the number of atoms
+            predictions, targets = _average_by_num_atoms(
+                predictions, targets, systems, per_structure_targets
+            )
 
             train_loss_batch = loss_fn(predictions, targets)
             train_loss_batch.backward()
@@ -336,7 +338,9 @@ def train(
                 train_loss_batch = torch.distributed.all_reduce(train_loss_batch)
             train_loss += train_loss_batch.item()
             train_rmse_calculator.update(predictions, targets)
-        finalized_train_info = train_rmse_calculator.finalize()
+        finalized_train_info = train_rmse_calculator.finalize(
+            not_per_atom=["positions_gradients"] + per_structure_targets
+        )
 
         if is_distributed:
             torch.distributed.barrier()
@@ -349,31 +353,15 @@ def train(
             predictions = evaluate_model(
                 model,
                 systems,
-                {
-                    name: tensormap.block().gradients_list()
-                    for name, tensormap in targets.items()
-                },
+                {key: dataset_info.targets[key] for key in targets.keys()},
                 is_training=False,
                 is_distributed=is_distributed,
             )
 
-            # average by the number of atoms (if requested)
-            num_atoms = torch.tensor(
-                [len(s) for s in systems], device=device
-            ).unsqueeze(-1)
-            for pa_target in per_atom_targets:
-                predictions[pa_target] = TensorMap(
-                    predictions[pa_target].keys,
-                    [
-                        average_block_by_num_atoms(
-                            predictions[pa_target].block(), num_atoms
-                        )
-                    ],
-                )
-                targets[pa_target] = TensorMap(
-                    targets[pa_target].keys,
-                    [average_block_by_num_atoms(targets[pa_target].block(), num_atoms)],
-                )
+            # average by the number of atoms
+            predictions, targets = _average_by_num_atoms(
+                predictions, targets, systems, per_structure_targets
+            )
 
             validation_loss_batch = loss_fn(predictions, targets)
 
@@ -383,7 +371,9 @@ def train(
                 )
             validation_loss += validation_loss_batch.item()
             validation_rmse_calculator.update(predictions, targets)
-        finalized_validation_info = validation_rmse_calculator.finalize()
+        finalized_validation_info = validation_rmse_calculator.finalize(
+            not_per_atom=["positions_gradients"] + per_structure_targets
+        )
 
         lr_scheduler.step(validation_loss)
 
@@ -411,7 +401,7 @@ def train(
                 torch.distributed.barrier()
             save(
                 (model.module if is_distributed else model),
-                Path(output_dir) / f"model_{epoch}.ckpt",
+                Path(checkpoint_dir) / f"model_{epoch}.ckpt",
             )
 
         # early stopping criterion:
@@ -432,3 +422,15 @@ def train(
         torch.distributed.barrier()
 
     return model.module if is_distributed else model
+
+
+def _average_by_num_atoms(predictions, targets, systems, per_structure_targets):
+    device = systems[0].device
+    num_atoms = torch.tensor([len(s) for s in systems], device=device)
+    for target in targets.keys():
+        if target in per_structure_targets:
+            continue
+        predictions[target] = divide_by_num_atoms(predictions[target], num_atoms)
+        targets[target] = divide_by_num_atoms(targets[target], num_atoms)
+
+    return predictions, targets

@@ -59,7 +59,7 @@ def test_rmse_accumulator(tensor_map_with_grad_1, tensor_map_with_grad_2):
     assert rmse_accumulator.information["energy"][1] == 30
     assert rmse_accumulator.information["energy_gradient_gradients"][1] == 30
 
-    rmses = rmse_accumulator.finalize()
+    rmses = rmse_accumulator.finalize(not_per_atom=["gradient_gradients"])
 
-    assert "energy RMSE" in rmses
+    assert "energy RMSE (per atom)" in rmses
     assert "energy_gradient_gradients RMSE" in rmses

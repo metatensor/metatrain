@@ -4,15 +4,21 @@ from typing import Dict, List, Optional, Union
 
 import torch
 from metatensor.learn.data import DataLoader
-from metatensor.learn.data.dataset import Dataset
 from metatensor.torch.atomistic import ModelCapabilities, ModelOutput
 from pet.hypers import Hypers
 from pet.pet import PET
 from pet.train_model import fit_pet
 
-from ...utils.data import DatasetInfo, check_datasets, collate_fn, get_all_species
+from ...utils.data import (
+    Dataset,
+    DatasetInfo,
+    check_datasets,
+    collate_fn,
+    get_all_species,
+)
 from ...utils.data.system_to_ase import system_to_ase
-from .model import DEFAULT_HYPERS, Model
+from . import DEFAULT_HYPERS
+from .model import Model
 
 
 logger = logging.getLogger(__name__)
@@ -25,7 +31,7 @@ def train(
     devices: List[torch.device],
     hypers: Dict = DEFAULT_HYPERS,
     continue_from: Optional[str] = None,
-    output_dir: str = ".",
+    checkpoint_dir: str = ".",
 ):
     if len(dataset_info.targets) != 1:
         raise ValueError("PET only supports a single target")
@@ -105,13 +111,17 @@ def train(
     device = devices[0]  # only one device, as we don't support multi-gpu for now
 
     fit_pet(
-        ase_train_dataset, ase_validation_dataset, hypers, "pet", device, output_dir
+        ase_train_dataset, ase_validation_dataset, hypers, "pet", device, checkpoint_dir
     )
 
     if do_forces:
-        load_path = Path(output_dir) / "pet" / "best_val_rmse_forces_model_state_dict"
+        load_path = (
+            Path(checkpoint_dir) / "pet" / "best_val_rmse_forces_model_state_dict"
+        )
     else:
-        load_path = Path(output_dir) / "pet" / "best_val_rmse_energies_model_state_dict"
+        load_path = (
+            Path(checkpoint_dir) / "pet" / "best_val_rmse_energies_model_state_dict"
+        )
 
     state_dict = torch.load(load_path)
 
@@ -138,6 +148,9 @@ def train(
         outputs=outputs,
         atomic_types=all_species,
         supported_devices=["cpu", "cuda"],
+        interaction_range=ARCHITECTURAL_HYPERS["N_GNN_LAYERS"]
+        * ARCHITECTURAL_HYPERS["R_CUT"],
+        dtype="float32",
     )
 
     model = Model(capabilities, ARCHITECTURAL_HYPERS)

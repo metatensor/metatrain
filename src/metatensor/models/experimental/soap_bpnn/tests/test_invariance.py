@@ -21,6 +21,8 @@ def test_rotational_invariance():
                 unit="eV",
             )
         },
+        interaction_range=DEFAULT_HYPERS["model"]["soap"]["cutoff"],
+        dtype="float32",
     )
     soap_bpnn = Model(capabilities, DEFAULT_HYPERS["model"])
 

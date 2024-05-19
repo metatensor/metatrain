@@ -33,6 +33,22 @@ def merge_capabilities(
                 "the capabilities of the loaded model."
             )
 
+    # Check that the interaction ranges are the same:
+    if old_capabilities.interaction_range != new_capabilities.interaction_range:
+        raise ValueError(
+            "The interaction ranges of the old and new capabilities are not the same. "
+            f"Found `{old_capabilities.interaction_range}` and "
+            f"`{new_capabilities.interaction_range}`."
+        )
+
+    # Check that the dtype is the same:
+    if old_capabilities.dtype != new_capabilities.dtype:
+        raise ValueError(
+            "The dtypes of the old and new capabilities are not the same. "
+            f"Found `{old_capabilities.dtype}` and "
+            f"`{new_capabilities.dtype}`."
+        )
+
     # Merge the outputs:
     outputs = {}
     for key, value in old_capabilities.outputs.items():
@@ -55,12 +71,16 @@ def merge_capabilities(
         length_unit=new_capabilities.length_unit,
         atomic_types=old_capabilities.atomic_types,
         outputs=outputs,
+        interaction_range=old_capabilities.interaction_range,
+        dtype=old_capabilities.dtype,
     )
 
     novel_capabilities = ModelCapabilities(
         length_unit=new_capabilities.length_unit,
         atomic_types=old_capabilities.atomic_types,
         outputs=new_outputs,
+        interaction_range=old_capabilities.interaction_range,
+        dtype=old_capabilities.dtype,
     )
 
     return merged_capabilities, novel_capabilities
