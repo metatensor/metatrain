@@ -51,14 +51,14 @@ def test_evaluate_model(tmp_path, training, exported):
             for system in systems
         ]
 
-    target_info = {
+    target_info_all = {
         "energy": TargetInfo(quantity="energy", gradients=["positions", "strain"])
     }
 
     outputs = evaluate_model(
         model,
         systems,
-        target_info,
+        target_info_all,
         is_training=training,
     )
 
@@ -73,3 +73,25 @@ def test_evaluate_model(tmp_path, training, exported):
     else:
         assert not outputs["energy"].block().gradient("positions").values.requires_grad
         assert not outputs["energy"].block().gradient("strain").values.requires_grad
+
+    target_info_strain = {"energy": TargetInfo(quantity="energy", gradients=["strain"])}
+
+    outputs = evaluate_model(
+        model,
+        systems,
+        target_info_strain,
+        is_training=training,
+    )
+
+    assert isinstance(outputs, dict)
+    assert "energy" in outputs
+    assert "positions" not in outputs["energy"].block().gradients_list()
+    assert "strain" in outputs["energy"].block().gradients_list()
+
+    if training:
+        assert outputs["energy"].block().gradient("strain").values.requires_grad
+    else:
+        assert not outputs["energy"].block().gradient("strain").values.requires_grad
+
+    # force-only tested in other tests, not including it here as this test is already
+    # quite slow

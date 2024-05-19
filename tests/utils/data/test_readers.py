@@ -189,15 +189,15 @@ def test_read_targets(stress_dict, virial_dict, monkeypatch, tmp_path, caplog):
             ]
             assert pos_grad.properties == Labels("energy", torch.tensor([[0]]))
 
-            disp_grad = result_block.gradient("strain")
+            strain_grad = result_block.gradient("strain")
             components = [
                 Labels(["xyz_1"], torch.arange(3).reshape(-1, 1)),
                 Labels(["xyz_2"], torch.arange(3).reshape(-1, 1)),
             ]
-            assert disp_grad.values.dtype is torch.float16
-            assert disp_grad.samples.names == ["sample"]
-            assert disp_grad.components == components
-            assert disp_grad.properties == Labels("energy", torch.tensor([[0]]))
+            assert strain_grad.values.dtype is torch.float16
+            assert strain_grad.samples.names == ["sample"]
+            assert strain_grad.components == components
+            assert strain_grad.properties == Labels("energy", torch.tensor([[0]]))
 
 
 @pytest.mark.parametrize(
