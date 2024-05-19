@@ -134,10 +134,8 @@ def get_all_targets(datasets: Union[Dataset, List[Dataset]]) -> List[str]:
 
 
 def collate_fn(batch: List[Dict[str, Any]]) -> Tuple[List, Dict[str, TensorMap]]:
-    """
-    Wraps `group_and_join` to
-    return the data fields as a list of systems, and a dictionary of nameed
-    targets.
+    """Wraps `group_and_join` to return the data fields as a tuple consisting of a
+    list of systems and a dictionary of named targets.
     """
 
     collated_targets = group_and_join(batch)
@@ -228,18 +226,12 @@ def group_and_join(
     """
     data: List[Union[TensorMap, torch.Tensor]] = []
     names = batch[0].keys()
-    for name, f in zip(names, zip(*(item.values() for item in batch))):
-        if name == "sample_id":  # special case, keep as is
-            data.append(f)
-            continue
-
+    for f in zip(*(item.values() for item in batch)):
         if isinstance(f[0], torch.ScriptObject) and f[0]._has_method(
             "keys_to_properties"
         ):  # inferred metatensor.torch.TensorMap type
             data.append(metatensor.torch.join(f, axis="samples"))
-        elif isinstance(f[0], torch.Tensor):  # torch.Tensor type
-            data.append(torch.vstack(f))
-        else:  # otherwise just keep as a list
+        else:  # otherwise just keep as a list (for systems)
             data.append(f)
 
     return {name: value for name, value in zip(names, data)}
