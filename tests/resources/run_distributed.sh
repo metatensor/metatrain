@@ -14,6 +14,6 @@ echo STARTING AT `date`
 module load gcc python
 source /home/bigi/virtualenv-i/bin/activate
 
-srun metatensor-models --debug train options.yaml
+srun metatensor-models train options.yaml
 
 echo FINISHED at `date`

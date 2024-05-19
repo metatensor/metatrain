@@ -5,12 +5,12 @@ import logging
 import sys
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple, Union
+from .distributed.logging import is_main_process
 
 import numpy as np
 from metatensor.torch.atomistic import ModelCapabilities
 
 from .io import check_suffix
-
 
 logger = logging.getLogger(__name__)
 
@@ -206,6 +206,10 @@ def setup_logging(
             file_handler = logging.FileHandler(filename=str(logfile), encoding="utf-8")
             file_handler.setFormatter(formatter)
             handlers.append(file_handler)
+
+        # hide logging up to ERROR from secondary processes in a distributed environment:
+        if not is_main_process():
+            level = logging.ERROR
 
         logging.basicConfig(format=format, handlers=handlers, level=level, style="{")
 

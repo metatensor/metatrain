@@ -1,0 +1,33 @@
+STARTING AT Sun May 19 11:01:29 AM CEST 2024
+[2024-05-19 11:01:31][INFO] - This log is also available in 'outputs/2024-05-19/11-01-31/train.log'.
+[2024-05-19 11:01:31][INFO] - random seed of this run is 42
+[2024-05-19 11:01:32][INFO] - Setting up training set
+[2024-05-19 11:01:32][INFO] - Forces found in section 'energy'. Forces are taken for training!
+[2024-05-19 11:01:32][WARNING] - No Stress found in section 'energy'. Continue without stress!
+[2024-05-19 11:01:32][INFO] - Setting up test set
+[2024-05-19 11:01:32][INFO] - Setting up validation set
+[2024-05-19 11:01:32][INFO] - Setting up model
+[2024-05-19 11:01:32][INFO] - Calling architecture trainer
+[2024-05-19 11:01:33][INFO] - Checking datasets for consistency
+[2024-05-19 11:01:33][INFO] - training on device cuda:0 with dtype torch.float64
+[2024-05-19 11:01:34][INFO] - Calculating composition weights
+[2024-05-19 11:01:34][INFO] - Setting up data loaders
+[2024-05-19 11:01:35][INFO] - Starting training
+[2024-05-19 11:01:35][INFO] - Epoch    0, train loss: 1565.7, train energy RMSE (per atom): 0.37221, train force RMSE: 27.891, validation loss: 1397.5, validation energy RMSE (per atom): 0.49946, validation force RMSE: 26.403
+[2024-05-19 11:01:39][INFO] - Epoch   10, train loss: 1378.3, train energy RMSE (per atom): 1.08325, train force RMSE: 26.309, validation loss: 1263.2, validation energy RMSE (per atom): 1.31256, validation force RMSE: 25.774
+[2024-05-19 11:01:43][INFO] - Epoch   20, train loss: 1052.1, train energy RMSE (per atom): 2.74354, train force RMSE: 22.952, validation loss:  967.9, validation energy RMSE (per atom): 2.78528, validation force RMSE: 22.588
+[2024-05-19 11:01:47][INFO] - Epoch   30, train loss:  535.6, train energy RMSE (per atom): 2.12828, train force RMSE: 16.314, validation loss:  477.7, validation energy RMSE (per atom): 1.98975, validation force RMSE: 15.678
+[2024-05-19 11:01:51][INFO] - Epoch   40, train loss:  154.3, train energy RMSE (per atom): 0.89664, train force RMSE:  8.450, validation loss:  133.9, validation energy RMSE (per atom): 0.45075, validation force RMSE:  8.802
+[2024-05-19 11:01:55][INFO] - Epoch   50, train loss:   72.7, train energy RMSE (per atom): 0.31214, train force RMSE:  5.899, validation loss:   80.5, validation energy RMSE (per atom): 0.29186, validation force RMSE:  6.956
+[2024-05-19 11:01:59][INFO] - Epoch   60, train loss:   56.5, train energy RMSE (per atom): 0.16923, train force RMSE:  5.204, validation loss:   63.9, validation energy RMSE (per atom): 0.19441, validation force RMSE:  6.275
+[2024-05-19 11:02:03][INFO] - Epoch   70, train loss:   41.0, train energy RMSE (per atom): 0.16910, train force RMSE:  4.460, validation loss:   47.4, validation energy RMSE (per atom): 0.18947, validation force RMSE:  5.380
+[2024-05-19 11:02:07][INFO] - Epoch   80, train loss:   31.5, train energy RMSE (per atom): 0.12579, train force RMSE:  3.899, validation loss:   37.4, validation energy RMSE (per atom): 0.14595, validation force RMSE:  4.777
+[2024-05-19 11:02:11][INFO] - Epoch   90, train loss:   25.1, train energy RMSE (per atom): 0.12223, train force RMSE:  3.493, validation loss:   30.8, validation energy RMSE (per atom): 0.15936, validation force RMSE:  4.343
+[2024-05-19 11:02:15][INFO] - Evaluating training dataset
+[2024-05-19 11:02:19][INFO] - energy RMSE (per atom): 1.1463, force RMSE: 3.2051
+[2024-05-19 11:02:19][INFO] - Evaluating validation dataset
+[2024-05-19 11:02:19][INFO] - energy RMSE (per atom): 1.1504, force RMSE: 3.6149
+[2024-05-19 11:02:19][INFO] - Evaluating test dataset
+[2024-05-19 11:02:19][INFO] - This dataset is empty. No evaluation will be performed.
+[2024-05-19 11:02:19][INFO] - 
+FINISHED at Sun May 19 11:02:20 AM CEST 2024

@@ -29,7 +29,6 @@ def evaluate_model(
     systems: List[System],
     targets: Dict[str, TargetInfo],
     is_training: bool,
-    is_distributed: bool = False,
 ) -> Dict[str, TensorMap]:
     """
     Evaluate the model (in training or exported) on a set of requested targets.
@@ -46,7 +45,7 @@ def evaluate_model(
     """
 
     # Assert that all targets are within the model's capabilities:
-    outputs_capabilities = _get_capabilities(model, is_distributed).outputs
+    outputs_capabilities = _get_capabilities(model).outputs
     if not set(targets.keys()).issubset(outputs_capabilities.keys()):
         raise ValueError("Not all targets are within the model's capabilities.")
 
@@ -109,7 +108,7 @@ def evaluate_model(
                 system.positions.requires_grad_(True)
 
     # Based on the keys of the targets, get the outputs of the model:
-    model_outputs = _get_model_outputs(model, systems, targets, is_distributed)
+    model_outputs = _get_model_outputs(model, systems, targets)
 
     for energy_target in energy_targets:
         # If the energy target requires gradients, compute them:
@@ -246,22 +245,17 @@ def _strain_gradients_to_block(gradients_list):
 
 def _get_capabilities(
     model: Union[torch.nn.Module, torch.jit._script.RecursiveScriptModule],
-    is_distributed: bool,
 ):
     if is_exported(model):
         return model.capabilities()
     else:
-        if is_distributed:
-            return model.module.capabilities
-        else:
-            return model.capabilities
+        return model.capabilities
 
 
 def _get_model_outputs(
     model: Union[torch.nn.Module, torch.jit._script.RecursiveScriptModule],
     systems: List[System],
     targets: Dict[str, TargetInfo],
-    is_distributed: bool,
 ) -> Dict[str, TensorMap]:
     if is_exported(model):
         # put together an EvaluationOptions object

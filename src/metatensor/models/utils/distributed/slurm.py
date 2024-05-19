@@ -3,6 +3,14 @@ import os
 import hostlist
 
 
+def is_slurm():
+    return "SLURM_JOB_ID" in os.environ
+
+
+def is_slurm_main_process():
+    return os.environ['SLURM_PROCID'] == '0'
+
+
 class DistributedEnvironment:
     def __init__(self):
         self._setup_distr_env()

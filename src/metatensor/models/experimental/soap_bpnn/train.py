@@ -8,7 +8,7 @@ import torch.distributed
 from metatensor.torch import TensorMap
 from metatensor.learn.data import DataLoader
 from metatensor.torch.atomistic import ModelCapabilities, ModelOutput
-from torch.nn.parallel import DistributedDataParallel
+from ...utils.distributed.distributed_data_parallel import DistributedDataParallel
 from torch.utils.data import DataLoader, DistributedSampler
 
 from ...utils.composition import calculate_composition_weights
@@ -139,7 +139,7 @@ def train(
         device = torch.device("cuda", distr_env.local_rank)
     else:
         device = devices[0]  # only one device, as we don't support multi-gpu for now
-    dtype = train_datasets[0][0].system.positions.dtype
+    dtype = train_datasets[0][0]["system"].positions.dtype
 
     logger.info(f"training on device {device} with dtype {dtype}")
     model.to(device=device, dtype=dtype)
@@ -312,7 +312,6 @@ def train(
                 systems,
                 {key: dataset_info.targets[key] for key in targets.keys()},
                 is_training=True,
-                is_distributed=is_distributed,
             )
 
             # average by the number of atoms
@@ -345,7 +344,6 @@ def train(
                 systems,
                 {key: dataset_info.targets[key] for key in targets.keys()},
                 is_training=False,
-                is_distributed=is_distributed,
             )
 
             # average by the number of atoms

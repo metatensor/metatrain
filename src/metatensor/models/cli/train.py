@@ -13,6 +13,7 @@ from omegaconf.errors import ConfigKeyError
 
 from ..utils.architectures import check_architecture_name
 from ..utils.data import Dataset, DatasetInfo, TargetInfo, read_systems, read_targets
+from ..utils.distributed.logging import is_main_process
 from ..utils.data.dataset import _train_test_random_split
 from ..utils.devices import pick_devices
 from ..utils.errors import ArchitectureError
@@ -324,6 +325,9 @@ def train_model(
         )
     except Exception as e:
         raise ArchitectureError(e)
+
+    if not is_main_process():
+        return  # only evaluate on the main process
 
     # TODO: Backup already existing output file?
     output_checked = Path(check_suffix(filename=output, suffix=".pt"))
