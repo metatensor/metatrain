@@ -1,11 +1,12 @@
 from pathlib import Path
 
 import numpy as np
-from metatensor.learn.data import DataLoader, Dataset
 from omegaconf import OmegaConf
+from torch.utils.data import DataLoader
 
 from metatensor.models.utils.data import (
     CombinedDataLoader,
+    Dataset,
     collate_fn,
     read_systems,
     read_targets,
@@ -23,7 +24,7 @@ def test_without_shuffling():
     systems = read_systems(RESOURCES_PATH / "qm9_reduced_100.xyz")
 
     conf = {
-        "U0": {
+        "mtm::U0": {
             "quantity": "energy",
             "read_from": RESOURCES_PATH / "qm9_reduced_100.xyz",
             "file_format": ".xyz",
@@ -34,14 +35,14 @@ def test_without_shuffling():
         }
     }
     targets = read_targets(OmegaConf.create(conf))
-    dataset = Dataset(system=systems, U0=targets["U0"])
+    dataset = Dataset({"system": systems, "mtm::U0": targets["mtm::U0"]})
     dataloader_qm9 = DataLoader(dataset, batch_size=10, collate_fn=collate_fn)
     # will yield 10 batches of 10
 
     systems = read_systems(RESOURCES_PATH / "alchemical_reduced_10.xyz")
 
     conf = {
-        "free_energy": {
+        "mtm::free_energy": {
             "quantity": "energy",
             "read_from": RESOURCES_PATH / "alchemical_reduced_10.xyz",
             "file_format": ".xyz",
@@ -52,7 +53,9 @@ def test_without_shuffling():
         }
     }
     targets = read_targets(OmegaConf.create(conf))
-    dataset = Dataset(system=systems, free_energy=targets["free_energy"])
+    dataset = Dataset(
+        {"system": systems, "mtm::free_energy": targets["mtm::free_energy"]}
+    )
     dataloader_alchemical = DataLoader(dataset, batch_size=2, collate_fn=collate_fn)
     # will yield 5 batches of 2
 
@@ -63,9 +66,9 @@ def test_without_shuffling():
     assert len(combined_dataloader) == 15
     for i_batch, batch in enumerate(combined_dataloader):
         if i_batch < 10:
-            assert batch[1]["U0"].block().values.shape == (10, 1)
+            assert batch[1]["mtm::U0"].block().values.shape == (10, 1)
         else:
-            assert batch[1]["free_energy"].block().values.shape == (2, 1)
+            assert batch[1]["mtm::free_energy"].block().values.shape == (2, 1)
 
 
 def test_with_shuffling():
@@ -76,7 +79,7 @@ def test_with_shuffling():
     systems = read_systems(RESOURCES_PATH / "qm9_reduced_100.xyz")
 
     conf = {
-        "U0": {
+        "mtm::U0": {
             "quantity": "energy",
             "read_from": RESOURCES_PATH / "qm9_reduced_100.xyz",
             "file_format": ".xyz",
@@ -87,7 +90,7 @@ def test_with_shuffling():
         }
     }
     targets = read_targets(OmegaConf.create(conf))
-    dataset = Dataset(system=systems, U0=targets["U0"])
+    dataset = Dataset({"system": systems, "mtm::U0": targets["mtm::U0"]})
     dataloader_qm9 = DataLoader(
         dataset, batch_size=10, collate_fn=collate_fn, shuffle=True
     )
@@ -96,7 +99,7 @@ def test_with_shuffling():
     systems = read_systems(RESOURCES_PATH / "alchemical_reduced_10.xyz")
 
     conf = {
-        "free_energy": {
+        "mtm::free_energy": {
             "quantity": "energy",
             "read_from": RESOURCES_PATH / "alchemical_reduced_10.xyz",
             "file_format": ".xyz",
@@ -107,7 +110,9 @@ def test_with_shuffling():
         }
     }
     targets = read_targets(OmegaConf.create(conf))
-    dataset = Dataset(system=systems, free_energy=targets["free_energy"])
+    dataset = Dataset(
+        {"system": systems, "mtm::free_energy": targets["mtm::free_energy"]}
+    )
     dataloader_alchemical = DataLoader(
         dataset, batch_size=2, collate_fn=collate_fn, shuffle=True
     )
@@ -127,17 +132,17 @@ def test_with_shuffling():
     alchemical_samples = []
 
     for batch in combined_dataloader:
-        if "U0" in batch[1]:
+        if "mtm::U0" in batch[1]:
             qm9_batch_count += 1
-            assert batch[1]["U0"].block().values.shape == (10, 1)
+            assert batch[1]["mtm::U0"].block().values.shape == (10, 1)
             actual_ordering.append("qm9")
-            qm9_samples.append(batch[1]["U0"].block().samples.column("system"))
+            qm9_samples.append(batch[1]["mtm::U0"].block().samples.column("system"))
         else:
             alchemical_batch_count += 1
-            assert batch[1]["free_energy"].block().values.shape == (2, 1)
+            assert batch[1]["mtm::free_energy"].block().values.shape == (2, 1)
             actual_ordering.append("alchemical")
             alchemical_samples.append(
-                batch[1]["free_energy"].block().samples.column("system")
+                batch[1]["mtm::free_energy"].block().samples.column("system")
             )
 
     assert qm9_batch_count == 10

@@ -194,7 +194,7 @@ def setup_logging(
             format += ":{filename}:{funcName}:{lineno}"
         format += " - {message}"
 
-        formatter = logging.Formatter(format, style="{")
+        formatter = logging.Formatter(format, datefmt="%Y-%m-%d %H:%M:%S", style="{")
         handlers: List[Union[logging.StreamHandler, logging.FileHandler]] = []
 
         stream_handler = logging.StreamHandler(sys.stdout)
@@ -207,13 +207,7 @@ def setup_logging(
             file_handler.setFormatter(formatter)
             handlers.append(file_handler)
 
-        logging.basicConfig(
-            format=format,
-            datefmt="%Y-%m-%d %H:%M:%S",
-            handlers=handlers,
-            level=level,
-            style="{",
-        )
+        logging.basicConfig(format=format, handlers=handlers, level=level, style="{")
 
         if logfile:
             logobj.info(f"This log is also available in {str(logfile)!r}.")

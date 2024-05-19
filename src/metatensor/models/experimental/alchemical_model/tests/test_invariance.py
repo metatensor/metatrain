@@ -12,7 +12,7 @@ from metatensor.torch.atomistic import (
 )
 
 from metatensor.models.experimental.alchemical_model import DEFAULT_HYPERS, Model
-from metatensor.models.utils.neighbors_lists import get_system_with_neighbors_lists
+from metatensor.models.utils.neighbor_lists import get_system_with_neighbor_lists
 
 from . import DATASET_PATH
 
@@ -30,18 +30,20 @@ def test_rotational_invariance():
             )
         },
         supported_devices=["cpu"],
+        interaction_range=DEFAULT_HYPERS["model"]["soap"]["cutoff"],
+        dtype="float32",
     )
     alchemical_model = Model(capabilities, DEFAULT_HYPERS["model"])
     system = ase.io.read(DATASET_PATH)
     original_system = copy.deepcopy(system)
     system.rotate(48, "y")
     original_system = systems_to_torch(original_system)
-    original_system = get_system_with_neighbors_lists(
-        original_system, alchemical_model.requested_neighbors_lists()
+    original_system = get_system_with_neighbor_lists(
+        original_system, alchemical_model.requested_neighbor_lists()
     )
     system = systems_to_torch(system)
-    system = get_system_with_neighbors_lists(
-        system, alchemical_model.requested_neighbors_lists()
+    system = get_system_with_neighbor_lists(
+        system, alchemical_model.requested_neighbor_lists()
     )
 
     evaluation_options = ModelEvaluationOptions(

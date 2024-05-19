@@ -7,14 +7,14 @@ from metatensor.torch.atomistic import (
     ModelEvaluationOptions,
     ModelMetadata,
     ModelOutput,
-    NeighborsListOptions,
+    NeighborListOptions,
     systems_to_torch,
 )
 from pet.data_preparation import get_pyg_graphs
 from pet.hypers import Hypers
 
 from metatensor.models.experimental.pet import DEFAULT_HYPERS, Model
-from metatensor.models.utils.neighbors_lists import get_system_with_neighbors_lists
+from metatensor.models.utils.neighbor_lists import get_system_with_neighbor_lists
 
 
 @pytest.mark.parametrize("cutoff", [0.25, 5.0])
@@ -34,6 +34,9 @@ def test_predictions_compatibility(cutoff):
             )
         },
         supported_devices=["cuda", "cpu"],
+        interaction_range=DEFAULT_HYPERS["ARCHITECTURAL_HYPERS"]["N_GNN_LAYERS"]
+        * DEFAULT_HYPERS["ARCHITECTURAL_HYPERS"]["R_CUT"],
+        dtype="float32",
     )
     hypers = DEFAULT_HYPERS["ARCHITECTURAL_HYPERS"]
     hypers["R_CUT"] = cutoff
@@ -41,9 +44,9 @@ def test_predictions_compatibility(cutoff):
     structure = ase.Atoms("O2", positions=[[0.0, 0.0, 0.0], [0.0, 0.0, 1.0]])
     system = systems_to_torch(structure)
 
-    options = NeighborsListOptions(cutoff=cutoff, full_list=True)
+    options = NeighborListOptions(cutoff=cutoff, full_list=True)
 
-    system = get_system_with_neighbors_lists(system, [options])
+    system = get_system_with_neighbor_lists(system, [options])
 
     evaluation_options = ModelEvaluationOptions(
         length_unit=capabilities.length_unit,

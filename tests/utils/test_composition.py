@@ -1,11 +1,11 @@
 from pathlib import Path
 
 import torch
-from metatensor.learn import Dataset
 from metatensor.torch import Labels, TensorBlock, TensorMap
 from metatensor.torch.atomistic import System
 
 from metatensor.models.utils.composition import calculate_composition_weights
+from metatensor.models.utils.data import Dataset
 
 
 RESOURCES_PATH = Path(__file__).parent.resolve() / ".." / "resources"
@@ -61,7 +61,7 @@ def test_calculate_composition_weights():
         )
         for i, e in enumerate(energies)
     ]
-    dataset = Dataset(system=systems, energy=energies)
+    dataset = Dataset({"system": systems, "energy": energies})
 
     weights, species = calculate_composition_weights(dataset, "energy")
 

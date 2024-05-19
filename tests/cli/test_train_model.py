@@ -12,7 +12,7 @@ import torch
 from omegaconf import OmegaConf
 from omegaconf.errors import ConfigKeyError
 
-from metatensor.models.cli.train import check_architecture_name, train_model
+from metatensor.models.cli.train import train_model
 from metatensor.models.utils.errors import ArchitectureError
 
 
@@ -21,6 +21,7 @@ DATASET_PATH = RESOURCES_PATH / "qm9_reduced_100.xyz"
 DATASET_PATH_2 = RESOURCES_PATH / "ethanol_reduced_100.xyz"
 OPTIONS_PATH = RESOURCES_PATH / "options.yaml"
 MODEL_PATH = RESOURCES_PATH / "model-32-bit.ckpt"
+MODEL_PATH_64_BIT = RESOURCES_PATH / "model-64-bit.ckpt"
 
 
 @pytest.fixture
@@ -173,7 +174,7 @@ def test_train_multiple_datasets(monkeypatch, tmp_path, options):
     options["training_set"][1]["systems"]["read_from"] = "ethanol_reduced_100.xyz"
     options["training_set"][1]["targets"]["energy"]["key"] = "energy"
     options["training_set"][0]["targets"].pop("energy")
-    options["training_set"][0]["targets"]["U0"] = OmegaConf.create({"key": "U0"})
+    options["training_set"][0]["targets"]["mtm::U0"] = OmegaConf.create({"key": "U0"})
 
     train_model(options)
 
@@ -327,7 +328,7 @@ def test_continue(options, monkeypatch, tmp_path):
     monkeypatch.chdir(tmp_path)
     shutil.copy(DATASET_PATH, "qm9_reduced_100.xyz")
 
-    train_model(options, continue_from=MODEL_PATH)
+    train_model(options, continue_from=MODEL_PATH_64_BIT)
 
 
 def test_continue_different_dataset(options, monkeypatch, tmp_path):
@@ -339,7 +340,7 @@ def test_continue_different_dataset(options, monkeypatch, tmp_path):
     options["training_set"]["systems"]["read_from"] = "ethanol_reduced_100.xyz"
     options["training_set"]["targets"]["energy"]["key"] = "energy"
 
-    train_model(options, continue_from=MODEL_PATH)
+    train_model(options, continue_from=MODEL_PATH_64_BIT)
 
 
 def test_no_architecture_name(options):
@@ -427,26 +428,3 @@ def test_architecture_error(options, monkeypatch, tmp_path):
 
     with pytest.raises(ArchitectureError, match="originates from an architecture"):
         train_model(options)
-
-
-def test_check_architecture_name():
-    check_architecture_name("experimental.soap_bpnn")
-
-
-def test_check_architecture_name_suggest():
-    name = "soap-bpnn"
-    match = f"Architecture {name!r} is not a valid architecture."
-    with pytest.raises(ValueError, match=match):
-        check_architecture_name(name)
-
-
-def test_check_architecture_name_experimental():
-    with pytest.raises(
-        ValueError, match="experimental architecture with the same name"
-    ):
-        check_architecture_name("soap_bpnn")
-
-
-def test_check_architecture_name_deprecated():
-    # Create once a deprecated architecture exist
-    pass

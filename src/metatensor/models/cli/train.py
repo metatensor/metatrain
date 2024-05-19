@@ -1,26 +1,28 @@
 import argparse
-import difflib
 import importlib
 import logging
 import os
 import random
-from importlib.util import find_spec
 from pathlib import Path
-from typing import Optional, Union
+from typing import Dict, List, Optional, Union
 
 import numpy as np
 import torch
-from metatensor.learn.data import Dataset
 from omegaconf import DictConfig, OmegaConf
 from omegaconf.errors import ConfigKeyError
 
-from .. import ARCHITECTURE_CONFIG_PATH, CONFIG_PATH
-from ..utils.data import DatasetInfo, TargetInfo, read_systems, read_targets
+from ..utils.architectures import check_architecture_name
+from ..utils.data import Dataset, DatasetInfo, TargetInfo, read_systems, read_targets
 from ..utils.data.dataset import _train_test_random_split
 from ..utils.devices import pick_devices
 from ..utils.errors import ArchitectureError
 from ..utils.io import check_suffix, export, save
-from ..utils.omegaconf import check_options_list, check_units, expand_dataset_config
+from ..utils.omegaconf import (
+    BASE_OPTIONS,
+    check_options_list,
+    check_units,
+    expand_dataset_config,
+)
 from .eval import _eval_targets
 from .formatter import CustomHelpFormatter
 
@@ -76,55 +78,11 @@ def _add_train_model_parser(subparser: argparse._SubParsersAction) -> None:
     )
 
 
-def check_architecture_name(name: str) -> None:
-    """Check if the requested architecture is avalible.
-
-    If the architecture is not found an :func:`ValueError` is raised. If an architecture
-    with the same name as an experimental or deprecated architecture exist, this
-    architecture is suggested. If no architecture exist the closest architecture is
-    given to help debugging typos.
-
-    :param name: name of the architecture
-    :raises ValueError: if the architecture is not found
-    """
-    try:
-        if find_spec(f"metatensor.models.{name}") is not None:
-            return
-        elif find_spec(f"metatensor.models.experimental.{name}") is not None:
-            msg = (
-                f"Architecture {name!r} is not a stable architecture. An "
-                "experimental architecture with the same name was found. Set "
-                f"`name: experimental.{name}` in your options file to use this "
-                "experimental architecture."
-            )
-        elif find_spec(f"metatensor.models.deprecated.{name}") is not None:
-            msg = (
-                f"Architecture {name!r} is not a stable architecture. A "
-                "deprecated architecture with the same name was found. Set "
-                f"`name: deprecated.{name}` in your options file to use this "
-                "deprecated architecture."
-            )
-    except ModuleNotFoundError:
-        arch_avail = [
-            f.stem
-            for f in (Path(CONFIG_PATH) / "architecture").iterdir()
-            if f.is_file()
-        ]
-        closest_match = difflib.get_close_matches(name, arch_avail, cutoff=0.3)
-        msg = (
-            f"Architecture {name!r} is not a valid architecture. Do you mean "
-            f"{', '.join(closest_match)}?"
-        )
-
-    raise ValueError(msg)
-
-
 def train_model(
-    options: DictConfig,
+    options: Union[DictConfig, Dict],
     output: str = "model.pt",
     checkpoint_dir: Union[str, Path] = ".",
     continue_from: Optional[str] = None,
-    override_options: Optional[DictConfig] = None,
 ) -> None:
     """Train an atomistic machine learning model using provided ``options``.
 
@@ -139,7 +97,6 @@ def train_model(
     :param checkpoint_dir: Path to save checkpoints and other intermediate output files
         like the fully expanded training options for a later restart.
     :param continue_from: File to continue training from.
-    :param override_options: Extra options to override values in ``options``.
     """
     try:
         architecture_name = options["architecture"]["name"]
@@ -152,20 +109,8 @@ def train_model(
 
     # Create training options merging base, architecture, user and override options in
     # order of importance.
-    base_options = OmegaConf.load(f"{CONFIG_PATH}/base.yaml")
-    architecture_options = OmegaConf.create(
-        {
-            "architecture": OmegaConf.load(
-                f"{ARCHITECTURE_CONFIG_PATH}/{architecture_name}.yaml"
-            )
-        }
-    )
-    if override_options is None:
-        override_options = OmegaConf.create({})
-
-    options = OmegaConf.merge(
-        base_options, architecture_options, options, override_options
-    )
+    architecture_default_hypers = {"architecture": architecture.DEFAULT_HYPERS}
+    options = OmegaConf.merge(BASE_OPTIONS, architecture_default_hypers, options)
 
     ###########################
     # PROCESS BASE PARAMETERS #
@@ -218,7 +163,7 @@ def train_model(
             dtype=dtype,
         )
         train_targets = read_targets(conf=train_options["targets"], dtype=dtype)
-        train_datasets.append(Dataset(system=train_systems, **train_targets))
+        train_datasets.append(Dataset({"system": train_systems, **train_targets}))
 
     train_size = 1.0
 
@@ -270,7 +215,7 @@ def train_model(
                 dtype=dtype,
             )
             test_targets = read_targets(conf=test_options["targets"], dtype=dtype)
-            test_dataset = Dataset(system=test_systems, **test_targets)
+            test_dataset = Dataset({"system": test_systems, **test_targets})
             test_datasets.append(test_dataset)
 
     logger.info("Setting up validation set")
@@ -324,7 +269,7 @@ def train_model(
                 conf=validation_options["targets"], dtype=dtype
             )
             validation_dataset = Dataset(
-                system=validation_systems, **validation_targets
+                {"system": validation_systems, **validation_targets}
             )
             validation_datasets.append(validation_dataset)
 
@@ -338,6 +283,16 @@ def train_model(
     ###########################
     logger.info("Setting up model")
 
+    # TODO: A more direct way to look up the gradients would be to get them from
+    # the configuration dict of the training run.
+    gradients: Dict[str, List[str]] = {}
+    for train_options in train_options_list:
+        for key in train_options["targets"].keys():
+            # look inside training sets and find gradients
+            for train_dataset in train_datasets:
+                if key in train_dataset[0].keys():
+                    gradients[key] = train_dataset[0][key].block().gradients_list()
+
     dataset_info = DatasetInfo(
         length_unit=(
             train_options_list[0]["systems"]["length_unit"]
@@ -349,6 +304,7 @@ def train_model(
                 quantity=value["quantity"],
                 unit=(value["unit"] if value["unit"] is not None else ""),
                 per_atom=False,  # TODO: read this from the config
+                gradients=gradients[key],
             )
             for train_options in train_options_list
             for key, value in train_options["targets"].items()
@@ -382,13 +338,11 @@ def train_model(
             extra_log_message = f" with index {i}"
 
         logger.info(f"Evaluating training dataset{extra_log_message}")
-        eval_options = {
-            target: tensormap.block().gradients_list()
-            for target, tensormap in train_dataset[0]._asdict().items()
-            if target != "system"
-        }
         _eval_targets(
-            exported_model, train_dataset, eval_options, return_predictions=False
+            exported_model,
+            train_dataset,
+            dataset_info.targets,
+            return_predictions=False,
         )
 
     for i, validation_dataset in enumerate(validation_datasets):
@@ -398,13 +352,11 @@ def train_model(
             extra_log_message = f" with index {i}"
 
         logger.info(f"Evaluating validation dataset{extra_log_message}")
-        eval_options = {
-            target: tensormap.block().gradients_list()
-            for target, tensormap in validation_dataset[0]._asdict().items()
-            if target != "system"
-        }
         _eval_targets(
-            exported_model, validation_dataset, eval_options, return_predictions=False
+            exported_model,
+            validation_dataset,
+            dataset_info.targets,
+            return_predictions=False,
         )
 
     for i, test_dataset in enumerate(test_datasets):
@@ -414,14 +366,6 @@ def train_model(
             extra_log_message = f" with index {i}"
 
         logger.info(f"Evaluating test dataset{extra_log_message}")
-        if len(test_dataset) == 0:
-            eval_options = {}
-        else:
-            eval_options = {
-                target: tensormap.block().gradients_list()
-                for target, tensormap in test_dataset[0]._asdict().items()
-                if target != "system"
-            }
         _eval_targets(
-            exported_model, test_dataset, eval_options, return_predictions=False
+            exported_model, test_dataset, dataset_info.targets, return_predictions=False
         )

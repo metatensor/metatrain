@@ -7,6 +7,7 @@ This is the API for the ``utils`` module of ``metatensor-models``.
    :maxdepth: 1
 
    data/index
+   architectures
    composition
    devices
    errors
@@ -17,6 +18,6 @@ This is the API for the ``utils`` module of ``metatensor-models``.
    loss
    merge_capabilities
    metrics
-   neighbors_lists
+   neighbor_lists
    omegaconf
    output_gradient

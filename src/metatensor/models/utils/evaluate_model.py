@@ -5,10 +5,12 @@ import torch
 from metatensor.torch import Labels, TensorBlock, TensorMap
 from metatensor.torch.atomistic import (
     ModelEvaluationOptions,
+    ModelOutput,
     System,
     register_autograd_neighbors,
 )
 
+from .data import TargetInfo
 from .io import is_exported
 from .output_gradient import compute_gradient
 
@@ -18,14 +20,14 @@ from .output_gradient import compute_gradient
 warnings.filterwarnings(
     "ignore",
     category=UserWarning,
-    message="neighbors",
+    message="neighbor",
 )  # TODO: this is not filtering out the warning for some reason
 
 
 def evaluate_model(
     model: Union[torch.nn.Module, torch.jit._script.RecursiveScriptModule],
     systems: List[System],
-    targets: Dict[str, List[str]],
+    targets: Dict[str, TargetInfo],
     is_training: bool,
     is_distributed: bool = False,
 ) -> Dict[str, TensorMap]:
@@ -57,9 +59,9 @@ def evaluate_model(
         if outputs_capabilities[target_name].quantity == "energy":
             energy_targets.append(target_name)
             # Check if the energy requires gradients:
-            if "positions" in targets[target_name]:
+            if "positions" in targets[target_name].gradients:
                 energy_targets_that_require_position_gradients.append(target_name)
-            if "strain" in targets[target_name]:
+            if "strain" in targets[target_name].gradients:
                 energy_targets_that_require_strain_gradients.append(target_name)
 
     if len(energy_targets_that_require_strain_gradients) > 0:
@@ -85,8 +87,8 @@ def evaluate_model(
                 cell=system.cell @ strain,
                 types=system.types,
             )
-            for nl_options in system.known_neighbors_lists():
-                nl = system.get_neighbors_list(nl_options)
+            for nl_options in system.known_neighbor_lists():
+                nl = system.get_neighbor_list(nl_options)
                 register_autograd_neighbors(
                     new_system,
                     TensorBlock(
@@ -97,7 +99,7 @@ def evaluate_model(
                     ),
                     check_consistency=True,
                 )
-                new_system.add_neighbors_list(nl_options, nl)
+                new_system.add_neighbor_list(nl_options, nl)
             new_systems.append(new_system)
         systems = new_systems
     else:
@@ -107,9 +109,7 @@ def evaluate_model(
                 system.positions.requires_grad_(True)
 
     # Based on the keys of the targets, get the outputs of the model:
-    model_outputs = _get_model_outputs(
-        model, systems, list(targets.keys()), is_distributed
-    )
+    model_outputs = _get_model_outputs(model, systems, targets, is_distributed)
 
     for energy_target in energy_targets:
         # If the energy target requires gradients, compute them:
@@ -260,7 +260,7 @@ def _get_capabilities(
 def _get_model_outputs(
     model: Union[torch.nn.Module, torch.jit._script.RecursiveScriptModule],
     systems: List[System],
-    targets: List[str],
+    targets: Dict[str, TargetInfo],
     is_distributed: bool,
 ) -> Dict[str, TensorMap]:
     if is_exported(model):
@@ -268,8 +268,10 @@ def _get_model_outputs(
         options = ModelEvaluationOptions(
             length_unit="",  # this is only needed for unit conversions in MD engines
             outputs={
-                key: _get_capabilities(model, is_distributed).outputs[key]
-                for key in targets
+                key: ModelOutput(
+                    quantity=value.quantity, unit=value.unit, per_atom=value.per_atom
+                )
+                for key, value in targets.items()
             },
         )
         # we check consistency here because this could be called from eval
@@ -278,7 +280,9 @@ def _get_model_outputs(
         return model(
             systems,
             {
-                key: _get_capabilities(model, is_distributed).outputs[key]
-                for key in targets
+                key: ModelOutput(
+                    quantity=value.quantity, unit=value.unit, per_atom=value.per_atom
+                )
+                for key, value in targets.items()
             },
         )

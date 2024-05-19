@@ -5,7 +5,8 @@ from typing import Dict, List, Optional, Union
 
 import torch
 import torch.distributed
-from metatensor.learn.data.dataset import Dataset
+from metatensor.torch import TensorMap
+from metatensor.learn.data import DataLoader
 from metatensor.torch.atomistic import ModelCapabilities, ModelOutput
 from torch.nn.parallel import DistributedDataParallel
 from torch.utils.data import DataLoader, DistributedSampler
@@ -13,6 +14,7 @@ from torch.utils.data import DataLoader, DistributedSampler
 from ...utils.composition import calculate_composition_weights
 from ...utils.data import (
     CombinedDataLoader,
+    Dataset,
     DatasetInfo,
     check_datasets,
     collate_fn,
@@ -28,7 +30,8 @@ from ...utils.loss import TensorMapDictLoss
 from ...utils.merge_capabilities import merge_capabilities
 from ...utils.metrics import RMSEAccumulator
 from ...utils.per_atom import divide_by_num_atoms
-from .model import DEFAULT_HYPERS, Model
+from . import DEFAULT_HYPERS
+from .model import Model
 
 
 logger = logging.getLogger(__name__)
@@ -66,15 +69,29 @@ def train(
         key: ModelOutput(
             quantity=value.quantity,
             unit=value.unit,
-            per_atom=False,
+            per_atom=True,
         )
         for key, value in dataset_info.targets.items()
     }
+
+    dtype = train_datasets[0][0]["system"].positions.dtype
+    if dtype == torch.float64:
+        dtype_string = "float64"
+    elif dtype == torch.float32:
+        dtype_string = "float32"
+    else:
+        raise ValueError(f"Unsupported dtype {dtype} in SOAP-BPNN")
+
+    # the model is always capable of outputting the last layer features
+    outputs["mtm::aux::last_layer_features"] = ModelOutput(per_atom=True)
+
     new_capabilities = ModelCapabilities(
         length_unit=dataset_info.length_unit,
         outputs=outputs,
         atomic_types=all_species,
-        supported_devices=["cpu", "cuda"],
+        supported_devices=["cuda", "cpu"],
+        interaction_range=hypers["model"]["soap"]["cutoff"],
+        dtype=dtype_string,
     )
 
     # Create the model:
@@ -134,6 +151,8 @@ def train(
     # Calculate and set the composition weights for all targets:
     logger.info("Calculating composition weights")
     for target_name in novel_capabilities.outputs.keys():
+        if "mtm::aux::" in target_name:
+            continue
         # TODO: warn in the documentation that capabilities that are already
         # present in the model won't recalculate the composition weights
         # find the datasets that contain the target:
@@ -291,10 +310,7 @@ def train(
             predictions = evaluate_model(
                 model,
                 systems,
-                {
-                    name: tensormap.block().gradients_list()
-                    for name, tensormap in targets.items()
-                },
+                {key: dataset_info.targets[key] for key in targets.keys()},
                 is_training=True,
                 is_distributed=is_distributed,
             )
@@ -327,10 +343,7 @@ def train(
             predictions = evaluate_model(
                 model,
                 systems,
-                {
-                    name: tensormap.block().gradients_list()
-                    for name, tensormap in targets.items()
-                },
+                {key: dataset_info.targets[key] for key in targets.keys()},
                 is_training=False,
                 is_distributed=is_distributed,
             )

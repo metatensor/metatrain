@@ -26,6 +26,8 @@ def test_forces(is_training):
                 unit="eV",
             )
         },
+        interaction_range=soap_bpnn.DEFAULT_HYPERS["model"]["soap"]["cutoff"],
+        dtype="float32",
     )
 
     model = soap_bpnn.Model(capabilities)
@@ -76,13 +78,34 @@ def test_virial(is_training):
 
     capabilities = ModelCapabilities(
         length_unit="Angstrom",
-        atomic_types=[21, 23, 24, 27, 29, 39, 40, 41, 72, 74, 78],
+        atomic_types=[
+            21,
+            23,
+            24,
+            26,
+            27,
+            29,
+            30,
+            39,
+            40,
+            41,
+            44,
+            45,
+            46,
+            47,
+            72,
+            74,
+            77,
+            78,
+        ],
         outputs={
             "energy": ModelOutput(
                 quantity="energy",
                 unit="eV",
             )
         },
+        interaction_range=soap_bpnn.DEFAULT_HYPERS["model"]["soap"]["cutoff"],
+        dtype="float32",
     )
 
     model = soap_bpnn.Model(capabilities)
@@ -146,13 +169,34 @@ def test_both(is_training):
 
     capabilities = ModelCapabilities(
         length_unit="Angstrom",
-        atomic_types=[21, 23, 24, 27, 29, 39, 40, 41, 72, 74, 78],
+        atomic_types=[
+            21,
+            23,
+            24,
+            26,
+            27,
+            29,
+            30,
+            39,
+            40,
+            41,
+            44,
+            45,
+            46,
+            47,
+            72,
+            74,
+            77,
+            78,
+        ],
         outputs={
             "energy": ModelOutput(
                 quantity="energy",
                 unit="eV",
             )
         },
+        interaction_range=soap_bpnn.DEFAULT_HYPERS["model"]["soap"]["cutoff"],
+        dtype="float32",
     )
 
     model = soap_bpnn.Model(capabilities)

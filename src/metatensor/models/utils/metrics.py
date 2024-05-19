@@ -55,6 +55,8 @@ class RMSEAccumulator:
         unless ``key`` contains one or more of the strings in ``not_per_atom``,
         in which case "{key} RMSE" will be returned.
 
+        :param not_per_atom: a list of strings. If any of these strings are present in a key,
+            the RMSE key will not be labeled as "(per atom)".
         :param is_distributed: if true, the RMSE will be computed across all ranks
             of the distributed system.
         """
