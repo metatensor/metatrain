@@ -13,9 +13,9 @@ from omegaconf.errors import ConfigKeyError
 
 from ..utils.architectures import check_architecture_name
 from ..utils.data import Dataset, DatasetInfo, TargetInfo, read_systems, read_targets
-from ..utils.distributed.logging import is_main_process
 from ..utils.data.dataset import _train_test_random_split
 from ..utils.devices import pick_devices
+from ..utils.distributed.logging import is_main_process
 from ..utils.errors import ArchitectureError
 from ..utils.io import check_suffix, export, save
 from ..utils.omegaconf import (

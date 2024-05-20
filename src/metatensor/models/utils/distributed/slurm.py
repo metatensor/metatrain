@@ -8,7 +8,7 @@ def is_slurm():
 
 
 def is_slurm_main_process():
-    return os.environ['SLURM_PROCID'] == '0'
+    return os.environ["SLURM_PROCID"] == "0"
 
 
 class DistributedEnvironment:

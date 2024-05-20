@@ -10,6 +10,7 @@ authors = [{name = "metatensor-models developers"}]
 
 dependencies = [
     "ase",
+    "python-hostlist",
     "metatensor-learn==0.2.2",
     "metatensor-operations==0.2.1",
     "metatensor-torch==0.5.1",

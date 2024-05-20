@@ -5,10 +5,7 @@ from typing import Dict, List, Optional, Union
 
 import torch
 import torch.distributed
-from metatensor.torch import TensorMap
-from metatensor.learn.data import DataLoader
 from metatensor.torch.atomistic import ModelCapabilities, ModelOutput
-from ...utils.distributed.distributed_data_parallel import DistributedDataParallel
 from torch.utils.data import DataLoader, DistributedSampler
 
 from ...utils.composition import calculate_composition_weights
@@ -21,7 +18,8 @@ from ...utils.data import (
     get_all_species,
     get_all_targets,
 )
-from ...utils.distributed.slurm_environment import DistributedEnvironment
+from ...utils.distributed.distributed_data_parallel import DistributedDataParallel
+from ...utils.distributed.slurm import DistributedEnvironment
 from ...utils.evaluate_model import evaluate_model
 from ...utils.extract_targets import get_outputs_dict
 from ...utils.io import is_exported, load, save
@@ -183,7 +181,9 @@ def train(
                     "Values were not supplied for all "
                     "the species in present in the dataset"
                 )
-            (model.module if is_distributed else model).set_composition_weights(target_name, fixed_weights, species)
+            (model.module if is_distributed else model).set_composition_weights(
+                target_name, fixed_weights, species
+            )
 
         else:
             train_datasets_with_target = []
@@ -198,7 +198,9 @@ def train(
             composition_weights, species = calculate_composition_weights(
                 train_datasets_with_target, target_name
             )
-            (model.module if is_distributed else model).set_composition_weights(target_name, composition_weights, species)
+            (model.module if is_distributed else model).set_composition_weights(
+                target_name, composition_weights, species
+            )
 
     logger.info("Setting up data loaders")
 
@@ -359,9 +361,7 @@ def train(
             validation_loss_batch = loss_fn(predictions, targets)
 
             if is_distributed:
-                torch.distributed.all_reduce(
-                    validation_loss_batch
-                )
+                torch.distributed.all_reduce(validation_loss_batch)
             validation_loss += validation_loss_batch.item()
             validation_rmse_calculator.update(predictions, targets)
         finalized_validation_info = validation_rmse_calculator.finalize(
