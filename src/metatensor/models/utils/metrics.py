@@ -48,7 +48,7 @@ class RMSEAccumulator:
                     + prediction_gradient.values.numel(),
                 )
 
-    def finalize(self, not_per_atom: List[str], is_distributed: bool = False) -> Dict[str, float]:
+    def finalize(self, not_per_atom: List[str], is_distributed: bool = False, device: torch.device = None) -> Dict[str, float]:
         """Finalizes the accumulator and return the RMSE for each key.
 
         All keys will be returned as "{key} RMSE (per atom)" in the output dictionary,
@@ -59,15 +59,17 @@ class RMSEAccumulator:
             the RMSE key will not be labeled as "(per atom)".
         :param is_distributed: if true, the RMSE will be computed across all ranks
             of the distributed system.
+        :param device: the local device to use for the computation. Only needed if
+            ``is_distributed`` is ``True``.
         """
 
         if is_distributed:
             for key, value in self.information.items():
-                value = torch.tensor(value[0]).to(torch.cuda.current_device())
-                n_elems = torch.tensor(value[1]).to(torch.cuda.current_device())
-                torch.distributed.all_reduce(value)
+                sse = torch.tensor(value[0]).to(device)
+                n_elems = torch.tensor(value[1]).to(device)
+                torch.distributed.all_reduce(sse)
                 torch.distributed.all_reduce(n_elems)
-                self.information[key] = (value.item(), n_elems.item())  # type: ignore
+                self.information[key] = (sse.item(), n_elems.item())  # type: ignore
 
         finalized_info = {}
         for key, value in self.information.items():

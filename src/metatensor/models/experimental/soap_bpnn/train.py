@@ -141,7 +141,10 @@ def train(
         device = devices[0]  # only one device, as we don't support multi-gpu for now
     dtype = train_datasets[0][0]["system"].positions.dtype
 
-    logger.info(f"training on device {device} with dtype {dtype}")
+    if is_distributed:
+        logger.info(f"Training on {world_size} devices with dtype {dtype}")
+    else:
+        logger.info(f"Training on device {device} with dtype {dtype}")
     model.to(device=device, dtype=dtype)
     if is_distributed:
         model = DistributedDataParallel(model, device_ids=[device])
@@ -328,7 +331,9 @@ def train(
             train_loss += train_loss_batch.item()
             train_rmse_calculator.update(predictions, targets)
         finalized_train_info = train_rmse_calculator.finalize(
-            not_per_atom=["positions_gradients"] + per_structure_targets
+            not_per_atom=["positions_gradients"] + per_structure_targets,
+            is_distributed=is_distributed,
+            device=device,
         )
 
         if is_distributed:
@@ -360,7 +365,9 @@ def train(
             validation_loss += validation_loss_batch.item()
             validation_rmse_calculator.update(predictions, targets)
         finalized_validation_info = validation_rmse_calculator.finalize(
-            not_per_atom=["positions_gradients"] + per_structure_targets
+            not_per_atom=["positions_gradients"] + per_structure_targets,
+            is_distributed=is_distributed,
+            device=device,
         )
 
         lr_scheduler.step(validation_loss)

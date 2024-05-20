@@ -27,7 +27,7 @@ class TensorMapLoss:
 
     def __init__(
         self,
-        reduction: str = "mean",
+        reduction: str = "sum",
         weight: float = 1.0,
         gradient_weights: Optional[Dict[str, float]] = None,
     ):
@@ -130,7 +130,7 @@ class TensorMapDictLoss:
     def __init__(
         self,
         weights: Dict[str, Dict[str, float]],
-        reduction: str = "mean",
+        reduction: str = "sum",
     ):
         self.losses = {}
         for key, weight in weights.items():
