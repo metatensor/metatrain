@@ -1,7 +1,7 @@
 Multi-GPU training
 ==================
 
-Some of the models in metatensor-models support multi-GPU training.
+Some of the architectures in metatensor-models support multi-GPU training.
 In multi-GPU training, every batch of samples is split into smaller
 mini-batches and the computation is run for each of the smaller mini-batches
 in parallel on different GPUs. The different gradients obtained on each
