@@ -55,7 +55,7 @@ def train(
     is_distributed = hypers["training"]["distributed"]
 
     if is_distributed:
-        distr_env = DistributedEnvironment()
+        distr_env = DistributedEnvironment(hypers["training"]["distributed_port"])
         torch.distributed.init_process_group(backend="nccl")
         world_size = torch.distributed.get_world_size()
         rank = torch.distributed.get_rank()

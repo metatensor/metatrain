@@ -21,6 +21,7 @@ model:
 
 training:
   distributed: False
+  distributed_port: 39591
   batch_size: 8
   num_epochs: 100
   learning_rate: 0.001
