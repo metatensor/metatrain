@@ -329,6 +329,7 @@ def train(
             optimizer.step()
 
             if is_distributed:
+                # sum the loss over all processes
                 torch.distributed.all_reduce(train_loss_batch)
             train_loss += train_loss_batch.item()
             train_rmse_calculator.update(predictions, targets)
@@ -361,6 +362,7 @@ def train(
             validation_loss_batch = loss_fn(predictions, targets)
 
             if is_distributed:
+                # sum the loss over all processes
                 torch.distributed.all_reduce(validation_loss_batch)
             validation_loss += validation_loss_batch.item()
             validation_rmse_calculator.update(predictions, targets)

@@ -12,6 +12,15 @@ def is_slurm_main_process():
 
 
 class DistributedEnvironment:
+    """
+    Distributed environment for Slurm.
+
+    This class sets up the distributed environment on Slurm. It reads
+    the necessary environment variables and sets them for use in the
+    PyTorch distributed utilities. Modified from
+    https://github.com/Lumi-supercomputer/lumi-reframe-tests/blob/main/checks/apps/deeplearning/pytorch/src/pt_distr_env.py.
+    """  # noqa: E501, E262
+
     def __init__(self):
         self._setup_distr_env()
         self.master_addr = os.environ["MASTER_ADDR"]
@@ -22,8 +31,8 @@ class DistributedEnvironment:
 
     def _setup_distr_env(self):
         hostnames = hostlist.expand_hostlist(os.environ["SLURM_JOB_NODELIST"])
-        os.environ["MASTER_ADDR"] = hostnames[0]
-        os.environ["MASTER_PORT"] = "39591"
+        os.environ["MASTER_ADDR"] = hostnames[0]  # set first node as master
+        os.environ["MASTER_PORT"] = "39591"  # choose a port
         os.environ["WORLD_SIZE"] = os.environ["SLURM_NTASKS"]
         os.environ["RANK"] = os.environ["SLURM_PROCID"]
         os.environ["LOCAL_RANK"] = os.environ["SLURM_LOCALID"]
