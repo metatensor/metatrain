@@ -956,7 +956,7 @@ class SubsetOfRegressors:
         X_pseudo: TensorMap,
         y: TensorMap,
         alpha: float = 1.0,
-        alpha_forces: float = None,
+        alpha_forces: Optional[float] = None,
         solver: str = "RKHS-QR",
         rcond: Optional[float] = None,
     ):
@@ -972,7 +972,8 @@ class SubsetOfRegressors:
         :param alpha:
             regularizationfor the energies, it must be a float
         :param alpha_forces:
-            regularizationfor the forces, it must be a float. If None is putted equal to alpha
+            regularization for the forces, it must be a float. If None is set
+            equal to alpha
         :param solver:
             determines which solver to use
         :param rcond:

@@ -104,4 +104,5 @@ sparse_points:
 
 training:
 ^^^^^^^^^
-:param  regularizer: values of the energy regularizer 
+:param  regularizer: values of the energy regularizer
+
