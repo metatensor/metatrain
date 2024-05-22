@@ -23,7 +23,7 @@ from ..utils.logging import MetricLogger
 from ..utils.metrics import RMSEAccumulator
 from ..utils.neighbor_lists import get_system_with_neighbor_lists
 from ..utils.omegaconf import expand_dataset_config
-from ..utils.per_atom import average_predictions_and_targets_by_num_atoms
+from ..utils.per_atom import average_by_num_atoms
 from .formatter import CustomHelpFormatter
 
 
@@ -167,11 +167,11 @@ def _eval_targets(
             key: value.to(device=device) for key, value in batch_targets.items()
         }
         batch_predictions = evaluate_model(model, systems, options, is_training=False)
-        batch_predictions, batch_targets = average_predictions_and_targets_by_num_atoms(
-            predictions=batch_predictions,
-            targets=batch_targets,
-            systems=systems,
-            per_structure_targets=[],
+        batch_predictions = average_by_num_atoms(
+            batch_predictions, systems, per_structure_keys=[]
+        )
+        batch_targets = average_by_num_atoms(
+            batch_targets, systems, per_structure_keys=[]
         )
         rmse_accumulator.update(batch_predictions, batch_targets)
         if return_predictions:
