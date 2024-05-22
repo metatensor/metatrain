@@ -6,6 +6,7 @@ from typing import Dict, List, Optional, Union
 import metatensor.torch
 import torch
 from metatensor.torch import Labels, TensorBlock, TensorMap
+from metatensor.torch.atomistic import MetatensorAtomisticModel
 from omegaconf import DictConfig, OmegaConf
 
 from ..utils.data import (
@@ -18,6 +19,7 @@ from ..utils.data import (
 )
 from ..utils.errors import ArchitectureError
 from ..utils.evaluate_model import evaluate_model
+from ..utils.export import is_exported
 from ..utils.io import load
 from ..utils.logging import MetricLogger
 from ..utils.metrics import RMSEAccumulator
@@ -121,13 +123,16 @@ def _concatenate_tensormaps(
 
 
 def _eval_targets(
-    model: torch.jit._script.RecursiveScriptModule,
+    model: Union[MetatensorAtomisticModel, torch.jit._script.RecursiveScriptModule],
     dataset: Union[Dataset, torch.utils.data.Subset],
     options: Dict[str, TargetInfo],
     return_predictions: bool,
 ) -> Optional[Dict[str, TensorMap]]:
     """Evaluates an exported model on a dataset and prints the RMSEs for each target.
-    Optionally, it also returns the predictions of the model."""
+    Optionally, it also returns the predictions of the model.
+
+    Wraps around metatensor.models.cli.evaluate_model.
+    """
 
     if len(dataset) == 0:
         logger.info("This dataset is empty. No evaluation will be performed.")
@@ -197,7 +202,7 @@ def eval_model(
     :param options: DictConfig to define a test dataset taken for the evaluation.
     :param output: Path to save the predicted values
     """
-    if not isinstance(model, torch.jit._script.RecursiveScriptModule):
+    if not is_exported(model):
         raise ValueError(
             "The model must already be exported to be used in `eval`. "
             "If you are trying to evaluate a checkpoint, export it first "

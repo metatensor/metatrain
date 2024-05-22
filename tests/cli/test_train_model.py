@@ -99,7 +99,6 @@ def test_command_line_override(monkeypatch, tmp_path, overrides):
     assert len(restart_glob) == 1
 
     restart_options = OmegaConf.load(restart_glob[0])
-    print(restart_options)
     assert restart_options["architecture"]["training"]["num_epochs"] == 2
 
     if len(overrides.split()) == 2:

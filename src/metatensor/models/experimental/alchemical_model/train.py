@@ -17,8 +17,10 @@ from ...utils.data import (
     get_all_targets,
 )
 from ...utils.evaluate_model import evaluate_model
+from ...utils.export import is_exported
 from ...utils.external_naming import to_external_name
-from ...utils.io import is_exported, load, save
+from ...utils.extract_targets import get_outputs_dict
+from ...utils.io import load, save
 from ...utils.logging import MetricLogger
 from ...utils.loss import TensorMapDictLoss
 from ...utils.metrics import RMSEAccumulator

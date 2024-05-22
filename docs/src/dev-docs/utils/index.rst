@@ -13,6 +13,7 @@ This is the API for the ``utils`` module of ``metatensor-models``.
    errors
    evaluate_model
    external_naming
+   export
    io
    logging
    loss
