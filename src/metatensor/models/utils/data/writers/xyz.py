@@ -78,9 +78,9 @@ def write_xyz(
                         .numpy()
                     )
                 elif "virial" in external_name:
-                    # here, we write the virials as stresses, but we could write them
-                    # as virials as well just to make sure
-                    external_name = external_name.replace("virial", "stress")
+                    # in this case, we write both the virial and the stress
+                    external_name_virial = external_name
+                    external_name_stress = external_name.replace("virial", "stress")
                     strain_derivatives = (
                         # squeeze the property dimension
                         gradient_block.values.detach()
@@ -98,7 +98,8 @@ def write_xyz(
                             "stresses cannot be written for "
                             "systems with zero volume."
                         )
-                    info[external_name] = strain_derivatives / cell_volume
+                    info[external_name_virial] = -strain_derivatives
+                    info[external_name_stress] = strain_derivatives / cell_volume
                 else:
                     info[external_name] = (
                         # squeeze the property dimension
