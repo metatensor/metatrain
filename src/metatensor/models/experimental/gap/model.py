@@ -99,7 +99,6 @@ class Model(torch.nn.Module):
         outputs: Dict[str, ModelOutput],
         selected_atoms: Optional[TorchLabels] = None,
     ) -> Dict[str, TorchTensorMap]:
-
         soap_features = self._soap_torch_calculator(
             systems, selected_samples=selected_atoms
         )
@@ -956,7 +955,8 @@ class SubsetOfRegressors:
         X: TensorMap,
         X_pseudo: TensorMap,
         y: TensorMap,
-        alpha: Union[float, TensorMap] = 1.0,
+        alpha: float = 1.0,
+        alpha_forces: float = None,
         solver: str = "RKHS-QR",
         rcond: Optional[float] = None,
     ):
@@ -969,18 +969,10 @@ class SubsetOfRegressors:
             if kernel type "precomputed" is used, the kernel k_mm is assumed
         :param y:
             targets
-        :param kernel_type:
-            type of kernel used
-        :param kernel_kwargs:
-            additional keyword argument for specific kernel
-            - **linear** None
-            - **polynomial** degree
-        :param accumulate_key_names:
-            a string or list of strings that specify which key names should be
-            accumulate to one kernel. This is intended for key columns inducing sparsity
-            in the properties (e.g. neighbour species)
         :param alpha:
-            regularization
+            regularizationfor the energies, it must be a float
+        :param alpha_forces:
+            regularizationfor the forces, it must be a float. If None is putted equal to alpha
         :param solver:
             determines which solver to use
         :param rcond:
@@ -990,7 +982,7 @@ class SubsetOfRegressors:
         Derivation
         ----------
 
-        We take equation (16b) (the mean expression)
+        We take equation the mean expression
 
         .. math::
 
@@ -1013,16 +1005,15 @@ class SubsetOfRegressors:
         $y\sigma^{-1}$
         """
         if isinstance(alpha, float):
-            alpha_tensor = metatensor.ones_like(y)
-            # here we should change the keys in case we shuffle the samples
-            # alpha_tensor = metatensor.slice(
-            #     alpha_tensor, axis="samples", labels=y.block().samples
-            # )
-            self._alpha = metatensor.multiply(alpha_tensor, alpha)
-        elif isinstance(alpha, TensorMap):
-            raise NotImplementedError("TensorMaps are not yet supported")
+            alpha_energy = alpha
         else:
-            raise ValueError("alpha must either be a float or a TensorMap")
+            raise ValueError("alpha must either be a float")
+
+        if alpha_forces is None:
+            alpha_forces = alpha_energy
+        else:
+            if not isinstance(alpha_forces, float):
+                raise ValueError("alpha must either be a float")
 
         X = X.to(arrays="numpy")
         X_pseudo = X_pseudo.to(arrays="numpy")
@@ -1053,9 +1044,9 @@ class SubsetOfRegressors:
 
             n_atoms_per_structure = np.array(n_atoms_per_structure)
             normalization = metatensor.operations._dispatch.sqrt(n_atoms_per_structure)
-            alpha_values = self._alpha.block(key).values
-            if not (np.allclose(alpha_values[0, 0], 0.0)):
-                normalization /= alpha_values[0, 0]
+
+            if not (np.allclose(alpha_energy, 0.0)):
+                normalization /= alpha_energy
             normalization = normalization[:, None]
 
             k_nm_reg = k_nm_block.values * normalization
@@ -1069,7 +1060,7 @@ class SubsetOfRegressors:
                             grad_shape[0] * grad_shape[1],
                             grad_shape[2],
                         )
-                        / alpha_values[0, 0],
+                        / alpha_forces,
                     ]
                 )
                 grad_shape = y_block.gradient("positions").values.shape
@@ -1080,7 +1071,7 @@ class SubsetOfRegressors:
                             grad_shape[0] * grad_shape[1],
                             grad_shape[2],
                         )
-                        / alpha_values[0, 0],
+                        / alpha_forces,
                     ]
                 )
             self._solver = _SorKernelSolver(

@@ -26,4 +26,5 @@ model:
     points: 50 # number of pseudo points to select, farthest point sampling is used
 
 training:
-  regularizer: 0.001 
+  regularizer: 0.001
+  regularizer_forces: null

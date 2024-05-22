@@ -133,16 +133,18 @@ def train(
             )
     train_y_values = train_y.block().values
     train_y_values = train_y_values - composition_energies.reshape(-1, 1)
+    train_block = metatensor.torch.TensorBlock(
+        values=train_y_values,
+        samples=train_y.block().samples,
+        components=train_y.block().components,
+        properties=train_y.block().properties,
+    )
+    if len(train_y[0].gradients_list()) > 0:
+        train_block.add_gradient("positions", train_y[0].gradient("positions"))
+
     train_y = metatensor.torch.TensorMap(
         train_y.keys,
-        [
-            metatensor.torch.TensorBlock(
-                values=train_y_values,
-                samples=train_y.block().samples,
-                components=train_y.block().components,
-                properties=train_y.block().properties,
-            )
-        ],
+        [train_block],
     )
 
     if len(train_y[0].gradients_list()) > 0:
@@ -166,8 +168,18 @@ def train(
 
     sparse_points = model._sampler.fit_transform(train_tensor)
     sparse_points = metatensor.operations.remove_gradients(sparse_points)
+    alpha_energy = hypers["training"]["regularizer"]
+    if hypers["training"]["regularizer_forces"] is None:
+        alpha_forces = alpha_energy
+    else:
+        alpha_forces = hypers["training"]["regularizer_forces"]
+
     model._subset_of_regressors.fit(
-        train_tensor, sparse_points, train_y, alpha=hypers["training"]["regularizer"]
+        train_tensor,
+        sparse_points,
+        train_y,
+        alpha=alpha_energy,
+        alpha_forces=alpha_forces,
     )
     # TODO: weight energies and forces differently (see regularizer section of model.py)
 
