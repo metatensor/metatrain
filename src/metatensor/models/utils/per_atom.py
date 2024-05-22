@@ -11,18 +11,18 @@ def average_by_num_atoms(
     per_structure_keys: List[str],
 ):
     """
-    Averages a dictionary of :py:class:`TensorMap`s by the number of
+    Averages a dictionary of :py:class:`TensorMap` objects by the number of
     atoms in each system.
 
     This function averages by the number of atoms in each system. Targets that
     are present in ``per_structure_keys`` will not be averaged.
 
-    :param tensor_map_dict: A dictionary of :py:class:`TensorMap`s.
+    :param tensor_map_dict: A dictionary of :py:class:`TensorMap` objects.
     :param systems: The systems used to compute the predictions.
     :param per_structure_keys: A list of keys whose corresponding
-        :py:class:`TensorMap`s that should not be averaged.
+        :py:class:`TensorMap` objects that should not be averaged.
 
-    :return: The dictionary of averaged :py:class:`TensorMap`s.
+    :return: The dictionary of averaged :py:class:`TensorMap` objects.
     """
     averaged_tensor_map_dict = {}
     device = systems[0].device
