@@ -134,6 +134,12 @@ def train(
             raise ValueError(err) from err
 
     if is_distributed:
+        if len(devices) > 1:
+            raise ValueError(
+                "Requested distributed training with the `multi-gpu` device. If you "
+                "want to run distributed training with SOAP-BPNN, please set `device` "
+                "to cuda."
+            )
         device = torch.device("cuda", distr_env.local_rank)
     else:
         device = devices[0]  # only one device, as we don't support multi-gpu for now
