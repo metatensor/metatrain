@@ -13,9 +13,8 @@ from omegaconf import OmegaConf
 
 from . import __version__
 from .cli.eval import _add_eval_model_parser, eval_model
-from .cli.export import _add_export_model_parser
+from .cli.export import _add_export_model_parser, export_model
 from .cli.train import _add_train_model_parser, train_model
-from .utils.io import export
 from .utils.logging import setup_logging
 
 
@@ -100,7 +99,7 @@ def main():
             if callable == "eval_model":
                 eval_model(**args.__dict__)
             elif callable == "export_model":
-                export(**args.__dict__)
+                export_model(**args.__dict__)
             elif callable == "train_model":
                 train_model(**args.__dict__)
             else:
