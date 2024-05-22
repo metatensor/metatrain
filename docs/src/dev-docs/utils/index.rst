@@ -12,6 +12,7 @@ This is the API for the ``utils`` module of ``metatensor-models``.
    devices
    errors
    evaluate_model
+   export
    extract_targets
    io
    logging

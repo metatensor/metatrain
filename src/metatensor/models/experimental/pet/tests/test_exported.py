@@ -1,5 +1,3 @@
-import os
-
 import ase
 import pytest
 import torch
@@ -11,17 +9,16 @@ from metatensor.torch.atomistic import (
 )
 
 from metatensor.models.experimental.pet import DEFAULT_HYPERS, Model
-from metatensor.models.utils.io import export, load
+from metatensor.models.utils.export import export
 from metatensor.models.utils.neighbor_lists import get_system_with_neighbor_lists
 
 
 @pytest.mark.parametrize("device", ["cpu", "cuda"])
-def test_to(tmp_path, device):
+def test_to(device):
     """Tests that the `.to()` method of the exported model works."""
     if device == "cuda" and not torch.cuda.is_available():
         pytest.skip("CUDA is not available")
 
-    os.chdir(tmp_path)
     dtype = torch.float32  # for now
     capabilities = ModelCapabilities(
         length_unit="Angstrom",
@@ -37,9 +34,8 @@ def test_to(tmp_path, device):
         dtype="float32",
     )
     pet = Model(capabilities, DEFAULT_HYPERS["ARCHITECTURAL_HYPERS"])
-    export(pet, "pet.pt")
-    exported = load("pet.pt")
 
+    exported = export(pet)
     exported.to(device=device, dtype=dtype)
 
     system = ase.Atoms("O2", positions=[[0.0, 0.0, 0.0], [0.0, 0.0, 1.0]])
