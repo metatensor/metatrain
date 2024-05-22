@@ -17,7 +17,8 @@ from ..utils.data.dataset import _train_test_random_split
 from ..utils.devices import pick_devices
 from ..utils.distributed.logging import is_main_process
 from ..utils.errors import ArchitectureError
-from ..utils.io import check_suffix, export, save
+from ..utils.export import export
+from ..utils.io import check_suffix, save
 from ..utils.omegaconf import (
     BASE_OPTIONS,
     check_options_list,
@@ -99,6 +100,8 @@ def train_model(
         like the fully expanded training options for a later restart.
     :param continue_from: File to continue training from.
     """
+    output_checked = check_suffix(filename=output, suffix=".pt")
+
     try:
         architecture_name = options["architecture"]["name"]
     except ConfigKeyError as exc:
@@ -323,6 +326,8 @@ def train_model(
             continue_from=continue_from,
             checkpoint_dir=str(checkpoint_dir),
         )
+
+        exported_model = export(model)
     except Exception as e:
         raise ArchitectureError(e)
 
@@ -330,10 +335,8 @@ def train_model(
         return  # only evaluate on the main process
 
     # TODO: Backup already existing output file?
-    output_checked = Path(check_suffix(filename=output, suffix=".pt"))
-    save(model, f"{output_checked.stem}.ckpt")
-    export(model, output_checked)
-    exported_model = torch.jit.load(str(output_checked))
+    save(model, f"{Path(output_checked).stem}.ckpt")
+    exported_model.export(output_checked)
 
     for i, train_dataset in enumerate(train_datasets):
         if len(train_datasets) == 1:
@@ -371,5 +374,8 @@ def train_model(
 
         logger.info(f"Evaluating test dataset{extra_log_message}")
         _eval_targets(
-            exported_model, test_dataset, dataset_info.targets, return_predictions=False
+            exported_model,
+            test_dataset,
+            dataset_info.targets,
+            return_predictions=False,
         )
