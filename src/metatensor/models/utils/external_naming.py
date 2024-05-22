@@ -45,7 +45,7 @@ def to_external_name(
     return external_name
 
 
-def from_external_name(external_name: str) -> str:
+def to_internal_name(external_name: str) -> str:
     """Converts an external names to internal names.
 
     This function is the inverse of :func:`to_external_names`.

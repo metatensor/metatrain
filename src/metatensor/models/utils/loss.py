@@ -111,7 +111,7 @@ class TensorMapDictLoss:
     """A loss function that operates on two ``Dict[str, metatensor.torch.TensorMap]``.
 
     At initialization, the user specifies a list of keys to use for the loss,
-    along with a weight for each key.`
+    along with a weight for each key.
 
     The loss is then computed as a weighted sum. Any keys that are not present
     in the dictionaries are ignored.

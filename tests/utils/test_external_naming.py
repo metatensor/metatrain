@@ -1,5 +1,5 @@
 from metatensor.models.utils.data.dataset import TargetInfo
-from metatensor.models.utils.external_naming import from_external_name, to_external_name
+from metatensor.models.utils.external_naming import to_external_name, to_internal_name
 
 
 def test_to_external_name():
@@ -34,26 +34,24 @@ def test_to_external_name():
     assert to_external_name("mtm::foo", quantities) == "mtm::foo"
 
 
-def test_from_external_name():
-    """Tests the from_external_name function."""
+def test_to_internal_name():
+    """Tests the to_internal_name function."""
 
-    assert from_external_name("forces") == "energy_positions_gradients"
+    assert to_internal_name("forces") == "energy_positions_gradients"
     assert (
-        from_external_name("forces[mtm::free_energy]")
+        to_internal_name("forces[mtm::free_energy]")
         == "mtm::free_energy_positions_gradients"
     )
     assert (
-        from_external_name("mtm::foo_positions_gradients")
+        to_internal_name("mtm::foo_positions_gradients")
         == "mtm::foo_positions_gradients"
     )
-    assert from_external_name("virial") == "energy_strain_gradients"
+    assert to_internal_name("virial") == "energy_strain_gradients"
     assert (
-        from_external_name("virial[mtm::free_energy]")
+        to_internal_name("virial[mtm::free_energy]")
         == "mtm::free_energy_strain_gradients"
     )
-    assert (
-        from_external_name("mtm::foo_strain_gradients") == "mtm::foo_strain_gradients"
-    )
-    assert from_external_name("energy") == "energy"
-    assert from_external_name("mtm::free_energy") == "mtm::free_energy"
-    assert from_external_name("mtm::foo") == "mtm::foo"
+    assert to_internal_name("mtm::foo_strain_gradients") == "mtm::foo_strain_gradients"
+    assert to_internal_name("energy") == "energy"
+    assert to_internal_name("mtm::free_energy") == "mtm::free_energy"
+    assert to_internal_name("mtm::foo") == "mtm::foo"

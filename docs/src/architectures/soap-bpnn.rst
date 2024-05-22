@@ -109,6 +109,9 @@ The parameters for the training loop are
 :param per_atom_targets: Specifies whether the model should be trained on a per-atom
     loss. In that case, the logger will also output per-atom metrics for that target. In
     any case, the final summary will be per-structure.
+:param loss_weights: Specifies the weights to be used in the loss for each target. The
+    weights should be a dictionary of floats, one for each target. All missing targets
+    are assigned a weight of 1.0.
 
 
 
@@ -143,6 +146,9 @@ hyperparameters to tune are (in decreasing order of importance):
 - ``radial_scaling`` hyperparameters: These hyperparameters control the radial scaling
   of the SOAP descriptor. In general, the default values should work well, but they
   might need to be adjusted for specific datasets.
+- ``loss_weights``: This controls the weighting of different contributions to the loss
+  (e.g., energy, forces, virial, etc.). The default values work well for most datasets,
+  but they might need to be adjusted.
 - ``layernorm``: Whether to use layer normalization before the neural network. Setting
   this hyperparameter to ``false`` will lead to slower convergence of training, but
   might lead to better generalization outside of the training set distribution.
