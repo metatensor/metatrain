@@ -130,7 +130,8 @@ def get_system_batch_dict(
     central_species = get_central_species(system, all_species, unique_index)
 
     index = torch.argsort(i_list, stable=True)
-    j_list = nl.samples.column("second_atom")[index]
+    j_list = j_list[index]
+    i_list = i_list[index]
     # This calcualtes, how many neighbors each central atom has
 
     # get_number_of_neighbors
@@ -150,6 +151,8 @@ def get_system_batch_dict(
             nl.samples.column("cell_shift_c")[None],
         )
     ).transpose(0, 1)[index]
+
+    D_list: torch.Tensor = nl.values[:, :, 0][index]
 
     # This calculates the indices of neighbor species in the
     # all_species tensor
@@ -171,9 +174,7 @@ def get_system_batch_dict(
         # are just padded with the padding_value.
         neighbors_index[j, :count] = j_list[cum_sum[j] : cum_sum[j + 1]]
         neighbors_shifts[j, :count] = S_list[cum_sum[j] : cum_sum[j + 1]]
-        displacement_vectors[j, :count] = nl.values[:, :, 0][
-            cum_sum[j] : cum_sum[j + 1]
-        ]
+        displacement_vectors[j, :count] = D_list[cum_sum[j] : cum_sum[j + 1]]
         padding_mask[j, count:] = True
 
     # get_neighbor_species
