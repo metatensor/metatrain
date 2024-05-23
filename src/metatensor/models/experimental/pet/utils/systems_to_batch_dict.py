@@ -159,8 +159,8 @@ def get_system_batch_dict(
     neighbors_shifts = torch.zeros(
         (len(system), max_num_neighbors, 3), device=device, dtype=torch.int64
     )
-    displacement_vectors_index = torch.zeros(
-        (len(system), max_num_neighbors), device=device, dtype=torch.int64
+    displacement_vectors = torch.zeros(
+        (len(system), max_num_neighbors, 3), device=device, dtype=torch.float32
     )
     padding_mask = torch.zeros(
         (len(system), max_num_neighbors), device=device, dtype=torch.bool
@@ -171,19 +171,10 @@ def get_system_batch_dict(
         # are just padded with the padding_value.
         neighbors_index[j, :count] = j_list[cum_sum[j] : cum_sum[j + 1]]
         neighbors_shifts[j, :count] = S_list[cum_sum[j] : cum_sum[j + 1]]
-        displacement_vectors_index[j, :count] = index[cum_sum[j] : cum_sum[j + 1]]
+        displacement_vectors[j, :count] = nl.values[:, :, 0][
+            cum_sum[j] : cum_sum[j + 1]
+        ]
         padding_mask[j, count:] = True
-
-    # get_displacement_vectors
-    if len(nl.values) == 0:
-        shape = displacement_vectors_index.shape
-        displacement_vectors = torch.zeros(
-            size=(shape[0], shape[1], 3),
-            device=device,
-            dtype=torch.float32,
-        )
-    else:
-        displacement_vectors = nl.values[:, :, 0][displacement_vectors_index]
 
     # get_neighbor_species
     neighbor_species = central_species[neighbors_index]
