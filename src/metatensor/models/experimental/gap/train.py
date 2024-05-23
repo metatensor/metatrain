@@ -181,7 +181,6 @@ def train(
         alpha=alpha_energy,
         alpha_forces=alpha_forces,
     )
-    # TODO: weight energies and forces differently (see regularizer section of model.py)
 
     # we export a torch scriptable regressor TorchSubsetofRegressors that is used in
     # the forward path
