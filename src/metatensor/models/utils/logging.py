@@ -49,6 +49,9 @@ class MetricLogger:
         self.digits = {}
         for name, metrics_dict in zip(names, initial_metrics):
             for key, value in metrics_dict.items():
+                if "loss" in key:
+                    # losses will be printed in scientific notation
+                    continue
                 self.digits[f"{name}_{key}"] = _get_digits(value)
 
         # This will be useful later for printing forces/virials/stresses:
@@ -126,7 +129,10 @@ class MetricLogger:
                     logging_string += f", {new_key}: "
                 else:
                     logging_string += f", {name} {new_key}: "
-                logging_string += f"{value:{self.digits[f'{name}_{key}'][0]}.{self.digits[f'{name}_{key}'][1]}f}"  # noqa: E501
+                if "loss" in key:  # print losses with scientific notation
+                    logging_string += f"{value:.3e}"
+                else:
+                    logging_string += f"{value:{self.digits[f'{name}_{key}'][0]}.{self.digits[f'{name}_{key}'][1]}f}"  # noqa: E501
 
         # If there is no epoch, the string will start with a comma. Remove it:
         if logging_string.startswith(", "):
