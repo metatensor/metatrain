@@ -27,7 +27,6 @@ def check_batch_dict_consistency(ref_batch, trial_batch):
     mask = ref_mask == False
 
     for key in ref_batch:
-        print(key)
         if key == "x":
             assert torch.allclose(
                 ref_batch["x"].flatten().sort()[0],
