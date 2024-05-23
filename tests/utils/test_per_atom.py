@@ -1,7 +1,46 @@
 import torch
 from metatensor.torch import Labels, TensorBlock, TensorMap
+from metatensor.torch.atomistic import System
 
-from metatensor.models.utils.per_atom import divide_by_num_atoms
+from metatensor.models.utils.per_atom import average_by_num_atoms, divide_by_num_atoms
+
+
+def test_average_by_num_atoms():
+    """Tests the average_by_num_atoms function."""
+
+    systems = [
+        System(
+            positions=torch.tensor([[0.0, 0.0, 0.0]]),
+            cell=torch.eye(3),
+            types=torch.tensor([0]),
+        ),
+        System(
+            positions=torch.tensor([[0.0, 0.0, 0.0], [0.0, 0.0, 0.0]]),
+            cell=torch.eye(3),
+            types=torch.tensor([0, 0]),
+        ),
+        System(
+            positions=torch.tensor([[0.0, 0.0, 0.0], [0.0, 0.0, 0.0], [0.0, 0.0, 0.0]]),
+            cell=torch.eye(3),
+            types=torch.tensor([0, 0, 0]),
+        ),
+    ]
+
+    block = TensorBlock(
+        values=torch.tensor([[1.0], [2.0], [3.0]]),
+        samples=Labels.range("samples", 3),
+        components=[],
+        properties=Labels("energy", torch.tensor([[0]])),
+    )
+
+    tensor_map = TensorMap(keys=Labels.single(), blocks=[block])
+    tensor_map_dict = {"energy": tensor_map}
+
+    averaged = average_by_num_atoms(tensor_map_dict, systems, per_structure_keys=[])
+
+    assert torch.allclose(
+        averaged["energy"].block().values, torch.tensor([1.0, 1.0, 1.0])
+    )
 
 
 def test_divide_by_num_atoms():
@@ -55,7 +94,7 @@ def test_divide_by_num_atoms():
         torch.tensor([[1.0], [1.0], [1.0]]),
     )
 
-    # forces should not be
+    # forces should not be divided by the number of atoms
     assert torch.allclose(
         tensor_map.block().gradient("position").values,
         torch.tensor([[1.0], [2.0], [3.0]]),
