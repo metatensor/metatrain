@@ -22,3 +22,4 @@ This is the API for the ``utils`` module of ``metatensor-models``.
    neighbor_lists
    omegaconf
    output_gradient
+   per_atom
