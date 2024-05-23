@@ -19,7 +19,7 @@ from ...utils.data import (
 )
 from ...utils.evaluate_model import evaluate_model
 from ...utils.export import is_exported
-from ...utils.extract_targets import get_outputs_dict
+from ...utils.external_naming import to_external_name
 from ...utils.io import load, save
 from ...utils.logging import MetricLogger
 from ...utils.loss import TensorMapDictLoss
@@ -204,20 +204,28 @@ def train(
         )
     validation_dataloader = CombinedDataLoader(validation_dataloaders, shuffle=False)
 
-    # Extract all the possible outputs and their gradients from the training set:
-    outputs_dict = get_outputs_dict(train_datasets)
-    for output_name in outputs_dict.keys():
-        if output_name not in model_capabilities.outputs:
-            raise ValueError(
-                f"Output {output_name} is not in the model's capabilities."
-            )
-
+    # Extract all the possible outputs and their gradients:
+    outputs_list = []
+    for target_name, target_info in dataset_info.targets.items():
+        outputs_list.append(target_name)
+        for gradient_name in target_info.gradients:
+            outputs_list.append(f"{target_name}_{gradient_name}_gradients")
     # Create a loss weight dict:
     loss_weights_dict = {}
-    for output_name, value_or_gradient_list in outputs_dict.items():
-        loss_weights_dict[output_name] = {
-            value_or_gradient: 1.0 for value_or_gradient in value_or_gradient_list
-        }
+    for output_name in outputs_list:
+        loss_weights_dict[output_name] = (
+            hypers_training["loss_weights"][
+                to_external_name(output_name, model_capabilities.outputs)
+            ]
+            if to_external_name(output_name, model_capabilities.outputs)
+            in hypers_training["loss_weights"]
+            else 1.0
+        )
+    loss_weights_dict_external = {
+        to_external_name(key, model_capabilities.outputs): value
+        for key, value in loss_weights_dict.items()
+    }
+    logging.info(f"Training with loss weights: {loss_weights_dict_external}")
 
     # Create a loss function:
     loss_fn = TensorMapDictLoss(loss_weights_dict)
