@@ -111,15 +111,13 @@ class TensorMapDictLoss:
     """A loss function that operates on two ``Dict[str, metatensor.torch.TensorMap]``.
 
     At initialization, the user specifies a list of keys to use for the loss,
-    along with a weight for each key (as well as gradient weights).
+    along with a weight for each key.
 
     The loss is then computed as a weighted sum. Any keys that are not present
     in the dictionaries are ignored.
 
-    :param weights: A dictionary mapping keys to weights. Each weight is itself
-        a dictionary mapping "values" to the weight to apply to the loss on the
-        block values, and gradient names to the weights to apply to the loss on
-        the gradients.
+    :param weights: A dictionary mapping keys to weights. This might contain
+        gradient keys, in the form ``<output_name>_<gradient_name>_gradients``.
     :param reduction: The reduction to apply to the loss.
         See :py:class:`torch.nn.MSELoss`.
 
@@ -129,16 +127,24 @@ class TensorMapDictLoss:
 
     def __init__(
         self,
-        weights: Dict[str, Dict[str, float]],
+        weights: Dict[str, float],
         reduction: str = "sum",
     ):
+        outputs = [key for key in weights.keys() if "gradients" not in key]
         self.losses = {}
-        for key, weight in weights.items():
-            # Remove the value weight from the gradient weights and store it separately:
-            value_weight = weight.pop("values")
-            # Define the loss relative to this key:
-            self.losses[key] = TensorMapLoss(
-                reduction=reduction, weight=value_weight, gradient_weights=weight
+        for output in outputs:
+            value_weight = weights[output]
+            gradient_weights = {}
+            for key, weight in weights.items():
+                if key.startswith(output) and key.endswith("_gradients"):
+                    gradient_name = key.replace(f"{output}_", "").replace(
+                        "_gradients", ""
+                    )
+                    gradient_weights[gradient_name] = weight
+            self.losses[output] = TensorMapLoss(
+                reduction=reduction,
+                weight=value_weight,
+                gradient_weights=gradient_weights,
             )
 
     def __call__(

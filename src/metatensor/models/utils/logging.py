@@ -10,6 +10,7 @@ import numpy as np
 from metatensor.torch.atomistic import ModelCapabilities
 
 from .distributed.logging import is_main_process
+from .external_naming import to_external_name
 from .io import check_suffix
 
 
@@ -53,16 +54,6 @@ class MetricLogger:
             for key, value in metrics_dict.items():
                 self.digits[f"{name}_{key}"] = _get_digits(value)
 
-        # This will be useful later for printing forces/virials/stresses:
-        energy_counter = 0
-        for output in model_capabilities.outputs.values():
-            if output.quantity == "energy":
-                energy_counter += 1
-        if energy_counter == 1:
-            self.only_one_energy = True
-        else:
-            self.only_one_energy = False
-
         # Save the model capabilities. This will be useful to know
         # what physical quantities we are printing
         self.model_capabilities = model_capabilities
@@ -99,33 +90,14 @@ class MetricLogger:
 
         for name, metrics_dict in zip(self.names, metrics):
             for key, value in metrics_dict.items():
+
                 new_key = key
-                if "_positions_gradients" in key:
-                    # check if this is a force
-                    target_name, metric = key.split(" ")
-                    target_name = target_name[: -len("_positions_gradients")]
-                    if (
-                        self.model_capabilities.outputs[target_name].quantity
-                        == "energy"
-                    ):
-                        # if this is a force, replace the ugly name with "force"
-                        if self.only_one_energy:
-                            new_key = f"force {metric}"
-                        else:
-                            new_key = f"force[{target_name} {metric}]"
-                elif "_strain_gradients" in key:
-                    # check if this is a virial
-                    target_name, metric = key.split(" ")
-                    target_name = target_name[: -len("_strain_gradients")]
-                    if (
-                        self.model_capabilities.outputs[target_name].quantity
-                        == "energy"
-                    ):
-                        # if this is a virial, replace the ugly name with "virial"
-                        if self.only_one_energy:
-                            new_key = f"virial {metric}"
-                        else:
-                            new_key = f"virial[{target_name}] {metric}"
+                if key != "loss":  # special case: not a metric associated with a target
+                    target_name, metric = new_key.split(" ", 1)
+                    target_name = to_external_name(
+                        target_name, self.model_capabilities.outputs
+                    )
+                    new_key = f"{target_name} {metric}"
 
                 if name == "":
                     logging_string += f", {new_key}: "
