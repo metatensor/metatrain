@@ -145,7 +145,6 @@ def get_system_batch_dict(
     # tensor([0, 0, 1, 1, 2, 2])
     # and we heavily rely on the fact that the indices of the atoms
     # are contiguous below.
-
     index = torch.argsort(i_list, stable=True)
     j_list = j_list[index]
     i_list = i_list[index]
@@ -168,7 +167,6 @@ def get_system_batch_dict(
     # This calculates the cumulative sum of the counts to get the
     # starting and ending indices of each atoms' neighbors in the
     # j_list.
-
     cum_sum = counts.cumsum(0)
     cum_sum = torch.cat((torch.tensor([0]), cum_sum))
 
@@ -226,10 +224,12 @@ def get_system_batch_dict(
     # The first atom has the neighbors with indices 25, 28, 39, etc.,
     # That means, in the list of neighbors of 25th atom, 4th atom will
     # have the index 0 (i.e. that will be the first atom).
+    #
     # >>> neighbors_index[25]
     # tensor([45, 29, 47,  0, ...])
     # >>> neighbors_index[25][3]
     # tensor(0)
+    #
     # and this is the element [0, 0] of the `reversed_neighbors_index`.
     #
     # We also demand the reversed cell shift vector to be the opposite
