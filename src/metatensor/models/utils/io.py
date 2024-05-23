@@ -2,15 +2,10 @@ import importlib
 import os
 import warnings
 from pathlib import Path
-from typing import Any, Union
+from typing import Union
 
 import metatensor.torch
 import torch
-from metatensor.torch.atomistic import (
-    MetatensorAtomisticModel,
-    ModelCapabilities,
-    ModelMetadata,
-)
 
 
 # This import is necessary to avoid errors when loading an
@@ -107,7 +102,7 @@ def load(
     elif path.endswith(".ckpt"):
         return _load_checkpoint(path)
     elif path.endswith(".pt"):
-        return _load_exported_model(path)
+        return metatensor.torch.atomistic.load_atomistic_model(path)
     else:
         raise ValueError(
             f"{path} is neither a valid 'checkpoint' nor an 'exported' model"
@@ -132,74 +127,3 @@ def _load_checkpoint(path: str) -> torch.nn.Module:
     model.load_state_dict(model_dict["model_state_dict"])
 
     return model
-
-
-def _load_exported_model(path: str) -> torch.jit._script.RecursiveScriptModule:
-    metatensor.torch.atomistic.check_atomistic_model(path)
-    return torch.jit.load(path)
-
-
-def export(model: torch.nn.Module, path: Union[str, Path]) -> None:
-    """Export a trained model to allow it to make predictions.
-
-    This includes predictions within molecular simulation engines. Exported models will
-    be saved with a ``.pt`` file ending. If ``path`` does not end with this file
-    extensions ``.pt`` will be added and a warning emitted.
-
-    :param model: model to be exported
-    :param path: path to save the exported model
-    """
-
-    if isinstance(path, Path):
-        path = str(path)
-
-    if not path.endswith(".pt"):
-        path += ".pt"
-        warnings.warn(
-            message=f"adding '.pt' extension, the file will be saved at '{path}'",
-            stacklevel=1,
-        )
-
-    # if the model is already exported we just save it again to the given path
-    if is_exported(model):
-        torch.jit.save(model, path)
-        return
-
-    if model.capabilities.length_unit == "":
-        warnings.warn(
-            "No `length_unit` was provided for the model. As a result, lengths "
-            "and any derived quantities will be passed to MD engines as is.",
-            stacklevel=1,
-        )
-
-    for model_output_name, model_output in model.capabilities.outputs.items():
-        if model_output.unit == "":
-            warnings.warn(
-                f"No target units were provided for output {model_output_name!r}. "
-                "As a result, this model output will be passed to MD engines as is.",
-                stacklevel=1,
-            )
-
-    model_capabilities_with_devices = ModelCapabilities(
-        length_unit=model.capabilities.length_unit,
-        atomic_types=model.capabilities.atomic_types,
-        outputs=model.capabilities.outputs,
-        supported_devices=["cpu", "cuda"],
-        interaction_range=model.capabilities.interaction_range,
-        dtype=model.capabilities.dtype,
-    )
-
-    wrapper = MetatensorAtomisticModel(
-        model.eval(), ModelMetadata(), model_capabilities_with_devices
-    )
-    wrapper.export(path)
-
-
-def is_exported(model: Any):
-    """Check if a model has been exported.
-
-    :param model: The model to check
-    :return: :py:obj:`True` if the ``model`` has been exported, :py:obj:`False`
-        otherwise
-    """
-    return isinstance(model, torch.jit._script.RecursiveScriptModule)

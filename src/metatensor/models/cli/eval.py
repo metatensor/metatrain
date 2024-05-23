@@ -6,6 +6,7 @@ from typing import Dict, List, Optional, Union
 import metatensor.torch
 import torch
 from metatensor.torch import Labels, TensorBlock, TensorMap
+from metatensor.torch.atomistic import MetatensorAtomisticModel
 from omegaconf import DictConfig, OmegaConf
 
 from ..utils.data import (
@@ -18,11 +19,13 @@ from ..utils.data import (
 )
 from ..utils.errors import ArchitectureError
 from ..utils.evaluate_model import evaluate_model
+from ..utils.export import is_exported
 from ..utils.io import load
 from ..utils.logging import MetricLogger
 from ..utils.metrics import RMSEAccumulator
 from ..utils.neighbor_lists import get_system_with_neighbor_lists
 from ..utils.omegaconf import expand_dataset_config
+from ..utils.per_atom import average_by_num_atoms
 from .formatter import CustomHelpFormatter
 
 
@@ -67,7 +70,7 @@ def _add_eval_model_parser(subparser: argparse._SubParsersAction) -> None:
 
 
 def _concatenate_tensormaps(
-    tensormaps: List[Dict[str, TensorMap]]
+    tensormap_dict_list: List[Dict[str, TensorMap]]
 ) -> Dict[str, TensorMap]:
     # Concatenating TensorMaps is tricky, because the model does not know the
     # "number" of the system it is predicting. For example, if a model predicts
@@ -77,8 +80,9 @@ def _concatenate_tensormaps(
     # ([0, 1, 2, ..., 11, 12]). Here, we fix this by renaming the system labels.
 
     system_counter = 0
+    n_systems = 0
     tensormaps_shifted_systems = []
-    for tensormap_dict in tensormaps:
+    for tensormap_dict in tensormap_dict_list:
         tensormap_dict_shifted = {}
         for name, tensormap in tensormap_dict.items():
             new_keys = []
@@ -121,13 +125,16 @@ def _concatenate_tensormaps(
 
 
 def _eval_targets(
-    model: torch.jit._script.RecursiveScriptModule,
+    model: Union[MetatensorAtomisticModel, torch.jit._script.RecursiveScriptModule],
     dataset: Union[Dataset, torch.utils.data.Subset],
     options: Dict[str, TargetInfo],
     return_predictions: bool,
 ) -> Optional[Dict[str, TensorMap]]:
     """Evaluates an exported model on a dataset and prints the RMSEs for each target.
-    Optionally, it also returns the predictions of the model."""
+    Optionally, it also returns the predictions of the model.
+
+    Wraps around metatensor.models.cli.evaluate_model.
+    """
 
     if len(dataset) == 0:
         logger.info("This dataset is empty. No evaluation will be performed.")
@@ -159,11 +166,19 @@ def _eval_targets(
 
     # Evaluate the model
     for batch in dataloader:
-        systems, targets = batch
+        systems, batch_targets = batch
         systems = [system.to(device=device) for system in systems]
-        targets = {key: value.to(device=device) for key, value in targets.items()}
+        batch_targets = {
+            key: value.to(device=device) for key, value in batch_targets.items()
+        }
         batch_predictions = evaluate_model(model, systems, options, is_training=False)
-        rmse_accumulator.update(batch_predictions, targets)
+        batch_predictions = average_by_num_atoms(
+            batch_predictions, systems, per_structure_keys=[]
+        )
+        batch_targets = average_by_num_atoms(
+            batch_targets, systems, per_structure_keys=[]
+        )
+        rmse_accumulator.update(batch_predictions, batch_targets)
         if return_predictions:
             all_predictions.append(batch_predictions)
 
@@ -197,7 +212,7 @@ def eval_model(
     :param options: DictConfig to define a test dataset taken for the evaluation.
     :param output: Path to save the predicted values
     """
-    if not isinstance(model, torch.jit._script.RecursiveScriptModule):
+    if not is_exported(model):
         raise ValueError(
             "The model must already be exported to be used in `eval`. "
             "If you are trying to evaluate a checkpoint, export it first "

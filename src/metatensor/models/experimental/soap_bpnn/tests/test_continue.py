@@ -9,7 +9,8 @@ import metatensor.models
 from metatensor.models.experimental.soap_bpnn import DEFAULT_HYPERS, Model, train
 from metatensor.models.utils.data import Dataset, DatasetInfo, TargetInfo
 from metatensor.models.utils.data.readers import read_systems, read_targets
-from metatensor.models.utils.io import export, save
+from metatensor.models.utils.export import export
+from metatensor.models.utils.io import save
 
 from . import DATASET_PATH
 
@@ -85,7 +86,9 @@ def test_continue(monkeypatch, tmp_path):
     assert metatensor.torch.allclose(output_before["mtm::U0"], output_after["mtm::U0"])
 
     # test error raise of model is already exported
-    export(model_before, "exported.pt")
+    exported = export(model_before)
+    exported.export("exported.pt")
+
     with pytest.raises(
         ValueError, match="model is already exported and can't be used for continue"
     ):

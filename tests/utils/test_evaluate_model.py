@@ -1,4 +1,3 @@
-import os
 from pathlib import Path
 
 import pytest
@@ -8,7 +7,7 @@ from metatensor.torch.atomistic import ModelCapabilities, ModelOutput
 from metatensor.models.experimental import soap_bpnn
 from metatensor.models.utils.data import TargetInfo, read_systems
 from metatensor.models.utils.evaluate_model import evaluate_model
-from metatensor.models.utils.io import export
+from metatensor.models.utils.export import export
 from metatensor.models.utils.neighbor_lists import get_system_with_neighbor_lists
 
 
@@ -17,7 +16,7 @@ RESOURCES_PATH = Path(__file__).parent.resolve() / ".." / "resources"
 
 @pytest.mark.parametrize("training", [True, False])
 @pytest.mark.parametrize("exported", [True, False])
-def test_evaluate_model(tmp_path, training, exported):
+def test_evaluate_model(training, exported):
     """Test that the evaluate_model function works as intended."""
 
     systems = read_systems(
@@ -43,9 +42,7 @@ def test_evaluate_model(tmp_path, training, exported):
 
     model = soap_bpnn.Model(capabilities)
     if exported:
-        os.chdir(tmp_path)
-        export(model, "model.pt")
-        model = torch.jit.load("model.pt")
+        model = export(model)
         systems = [
             get_system_with_neighbor_lists(system, model.requested_neighbor_lists())
             for system in systems

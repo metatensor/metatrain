@@ -4,6 +4,7 @@ from typing import Dict, List, Union
 import torch
 from metatensor.torch import Labels, TensorBlock, TensorMap
 from metatensor.torch.atomistic import (
+    MetatensorAtomisticModel,
     ModelEvaluationOptions,
     ModelOutput,
     System,
@@ -11,7 +12,7 @@ from metatensor.torch.atomistic import (
 )
 
 from .data import TargetInfo
-from .io import is_exported
+from .export import is_exported
 from .output_gradient import compute_gradient
 
 
@@ -25,7 +26,11 @@ warnings.filterwarnings(
 
 
 def evaluate_model(
-    model: Union[torch.nn.Module, torch.jit._script.RecursiveScriptModule],
+    model: Union[
+        torch.nn.Module,
+        MetatensorAtomisticModel,
+        torch.jit._script.RecursiveScriptModule,
+    ],
     systems: List[System],
     targets: Dict[str, TargetInfo],
     is_training: bool,
@@ -43,9 +48,8 @@ def evaluate_model(
 
     :returns: The predictions of the model for the requested targets.
     """
-
-    # Assert that all targets are within the model's capabilities:
     outputs_capabilities = _get_capabilities(model).outputs
+    # Assert that all targets are within the model's capabilities:
     if not set(targets.keys()).issubset(outputs_capabilities.keys()):
         raise ValueError("Not all targets are within the model's capabilities.")
 
@@ -253,7 +257,11 @@ def _get_capabilities(
 
 
 def _get_model_outputs(
-    model: Union[torch.nn.Module, torch.jit._script.RecursiveScriptModule],
+    model: Union[
+        torch.nn.Module,
+        MetatensorAtomisticModel,
+        torch.jit._script.RecursiveScriptModule,
+    ],
     systems: List[System],
     targets: Dict[str, TargetInfo],
 ) -> Dict[str, TensorMap]:

@@ -6,7 +6,8 @@ from metatensor.torch.atomistic import ModelCapabilities, ModelOutput
 
 from metatensor.models.experimental.soap_bpnn import DEFAULT_HYPERS, Model
 from metatensor.models.utils.data import read_systems
-from metatensor.models.utils.io import check_suffix, export, is_exported, load, save
+from metatensor.models.utils.export import is_exported
+from metatensor.models.utils.io import check_suffix, load, save
 
 
 RESOURCES_PATH = Path(__file__).parent.resolve() / ".." / "resources"
@@ -94,104 +95,6 @@ def test_no_checkpoint_no_export():
     match = f"{path} is neither a valid 'checkpoint' nor an 'exported' model"
     with pytest.raises(ValueError, match=match):
         load(path)
-
-
-@pytest.mark.parametrize("path", [Path("exported.pt"), "exported.pt"])
-def test_export(monkeypatch, tmp_path, path):
-    """Tests the export function"""
-    monkeypatch.chdir(tmp_path)
-
-    model = Model(
-        capabilities=ModelCapabilities(
-            atomic_types=[1],
-            length_unit="angstrom",
-            interaction_range=DEFAULT_HYPERS["model"]["soap"]["cutoff"],
-            dtype="float32",
-        )
-    )
-    export(model, path)
-
-    assert Path(path).is_file()
-
-
-def test_export_warning(monkeypatch, tmp_path):
-    monkeypatch.chdir(tmp_path)
-
-    model = Model(
-        capabilities=ModelCapabilities(
-            atomic_types=[1],
-            length_unit="angstrom",
-            interaction_range=DEFAULT_HYPERS["model"]["soap"]["cutoff"],
-            dtype="float32",
-        )
-    )
-
-    with pytest.warns(
-        match="adding '.pt' extension, the file will be saved at 'model.foo.pt'"
-    ):
-        export(model, "model.foo")
-
-
-def test_reexport(monkeypatch, tmp_path):
-    """Test that an already exported model can be loaded and again exported."""
-    monkeypatch.chdir(tmp_path)
-
-    model = Model(
-        capabilities=ModelCapabilities(
-            atomic_types=[1],
-            length_unit="angstrom",
-            interaction_range=DEFAULT_HYPERS["model"]["soap"]["cutoff"],
-            dtype="float32",
-        )
-    )
-    export(model, "exported.pt")
-
-    model_loaded = load("exported.pt")
-    export(model_loaded, "exported_new.pt")
-
-    assert Path("exported_new.pt").is_file()
-
-
-def test_is_exported():
-    """Tests the is_exported function"""
-
-    checkpoint = load(RESOURCES_PATH / "model-32-bit.ckpt")
-    exported_model = load(RESOURCES_PATH / "model-32-bit.pt")
-
-    assert is_exported(exported_model)
-    assert not is_exported(checkpoint)
-
-
-def test_length_units_warning(monkeypatch, tmp_path):
-    model = Model(
-        capabilities=ModelCapabilities(
-            atomic_types=[1],
-            interaction_range=DEFAULT_HYPERS["model"]["soap"]["cutoff"],
-            dtype="float32",
-        )
-    )
-
-    monkeypatch.chdir(tmp_path)
-    with pytest.warns(match="No `length_unit` was provided for the model."):
-        export(model, "exported.pt")
-
-
-def test_units_warning(monkeypatch, tmp_path):
-    monkeypatch.chdir(tmp_path)
-
-    outputs = {"mtm::output": ModelOutput(quantity="energy")}
-    model = Model(
-        capabilities=ModelCapabilities(
-            atomic_types=[1],
-            outputs=outputs,
-            length_unit="angstrom",
-            interaction_range=DEFAULT_HYPERS["model"]["soap"]["cutoff"],
-            dtype="float32",
-        )
-    )
-
-    with pytest.warns(match="No target units were provided for output 'mtm::output'"):
-        export(model, "exported.pt")
 
 
 @pytest.mark.parametrize("filename", ["example.txt", Path("example.txt")])

@@ -12,7 +12,8 @@ This is the API for the ``utils`` module of ``metatensor-models``.
    devices
    errors
    evaluate_model
-   extract_targets
+   external_naming
+   export
    io
    logging
    loss
@@ -21,3 +22,4 @@ This is the API for the ``utils`` module of ``metatensor-models``.
    neighbor_lists
    omegaconf
    output_gradient
+   per_atom
