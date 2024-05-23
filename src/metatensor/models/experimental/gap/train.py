@@ -13,7 +13,6 @@ from metatensor.models.utils.data import Dataset
 
 from ...utils.composition import calculate_composition_weights
 from ...utils.data import DatasetInfo, check_datasets, get_all_species
-from ...utils.extract_targets import get_outputs_dict
 from . import DEFAULT_HYPERS
 from .model import Model, torch_tensor_map_to_core
 
@@ -98,7 +97,7 @@ def train(
 
     logger.info("Training on device cpu")
 
-    outputs_dict = get_outputs_dict(train_datasets)
+    outputs_dict = dataset_info.targets
     if len(outputs_dict.keys()) > 1:
         raise NotImplementedError("More than one output is not supported yet.")
     output_name = next(iter(outputs_dict.keys()))
