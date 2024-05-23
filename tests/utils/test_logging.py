@@ -1,7 +1,9 @@
 import logging
 import re
 
-from metatensor.models.utils.logging import setup_logging
+from metatensor.torch.atomistic import ModelCapabilities, ModelOutput
+
+from metatensor.models.utils.logging import MetricLogger, setup_logging
 
 
 def assert_log_entry(logtext: str, loglevel: str, message: str) -> None:
@@ -79,3 +81,21 @@ def test_debug_log(caplog, monkeypatch, tmp_path, capsys):
         assert "A debug message" in logtext
         # Test that debug information is in output
         assert "test_logging.py:test_debug_log:67" in logtext
+
+
+def test_metric_logger_init():
+    model_capabilities = ModelCapabilities()
+    initial_metrics = {"loss": 0.1, "accuracy": 0.9}
+    names = "train"
+    metric_logger = MetricLogger(model_capabilities, initial_metrics, names)
+    assert metric_logger.digits == {"train_accuracy": (7, 5)}
+
+
+def test_metric_logger_log(caplog):
+    model_capabilities = ModelCapabilities(outputs={"energy": ModelOutput()})
+    initial_metrics = {"loss": 0.1, "energy_positions_gradients RMSE": 0.9}
+    names = "train"
+    metric_logger = MetricLogger(model_capabilities, initial_metrics, names)
+    metric_logger.log({"loss": 0.05, "energy_positions_gradients RMSE": 0.95}, epoch=1)
+    print(caplog.text)
+    assert "Epoch    1, train loss: 5.000e-02, train force RMSE: 0.95000" in caplog.text
