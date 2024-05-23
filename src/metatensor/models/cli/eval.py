@@ -26,6 +26,7 @@ from ..utils.logging import MetricLogger
 from ..utils.metrics import RMSEAccumulator
 from ..utils.neighbor_lists import get_system_with_neighbor_lists
 from ..utils.omegaconf import expand_dataset_config
+from ..utils.per_atom import average_by_num_atoms
 from .formatter import CustomHelpFormatter
 
 
@@ -70,7 +71,7 @@ def _add_eval_model_parser(subparser: argparse._SubParsersAction) -> None:
 
 
 def _concatenate_tensormaps(
-    tensormaps: List[Dict[str, TensorMap]]
+    tensormap_dict_list: List[Dict[str, TensorMap]]
 ) -> Dict[str, TensorMap]:
     # Concatenating TensorMaps is tricky, because the model does not know the
     # "number" of the system it is predicting. For example, if a model predicts
@@ -80,8 +81,9 @@ def _concatenate_tensormaps(
     # ([0, 1, 2, ..., 11, 12]). Here, we fix this by renaming the system labels.
 
     system_counter = 0
+    n_systems = 0
     tensormaps_shifted_systems = []
-    for tensormap_dict in tensormaps:
+    for tensormap_dict in tensormap_dict_list:
         tensormap_dict_shifted = {}
         for name, tensormap in tensormap_dict.items():
             new_keys = []
@@ -165,11 +167,19 @@ def _eval_targets(
 
     # Evaluate the model
     for batch in dataloader:
-        systems, targets = batch
+        systems, batch_targets = batch
         systems = [system.to(device=device) for system in systems]
-        targets = {key: value.to(device=device) for key, value in targets.items()}
+        batch_targets = {
+            key: value.to(device=device) for key, value in batch_targets.items()
+        }
         batch_predictions = evaluate_model(model, systems, options, is_training=False)
-        rmse_accumulator.update(batch_predictions, targets)
+        batch_predictions = average_by_num_atoms(
+            batch_predictions, systems, per_structure_keys=[]
+        )
+        batch_targets = average_by_num_atoms(
+            batch_targets, systems, per_structure_keys=[]
+        )
+        rmse_accumulator.update(batch_predictions, batch_targets)
         if return_predictions:
             all_predictions.append(batch_predictions)
 

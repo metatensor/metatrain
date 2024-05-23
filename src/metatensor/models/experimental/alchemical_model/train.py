@@ -24,7 +24,7 @@ from ...utils.logging import MetricLogger
 from ...utils.loss import TensorMapDictLoss
 from ...utils.metrics import RMSEAccumulator
 from ...utils.neighbor_lists import get_system_with_neighbor_lists
-from ...utils.per_atom import divide_by_num_atoms
+from ...utils.per_atom import average_by_num_atoms
 from . import DEFAULT_HYPERS
 from .model import Model
 from .utils.normalize import (
@@ -258,9 +258,10 @@ def train(
             )
 
             # average by the number of atoms
-            predictions, targets = _average_by_num_atoms(
-                predictions, targets, systems, per_structure_targets
+            predictions = average_by_num_atoms(
+                predictions, systems, per_structure_targets
             )
+            targets = average_by_num_atoms(targets, systems, per_structure_targets)
 
             train_loss_batch = loss_fn(predictions, targets)
             train_loss += train_loss_batch.item()
@@ -285,9 +286,10 @@ def train(
             )
 
             # average by the number of atoms
-            predictions, targets = _average_by_num_atoms(
-                predictions, targets, systems, per_structure_targets
+            predictions = average_by_num_atoms(
+                predictions, systems, per_structure_targets
             )
+            targets = average_by_num_atoms(targets, systems, per_structure_targets)
 
             validation_loss_batch = loss_fn(predictions, targets)
             validation_loss += validation_loss_batch.item()
@@ -338,15 +340,3 @@ def train(
                 break
 
     return model
-
-
-def _average_by_num_atoms(predictions, targets, systems, per_structure_targets):
-    device = systems[0].device
-    num_atoms = torch.tensor([len(s) for s in systems], device=device)
-    for target in targets.keys():
-        if target in per_structure_targets:
-            continue
-        predictions[target] = divide_by_num_atoms(predictions[target], num_atoms)
-        targets[target] = divide_by_num_atoms(targets[target], num_atoms)
-
-    return predictions, targets
