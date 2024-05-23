@@ -103,7 +103,6 @@ def test_predictions_compatibility(cutoff):
     hypers = DEFAULT_HYPERS["ARCHITECTURAL_HYPERS"]
     hypers["R_CUT"] = cutoff
     model = Model(capabilities, hypers)
-    # structure = ase.Atoms("O2", positions=[[0.0, 0.0, 0.0], [0.0, 0.0, 1.0]])
     system = systems_to_torch(structure)
 
     options = NeighborListOptions(cutoff=cutoff, full_list=True)

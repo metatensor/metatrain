@@ -114,36 +114,40 @@ def get_system_batch_dict(
     max_num_neighbors: int,
     selected_atoms_index: torch.Tensor,
     device: torch.device,
-):
+) -> Dict[str, torch.Tensor]:
 
     nl = system.get_neighbor_list(options)
     i_list = nl.samples.column("first_atom")
     j_list = nl.samples.column("second_atom")
 
+    # First we need to get the unique indices of the atoms in the system.
+    # This includes all the atoms in the system and their neighbors.
     unique_neighbors_index, counts = torch.unique(i_list, return_counts=True)
     unique_index = torch.unique(
         torch.cat((selected_atoms_index, unique_neighbors_index))
     )
 
+    # Then we remap the indices of the atoms to a contiguous format.
+    # Also see the docstring of the function for more details.
     i_list, j_list = remap_to_contiguous_indexing(i_list, j_list, unique_index, device)
 
+    # We get the indices of species of the central atoms in the system
+    # in the all_species tensor.
     central_species = get_central_species(system, all_species, unique_index)
 
+    # We sort the indices of the atoms in the system, to join the
+    # periodic images of the same atom together. Otherwise, the
+    # neighbor list may have a discontinuous indexing, like:
+    # >>> i_list
+    # tensor([0, 1, 2, 0, 1, 2])
+    # instead of
+    # >>> i_list
+    # tensor([0, 0, 1, 1, 2, 2])
+    # and we heavily rely on the fact that the indices of the atoms
+    # are contiguous below.
     index = torch.argsort(i_list, stable=True)
     j_list = j_list[index]
     i_list = i_list[index]
-    # This calcualtes, how many neighbors each central atom has
-
-    # get_number_of_neighbors
-    number_of_neighbors = torch.zeros(len(system), device=device, dtype=torch.int64)
-    number_of_neighbors[unique_neighbors_index] = counts
-
-    # This calculates the cumulative sum of the counts to slice
-    # the index tensor and add indices of the neighbors to the final tensor
-    cum_sum = counts.cumsum(0)
-    cum_sum = torch.cat((torch.tensor([0]), cum_sum))
-    # This calculates the species of all the neighbors
-
     S_list: torch.Tensor = torch.cat(
         (
             nl.samples.column("cell_shift_a")[None],
@@ -154,8 +158,23 @@ def get_system_batch_dict(
 
     D_list: torch.Tensor = nl.values[:, :, 0][index]
 
-    # This calculates the indices of neighbor species in the
-    # all_species tensor
+    # This calculates the number of neighbors for each atom.
+    # By default, the number of neighbors is zero, and we update this tensor
+    # with the counts of the unique indices of the i_list.
+    number_of_neighbors = torch.zeros(len(system), device=device, dtype=torch.int64)
+    number_of_neighbors[unique_neighbors_index] = counts
+
+    # This calculates the cumulative sum of the counts to get the
+    # starting and ending indices of each atoms' neighbors in the
+    # j_list.
+    cum_sum = counts.cumsum(0)
+    cum_sum = torch.cat((torch.tensor([0]), cum_sum))
+
+    # We initialize the tensors for the neighbors indices, shifts and
+    # displacement vectors with zeros, and then for each atom we
+    # fill them with the corresponding values from the j_list, S_list
+    # and D_list. The padding_mask is used to mask the padding values
+    # in the tensors.
     neighbors_index = torch.zeros(
         (len(system), max_num_neighbors), device=device, dtype=torch.int64
     )
@@ -171,16 +190,53 @@ def get_system_batch_dict(
     for j, count in enumerate(counts):
         # For each atom, we put the neighbors species indices up
         # to the number of neighbors, while the rest of the indices
-        # are just padded with the padding_value.
+        # are just padded with zeros.
         neighbors_index[j, :count] = j_list[cum_sum[j] : cum_sum[j + 1]]
         neighbors_shifts[j, :count] = S_list[cum_sum[j] : cum_sum[j + 1]]
         displacement_vectors[j, :count] = D_list[cum_sum[j] : cum_sum[j + 1]]
-        padding_mask[j, count:] = True
+        padding_mask[j, count:] = True  # padding mask is True for the padded values
 
-    # get_neighbor_species
+    # We get the indices of the species of the neighbors in the all_species tensor.
+    # The reason why this function works, is because all the neighborlists are full.
+    # This means that the total number of central atoms is equal to the total number of
+    # neighbors. Therefore, `central_species` already contains all the necessacy
+    # indices, and we can just index it with the `neighbors_index`.
     neighbor_species = central_species[neighbors_index]
 
-    # get_reversed_neighbor_species
+    # We get the reversed neighbors index, which is used in the PET model to
+    # account for edge information update not only with the central atoms data,
+    # but also with the neighbors data. This requires knowing the reversed indices
+    # of the neighbors in the neighbor list.
+    #
+    # The reversed neighbor index is basically the index of the central atom in the
+    # neighbor list of the neighbor atom.
+    #
+    # Example:
+    # >>> neighbors_index
+    # tensor([[25, 28, 39, ...],
+    #         ...
+    #         [ 2,  3,  4, ...]])
+    # >>> reversed_neighbors_index
+    # tensor([[ 3,  4,  1, ...],
+    #         ...
+    #         [ 3,  8,  7, ...]])
+    #
+    # The first atom has the neighbors with indices 25, 28, 39, etc.,
+    # That means, in the list of neighbors of 25th atom, 4th atom will
+    # have the index 0 (i.e. that will be the first atom).
+    #
+    # >>> neighbors_index[25]
+    # tensor([45, 29, 47,  0, ...])
+    # >>> neighbors_index[25][3]
+    # tensor(0)
+    #
+    # and this is the element [0, 0] of the `reversed_neighbors_index`.
+    #
+    # We also demand the reversed cell shift vector to be the opposite
+    # of the original cell shift vector. This is because sometimes the
+    # central atom may have two neighbors, which are the same atom, but
+    # different periodic images.
+
     reversed_neighbors_index = torch.zeros_like(neighbors_index)
     tmp_reversed_index = neighbors_index[neighbors_index]
     tmp_reversed_shifts = neighbors_shifts[neighbors_index]
