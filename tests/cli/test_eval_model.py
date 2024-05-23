@@ -66,7 +66,7 @@ def test_eval(monkeypatch, tmp_path, caplog, model_name, options):
 
     # Test target predictions
     log = "".join([rec.message for rec in caplog.records])
-    assert "energy RMSE" in log
+    assert "energy RMSE (per atom)" in log
     assert "dataset with index" not in log
 
     # Test file is written predictions
