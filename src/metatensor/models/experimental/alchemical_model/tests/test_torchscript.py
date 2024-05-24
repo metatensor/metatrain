@@ -1,8 +1,4 @@
-import copy
-
-import ase
 import torch
-from metatensor.torch.atomistic import systems_to_torch
 
 from metatensor.models.experimental.alchemical_model import AlchemicalModel
 from metatensor.models.utils.data import DatasetInfo, TargetInfo
