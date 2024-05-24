@@ -24,7 +24,7 @@ def check_batch_dict_consistency(ref_batch, trial_batch):
     ref_mask = ref_batch["mask"]
     trial_mask = trial_batch["mask"]
     assert torch.all(ref_mask == trial_mask)
-    mask = ref_mask == False
+    mask = ref_mask is False
 
     for key in ref_batch:
         if key == "x":

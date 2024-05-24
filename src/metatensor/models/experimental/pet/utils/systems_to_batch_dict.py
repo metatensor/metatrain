@@ -172,7 +172,8 @@ def remap_to_contiguous_indexing(
     remap the indices to a contiguous format.
 
     """
-    # index_map: Dict[int, int] = {int(index): i for i, index in enumerate(unique_index)}
+    # index_map: Dict[int, int] = {int(index): i for i, index in
+    # enumerate(unique_index)}
     # i_list = torch.tensor(
     #     [index_map[int(index)] for index in i_list],
     #     dtype=i_list.dtype,
