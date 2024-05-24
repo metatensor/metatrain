@@ -6,14 +6,10 @@ from omegaconf import OmegaConf
 
 import metatensor.models
 from metatensor.models.experimental.soap_bpnn import SOAPBPNN, Trainer
-from metatensor.models.utils.architectures import get_default_hypers
 from metatensor.models.utils.data import Dataset, DatasetInfo, TargetInfo
 from metatensor.models.utils.data.readers import read_systems, read_targets
 
-from . import DATASET_PATH
-
-
-DEFAULT_HYPERS = get_default_hypers("experimental.soap_bpnn")
+from . import DATASET_PATH, DEFAULT_HYPERS, MODEL_HYPERS
 
 
 def test_continue(monkeypatch, tmp_path):
@@ -35,7 +31,7 @@ def test_continue(monkeypatch, tmp_path):
             )
         },
     )
-    model = SOAPBPNN(DEFAULT_HYPERS["model"], dataset_info)
+    model = SOAPBPNN(MODEL_HYPERS, dataset_info)
     output_before = model(systems[:5], {"mtm::U0": model.outputs["mtm::U0"]})
 
     conf = {

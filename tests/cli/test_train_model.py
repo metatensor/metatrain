@@ -14,13 +14,13 @@ from omegaconf import OmegaConf
 from metatensor.models.cli.train import train_model
 from metatensor.models.utils.errors import ArchitectureError
 
-
-RESOURCES_PATH = Path(__file__).parent.resolve() / ".." / "resources"
-DATASET_PATH = RESOURCES_PATH / "qm9_reduced_100.xyz"
-DATASET_PATH_2 = RESOURCES_PATH / "ethanol_reduced_100.xyz"
-OPTIONS_PATH = RESOURCES_PATH / "options.yaml"
-MODEL_PATH = RESOURCES_PATH / "model-32-bit.ckpt"
-MODEL_PATH_64_BIT = RESOURCES_PATH / "model-64-bit.ckpt"
+from . import (
+    DATASET_PATH_ETHANOL,
+    DATASET_PATH_QM9,
+    MODEL_PATH_64_BIT,
+    OPTIONS_PATH,
+    RESOURCES_PATH,
+)
 
 
 @pytest.fixture
@@ -32,7 +32,7 @@ def options():
 def test_train(capfd, monkeypatch, tmp_path, output):
     """Test that training via the training cli runs without an error raise."""
     monkeypatch.chdir(tmp_path)
-    shutil.copy(DATASET_PATH, "qm9_reduced_100.xyz")
+    shutil.copy(DATASET_PATH_QM9, "qm9_reduced_100.xyz")
     shutil.copy(OPTIONS_PATH, "options.yaml")
 
     command = ["metatensor-models", "train", "options.yaml"]
@@ -87,7 +87,7 @@ def test_train(capfd, monkeypatch, tmp_path, output):
 def test_command_line_override(monkeypatch, tmp_path, overrides):
     """Test that training options can be overwritten from the command line."""
     monkeypatch.chdir(tmp_path)
-    shutil.copy(DATASET_PATH, "qm9_reduced_100.xyz")
+    shutil.copy(DATASET_PATH_QM9, "qm9_reduced_100.xyz")
     shutil.copy(OPTIONS_PATH, "options.yaml")
 
     command = ["metatensor-models", "train", "options.yaml", "-r", overrides]
@@ -121,7 +121,7 @@ def test_train_explicit_validation_test(
     monkeypatch.chdir(tmp_path)
     caplog.set_level(logging.DEBUG)
 
-    systems = ase.io.read(DATASET_PATH, ":")
+    systems = ase.io.read(DATASET_PATH_QM9, ":")
 
     ase.io.write("qm9_reduced_100.xyz", systems[:50])
 
@@ -162,11 +162,11 @@ def test_train_multiple_datasets(monkeypatch, tmp_path, options):
     also when learning on two different datasets."""
     monkeypatch.chdir(tmp_path)
 
-    systems = ase.io.read(DATASET_PATH, ":")
-    systems_2 = ase.io.read(DATASET_PATH_2, ":")
+    systems_qm9 = ase.io.read(DATASET_PATH_QM9, ":")
+    systems_ethanol = ase.io.read(DATASET_PATH_ETHANOL, ":")
 
-    ase.io.write("qm9_reduced_100.xyz", systems[:50])
-    ase.io.write("ethanol_reduced_100.xyz", systems_2[:50])
+    ase.io.write("qm9_reduced_100.xyz", systems_qm9[:50])
+    ase.io.write("ethanol_reduced_100.xyz", systems_ethanol[:50])
 
     options["training_set"] = OmegaConf.create(2 * [options["training_set"]])
     options["training_set"][1]["systems"]["read_from"] = "ethanol_reduced_100.xyz"
@@ -181,7 +181,7 @@ def test_empty_training_set(monkeypatch, tmp_path, options):
     """Test that an error is raised if no training set is provided."""
     monkeypatch.chdir(tmp_path)
 
-    shutil.copy(DATASET_PATH, "qm9_reduced_100.xyz")
+    shutil.copy(DATASET_PATH_QM9, "qm9_reduced_100.xyz")
 
     options["validation_set"] = 0.6
     options["test_set"] = 0.4
@@ -197,7 +197,7 @@ def test_wrong_test_split_size(split, monkeypatch, tmp_path, options):
     """Test that an error is raised if the test split has the wrong size"""
     monkeypatch.chdir(tmp_path)
 
-    shutil.copy(DATASET_PATH, "qm9_reduced_100.xyz")
+    shutil.copy(DATASET_PATH_QM9, "qm9_reduced_100.xyz")
 
     options["validation_set"] = 0.1
     options["test_set"] = split
@@ -212,7 +212,7 @@ def test_wrong_validation_split_size(split, monkeypatch, tmp_path, options):
     """Test that an error is raised if the validation split has the wrong size"""
     monkeypatch.chdir(tmp_path)
 
-    shutil.copy(DATASET_PATH, "qm9_reduced_100.xyz")
+    shutil.copy(DATASET_PATH_QM9, "qm9_reduced_100.xyz")
 
     options["validation_set"] = split
     options["test_set"] = 0.1
@@ -227,7 +227,7 @@ def test_empty_test_set(caplog, monkeypatch, tmp_path, options):
     monkeypatch.chdir(tmp_path)
     caplog.set_level(logging.DEBUG)
 
-    shutil.copy(DATASET_PATH, "qm9_reduced_100.xyz")
+    shutil.copy(DATASET_PATH_QM9, "qm9_reduced_100.xyz")
 
     options["validation_set"] = 0.4
     options["test_set"] = 0.0
@@ -251,7 +251,7 @@ def test_unit_check_is_performed(
     """Test that error is raised if units are inconsistent between the datasets."""
     monkeypatch.chdir(tmp_path)
 
-    systems = ase.io.read(DATASET_PATH, ":")
+    systems = ase.io.read(DATASET_PATH_QM9, ":")
 
     ase.io.write("qm9_reduced_100.xyz", systems[:50])
 
@@ -282,7 +282,7 @@ def test_inconsistent_number_of_datasets(
     i.e one train dataset but two validation datasets. Same for the test dataset."""
     monkeypatch.chdir(tmp_path)
 
-    systems = ase.io.read(DATASET_PATH, ":")
+    systems = ase.io.read(DATASET_PATH_QM9, ":")
 
     ase.io.write("qm9_reduced_100.xyz", systems[:50])
 
@@ -316,7 +316,7 @@ def test_inconsistencies_within_list_datasets(
 ):
     """Test error raise if inconsistency within one datasets config present."""
     monkeypatch.chdir(tmp_path)
-    shutil.copy(DATASET_PATH, "qm9_reduced_100.xyz")
+    shutil.copy(DATASET_PATH_QM9, "qm9_reduced_100.xyz")
 
     ref_dataset_conf = OmegaConf.create(2 * [options["training_set"]])
     broken_dataset_conf = ref_dataset_conf.copy()
@@ -341,7 +341,7 @@ def test_inconsistencies_within_list_datasets(
 def test_continue(options, monkeypatch, tmp_path):
     """Test that continuing training from a checkpoint runs without an error raise."""
     monkeypatch.chdir(tmp_path)
-    shutil.copy(DATASET_PATH, "qm9_reduced_100.xyz")
+    shutil.copy(DATASET_PATH_QM9, "qm9_reduced_100.xyz")
 
     train_model(options, continue_from=MODEL_PATH_64_BIT)
 
@@ -373,7 +373,7 @@ def test_model_consistency_with_seed(
 ):
     """Checks final model consistency with a fixed seed."""
     monkeypatch.chdir(tmp_path)
-    shutil.copy(DATASET_PATH, "qm9_reduced_100.xyz")
+    shutil.copy(DATASET_PATH_QM9, "qm9_reduced_100.xyz")
 
     options["architecture"]["name"] = architecture_name
     options["seed"] = seed
@@ -419,7 +419,7 @@ def test_error_base_precision(options, monkeypatch, tmp_path):
 def test_different_base_precision(options, monkeypatch, tmp_path, base_precision):
     """Test different `base_precision`s."""
     monkeypatch.chdir(tmp_path)
-    shutil.copy(DATASET_PATH, "qm9_reduced_100.xyz")
+    shutil.copy(DATASET_PATH_QM9, "qm9_reduced_100.xyz")
     options["base_precision"] = base_precision
     train_model(options)
 
@@ -437,7 +437,7 @@ def test_unsupported_dtype(options):
 def test_architecture_error(options, monkeypatch, tmp_path):
     """Test an error raise if there is problem wth the architecture."""
     monkeypatch.chdir(tmp_path)
-    shutil.copy(DATASET_PATH, "qm9_reduced_100.xyz")
+    shutil.copy(DATASET_PATH_QM9, "qm9_reduced_100.xyz")
 
     options["architecture"]["model"] = OmegaConf.create({"soap": {"cutoff": -1}})
 

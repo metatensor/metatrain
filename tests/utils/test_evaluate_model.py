@@ -1,19 +1,14 @@
-from pathlib import Path
-
 import pytest
 import torch
 from metatensor.torch.atomistic import ModelCapabilities
 
 from metatensor.models.experimental.soap_bpnn import __model__
-from metatensor.models.utils.architectures import get_default_hypers
 from metatensor.models.utils.data import DatasetInfo, TargetInfo, read_systems
 from metatensor.models.utils.evaluate_model import evaluate_model
 from metatensor.models.utils.export import export
 from metatensor.models.utils.neighbor_lists import get_system_with_neighbor_lists
 
-
-MODEL_HYPERS = get_default_hypers("experimental.soap_bpnn")["model"]
-RESOURCES_PATH = Path(__file__).parent.resolve() / ".." / "resources"
+from . import MODEL_HYPERS, RESOURCES_PATH
 
 
 @pytest.mark.parametrize("training", [True, False])

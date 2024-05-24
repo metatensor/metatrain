@@ -11,12 +11,9 @@ from metatensor.torch.atomistic import load_atomistic_model
 
 from metatensor.models.cli.export import export_model
 from metatensor.models.experimental.soap_bpnn import __model__
-from metatensor.models.utils.architectures import get_default_hypers
 from metatensor.models.utils.data import DatasetInfo, TargetInfo
 
-
-MODEL_HYPERS = get_default_hypers("experimental.soap_bpnn")["model"]
-RESOURCES_PATH = Path(__file__).parent.resolve() / ".." / "resources"
+from . import MODEL_HYPERS, RESOURCES_PATH
 
 
 @pytest.mark.parametrize("path", [Path("exported.pt"), "exported.pt"])

@@ -7,14 +7,10 @@ from metatensor.torch.atomistic import ModelOutput, systems_to_torch
 from omegaconf import OmegaConf
 
 from metatensor.models.experimental.soap_bpnn import SOAPBPNN, Trainer
-from metatensor.models.utils.architectures import get_default_hypers
 from metatensor.models.utils.data import Dataset, DatasetInfo, TargetInfo
 from metatensor.models.utils.data.readers import read_systems, read_targets
 
-from . import DATASET_PATH
-
-
-DEFAULT_HYPERS = get_default_hypers("experimental.soap_bpnn")
+from . import DATASET_PATH, DEFAULT_HYPERS, MODEL_HYPERS
 
 
 # reproducibility
@@ -36,7 +32,7 @@ def test_regression_init():
             )
         },
     )
-    model = SOAPBPNN(DEFAULT_HYPERS["model"], dataset_info)
+    model = SOAPBPNN(MODEL_HYPERS, dataset_info)
 
     # Predict on the first five systems
     systems = ase.io.read(DATASET_PATH, ":5")
@@ -99,7 +95,7 @@ def test_regression_train():
             ),
         },
     )
-    model = SOAPBPNN(DEFAULT_HYPERS["model"], dataset_info)
+    model = SOAPBPNN(MODEL_HYPERS, dataset_info)
 
     hypers["training"]["num_epochs"] = 1
     trainer = Trainer(hypers["training"])
