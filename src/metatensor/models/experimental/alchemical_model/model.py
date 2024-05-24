@@ -43,7 +43,7 @@ class AlchemicalModel(torch.nn.Module):
             key: ModelOutput(
                 quantity=value.quantity,
                 unit=value.unit,
-                per_atom=True,
+                per_atom=False,
             )
             for key, value in dataset_info.targets.items()
         }
