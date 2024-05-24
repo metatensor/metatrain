@@ -121,7 +121,7 @@ Thanks goes to all people that make metatensor-models possible:
 
 .. |tests| image:: https://github.com/lab-cosmo/metatensor-models/workflows/Tests/badge.svg
   :alt: Github Actions Tests Job Status
-  :target: https://github.com/lab-cosmo/metatensor-models/actions?query=workflow%3ATests
+  :target: https://github.com/lab-cosmo/metatensor-models/actions?query=branch%3Amain
 
 .. |codecov| image:: https://codecov.io/gh/lab-cosmo/metatensor-models/branch/main/graph/badge.svg
   :alt: Code coverage

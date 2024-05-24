@@ -249,7 +249,7 @@ def group_and_join(
 
 def merge_dataset_info(
     old_info: DatasetInfo, new_info: DatasetInfo
-) -> Tuple[DatasetInfo, List[int], List[TargetInfo]]:
+) -> Tuple[DatasetInfo, List[int], Dict[str, TargetInfo]]:
     """
     Merge two ``DatasetInfo`` objects.
 
