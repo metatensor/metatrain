@@ -3,12 +3,14 @@ import random
 import ase.io
 import numpy as np
 import torch
-from metatensor.torch.atomistic import ModelOutput, systems_to_torch
+from metatensor.torch.atomistic import ModelOutput, systems_to_torch, ModelEvaluationOptions
 from omegaconf import OmegaConf
 
 from metatensor.models.experimental.alchemical_model import AlchemicalModel, Trainer
 from metatensor.models.utils.data import Dataset, DatasetInfo, TargetInfo
 from metatensor.models.utils.data.readers import read_systems, read_targets
+from metatensor.models.utils.neighbor_lists import get_system_with_neighbor_lists
+
 
 from . import DATASET_PATH, DEFAULT_HYPERS, MODEL_HYPERS
 
@@ -34,13 +36,24 @@ def test_regression_init():
     )
     model = AlchemicalModel(MODEL_HYPERS, dataset_info)
 
-    # Predict on the first five systems
+# Predict on the first five systems
     systems = ase.io.read(DATASET_PATH, ":5")
+    systems = [systems_to_torch(system) for system in systems]
+    systems = [
+        get_system_with_neighbor_lists(
+            system, model.requested_neighbor_lists()
+        )
+        for system in systems
+    ]
 
-    output = model(
-        [systems_to_torch(system) for system in systems],
-        {"mtm::U0": ModelOutput(quantity="energy", unit="", per_atom=False)},
+    evaluation_options = ModelEvaluationOptions(
+        length_unit=model.dataset_info.length_unit,
+        outputs=model.outputs,
     )
+
+    exported = model.export()
+
+    output = exported(systems, evaluation_options, check_consistency=True)
 
     expected_output = torch.tensor(
         [
@@ -102,10 +115,14 @@ def test_regression_train():
     trainer.train(model, [torch.device("cpu")], [dataset], [dataset], ".")
 
     # Predict on the first five systems
-    output = model(
-        systems[:5],
-        {"mtm::U0": ModelOutput(quantity="energy", unit="", per_atom=False)},
+    evaluation_options = ModelEvaluationOptions(
+        length_unit=dataset_info.length_unit,
+        outputs=model.outputs,
     )
+
+    exported = model.export()
+
+    output = exported(systems[:5],evaluation_options, check_consistency=True)
 
     expected_output = torch.tensor(
         [

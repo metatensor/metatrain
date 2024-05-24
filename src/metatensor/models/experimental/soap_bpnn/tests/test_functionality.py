@@ -24,12 +24,12 @@ def test_prediction_subset_elements():
         },
     )
 
-    soap_bpnn = SoapBpnn(MODEL_HYPERS, dataset_info)
+    model = SoapBpnn(MODEL_HYPERS, dataset_info)
 
     system = ase.Atoms("O2", positions=[[0.0, 0.0, 0.0], [0.0, 0.0, 1.0]])
-    soap_bpnn(
+    model(
         [systems_to_torch(system)],
-        {"energy": soap_bpnn.outputs["energy"]},
+        {"energy": model.outputs["energy"]},
     )
 
 
@@ -48,7 +48,7 @@ def test_prediction_subset_atoms():
         },
     )
 
-    soap_bpnn = SoapBpnn(MODEL_HYPERS, dataset_info)
+    model = SoapBpnn(MODEL_HYPERS, dataset_info)
 
     # Since we don't yet support atomic predictions, we will test this by
     # predicting on a system with two monomers at a large distance
@@ -57,7 +57,7 @@ def test_prediction_subset_atoms():
         "NO2", positions=[[0.0, 0.0, 0.0], [0.0, 0.0, 1.0], [0.0, 0.0, 2.0]]
     )
 
-    energy_monomer = soap_bpnn(
+    energy_monomer = model(
         [systems_to_torch(system_monomer)],
         {"energy": ModelOutput(per_atom=False)},
     )
@@ -79,12 +79,12 @@ def test_prediction_subset_atoms():
         values=torch.tensor([[0, 0], [0, 2], [0, 3]]),
     )
 
-    energy_dimer = soap_bpnn(
+    energy_dimer = model(
         [systems_to_torch(system_far_away_dimer)],
         {"energy": ModelOutput(per_atom=False)},
     )
 
-    energy_monomer_in_dimer = soap_bpnn(
+    energy_monomer_in_dimer = model(
         [systems_to_torch(system_far_away_dimer)],
         {"energy": ModelOutput(per_atom=False)},
         selected_atoms=selection_labels,
@@ -112,7 +112,7 @@ def test_output_last_layer_features():
         },
     )
 
-    soap_bpnn = SoapBpnn(MODEL_HYPERS, dataset_info)
+    model = SoapBpnn(MODEL_HYPERS, dataset_info)
 
     system = ase.Atoms(
         "CHON",
@@ -125,10 +125,10 @@ def test_output_last_layer_features():
         unit="",
         per_atom=True,
     )
-    outputs = soap_bpnn(
+    outputs = model(
         [systems_to_torch(system, dtype=torch.get_default_dtype())],
         {
-            "energy": soap_bpnn.outputs["energy"],
+            "energy": model.outputs["energy"],
             "mtm::aux::last_layer_features": ll_output_options,
         },
     )
@@ -153,10 +153,10 @@ def test_output_last_layer_features():
         unit="",
         per_atom=False,
     )
-    outputs = soap_bpnn(
+    outputs = model(
         [systems_to_torch(system, dtype=torch.get_default_dtype())],
         {
-            "energy": soap_bpnn.outputs["energy"],
+            "energy": model.outputs["energy"],
             "mtm::aux::last_layer_features": ll_output_options,
         },
     )
@@ -185,16 +185,16 @@ def test_output_per_atom():
         },
     )
 
-    soap_bpnn = SoapBpnn(MODEL_HYPERS, dataset_info)
+    model = SoapBpnn(MODEL_HYPERS, dataset_info)
 
     system = ase.Atoms(
         "CHON",
         positions=[[0.0, 0.0, 0.0], [0.0, 0.0, 1.0], [0.0, 0.0, 2.0], [0.0, 0.0, 3.0]],
     )
 
-    outputs = soap_bpnn(
+    outputs = model(
         [systems_to_torch(system, dtype=torch.get_default_dtype())],
-        {"energy": soap_bpnn.outputs["energy"]},
+        {"energy": model.outputs["energy"]},
     )
 
     assert outputs["energy"].block().samples.names == ["system", "atom"]

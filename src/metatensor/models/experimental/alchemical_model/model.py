@@ -34,10 +34,10 @@ class AlchemicalModel(torch.nn.Module):
 
         target_name = next(iter(dataset_info.targets.keys()))
         if dataset_info.targets[target_name].quantity != "energy":
-            raise ValueError("The AlchemicalModel only supports energies as target")
+            raise ValueError("The AlchemicalModel only supports 'energies' as target")
 
         if dataset_info.targets[target_name].per_atom:
-            raise ValueError("The AlchemicalModel does not support per-atom training")
+            raise ValueError("The AlchemicalModel does not support 'per-atom' training")
 
         self.outputs = {
             key: ModelOutput(
@@ -59,9 +59,7 @@ class AlchemicalModel(torch.nn.Module):
             "Restarting is not supported for the AlchemicalModel."
         )
 
-    def requested_neighbor_lists(
-        self,
-    ) -> List[NeighborListOptions]:
+    def requested_neighbor_lists(self) -> List[NeighborListOptions]:
         return [
             NeighborListOptions(
                 cutoff=self.hypers["soap"]["cutoff"],
