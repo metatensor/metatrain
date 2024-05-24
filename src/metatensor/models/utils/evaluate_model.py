@@ -1,4 +1,3 @@
-import warnings
 from typing import Dict, List, Union
 
 import torch
@@ -14,15 +13,6 @@ from metatensor.torch.atomistic import (
 from .data import TargetInfo
 from .export import is_exported
 from .output_gradient import compute_gradient
-
-
-# Ignore metatensor-torch warning due to the fact that positions/cell
-# already require grad when registering the NL
-warnings.filterwarnings(
-    "ignore",
-    category=UserWarning,
-    message="neighbor",
-)  # TODO: this is not filtering out the warning for some reason
 
 
 def evaluate_model(
@@ -110,6 +100,13 @@ def evaluate_model(
             # Set positions to require gradients:
             for system in systems:
                 system.positions.requires_grad_(True)
+                for nl_options in system.known_neighbor_lists():
+                    nl = system.get_neighbor_list(nl_options)
+                    register_autograd_neighbors(
+                        system,
+                        nl,
+                        check_consistency=True,
+                    )
 
     # Based on the keys of the targets, get the outputs of the model:
     model_outputs = _get_model_outputs(model, systems, targets)

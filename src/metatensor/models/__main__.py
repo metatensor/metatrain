@@ -6,7 +6,6 @@ import logging
 import os
 import sys
 import traceback
-import warnings
 from datetime import datetime
 from pathlib import Path
 
@@ -93,7 +92,6 @@ def main():
         level = logging.DEBUG
     else:
         level = logging.INFO
-        warnings.filterwarnings("ignore")  # ignore all warnings if not in debug mode
 
     if callable == "eval_model":
         args.__dict__["model"] = metatensor.torch.atomistic.load_atomistic_model(
