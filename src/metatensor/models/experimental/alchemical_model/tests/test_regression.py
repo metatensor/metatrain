@@ -93,7 +93,6 @@ def test_regression_train():
     dataset = Dataset({"system": systems, "mtm::U0": targets["mtm::U0"]})
 
     hypers = DEFAULT_HYPERS.copy()
-    hypers["training"]["num_epochs"] = 2
 
     dataset_info = DatasetInfo(
         length_unit="Angstrom",
@@ -106,6 +105,11 @@ def test_regression_train():
         },
     )
     model = AlchemicalModel(MODEL_HYPERS, dataset_info)
+
+    systems = [
+        get_system_with_neighbor_lists(system, model.requested_neighbor_lists())
+        for system in systems
+    ]
 
     hypers["training"]["num_epochs"] = 1
     trainer = Trainer(hypers["training"])

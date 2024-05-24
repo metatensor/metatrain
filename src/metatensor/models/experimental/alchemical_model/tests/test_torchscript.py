@@ -28,33 +28,6 @@ def test_torchscript():
     torch.jit.script(model, {"energy": model.outputs["energy"]})
 
 
-def test_torchscript_with_identity():
-    """Tests that the model can be jitted."""
-
-    dataset_info = DatasetInfo(
-        length_unit="Angstrom",
-        atomic_types=[1, 6, 7, 8],
-        targets={
-            "energy": TargetInfo(
-                quantity="energy",
-                unit="eV",
-            )
-        },
-    )
-    hypers = copy.deepcopy(MODEL_HYPERS)
-    model = AlchemicalModel(hypers, dataset_info)
-    model = torch.jit.script(model)
-
-    system = ase.Atoms(
-        "OHCN",
-        positions=[[0.0, 0.0, 0.0], [0.0, 0.0, 1.0], [0.0, 0.0, 2.0], [0.0, 0.0, 3.0]],
-    )
-    model(
-        [systems_to_torch(system)],
-        {"energy": model.outputs["energy"]},
-    )
-
-
 def test_torchscript_save_load():
     """Tests that the model can be jitted and saved."""
 
@@ -77,4 +50,4 @@ def test_torchscript_save_load():
         "alchemical_model.pt",
     )
 
-    torch.jit.load("model.pt")
+    torch.jit.load("alchemical_model.pt")

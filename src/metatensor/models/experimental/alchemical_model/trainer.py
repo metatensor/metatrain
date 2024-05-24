@@ -1,11 +1,19 @@
 import logging
+import warnings
 from pathlib import Path
 from typing import List, Union
 
 import torch
 from metatensor.learn.data import DataLoader
 
-from ...utils.data import CombinedDataLoader, Dataset, collate_fn
+from ...utils.composition import calculate_composition_weights
+from ...utils.data import (
+    CombinedDataLoader,
+    Dataset,
+    check_datasets,
+    collate_fn,
+    get_all_targets,
+)
 from ...utils.evaluate_model import evaluate_model
 from ...utils.external_naming import to_external_name
 from ...utils.logging import MetricLogger
@@ -13,7 +21,7 @@ from ...utils.loss import TensorMapDictLoss
 from ...utils.metrics import RMSEAccumulator
 from ...utils.neighbor_lists import get_system_with_neighbor_lists
 from ...utils.per_atom import average_by_num_atoms
-from .model import AlchemicalModel
+from . import AlchemicalModel
 from .utils.normalize import (
     get_average_number_of_atoms,
     get_average_number_of_neighbors,
@@ -21,6 +29,13 @@ from .utils.normalize import (
 
 
 logger = logging.getLogger(__name__)
+
+
+# Filter out the second derivative and device warnings from rascaline-torch
+warnings.filterwarnings("ignore", category=UserWarning, message="second derivative")
+warnings.filterwarnings(
+    "ignore", category=UserWarning, message="Systems data is on device"
+)
 
 
 class Trainer:
@@ -36,6 +51,19 @@ class Trainer:
         checkpoint_dir: str,
     ):
         dtype = train_datasets[0][0]["system"].positions.dtype
+        device = devices[0]  # only one device, as we don't support multi-gpu for now
+
+        if len(model.dataset_info.targets) != 1:
+            raise ValueError("The Alchemical Model only supports a single target")
+        target_name = next(iter(model.dataset_info.targets.keys()))
+        if model.dataset_info.targets[target_name].quantity != "energy":
+            raise ValueError("The Alchemical Model only supports energies as target")
+        if model.dataset_info.targets[target_name].per_atom:
+            raise ValueError("The Alchemical Model does not support per-atom training")
+
+        # Perform canonical checks on the datasets:
+        logger.info("Checking datasets for consistency")
+        check_datasets(train_datasets, validation_datasets)
 
         # Calculating the neighbor lists for the training and validation datasets:
         logger.info("Calculating neighbor lists for the datasets")
@@ -59,10 +87,26 @@ class Trainer:
         model.set_normalization_factor(average_number_of_atoms)
         model.set_basis_normalization_factor(average_number_of_neighbors)
 
-        device = devices[0]  # only one device, as we don't support multi-gpu for now
-
         logger.info(f"Training on device {device} with dtype {dtype}")
         model.to(device=device, dtype=dtype)
+
+        # Calculate and set the composition weights, but only if
+        # this is the first training run:
+        # if continue_from is None:
+        for target_name in model.outputs.keys():
+            train_datasets_with_target = []
+            for dataset in train_datasets:
+                if target_name in get_all_targets(dataset):
+                    train_datasets_with_target.append(dataset)
+            if len(train_datasets_with_target) == 0:
+                raise ValueError(
+                    f"Target {target_name} in the model's new capabilities is not "
+                    "present in any of the training datasets."
+                )
+            composition_weights, species = calculate_composition_weights(
+                train_datasets_with_target, target_name
+            )
+            model.set_composition_weights(composition_weights.unsqueeze(0), species)
 
         logger.info("Setting up data loaders")
 
@@ -217,8 +261,7 @@ class Trainer:
 
             if epoch == 0:
                 metric_logger = MetricLogger(
-                    logobj=logger,
-                    model_outputs=model.outputs,
+                    model_capabilities=model.outputs,
                     initial_metrics=[finalized_train_info, finalized_validation_info],
                     names=["train", "validation"],
                 )
