@@ -254,7 +254,7 @@ def get_system_batch_dict(
     # starting and ending indices of each atoms' neighbors in the
     # j_list.
     cum_sum = counts.cumsum(0)
-    cum_sum = torch.cat((torch.tensor([0]), cum_sum))
+    cum_sum = torch.cat((torch.tensor([0], device=counts.device), cum_sum))
 
     # We initialize the tensors for the neighbors indices, shifts and
     # displacement vectors with zeros, and then for each atom we
@@ -336,7 +336,9 @@ def get_system_batch_dict(
         if len(tmp_index_1) > 0:
             _, counts = torch.unique(tmp_index_1, return_counts=True)
             cum_sum = counts.cumsum(0)
-            cum_sum = torch.cat((torch.tensor([0]), cum_sum[:-1]))
+            cum_sum = torch.cat(
+                (torch.tensor([0], device=cum_sum.device), cum_sum[:-1])
+            )
             reversed_neighbors_index[j, : number_of_neighbors[j]] = tmp_index_2[
                 cum_sum
             ][: number_of_neighbors[j]]
