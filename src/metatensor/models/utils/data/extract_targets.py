@@ -34,8 +34,8 @@ def get_targets_dict(
         for target_name, target_tmap in targets.items():
             if target_name not in dataset_info.targets.keys():
                 raise ValueError(
-                    f"Target {target_name} not found in the targets 
-                    specified in dataset_info."
+                    f"Target {target_name} not found in the targets "
+                    "specified in dataset_info."
                 )
             if target_name not in targets_dict:
                 targets_dict[target_name] = TargetInfo(

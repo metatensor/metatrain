@@ -3,10 +3,11 @@ from typing import Dict, List
 import ase
 import ase.io
 import metatensor.torch
-import numpy as np
 import torch
 from metatensor.torch import Labels, TensorMap
 from metatensor.torch.atomistic import ModelCapabilities, System
+
+from ...external_naming import to_external_name
 
 
 def write_xyz(
@@ -42,16 +43,6 @@ def write_xyz(
             # add the split target to the dict corresponding to the structure
             predictions_by_structure[i_system][target_name] = system_target
 
-    only_one_energy = (
-        np.sum(
-            [
-                capabilities.outputs[key].quantity == "energy"
-                for key in predictions.keys()
-            ]
-        )
-        == 1
-    )
-
     frames = []
     for system, system_predictions in zip(systems, predictions_by_structure):
         info = {}
@@ -75,50 +66,48 @@ def write_xyz(
 
             for gradient_name, gradient_block in block.gradients():
                 # here, we assume that gradients are always an array, and never a scalar
-                if capabilities.outputs[target_name].quantity == "energy":
-                    if gradient_name == "positions":
-                        if only_one_energy:
-                            name_for_saving = "forces"
-                        else:
-                            name_for_saving = f"forces[{target_name}]"
-                        arrays[name_for_saving] = (
-                            # squeeze the property dimension
-                            -gradient_block.values.detach()
-                            .cpu()
-                            .squeeze(-1)
-                            .numpy()
+                internal_name = f"{target_name}_{gradient_name}_gradients"
+                external_name = to_external_name(internal_name, capabilities.outputs)
+
+                if "forces" in external_name:
+                    arrays[external_name] = (
+                        # squeeze the property dimension
+                        -gradient_block.values.detach()
+                        .cpu()
+                        .squeeze(-1)
+                        .numpy()
+                    )
+                elif "virial" in external_name:
+                    # in this case, we write both the virial and the stress
+                    external_name_virial = external_name
+                    external_name_stress = external_name.replace("virial", "stress")
+                    strain_derivatives = (
+                        # squeeze the property dimension
+                        gradient_block.values.detach()
+                        .cpu()
+                        .squeeze(-1)
+                        .numpy()
+                    )
+                    if not torch.any(system.cell != 0):
+                        raise ValueError(
+                            "stresses cannot be written for non-periodic systems."
                         )
-                    elif gradient_name == "strain":
-                        strain_derivatives = (
-                            # squeeze the property dimension
-                            gradient_block.values.detach()
-                            .cpu()
-                            .squeeze(-1)
-                            .numpy()
+                    cell_volume = torch.det(system.cell).item()
+                    if cell_volume == 0:
+                        raise ValueError(
+                            "stresses cannot be written for "
+                            "systems with zero volume."
                         )
-                        if not torch.any(system.cell != 0):
-                            raise ValueError(
-                                "stresses cannot be written for non-periodic systems."
-                            )
-                        cell_volume = torch.det(system.cell).item()
-                        if cell_volume == 0:
-                            raise ValueError(
-                                "stresses cannot be written for "
-                                "systems with zero volume."
-                            )
-                        if only_one_energy:
-                            name_for_saving = "stress"
-                        else:
-                            name_for_saving = f"stress[{target_name}]"
-                        info[name_for_saving] = strain_derivatives / cell_volume
-                    else:
-                        info[f"{target_name}_{gradient_name}_gradients"] = (
-                            # squeeze the property dimension
-                            gradient_block.values.detach()
-                            .cpu()
-                            .squeeze(-1)
-                            .numpy()
-                        )
+                    info[external_name_virial] = -strain_derivatives
+                    info[external_name_stress] = strain_derivatives / cell_volume
+                else:
+                    info[external_name] = (
+                        # squeeze the property dimension
+                        gradient_block.values.detach()
+                        .cpu()
+                        .squeeze(-1)
+                        .numpy()
+                    )
 
         atoms = ase.Atoms(
             symbols=system.types, positions=system.positions.detach(), info=info

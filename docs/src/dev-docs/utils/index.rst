@@ -13,8 +13,8 @@ This is the API for the ``utils`` module of ``metatensor-models``.
    dtype
    errors
    evaluate_model
+   external_naming
    export
-   extract_targets
    io
    logging
    loss
