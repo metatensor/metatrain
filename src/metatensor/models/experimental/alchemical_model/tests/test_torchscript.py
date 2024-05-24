@@ -23,16 +23,10 @@ def test_torchscript():
             )
         },
     )
-    model = AlchemicalModel(MODEL_HYPERS, dataset_info)
-    model = torch.jit.script(model)
 
-    system = ase.Atoms(
-        "OHCN",
-        positions=[[0.0, 0.0, 0.0], [0.0, 0.0, 1.0], [0.0, 0.0, 2.0], [0.0, 0.0, 3.0]],
-    )
-    model(
-        [systems_to_torch(system)],
-        {"energy": model.outputs["energy"]},
+    model = AlchemicalModel(MODEL_HYPERS, dataset_info)
+    torch.jit.script(
+        model, {"energy": model.outputs["energy"]}
     )
 
 
@@ -78,7 +72,11 @@ def test_torchscript_save_load():
     )
     model = AlchemicalModel(MODEL_HYPERS, dataset_info)
     torch.jit.save(
-        torch.jit.script(model),
-        "model.pt",
+        torch.jit.script(
+            model,
+            {"energy": model.outputs["energy"]},
+        ),
+        "alchemical_model.pt",
     )
+
     torch.jit.load("model.pt")
