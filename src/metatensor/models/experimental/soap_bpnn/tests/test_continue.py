@@ -1,18 +1,19 @@
+import copy
 import shutil
 
-import pytest
 import torch
-from metatensor.torch.atomistic import ModelCapabilities, ModelOutput
 from omegaconf import OmegaConf
 
 import metatensor.models
-from metatensor.models.experimental.soap_bpnn import DEFAULT_HYPERS, Model, train
+from metatensor.models.experimental.soap_bpnn import SOAPBPNN, Trainer
+from metatensor.models.utils.architectures import get_default_hypers
 from metatensor.models.utils.data import Dataset, DatasetInfo, TargetInfo
 from metatensor.models.utils.data.readers import read_systems, read_targets
-from metatensor.models.utils.export import export
-from metatensor.models.utils.io import save
 
 from . import DATASET_PATH
+
+
+DEFAULT_HYPERS = get_default_hypers("experimental.soap_bpnn")
 
 
 def test_continue(monkeypatch, tmp_path):
@@ -24,24 +25,18 @@ def test_continue(monkeypatch, tmp_path):
 
     systems = read_systems(DATASET_PATH)
 
-    capabilities = ModelCapabilities(
+    dataset_info = DatasetInfo(
         length_unit="Angstrom",
         atomic_types=[1, 6, 7, 8],
-        outputs={
-            "mtm::U0": ModelOutput(
+        targets={
+            "mtm::U0": TargetInfo(
                 quantity="energy",
                 unit="eV",
             )
         },
-        interaction_range=DEFAULT_HYPERS["model"]["soap"]["cutoff"],
-        dtype="float32",
     )
-    model_before = Model(capabilities, DEFAULT_HYPERS["model"])
-    output_before = model_before(
-        systems[:5], {"mtm::U0": model_before.capabilities.outputs["mtm::U0"]}
-    )
-
-    save(model_before, "model.ckpt")
+    model = SOAPBPNN(DEFAULT_HYPERS["model"], dataset_info)
+    output_before = model(systems[:5], {"mtm::U0": model.outputs["mtm::U0"]})
 
     conf = {
         "mtm::U0": {
@@ -60,43 +55,17 @@ def test_continue(monkeypatch, tmp_path):
     hypers = DEFAULT_HYPERS.copy()
     hypers["training"]["num_epochs"] = 0
 
-    dataset_info = DatasetInfo(
-        length_unit="Angstrom",
-        targets={
-            "mtm::U0": TargetInfo(
-                quantity="energy",
-                unit="eV",
-            ),
-        },
-    )
-    model_after = train(
-        [dataset],
-        [dataset],
-        dataset_info,
-        [torch.device("cpu")],
-        hypers,
-        continue_from="model.ckpt",
-    )
+    model_before = copy.deepcopy(model)
+    model_after = model.restart(dataset_info)
+
+    hypers["training"]["num_epochs"] = 0
+    trainer = Trainer(hypers["training"])
+    trainer.train(model_after, [torch.device("cpu")], [dataset], [dataset], ".")
 
     # Predict on the first five systems
-    output_after = model_after(
-        systems[:5], {"mtm::U0": model_after.capabilities.outputs["mtm::U0"]}
+    output_before = model_before(
+        systems[:5], {"mtm::U0": model_before.outputs["mtm::U0"]}
     )
+    output_after = model_after(systems[:5], {"mtm::U0": model_after.outputs["mtm::U0"]})
 
     assert metatensor.torch.allclose(output_before["mtm::U0"], output_after["mtm::U0"])
-
-    # test error raise of model is already exported
-    exported = export(model_before)
-    exported.export("exported.pt")
-
-    with pytest.raises(
-        ValueError, match="model is already exported and can't be used for continue"
-    ):
-        train(
-            [dataset],
-            [dataset],
-            dataset_info,
-            [torch.device("cpu")],
-            hypers,
-            continue_from="exported.pt",
-        )

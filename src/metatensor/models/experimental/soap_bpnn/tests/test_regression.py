@@ -3,14 +3,18 @@ import random
 import ase.io
 import numpy as np
 import torch
-from metatensor.torch.atomistic import ModelCapabilities, ModelOutput, systems_to_torch
+from metatensor.torch.atomistic import ModelOutput, systems_to_torch
 from omegaconf import OmegaConf
 
-from metatensor.models.experimental.soap_bpnn import DEFAULT_HYPERS, Model, train
+from metatensor.models.experimental.soap_bpnn import SOAPBPNN, Trainer
+from metatensor.models.utils.architectures import get_default_hypers
 from metatensor.models.utils.data import Dataset, DatasetInfo, TargetInfo
 from metatensor.models.utils.data.readers import read_systems, read_targets
 
 from . import DATASET_PATH
+
+
+DEFAULT_HYPERS = get_default_hypers("experimental.soap_bpnn")
 
 
 # reproducibility
@@ -22,35 +26,33 @@ torch.manual_seed(0)
 def test_regression_init():
     """Perform a regression test on the model at initialization"""
 
-    capabilities = ModelCapabilities(
+    dataset_info = DatasetInfo(
         length_unit="Angstrom",
         atomic_types=[1, 6, 7, 8],
-        outputs={
-            "mtm::U0": ModelOutput(
+        targets={
+            "mtm::U0": TargetInfo(
                 quantity="energy",
                 unit="eV",
             )
         },
-        interaction_range=DEFAULT_HYPERS["model"]["soap"]["cutoff"],
-        dtype="float32",
     )
-    soap_bpnn = Model(capabilities, DEFAULT_HYPERS["model"])
+    model = SOAPBPNN(DEFAULT_HYPERS["model"], dataset_info)
 
     # Predict on the first five systems
     systems = ase.io.read(DATASET_PATH, ":5")
 
-    output = soap_bpnn(
+    output = model(
         [systems_to_torch(system) for system in systems],
-        {"mtm::U0": soap_bpnn.capabilities.outputs["mtm::U0"]},
+        {"mtm::U0": ModelOutput(quantity="energy", unit="", per_atom=False)},
     )
 
     expected_output = torch.tensor(
         [
-            [0.554494261742],
-            [0.554337739944],
-            [0.293447971344],
-            [0.212114095688],
-            [0.265181243420],
+            [-0.038599025458],
+            [0.111374437809],
+            [0.091115802526],
+            [-0.056339077652],
+            [-0.025491207838],
         ]
     )
 
@@ -89,6 +91,7 @@ def test_regression_train():
 
     dataset_info = DatasetInfo(
         length_unit="Angstrom",
+        atomic_types=[1, 6, 7, 8],
         targets={
             "mtm::U0": TargetInfo(
                 quantity="energy",
@@ -96,21 +99,25 @@ def test_regression_train():
             ),
         },
     )
-    soap_bpnn = train([dataset], [dataset], dataset_info, [torch.device("cpu")], hypers)
+    model = SOAPBPNN(DEFAULT_HYPERS["model"], dataset_info)
+
+    hypers["training"]["num_epochs"] = 1
+    trainer = Trainer(hypers["training"])
+    trainer.train(model, [torch.device("cpu")], [dataset], [dataset], ".")
 
     # Predict on the first five systems
-    output = soap_bpnn(
+    output = model(
         systems[:5],
         {"mtm::U0": ModelOutput(quantity="energy", unit="", per_atom=False)},
     )
 
     expected_output = torch.tensor(
         [
-            [-40.447849273682],
-            [-56.480846405029],
-            [-76.332939147949],
-            [-77.297348022461],
-            [-93.368278503418],
+            [-40.564655303955],
+            [-56.517837524414],
+            [-76.497428894043],
+            [-77.327507019043],
+            [-93.407928466797],
         ]
     )
 

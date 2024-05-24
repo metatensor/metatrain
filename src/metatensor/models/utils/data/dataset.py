@@ -71,12 +71,12 @@ class DatasetInfo:
     training functions of the individual models.
 
     :param length_unit: unit of length used in the dataset
-    :param all_types: all possible atom in the dataset
+    :param atomic_types: all the atomic types present in the dataset
     :param targets: information about targets in the dataset
     """
 
     length_unit: str
-    all_types: List[int]
+    atomic_types: List[int]
     targets: Dict[str, TargetInfo]
 
 
@@ -303,12 +303,12 @@ def merge_dataset_info(
             merged_outputs[key] = value
 
     # Find the merged atomic types:
-    merged_types = list(set(old_info.all_types + new_info.all_types))
+    merged_types = list(set(old_info.atomic_types + new_info.atomic_types))
 
     # Find the novel atomic types:
     novel_types = []
-    for type_ in new_info.all_types:
-        if type_ not in old_info.all_types:
+    for type_ in new_info.atomic_types:
+        if type_ not in old_info.atomic_types:
             novel_types.append(type_)
 
     # Find the new outputs:
@@ -319,7 +319,7 @@ def merge_dataset_info(
 
     merged_info = DatasetInfo(
         length_unit=old_info.length_unit,
-        all_types=merged_types,
+        atomic_types=merged_types,
         targets=merged_outputs,
     )
 

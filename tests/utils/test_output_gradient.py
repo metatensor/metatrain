@@ -21,7 +21,7 @@ def test_forces(is_training):
 
     dataset_info = DatasetInfo(
         length_unit="angstrom",
-        all_types=[1, 6, 7, 8],
+        atomic_types=[1, 6, 7, 8],
         targets={
             "energy": TargetInfo(
                 quantity="energy", unit="eV", per_atom=False, gradients=["positions"]
@@ -77,7 +77,7 @@ def test_virial(is_training):
 
     dataset_info = DatasetInfo(
         length_unit="angstrom",
-        all_types=[
+        atomic_types=[
             21,
             23,
             24,
@@ -164,7 +164,7 @@ def test_both(is_training):
     """Test that the forces and virial are calculated correctly together"""
     dataset_info = DatasetInfo(
         length_unit="angstrom",
-        all_types=[
+        atomic_types=[
             21,
             23,
             24,

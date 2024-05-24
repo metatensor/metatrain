@@ -80,7 +80,7 @@ def test_eval_export(monkeypatch, tmp_path, options):
     monkeypatch.chdir(tmp_path)
     dataset_info = DatasetInfo(
         length_unit="angstrom",
-        all_types=[1, 6, 7, 8],
+        atomic_types=[1, 6, 7, 8],
         targets={
             "energy": TargetInfo(
                 quantity="energy", unit="eV", per_atom=False, gradients=[]

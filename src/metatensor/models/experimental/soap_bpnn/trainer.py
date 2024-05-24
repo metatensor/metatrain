@@ -70,7 +70,7 @@ class Trainer:
                     all_types.append(key)
                     fixed_weights[ii] = weight
 
-                if not set(all_types) == set(model.dataset_info.all_types):
+                if not set(all_types) == set(model.dataset_info.atomic_types):
                     raise ValueError("Supplied types are not present in the dataset")
                 model.set_composition_weights(target_name, fixed_weights, all_types)
 

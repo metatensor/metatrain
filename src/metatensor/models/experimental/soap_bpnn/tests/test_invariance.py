@@ -2,29 +2,32 @@ import copy
 
 import ase.io
 import torch
-from metatensor.torch.atomistic import ModelCapabilities, ModelOutput, systems_to_torch
+from metatensor.torch.atomistic import systems_to_torch
 
-from metatensor.models.experimental.soap_bpnn import DEFAULT_HYPERS, Model
+from metatensor.models.experimental.soap_bpnn import SOAPBPNN
+from metatensor.models.utils.architectures import get_default_hypers
+from metatensor.models.utils.data import DatasetInfo, TargetInfo
 
 from . import DATASET_PATH
+
+
+DEFAULT_HYPERS = get_default_hypers("experimental.soap_bpnn")
 
 
 def test_rotational_invariance():
     """Tests that the model is rotationally invariant."""
 
-    capabilities = ModelCapabilities(
+    dataset_info = DatasetInfo(
         length_unit="Angstrom",
         atomic_types=[1, 6, 7, 8],
-        outputs={
-            "energy": ModelOutput(
+        targets={
+            "energy": TargetInfo(
                 quantity="energy",
                 unit="eV",
             )
         },
-        interaction_range=DEFAULT_HYPERS["model"]["soap"]["cutoff"],
-        dtype="float32",
     )
-    soap_bpnn = Model(capabilities, DEFAULT_HYPERS["model"])
+    soap_bpnn = SOAPBPNN(DEFAULT_HYPERS["model"], dataset_info)
 
     system = ase.io.read(DATASET_PATH)
     original_system = copy.deepcopy(system)
@@ -32,11 +35,11 @@ def test_rotational_invariance():
 
     original_output = soap_bpnn(
         [systems_to_torch(original_system)],
-        {"energy": soap_bpnn.capabilities.outputs["energy"]},
+        {"energy": soap_bpnn.outputs["energy"]},
     )
     rotated_output = soap_bpnn(
         [systems_to_torch(system)],
-        {"energy": soap_bpnn.capabilities.outputs["energy"]},
+        {"energy": soap_bpnn.outputs["energy"]},
     )
 
     torch.testing.assert_close(
