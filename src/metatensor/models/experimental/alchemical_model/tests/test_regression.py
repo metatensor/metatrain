@@ -3,14 +3,13 @@ import random
 import ase.io
 import numpy as np
 import torch
-from metatensor.torch.atomistic import ModelOutput, systems_to_torch, ModelEvaluationOptions
+from metatensor.torch.atomistic import ModelEvaluationOptions, systems_to_torch
 from omegaconf import OmegaConf
 
 from metatensor.models.experimental.alchemical_model import AlchemicalModel, Trainer
 from metatensor.models.utils.data import Dataset, DatasetInfo, TargetInfo
 from metatensor.models.utils.data.readers import read_systems, read_targets
 from metatensor.models.utils.neighbor_lists import get_system_with_neighbor_lists
-
 
 from . import DATASET_PATH, DEFAULT_HYPERS, MODEL_HYPERS
 
@@ -36,13 +35,11 @@ def test_regression_init():
     )
     model = AlchemicalModel(MODEL_HYPERS, dataset_info)
 
-# Predict on the first five systems
+    # Predict on the first five systems
     systems = ase.io.read(DATASET_PATH, ":5")
     systems = [systems_to_torch(system) for system in systems]
     systems = [
-        get_system_with_neighbor_lists(
-            system, model.requested_neighbor_lists()
-        )
+        get_system_with_neighbor_lists(system, model.requested_neighbor_lists())
         for system in systems
     ]
 
@@ -122,7 +119,7 @@ def test_regression_train():
 
     exported = model.export()
 
-    output = exported(systems[:5],evaluation_options, check_consistency=True)
+    output = exported(systems[:5], evaluation_options, check_consistency=True)
 
     expected_output = torch.tensor(
         [
