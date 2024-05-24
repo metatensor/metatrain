@@ -149,11 +149,7 @@ class AlchemicalModel(torch.nn.Module):
     def export(self) -> MetatensorAtomisticModel:
         dtype = next(self.parameters()).dtype
         if dtype not in self.__supported_dtypes__:
-<<<<<<< HEAD
-            raise ValueError(f"Unsupported dtype {self.dtype} for SOAP-BPNN")
-=======
             raise ValueError(f"unsupported dtype {dtype} for AlchemicalModel")
->>>>>>> 509b7d01 (start porting AlchemicalModel)
 
         capabilities = ModelCapabilities(
             outputs=self.outputs,
