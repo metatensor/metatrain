@@ -3,7 +3,7 @@ import pytest
 import torch
 from metatensor.torch.atomistic import ModelEvaluationOptions, systems_to_torch
 
-from metatensor.models.experimental.soap_bpnn import SOAPBPNN
+from metatensor.models.experimental.soap_bpnn import SoapBpnn
 from metatensor.models.utils.data import DatasetInfo, TargetInfo
 from metatensor.models.utils.neighbor_lists import get_system_with_neighbor_lists
 
@@ -27,7 +27,7 @@ def test_to(device, dtype):
             )
         },
     )
-    model = SOAPBPNN(MODEL_HYPERS, dataset_info).to(dtype=dtype)
+    model = SoapBpnn(MODEL_HYPERS, dataset_info).to(dtype=dtype)
     exported = model.export()
 
     exported.to(device=device)

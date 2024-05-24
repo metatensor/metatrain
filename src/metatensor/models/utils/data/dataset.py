@@ -80,12 +80,11 @@ class DatasetInfo:
     targets: Dict[str, TargetInfo]
 
 
-def get_all_types(datasets: Union[Dataset, List[Dataset]]) -> List[int]:
-    """
-    Returns the list of all types present in a dataset or list of datasets.
+def get_atomic_types(datasets: Union[Dataset, List[Dataset]]) -> List[int]:
+    """List of all atomic types present in a dataset or list of datasets.
 
     :param datasets: the dataset, or list of datasets
-    :returns: sorted list of all types present in the datasets
+    :returns: sorted list of all atomic types present in the datasets
     """
 
     if not isinstance(datasets, list):
@@ -106,12 +105,11 @@ def get_all_types(datasets: Union[Dataset, List[Dataset]]) -> List[int]:
 
 
 def get_all_targets(datasets: Union[Dataset, List[Dataset]]) -> List[str]:
-    """
-    Returns the list of all targets present in a dataset or list of datasets.
+    """List of all targets present in a dataset or list of datasets.
 
     :param datasets: the dataset(s).
-    :returns: list of targets present in the dataset(s), sorted according
-        to the ``sort()`` method of Python lists.
+    :returns: list of targets present in the dataset(s), sorted according to the
+        ``sort()`` method of Python lists.
     """
 
     if not isinstance(datasets, list):
@@ -187,8 +185,8 @@ def check_datasets(train_datasets: List[Dataset], validation_datasets: List[Data
                 "in the training dataset."
             )
     # Get all the species in the training and validation sets:
-    all_training_species = get_all_types(train_datasets)
-    all_validation_species = get_all_types(validation_datasets)
+    all_training_species = get_atomic_types(train_datasets)
+    all_validation_species = get_atomic_types(validation_datasets)
 
     # Check that the validation sets do not have species that are not in the
     # training sets:

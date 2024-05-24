@@ -1,7 +1,7 @@
-from .model import SOAPBPNN
+from .model import SoapBpnn
 from .trainer import Trainer
 
-__model__ = SOAPBPNN
+__model__ = SoapBpnn
 __trainer__ = Trainer
 __capabilities__ = {
     "supported_devices": __model__.__supported_devices__,

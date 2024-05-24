@@ -3,15 +3,15 @@ import metatensor.torch
 import torch
 from metatensor.torch.atomistic import ModelOutput, systems_to_torch
 
-from metatensor.models.experimental.soap_bpnn import SOAPBPNN
+from metatensor.models.experimental.soap_bpnn import SoapBpnn
 from metatensor.models.utils.data import DatasetInfo, TargetInfo
 
 from . import MODEL_HYPERS
 
 
 def test_prediction_subset_elements():
-    """Tests that the model can predict on a subset
-    of the elements it was trained on."""
+    """Tests that the model can predict on a subset of the elements it was trained
+    on."""
 
     dataset_info = DatasetInfo(
         length_unit="Angstrom",
@@ -24,7 +24,7 @@ def test_prediction_subset_elements():
         },
     )
 
-    soap_bpnn = SOAPBPNN(MODEL_HYPERS, dataset_info)
+    soap_bpnn = SoapBpnn(MODEL_HYPERS, dataset_info)
 
     system = ase.Atoms("O2", positions=[[0.0, 0.0, 0.0], [0.0, 0.0, 1.0]])
     soap_bpnn(
@@ -48,7 +48,7 @@ def test_prediction_subset_atoms():
         },
     )
 
-    soap_bpnn = SOAPBPNN(MODEL_HYPERS, dataset_info)
+    soap_bpnn = SoapBpnn(MODEL_HYPERS, dataset_info)
 
     # Since we don't yet support atomic predictions, we will test this by
     # predicting on a system with two monomers at a large distance
@@ -112,7 +112,7 @@ def test_output_last_layer_features():
         },
     )
 
-    soap_bpnn = SOAPBPNN(MODEL_HYPERS, dataset_info)
+    soap_bpnn = SoapBpnn(MODEL_HYPERS, dataset_info)
 
     system = ase.Atoms(
         "CHON",
@@ -185,7 +185,7 @@ def test_output_per_atom():
         },
     )
 
-    soap_bpnn = SOAPBPNN(MODEL_HYPERS, dataset_info)
+    soap_bpnn = SoapBpnn(MODEL_HYPERS, dataset_info)
 
     system = ase.Atoms(
         "CHON",

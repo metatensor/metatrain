@@ -2,67 +2,40 @@ import copy
 
 import ase.io
 import torch
-from metatensor.torch.atomistic import (
-    MetatensorAtomisticModel,
-    ModelCapabilities,
-    ModelEvaluationOptions,
-    ModelMetadata,
-    ModelOutput,
-    systems_to_torch,
-)
+from metatensor.torch.atomistic import systems_to_torch
 
-from metatensor.models.experimental.alchemical_model import DEFAULT_HYPERS, Model
-from metatensor.models.utils.neighbor_lists import get_system_with_neighbor_lists
+from metatensor.models.experimental.alchemical_model import AlchemicalModel
+from metatensor.models.utils.data import DatasetInfo, TargetInfo
 
-from . import DATASET_PATH
+from . import DATASET_PATH, MODEL_HYPERS
 
 
 def test_rotational_invariance():
     """Tests that the model is rotationally invariant."""
 
-    capabilities = ModelCapabilities(
+    dataset_info = DatasetInfo(
         length_unit="Angstrom",
         atomic_types=[1, 6, 7, 8],
-        outputs={
-            "energy": ModelOutput(
+        targets={
+            "energy": TargetInfo(
                 quantity="energy",
                 unit="eV",
             )
         },
-        supported_devices=["cpu"],
-        interaction_range=DEFAULT_HYPERS["model"]["soap"]["cutoff"],
-        dtype="float32",
     )
-    alchemical_model = Model(capabilities, DEFAULT_HYPERS["model"])
+    soap_bpnn = AlchemicalModel(MODEL_HYPERS, dataset_info)
+
     system = ase.io.read(DATASET_PATH)
     original_system = copy.deepcopy(system)
     system.rotate(48, "y")
-    original_system = systems_to_torch(original_system)
-    original_system = get_system_with_neighbor_lists(
-        original_system, alchemical_model.requested_neighbor_lists()
-    )
-    system = systems_to_torch(system)
-    system = get_system_with_neighbor_lists(
-        system, alchemical_model.requested_neighbor_lists()
-    )
 
-    evaluation_options = ModelEvaluationOptions(
-        length_unit=capabilities.length_unit,
-        outputs=capabilities.outputs,
+    original_output = soap_bpnn(
+        [systems_to_torch(original_system)],
+        {"energy": soap_bpnn.outputs["energy"]},
     )
-
-    model = MetatensorAtomisticModel(
-        alchemical_model.eval(), ModelMetadata(), alchemical_model.capabilities
-    )
-    original_output = model(
-        [original_system],
-        evaluation_options,
-        check_consistency=True,
-    )
-    rotated_output = model(
-        [system],
-        evaluation_options,
-        check_consistency=True,
+    rotated_output = soap_bpnn(
+        [systems_to_torch(system)],
+        {"energy": soap_bpnn.outputs["energy"]},
     )
 
     torch.testing.assert_close(

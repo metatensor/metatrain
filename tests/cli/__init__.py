@@ -3,7 +3,7 @@ from pathlib import Path
 
 MODEL_HYPERS = get_default_hypers("experimental.soap_bpnn")["model"]
 
-RESOURCES_PATH = Path(__file__).parent.resolve() / ".." / "resources"
+RESOURCES_PATH = Path(__file__).parents[1] / "resources"
 
 DATASET_PATH_QM9 = RESOURCES_PATH / "qm9_reduced_100.xyz"
 DATASET_PATH_ETHANOL = RESOURCES_PATH / "ethanol_reduced_100.xyz"

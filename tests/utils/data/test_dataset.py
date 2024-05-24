@@ -11,14 +11,14 @@ from metatensor.models.utils.data import (
     check_datasets,
     collate_fn,
     get_all_targets,
-    get_all_types,
+    get_atomic_types,
     merge_dataset_info,
     read_systems,
     read_targets,
 )
 
 
-RESOURCES_PATH = Path(__file__).parent.resolve() / ".." / ".." / "resources"
+RESOURCES_PATH = Path(__file__).parents[2] / "resources"
 
 
 def test_dataset_info():
@@ -68,8 +68,8 @@ def test_dataset():
         assert batch[1]["energy"].block().values.shape == (10, 1)
 
 
-def test_get_all_types():
-    """Tests that the species list is correctly computed with get_all_types."""
+def test_get_atomic_types():
+    """Tests that the species list is correctly computed with get_atomic_types."""
 
     systems = read_systems(RESOURCES_PATH / "qm9_reduced_100.xyz")
     conf = {
@@ -99,9 +99,9 @@ def test_get_all_types():
     targets_2 = read_targets(OmegaConf.create(conf_2))
     dataset = Dataset({"system": systems, **targets})
     dataset_2 = Dataset({"system": systems_2, **targets_2})
-    assert get_all_types(dataset) == [1, 6, 7, 8]
-    assert get_all_types(dataset_2) == [1, 6, 8]
-    assert get_all_types([dataset, dataset_2]) == [1, 6, 7, 8]
+    assert get_atomic_types(dataset) == [1, 6, 7, 8]
+    assert get_atomic_types(dataset_2) == [1, 6, 8]
+    assert get_atomic_types([dataset, dataset_2]) == [1, 6, 7, 8]
 
 
 def test_get_all_targets():

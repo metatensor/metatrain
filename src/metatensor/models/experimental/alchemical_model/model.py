@@ -1,31 +1,62 @@
-from typing import Dict, List, Optional
+from pathlib import Path
+from typing import Dict, List, Optional, Union
 
 import torch
 from metatensor.torch import Labels, TensorBlock, TensorMap
 from metatensor.torch.atomistic import (
+    MetatensorAtomisticModel,
     ModelCapabilities,
     ModelOutput,
     NeighborListOptions,
     System,
 )
-from torch_alchemical.models import AlchemicalModel
+from torch_alchemical.models import AlchemicalModel as AlchemicalModelUpstream
 
-from . import ARCHITECTURE_NAME, DEFAULT_MODEL_HYPERS
+from ...utils.data.dataset import DatasetInfo
+from ...utils.dtype import dtype_to_str
+from ...utils.export import export
+from ...utils.io import check_suffix
 from .utils import systems_to_torch_alchemical_batch
 
 
-class Model(torch.nn.Module):
-    def __init__(
-        self, capabilities: ModelCapabilities, hypers: Dict = DEFAULT_MODEL_HYPERS
-    ) -> None:
+class AlchemicalModel(torch.nn.Module):
+
+    __supported_devices__ = (["cuda", "cpu"],)
+    __supported_dtypes__ = ([torch.float64, torch.float32],)
+
+    def __init__(self, model_hypers: Dict, dataset_info: DatasetInfo) -> None:
         super().__init__()
-        self.name = ARCHITECTURE_NAME
-        self.hypers = hypers
-        self.cutoff = self.hypers["soap"]["cutoff"]
-        self.species: List[int] = capabilities.atomic_types
-        self.capabilities = capabilities
-        self.alchemical_model = AlchemicalModel(
-            unique_numbers=self.species, **hypers["soap"], **hypers["bpnn"]
+        self.hypers = model_hypers
+        self.dataset_info = dataset_info
+
+        if len(dataset_info.targets) != 1:
+            raise ValueError("The AlchemicalModel only supports a single target")
+
+        target_name = next(iter(dataset_info.targets.keys()))
+        if dataset_info.targets[target_name].quantity != "energy":
+            raise ValueError("The AlchemicalModel only supports energies as target")
+
+        if dataset_info.targets[target_name].per_atom:
+            raise ValueError("The AlchemicalModel does not support per-atom training")
+
+        self.outputs = {
+            key: ModelOutput(
+                quantity=value.quantity,
+                unit=value.unit,
+                per_atom=True,
+            )
+            for key, value in dataset_info.targets.items()
+        }
+
+        self.alchemical_model = AlchemicalModelUpstream(
+            unique_numbers=self.dataset_info.atomic_types,
+            **self.hypers["soap"],
+            **self.hypers["bpnn"],
+        )
+
+    def restart(self, dataset_info: DatasetInfo) -> "AlchemicalModel":
+        raise NotImplementedError(
+            "Restarting is not supported for the AlchemicalModel."
         )
 
     def requested_neighbor_lists(
@@ -33,7 +64,7 @@ class Model(torch.nn.Module):
     ) -> List[NeighborListOptions]:
         return [
             NeighborListOptions(
-                cutoff=self.cutoff,
+                cutoff=self.hypers["soap"]["cutoff"],
                 full_list=True,
             )
         ]
@@ -89,6 +120,48 @@ class Model(torch.nn.Module):
         )
         return total_energies
 
+    def save_checkpoint(self, path: Union[str, Path]):
+        torch.save(
+            {
+                "model_hypers": {
+                    "model_hypers": self.hypers,
+                    "dataset_info": self.dataset_info,
+                },
+                "model_state_dict": self.state_dict(),
+            },
+            check_suffix(path, ".ckpt"),
+        )
+
+    @classmethod
+    def load_checkpoint(cls, path: Union[str, Path]) -> "AlchemicalModel":
+
+        # Load the model and the metadata
+        model_dict = torch.load(path)
+
+        # Create the model
+        model = cls(**model_dict["model_hypers"])
+
+        # Load the model weights
+        model.load_state_dict(model_dict["model_state_dict"])
+
+        return model
+
+    def export(self) -> MetatensorAtomisticModel:
+        dtype = next(self.parameters()).dtype
+        if dtype not in self.__supported_dtypes__:
+            raise ValueError(f"Unsupported dtype {self.dtype} for SOAP-BPNN")
+
+        capabilities = ModelCapabilities(
+            outputs=self.outputs,
+            atomic_types=self.dataset_info.atomic_types,
+            interaction_range=self.hypers["soap"]["cutoff"],
+            length_unit=self.dataset_info.length_unit,
+            supported_devices=self.__supported_devices__,
+            dtype=dtype_to_str(dtype),
+        )
+
+        return export(model=self, model_capabilities=capabilities)
+
     def set_composition_weights(
         self,
         input_composition_weights: torch.Tensor,
@@ -99,7 +172,7 @@ class Model(torch.nn.Module):
             dtype=self.alchemical_model.composition_weights.dtype,
             device=self.alchemical_model.composition_weights.device,
         )
-        index = [self.species.index(s) for s in species]
+        index = [self.dataset_info.atomic_types.index(s) for s in species]
         composition_weights = input_composition_weights[:, index]
         self.alchemical_model.set_composition_weights(composition_weights)
 

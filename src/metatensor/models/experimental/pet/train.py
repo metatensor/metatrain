@@ -14,7 +14,7 @@ from ...utils.data import (
     DatasetInfo,
     check_datasets,
     collate_fn,
-    get_all_types,
+    get_atomic_types,
 )
 from ...utils.data.system_to_ase import system_to_ase
 from . import DEFAULT_HYPERS
@@ -68,7 +68,7 @@ def train(
 
     # are we fitting on only energies or energies and forces?
     do_forces = next(iter(train_dataset))[1].block().has_gradient("positions")
-    all_types = get_all_types(train_datasets + validation_datasets)
+    all_types = get_atomic_types(train_datasets + validation_datasets)
     if not do_forces:
         hypers["MLIP_SETTINGS"]["USE_FORCES"] = False
 

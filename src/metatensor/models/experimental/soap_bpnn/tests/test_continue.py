@@ -5,7 +5,7 @@ import torch
 from omegaconf import OmegaConf
 
 import metatensor.models
-from metatensor.models.experimental.soap_bpnn import SOAPBPNN, Trainer
+from metatensor.models.experimental.soap_bpnn import SoapBpnn, Trainer
 from metatensor.models.utils.data import Dataset, DatasetInfo, TargetInfo
 from metatensor.models.utils.data.readers import read_systems, read_targets
 
@@ -31,7 +31,7 @@ def test_continue(monkeypatch, tmp_path):
             )
         },
     )
-    model = SOAPBPNN(MODEL_HYPERS, dataset_info)
+    model = SoapBpnn(MODEL_HYPERS, dataset_info)
     output_before = model(systems[:5], {"mtm::U0": model.outputs["mtm::U0"]})
 
     conf = {

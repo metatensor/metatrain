@@ -1,31 +1,26 @@
 import logging
-import warnings
 from pathlib import Path
 from typing import List, Union
 
 import torch
 from metatensor.learn.data import DataLoader
 
-from ...utils.composition import calculate_composition_weights
-from ...utils.data import CombinedDataLoader, Dataset, collate_fn, get_all_targets
-from ...utils.data.extract_targets import get_targets_dict
+from ...utils.data import CombinedDataLoader, Dataset, collate_fn
 from ...utils.evaluate_model import evaluate_model
 from ...utils.external_naming import to_external_name
 from ...utils.logging import MetricLogger
 from ...utils.loss import TensorMapDictLoss
 from ...utils.metrics import RMSEAccumulator
+from ...utils.neighbor_lists import get_system_with_neighbor_lists
 from ...utils.per_atom import average_by_num_atoms
-from .model import SoapBpnn
+from .model import AlchemicalModel
+from .utils.normalize import (
+    get_average_number_of_atoms,
+    get_average_number_of_neighbors,
+)
 
 
 logger = logging.getLogger(__name__)
-
-
-# Filter out the second derivative and device warnings from rascaline-torch
-warnings.filterwarnings("ignore", category=UserWarning, message="second derivative")
-warnings.filterwarnings(
-    "ignore", category=UserWarning, message="Systems data is on device"
-)
 
 
 class Trainer:
@@ -34,7 +29,7 @@ class Trainer:
 
     def train(
         self,
-        model: SoapBpnn,
+        model: AlchemicalModel,
         devices: List[torch.device],
         train_datasets: List[Union[Dataset, torch.utils.data.Subset]],
         validation_datasets: List[Union[Dataset, torch.utils.data.Subset]],
@@ -42,54 +37,32 @@ class Trainer:
     ):
         dtype = train_datasets[0][0]["system"].positions.dtype
 
-        # only one device, as we don't support multi-gpu for now
-        assert len(devices) == 1
-        device = devices[0]
+        # Calculating the neighbor lists for the training and validation datasets:
+        logger.info("Calculating neighbor lists for the datasets")
+        requested_neighbor_lists = model.requested_neighbor_lists()
+        for dataset in train_datasets + validation_datasets:
+            for i in range(len(dataset)):
+                system = dataset[i]["system"]
+                # The following line attaches the neighbors lists to the system,
+                # and doesn't require to reassign the system to the dataset:
+                _ = get_system_with_neighbor_lists(system, requested_neighbor_lists)
 
-        logger.info(f"training on device {device} with dtype {dtype}")
+        # Calculate the average number of atoms and neighbor in the training datasets:
+        average_number_of_atoms = get_average_number_of_atoms(train_datasets)
+        average_number_of_neighbors = get_average_number_of_neighbors(train_datasets)
+
+        # Given that currently multiple datasets are not supported, we can assume that:
+        average_number_of_atoms = average_number_of_atoms[0]
+        average_number_of_neighbors = average_number_of_neighbors[0]
+
+        # Set the normalization factors for the model:
+        model.set_normalization_factor(average_number_of_atoms)
+        model.set_basis_normalization_factor(average_number_of_neighbors)
+
+        device = devices[0]  # only one device, as we don't support multi-gpu for now
+
+        logger.info(f"Training on device {device} with dtype {dtype}")
         model.to(device=device, dtype=dtype)
-
-        # Calculate and set the composition weights for all targets:
-        logger.info("Calculating composition weights")
-        for target_name in model.new_outputs:
-            if "mtm::aux::" in target_name:
-                continue
-            # TODO: document transfer learning and say that outputs that are already
-            # present in the model will keep their composition weights
-            if target_name in self.hypers["fixed_composition_weights"].keys():
-                logger.info(
-                    f"For {target_name}, model will use "
-                    "user-supplied composition weights"
-                )
-                cur_weight_dict = self.hypers["fixed_composition_weights"][target_name]
-                all_types = []
-                num_species = len(cur_weight_dict)
-                fixed_weights = torch.zeros(num_species, dtype=dtype, device=device)
-
-                for ii, (key, weight) in enumerate(cur_weight_dict.items()):
-                    all_types.append(key)
-                    fixed_weights[ii] = weight
-
-                if not set(all_types) == set(model.dataset_info.atomic_types):
-                    raise ValueError("Supplied types are not present in the dataset")
-                model.set_composition_weights(target_name, fixed_weights, all_types)
-
-            else:
-                train_datasets_with_target = []
-                for dataset in train_datasets:
-                    if target_name in get_all_targets(dataset):
-                        train_datasets_with_target.append(dataset)
-                if len(train_datasets_with_target) == 0:
-                    raise ValueError(
-                        f"Target {target_name} in the model's new capabilities is not "
-                        "present in any of the training datasets."
-                    )
-                composition_weights, all_types = calculate_composition_weights(
-                    train_datasets_with_target, target_name
-                )
-                model.set_composition_weights(
-                    target_name, composition_weights, all_types
-                )
 
         logger.info("Setting up data loaders")
 
@@ -122,9 +95,8 @@ class Trainer:
         )
 
         # Extract all the possible outputs and their gradients:
-        training_targets = get_targets_dict(train_datasets, model.dataset_info)
         outputs_list = []
-        for target_name, target_info in training_targets.items():
+        for target_name, target_info in model.dataset_info.targets.items():
             outputs_list.append(target_name)
             for gradient_name in target_info.gradients:
                 outputs_list.append(f"{target_name}_{gradient_name}_gradients")
@@ -133,14 +105,14 @@ class Trainer:
         for output_name in outputs_list:
             loss_weights_dict[output_name] = (
                 self.hypers["loss_weights"][
-                    to_external_name(output_name, training_targets)
+                    to_external_name(output_name, model.outputs)
                 ]
-                if to_external_name(output_name, training_targets)
+                if to_external_name(output_name, model.outputs)
                 in self.hypers["loss_weights"]
                 else 1.0
             )
         loss_weights_dict_external = {
-            to_external_name(key, training_targets): value
+            to_external_name(key, model.outputs): value
             for key, value in loss_weights_dict.items()
         }
         logging.info(f"Training with loss weights: {loss_weights_dict_external}")
@@ -179,6 +151,7 @@ class Trainer:
                 optimizer.zero_grad()
 
                 systems, targets = batch
+                assert len(systems[0].known_neighbor_lists()) > 0
                 systems = [system.to(device=device) for system in systems]
                 targets = {
                     key: value.to(device=device) for key, value in targets.items()
@@ -186,7 +159,7 @@ class Trainer:
                 predictions = evaluate_model(
                     model,
                     systems,
-                    {key: training_targets[key] for key in targets.keys()},
+                    {key: model.dataset_info.targets[key] for key in targets.keys()},
                     is_training=True,
                 )
 
@@ -208,6 +181,7 @@ class Trainer:
             validation_loss = 0.0
             for batch in validation_dataloader:
                 systems, targets = batch
+                assert len(systems[0].known_neighbor_lists()) > 0
                 systems = [system.to(device=device) for system in systems]
                 targets = {
                     key: value.to(device=device) for key, value in targets.items()
@@ -215,7 +189,7 @@ class Trainer:
                 predictions = evaluate_model(
                     model,
                     systems,
-                    {key: training_targets[key] for key in targets.keys()},
+                    {key: model.dataset_info.targets[key] for key in targets.keys()},
                     is_training=False,
                 )
 
