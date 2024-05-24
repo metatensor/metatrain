@@ -54,7 +54,12 @@ class AlchemicalModel(torch.nn.Module):
             **self.hypers["bpnn"],
         )
 
+        self.cutoff = self.hypers["soap"]["cutoff"]
+
     def restart(self, dataset_info: DatasetInfo) -> "AlchemicalModel":
+        # TODO: it is supported!
+        # dataset check
+        # continuing flag (telling the trainer whether to set comp weights)
         raise NotImplementedError(
             "Restarting is not supported for the AlchemicalModel."
         )
@@ -62,7 +67,7 @@ class AlchemicalModel(torch.nn.Module):
     def requested_neighbor_lists(self) -> List[NeighborListOptions]:
         return [
             NeighborListOptions(
-                cutoff=self.hypers["soap"]["cutoff"],
+                cutoff=self.cutoff,
                 full_list=True,
             )
         ]
