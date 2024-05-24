@@ -92,21 +92,21 @@ class Trainer:
 
         # Calculate and set the composition weights, but only if
         # this is the first training run:
-        # if continue_from is None:
-        for target_name in model.outputs.keys():
-            train_datasets_with_target = []
-            for dataset in train_datasets:
-                if target_name in get_all_targets(dataset):
-                    train_datasets_with_target.append(dataset)
-            if len(train_datasets_with_target) == 0:
-                raise ValueError(
-                    f"Target {target_name} in the model's new capabilities is not "
-                    "present in any of the training datasets."
+        if not model.is_restarted:
+            for target_name in model.outputs.keys():
+                train_datasets_with_target = []
+                for dataset in train_datasets:
+                    if target_name in get_all_targets(dataset):
+                        train_datasets_with_target.append(dataset)
+                if len(train_datasets_with_target) == 0:
+                    raise ValueError(
+                        f"Target {target_name} in the model's new capabilities is not "
+                        "present in any of the training datasets."
+                    )
+                composition_weights, species = calculate_composition_weights(
+                    train_datasets_with_target, target_name
                 )
-            composition_weights, species = calculate_composition_weights(
-                train_datasets_with_target, target_name
-            )
-            model.set_composition_weights(composition_weights.unsqueeze(0), species)
+                model.set_composition_weights(composition_weights.unsqueeze(0), species)
 
         logger.info("Setting up data loaders")
 
