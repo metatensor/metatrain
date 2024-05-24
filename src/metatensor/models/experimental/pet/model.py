@@ -18,6 +18,7 @@ from metatensor.models.utils.data import DatasetInfo
 
 from ...utils.dtype import dtype_to_str
 from ...utils.export import export
+from ...utils.io import check_suffix
 from .utils import systems_to_batch_dict
 
 
@@ -108,16 +109,30 @@ class PET(torch.nn.Module):
         return output_quantities
 
     def save_checkpoint(self, path: Union[str, Path]):
-        logger.info(
-            "PET will not save a final checkpoint in the output directory. "
-            "You can find the final checkpoints in the checkpoint directory."
+        torch.save(
+            {
+                "model_hypers": {
+                    "model_hypers": self.hypers,
+                    "dataset_info": self.dataset_info,
+                },
+                "model_state_dict": self.state_dict(),
+            },
+            check_suffix(path, ".ckpt"),
         )
 
-    def load_checkpoint(self, path: Union[str, Path]) -> "PET":
-        # We save the path internally so that we can feed it
-        # to the PET trainer later
-        self.checkpoint_path = str(path)
-        return self
+    @classmethod
+    def load_checkpoint(cls, path: Union[str, Path]) -> "PET":
+
+        # Load the model and the metadata
+        model_dict = torch.load(path)
+
+        # Create the model
+        model = cls(**model_dict["model_hypers"])
+
+        # Load the model weights
+        model.load_state_dict(model_dict["model_state_dict"])
+
+        return model
 
     def export(self) -> MetatensorAtomisticModel:
         dtype = next(self.parameters()).dtype
