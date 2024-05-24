@@ -8,7 +8,7 @@ from metatensor.models.utils.composition import calculate_composition_weights
 from metatensor.models.utils.data import Dataset
 
 
-RESOURCES_PATH = Path(__file__).parent.resolve() / ".." / "resources"
+RESOURCES_PATH = Path(__file__).parents[1] / "resources"
 
 
 def test_calculate_composition_weights():

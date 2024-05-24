@@ -4,7 +4,7 @@ import ase.io
 import torch
 from metatensor.torch.atomistic import systems_to_torch
 
-from metatensor.models.experimental.soap_bpnn import SOAPBPNN
+from metatensor.models.experimental.soap_bpnn import SoapBpnn
 from metatensor.models.utils.data import DatasetInfo, TargetInfo
 
 from . import DATASET_PATH, MODEL_HYPERS
@@ -23,7 +23,7 @@ def test_rotational_invariance():
             )
         },
     )
-    soap_bpnn = SOAPBPNN(MODEL_HYPERS, dataset_info)
+    soap_bpnn = SoapBpnn(MODEL_HYPERS, dataset_info)
 
     system = ase.io.read(DATASET_PATH)
     original_system = copy.deepcopy(system)

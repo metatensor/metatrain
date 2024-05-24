@@ -1,18 +1,12 @@
-import torch
-from typing import Dict
+from .model import AlchemicalModel
+from .trainer import Trainer
 
-from ...utils.architectures import get_default_hypers, get_architecture_name
-
-
-ARCHITECTURE_NAME: str = get_architecture_name(__file__)
-
-__ARCHITECTURE_CAPABILITIES__ = {
-    "supported_devices": ["cuda", "cpu"],
-    "supported_dtypes": [torch.float64, torch.float32],
+__model__ = AlchemicalModel
+__trainer__ = Trainer
+__capabilities__ = {
+    "supported_devices": __model__.__supported_devices__,
+    "supported_dtypes": __model__.__supported_dtypes__,
 }
-
-DEFAULT_HYPERS: Dict = get_default_hypers(ARCHITECTURE_NAME)
-DEFAULT_MODEL_HYPERS: Dict = DEFAULT_HYPERS["model"]
 
 __authors__ = [
     ("Arslan Mazitov <arslan.mazitov@epfl.ch>", "@abmazitov"),
@@ -21,7 +15,3 @@ __authors__ = [
 __maintainers__ = [
     ("Arslan Mazitov <arslan.mazitov@epfl.ch>", "@abmazitov"),
 ]
-
-# load Model in train at the end to avoid circular imports
-from .model import Model  # noqa
-from .train import train  # noqa

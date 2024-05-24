@@ -2,7 +2,7 @@ from .dataset import (  # noqa: F401
     Dataset,
     TargetInfo,
     DatasetInfo,
-    get_all_types,
+    get_atomic_types,
     get_all_targets,
     collate_fn,
     check_datasets,

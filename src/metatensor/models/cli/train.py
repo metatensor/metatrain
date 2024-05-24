@@ -16,7 +16,7 @@ from ..utils.data import (
     Dataset,
     DatasetInfo,
     TargetInfo,
-    get_all_types,
+    get_atomic_types,
     read_systems,
     read_targets,
 )
@@ -332,7 +332,7 @@ def train_model(
             if train_options_list[0]["systems"]["length_unit"] is not None
             else ""
         ),  # these units are guaranteed to be the same across all datasets
-        atomic_types=get_all_types(train_datasets + validation_datasets),
+        atomic_types=get_atomic_types(train_datasets + validation_datasets),
         targets={
             key: TargetInfo(
                 quantity=value["quantity"],
