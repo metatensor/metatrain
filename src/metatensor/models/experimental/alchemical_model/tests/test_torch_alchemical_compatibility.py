@@ -81,9 +81,9 @@ def test_alchemical_model_inference():
         outputs=alchemical_model.outputs,
     )
 
-    mts_atomistic_model = alchemical_model.export()
+    exported = alchemical_model.export()
 
-    output = mts_atomistic_model(systems, evaluation_options, check_consistency=True)
+    output = exported(systems, evaluation_options, check_consistency=True)
 
     random.seed(0)
     np.random.seed(0)

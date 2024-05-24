@@ -23,19 +23,19 @@ def test_rotational_invariance():
             )
         },
     )
-    soap_bpnn = SoapBpnn(MODEL_HYPERS, dataset_info)
+    model = SoapBpnn(MODEL_HYPERS, dataset_info)
 
     system = ase.io.read(DATASET_PATH)
     original_system = copy.deepcopy(system)
     system.rotate(48, "y")
 
-    original_output = soap_bpnn(
+    original_output = model(
         [systems_to_torch(original_system)],
-        {"energy": soap_bpnn.outputs["energy"]},
+        {"energy": model.outputs["energy"]},
     )
-    rotated_output = soap_bpnn(
+    rotated_output = model(
         [systems_to_torch(system)],
-        {"energy": soap_bpnn.outputs["energy"]},
+        {"energy": model.outputs["energy"]},
     )
 
     torch.testing.assert_close(

@@ -2,10 +2,11 @@ import copy
 
 import ase.io
 import torch
-from metatensor.torch.atomistic import systems_to_torch
+from metatensor.torch.atomistic import systems_to_torch, ModelEvaluationOptions
 
 from metatensor.models.experimental.alchemical_model import AlchemicalModel
 from metatensor.models.utils.data import DatasetInfo, TargetInfo
+from metatensor.models.utils.neighbor_lists import get_system_with_neighbor_lists
 
 from . import DATASET_PATH, MODEL_HYPERS
 
@@ -23,20 +24,30 @@ def test_rotational_invariance():
             )
         },
     )
-    soap_bpnn = AlchemicalModel(MODEL_HYPERS, dataset_info)
+    model = AlchemicalModel(MODEL_HYPERS, dataset_info)
 
     system = ase.io.read(DATASET_PATH)
     original_system = copy.deepcopy(system)
-    system.rotate(48, "y")
+    original_system = systems_to_torch(original_system)
+    original_system = get_system_with_neighbor_lists(
+       original_system, model.requested_neighbor_lists()
+    )
+    system = systems_to_torch(system)
+    system = get_system_with_neighbor_lists(
+        system, model.requested_neighbor_lists()
+    )
 
-    original_output = soap_bpnn(
-        [systems_to_torch(original_system)],
-        {"energy": soap_bpnn.outputs["energy"]},
+    evaluation_options = ModelEvaluationOptions(
+        length_unit=dataset_info.length_unit,
+        outputs=model.outputs,
     )
-    rotated_output = soap_bpnn(
-        [systems_to_torch(system)],
-        {"energy": soap_bpnn.outputs["energy"]},
+
+    exported = model.export()
+
+    original_output = exported(
+        [original_system], evaluation_options, check_consistency=True,
     )
+    rotated_output = exported([system], evaluation_options, check_consistency=True)
 
     torch.testing.assert_close(
         original_output["energy"].block().values,

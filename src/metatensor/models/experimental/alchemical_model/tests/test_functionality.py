@@ -1,8 +1,9 @@
 import ase
-from metatensor.torch.atomistic import systems_to_torch
+from metatensor.torch.atomistic import systems_to_torch, ModelEvaluationOptions
 
 from metatensor.models.experimental.alchemical_model import AlchemicalModel
 from metatensor.models.utils.data import DatasetInfo, TargetInfo
+from metatensor.models.utils.neighbor_lists import get_system_with_neighbor_lists
 
 from . import MODEL_HYPERS
 
@@ -22,10 +23,16 @@ def test_prediction_subset_elements():
         },
     )
 
-    soap_bpnn = AlchemicalModel(MODEL_HYPERS, dataset_info)
+    model = AlchemicalModel(MODEL_HYPERS, dataset_info)
 
     system = ase.Atoms("O2", positions=[[0.0, 0.0, 0.0], [0.0, 0.0, 1.0]])
-    soap_bpnn(
-        [systems_to_torch(system)],
-        {"energy": soap_bpnn.outputs["energy"]},
+    system = systems_to_torch(system)
+    system = get_system_with_neighbor_lists(system, model.requested_neighbor_lists())
+
+    evaluation_options = ModelEvaluationOptions(
+        length_unit=dataset_info.length_unit,
+        outputs=model.outputs,
     )
+
+    exported = model.export()
+    exported([system], evaluation_options, check_consistency=True)
