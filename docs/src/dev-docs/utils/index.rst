@@ -18,7 +18,6 @@ This is the API for the ``utils`` module of ``metatensor-models``.
    io
    logging
    loss
-   merge_capabilities
    metrics
    neighbor_lists
    omegaconf

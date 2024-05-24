@@ -12,6 +12,7 @@ from metatensor.models.utils.data import (
     collate_fn,
     get_all_targets,
     get_all_types,
+    merge_dataset_info,
     read_systems,
     read_targets,
 )
@@ -230,3 +231,41 @@ def test_collate_fn():
     assert isinstance(batch[0], tuple)
     assert len(batch[0]) == 3
     assert isinstance(batch[1], dict)
+
+
+def test_merge_dataset_info():
+    """Tests the merge_dataset_info function."""
+
+    old_info = DatasetInfo(
+        length_unit="angstrom",
+        all_types=[1, 6],
+        targets={
+            "energy": TargetInfo(quantity="energy", unit="eV"),
+            "mtm::forces": TargetInfo(quantity="mtm::forces", unit="eV/Angstrom"),
+        },
+    )
+
+    new_info = DatasetInfo(
+        length_unit="angstrom",
+        all_types=[1],
+        targets={
+            "energy": TargetInfo(quantity="energy", unit="eV"),
+            "mtm::forces": TargetInfo(quantity="mtm::forces", unit="eV/Angstrom"),
+            "mtm::stress": TargetInfo(quantity="mtm::stress", unit="GPa"),
+        },
+    )
+
+    merged, novel_types, novel_targets = merge_dataset_info(old_info, new_info)
+
+    assert merged.length_unit == "angstrom"
+    assert merged.all_types == [1, 6]
+    assert merged.targets["energy"].quantity == "energy"
+    assert merged.targets["energy"].unit == "eV"
+    assert merged.targets["mtm::forces"].quantity == "mtm::forces"
+    assert merged.targets["mtm::forces"].unit == "eV/Angstrom"
+    assert merged.targets["mtm::stress"].quantity == "mtm::stress"
+    assert merged.targets["mtm::stress"].unit == "GPa"
+
+    assert novel_types == []
+    assert novel_targets["mtm::stress"].quantity == "mtm::stress"
+    assert novel_targets["mtm::stress"].unit == "GPa"
