@@ -16,9 +16,9 @@ from ...utils.data import (
     get_all_targets,
     get_all_types,
 )
+from ...utils.data.extract_targets import get_outputs_dict
 from ...utils.evaluate_model import evaluate_model
 from ...utils.export import is_exported
-from ...utils.extract_targets import get_outputs_dict
 from ...utils.io import load, save
 from ...utils.logging import MetricLogger
 from ...utils.loss import TensorMapDictLoss

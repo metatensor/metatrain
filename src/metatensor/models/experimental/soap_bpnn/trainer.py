@@ -8,8 +8,8 @@ from metatensor.learn.data import DataLoader
 
 from ...utils.composition import calculate_composition_weights
 from ...utils.data import CombinedDataLoader, Dataset, collate_fn, get_all_targets
+from ...utils.data.extract_targets import get_targets_dict
 from ...utils.evaluate_model import evaluate_model
-from ...utils.extract_targets import get_outputs_dict
 from ...utils.logging import MetricLogger
 from ...utils.loss import TensorMapDictLoss
 from ...utils.metrics import RMSEAccumulator
@@ -49,17 +49,16 @@ class Trainer:
         model.to(device=device, dtype=dtype)
 
         # Calculate and set the composition weights for all targets:
+        training_targets = get_targets_dict(train_datasets, model.dataset_info)
         logger.info("Calculating composition weights")
-        for target_name in model.outputs.keys():
+        for target_name in training_targets.keys():
             if "mtm::aux::" in target_name:
                 continue
-            # TODO: warn in the documentation that capabilities that are already
-            # present in the model won't recalculate the composition weights
-            # find the datasets that contain the target:
-
+            # TODO: document transfer learning and say that outputs that are already
+            # present in the model will keep their composition weights
             if target_name in self.hypers["fixed_composition_weights"].keys():
                 logger.info(
-                    f"For {target_name}, model will proceed with "
+                    f"For {target_name}, model will use "
                     "user-supplied composition weights"
                 )
                 cur_weight_dict = self.hypers["fixed_composition_weights"][target_name]
@@ -178,7 +177,7 @@ class Trainer:
                 predictions = evaluate_model(
                     model,
                     systems,
-                    {key: model.dataset_info.targets[key] for key in targets.keys()},
+                    {key: training_targets[key] for key in targets.keys()},
                     is_training=True,
                 )
 
@@ -207,7 +206,7 @@ class Trainer:
                 predictions = evaluate_model(
                     model,
                     systems,
-                    {key: model.dataset_info.targets[key] for key in targets.keys()},
+                    {key: training_targets[key] for key in targets.keys()},
                     is_training=False,
                 )
 
