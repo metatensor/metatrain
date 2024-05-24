@@ -17,6 +17,7 @@ from metatensor.torch.learn.nn import ModuleMap
 from metatensor.models.utils.data.dataset import DatasetInfo
 
 from ...utils.composition import apply_composition_contribution
+from ...utils.data import merge_dataset_info
 from ...utils.dtype import dtype_to_str
 from ...utils.export import export
 from ...utils.io import check_suffix
@@ -195,7 +196,23 @@ class SOAPBPNN(torch.nn.Module):
     def restart(self, dataset_info: DatasetInfo) -> "SOAPBPNN":
         model = SOAPBPNN(model_hypers=self.hypers, dataset_info=dataset_info)
 
-        # TODO: perform necessary operations to adjust for new dataset_info...
+        # merge old and new dataset info
+        merged_info, new_atomic_types, new_outputs = merge_dataset_info(
+            self.dataset_info, dataset_info
+        )
+        if len(new_atomic_types) > 0:
+            raise ValueError(
+                f"New atomic types found in the dataset: {new_atomic_types}. "
+                "The SOAP-BPNN model does not support adding new atomic types."
+            )
+
+        # register new outputs as new last layers
+        for output_name in new_outputs:
+            model.add_output(output_name)
+
+        #
+
+        self.dataset_info = merged_info
 
         return model
 
@@ -316,6 +333,7 @@ class SOAPBPNN(torch.nn.Module):
     def add_output(self, output_name: str) -> None:
         """Add a new output to the self."""
         # add a new row to the composition weights tensor
+        # initialize it with zeros
         self.composition_weights = torch.cat(
             [
                 self.composition_weights,  # type: ignore
