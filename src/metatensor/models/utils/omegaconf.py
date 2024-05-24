@@ -1,6 +1,6 @@
 import importlib
 from pathlib import Path
-from typing import Dict, List, Union
+from typing import Any, Union
 
 import torch
 from omegaconf import Container, DictConfig, ListConfig, OmegaConf
@@ -18,7 +18,7 @@ def file_format(_parent_: Container) -> str:
     return Path(_parent_["read_from"]).suffix
 
 
-def _get_architecture_model(conf: BaseContainer) -> Dict[str, List[str]]:
+def _get_architecture_model(conf: BaseContainer) -> Any:
     architecture_name = conf["architecture"]["name"]
     architecture = importlib.import_module(f"metatensor.models.{architecture_name}")
     return architecture.__model__
@@ -50,7 +50,7 @@ def default_precision(_root_: BaseContainer) -> int:
     # desired `dtype` is the first entry
     default_dtype = Model.__supported_dtypes__[0]
 
-    # base_precision has to be a integere and not a torch dtype
+    # `base_precision` in options has to be a integer and not a torch.dtype
     if default_dtype in [torch.float64, torch.double]:
         return 64
     elif default_dtype == torch.float32:
