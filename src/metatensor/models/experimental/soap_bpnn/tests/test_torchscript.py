@@ -5,11 +5,9 @@ import torch
 from metatensor.torch.atomistic import systems_to_torch
 
 from metatensor.models.experimental.soap_bpnn import SOAPBPNN
-from metatensor.models.utils.architectures import get_default_hypers
 from metatensor.models.utils.data import DatasetInfo, TargetInfo
 
-
-DEFAULT_HYPERS = get_default_hypers("experimental.soap_bpnn")
+from . import MODEL_HYPERS
 
 
 def test_torchscript():
@@ -25,7 +23,7 @@ def test_torchscript():
             )
         },
     )
-    model = SOAPBPNN(DEFAULT_HYPERS["model"], dataset_info)
+    model = SOAPBPNN(MODEL_HYPERS, dataset_info)
     model = torch.jit.script(model)
 
     system = ase.Atoms(
@@ -51,7 +49,7 @@ def test_torchscript_with_identity():
             )
         },
     )
-    hypers = copy.deepcopy(DEFAULT_HYPERS["model"])
+    hypers = copy.deepcopy(MODEL_HYPERS)
     hypers["bpnn"]["layernorm"] = False
     model = SOAPBPNN(hypers, dataset_info)
     model = torch.jit.script(model)
@@ -79,7 +77,7 @@ def test_torchscript_save_load():
             )
         },
     )
-    model = SOAPBPNN(DEFAULT_HYPERS["model"], dataset_info)
+    model = SOAPBPNN(MODEL_HYPERS, dataset_info)
     torch.jit.save(
         torch.jit.script(model),
         "model.pt",

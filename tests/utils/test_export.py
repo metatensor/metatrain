@@ -1,18 +1,14 @@
 import os
-from pathlib import Path
 
 import pytest
 import torch
 from metatensor.torch.atomistic import ModelCapabilities, load_atomistic_model
 
 from metatensor.models.experimental.soap_bpnn import __model__
-from metatensor.models.utils.architectures import get_default_hypers
 from metatensor.models.utils.data import DatasetInfo, TargetInfo
 from metatensor.models.utils.export import export, is_exported
 
-
-MODEL_HYPERS = get_default_hypers("experimental.soap_bpnn")["model"]
-RESOURCES_PATH = Path(__file__).parent.resolve() / ".." / "resources"
+from . import MODEL_HYPERS, RESOURCES_PATH
 
 
 def test_export(tmp_path):
