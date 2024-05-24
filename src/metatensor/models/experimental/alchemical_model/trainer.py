@@ -1,5 +1,4 @@
 import logging
-import warnings
 from pathlib import Path
 from typing import List, Union
 
@@ -29,13 +28,6 @@ from .utils.normalize import (
 
 
 logger = logging.getLogger(__name__)
-
-
-# Filter out the second derivative and device warnings from rascaline-torch
-warnings.filterwarnings("ignore", category=UserWarning, message="second derivative")
-warnings.filterwarnings(
-    "ignore", category=UserWarning, message="Systems data is on device"
-)
 
 
 class Trainer:

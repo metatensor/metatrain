@@ -355,7 +355,6 @@ def train_model(
             model = Model.load_checkpoint(continue_from)
             model = model.restart(dataset_info)
         else:
-            logger.info("Setting up model")
             model = Model(hypers["model"], dataset_info)
     except Exception as e:
         raise ArchitectureError(e)
