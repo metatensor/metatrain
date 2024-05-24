@@ -22,11 +22,11 @@ def test_predictions_compatibility(cutoff):
     """Tests that predictions of the MTM implemetation of PET
     are consistent with the predictions of the original PET implementation."""
 
-    all_types = [1, 6, 7, 8]
+    atomic_types = [1, 6, 7, 8]
 
     capabilities = ModelCapabilities(
         length_unit="Angstrom",
-        atomic_types=all_types,
+        atomic_types=atomic_types,
         outputs={
             "energy": ModelOutput(
                 quantity="energy",
@@ -67,7 +67,7 @@ def test_predictions_compatibility(cutoff):
     ARCHITECTURAL_HYPERS = Hypers(DEFAULT_HYPERS["ARCHITECTURAL_HYPERS"])
     batch = get_pyg_graphs(
         [structure],
-        all_types,
+        atomic_types,
         cutoff,
         ARCHITECTURAL_HYPERS.USE_ADDITIONAL_SCALAR_ATTRIBUTES,
         ARCHITECTURAL_HYPERS.USE_LONG_RANGE,

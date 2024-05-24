@@ -119,7 +119,6 @@ def train_model(
 
     Model = architecture.__model__
     Trainer = architecture.__trainer__
-    architecture_capabilities = architecture.__capabilities__
 
     ###########################
     # CREATE OPTIONS ##########
@@ -138,7 +137,7 @@ def train_model(
 
     # process devices
     devices = pick_devices(
-        architecture_devices=architecture_capabilities["supported_devices"],
+        architecture_devices=Model.__supported_devices__,
         desired_device=options["device"],
     )
 
@@ -152,10 +151,10 @@ def train_model(
     else:
         raise ValueError("Only 64, 32 or 16 are possible values for `base_precision`.")
 
-    if dtype not in architecture_capabilities["supported_dtypes"]:
+    if dtype not in Model.__supported_dtypes__:
         raise ValueError(
             f"Requested dtype {dtype} is not supported. {architecture_name} only "
-            f"supports {architecture_capabilities['supported_dtypes']}."
+            f"supports {Model.__supported_dtypes__}."
         )
 
     # process random seeds

@@ -20,7 +20,7 @@ def test_evaluate_model(training, exported):
         RESOURCES_PATH / "alchemical_reduced_10.xyz", dtype=torch.get_default_dtype()
     )[:2]
 
-    all_types = list(
+    atomic_types = list(
         torch.unique(torch.concatenate([system.types for system in systems]))
     )
 
@@ -29,7 +29,7 @@ def test_evaluate_model(training, exported):
     }
 
     dataset_info = DatasetInfo(
-        length_unit="angstrom", atomic_types=all_types, targets=targets
+        length_unit="angstrom", atomic_types=atomic_types, targets=targets
     )
     model = __model__(model_hypers=MODEL_HYPERS, dataset_info=dataset_info)
 
@@ -38,7 +38,7 @@ def test_evaluate_model(training, exported):
         capabilities = ModelCapabilities(
             length_unit=model.dataset_info.length_unit,
             outputs=model.outputs,
-            atomic_types=model.all_types,
+            atomic_types=model.dataset_info.atomic_types,
             supported_devices=model.__supported_devices__,
             interaction_range=model.hypers["soap"]["cutoff"],
             dtype="float32",
