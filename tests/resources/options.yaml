@@ -1,8 +1,10 @@
 architecture:
-  name: experimental.soap_bpnn
-  training:
-    batch_size: 2
-    num_epochs: 1
+  name: experimental.pet
+  training:  
+    INITIAL_LR: 1e-4
+    EPOCH_NUM_ATOMIC: 250
+    SCHEDULER_STEP_SIZE_ATOMIC: 500000000
+    EPOCHS_WARMUP_ATOMIC: 250
 
 training_set:
   systems:

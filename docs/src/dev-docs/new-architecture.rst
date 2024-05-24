@@ -17,11 +17,10 @@ these lines
     hypers = {}
     dataset_info = DatasetInfo()
 
+    model = Model(hypers["architecture"], dataset_info)
     if "continue_from":
-        model = Model.load_checkpoint("path")
+        model = model.load_checkpoint("path")
         model = model.restart(dataset_info)
-    else:
-        model = Model(hypers["architecture"], dataset_info)
 
     trainer = Trainer(hypers["training"])
 
@@ -30,7 +29,7 @@ these lines
         devices=[],
         train_datasets=[],
         validation_datasets=[],
-        checkpoints_dir="path",
+        checkpoint_dir="path",
     )
 
     model.save_checkpoint("final.ckpt")
@@ -111,7 +110,7 @@ methods for ``train()``.
             devices: List[torch.device],
             train_datasets: List[Union[Dataset, torch.utils.data.Subset]],
             validation_datasets: List[Union[Dataset, torch.utils.data.Subset]],
-            checkpoints_dir: str,
+            checkpoint_dir: str,
         ): ...
 
 The names of the ``ModelInterface`` and the ``TrainerInterface`` are free to choose but
