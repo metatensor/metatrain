@@ -26,7 +26,7 @@ def test_dataset_info():
 
     dataset_info = DatasetInfo(
         length_unit="angstrom",
-        all_types=[1, 2, 3],
+        atomic_types=[1, 2, 3],
         targets={
             "energy": TargetInfo(quantity="energy", unit="kcal/mol"),
             "mtm::U0": TargetInfo(quantity="energy", unit="kcal/mol"),
@@ -34,7 +34,7 @@ def test_dataset_info():
     )
 
     assert dataset_info.length_unit == "angstrom"
-    assert dataset_info.all_types == [1, 2, 3]
+    assert dataset_info.atomic_types == [1, 2, 3]
     assert dataset_info.targets["energy"].quantity == "energy"
     assert dataset_info.targets["energy"].unit == "kcal/mol"
     assert dataset_info.targets["mtm::U0"].quantity == "energy"
@@ -238,7 +238,7 @@ def test_merge_dataset_info():
 
     old_info = DatasetInfo(
         length_unit="angstrom",
-        all_types=[1, 6],
+        atomic_types=[1, 6],
         targets={
             "energy": TargetInfo(quantity="energy", unit="eV"),
             "mtm::forces": TargetInfo(quantity="mtm::forces", unit="eV/Angstrom"),
@@ -247,7 +247,7 @@ def test_merge_dataset_info():
 
     new_info = DatasetInfo(
         length_unit="angstrom",
-        all_types=[1],
+        atomic_types=[1],
         targets={
             "energy": TargetInfo(quantity="energy", unit="eV"),
             "mtm::forces": TargetInfo(quantity="mtm::forces", unit="eV/Angstrom"),
@@ -258,7 +258,7 @@ def test_merge_dataset_info():
     merged, novel_types, novel_targets = merge_dataset_info(old_info, new_info)
 
     assert merged.length_unit == "angstrom"
-    assert merged.all_types == [1, 6]
+    assert merged.atomic_types == [1, 6]
     assert merged.targets["energy"].quantity == "energy"
     assert merged.targets["energy"].unit == "eV"
     assert merged.targets["mtm::forces"].quantity == "mtm::forces"

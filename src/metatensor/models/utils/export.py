@@ -9,6 +9,10 @@ from metatensor.torch.atomistic import (
 )
 
 
+# TODO: DELETE OR CHANGE THIS FUNCTION.
+# EXPORT IS NOW PER-ARCHITECTURE
+
+
 def export(
     model: torch.nn.Module, model_capabilities: ModelCapabilities
 ) -> MetatensorAtomisticModel:

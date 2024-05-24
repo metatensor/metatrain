@@ -110,7 +110,7 @@ class SOAPBPNN(torch.nn.Module):
             radial_basis={"Gto": {}}, **self.hypers["soap"]
         )
 
-        self.all_types = dataset_info.all_types
+        self.all_types = dataset_info.atomic_types
 
         self.outputs = {
             key: ModelOutput(

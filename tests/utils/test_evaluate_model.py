@@ -34,7 +34,7 @@ def test_evaluate_model(training, exported):
     }
 
     dataset_info = DatasetInfo(
-        length_unit="angstrom", all_types=all_types, targets=targets
+        length_unit="angstrom", atomic_types=all_types, targets=targets
     )
     model = __model__(model_hypers=MODEL_HYPERS, dataset_info=dataset_info)
 

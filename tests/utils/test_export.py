@@ -21,7 +21,7 @@ def test_export(tmp_path):
 
     dataset_info = DatasetInfo(
         length_unit="angstrom",
-        all_types=[1],
+        atomic_types=[1],
         targets={"energy": TargetInfo(quantity="energy", unit="eV")},
     )
     model = __model__(model_hypers=MODEL_HYPERS, dataset_info=dataset_info)
@@ -51,7 +51,7 @@ def test_reexport(monkeypatch, tmp_path):
 
     dataset_info = DatasetInfo(
         length_unit="angstrom",
-        all_types=[1],
+        atomic_types=[1],
         targets={"energy": TargetInfo(quantity="energy", unit="eV")},
     )
     model = __model__(model_hypers=MODEL_HYPERS, dataset_info=dataset_info)
@@ -82,7 +82,7 @@ def test_is_exported():
 def test_length_units_warning():
     dataset_info = DatasetInfo(
         length_unit="angstrom",
-        all_types=[1],
+        atomic_types=[1],
         targets={"energy": TargetInfo(quantity="energy", unit="eV")},
     )
     model = __model__(model_hypers=MODEL_HYPERS, dataset_info=dataset_info)
@@ -103,7 +103,7 @@ def test_length_units_warning():
 def test_units_warning():
     dataset_info = DatasetInfo(
         length_unit="angstrom",
-        all_types=[1],
+        atomic_types=[1],
         targets={"mtm::output": TargetInfo(quantity="energy")},
     )
     model = __model__(model_hypers=MODEL_HYPERS, dataset_info=dataset_info)
