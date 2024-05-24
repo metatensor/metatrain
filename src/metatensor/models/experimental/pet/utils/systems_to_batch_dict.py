@@ -104,7 +104,93 @@ def get_central_species(
 
     """
     species = system.types[unique_index]
-    return torch.where(all_species.unsqueeze(1) == species)[0]
+    tmp_index_1, tmp_index_2 = torch.where(all_species.unsqueeze(1) == species)
+    index = torch.argsort(tmp_index_2)
+    return tmp_index_1[index]
+
+
+def write_system_data(
+    system: System,
+    options: NeighborListOptions,
+    selected_atoms_index: torch.Tensor,
+):
+    nl = system.get_neighbor_list(options)
+    i_list = nl.samples.column("first_atom")
+    j_list = nl.samples.column("second_atom")
+    S_list = torch.cat(
+        (
+            nl.samples.column("cell_shift_a")[None],
+            nl.samples.column("cell_shift_b")[None],
+            nl.samples.column("cell_shift_c")[None],
+        )
+    ).transpose(0, 1)
+    D_list = nl.values[:, :, 0]
+    positions = system.positions
+    types = system.types
+    cell = system.cell
+    torch.save(
+        {
+            "i_list": i_list,
+            "j_list": j_list,
+            "S_list": S_list,
+            "D_list": D_list,
+            "positions": positions,
+            "types": types,
+            "cell": cell,
+            "selected_atoms_index": selected_atoms_index,
+        },
+        "system_data.pt",
+    )
+
+
+def write_batch_dict(batch_dict: Dict[str, torch.Tensor]):
+    torch.save(batch_dict, "batch_dict.pt")
+
+
+def remap_to_contiguous_indexing(
+    i_list: torch.Tensor,
+    j_list: torch.Tensor,
+    unique_neighbors_index: torch.Tensor,
+    unique_index: torch.Tensor,
+    device: torch.device,
+) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+    """
+    This helper function remaps the indices of center and neighbor atoms
+    from arbitrary indexing to contgious indexing, i.e.
+
+    from
+    0, 1, 2, 54, 55, 56
+    to
+    0, 1, 2, 3, 4, 5.
+
+    This remapping is required by internal implementation of PET neighbor lists, where
+    indices of the atoms cannot exceed the total amount of atoms in the system.
+
+    Shifted indices come from LAMMPS neighborlists in the case of domain decomposition
+    enabled, since they contain not only the atoms in the unit cell, but also so-called
+    ghost atoms, which may have a different indexing. Thus, to avoid further errors, we
+    remap the indices to a contiguous format.
+
+    """
+    # index_map: Dict[int, int] = {int(index): i for i, index in enumerate(unique_index)}
+    # i_list = torch.tensor(
+    #     [index_map[int(index)] for index in i_list],
+    #     dtype=i_list.dtype,
+    #     device=device,
+    # )
+    # j_list = torch.tensor(
+    #     [index_map[int(index)] for index in j_list],
+    #     dtype=j_list.dtype,
+    #     device=device,
+    # )
+    index_map = torch.empty(
+        int(unique_index.max().item()) + 1, dtype=torch.int64, device=device
+    )
+    index_map[unique_index] = torch.arange(len(unique_index), device=device)
+    i_list = index_map[i_list]
+    j_list = index_map[j_list]
+    unique_neighbors_index = index_map[unique_neighbors_index]
+    return i_list, j_list, unique_neighbors_index
 
 
 def get_system_batch_dict(
@@ -114,8 +200,10 @@ def get_system_batch_dict(
     max_num_neighbors: int,
     selected_atoms_index: torch.Tensor,
     device: torch.device,
+    debug: bool = False,
 ) -> Dict[str, torch.Tensor]:
-
+    if debug:
+        write_system_data(system, options, selected_atoms_index)
     nl = system.get_neighbor_list(options)
     i_list = nl.samples.column("first_atom")
     j_list = nl.samples.column("second_atom")
@@ -127,9 +215,17 @@ def get_system_batch_dict(
         torch.cat((selected_atoms_index, unique_neighbors_index))
     )
 
+    # We calculate the actual size of the system, which is the number of
+    # unique atoms in the system.
+    # This is required for LAMMPS interface, because by default
+    # it produces the system with both local and ghost atoms.
+    actual_system_size = len(unique_index)
+
     # Then we remap the indices of the atoms to a contiguous format.
     # Also see the docstring of the function for more details.
-    i_list, j_list = remap_to_contiguous_indexing(i_list, j_list, unique_index, device)
+    i_list, j_list, unique_neighbors_index = remap_to_contiguous_indexing(
+        i_list, j_list, unique_neighbors_index, unique_index, device
+    )
 
     # We get the indices of species of the central atoms in the system
     # in the all_species tensor.
@@ -161,7 +257,9 @@ def get_system_batch_dict(
     # This calculates the number of neighbors for each atom.
     # By default, the number of neighbors is zero, and we update this tensor
     # with the counts of the unique indices of the i_list.
-    number_of_neighbors = torch.zeros(len(system), device=device, dtype=torch.int64)
+    number_of_neighbors = torch.zeros(
+        actual_system_size, device=device, dtype=torch.int64
+    )
     number_of_neighbors[unique_neighbors_index] = counts
 
     # This calculates the cumulative sum of the counts to get the
@@ -176,16 +274,16 @@ def get_system_batch_dict(
     # and D_list. The padding_mask is used to mask the padding values
     # in the tensors.
     neighbors_index = torch.zeros(
-        (len(system), max_num_neighbors), device=device, dtype=torch.int64
+        (actual_system_size, max_num_neighbors), device=device, dtype=torch.int64
     )
     neighbors_shifts = torch.zeros(
-        (len(system), max_num_neighbors, 3), device=device, dtype=torch.int64
+        (actual_system_size, max_num_neighbors, 3), device=device, dtype=torch.int64
     )
     displacement_vectors = torch.zeros(
-        (len(system), max_num_neighbors, 3), device=device, dtype=torch.float32
+        (actual_system_size, max_num_neighbors, 3), device=device, dtype=torch.float32
     )
     padding_mask = torch.zeros(
-        (len(system), max_num_neighbors), device=device, dtype=torch.bool
+        (actual_system_size, max_num_neighbors), device=device, dtype=torch.bool
     )
     for j, count in enumerate(counts):
         # For each atom, we put the neighbors species indices up
@@ -240,7 +338,7 @@ def get_system_batch_dict(
     reversed_neighbors_index = torch.zeros_like(neighbors_index)
     tmp_reversed_index = neighbors_index[neighbors_index]
     tmp_reversed_shifts = neighbors_shifts[neighbors_index]
-    for j in range(len(system)):
+    for j in range(actual_system_size):
         condition_1 = tmp_reversed_index[j] == j
         condition_2 = torch.all(
             tmp_reversed_shifts[j] == -neighbors_shifts[j].unsqueeze(1), dim=2
@@ -263,6 +361,8 @@ def get_system_batch_dict(
         "nums": number_of_neighbors,
         "mask": padding_mask,
     }
+    if debug:
+        write_batch_dict(system_dict)
     return system_dict
 
 
@@ -273,7 +373,7 @@ def systems_to_batch_dict(
     selected_atoms: Optional[Labels] = None,
 ) -> Dict[str, torch.Tensor]:
     """
-    Converts a standatd input data format of `metatensor-models` to a
+    Converts a standard input data format of `metatensor-models` to a
     PyTorch Geometric `Batch` object, compatible with `PET` model.
 
     :param systems: The list of systems in `metatensor.torch.atomistic.System`
@@ -306,41 +406,3 @@ def systems_to_batch_dict(
         )
         batch.append(system_dict)
     return collate_graph_dicts(batch)
-
-
-def remap_to_contiguous_indexing(
-    i_list: torch.Tensor,
-    j_list: torch.Tensor,
-    unique_index: torch.Tensor,
-    device: torch.device,
-) -> Tuple[torch.Tensor, torch.Tensor]:
-    """
-    This helper function remaps the indices of center and neighbor atoms
-    from arbitrary indexing to contgious indexing, i.e.
-
-    from
-    0, 1, 2, 54, 55, 56
-    to
-    0, 1, 2, 3, 4, 5.
-
-    This remapping is required by internal implementation of PET neighbor lists, where
-    indices of the atoms cannot exceed the total amount of atoms in the system.
-
-    Shifted indices come from LAMMPS neighborlists in the case of domain decomposition
-    enabled, since they contain not only the atoms in the unit cell, but also so-called
-    ghost atoms, which may have a different indexing. Thus, to avoid further errors, we
-    remap the indices to a contiguous format.
-
-    """
-    index_map: Dict[int, int] = {int(index): i for i, index in enumerate(unique_index)}
-    i_list = torch.tensor(
-        [index_map[int(index)] for index in i_list],
-        dtype=i_list.dtype,
-        device=device,
-    )
-    j_list = torch.tensor(
-        [index_map[int(index)] for index in j_list],
-        dtype=j_list.dtype,
-        device=device,
-    )
-    return i_list, j_list
