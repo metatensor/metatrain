@@ -25,9 +25,7 @@ def test_torchscript():
     )
 
     model = AlchemicalModel(MODEL_HYPERS, dataset_info)
-    torch.jit.script(
-        model, {"energy": model.outputs["energy"]}
-    )
+    torch.jit.script(model, {"energy": model.outputs["energy"]})
 
 
 def test_torchscript_with_identity():

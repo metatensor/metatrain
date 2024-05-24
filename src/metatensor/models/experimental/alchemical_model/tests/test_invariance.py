@@ -2,7 +2,7 @@ import copy
 
 import ase.io
 import torch
-from metatensor.torch.atomistic import systems_to_torch, ModelEvaluationOptions
+from metatensor.torch.atomistic import ModelEvaluationOptions, systems_to_torch
 
 from metatensor.models.experimental.alchemical_model import AlchemicalModel
 from metatensor.models.utils.data import DatasetInfo, TargetInfo
@@ -30,12 +30,10 @@ def test_rotational_invariance():
     original_system = copy.deepcopy(system)
     original_system = systems_to_torch(original_system)
     original_system = get_system_with_neighbor_lists(
-       original_system, model.requested_neighbor_lists()
+        original_system, model.requested_neighbor_lists()
     )
     system = systems_to_torch(system)
-    system = get_system_with_neighbor_lists(
-        system, model.requested_neighbor_lists()
-    )
+    system = get_system_with_neighbor_lists(system, model.requested_neighbor_lists())
 
     evaluation_options = ModelEvaluationOptions(
         length_unit=dataset_info.length_unit,
@@ -45,7 +43,9 @@ def test_rotational_invariance():
     exported = model.export()
 
     original_output = exported(
-        [original_system], evaluation_options, check_consistency=True,
+        [original_system],
+        evaluation_options,
+        check_consistency=True,
     )
     rotated_output = exported([system], evaluation_options, check_consistency=True)
 

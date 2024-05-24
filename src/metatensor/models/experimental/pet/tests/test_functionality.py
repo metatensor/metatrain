@@ -10,8 +10,8 @@ from metatensor.torch.atomistic import (
     systems_to_torch,
 )
 from pet.hypers import Hypers
+from pet.pet import PET
 
-from metatensor.models.experimental.pet import PET
 from metatensor.models.experimental.pet import PET as WrappedPET
 from metatensor.models.utils.architectures import get_default_hypers
 from metatensor.models.utils.data import DatasetInfo, TargetInfo
