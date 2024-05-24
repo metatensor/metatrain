@@ -6,6 +6,8 @@ import torch
 from metatensor.torch import TensorMap
 from torch import Generator, default_generator
 from torch.utils.data import Subset, random_split
+from omegaconf import DictConfig, ListConfig, OmegaConf
+from ..omegaconf import KNWON_GRADIENTS
 
 
 class Dataset:
@@ -53,8 +55,8 @@ class TargetInfo:
     :param quantity: The quantity of the target.
     :param unit: The unit of the target.
     :param per_atom: Whether the target is a per-atom quantity.
-    :param gradients: Gradients of the target that are defined
-        in the current dataset.
+    :param gradients: Gradients of the target that are defined in the current dataset.
+        Examples are ``"positions"`` or ``"strain"``.
     """
 
     quantity: str
@@ -76,6 +78,61 @@ class DatasetInfo:
 
     length_unit: str
     targets: Dict[str, TargetInfo]
+
+    @classmethod
+    def from_options(cls, conf: Union[DictConfig, ListConfig], atomic_types):
+        """Create a DatasetInfo info instance from an options config.
+        
+        :param conf: The dataset configuration, either as a single ``DictConfig`` or
+            ``ListConfig`` object.
+        :param atomic_types: TODO
+        """
+
+        # Expand DictConfig -> ListConfig
+        if isinstance(conf, DictConfig):
+            conf = OmegaConf.create([conf])
+
+        targets: Dict[str, TargetInfo] = {}
+
+        # Perform expansion per config inside the ListConfig
+        for conf_element in conf:
+
+            # the length units are guaranteed to be the same across all datasets
+            length_unit = conf_element["systems"]["length_unit"]
+
+            for target_key, target in conf_element["targets"].items():
+    
+                gradients = []
+                for gradient_key in conf_element["targets"][target_key].keys():
+                    if gradient_key == "forces":
+                        gradients.append("positions")
+                    elif gradient_key in ["stress", "virial"]:
+                        gradients.append("strain")
+                    else:
+                        raise ValueError(
+                            f"Unknown gradient {gradient_key!}. Currently supported "
+                            f"are {','.join(KNWON_GRADIENTS)}")
+
+                target_info = TargetInfo(
+                    quantity=target["quantity"],
+                    unit=(target["unit"] if target["unit"] is not None else ""),
+                    per_atom=False,  # TODO: read this from the config
+                    gradients=gradients,
+                )
+
+                targets[target_key] = target_info
+    
+        # `length_unit` must be an empty string if not defined.
+        if length_unit == None:
+            length_unit = ""
+
+        dataset_info = cls(
+            length_unit=length_unit,
+            atomic_types=atomic_types,
+            targets=targets,
+        )
+
+        return dataset_info
 
 
 def get_all_species(datasets: Union[Dataset, List[Dataset]]) -> List[int]:
