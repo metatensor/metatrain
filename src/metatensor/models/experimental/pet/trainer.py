@@ -120,7 +120,6 @@ class Trainer:
 
         device = devices[0]  # only one device, as we don't support multi-gpu for now
 
-        print(self.hypers["ARCHITECTURAL_HYPERS"])
         fit_pet(
             ase_train_dataset,
             ase_validation_dataset,
