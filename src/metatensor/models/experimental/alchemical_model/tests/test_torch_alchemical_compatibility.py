@@ -3,12 +3,7 @@ import random
 import numpy as np
 import torch
 from ase.io import read
-from metatensor.torch.atomistic import (
-    MetatensorAtomisticModel,
-    ModelEvaluationOptions,
-    ModelMetadata,
-    NeighborListOptions,
-)
+from metatensor.torch.atomistic import ModelEvaluationOptions, NeighborListOptions
 from torch_alchemical.data import AtomisticDataset
 from torch_alchemical.models import AlchemicalModel as AlchemicalModelUpstream
 from torch_alchemical.transforms import NeighborList
@@ -86,14 +81,9 @@ def test_alchemical_model_inference():
         outputs=alchemical_model.outputs,
     )
 
-    model = MetatensorAtomisticModel(
-        alchemical_model.eval(), ModelMetadata(), alchemical_model.capabilities
-    )
-    output = model(
-        systems,
-        evaluation_options,
-        check_consistency=True,
-    )
+    mts_atomistic_model = alchemical_model.export()
+
+    output = mts_atomistic_model(systems, evaluation_options, check_consistency=True)
 
     random.seed(0)
     np.random.seed(0)
