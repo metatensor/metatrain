@@ -12,7 +12,7 @@ from metatensor.torch.atomistic import (
     NeighborListOptions,
     System,
 )
-from pet.pet import PET
+from pet.pet import PET as RawPET
 
 from metatensor.models.utils.data import DatasetInfo
 
@@ -44,16 +44,16 @@ class PET(torch.nn.Module):
         self.species: List[int] = dataset_info.atomic_types
         self.dataset_info = dataset_info
         self.pet = None
-        self.checkpoint_path = None
+        self.checkpoint_path: Optional[str] = None
 
-    def restart(self, dataset_info: DatasetInfo) -> PET:
+    def restart(self, dataset_info: DatasetInfo) -> "PET":
         if dataset_info != self.dataset_info:
             raise ValueError(
                 "PET cannot be restarted with different dataset information"
             )
         return self
 
-    def set_trained_model(self, trained_model: torch.nn.Module) -> None:
+    def set_trained_model(self, trained_model: RawPET) -> None:
         self.pet = trained_model
 
     def requested_neighbor_lists(
@@ -75,7 +75,7 @@ class PET(torch.nn.Module):
         options = self.requested_neighbor_lists()[0]
         batch = systems_to_batch_dict(systems, options, self.species, selected_atoms)
 
-        predictions = self.pet(batch)
+        predictions = self.pet(batch)  # type: ignore
         output_quantities: Dict[str, TensorMap] = {}
         for output_name in outputs:
             energy_labels = Labels(
@@ -113,7 +113,7 @@ class PET(torch.nn.Module):
             "You can find the final checkpoints in the checkpoint directory."
         )
 
-    def load_checkpoint(self, path: Union[str, Path]) -> None:
+    def load_checkpoint(self, path: Union[str, Path]) -> "PET":
         # We save the path internally so that we can feed it
         # to the PET trainer later
         self.checkpoint_path = str(path)
