@@ -1,32 +1,57 @@
-from typing import Dict, List, Optional
+import logging
+from pathlib import Path
+from typing import Dict, List, Optional, Union
 
 import metatensor.torch
 import torch
 from metatensor.torch import Labels, TensorBlock, TensorMap
 from metatensor.torch.atomistic import (
+    MetatensorAtomisticModel,
     ModelCapabilities,
     ModelOutput,
     NeighborListOptions,
     System,
 )
-from pet.hypers import Hypers
 from pet.pet import PET
 
-from . import ARCHITECTURE_NAME, DEFAULT_MODEL_HYPERS
+from metatensor.models.utils.data import DatasetInfo
+
+from ...utils.dtype import dtype_to_str
+from ...utils.export import export
 from .utils import systems_to_batch_dict
 
 
-class Model(torch.nn.Module):
-    def __init__(
-        self, capabilities: ModelCapabilities, hypers: Dict = DEFAULT_MODEL_HYPERS
-    ) -> None:
+logger = logging.getLogger(__name__)
+
+
+class PET(torch.nn.Module):
+    __supported_devices__ = ["cuda"]
+    __supported_dtypes__ = [torch.float32]
+
+    def __init__(self, model_hypers: Dict, dataset_info: DatasetInfo) -> None:
         super().__init__()
-        self.name = ARCHITECTURE_NAME
-        self.hypers = Hypers(hypers) if isinstance(hypers, dict) else hypers
-        self.cutoff = self.hypers.R_CUT
-        self.species: List[int] = capabilities.atomic_types
-        self.capabilities = capabilities
-        self.pet = PET(self.hypers, 0.0, len(self.species))
+        if len(dataset_info.targets) != 1:
+            raise ValueError("PET only supports a single target")
+        self.target_name = next(iter(dataset_info.targets.keys()))
+        if dataset_info.targets[self.target_name].quantity != "energy":
+            raise ValueError("PET only supports energies as target")
+
+        model_hypers["D_OUTPUT"] = 1
+        model_hypers["TARGET_TYPE"] = "atomic"
+        model_hypers["TARGET_AGGREGATION"] = "sum"
+        self.hypers = model_hypers
+        self.cutoff = self.hypers["R_CUT"]
+        self.species: List[int] = dataset_info.atomic_types
+        self.dataset_info = dataset_info
+        self.pet = None
+        self.checkpoint_path = None
+
+    def restart(self, dataset_info: DatasetInfo) -> PET:
+        if dataset_info != self.dataset_info:
+            raise ValueError(
+                "PET cannot be restarted with different dataset information"
+            )
+        return self
 
     def set_trained_model(self, trained_model: torch.nn.Module) -> None:
         self.pet = trained_model
@@ -81,3 +106,37 @@ class Model(torch.nn.Module):
                 output_tmap = metatensor.torch.sum_over_samples(output_tmap, "atom")
             output_quantities[output_name] = output_tmap
         return output_quantities
+
+    def save_checkpoint(self, path: Union[str, Path]):
+        logger.info(
+            "PET will not save a final checkpoint in the output directory. "
+            "You can find the final checkpoints in the checkpoint directory."
+        )
+
+    def load_checkpoint(self, path: Union[str, Path]) -> None:
+        # We save the path internally so that we can feed it
+        # to the PET trainer later
+        self.checkpoint_path = str(path)
+        return self
+
+    def export(self) -> MetatensorAtomisticModel:
+        dtype = next(self.parameters()).dtype
+        if dtype not in self.__supported_dtypes__:
+            raise ValueError(f"Unsupported dtype {self.dtype} for SOAP-BPNN")
+
+        capabilities = ModelCapabilities(
+            outputs={
+                self.target_name: ModelOutput(
+                    quantity=self.dataset_info.targets[self.target_name].quantity,
+                    unit=self.dataset_info.targets[self.target_name].unit,
+                    per_atom=False,
+                )
+            },
+            atomic_types=self.species,
+            interaction_range=self.cutoff,
+            length_unit=self.dataset_info.length_unit,
+            supported_devices=["cpu", "cuda"],  # and not __supported_devices__
+            dtype=dtype_to_str(dtype),
+        )
+
+        return export(model=self, model_capabilities=capabilities)

@@ -38,7 +38,7 @@ class Trainer:
         devices: List[torch.device],
         train_datasets: List[Union[Dataset, torch.utils.data.Subset]],
         validation_datasets: List[Union[Dataset, torch.utils.data.Subset]],
-        checkpoints_dir: str,
+        checkpoint_dir: str,
     ):
         dtype = train_datasets[0][0]["system"].positions.dtype
 
@@ -257,7 +257,7 @@ class Trainer:
                 )
 
             if epoch % self.hypers["checkpoint_interval"] == 0:
-                model.save_checkpoint(Path(checkpoints_dir) / f"model_{epoch}.ckpt")
+                model.save_checkpoint(Path(checkpoint_dir) / f"model_{epoch}.ckpt")
 
             # early stopping criterion:
             if validation_loss < best_validation_loss:

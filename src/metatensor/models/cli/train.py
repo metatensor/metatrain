@@ -348,14 +348,13 @@ def train_model(
     # SETTING UP MODEL ########
     ###########################
 
+    logger.info("Setting up model")
     try:
+        model = Model(hypers["model"], dataset_info)
         if continue_from is not None:
             logger.info(f"Loading checkpoint from `{continue_from}`")
-            model = Model.load_checkpoint(continue_from)
+            model = model.load_checkpoint(continue_from)
             model = model.restart(dataset_info)
-        else:
-            logger.info("Setting up model")
-            model = Model(hypers["model"], dataset_info)
     except Exception as e:
         raise ArchitectureError(e)
 
@@ -371,7 +370,7 @@ def train_model(
             devices=devices,
             train_datasets=train_datasets,
             validation_datasets=validation_datasets,
-            checkpoints_dir=str(checkpoint_dir),
+            checkpoint_dir=str(checkpoint_dir),
         )
     except Exception as e:
         raise ArchitectureError(e)
