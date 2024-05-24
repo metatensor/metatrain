@@ -104,6 +104,7 @@ class SOAPBPNN(torch.nn.Module):
         super().__init__()
         self.hypers = model_hypers
         self.dataset_info = dataset_info
+        self.new_outputs = list(dataset_info.targets.keys())
 
         self.soap_calculator = rascaline.torch.SoapPowerSpectrum(
             radial_basis={"Gto": {}}, **self.hypers["soap"]
@@ -194,10 +195,8 @@ class SOAPBPNN(torch.nn.Module):
         )
 
     def restart(self, dataset_info: DatasetInfo) -> "SOAPBPNN":
-        model = SOAPBPNN(model_hypers=self.hypers, dataset_info=dataset_info)
-
         # merge old and new dataset info
-        merged_info, new_atomic_types, new_outputs = merge_dataset_info(
+        merged_info, new_atomic_types, new_targets = merge_dataset_info(
             self.dataset_info, dataset_info
         )
         if len(new_atomic_types) > 0:
@@ -207,14 +206,19 @@ class SOAPBPNN(torch.nn.Module):
             )
 
         # register new outputs as new last layers
-        for output_name in new_outputs:
-            model.add_output(output_name)
-
-        #
+        for output_name in new_targets:
+            self.add_output(output_name)
 
         self.dataset_info = merged_info
+        for target_name, target in new_targets.items():
+            self.outputs[target_name] = ModelOutput(
+                quantity=target.quantity,
+                unit=target.unit,
+                per_atom=True,
+            )
+        self.new_outputs = list(new_targets.keys())
 
-        return model
+        return self
 
     def forward(
         self,
@@ -276,7 +280,7 @@ class SOAPBPNN(torch.nn.Module):
     def save_checkpoint(self, path: Union[str, Path]):
         torch.save(
             {
-                "model_parameters": {
+                "model_hypers": {
                     "model_hypers": self.hypers,
                     "dataset_info": self.dataset_info,
                 },
@@ -292,7 +296,7 @@ class SOAPBPNN(torch.nn.Module):
         model_dict = torch.load(path)
 
         # Create the model
-        model = cls(**model_dict["model_parameters"])
+        model = cls(**model_dict["model_hypers"])
 
         # Load the model weights
         model.load_state_dict(model_dict["model_state_dict"])

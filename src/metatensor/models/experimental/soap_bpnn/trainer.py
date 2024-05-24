@@ -50,9 +50,8 @@ class Trainer:
         model.to(device=device, dtype=dtype)
 
         # Calculate and set the composition weights for all targets:
-        training_targets = get_targets_dict(train_datasets, model.dataset_info)
         logger.info("Calculating composition weights")
-        for target_name in training_targets.keys():
+        for target_name in model.new_outputs:
             if "mtm::aux::" in target_name:
                 continue
             # TODO: document transfer learning and say that outputs that are already
@@ -123,6 +122,7 @@ class Trainer:
         )
 
         # Extract all the possible outputs and their gradients:
+        training_targets = get_targets_dict(train_datasets, model.dataset_info)
         outputs_list = []
         for target_name, target_info in training_targets.items():
             outputs_list.append(target_name)
