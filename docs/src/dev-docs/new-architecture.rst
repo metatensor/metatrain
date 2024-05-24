@@ -15,7 +15,7 @@ these lines
     from architecture import __trainer__ as Trainer
 
     hypers = {}
-    dataset_info = None
+    dataset_info = DatasetInfo()
 
     if "continue_from":
         model = Model.load_checkpoint("path")
@@ -54,8 +54,13 @@ The ``ModelInterface`` is the main model class and must implement a
 .. code-block:: python
 
     class ModelInterface:
+
+        __supported_devices__ = ["cuda", "cpu"]
+        __supported_dtypes__ = [torch.float64, torch.float32]
+
         def __init__(self, model_hypers, dataset_info: DatasetInfo):
-            pass
+            self.hypers = model_hypers
+            self.dataset_info = dataset_info
 
         def save_checkpoint(self, path: Union[str, Path]):
             pass
@@ -78,9 +83,12 @@ The ``ModelInterface`` is the main model class and must implement a
         def export(self) -> MetatensorAtomisticModel:
             pass
 
-Note that
-the ``ModelInterface`` does not necessary inherit from :py:class:`torch.nn.Module` since
-training can be performed in any way.
+Note that the ``ModelInterface`` does not necessary inherit from
+:py:class:`torch.nn.Module` since training can be performed in any way.
+``__supported_devices__`` and ``__supported_dtypes__`` can be defined to set the
+capabilities of the model. These two lists should be sorted in order of preference since
+`metatensor-models` will use these to determine, based on the user request and
+machines's availability, the optimal `dtype` and `device` for training.
 
 The ``export()`` method is required to transform a trained model into a standalone file
 to be used in combination with molecular dynamic engines to run simulations. We provide
@@ -95,7 +103,7 @@ methods for ``train()``.
 
     class TrainerInterface:
         def __init__(self, train_hypers):
-            pass
+            self.hypers = train_hypers
 
         def train(
             self,
@@ -108,23 +116,16 @@ methods for ``train()``.
 
 The names of the ``ModelInterface`` and the ``TrainerInterface`` are free to choose but
 should be linked to constants in the ``__init__.py`` of each architecture. On top of
-these two constants the ``__init__.py`` must contain constants for the
-`__capabilities__`, the `__authors__` and
-`__maintainers__`.
+these two constants the ``__init__.py`` must contain constants for the original
+`__authors__` and current `__maintainers__` of the architecture.
 
 .. code-block:: python
-
-    import torch
 
     from .model import CustomSOTAModel
     from .trainer import Trainer
 
     __model__ = CustomSOTAModel
     __trainer__ = Trainer
-    __capabilities__ = {
-        "supported_devices": ["cuda", "cpu"],
-        "supported_dtypes": [torch.float64, torch.float32],
-    }
 
     __authors__ = [
         ("Jane Roe <jane.roe@myuniversity.org>", "@janeroe"),
@@ -134,11 +135,9 @@ these two constants the ``__init__.py`` must contain constants for the
     __maintainers__ = [("Joe Bloggs <joe.bloggs@sotacompany.com>", "@joebloggs")]
 
 
-:param __model__: Mapping of the custom ``ModelInterface`` to a general one to be
-    loaded by metatensor-models
+:param __model__: Mapping of the custom ``ModelInterface`` to a general one to be loaded
+    by metatensor-models
 :param __trainer__: Same as ``__MODEL_CLASS__`` but the Trainer class.
-:param __capabilities__: What can the architecture do in terms of `devices`
-    and `dtypes`
 :param __authors__: Tuple denoting the original authors with email address and Github
     handle of an architecture. These do not necessary be in charge of maintaining the
     the architecture

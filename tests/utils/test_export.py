@@ -25,7 +25,7 @@ def test_export(tmp_path):
     capabilities = ModelCapabilities(
         length_unit=model.dataset_info.length_unit,
         outputs=model.outputs,
-        atomic_types=model.all_types,
+        atomic_types=model.dataset_info.atomic_types,
         supported_devices=model.__supported_devices__,
         interaction_range=model.hypers["soap"]["cutoff"],
         dtype="float32",
@@ -55,7 +55,7 @@ def test_reexport(monkeypatch, tmp_path):
     capabilities = ModelCapabilities(
         length_unit=model.dataset_info.length_unit,
         outputs=model.outputs,
-        atomic_types=model.all_types,
+        atomic_types=model.dataset_info.atomic_types,
         supported_devices=model.__supported_devices__,
         interaction_range=model.hypers["soap"]["cutoff"],
         dtype="float32",
@@ -85,7 +85,7 @@ def test_length_units_warning():
 
     capabilities = ModelCapabilities(
         outputs=model.outputs,
-        atomic_types=model.all_types,
+        atomic_types=model.dataset_info.atomic_types,
         interaction_range=model.hypers["soap"]["cutoff"],
         length_unit="",
         supported_devices=model.__supported_devices__,
@@ -107,7 +107,7 @@ def test_units_warning():
     capabilities = ModelCapabilities(
         length_unit=model.dataset_info.length_unit,
         outputs=model.outputs,
-        atomic_types=model.all_types,
+        atomic_types=model.dataset_info.atomic_types,
         supported_devices=model.__supported_devices__,
         interaction_range=model.hypers["soap"]["cutoff"],
         dtype="float32",

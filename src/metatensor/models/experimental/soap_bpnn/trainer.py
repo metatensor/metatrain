@@ -62,17 +62,19 @@ class Trainer:
                     "user-supplied composition weights"
                 )
                 cur_weight_dict = self.hypers["fixed_composition_weights"][target_name]
-                all_types = []
+                atomic_types = []
                 num_species = len(cur_weight_dict)
                 fixed_weights = torch.zeros(num_species, dtype=dtype, device=device)
 
                 for ii, (key, weight) in enumerate(cur_weight_dict.items()):
-                    all_types.append(key)
+                    atomic_types.append(key)
                     fixed_weights[ii] = weight
 
-                if not set(all_types) == set(model.dataset_info.atomic_types):
-                    raise ValueError("Supplied types are not present in the dataset")
-                model.set_composition_weights(target_name, fixed_weights, all_types)
+                if not set(atomic_types) == set(model.dataset_info.atomic_types):
+                    raise ValueError(
+                        "Supplied atomic types are not present in the dataset."
+                    )
+                model.set_composition_weights(target_name, fixed_weights, atomic_types)
 
             else:
                 train_datasets_with_target = []
@@ -84,11 +86,11 @@ class Trainer:
                         f"Target {target_name} in the model's new capabilities is not "
                         "present in any of the training datasets."
                     )
-                composition_weights, all_types = calculate_composition_weights(
+                composition_weights, atomic_types = calculate_composition_weights(
                     train_datasets_with_target, target_name
                 )
                 model.set_composition_weights(
-                    target_name, composition_weights, all_types
+                    target_name, composition_weights, atomic_types
                 )
 
         logger.info("Setting up data loaders")

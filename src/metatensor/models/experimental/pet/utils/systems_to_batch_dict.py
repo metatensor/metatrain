@@ -64,7 +64,7 @@ class NeighborIndexConstructor:
                 maximum = chunk.shape[0]
         return maximum
 
-    def get_neighbors_index(self, max_num: int, all_types: torch.Tensor) -> Tuple[
+    def get_neighbors_index(self, max_num: int, atomic_types: torch.Tensor) -> Tuple[
         torch.Tensor,
         torch.Tensor,
         torch.Tensor,
@@ -104,13 +104,13 @@ class NeighborIndexConstructor:
 
         nums: torch.Tensor = torch.LongTensor(nums_raw)
 
-        neighbor_species: torch.Tensor = all_types.shape[0] * torch.ones(
+        neighbor_species: torch.Tensor = atomic_types.shape[0] * torch.ones(
             [len(self.neighbor_species), max_num], dtype=torch.long
         )
         for i in range(len(self.neighbor_species)):
             species_now: List[int] = self.neighbor_species[i]
             values_now: List[int] = [
-                int(torch.where(all_types == specie)[0][0].item())
+                int(torch.where(atomic_types == specie)[0][0].item())
                 for specie in species_now
             ]
             values_now_torch: torch.Tensor = torch.LongTensor(values_now)
@@ -211,13 +211,13 @@ def systems_to_batch_dict(
     format, that needs to be converted.
     :param options: A `NeighborListOptions` objects specifying the parameters
     for a neighbor list, which will be used during the convertation.
-    :param all_types: A `torch.Tensor` with all the species present in the
+    :param atomic_types: A `torch.Tensor` with all the species present in the
     systems.
 
     :return: Batch compatible with PET.
     """
     device = systems[0].positions.device
-    all_types: torch.Tensor = torch.LongTensor(all_types_list).to(device)
+    atomic_types: torch.Tensor = torch.LongTensor(all_types_list).to(device)
     neighbors_index_constructors: List[NeighborIndexConstructor] = []
 
     for i, system in enumerate(systems):
@@ -299,7 +299,7 @@ def systems_to_batch_dict(
             mask,
             neighbor_species,
             relative_positions_index,
-        ) = neighbors_index_constructor.get_neighbors_index(max_num, all_types)
+        ) = neighbors_index_constructor.get_neighbors_index(max_num, atomic_types)
 
         neighbor = system.get_neighbor_list(options)
         displacement_vectors = neighbor.values[:, :, 0].to(torch.float32)
@@ -334,7 +334,7 @@ def systems_to_batch_dict(
             unique_index = torch.arange(len(system))
         species = system.types[unique_index]
         central_species = [
-            int(torch.where(all_types == specie)[0][0].item()) for specie in species
+            int(torch.where(atomic_types == specie)[0][0].item()) for specie in species
         ]
 
         central_species = torch.LongTensor(central_species).to(device)

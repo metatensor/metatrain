@@ -21,8 +21,8 @@ from .utils import systems_to_torch_alchemical_batch
 
 class AlchemicalModel(torch.nn.Module):
 
-    __supported_devices__ = (["cuda", "cpu"],)
-    __supported_dtypes__ = ([torch.float64, torch.float32],)
+    __supported_devices__ = ["cuda", "cpu"]
+    __supported_dtypes__ = [torch.float64, torch.float32]
 
     def __init__(self, model_hypers: Dict, dataset_info: DatasetInfo) -> None:
         super().__init__()
@@ -149,7 +149,11 @@ class AlchemicalModel(torch.nn.Module):
     def export(self) -> MetatensorAtomisticModel:
         dtype = next(self.parameters()).dtype
         if dtype not in self.__supported_dtypes__:
+<<<<<<< HEAD
             raise ValueError(f"Unsupported dtype {self.dtype} for SOAP-BPNN")
+=======
+            raise ValueError(f"unsupported dtype {dtype} for AlchemicalModel")
+>>>>>>> 509b7d01 (start porting AlchemicalModel)
 
         capabilities = ModelCapabilities(
             outputs=self.outputs,

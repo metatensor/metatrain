@@ -32,13 +32,13 @@ class Identity(torch.nn.Module):
 
 
 class MLPMap(ModuleMap):
-    def __init__(self, all_types: List[int], hypers: dict) -> None:
+    def __init__(self, atomic_types: List[int], hypers: dict) -> None:
         # hardcoded for now, but could be a hyperparameter
         activation_function = torch.nn.SiLU()
 
         # Build a neural network for each species
         nns_per_species = []
-        for _ in all_types:
+        for _ in atomic_types:
             module_list: List[torch.nn.Module] = []
             for _ in range(hypers["num_hidden_layers"]):
                 if len(module_list) == 0:
@@ -59,7 +59,7 @@ class MLPMap(ModuleMap):
             nns_per_species.append(torch.nn.Sequential(*module_list))
         in_keys = Labels(
             "central_species",
-            values=torch.tensor(all_types).reshape(-1, 1),
+            values=torch.tensor(atomic_types).reshape(-1, 1),
         )
         out_properties = [
             Labels(
@@ -75,15 +75,15 @@ class MLPMap(ModuleMap):
 
 
 class LayerNormMap(ModuleMap):
-    def __init__(self, all_types: List[int], n_layer: int) -> None:
+    def __init__(self, atomic_types: List[int], n_layer: int) -> None:
         # one layernorm for each species
         layernorm_per_species = []
-        for _ in all_types:
+        for _ in atomic_types:
             layernorm_per_species.append(torch.nn.LayerNorm((n_layer,)))
 
         in_keys = Labels(
             "central_species",
-            values=torch.tensor(all_types).reshape(-1, 1),
+            values=torch.tensor(atomic_types).reshape(-1, 1),
         )
         out_properties = [
             Labels(
@@ -311,7 +311,7 @@ class SoapBpnn(torch.nn.Module):
     def export(self) -> MetatensorAtomisticModel:
         dtype = next(self.parameters()).dtype
         if dtype not in self.__supported_dtypes__:
-            raise ValueError(f"Unsupported dtype {self.dtype} for SOAP-BPNN")
+            raise ValueError(f"unsupported dtype {self.dtype} for SoapBpnn")
 
         capabilities = ModelCapabilities(
             outputs=self.outputs,
