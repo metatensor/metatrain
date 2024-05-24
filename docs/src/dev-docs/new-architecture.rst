@@ -17,10 +17,11 @@ these lines
     hypers = {}
     dataset_info = DatasetInfo()
 
-    model = Model(hypers["architecture"], dataset_info)
     if "continue_from":
-        model = model.load_checkpoint("path")
+        model = Model.load_checkpoint("path")
         model = model.restart(dataset_info)
+    else:
+        model = Model(hypers["architecture"], dataset_info)
 
     trainer = Trainer(hypers["training"])
 

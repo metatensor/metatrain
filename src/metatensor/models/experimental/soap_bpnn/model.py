@@ -294,19 +294,19 @@ class SoapBpnn(torch.nn.Module):
             check_suffix(path, ".ckpt"),
         )
 
-    def load_checkpoint(self, path: Union[str, Path]) -> "SoapBpnn":
+    @classmethod
+    def load_checkpoint(cls, path: Union[str, Path]) -> "SoapBpnn":
 
         # Load the model and the metadata
         model_dict = torch.load(path)
 
         # Create the model
-        if self.hypers != model_dict["model_hypers"]:
-            raise ValueError("Model hypers do not match the checkpoint hypers")
+        model = cls(**model_dict["model_hypers"])
 
         # Load the model weights
-        self.load_state_dict(model_dict["model_state_dict"])
+        model.load_state_dict(model_dict["model_state_dict"])
 
-        return self
+        return model
 
     def export(self) -> MetatensorAtomisticModel:
         dtype = next(self.parameters()).dtype
