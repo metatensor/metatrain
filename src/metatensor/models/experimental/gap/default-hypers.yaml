@@ -20,9 +20,8 @@ model:
         exponent: 7.0
 
   krr:
-    degree: 2 # degree of the polynomial kernel
-  sparse_points:
-    points: 50 # number of pseudo points to select, farthest point sampling is used
+    degree: 2  # degree of the polynomial kernel
+    num_sparse_points: 500  # number of pseudo points to select, farthest point sampling is used
 
 training:
   regularizer: 0.001

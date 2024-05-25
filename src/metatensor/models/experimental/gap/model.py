@@ -83,7 +83,7 @@ class GAP(torch.nn.Module):
         }
 
         self.register_buffer(
-            "kernel_weights", torch.zeros((model_hypers["sparse_points"]["points"]))
+            "kernel_weights", torch.zeros((model_hypers["krr"]["num_sparse_points"]))
         )
         self._soap_torch_calculator = rascaline.torch.SoapPowerSpectrum(
             **model_hypers["soap"]
@@ -99,7 +99,7 @@ class GAP(torch.nn.Module):
             kernel_kwargs=kernel_kwargs,
         )
 
-        self._sampler = FPS(n_to_select=model_hypers["sparse_points"]["points"])
+        self._sampler = FPS(n_to_select=model_hypers["krr"]["num_sparse_points"])
 
         # set it do dummy keys, these are properly set during training
         self._keys = TorchLabels.empty("_")

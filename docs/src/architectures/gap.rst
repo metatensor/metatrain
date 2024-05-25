@@ -100,10 +100,7 @@ soap
 krr
 ^^^^
 :param degree: degree of the polynomial kernel
-
-sparse_points:
-^^^^^^^^^^^^^^
-:param points: number of pseudo points to select, farthest point sampling is used
+:param num_sparse_points: number of pseudo points to select (by farthest point sampling)
 
 training:
 ^^^^^^^^^

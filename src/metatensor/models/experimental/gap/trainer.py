@@ -122,6 +122,9 @@ class Trainer:
         else:
             alpha_forces = self.hypers["regularizer_forces"]
 
+        logger.info(f"Training on device cpu with dtype {dtype}")
+        logger.info("Fitting GAP")
+
         model._subset_of_regressors.fit(
             train_tensor,
             sparse_points,
