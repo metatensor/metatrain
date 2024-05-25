@@ -113,16 +113,23 @@ def evaluate_model(
                 system.positions.requires_grad_(True)
                 for nl_options in system.known_neighbor_lists():
                     nl = system.get_neighbor_list(nl_options)
-                    register_autograd_neighbors(
-                        system,
-                        TensorBlock(
-                            values=nl.values.detach(),
-                            samples=nl.samples,
-                            components=nl.components,
-                            properties=nl.properties,
-                        ),
-                        check_consistency=True,
-                    )
+                    if is_training:
+                        register_autograd_neighbors(
+                            system,
+                            TensorBlock(
+                                values=nl.values.detach(),
+                                samples=nl.samples,
+                                components=nl.components,
+                                properties=nl.properties,
+                            ),
+                            check_consistency=True,
+                        )
+                    else:
+                        register_autograd_neighbors(
+                            system,
+                            nl,
+                            check_consistency=True,
+                        )
 
     # Based on the keys of the targets, get the outputs of the model:
     model_outputs = _get_model_outputs(model, systems, targets)
