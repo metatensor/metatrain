@@ -19,9 +19,7 @@ from ..utils.data import (
     write_predictions,
 )
 from ..utils.errors import ArchitectureError
-from ..utils.evaluate_model import evaluate_model
-from ..utils.export import is_exported
-from ..utils.io import load
+from ..utils.evaluate_model import _get_outputs, evaluate_model
 from ..utils.logging import MetricLogger
 from ..utils.metrics import RMSEAccumulator
 from ..utils.neighbor_lists import get_system_with_neighbor_lists
@@ -50,14 +48,26 @@ def _add_eval_model_parser(subparser: argparse._SubParsersAction) -> None:
     )
     parser.set_defaults(callable="eval_model")
     parser.add_argument(
-        "model",
-        type=load,
+        "path",
+        type=str,
         help="Saved exported model to be evaluated.",
     )
     parser.add_argument(
         "options",
         type=OmegaConf.load,
         help="Eval options file to define a dataset for evaluation.",
+    )
+    parser.add_argument(
+        "-e",
+        "--extensions-dir",
+        type=str,
+        required=False,
+        dest="extensions_directory",
+        default=None,
+        help=(
+            "path to a directory containing all extensions required by the exported "
+            "model"
+        ),
     )
     parser.add_argument(
         "-o",
@@ -187,7 +197,8 @@ def _eval_targets(
     rmse_values = rmse_accumulator.finalize(not_per_atom=["positions_gradients"])
     # print the RMSEs with MetricLogger
     metric_logger = MetricLogger(
-        model_capabilities=model.capabilities(),
+        logobj=logger,
+        model_outputs=_get_outputs(model),
         initial_metrics=rmse_values,
     )
     metric_logger.log(rmse_values)
@@ -201,7 +212,9 @@ def _eval_targets(
 
 
 def eval_model(
-    model: torch.nn.Module, options: DictConfig, output: Union[Path, str] = "output.xyz"
+    model: Union[MetatensorAtomisticModel, torch.jit._script.RecursiveScriptModule],
+    options: DictConfig,
+    output: Union[Path, str] = "output.xyz",
 ) -> None:
     """Evaluate an exported model on a given data set.
 
@@ -213,12 +226,6 @@ def eval_model(
     :param options: DictConfig to define a test dataset taken for the evaluation.
     :param output: Path to save the predicted values
     """
-    if not is_exported(model):
-        raise ValueError(
-            "The model must already be exported to be used in `eval`. "
-            "If you are trying to evaluate a checkpoint, export it first "
-            "with the `metatensor-models export` command."
-        )
     logger.info("Setting up evaluation set.")
 
     # TODO: once https://github.com/lab-cosmo/metatensor/pull/551 is merged and released

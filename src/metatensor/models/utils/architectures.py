@@ -121,7 +121,7 @@ def find_all_architectures() -> List[str]:
 
 
 def get_default_hypers(name: str) -> Dict:
-    """Dictionary of the default architecture hyper paremeters.
+    """Dictionary of the default architecture hyperparameters.
 
     :param: name of the architecture
     :returns: default hyper paremeters of the architectures

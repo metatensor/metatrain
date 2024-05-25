@@ -10,14 +10,15 @@ from metatensor.models.utils.data import (
     TargetInfo,
     check_datasets,
     collate_fn,
-    get_all_species,
     get_all_targets,
+    get_atomic_types,
+    merge_dataset_info,
     read_systems,
     read_targets,
 )
 
 
-RESOURCES_PATH = Path(__file__).parent.resolve() / ".." / ".." / "resources"
+RESOURCES_PATH = Path(__file__).parents[2] / "resources"
 
 
 def test_dataset_info():
@@ -25,6 +26,7 @@ def test_dataset_info():
 
     dataset_info = DatasetInfo(
         length_unit="angstrom",
+        atomic_types=[1, 2, 3],
         targets={
             "energy": TargetInfo(quantity="energy", unit="kcal/mol"),
             "mtm::U0": TargetInfo(quantity="energy", unit="kcal/mol"),
@@ -32,6 +34,7 @@ def test_dataset_info():
     )
 
     assert dataset_info.length_unit == "angstrom"
+    assert dataset_info.atomic_types == [1, 2, 3]
     assert dataset_info.targets["energy"].quantity == "energy"
     assert dataset_info.targets["energy"].unit == "kcal/mol"
     assert dataset_info.targets["mtm::U0"].quantity == "energy"
@@ -65,8 +68,8 @@ def test_dataset():
         assert batch[1]["energy"].block().values.shape == (10, 1)
 
 
-def test_get_all_species():
-    """Tests that the species list is correctly computed with get_all_species."""
+def test_get_atomic_types():
+    """Tests that the species list is correctly computed with get_atomic_types."""
 
     systems = read_systems(RESOURCES_PATH / "qm9_reduced_100.xyz")
     conf = {
@@ -96,9 +99,9 @@ def test_get_all_species():
     targets_2 = read_targets(OmegaConf.create(conf_2))
     dataset = Dataset({"system": systems, **targets})
     dataset_2 = Dataset({"system": systems_2, **targets_2})
-    assert get_all_species(dataset) == [1, 6, 7, 8]
-    assert get_all_species(dataset_2) == [1, 6, 8]
-    assert get_all_species([dataset, dataset_2]) == [1, 6, 7, 8]
+    assert get_atomic_types(dataset) == [1, 6, 7, 8]
+    assert get_atomic_types(dataset_2) == [1, 6, 8]
+    assert get_atomic_types([dataset, dataset_2]) == [1, 6, 7, 8]
 
 
 def test_get_all_targets():
@@ -228,3 +231,41 @@ def test_collate_fn():
     assert isinstance(batch[0], tuple)
     assert len(batch[0]) == 3
     assert isinstance(batch[1], dict)
+
+
+def test_merge_dataset_info():
+    """Tests the merge_dataset_info function."""
+
+    old_info = DatasetInfo(
+        length_unit="angstrom",
+        atomic_types=[1, 6],
+        targets={
+            "energy": TargetInfo(quantity="energy", unit="eV"),
+            "mtm::forces": TargetInfo(quantity="mtm::forces", unit="eV/Angstrom"),
+        },
+    )
+
+    new_info = DatasetInfo(
+        length_unit="angstrom",
+        atomic_types=[1],
+        targets={
+            "energy": TargetInfo(quantity="energy", unit="eV"),
+            "mtm::forces": TargetInfo(quantity="mtm::forces", unit="eV/Angstrom"),
+            "mtm::stress": TargetInfo(quantity="mtm::stress", unit="GPa"),
+        },
+    )
+
+    merged, novel_types, novel_targets = merge_dataset_info(old_info, new_info)
+
+    assert merged.length_unit == "angstrom"
+    assert merged.atomic_types == [1, 6]
+    assert merged.targets["energy"].quantity == "energy"
+    assert merged.targets["energy"].unit == "eV"
+    assert merged.targets["mtm::forces"].quantity == "mtm::forces"
+    assert merged.targets["mtm::forces"].unit == "eV/Angstrom"
+    assert merged.targets["mtm::stress"].quantity == "mtm::stress"
+    assert merged.targets["mtm::stress"].unit == "GPa"
+
+    assert novel_types == []
+    assert novel_targets["mtm::stress"].quantity == "mtm::stress"
+    assert novel_targets["mtm::stress"].unit == "GPa"
