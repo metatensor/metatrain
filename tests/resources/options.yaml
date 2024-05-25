@@ -1,19 +1,23 @@
 base_precision: 64
 
 architecture:
-  name: experimental.soap_bpnn
+  name: experimental.gap
   training:
-    batch_size: 2
-    num_epochs: 1
+    regularizer: 0.000001
+    regularizer_forces: 0.00000001
+  model:
+    sparse_points:
+      points: 400
+
 
 training_set:
   systems:
-    read_from: qm9_reduced_100.xyz
+    read_from: ethanol_reduced_100.xyz
     length_unit: angstrom
   targets:
     energy:
-      key: U0
+      key: energy
       unit: eV
 
-test_set: 0.5
+test_set: 0.1
 validation_set: 0.1

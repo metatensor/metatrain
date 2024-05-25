@@ -1,3 +1,4 @@
+from pathlib import Path
 from typing import Dict, List, Optional, Tuple, Type, Union
 
 import metatensor.torch
@@ -10,45 +11,67 @@ import torch
 from metatensor.torch import Labels as TorchLabels
 from metatensor.torch import TensorBlock as TorchTensorBlock
 from metatensor.torch import TensorMap as TorchTensorMap
-from metatensor.torch.atomistic import ModelCapabilities, ModelOutput, System
+from metatensor.torch.atomistic import (
+    MetatensorAtomisticModel,
+    ModelCapabilities,
+    ModelOutput,
+    System,
+)
 from skmatter._selection import _FPS
 
 from metatensor import Labels, TensorBlock, TensorMap
+from metatensor.models.utils.data.dataset import DatasetInfo
 
-from . import ARCHITECTURE_NAME, DEFAULT_MODEL_HYPERS
+from ...utils.export import export
 
 
-class Model(torch.nn.Module):
-    def __init__(
-        self, capabilities: ModelCapabilities, hypers: Dict = DEFAULT_MODEL_HYPERS
-    ) -> None:
+class GAP(torch.nn.Module):
+
+    __supported_devices__ = ["cpu"]
+    __supported_dtypes__ = [torch.float64]
+
+    def __init__(self, model_hypers: Dict, dataset_info: DatasetInfo) -> None:
         super().__init__()
-        self.name = ARCHITECTURE_NAME
 
-        if len(capabilities.outputs) > 1:
+        if len(dataset_info.targets) > 1:
             raise NotImplementedError("GAP only supports a single output")
 
         # Check capabilities
-        for output in capabilities.outputs.values():
-            if output.quantity != "energy":
+        for target in dataset_info.targets.values():
+            if target.quantity != "energy":
                 raise ValueError(
                     "GAP only supports energy-like outputs, "
-                    f"but a {output.quantity} was provided"
+                    f"but a {target.quantity} was provided"
                 )
-            if output.per_atom:
+            if target.per_atom:
                 raise ValueError(
                     "GAP only supports per-structure outputs, "
                     "but a per-atom output was provided"
                 )
+        target_name = next(iter(dataset_info.targets.keys()))
+        if dataset_info.targets[target_name].quantity != "energy":
+            raise ValueError("GAP only supports energies as target")
+        if dataset_info.targets[target_name].per_atom:
+            raise ValueError("GAP does not support per-atom energies")
 
-        self.capabilities = capabilities
-        self.all_species = capabilities.atomic_types
-        self.hypers = hypers
+        self.dataset_info = dataset_info
+
+        self.outputs = {
+            key: ModelOutput(
+                quantity=value.quantity,
+                unit=value.unit,
+                per_atom=False,
+            )
+            for key, value in dataset_info.targets.items()
+        }
+
+        self.all_species = dataset_info.atomic_types
+        self.hypers = model_hypers
 
         # creates a composition weight tensor that can be directly indexed by species,
         # this can be left as a tensor of zero or set from the outside using
         # set_composition_weights (recommended for better accuracy)
-        n_outputs = len(capabilities.outputs)
+        n_outputs = len(dataset_info.targets)
         self.register_buffer(
             "composition_weights", torch.zeros((n_outputs, max(self.all_species) + 1))
         )
@@ -56,27 +79,27 @@ class Model(torch.nn.Module):
         # tensor for all output. Due to this, we need to slice the tensor when we use
         # it and use the output name to select the correct slice via a dictionary
         self.output_to_index = {
-            output_name: i for i, output_name in enumerate(capabilities.outputs.keys())
+            output_name: i for i, output_name in enumerate(dataset_info.targets.keys())
         }
 
         self.register_buffer(
-            "kernel_weights", torch.zeros((hypers["sparse_points"]["points"]))
+            "kernel_weights", torch.zeros((model_hypers["sparse_points"]["points"]))
         )
         self._soap_torch_calculator = rascaline.torch.SoapPowerSpectrum(
-            **hypers["soap"]
+            **model_hypers["soap"]
         )
-        self._soap_calculator = rascaline.SoapPowerSpectrum(**hypers["soap"])
+        self._soap_calculator = rascaline.SoapPowerSpectrum(**model_hypers["soap"])
 
         kernel_kwargs = {
-            "degree": hypers["krr"]["degree"],
+            "degree": model_hypers["krr"]["degree"],
             "aggregate_names": ["atom", "center_type"],
         }
         self._subset_of_regressors = SubsetOfRegressors(
-            kernel_type=hypers["krr"].get("kernel", "polynomial"),
+            kernel_type=model_hypers["krr"].get("kernel", "polynomial"),
             kernel_kwargs=kernel_kwargs,
         )
 
-        self._sampler = FPS(n_to_select=hypers["sparse_points"]["points"])
+        self._sampler = FPS(n_to_select=model_hypers["sparse_points"]["points"])
 
         # set it do dummy keys, these are properly set during training
         self._keys = TorchLabels.empty("_")
@@ -92,6 +115,9 @@ class Model(torch.nn.Module):
             dummy_weights, dummy_X_pseudo
         )
         self._species_labels: TorchLabels = TorchLabels.empty("_")
+
+    def restart(self, dataset_info: DatasetInfo) -> "GAP":
+        raise ValueError("GAP does not allow restarting training")
 
     def forward(
         self,
@@ -154,6 +180,33 @@ class Model(torch.nn.Module):
         energies = self._subset_of_regressors_torch(soap_features)
         out_tensor = self.apply_composition_weights(systems, energies)
         return {output_key: out_tensor}
+
+    def save_checkpoint(self, path: Union[str, Path]):
+        # GAP will not save checkpoints, as it does not allow
+        # restarting training
+        return
+
+    @classmethod
+    def load_checkpoint(cls, path: Union[str, Path]) -> "GAP":
+        raise ValueError("GAP does not allow restarting training")
+
+    def export(self) -> MetatensorAtomisticModel:
+        capabilities = ModelCapabilities(
+            outputs=self.outputs,
+            atomic_types=self.dataset_info.atomic_types,
+            interaction_range=self.hypers["soap"]["cutoff"],
+            length_unit=self.dataset_info.length_unit,
+            supported_devices=["cuda", "cpu"],
+            dtype="float64",
+        )
+
+        # we export a torch scriptable regressor TorchSubsetofRegressors
+        # that is used in the forward path
+        self._subset_of_regressors_torch = (
+            self._subset_of_regressors.export_torch_script_model()
+        )
+
+        return export(model=self, model_capabilities=capabilities)
 
     def set_composition_weights(
         self,

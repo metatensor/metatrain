@@ -1,7 +1,7 @@
 .. _architecture-sparse-gap:
 
-Sparse GAP
-==========
+GAP
+===
 
 This is an implementation of the sparse `Gaussian Approximation Potential
 <GAP_>`_ (GAP) using `Smooth Overlap of Atomic Positions <SOAP_>`_ (SOAP)
@@ -11,6 +11,9 @@ implemented in `rascaline <RASCALINE_>`_.
 .. _SOAP: https://doi.org/10.1103/PhysRevB.87.184115
 .. _GAP:  https://doi.org/10.1002/qua.24927
 .. _RASCALINE: https://github.com/Luthaf/rascaline
+
+The GAP model in metatensor-models can only train on CPU, but evaluation
+is also supported on GPU.
 
 
 Installation
@@ -104,5 +107,6 @@ sparse_points:
 
 training:
 ^^^^^^^^^
-:param  regularizer: values of the energy regularizer
+:param regularizer: value of the energy regularizer
+:param regularizer_forces: value of the forces regularizer
 
