@@ -128,6 +128,9 @@ class GAP(torch.nn.Module):
         soap_features = self._soap_torch_calculator(
             systems, selected_samples=selected_atoms
         )
+        # move keys and species labels to device
+        self._keys = self._keys.to(systems[0].device)
+        self._species_labels = self._species_labels.to(systems[0].device)
 
         new_blocks: List[TorchTensorBlock] = []
         # HACK: to add a block of zeros if there are missing species
@@ -136,9 +139,14 @@ class GAP(torch.nn.Module):
         # given the values are all zeros, it does not introduce an error
         dummyblock: TorchTensorBlock = TorchTensorBlock(
             values=torch.zeros(
-                (1, len(soap_features[0].properties)), dtype=systems[0].positions.dtype
+                (1, len(soap_features[0].properties)),
+                dtype=systems[0].positions.dtype,
+                device=systems[0].device,
             ),
-            samples=TorchLabels(["system", "atom"], torch.IntTensor([[0, 0]])),
+            samples=TorchLabels(
+                ["system", "atom"],
+                torch.tensor([[0, 0]], dtype=torch.int, device=systems[0].device),
+            ),
             properties=soap_features[0].properties,
             components=[],
         )
@@ -152,9 +160,13 @@ class GAP(torch.nn.Module):
                             len(soap_features[0].gradient(grad).properties),
                         ),
                         dtype=systems[0].positions.dtype,
+                        device=systems[0].device,
                     ),
                     samples=TorchLabels(
-                        ["sample", "system", "atom"], torch.IntTensor([[0, 0, 0]])
+                        ["sample", "system", "atom"],
+                        torch.tensor(
+                            [[0, 0, 0]], dtype=torch.int, device=systems[0].device
+                        ),
                     ),
                     components=soap_features[0].gradient(grad).components,
                     properties=soap_features[0].gradient(grad).properties,
@@ -1197,6 +1209,10 @@ class TorchSubsetofRegressors(torch.nn.Module):
             features
             if kernel type "precomputed" is used, the kernel k_tm is assumed
         """
+        # move weights and X_pseudo to the same device as T
+        self._weights = self._weights.to(T.device)
+        self._X_pseudo = self._X_pseudo.to(T.device)
+
         k_tm = self._kernel(T, self._X_pseudo, are_pseudo_points=(False, True))
         return metatensor.torch.dot(k_tm, self._weights)
 
