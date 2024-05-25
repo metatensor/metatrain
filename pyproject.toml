@@ -64,7 +64,7 @@ pet = [
   "pet @ git+https://github.com/spozdn/pet.git@9f6119d",
 ]
 gap = [
-    "rascaline-torch @ git+https://github.com/luthaf/rascaline@4746196#subdirectory=python/rascaline-torch",
+    "rascaline-torch @ git+https://github.com/luthaf/rascaline@5348132#subdirectory=python/rascaline-torch",
     "skmatter",
     "metatensor-learn",
     "scipy",
