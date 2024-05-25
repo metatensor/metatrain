@@ -63,4 +63,4 @@ def export_model(model: Any, output: Union[Path, str] = "exported-model.pt") -> 
         torch.jit.save(model, path)
     else:
         mts_atomistic_model = model.export()
-        mts_atomistic_model.export(path)
+        mts_atomistic_model.export(path, collect_extensions="extensions")
