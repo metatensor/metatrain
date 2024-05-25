@@ -25,6 +25,7 @@ model:
   TRANSFORMER_TYPE: PostLN # PostLN or PreLN
   USE_LONG_RANGE: False
   K_CUT: null # should be float; only used when USE_LONG_RANGE is True
+  RESIDUAL_FACTOR: 0.5
 
 
 training:  

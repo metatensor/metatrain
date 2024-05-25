@@ -24,6 +24,7 @@ from . import AlchemicalModel
 from .utils.normalize import (
     get_average_number_of_atoms,
     get_average_number_of_neighbors,
+    remove_composition_from_dataset,
 )
 
 
@@ -99,6 +100,22 @@ class Trainer:
                     train_datasets_with_target, target_name
                 )
                 model.set_composition_weights(composition_weights.unsqueeze(0), species)
+
+        # Remove the composition from the datasets:
+        train_datasets = [
+            remove_composition_from_dataset(
+                train_datasets[0],
+                model.dataset_info.atomic_types,
+                model.alchemical_model.composition_weights.squeeze(0),
+            )
+        ]
+        validation_datasets = [
+            remove_composition_from_dataset(
+                validation_datasets[0],
+                model.dataset_info.atomic_types,
+                model.alchemical_model.composition_weights.squeeze(0),
+            )
+        ]
 
         logger.info("Setting up data loaders")
 
