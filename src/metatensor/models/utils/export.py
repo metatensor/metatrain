@@ -55,7 +55,7 @@ def is_exported(model: Any) -> bool:
     :return: :py:obj:`True` if the ``model`` has been exported, :py:obj:`False`
         otherwise.
     """
-    # If the model is saved an loaded again it's type is ScriptModule
+    # If the model is saved and loaded again, its type is RecursiveScriptModule
     if type(model) in [
         MetatensorAtomisticModel,
         torch.jit._script.RecursiveScriptModule,

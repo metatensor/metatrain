@@ -113,7 +113,13 @@ def evaluate_model(
                 system.positions.requires_grad_(True)
                 for nl_options in system.known_neighbor_lists():
                     nl = system.get_neighbor_list(nl_options)
-                    if is_training:
+                    if is_exported(model):
+                        register_autograd_neighbors(
+                            system,
+                            nl,
+                            check_consistency=True,
+                        )
+                    else:
                         register_autograd_neighbors(
                             system,
                             TensorBlock(
@@ -122,12 +128,6 @@ def evaluate_model(
                                 components=nl.components,
                                 properties=nl.properties,
                             ),
-                            check_consistency=True,
-                        )
-                    else:
-                        register_autograd_neighbors(
-                            system,
-                            nl,
                             check_consistency=True,
                         )
 
