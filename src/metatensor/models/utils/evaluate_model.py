@@ -108,14 +108,20 @@ def evaluate_model(
         systems = new_systems
     else:
         if len(energy_targets_that_require_position_gradients) > 0:
-            # Set positions to require gradients:
-            for system in systems:
-                system.positions.requires_grad_(True)
-                for nl_options in system.known_neighbor_lists():
-                    nl = system.get_neighbor_list(nl_options)
-                    if is_training:
+            if not is_exported(model):
+                new_systems = []
+                for system in systems:
+                    new_system = System(
+                        positions=system.positions.detach()
+                        .clone()
+                        .requires_grad_(True),
+                        cell=system.cell,
+                        types=system.types,
+                    )
+                    for nl_options in system.known_neighbor_lists():
+                        nl = system.get_neighbor_list(nl_options)
                         register_autograd_neighbors(
-                            system,
+                            new_system,
                             TensorBlock(
                                 values=nl.values.detach(),
                                 samples=nl.samples,
@@ -124,7 +130,14 @@ def evaluate_model(
                             ),
                             check_consistency=True,
                         )
-                    else:
+                        new_system.add_neighbor_list(nl_options, nl)
+                    new_systems.append(new_system)
+                systems = new_systems
+            else:
+                for system in systems:
+                    system.positions.requires_grad_(True)
+                    for nl_options in system.known_neighbor_lists():
+                        nl = system.get_neighbor_list(nl_options)
                         register_autograd_neighbors(
                             system,
                             nl,
