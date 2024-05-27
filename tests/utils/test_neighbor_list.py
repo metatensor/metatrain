@@ -6,7 +6,7 @@ from metatensor.models.utils.data.readers.systems import read_systems_ase
 from metatensor.models.utils.neighbor_lists import get_system_with_neighbor_lists
 
 
-RESOURCES_PATH = Path(__file__).parent.resolve() / ".." / "resources"
+RESOURCES_PATH = Path(__file__).parents[1] / "resources"
 
 
 def test_attach_neighbor_lists():

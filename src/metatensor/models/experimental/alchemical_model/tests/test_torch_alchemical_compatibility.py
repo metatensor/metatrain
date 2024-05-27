@@ -3,42 +3,35 @@ import random
 import numpy as np
 import torch
 from ase.io import read
-from metatensor.torch.atomistic import (
-    MetatensorAtomisticModel,
-    ModelCapabilities,
-    ModelEvaluationOptions,
-    ModelMetadata,
-    ModelOutput,
-    NeighborListOptions,
-)
+from metatensor.torch.atomistic import ModelEvaluationOptions, NeighborListOptions
 from torch_alchemical.data import AtomisticDataset
-from torch_alchemical.models import AlchemicalModel
+from torch_alchemical.models import AlchemicalModel as AlchemicalModelUpstream
 from torch_alchemical.transforms import NeighborList
 from torch_alchemical.utils import get_list_of_unique_atomic_numbers
 from torch_geometric.loader import DataLoader
 
-from metatensor.models.experimental.alchemical_model import DEFAULT_HYPERS, Model
+from metatensor.models.experimental.alchemical_model import AlchemicalModel
 from metatensor.models.experimental.alchemical_model.utils import (
     systems_to_torch_alchemical_batch,
 )
-from metatensor.models.utils.data import read_systems
+from metatensor.models.utils.data import DatasetInfo, TargetInfo, read_systems
 from metatensor.models.utils.neighbor_lists import get_system_with_neighbor_lists
 
-from . import ALCHEMICAL_DATASET_PATH as DATASET_PATH
+from . import ALCHEMICAL_DATASET_PATH, MODEL_HYPERS
 
 
 random.seed(0)
 np.random.seed(0)
 torch.manual_seed(0)
 
-systems = read_systems(DATASET_PATH)
+systems = read_systems(ALCHEMICAL_DATASET_PATH)
 nl_options = NeighborListOptions(
     cutoff=5.0,
     full_list=True,
 )
 systems = [get_system_with_neighbor_lists(system, [nl_options]) for system in systems]
 
-frames = read(DATASET_PATH, ":")
+frames = read(ALCHEMICAL_DATASET_PATH, ":")
 dataset = AtomisticDataset(
     frames,
     target_properties=["energies", "forces"],
@@ -69,44 +62,37 @@ def test_alchemical_model_inference():
     np.random.seed(0)
     torch.manual_seed(0)
     unique_numbers = get_list_of_unique_atomic_numbers(frames)
-    capabilities = ModelCapabilities(
+
+    dataset_info = DatasetInfo(
         length_unit="Angstrom",
         atomic_types=unique_numbers,
-        outputs={
-            "energy": ModelOutput(
+        targets={
+            "energy": TargetInfo(
                 quantity="energy",
                 unit="eV",
             )
         },
-        supported_devices=["cpu"],
-        interaction_range=DEFAULT_HYPERS["model"]["soap"]["cutoff"],
-        dtype="float32",
     )
 
-    alchemical_model = Model(capabilities, DEFAULT_HYPERS["model"])
+    alchemical_model = AlchemicalModel(MODEL_HYPERS, dataset_info)
 
     evaluation_options = ModelEvaluationOptions(
-        length_unit=capabilities.length_unit,
-        outputs=capabilities.outputs,
+        length_unit=dataset_info.length_unit,
+        outputs=alchemical_model.outputs,
     )
 
-    model = MetatensorAtomisticModel(
-        alchemical_model.eval(), ModelMetadata(), alchemical_model.capabilities
-    )
-    output = model(
-        systems,
-        evaluation_options,
-        check_consistency=True,
-    )
+    exported = alchemical_model.export()
+
+    output = exported(systems, evaluation_options, check_consistency=True)
 
     random.seed(0)
     np.random.seed(0)
     torch.manual_seed(0)
 
-    original_model = AlchemicalModel(
+    original_model = AlchemicalModelUpstream(
         unique_numbers=unique_numbers,
-        **DEFAULT_HYPERS["model"]["soap"],
-        **DEFAULT_HYPERS["model"]["bpnn"],
+        **MODEL_HYPERS["soap"],
+        **MODEL_HYPERS["bpnn"],
     ).eval()
     original_output = original_model(
         positions=batch.pos,

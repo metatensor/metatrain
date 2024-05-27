@@ -6,17 +6,13 @@ from pathlib import Path
 import ase.io
 import pytest
 import torch
-from metatensor.torch.atomistic import ModelCapabilities, ModelOutput
 from omegaconf import OmegaConf
 
 from metatensor.models.cli.eval import eval_model
-from metatensor.models.experimental.soap_bpnn import DEFAULT_HYPERS, Model
-from metatensor.models.utils.export import export
+from metatensor.models.experimental.soap_bpnn import __model__
+from metatensor.models.utils.data import DatasetInfo, TargetInfo
 
-
-RESOURCES_PATH = Path(__file__).parent.resolve() / ".." / "resources"
-MODEL_PATH = RESOURCES_PATH / "model-32-bit.pt"
-OPTIONS_PATH = RESOURCES_PATH / "eval.yaml"
+from . import EVAL_OPTIONS_PATH, MODEL_HYPERS, MODEL_PATH, RESOURCES_PATH
 
 
 @pytest.fixture
@@ -26,7 +22,7 @@ def model():
 
 @pytest.fixture
 def options():
-    return OmegaConf.load(OPTIONS_PATH)
+    return OmegaConf.load(EVAL_OPTIONS_PATH)
 
 
 def test_eval_cli(monkeypatch, tmp_path):
@@ -38,7 +34,7 @@ def test_eval_cli(monkeypatch, tmp_path):
         "metatensor-models",
         "eval",
         str(MODEL_PATH),
-        str(OPTIONS_PATH),
+        str(EVAL_OPTIONS_PATH),
     ]
 
     output = subprocess.check_output(command, stderr=subprocess.STDOUT)
@@ -77,25 +73,20 @@ def test_eval(monkeypatch, tmp_path, caplog, model_name, options):
 def test_eval_export(monkeypatch, tmp_path, options):
     """Test evaluation of a trained model exported but not saved to disk."""
     monkeypatch.chdir(tmp_path)
-    model = Model(
-        capabilities=ModelCapabilities(
-            outputs={
-                "energy": ModelOutput(
-                    quantity="energy",
-                    unit="eV",
-                )
-            },
-            atomic_types=[1, 6, 7, 8],
-            interaction_range=DEFAULT_HYPERS["model"]["soap"]["cutoff"],
-            length_unit="angstrom",
-            supported_devices=["cpu"],
-            dtype="float32",
-        )
+    dataset_info = DatasetInfo(
+        length_unit="angstrom",
+        atomic_types=[1, 6, 7, 8],
+        targets={
+            "energy": TargetInfo(
+                quantity="energy", unit="eV", per_atom=False, gradients=[]
+            )
+        },
     )
+    model = __model__(model_hypers=MODEL_HYPERS, dataset_info=dataset_info)
 
     shutil.copy(RESOURCES_PATH / "qm9_reduced_100.xyz", "qm9_reduced_100.xyz")
 
-    exported_model = export(model)
+    exported_model = model.export()
 
     eval_model(
         model=exported_model,
