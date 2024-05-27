@@ -1,53 +1,49 @@
-import torch  # noqa: E402
-from metatensor.torch.atomistic import ModelCapabilities, ModelOutput  # noqa: E402
+import torch
 
-from metatensor.models.experimental.alchemical_model import (  # noqa: E402
-    DEFAULT_HYPERS,
-    Model,
-)
+from metatensor.models.experimental.alchemical_model import AlchemicalModel
+from metatensor.models.utils.data import DatasetInfo, TargetInfo
+
+from . import MODEL_HYPERS
 
 
 def test_torchscript():
     """Tests that the model can be jitted."""
 
-    capabilities = ModelCapabilities(
+    dataset_info = DatasetInfo(
         length_unit="Angstrom",
         atomic_types=[1, 6, 7, 8],
-        outputs={
-            "energy": ModelOutput(
+        targets={
+            "energy": TargetInfo(
                 quantity="energy",
                 unit="eV",
             )
         },
-        interaction_range=DEFAULT_HYPERS["model"]["soap"]["cutoff"],
-        dtype="float32",
-    )
-    alchemical_model = Model(capabilities, DEFAULT_HYPERS["model"])
-    torch.jit.script(
-        alchemical_model, {"energy": alchemical_model.capabilities.outputs["energy"]}
     )
 
+    model = AlchemicalModel(MODEL_HYPERS, dataset_info)
+    torch.jit.script(model, {"energy": model.outputs["energy"]})
 
-def test_torchscript_save():
+
+def test_torchscript_save_load():
     """Tests that the model can be jitted and saved."""
 
-    capabilities = ModelCapabilities(
+    dataset_info = DatasetInfo(
         length_unit="Angstrom",
         atomic_types=[1, 6, 7, 8],
-        outputs={
-            "energy": ModelOutput(
+        targets={
+            "energy": TargetInfo(
                 quantity="energy",
                 unit="eV",
             )
         },
-        interaction_range=DEFAULT_HYPERS["model"]["soap"]["cutoff"],
-        dtype="float32",
     )
-    alchemical_model = Model(capabilities, DEFAULT_HYPERS["model"])
+    model = AlchemicalModel(MODEL_HYPERS, dataset_info)
     torch.jit.save(
         torch.jit.script(
-            alchemical_model,
-            {"energy": alchemical_model.capabilities.outputs["energy"]},
+            model,
+            {"energy": model.outputs["energy"]},
         ),
         "alchemical_model.pt",
     )
+
+    torch.jit.load("alchemical_model.pt")

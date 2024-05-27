@@ -33,7 +33,7 @@ repository. To qualify as an experimental architecture, certain criteria must be
    a public git repository or another public URL with a repository is acceptable.
 
 For detailed instructions on adding a new architecture, refer to
-:ref:`adding-new-models`.
+:ref:`adding-new-architecture`.
 
 Stable Architectures
 --------------------

@@ -72,11 +72,13 @@ class DatasetInfo:
     This dataclass is used to communicate additional dataset details to the
     training functions of the individual models.
 
-    :param length_unit: The unit of length used in the dataset.
-    :param targets: The information about targets in the dataset.
+    :param length_unit: unit of length used in the dataset
+    :param atomic_types: all the atomic types present in the dataset
+    :param targets: information about targets in the dataset
     """
 
     length_unit: str
+    atomic_types: List[int]
     targets: Dict[str, TargetInfo]
 
     @classmethod
@@ -135,38 +137,36 @@ class DatasetInfo:
         return dataset_info
 
 
-def get_all_species(datasets: Union[Dataset, List[Dataset]]) -> List[int]:
-    """
-    Returns the list of all species present in a dataset or list of datasets.
+def get_atomic_types(datasets: Union[Dataset, List[Dataset]]) -> List[int]:
+    """List of all atomic types present in a dataset or list of datasets.
 
-    :param datasets: the dataset, or list of datasets.
-    :returns: The sorted list of species present in the datasets.
+    :param datasets: the dataset, or list of datasets
+    :returns: sorted list of all atomic types present in the datasets
     """
 
     if not isinstance(datasets, list):
         datasets = [datasets]
 
     # Iterate over all single instances of the dataset:
-    species = []
+    types = []
     for dataset in datasets:
         for index in range(len(dataset)):
             system = dataset[index]["system"]
-            species += system.types.tolist()
+            types += system.types.tolist()
 
     # Remove duplicates and sort:
-    result = list(set(species))
+    result = list(set(types))
     result.sort()
 
     return result
 
 
 def get_all_targets(datasets: Union[Dataset, List[Dataset]]) -> List[str]:
-    """
-    Returns the list of all targets present in a dataset or list of datasets.
+    """List of all targets present in a dataset or list of datasets.
 
     :param datasets: the dataset(s).
-    :returns: list of targets present in the dataset(s), sorted according
-        to the ``sort()`` method of Python lists.
+    :returns: list of targets present in the dataset(s), sorted according to the
+        ``sort()`` method of Python lists.
     """
 
     if not isinstance(datasets, list):
@@ -242,8 +242,8 @@ def check_datasets(train_datasets: List[Dataset], validation_datasets: List[Data
                 "in the training dataset."
             )
     # Get all the species in the training and validation sets:
-    all_training_species = get_all_species(train_datasets)
-    all_validation_species = get_all_species(validation_datasets)
+    all_training_species = get_atomic_types(train_datasets)
+    all_validation_species = get_atomic_types(validation_datasets)
 
     # Check that the validation sets do not have species that are not in the
     # training sets:
@@ -300,3 +300,82 @@ def group_and_join(
             data.append(f)
 
     return {name: value for name, value in zip(names, data)}
+
+
+def merge_dataset_info(
+    old_info: DatasetInfo, new_info: DatasetInfo
+) -> Tuple[DatasetInfo, List[int], Dict[str, TargetInfo]]:
+    """
+    Merge two ``DatasetInfo`` objects.
+
+    Useful when updating a model with information about a new dataset,
+    for example when doing transfer learning.
+
+    :param old_info: The information of the old dataset.
+    :param new_info: The information of the new dataset.
+
+    :return: A tuple containing three items: (a) the merged information,
+        i.e., a union of the old and the new information, (b) a list of
+        atomic types that were not present in the old ``DatsetInfo``, but
+        are present in the new one, (c) a list of targets that were not
+        present in the old ``DatasetInfo``, but are present in the new one.
+        The order of the outputs and species is preserved in all cases.
+
+    :raises ValueError: If the length units of the old and new info are not
+        the same, or if targets with the same name are not consistent
+        between the old and new info (however, the same target with different
+        gradients is allowed).
+    """
+    # Check that the length units are the same:
+    if old_info.length_unit != new_info.length_unit:
+        raise ValueError(
+            "The length units of the old and new dataset are not the same. "
+            f"Found `{old_info.length_unit}` and "
+            f"`{new_info.length_unit}`."
+        )
+
+    # Merge the outputs:
+    merged_outputs = {}
+    for key, value in old_info.targets.items():
+        merged_outputs[key] = value
+    for key, value in new_info.targets.items():
+        if key in merged_outputs:
+            if merged_outputs[key].quantity != value.quantity:
+                raise ValueError(
+                    f"Output {key} has different quantities in the old and "
+                    "new dataset."
+                )
+            if merged_outputs[key].unit != value.unit:
+                raise ValueError(
+                    f"Output {key} has different units in the old and new dataset."
+                )
+            if merged_outputs[key].per_atom != value.per_atom:
+                raise ValueError(
+                    f"Output {key} has different per_atom character in the old "
+                    "and new dataset."
+                )
+        else:
+            merged_outputs[key] = value
+
+    # Find the merged atomic types:
+    merged_types = list(set(old_info.atomic_types + new_info.atomic_types))
+
+    # Find the novel atomic types:
+    novel_types = []
+    for type_ in new_info.atomic_types:
+        if type_ not in old_info.atomic_types:
+            novel_types.append(type_)
+
+    # Find the new outputs:
+    novel_outputs = {}
+    for key, value in new_info.targets.items():
+        if key not in old_info.targets:
+            novel_outputs[key] = value
+
+    merged_info = DatasetInfo(
+        length_unit=old_info.length_unit,
+        atomic_types=merged_types,
+        targets=merged_outputs,
+    )
+
+    return merged_info, novel_types, novel_outputs

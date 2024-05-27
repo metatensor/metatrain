@@ -1,16 +1,13 @@
 import ase
 import pytest
 import torch
-from metatensor.torch.atomistic import (
-    ModelCapabilities,
-    ModelEvaluationOptions,
-    ModelOutput,
-    systems_to_torch,
-)
+from metatensor.torch.atomistic import ModelEvaluationOptions, systems_to_torch
 
-from metatensor.models.experimental.soap_bpnn import DEFAULT_HYPERS, Model
-from metatensor.models.utils.export import export
+from metatensor.models.experimental.soap_bpnn import SoapBpnn
+from metatensor.models.utils.data import DatasetInfo, TargetInfo
 from metatensor.models.utils.neighbor_lists import get_system_with_neighbor_lists
+
+from . import MODEL_HYPERS
 
 
 @pytest.mark.parametrize("device", ["cpu", "cuda"])
@@ -20,27 +17,18 @@ def test_to(device, dtype):
     if device == "cuda" and not torch.cuda.is_available():
         pytest.skip("CUDA is not available")
 
-    if dtype == torch.float32:
-        dtype_string = "float32"
-    elif dtype == torch.float64:
-        dtype_string = "float64"
-    else:
-        raise ValueError(f"Unsupported dtype: {dtype}")
-
-    capabilities = ModelCapabilities(
+    dataset_info = DatasetInfo(
         length_unit="Angstrom",
         atomic_types=[1, 6, 7, 8],
-        outputs={
-            "energy": ModelOutput(
+        targets={
+            "energy": TargetInfo(
                 quantity="energy",
                 unit="eV",
             )
         },
-        interaction_range=DEFAULT_HYPERS["model"]["soap"]["cutoff"],
-        dtype=dtype_string,
     )
-    model = Model(capabilities, DEFAULT_HYPERS["model"]).to(dtype=dtype)
-    exported = export(model)
+    model = SoapBpnn(MODEL_HYPERS, dataset_info).to(dtype=dtype)
+    exported = model.export()
 
     exported.to(device=device)
 
@@ -50,8 +38,8 @@ def test_to(device, dtype):
     system = system.to(device=device, dtype=dtype)
 
     evaluation_options = ModelEvaluationOptions(
-        length_unit=capabilities.length_unit,
-        outputs=capabilities.outputs,
+        length_unit=dataset_info.length_unit,
+        outputs=model.outputs,
     )
 
     exported([system], evaluation_options, check_consistency=True)

@@ -39,9 +39,6 @@ def pick_devices(
     # intersect between available and architecture's devices. keep order of architecture
     possible_devices = [d for d in architecture_devices if d in available_devices]
 
-    # cpu device should always be available
-    assert "cpu" in possible_devices
-
     # If desired device given compare the possible devices and try to find a match
     if desired_device is None:
         desired_device = possible_devices[0]

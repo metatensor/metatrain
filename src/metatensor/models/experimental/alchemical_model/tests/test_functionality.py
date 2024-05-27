@@ -1,52 +1,38 @@
 import ase
-from metatensor.torch.atomistic import (
-    MetatensorAtomisticModel,
-    ModelCapabilities,
-    ModelEvaluationOptions,
-    ModelMetadata,
-    ModelOutput,
-    systems_to_torch,
-)
+from metatensor.torch.atomistic import ModelEvaluationOptions, systems_to_torch
 
-from metatensor.models.experimental.alchemical_model import DEFAULT_HYPERS, Model
+from metatensor.models.experimental.alchemical_model import AlchemicalModel
+from metatensor.models.utils.data import DatasetInfo, TargetInfo
 from metatensor.models.utils.neighbor_lists import get_system_with_neighbor_lists
 
+from . import MODEL_HYPERS
 
-def test_prediction_subset():
-    """Tests that the model can predict on a subset
-    of the elements it was trained on."""
 
-    capabilities = ModelCapabilities(
+def test_prediction_subset_elements():
+    """Tests that the model can predict on a subset of the elements it was trained
+    on."""
+
+    dataset_info = DatasetInfo(
         length_unit="Angstrom",
         atomic_types=[1, 6, 7, 8],
-        outputs={
-            "energy": ModelOutput(
+        targets={
+            "energy": TargetInfo(
                 quantity="energy",
                 unit="eV",
             )
         },
-        supported_devices=["cpu"],
-        interaction_range=DEFAULT_HYPERS["model"]["soap"]["cutoff"],
-        dtype="float32",
     )
 
-    alchemical_model = Model(capabilities, DEFAULT_HYPERS["model"])
+    model = AlchemicalModel(MODEL_HYPERS, dataset_info)
+
     system = ase.Atoms("O2", positions=[[0.0, 0.0, 0.0], [0.0, 0.0, 1.0]])
     system = systems_to_torch(system)
-    system = get_system_with_neighbor_lists(
-        system, alchemical_model.requested_neighbor_lists()
-    )
+    system = get_system_with_neighbor_lists(system, model.requested_neighbor_lists())
 
     evaluation_options = ModelEvaluationOptions(
-        length_unit=capabilities.length_unit,
-        outputs=capabilities.outputs,
+        length_unit=dataset_info.length_unit,
+        outputs=model.outputs,
     )
 
-    model = MetatensorAtomisticModel(
-        alchemical_model.eval(), ModelMetadata(), alchemical_model.capabilities
-    )
-    model(
-        [system],
-        evaluation_options,
-        check_consistency=True,
-    )
+    exported = model.export()
+    exported([system], evaluation_options, check_consistency=True)
