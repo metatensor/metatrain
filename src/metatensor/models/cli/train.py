@@ -312,9 +312,10 @@ def train_model(
     )
 
     ###########################
-    # CREATING DATASET_INFO ###
+    # CREATE DATASET_INFO #####
     ###########################
 
+    # TODO: move this into own function
     # TODO: A more direct way to look up the gradients would be to get them from the
     # configuration dict of the training run.
     gradients: Dict[str, List[str]] = {}
