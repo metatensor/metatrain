@@ -2,7 +2,6 @@ import logging
 from pathlib import Path
 from typing import Dict, List, Optional, Union
 
-import numpy as np
 import metatensor.torch
 import torch
 from metatensor.torch import Labels, TensorBlock, TensorMap
