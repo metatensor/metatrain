@@ -137,7 +137,7 @@ class PET(torch.nn.Module):
     def export(self) -> MetatensorAtomisticModel:
         dtype = next(self.parameters()).dtype
         if dtype not in self.__supported_dtypes__:
-            raise ValueError(f"Unsupported dtype {self.dtype} for SOAP-BPNN")
+            raise ValueError(f"Unsupported dtype {self.dtype} for PET")
 
         capabilities = ModelCapabilities(
             outputs={
@@ -153,5 +153,4 @@ class PET(torch.nn.Module):
             supported_devices=["cpu", "cuda"],  # and not __supported_devices__
             dtype=dtype_to_str(dtype),
         )
-
         return export(model=self, model_capabilities=capabilities)
