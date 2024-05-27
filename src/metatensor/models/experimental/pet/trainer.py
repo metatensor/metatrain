@@ -5,7 +5,7 @@ from typing import List, Union
 import torch
 from metatensor.learn.data import DataLoader
 from pet.hypers import Hypers
-from pet.pet import PET
+from pet.pet import PET, SelfContributionsWrapper
 from pet.train_model import fit_pet
 
 from ...utils.data import Dataset, check_datasets, collate_fn
@@ -145,11 +145,18 @@ class Trainer:
 
         new_state_dict = {}
         for name, value in state_dict.items():
-            name = name.replace("model.pet_model.", "")
+            name = name.replace("module.model.model.pet_model.", "")
             new_state_dict[name] = value
 
         raw_pet.load_state_dict(new_state_dict)
 
-        model.set_trained_model(raw_pet)
+        self_contributions_path = Path(checkpoint_dir) / "pet" / "self_contributions.npy"
+        self_contributions = np.load(self_contributions_path)
+        wrapper = SelfContributionsWrapper(
+            raw_pet,
+            self_contributions
+        )
+
+        model.set_trained_model(wrapper)
 
         return model
