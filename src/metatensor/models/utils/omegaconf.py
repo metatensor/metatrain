@@ -152,8 +152,6 @@ def expand_dataset_config(conf: Union[str, DictConfig, ListConfig]) -> ListConfi
         object.
     :raises ValueError: If both ``virial`` and ``stress`` sections are enabled in the
         "energy" target, as this is not permissible for training.
-    :raises ValueError: If an unknown gradient other then 'force', 'stress' or 'virial'
-        is present.
     :returns: List of datasets configurations. If ``conf`` was a :class:`str` or a
         :class:`omegaconf.DictConfig` the list contains only a single element.
     """
@@ -218,10 +216,6 @@ def expand_dataset_config(conf: Union[str, DictConfig, ListConfig]) -> ListConfi
                             conf_element["targets"][target_key][
                                 gradient_key
                             ] = gradient_conf
-                    else:
-                        raise ValueError(
-                            f"Unknown gradient {gradient_key!}. Currently supported "
-                            f"are {', '.join(KNWON_GRADIENTS)}")
 
                 # If user sets the virial gradient and leaves the stress gradient
                 # untouched, we disable the by default enabled stress gradient section.

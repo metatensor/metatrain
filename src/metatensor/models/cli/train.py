@@ -4,7 +4,7 @@ import logging
 import os
 import random
 from pathlib import Path
-from typing import Dict, List, Optional, Union
+from typing import Dict, Optional, Union
 
 import numpy as np
 import torch
@@ -15,7 +15,7 @@ from ..utils.architectures import check_architecture_name, get_default_hypers
 from ..utils.data import (
     Dataset,
     DatasetInfo,
-    TargetInfo,
+    TargetInfoDict,
     get_atomic_types,
     read_systems,
     read_targets,
@@ -179,13 +179,18 @@ def train_model(
     check_options_list(train_options_list)
 
     train_datasets = []
+    target_infos = TargetInfoDict()
     for train_options in train_options_list:
         train_systems = read_systems(
             filename=train_options["systems"]["read_from"],
             fileformat=train_options["systems"]["file_format"],
             dtype=dtype,
         )
-        train_targets = read_targets(conf=train_options["targets"], dtype=dtype)
+        train_targets, target_info_dictionary = read_targets(
+            conf=train_options["targets"], dtype=dtype
+        )
+
+        target_infos.update(target_info_dictionary)
         train_datasets.append(Dataset({"system": train_systems, **train_targets}))
 
     train_size = 1.0
@@ -240,7 +245,7 @@ def train_model(
                 fileformat=test_options["systems"]["file_format"],
                 dtype=dtype,
             )
-            test_targets = read_targets(conf=test_options["targets"], dtype=dtype)
+            test_targets, _ = read_targets(conf=test_options["targets"], dtype=dtype)
             test_dataset = Dataset({"system": test_systems, **test_targets})
             test_datasets.append(test_dataset)
 
@@ -295,7 +300,7 @@ def train_model(
                 fileformat=validation_options["systems"]["file_format"],
                 dtype=dtype,
             )
-            validation_targets = read_targets(
+            validation_targets, _ = read_targets(
                 conf=validation_options["targets"], dtype=dtype
             )
             validation_dataset = Dataset(
@@ -315,34 +320,14 @@ def train_model(
     # CREATE DATASET_INFO #####
     ###########################
 
-    # TODO: move this into own function
-    # TODO: A more direct way to look up the gradients would be to get them from the
-    # configuration dict of the training run.
-    gradients: Dict[str, List[str]] = {}
-    for train_options in train_options_list:
-        for key in train_options["targets"].keys():
-            # look inside training sets and find gradients
-            for train_dataset in train_datasets:
-                if key in train_dataset[0].keys():
-                    gradients[key] = train_dataset[0][key].block().gradients_list()
+    atomic_types = get_atomic_types(
+        train_datasets + train_datasets + validation_datasets
+    )
 
     dataset_info = DatasetInfo(
-        length_unit=(
-            train_options_list[0]["systems"]["length_unit"]
-            if train_options_list[0]["systems"]["length_unit"] is not None
-            else ""
-        ),  # these units are guaranteed to be the same across all datasets
-        atomic_types=get_atomic_types(train_datasets + validation_datasets),
-        targets={
-            key: TargetInfo(
-                quantity=value["quantity"],
-                unit=(value["unit"] if value["unit"] is not None else ""),
-                per_atom=False,  # TODO: read this from the config
-                gradients=gradients[key],
-            )
-            for train_options in train_options_list
-            for key, value in train_options["targets"].items()
-        },
+        length_unit=train_options_list[0]["systems"]["length_unit"],
+        atomic_types=atomic_types,
+        targets=target_infos,
     )
 
     ###########################

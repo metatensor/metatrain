@@ -8,11 +8,11 @@ from metatensor.models.utils.data import (
     Dataset,
     DatasetInfo,
     TargetInfo,
+    TargetInfoDict,
     check_datasets,
     collate_fn,
     get_all_targets,
     get_atomic_types,
-    merge_dataset_info,
     read_systems,
     read_targets,
 )
@@ -21,16 +21,115 @@ from metatensor.models.utils.data import (
 RESOURCES_PATH = Path(__file__).parents[2] / "resources"
 
 
+def test_target_info_default():
+    target_info = TargetInfo(quantity="energy", unit="kcal/mol")
+
+    assert target_info.quantity == "energy"
+    assert target_info.unit == "kcal/mol"
+    assert target_info.per_atom is False
+    assert target_info.gradients == []
+
+
+def test_target_info():
+    target_info = TargetInfo(
+        quantity="energy", unit="kcal/mol", per_atom=True, gradients=["positions"]
+    )
+
+    assert target_info.quantity == "energy"
+    assert target_info.unit == "kcal/mol"
+    assert target_info.per_atom is True
+    assert target_info.gradients == ["positions"]
+
+    target_info.add_gradients(["positions", "strain"])
+    assert target_info.gradients == ["strain", "positions"]
+
+def test_unit_none_conversion():
+    info = TargetInfo(quantity="energy", unit=None)
+    assert info.unit == ""
+
+def test_target_info_copy():
+    pass
+
+
+def test_target_info_update():
+    info1 = TargetInfo(quantity="energy", unit="eV", gradients=["position"])
+    info2 = TargetInfo(quantity="energy", unit="eV", gradients=["strain"])
+    info1.update(info2)
+    assert set(info1.gradients) == ["position", "strain"]
+
+
+def test_target_info_union():
+    info1 = TargetInfo(quantity="energy", unit="eV", gradients=["position"])
+    info2 = TargetInfo(quantity="energy", unit="eV", gradients=["strain"])
+    info_new = info1.union(info2)
+    assert isinstance(info_new, TargetInfo)
+    assert set(info_new.gradients) == ["position", "strain"]
+
+
+def test_target_info_update_non_matching_quantity():
+    info1 = TargetInfo(quantity="energy", unit="eV")
+    info2 = TargetInfo(quantity="force", unit="eV")
+    match = "Can't update DatasetInfo with a different `quantity`"
+    with pytest.raises(ValueError, match=match):
+        info1.update(info2)
+
+
+def test_target_info_update_non_matching_unit():
+    info1 = TargetInfo(quantity="energy", unit="eV")
+    info2 = TargetInfo(quantity="energy", unit="kcal")
+    match = "Can't update DatasetInfo with a different `unit`: "
+    with pytest.raises(ValueError, match=match):
+        info1.update(info2)
+
+
+def test_target_info_update_non_matching_per_atom():
+    info1 = TargetInfo(quantity="energy", unit="eV", per_atom=True)
+    info2 = TargetInfo(quantity="enrgy", unit="eV", per_atom=False)
+    match = "Can't update TargetInfo with a different `per_atom` property: "
+    with pytest.raises(ValueError, match=match):
+        info1.update(info2)
+
+
+def test_target_info_dict_setitem_new_entry():
+    tid = TargetInfoDict()
+    info = TargetInfo(quantity="energy", unit="eV", gradients=["position"])
+    tid["energy"] = info
+    assert tid["energy"] == info
+
+
+def test_target_info_dict_setitem_update_entry():
+    tid = TargetInfoDict()
+    info1 = TargetInfo(quantity="energy", unit="eV", gradients=["position"])
+    info2 = TargetInfo(quantity="energy", unit="eV", gradients=["strain"])
+    tid["energy"] = info1
+    tid["energy"] = info2
+    assert set(tid["energy"].gradients) == ["position", "strain"]
+
+
+def test_target_info_dict_setitem_value_error():
+    tid = TargetInfoDict()
+    with pytest.raises(ValueError, match="value to set is not a `TargetInfo` instance"):
+        tid["energy"] = "not a TargetInfo"
+
+def test_target_info_dict_union():
+    pass
+
+def test_target_info_dict_intersection():
+    # TODO test also magic function
+    pass
+
+def test_target_info_dict_difference():
+    # TODO test also magic function
+    pass
+
 def test_dataset_info():
     """Tests the DatasetInfo class."""
 
+    targets = TargetInfoDict(energy=TargetInfo(quantity="energy", unit="kcal/mol"))
+    targets["mtm::U0"] = TargetInfo(quantity="energy", unit="kcal/mol")
+
     dataset_info = DatasetInfo(
-        length_unit="angstrom",
-        atomic_types=[1, 2, 3],
-        targets={
-            "energy": TargetInfo(quantity="energy", unit="kcal/mol"),
-            "mtm::U0": TargetInfo(quantity="energy", unit="kcal/mol"),
-        },
+        length_unit="angstrom", atomic_types={1, 2, 3}, targets=targets
     )
 
     assert dataset_info.length_unit == "angstrom"
@@ -39,6 +138,57 @@ def test_dataset_info():
     assert dataset_info.targets["energy"].unit == "kcal/mol"
     assert dataset_info.targets["mtm::U0"].quantity == "energy"
     assert dataset_info.targets["mtm::U0"].unit == "kcal/mol"
+
+def test_length_unit_none_conversion():
+    dataset_info = DatasetInfo(
+        length_unit=None,
+        atomic_types={1, 2, 3},
+        targets=TargetInfoDict(energy=TargetInfo(quantity="energy", unit="kcal/mol")),
+    )
+    assert dataset_info.length_unit == ""
+
+def test_dataset_info_copy():
+    pass
+
+def test_dataset_info_update_non_matching_length():
+    pass
+
+def test_dataset_info_update():
+    pass
+
+def test_dataset_info_union():
+    """Tests the merge method."""
+
+    old_info = DatasetInfo(
+        length_unit="angstrom",
+        atomic_types={1, 6},
+        targets={
+            "energy": TargetInfo(quantity="energy", unit="eV"),
+            "mtm::forces": TargetInfo(quantity="mtm::forces", unit="eV/Angstrom"),
+        },
+    )
+
+    new_info = DatasetInfo(
+        length_unit="angstrom",
+        atomic_types={1}
+        targets={
+            "energy": TargetInfo(quantity="energy", unit="eV"),
+            "mtm::forces": TargetInfo(quantity="mtm::forces", unit="eV/Angstrom"),
+            "mtm::stress": TargetInfo(quantity="mtm::stress", unit="GPa"),
+        },
+    )
+
+    merged = old_info.union(new_info)
+
+    assert merged.length_unit == "angstrom"
+    assert merged.atomic_types == [1, 6]
+    assert merged.targets["energy"].quantity == "energy"
+    assert merged.targets["energy"].unit == "eV"
+    assert merged.targets["mtm::forces"].quantity == "mtm::forces"
+    assert merged.targets["mtm::forces"].unit == "eV/Angstrom"
+    assert merged.targets["mtm::stress"].quantity == "mtm::stress"
+    assert merged.targets["mtm::stress"].unit == "GPa"
+
 
 
 def test_dataset():
@@ -231,41 +381,3 @@ def test_collate_fn():
     assert isinstance(batch[0], tuple)
     assert len(batch[0]) == 3
     assert isinstance(batch[1], dict)
-
-
-def test_merge_dataset_info():
-    """Tests the merge_dataset_info function."""
-
-    old_info = DatasetInfo(
-        length_unit="angstrom",
-        atomic_types=[1, 6],
-        targets={
-            "energy": TargetInfo(quantity="energy", unit="eV"),
-            "mtm::forces": TargetInfo(quantity="mtm::forces", unit="eV/Angstrom"),
-        },
-    )
-
-    new_info = DatasetInfo(
-        length_unit="angstrom",
-        atomic_types=[1],
-        targets={
-            "energy": TargetInfo(quantity="energy", unit="eV"),
-            "mtm::forces": TargetInfo(quantity="mtm::forces", unit="eV/Angstrom"),
-            "mtm::stress": TargetInfo(quantity="mtm::stress", unit="GPa"),
-        },
-    )
-
-    merged, novel_types, novel_targets = merge_dataset_info(old_info, new_info)
-
-    assert merged.length_unit == "angstrom"
-    assert merged.atomic_types == [1, 6]
-    assert merged.targets["energy"].quantity == "energy"
-    assert merged.targets["energy"].unit == "eV"
-    assert merged.targets["mtm::forces"].quantity == "mtm::forces"
-    assert merged.targets["mtm::forces"].unit == "eV/Angstrom"
-    assert merged.targets["mtm::stress"].quantity == "mtm::stress"
-    assert merged.targets["mtm::stress"].unit == "GPa"
-
-    assert novel_types == []
-    assert novel_targets["mtm::stress"].quantity == "mtm::stress"
-    assert novel_targets["mtm::stress"].unit == "GPa"

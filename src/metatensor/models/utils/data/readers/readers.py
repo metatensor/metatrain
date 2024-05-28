@@ -1,12 +1,13 @@
 import logging
 from pathlib import Path
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Tuple
 
 import torch
 from metatensor.torch import Labels, TensorBlock, TensorMap
 from metatensor.torch.atomistic import System
 from omegaconf import DictConfig
 
+from ..dataset import TargetInfoDict, TargetInfo
 from .systems import SYSTEM_READERS
 from .targets import ENERGY_READERS, FORCES_READERS, STRESS_READERS, VIRIAL_READERS
 
@@ -152,7 +153,7 @@ def read_virial(
 def read_targets(
     conf: DictConfig,
     dtype: torch.dtype = torch.float32,
-) -> Dict[str, List[TensorMap]]:
+) -> Tuple[Dict[str, List[TensorMap]], TargetInfoDict]:
     """Reading all target information from a fully expanded config.
 
     To get such a config you can use
@@ -174,9 +175,12 @@ def read_targets(
         https://docs.metatensor.org/latest/atomistic/outputs.html)
     """
     target_dictionary = {}
+    target_info_dictionary = TargetInfoDict()
     standard_outputs_list = ["energy"]
 
     for target_key, target in conf.items():
+        target_info_gradients = []
+
         if target_key not in standard_outputs_list and not target_key.startswith(
             "mtm::"
         ):
@@ -215,6 +219,8 @@ def read_targets(
                             parameter="positions", gradient=position_gradient
                         )
 
+                    target_info_gradients.append("positions")
+
             if target["stress"] and target["virial"]:
                 raise ValueError("Cannot use stress and virial at the same time!")
 
@@ -239,6 +245,8 @@ def read_targets(
                     for block, strain_gradient in zip(blocks, strain_gradients):
                         block.add_gradient(parameter="strain", gradient=strain_gradient)
 
+                    target_info_gradients.append("strain")
+
             if target["virial"]:
                 try:
                     strain_gradients = read_virial(
@@ -259,6 +267,8 @@ def read_targets(
                     )
                     for block, strain_gradient in zip(blocks, strain_gradients):
                         block.add_gradient(parameter="strain", gradient=strain_gradient)
+
+                    target_info_gradients.append("strain")
         else:
             raise ValueError(
                 f"Quantity: {target['quantity']!r} is not supported. Choose 'energy'."
@@ -272,4 +282,11 @@ def read_targets(
             for block in blocks
         ]
 
-    return target_dictionary
+        target_info_dictionary[target_key] = TargetInfo(
+            quantity=target["unit"],
+            unit=target,
+            per_atom=False,  # TODO: read this from the config
+            gradients=target_info_gradients,
+        )
+
+    return target_dictionary, target_info_dictionary

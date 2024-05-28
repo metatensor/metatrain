@@ -49,7 +49,7 @@ class AlchemicalModel(torch.nn.Module):
         }
 
         self.alchemical_model = AlchemicalModelUpstream(
-            unique_numbers=self.dataset_info.atomic_types,
+            unique_numbers=list(self.dataset_info.atomic_types),
             **self.hypers["soap"],
             **self.hypers["bpnn"],
         )
@@ -158,7 +158,7 @@ class AlchemicalModel(torch.nn.Module):
 
         capabilities = ModelCapabilities(
             outputs=self.outputs,
-            atomic_types=self.dataset_info.atomic_types,
+            atomic_types=list(self.dataset_info.atomic_types),
             interaction_range=self.hypers["soap"]["cutoff"],
             length_unit=self.dataset_info.length_unit,
             supported_devices=self.__supported_devices__,
@@ -177,7 +177,7 @@ class AlchemicalModel(torch.nn.Module):
             dtype=self.alchemical_model.composition_weights.dtype,
             device=self.alchemical_model.composition_weights.device,
         )
-        index = [self.dataset_info.atomic_types.index(s) for s in species]
+        index = [list(self.dataset_info.atomic_types.index(s)) for s in species]
         composition_weights = input_composition_weights[:, index]
         self.alchemical_model.set_composition_weights(composition_weights)
 
