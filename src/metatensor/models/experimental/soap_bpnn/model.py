@@ -13,11 +13,11 @@ from metatensor.torch.atomistic import (
 )
 from metatensor.torch.learn.nn import Linear as LinearMap
 from metatensor.torch.learn.nn import ModuleMap
+from tomlkit import TOMLDocument
 
 from metatensor.models.utils.data.dataset import DatasetInfo
 
 from ...utils.composition import apply_composition_contribution
-from ...utils.data import merge_dataset_info
 from ...utils.dtype import dtype_to_str
 from ...utils.export import export
 from ...utils.io import check_suffix
@@ -201,9 +201,10 @@ class SoapBpnn(torch.nn.Module):
 
     def restart(self, dataset_info: DatasetInfo) -> "SoapBpnn":
         # merge old and new dataset info
-        merged_info, new_atomic_types, new_targets = merge_dataset_info(
-            self.dataset_info, dataset_info
-        )
+        merged_info = dataset_info.merge(self.dataset_info, dataset_info)
+        new_atomic_types = merged_info.atomic_types - self.dataset_info.atomic_types
+        new_targets = merged_info.targets - self.dataset_info.targets
+
         if len(new_atomic_types) > 0:
             raise ValueError(
                 f"New atomic types found in the dataset: {new_atomic_types}. "
@@ -315,7 +316,7 @@ class SoapBpnn(torch.nn.Module):
 
         capabilities = ModelCapabilities(
             outputs=self.outputs,
-            atomic_types=self.dataset_info.atomic_types,
+            atomic_types=list(self.dataset_info.atomic_types),
             interaction_range=self.hypers["soap"]["cutoff"],
             length_unit=self.dataset_info.length_unit,
             supported_devices=self.__supported_devices__,

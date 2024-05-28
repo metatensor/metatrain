@@ -26,7 +26,7 @@ def test_prediction():
 
     dataset_info = DatasetInfo(
         length_unit="Angstrom",
-        atomic_types=[1, 6, 7, 8],
+        atomic_types={1, 6, 7, 8},
         targets={
             "energy": TargetInfo(
                 quantity="energy",
@@ -50,7 +50,7 @@ def test_prediction():
 
     capabilities = ModelCapabilities(
         length_unit="Angstrom",
-        atomic_types=[1, 6, 7, 8],
+        atomic_types={1, 6, 7, 8},
         outputs={
             "energy": ModelOutput(
                 quantity="energy",
@@ -77,7 +77,7 @@ def test_per_atom_predictions_functionality():
 
     dataset_info = DatasetInfo(
         length_unit="Angstrom",
-        atomic_types=[1, 6, 7, 8],
+        atomic_types={1, 6, 7, 8},
         targets={
             "energy": TargetInfo(
                 quantity="energy",
@@ -101,7 +101,7 @@ def test_per_atom_predictions_functionality():
 
     capabilities = ModelCapabilities(
         length_unit="Angstrom",
-        atomic_types=[1, 6, 7, 8],
+        atomic_types={1, 6, 7, 8},
         outputs={
             "energy": ModelOutput(
                 quantity="energy",
@@ -129,7 +129,7 @@ def test_selected_atoms_functionality():
 
     dataset_info = DatasetInfo(
         length_unit="Angstrom",
-        atomic_types=[1, 6, 7, 8],
+        atomic_types={1, 6, 7, 8},
         targets={
             "energy": TargetInfo(
                 quantity="energy",
@@ -153,7 +153,7 @@ def test_selected_atoms_functionality():
 
     capabilities = ModelCapabilities(
         length_unit="Angstrom",
-        atomic_types=[1, 6, 7, 8],
+        atomic_types={1, 6, 7, 8},
         outputs={
             "energy": ModelOutput(
                 quantity="energy",

@@ -76,9 +76,9 @@ def apply_composition_contribution(
     new_keys: List[int] = []
     new_blocks: List[TensorBlock] = []
     for key, block in atomic_property.items():
-        atomic_species = int(key.values.item())
-        new_keys.append(atomic_species)
-        new_values = block.values + composition_weights[atomic_species]
+        atomic_types = int(key.values.item())
+        new_keys.append(atomic_types)
+        new_values = block.values + composition_weights[atomic_types]
         new_blocks.append(
             TensorBlock(
                 values=new_values,

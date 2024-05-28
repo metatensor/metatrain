@@ -105,14 +105,14 @@ class Trainer:
         train_datasets = [
             remove_composition_from_dataset(
                 train_datasets[0],
-                model.dataset_info.atomic_types,
+                list(model.dataset_info.atomic_types),
                 model.alchemical_model.composition_weights.squeeze(0),
             )
         ]
         validation_datasets = [
             remove_composition_from_dataset(
                 validation_datasets[0],
-                model.dataset_info.atomic_types,
+                list(model.dataset_info.atomic_types),
                 model.alchemical_model.composition_weights.squeeze(0),
             )
         ]

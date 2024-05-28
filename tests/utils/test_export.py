@@ -17,7 +17,7 @@ def test_export(tmp_path):
 
     dataset_info = DatasetInfo(
         length_unit="angstrom",
-        atomic_types=[1],
+        atomic_types={1}
         targets={"energy": TargetInfo(quantity="energy", unit="eV")},
     )
     model = __model__(model_hypers=MODEL_HYPERS, dataset_info=dataset_info)
@@ -25,7 +25,7 @@ def test_export(tmp_path):
     capabilities = ModelCapabilities(
         length_unit=model.dataset_info.length_unit,
         outputs=model.outputs,
-        atomic_types=model.dataset_info.atomic_types,
+        atomic_types=list(model.dataset_info.atomic_types),
         supported_devices=model.__supported_devices__,
         interaction_range=model.hypers["soap"]["cutoff"],
         dtype="float32",
@@ -47,7 +47,7 @@ def test_reexport(monkeypatch, tmp_path):
 
     dataset_info = DatasetInfo(
         length_unit="angstrom",
-        atomic_types=[1],
+        atomic_types={1}
         targets={"energy": TargetInfo(quantity="energy", unit="eV")},
     )
     model = __model__(model_hypers=MODEL_HYPERS, dataset_info=dataset_info)
@@ -55,7 +55,7 @@ def test_reexport(monkeypatch, tmp_path):
     capabilities = ModelCapabilities(
         length_unit=model.dataset_info.length_unit,
         outputs=model.outputs,
-        atomic_types=model.dataset_info.atomic_types,
+        atomic_types=list(model.dataset_info.atomic_types),
         supported_devices=model.__supported_devices__,
         interaction_range=model.hypers["soap"]["cutoff"],
         dtype="float32",
@@ -78,14 +78,14 @@ def test_is_exported():
 def test_length_units_warning():
     dataset_info = DatasetInfo(
         length_unit="angstrom",
-        atomic_types=[1],
+        atomic_types={1}
         targets={"energy": TargetInfo(quantity="energy", unit="eV")},
     )
     model = __model__(model_hypers=MODEL_HYPERS, dataset_info=dataset_info)
 
     capabilities = ModelCapabilities(
         outputs=model.outputs,
-        atomic_types=model.dataset_info.atomic_types,
+        atomic_types=list(model.dataset_info.atomic_types),
         interaction_range=model.hypers["soap"]["cutoff"],
         length_unit="",
         supported_devices=model.__supported_devices__,
@@ -99,7 +99,7 @@ def test_length_units_warning():
 def test_units_warning():
     dataset_info = DatasetInfo(
         length_unit="angstrom",
-        atomic_types=[1],
+        atomic_types={1}
         targets={"mtm::output": TargetInfo(quantity="energy")},
     )
     model = __model__(model_hypers=MODEL_HYPERS, dataset_info=dataset_info)
@@ -107,7 +107,7 @@ def test_units_warning():
     capabilities = ModelCapabilities(
         length_unit=model.dataset_info.length_unit,
         outputs=model.outputs,
-        atomic_types=model.dataset_info.atomic_types,
+        atomic_types=list(model.dataset_info.atomic_types),
         supported_devices=model.__supported_devices__,
         interaction_range=model.hypers["soap"]["cutoff"],
         dtype="float32",

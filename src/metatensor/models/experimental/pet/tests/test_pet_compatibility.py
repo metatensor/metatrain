@@ -90,7 +90,7 @@ def test_predictions_compatibility(cutoff):
     are consistent with the predictions of the original PET implementation."""
 
     structure = ase.io.read(DATASET_PATH)
-    atomic_types = sorted(list(set(structure.numbers)))
+    atomic_types = set(structure.numbers)
 
     dataset_info = DatasetInfo(
         length_unit="Angstrom",
@@ -104,7 +104,7 @@ def test_predictions_compatibility(cutoff):
     )
     capabilities = ModelCapabilities(
         length_unit="Angstrom",
-        atomic_types=atomic_types,
+        atomic_types=list(atomic_types),
         outputs={
             "energy": ModelOutput(
                 quantity="energy",

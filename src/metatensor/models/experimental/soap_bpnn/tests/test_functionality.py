@@ -15,7 +15,7 @@ def test_prediction_subset_elements():
 
     dataset_info = DatasetInfo(
         length_unit="Angstrom",
-        atomic_types=[1, 6, 7, 8],
+        atomic_types={1, 6, 7, 8},
         targets={
             "energy": TargetInfo(
                 quantity="energy",
@@ -39,7 +39,7 @@ def test_prediction_subset_atoms():
 
     dataset_info = DatasetInfo(
         length_unit="Angstrom",
-        atomic_types=[1, 6, 7, 8],
+        atomic_types={1, 6, 7, 8},
         targets={
             "energy": TargetInfo(
                 quantity="energy",
@@ -103,7 +103,7 @@ def test_output_last_layer_features():
     """Tests that the model can output its last layer features."""
     dataset_info = DatasetInfo(
         length_unit="Angstrom",
-        atomic_types=[1, 6, 7, 8],
+        atomic_types={1, 6, 7, 8},
         targets={
             "energy": TargetInfo(
                 quantity="energy",
@@ -176,7 +176,7 @@ def test_output_per_atom():
     """Tests that the model can output per-atom quantities."""
     dataset_info = DatasetInfo(
         length_unit="Angstrom",
-        atomic_types=[1, 6, 7, 8],
+        atomic_types={1, 6, 7, 8},
         targets={
             "energy": TargetInfo(
                 quantity="energy",

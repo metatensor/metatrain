@@ -1,13 +1,12 @@
+from collections import UserDict
 from dataclasses import dataclass, field
-from typing import Any, Dict, List, Optional, Tuple, Union
+from typing import Any, Dict, List, Optional, Set, Tuple, Union
 
 import metatensor.learn
 import torch
 from metatensor.torch import TensorMap
 from torch import Generator, default_generator
 from torch.utils.data import Subset, random_split
-from omegaconf import DictConfig, ListConfig, OmegaConf
-from ..omegaconf import KNWON_GRADIENTS
 
 
 class Dataset:
@@ -53,7 +52,8 @@ class TargetInfo:
     """A class that contains information about a target.
 
     :param quantity: The quantity of the target.
-    :param unit: The unit of the target.
+    :param unit: The unit of the target. If :py:obj:`None` the ``unit`` will be set to
+        an ampty string ``""``.
     :param per_atom: Whether the target is a per-atom quantity.
     :param gradients: Gradients of the target that are defined in the current dataset.
         Examples are ``"positions"`` or ``"strain"``.
@@ -62,7 +62,112 @@ class TargetInfo:
     quantity: str
     unit: str = ""
     per_atom: bool = False
-    gradients: List[str] = field(default_factory=list)
+    gradients: Set[str] = field(default_factory=set)
+
+    def __post_init__(self):
+        if self.unit is None:
+            self.unit = ""
+
+        # For compatibility with list convert to set
+        self.gradients = set(self.gradients)
+
+    def copy(self) -> "TargetInfo":
+        """Return a shallow copy of the TargetInfo."""
+        return TargetInfo(
+            quantity=self.quantity,
+            unit=self.unit,
+            per_atom=self.per_atom,
+            gradients=self.gradients.copy(),
+        )
+
+    def update(self, other: "TargetInfo") -> None:
+        """Update this instance with the union of itself and others.
+
+        :raises ValueError: If ``quantity``, ``unit`` or ``per_atom`` do not match.
+        """
+        if self.quantity != other.quantity:
+            raise ValueError(
+                f"Can't update TargetInfo with a different `quantity`: "
+                f"({self.quantity} != {other.quantity})"
+            )
+
+        if self.unit != other.unit:
+            raise ValueError(
+                f"Can't update TargetInfo with a different `unit`: "
+                f"({self.unit} != {other.unit})"
+            )
+
+        if self.per_atom != other.per_atom:
+            raise ValueError(
+                f"Can't update TargetInfo with a different `per_atom` property: "
+                f"({self.per_atom} != {other.per_atom})"
+            )
+
+        self.gradients = self.gradients.union(other.gradients)
+
+    def union(self, other: "TargetInfo") -> "TargetInfo":
+        """Return the union of this instance with ``other``."""
+        new = self.copy()
+        new.update(other)
+        return new
+
+
+class TargetInfoDict(UserDict):
+    """
+    A custom dictionary class for storing and managing ``TargetInfo`` instances.
+
+    This dictionary subclass handles the update of :py:class:`TargetInfo` if a ``key``
+    is already present
+    """
+    # We use a UserDict with special method because a normal dict does not support the
+    # update of nested instances.
+    def __setitem__(self, key, value):
+        if not isinstance(value, TargetInfo):
+            raise ValueError("value to set is not a `TargetInfo` instance")
+        if key in self:
+            self[key].update(value)
+        else:
+            super().__setitem__(key, value)
+
+    def __and__(self, other: "TargetInfoDict") -> "TargetInfoDict":
+        return self.intersection(other)
+
+    def __sub__(self, other: "TargetInfoDict") -> "TargetInfoDict":
+        return self.difference(other)
+
+    def union(self, other: "TargetInfoDict") -> "TargetInfoDict":
+        """Return the union of this instance with ``other``."""
+        new = self.copy()
+        new.update(other)
+        return new
+
+    def intersection(self, other: "TargetInfoDict") -> "TargetInfoDict":
+        """Intersection of the the two instances as a new ``TargetInfoDict``.
+
+        (i.e. all elements that are in both sets.)
+
+        :raises ValueError: If intersected items with the same key are not the same.
+        """
+        new_keys = self.keys() & other.keys()
+
+        self_intersect = {key: self[key] for key in new_keys}
+        other_intersect = {key: other[key] for key in new_keys}
+
+        if self_intersect == other_intersect:
+            return self_intersect
+        else:
+            raise ValueError(
+                f"Intersected items with the same key are not the same. Intersected "
+                "keys are {','.join(new_keys)}"
+            )
+
+    def difference(self, other: "TargetInfoDict") -> "TargetInfoDict":
+        """Difference of two instances as a new ``TargetInfoDict``.
+
+        (i.e. all elements that are in this set but not the others.)"""
+
+        new_keys = self.keys() - other.keys()
+        return {key: self[key] for key in new_keys}
 
 
 @dataclass
@@ -72,72 +177,56 @@ class DatasetInfo:
     This dataclass is used to communicate additional dataset details to the
     training functions of the individual models.
 
-    :param length_unit: unit of length used in the dataset
-    :param atomic_types: all the atomic types present in the dataset
+    :param length_unit: unit of length used in the dataset. If :py:obj:`None` the
+        ``length_unit`` will be set to an ampty string ``""``.
+    :param atomic_types: all possible atomic types present in the dataset
     :param targets: information about targets in the dataset
     """
 
-    length_unit: str
-    atomic_types: List[int]
-    targets: Dict[str, TargetInfo]
+    length_unit: Union[None, str]
+    atomic_types: Set[int]
+    targets: TargetInfoDict
 
-    @classmethod
-    def from_options(cls, conf: Union[DictConfig, ListConfig], atomic_types):
-        """Create a DatasetInfo info instance from an options config.
-        
-        :param conf: The dataset configuration, either as a single ``DictConfig`` or
-            ``ListConfig`` object.
-        :param atomic_types: TODO
-        """
+    def __post_init__(self):
+        if self.length_unit is None:
+            self.length_unit = ""
 
-        # Expand DictConfig -> ListConfig
-        if isinstance(conf, DictConfig):
-            conf = OmegaConf.create([conf])
+        # For compatibility with list convert to set
+        self.atomic_types = set(self.atomic_types)
 
-        targets: Dict[str, TargetInfo] = {}
-
-        # Perform expansion per config inside the ListConfig
-        for conf_element in conf:
-
-            # the length units are guaranteed to be the same across all datasets
-            length_unit = conf_element["systems"]["length_unit"]
-
-            for target_key, target in conf_element["targets"].items():
-    
-                gradients = []
-                for gradient_key in conf_element["targets"][target_key].keys():
-                    if gradient_key == "forces":
-                        gradients.append("positions")
-                    elif gradient_key in ["stress", "virial"]:
-                        gradients.append("strain")
-                    else:
-                        raise ValueError(
-                            f"Unknown gradient {gradient_key!}. Currently supported "
-                            f"are {','.join(KNWON_GRADIENTS)}")
-
-                target_info = TargetInfo(
-                    quantity=target["quantity"],
-                    unit=(target["unit"] if target["unit"] is not None else ""),
-                    per_atom=False,  # TODO: read this from the config
-                    gradients=gradients,
-                )
-
-                targets[target_key] = target_info
-    
-        # `length_unit` must be an empty string if not defined.
-        if length_unit == None:
-            length_unit = ""
-
-        dataset_info = cls(
-            length_unit=length_unit,
-            atomic_types=atomic_types,
-            targets=targets,
+    def copy(self) -> "DatasetInfo":
+        """Return a shallow copy of the DatasetInfo."""
+        return DatasetInfo(
+            length_unit=self.length_unit,
+            atomic_types=self.atomic_types.copy(),
+            targets=self.targets.copy(),
         )
 
-        return dataset_info
+    def update(self, other: "DatasetInfo") -> "DatasetInfo":
+        """Update this instance with the union of itself and others.
+
+        :raises ValueError: If the ``length_units`` are different.
+        """
+        if self.length_unit != other.length_unit:
+            raise ValueError(
+                f"Can't update DatasetInfo with a different `length_unit`: "
+                f"({self.length_unit} != {other.length_unit})"
+            )
+
+        self = DatasetInfo(
+            length_unit=self.length_unit,
+            atomic_types=self.atomic_types.union(other.atomic_types),
+            targets=self.targets.merge(other.targets),
+        )
+
+    def union(self, other: "DatasetInfo") -> "DatasetInfo":
+        """Return the union of this instance with ``other``."""
+        new = self.copy()
+        new.update(other)
+        return new
 
 
-def get_atomic_types(datasets: Union[Dataset, List[Dataset]]) -> List[int]:
+def get_atomic_types(datasets: Union[Dataset, List[Dataset]]) -> Set[int]:
     """List of all atomic types present in a dataset or list of datasets.
 
     :param datasets: the dataset, or list of datasets
@@ -147,18 +236,13 @@ def get_atomic_types(datasets: Union[Dataset, List[Dataset]]) -> List[int]:
     if not isinstance(datasets, list):
         datasets = [datasets]
 
-    # Iterate over all single instances of the dataset:
     types = []
     for dataset in datasets:
         for index in range(len(dataset)):
             system = dataset[index]["system"]
             types += system.types.tolist()
 
-    # Remove duplicates and sort:
-    result = list(set(types))
-    result.sort()
-
-    return result
+    return set(types)
 
 
 def get_all_targets(datasets: Union[Dataset, List[Dataset]]) -> List[str]:
@@ -183,11 +267,7 @@ def get_all_targets(datasets: Union[Dataset, List[Dataset]]) -> List[str]:
             sample.pop("system")  # system not needed
             target_names += list(sample.keys())
 
-    # Remove duplicates:
-    result = list(set(target_names))
-    result.sort()
-
-    return result
+    return list(set(target_names))
 
 
 def collate_fn(batch: List[Dict[str, Any]]) -> Tuple[List, Dict[str, TensorMap]]:
@@ -300,82 +380,3 @@ def group_and_join(
             data.append(f)
 
     return {name: value for name, value in zip(names, data)}
-
-
-def merge_dataset_info(
-    old_info: DatasetInfo, new_info: DatasetInfo
-) -> Tuple[DatasetInfo, List[int], Dict[str, TargetInfo]]:
-    """
-    Merge two ``DatasetInfo`` objects.
-
-    Useful when updating a model with information about a new dataset,
-    for example when doing transfer learning.
-
-    :param old_info: The information of the old dataset.
-    :param new_info: The information of the new dataset.
-
-    :return: A tuple containing three items: (a) the merged information,
-        i.e., a union of the old and the new information, (b) a list of
-        atomic types that were not present in the old ``DatsetInfo``, but
-        are present in the new one, (c) a list of targets that were not
-        present in the old ``DatasetInfo``, but are present in the new one.
-        The order of the outputs and species is preserved in all cases.
-
-    :raises ValueError: If the length units of the old and new info are not
-        the same, or if targets with the same name are not consistent
-        between the old and new info (however, the same target with different
-        gradients is allowed).
-    """
-    # Check that the length units are the same:
-    if old_info.length_unit != new_info.length_unit:
-        raise ValueError(
-            "The length units of the old and new dataset are not the same. "
-            f"Found `{old_info.length_unit}` and "
-            f"`{new_info.length_unit}`."
-        )
-
-    # Merge the outputs:
-    merged_outputs = {}
-    for key, value in old_info.targets.items():
-        merged_outputs[key] = value
-    for key, value in new_info.targets.items():
-        if key in merged_outputs:
-            if merged_outputs[key].quantity != value.quantity:
-                raise ValueError(
-                    f"Output {key} has different quantities in the old and "
-                    "new dataset."
-                )
-            if merged_outputs[key].unit != value.unit:
-                raise ValueError(
-                    f"Output {key} has different units in the old and new dataset."
-                )
-            if merged_outputs[key].per_atom != value.per_atom:
-                raise ValueError(
-                    f"Output {key} has different per_atom character in the old "
-                    "and new dataset."
-                )
-        else:
-            merged_outputs[key] = value
-
-    # Find the merged atomic types:
-    merged_types = list(set(old_info.atomic_types + new_info.atomic_types))
-
-    # Find the novel atomic types:
-    novel_types = []
-    for type_ in new_info.atomic_types:
-        if type_ not in old_info.atomic_types:
-            novel_types.append(type_)
-
-    # Find the new outputs:
-    novel_outputs = {}
-    for key, value in new_info.targets.items():
-        if key not in old_info.targets:
-            novel_outputs[key] = value
-
-    merged_info = DatasetInfo(
-        length_unit=old_info.length_unit,
-        atomic_types=merged_types,
-        targets=merged_outputs,
-    )
-
-    return merged_info, novel_types, novel_outputs
