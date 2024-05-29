@@ -1,6 +1,6 @@
 import importlib
 from pathlib import Path
-from typing import Dict, List, Union
+from typing import Any, Union
 
 import torch
 from omegaconf import Container, DictConfig, ListConfig, OmegaConf
@@ -18,10 +18,10 @@ def file_format(_parent_: Container) -> str:
     return Path(_parent_["read_from"]).suffix
 
 
-def _get_architecture_capabilities(conf: BaseContainer) -> Dict[str, List[str]]:
+def _get_architecture_model(conf: BaseContainer) -> Any:
     architecture_name = conf["architecture"]["name"]
     architecture = importlib.import_module(f"metatensor.models.{architecture_name}")
-    return architecture.__ARCHITECTURE_CAPABILITIES__
+    return architecture.__model__
 
 
 def default_device(_root_: BaseContainer) -> str:
@@ -30,8 +30,8 @@ def default_device(_root_: BaseContainer) -> str:
     Device is found using the :py:func:metatensor.models.utils.devices.pick_devices`
     function."""
 
-    architecture_capabilities = _get_architecture_capabilities(_root_)
-    desired_device = pick_devices(architecture_capabilities["supported_devices"])
+    Model = _get_architecture_model(_root_)
+    desired_device = pick_devices(Model.__supported_devices__)
 
     if len(desired_device) > 1:
         return "multi-cuda"
@@ -45,12 +45,12 @@ def default_precision(_root_: BaseContainer) -> int:
     File format is obtained based on the architecture name and its first entry in the
     ``supported_dtypes`` list."""
 
-    architecture_capabilities = _get_architecture_capabilities(_root_)
+    Model = _get_architecture_model(_root_)
 
     # desired `dtype` is the first entry
-    default_dtype = architecture_capabilities["supported_dtypes"][0]
+    default_dtype = Model.__supported_dtypes__[0]
 
-    # base_precision has to be a integere and not a torch dtype
+    # `base_precision` in options has to be a integer and not a torch.dtype
     if default_dtype in [torch.float64, torch.double]:
         return 64
     elif default_dtype == torch.float32:

@@ -12,12 +12,18 @@ from metatensor.torch.atomistic import (
 )
 from pet.data_preparation import get_pyg_graphs
 from pet.hypers import Hypers
+from pet.pet import PET
 
-from metatensor.models.experimental.pet import DEFAULT_HYPERS, Model
+from metatensor.models.experimental.pet import PET as WrappedPET
 from metatensor.models.experimental.pet.utils import systems_to_batch_dict
+from metatensor.models.utils.architectures import get_default_hypers
+from metatensor.models.utils.data import DatasetInfo, TargetInfo
 from metatensor.models.utils.neighbor_lists import get_system_with_neighbor_lists
 
 from . import DATASET_PATH
+
+
+DEFAULT_HYPERS = get_default_hypers("experimental.pet")
 
 
 def check_batch_dict_consistency(ref_batch, trial_batch):
@@ -55,7 +61,7 @@ def test_batch_dicts_compatibility(cutoff):
     options = NeighborListOptions(cutoff=cutoff, full_list=True)
     system = get_system_with_neighbor_lists(system, [options])
 
-    ARCHITECTURAL_HYPERS = Hypers(DEFAULT_HYPERS["ARCHITECTURAL_HYPERS"])
+    ARCHITECTURAL_HYPERS = Hypers(DEFAULT_HYPERS["model"])
     batch = get_pyg_graphs(
         [structure],
         all_species,
@@ -84,29 +90,41 @@ def test_predictions_compatibility(cutoff):
     are consistent with the predictions of the original PET implementation."""
 
     structure = ase.io.read(DATASET_PATH)
-    all_species = sorted(list(set(structure.numbers)))
+    atomic_types = sorted(list(set(structure.numbers)))
 
+    dataset_info = DatasetInfo(
+        length_unit="Angstrom",
+        atomic_types=atomic_types,
+        targets={
+            "energy": TargetInfo(
+                quantity="energy",
+                unit="eV",
+            )
+        },
+    )
     capabilities = ModelCapabilities(
         length_unit="Angstrom",
-        atomic_types=all_species,
+        atomic_types=atomic_types,
         outputs={
             "energy": ModelOutput(
                 quantity="energy",
                 unit="eV",
             )
         },
-        supported_devices=["cuda", "cpu"],
-        interaction_range=DEFAULT_HYPERS["ARCHITECTURAL_HYPERS"]["N_GNN_LAYERS"]
-        * DEFAULT_HYPERS["ARCHITECTURAL_HYPERS"]["R_CUT"],
+        interaction_range=DEFAULT_HYPERS["model"]["N_GNN_LAYERS"]
+        * DEFAULT_HYPERS["model"]["R_CUT"],
         dtype="float32",
+        supported_devices=["cpu", "cuda"],
     )
-    hypers = DEFAULT_HYPERS["ARCHITECTURAL_HYPERS"]
+    hypers = DEFAULT_HYPERS["model"]
     hypers["R_CUT"] = cutoff
-    model = Model(capabilities, hypers)
+    model = WrappedPET(DEFAULT_HYPERS["model"], dataset_info)
+    ARCHITECTURAL_HYPERS = Hypers(model.hypers)
+    raw_pet = PET(ARCHITECTURAL_HYPERS, 0.0, len(model.species))
+    model.set_trained_model(raw_pet)
+
     system = systems_to_torch(structure)
-
     options = NeighborListOptions(cutoff=cutoff, full_list=True)
-
     system = get_system_with_neighbor_lists(system, [options])
 
     evaluation_options = ModelEvaluationOptions(
@@ -114,7 +132,7 @@ def test_predictions_compatibility(cutoff):
         outputs=capabilities.outputs,
     )
 
-    model = MetatensorAtomisticModel(model.eval(), ModelMetadata(), model.capabilities)
+    model = MetatensorAtomisticModel(model.eval(), ModelMetadata(), capabilities)
     mtm_pet_prediction = (
         model(
             [system],
@@ -125,10 +143,10 @@ def test_predictions_compatibility(cutoff):
         .values
     )
 
-    ARCHITECTURAL_HYPERS = Hypers(DEFAULT_HYPERS["ARCHITECTURAL_HYPERS"])
+    ARCHITECTURAL_HYPERS = Hypers(DEFAULT_HYPERS["model"])
     batch = get_pyg_graphs(
         [structure],
-        all_species,
+        atomic_types,
         cutoff,
         ARCHITECTURAL_HYPERS.USE_ADDITIONAL_SCALAR_ATTRIBUTES,
         ARCHITECTURAL_HYPERS.USE_LONG_RANGE,
