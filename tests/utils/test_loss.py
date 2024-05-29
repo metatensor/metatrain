@@ -7,7 +7,7 @@ from metatensor.torch import Labels, TensorBlock, TensorMap
 from metatensor.models.utils.loss import TensorMapDictLoss, TensorMapLoss
 
 
-RESOURCES_PATH = Path(__file__).parent.resolve() / ".." / "resources"
+RESOURCES_PATH = Path(__file__).parents[1] / "resources"
 
 
 @pytest.fixture

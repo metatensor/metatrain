@@ -3,7 +3,7 @@ from typing import List, Tuple, Union
 import torch
 from metatensor.torch import Labels, TensorBlock, TensorMap
 
-from metatensor.models.utils.data import Dataset, get_all_species
+from metatensor.models.utils.data import Dataset, get_atomic_types
 
 
 def calculate_composition_weights(
@@ -20,7 +20,7 @@ def calculate_composition_weights(
     if not isinstance(datasets, list):
         datasets = [datasets]
 
-    species = get_all_species(datasets)
+    species = get_atomic_types(datasets)
     # note that this is sorted, and the composition weights are sorted
     # as well, because the species are sorted in the composition features
 

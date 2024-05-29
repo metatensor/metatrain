@@ -1,34 +1,35 @@
 import ase
 import metatensor.torch
 import torch
-from metatensor.torch.atomistic import ModelCapabilities, ModelOutput, systems_to_torch
+from metatensor.torch.atomistic import ModelOutput, systems_to_torch
 
-from metatensor.models.experimental.soap_bpnn import DEFAULT_HYPERS, Model
+from metatensor.models.experimental.soap_bpnn import SoapBpnn
+from metatensor.models.utils.data import DatasetInfo, TargetInfo
+
+from . import MODEL_HYPERS
 
 
 def test_prediction_subset_elements():
-    """Tests that the model can predict on a subset
-    of the elements it was trained on."""
+    """Tests that the model can predict on a subset of the elements it was trained
+    on."""
 
-    capabilities = ModelCapabilities(
+    dataset_info = DatasetInfo(
         length_unit="Angstrom",
         atomic_types=[1, 6, 7, 8],
-        outputs={
-            "energy": ModelOutput(
+        targets={
+            "energy": TargetInfo(
                 quantity="energy",
                 unit="eV",
             )
         },
-        interaction_range=DEFAULT_HYPERS["model"]["soap"]["cutoff"],
-        dtype="float32",
     )
 
-    soap_bpnn = Model(capabilities, DEFAULT_HYPERS["model"])
+    model = SoapBpnn(MODEL_HYPERS, dataset_info)
 
     system = ase.Atoms("O2", positions=[[0.0, 0.0, 0.0], [0.0, 0.0, 1.0]])
-    soap_bpnn(
+    model(
         [systems_to_torch(system)],
-        {"energy": soap_bpnn.capabilities.outputs["energy"]},
+        {"energy": model.outputs["energy"]},
     )
 
 
@@ -36,20 +37,18 @@ def test_prediction_subset_atoms():
     """Tests that the model can predict on a subset
     of the atoms in a system."""
 
-    capabilities = ModelCapabilities(
+    dataset_info = DatasetInfo(
         length_unit="Angstrom",
         atomic_types=[1, 6, 7, 8],
-        outputs={
-            "energy": ModelOutput(
+        targets={
+            "energy": TargetInfo(
                 quantity="energy",
                 unit="eV",
             )
         },
-        interaction_range=DEFAULT_HYPERS["model"]["soap"]["cutoff"],
-        dtype="float32",
     )
 
-    soap_bpnn = Model(capabilities, DEFAULT_HYPERS["model"])
+    model = SoapBpnn(MODEL_HYPERS, dataset_info)
 
     # Since we don't yet support atomic predictions, we will test this by
     # predicting on a system with two monomers at a large distance
@@ -58,9 +57,9 @@ def test_prediction_subset_atoms():
         "NO2", positions=[[0.0, 0.0, 0.0], [0.0, 0.0, 1.0], [0.0, 0.0, 2.0]]
     )
 
-    energy_monomer = soap_bpnn(
+    energy_monomer = model(
         [systems_to_torch(system_monomer)],
-        {"energy": soap_bpnn.capabilities.outputs["energy"]},
+        {"energy": ModelOutput(per_atom=False)},
     )
 
     system_far_away_dimer = ase.Atoms(
@@ -80,20 +79,21 @@ def test_prediction_subset_atoms():
         values=torch.tensor([[0, 0], [0, 2], [0, 3]]),
     )
 
-    energy_dimer = soap_bpnn(
+    energy_dimer = model(
         [systems_to_torch(system_far_away_dimer)],
-        {"energy": soap_bpnn.capabilities.outputs["energy"]},
+        {"energy": ModelOutput(per_atom=False)},
     )
 
-    energy_monomer_in_dimer = soap_bpnn(
+    energy_monomer_in_dimer = model(
         [systems_to_torch(system_far_away_dimer)],
-        {"energy": soap_bpnn.capabilities.outputs["energy"]},
+        {"energy": ModelOutput(per_atom=False)},
         selected_atoms=selection_labels,
     )
 
     assert not metatensor.torch.allclose(
         energy_monomer["energy"], energy_dimer["energy"]
     )
+
     assert metatensor.torch.allclose(
         energy_monomer["energy"], energy_monomer_in_dimer["energy"]
     )
@@ -101,23 +101,18 @@ def test_prediction_subset_atoms():
 
 def test_output_last_layer_features():
     """Tests that the model can output its last layer features."""
-    capabilities = ModelCapabilities(
+    dataset_info = DatasetInfo(
         length_unit="Angstrom",
         atomic_types=[1, 6, 7, 8],
-        outputs={
-            "mtm::aux::last_layer_features": ModelOutput(
-                quantity="",
-                unit="",
-                per_atom=True,
-            ),
-            "energy": ModelOutput(
+        targets={
+            "energy": TargetInfo(
                 quantity="energy",
                 unit="eV",
-            ),
+            )
         },
     )
 
-    soap_bpnn = Model(capabilities, DEFAULT_HYPERS["model"])
+    model = SoapBpnn(MODEL_HYPERS, dataset_info)
 
     system = ase.Atoms(
         "CHON",
@@ -130,10 +125,10 @@ def test_output_last_layer_features():
         unit="",
         per_atom=True,
     )
-    outputs = soap_bpnn(
+    outputs = model(
         [systems_to_torch(system, dtype=torch.get_default_dtype())],
         {
-            "energy": soap_bpnn.capabilities.outputs["energy"],
+            "energy": model.outputs["energy"],
             "mtm::aux::last_layer_features": ll_output_options,
         },
     )
@@ -158,10 +153,10 @@ def test_output_last_layer_features():
         unit="",
         per_atom=False,
     )
-    outputs = soap_bpnn(
+    outputs = model(
         [systems_to_torch(system, dtype=torch.get_default_dtype())],
         {
-            "energy": soap_bpnn.capabilities.outputs["energy"],
+            "energy": model.outputs["energy"],
             "mtm::aux::last_layer_features": ll_output_options,
         },
     )
@@ -179,28 +174,27 @@ def test_output_last_layer_features():
 
 def test_output_per_atom():
     """Tests that the model can output per-atom quantities."""
-    capabilities = ModelCapabilities(
+    dataset_info = DatasetInfo(
         length_unit="Angstrom",
         atomic_types=[1, 6, 7, 8],
-        outputs={
-            "energy": ModelOutput(
+        targets={
+            "energy": TargetInfo(
                 quantity="energy",
                 unit="eV",
-                per_atom=True,
             )
         },
     )
 
-    soap_bpnn = Model(capabilities, DEFAULT_HYPERS["model"])
+    model = SoapBpnn(MODEL_HYPERS, dataset_info)
 
     system = ase.Atoms(
         "CHON",
         positions=[[0.0, 0.0, 0.0], [0.0, 0.0, 1.0], [0.0, 0.0, 2.0], [0.0, 0.0, 3.0]],
     )
 
-    outputs = soap_bpnn(
+    outputs = model(
         [systems_to_torch(system, dtype=torch.get_default_dtype())],
-        {"energy": soap_bpnn.capabilities.outputs["energy"]},
+        {"energy": model.outputs["energy"]},
     )
 
     assert outputs["energy"].block().samples.names == ["system", "atom"]

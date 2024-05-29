@@ -11,13 +11,19 @@ import torch
 from omegaconf import DictConfig, OmegaConf
 from omegaconf.errors import ConfigKeyError
 
-from ..utils.architectures import check_architecture_name
-from ..utils.data import Dataset, DatasetInfo, TargetInfo, read_systems, read_targets
+from ..utils.architectures import check_architecture_name, get_default_hypers
+from ..utils.data import (
+    Dataset,
+    DatasetInfo,
+    TargetInfo,
+    get_atomic_types,
+    read_systems,
+    read_targets,
+)
 from ..utils.data.dataset import _train_test_random_split
 from ..utils.devices import pick_devices
 from ..utils.errors import ArchitectureError
-from ..utils.export import export
-from ..utils.io import check_suffix, save
+from ..utils.io import check_suffix
 from ..utils.omegaconf import (
     BASE_OPTIONS,
     check_options_list,
@@ -99,31 +105,43 @@ def train_model(
         like the fully expanded training options for a later restart.
     :param continue_from: File to continue training from.
     """
-    output_checked = check_suffix(filename=output, suffix=".pt")
+    ###########################
+    # LOAD ARCHITECTURE #######
+    ###########################
 
     try:
         architecture_name = options["architecture"]["name"]
     except ConfigKeyError as exc:
-        raise ConfigKeyError("Architecture name is not defined!") from exc
+        raise ValueError("Architecture name is not defined!") from exc
 
     check_architecture_name(architecture_name)
     architecture = importlib.import_module(f"metatensor.models.{architecture_name}")
-    architecture_capabilities = architecture.__ARCHITECTURE_CAPABILITIES__
 
-    # Create training options merging base, architecture, user and override options in
-    # order of importance.
-    architecture_default_hypers = {"architecture": architecture.DEFAULT_HYPERS}
-    options = OmegaConf.merge(BASE_OPTIONS, architecture_default_hypers, options)
+    Model = architecture.__model__
+    Trainer = architecture.__trainer__
+
+    ###########################
+    # CREATE OPTIONS ##########
+    ###########################
+
+    options = OmegaConf.merge(
+        BASE_OPTIONS,
+        {"architecture": get_default_hypers(architecture_name)},
+        options,
+    )
+    hypers = OmegaConf.to_container(options["architecture"])
 
     ###########################
     # PROCESS BASE PARAMETERS #
     ###########################
+
+    # process devices
     devices = pick_devices(
-        architecture_devices=architecture_capabilities["supported_devices"],
+        architecture_devices=Model.__supported_devices__,
         desired_device=options["device"],
     )
 
-    # process dtypes
+    # process base_precision/dtypes
     if options["base_precision"] == 64:
         dtype = torch.float64
     elif options["base_precision"] == 32:
@@ -133,16 +151,17 @@ def train_model(
     else:
         raise ValueError("Only 64, 32 or 16 are possible values for `base_precision`.")
 
-    if dtype not in architecture_capabilities["supported_dtypes"]:
+    if dtype not in Model.__supported_dtypes__:
         raise ValueError(
             f"Requested dtype {dtype} is not supported. {architecture_name} only "
-            f"supports {architecture_capabilities['supported_dtypes']}."
+            f"supports {Model.__supported_dtypes__}."
         )
 
+    # process random seeds
     if options["seed"] < 0:
         raise ValueError("`seed` should be a positive number")
     else:
-        logger.info(f"random seed of this run is {options['seed']}")
+        logger.info(f"Random seed of this run is {options['seed']}")
         torch.manual_seed(options["seed"])
         np.random.seed(options["seed"])
         random.seed(options["seed"])
@@ -152,8 +171,9 @@ def train_model(
             torch.cuda.manual_seed_all(options["seed"])
 
     ###########################
-    # SETUP DATA SETS #########
+    # SETUP TRAINING SET ######
     ###########################
+
     logger.info("Setting up training set")
     train_options_list = expand_dataset_config(options["training_set"])
     check_options_list(train_options_list)
@@ -170,6 +190,10 @@ def train_model(
 
     train_size = 1.0
 
+    ###########################
+    # SETUP TEST SET ##########
+    ###########################
+
     logger.info("Setting up test set")
     test_options = options["test_set"]
     test_datasets = []
@@ -179,8 +203,7 @@ def train_model(
 
         if test_size < 0 or test_size >= 1:
             raise ValueError(
-                "Test set split must be greater "
-                "than (or equal to) 0 and lesser than 1."
+                "Test set split must be greater or equal than 0 and lesser than 1."
             )
 
         generator = torch.Generator()
@@ -221,6 +244,10 @@ def train_model(
             test_dataset = Dataset({"system": test_systems, **test_targets})
             test_datasets.append(test_dataset)
 
+    ###########################
+    # SETUP VALIDATION SET ####
+    ###########################
+
     logger.info("Setting up validation set")
     validation_options = options["validation_set"]
     validation_datasets = []
@@ -230,7 +257,7 @@ def train_model(
 
         if validation_size <= 0 or validation_size >= 1:
             raise ValueError(
-                "Validation set split must be greater " "than 0 and lesser than 1."
+                "Validation set split must be greater than 0 and lesser than 1."
             )
 
         generator = torch.Generator()
@@ -276,18 +303,21 @@ def train_model(
             )
             validation_datasets.append(validation_dataset)
 
-    # Save fully expanded config
+    ###########################
+    # SAVE EXPANDED OPTIONS ###
+    ###########################
+
     OmegaConf.save(
         config=options, f=Path(checkpoint_dir) / "options_restart.yaml", resolve=True
     )
 
     ###########################
-    # SETUP MODEL #############
+    # CREATE DATASET_INFO #####
     ###########################
-    logger.info("Setting up model")
 
-    # TODO: A more direct way to look up the gradients would be to get them from
-    # the configuration dict of the training run.
+    # TODO: move this into own function
+    # TODO: A more direct way to look up the gradients would be to get them from the
+    # configuration dict of the training run.
     gradients: Dict[str, List[str]] = {}
     for train_options in train_options_list:
         for key in train_options["targets"].keys():
@@ -302,6 +332,7 @@ def train_model(
             if train_options_list[0]["systems"]["length_unit"] is not None
             else ""
         ),  # these units are guaranteed to be the same across all datasets
+        atomic_types=get_atomic_types(train_datasets + validation_datasets),
         targets={
             key: TargetInfo(
                 quantity=value["quantity"],
@@ -314,25 +345,55 @@ def train_model(
         },
     )
 
-    logger.info("Calling architecture trainer")
-    try:
-        model = architecture.train(
-            train_datasets=train_datasets,
-            validation_datasets=validation_datasets,
-            dataset_info=dataset_info,
-            devices=devices,
-            hypers=OmegaConf.to_container(options["architecture"]),
-            continue_from=continue_from,
-            checkpoint_dir=str(checkpoint_dir),
-        )
+    ###########################
+    # SETTING UP MODEL ########
+    ###########################
 
-        exported_model = export(model)
+    logger.info("Setting up model")
+    try:
+        if continue_from is not None:
+            logger.info(f"Loading checkpoint from `{continue_from}`")
+            model = Model.load_checkpoint(continue_from)
+            model = model.restart(dataset_info)
+        else:
+            model = Model(hypers["model"], dataset_info)
     except Exception as e:
         raise ArchitectureError(e)
 
-    # TODO: Backup already existing output file?
-    save(model, f"{Path(output_checked).stem}.ckpt")
-    exported_model.export(output_checked)
+    ###########################
+    # TRAIN MODEL #############
+    ###########################
+
+    logger.info("Start training")
+    try:
+        trainer = Trainer(hypers["training"])
+        trainer.train(
+            model=model,
+            devices=devices,
+            train_datasets=train_datasets,
+            validation_datasets=validation_datasets,
+            checkpoint_dir=str(checkpoint_dir),
+        )
+    except Exception as e:
+        raise ArchitectureError(e)
+
+    ###########################
+    # SAVE FINAL MODEL ########
+    ###########################
+
+    logger.info("Training finished; save final checkpoint and model")
+    output_checked = check_suffix(filename=output, suffix=".pt")
+    try:
+        model.save_checkpoint(f"{Path(output_checked).stem}.ckpt")
+    except Exception as e:
+        raise ArchitectureError(e)
+
+    mts_atomistic_model = model.export()
+    mts_atomistic_model.export(str(output_checked))
+
+    ###########################
+    # EVALUATE FINAL MODEL ####
+    ###########################
 
     for i, train_dataset in enumerate(train_datasets):
         if len(train_datasets) == 1:
@@ -342,7 +403,7 @@ def train_model(
 
         logger.info(f"Evaluating training dataset{extra_log_message}")
         _eval_targets(
-            exported_model,
+            mts_atomistic_model,
             train_dataset,
             dataset_info.targets,
             return_predictions=False,
@@ -356,7 +417,7 @@ def train_model(
 
         logger.info(f"Evaluating validation dataset{extra_log_message}")
         _eval_targets(
-            exported_model,
+            mts_atomistic_model,
             validation_dataset,
             dataset_info.targets,
             return_predictions=False,
@@ -370,7 +431,7 @@ def train_model(
 
         logger.info(f"Evaluating test dataset{extra_log_message}")
         _eval_targets(
-            exported_model,
+            mts_atomistic_model,
             test_dataset,
             dataset_info.targets,
             return_predictions=False,
