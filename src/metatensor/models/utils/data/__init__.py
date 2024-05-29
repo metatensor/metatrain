@@ -1,6 +1,7 @@
 from .dataset import (  # noqa: F401
     Dataset,
     TargetInfo,
+    TargetInfoDict,
     DatasetInfo,
     get_atomic_types,
     get_all_targets,
