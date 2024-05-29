@@ -1,7 +1,8 @@
 from typing import List, Union
 
+import metatensor.torch
 import torch
-from metatensor.torch import TensorBlock, TensorMap
+import torch.bin
 
 from metatensor.models.utils.data import Dataset
 
@@ -60,28 +61,38 @@ def get_average_number_of_neighbors(
     return torch.tensor(average_number_of_neighbors)
 
 
-def apply_normalization(
-    atomic_property: TensorMap, normalization: torch.Tensor
-) -> TensorMap:
-    """Applies the normalization to an atomic property by dividing the
-    atomic property by a normalization factor.
+def remove_composition_from_dataset(
+    dataset: Union[Dataset, torch.utils.data.Subset],
+    all_species: List[int],
+    composition_weights: torch.Tensor,
+) -> List[Union[Dataset, torch.utils.data.Subset]]:
+    """Remove the composition from the dataset.
 
-    :param atomic_property: A `TensorMap` with atomic property to be normalized.
-    :param normalization: A `torch.Tensor` object with the normalization factor.
+    :param datasets: A list of datasets.
 
-    :return: A `TensorMap` object with the normalized atomic property.
+    :return: A list of datasets with the composition contribution removed.
     """
+    # assert one property
+    first_sample = next(iter(dataset))
+    assert len(first_sample) == 2  # system and property
+    property_name = list(first_sample.keys())[1]
 
-    new_blocks: List[TensorBlock] = []
-    for _, block in atomic_property.items():
-        new_values = block.values / normalization
-        new_blocks.append(
-            TensorBlock(
-                values=new_values,
-                samples=block.samples,
-                components=block.components,
-                properties=block.properties,
-            )
+    new_systems = []
+    new_properties = []
+    # remove composition from dataset
+    for i in range(len(dataset)):
+        system = dataset[i]["system"]
+        property = dataset[i][property_name]
+        numbers = system.types
+        composition = torch.bincount(numbers, minlength=max(all_species) + 1)
+        composition = composition[all_species].to(
+            device=composition_weights.device, dtype=composition_weights.dtype
         )
+        property = metatensor.torch.subtract(
+            property, torch.dot(composition, composition_weights).item()
+        )
+        new_systems.append(system)
+        new_properties.append(property)
 
-    return TensorMap(keys=atomic_property.keys, blocks=new_blocks)
+    new_dataset = Dataset({"system": new_systems, property_name: new_properties})
+    return new_dataset

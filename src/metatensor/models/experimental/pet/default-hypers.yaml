@@ -1,4 +1,4 @@
-ARCHITECTURAL_HYPERS:
+model:
   CUTOFF_DELTA: 0.2
   AVERAGE_POOLING: False
   TRANSFORMERS_CENTRAL_SPECIFIC: False
@@ -25,9 +25,10 @@ ARCHITECTURAL_HYPERS:
   TRANSFORMER_TYPE: PostLN # PostLN or PreLN
   USE_LONG_RANGE: False
   K_CUT: null # should be float; only used when USE_LONG_RANGE is True
+  RESIDUAL_FACTOR: 0.5
 
 
-FITTING_SCHEME:  
+training:  
   INITIAL_LR: 1e-4
   EPOCH_NUM_ATOMIC: 1000000000000000000
   SCHEDULER_STEP_SIZE_ATOMIC: 500000000
@@ -48,12 +49,4 @@ FITTING_SCHEME:
   GRADIENT_CLIPPING_MAX_NORM: null # must be overwritten if DO_GRADIENT_CLIPPING is True
   USE_SHIFT_AGNOSTIC_LOSS: False # only used when fitting general target. Primary use case: EDOS
   ENERGIES_LOSS: per_structure # per_structure or per_atom
-
-MLIP_SETTINGS: # only used when fitting MLIP
-  ENERGY_KEY: energy
-  FORCES_KEY: forces
-  USE_ENERGIES: True
-  USE_FORCES: True
-
-UTILITY_FLAGS: #for internal usage; do not change/overwrite
-  CALCULATION_TYPE: null
+  BALANCED_DATA_LOADER: False
