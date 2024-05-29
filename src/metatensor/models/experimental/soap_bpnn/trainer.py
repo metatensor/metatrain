@@ -76,11 +76,13 @@ class Trainer:
                     atomic_types.add(key)
                     fixed_weights[ii] = weight
 
-                if not set(atomic_types) == model.dataset_info.atomic_types:
+                if not set(atomic_types) == model.atomic_types:
                     raise ValueError(
                         "Supplied atomic types are not present in the dataset."
                     )
-                model.set_composition_weights(target_name, fixed_weights)
+                model.set_composition_weights(
+                    target_name, fixed_weights, list(atomic_types)
+                )
 
             else:
                 train_datasets_with_target = []
@@ -92,10 +94,12 @@ class Trainer:
                         f"Target {target_name} in the model's new capabilities is not "
                         "present in any of the training datasets."
                     )
-                composition_weights = calculate_composition_weights(
+                composition_weights, compoistion_types = calculate_composition_weights(
                     train_datasets_with_target, target_name
                 )
-                model.set_composition_weights(target_name, composition_weights)
+                model.set_composition_weights(
+                    target_name, composition_weights, compoistion_types
+                )
 
         logger.info("Setting up data loaders")
 

@@ -98,10 +98,12 @@ class Trainer:
                         f"Target {target_name} in the model's new capabilities is not "
                         "present in any of the training datasets."
                     )
-                composition_weights = calculate_composition_weights(
+                composition_weights, compoistion_types = calculate_composition_weights(
                     train_datasets_with_target, target_name
                 )
-                model.set_composition_weights(composition_weights.unsqueeze(0))
+                model.set_composition_weights(
+                    composition_weights.unsqueeze(0), compoistion_types
+                )
 
         # Remove the composition from the datasets:
         train_datasets = [
