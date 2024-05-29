@@ -171,13 +171,14 @@ class AlchemicalModel(torch.nn.Module):
     def set_composition_weights(
         self,
         input_composition_weights: torch.Tensor,
+        atomic_types: List[int],
     ) -> None:
         """Set the composition weights for a given output."""
         input_composition_weights = input_composition_weights.to(
             dtype=self.alchemical_model.composition_weights.dtype,
             device=self.alchemical_model.composition_weights.device,
         )
-        index = [self.atomic_types.index(s) for s in self.atomic_types]
+        index = [self.atomic_types.index(s) for s in atomic_types]
         composition_weights = input_composition_weights[:, index]
         self.alchemical_model.set_composition_weights(composition_weights)
 
