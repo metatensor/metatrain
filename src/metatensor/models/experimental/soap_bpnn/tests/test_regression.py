@@ -74,6 +74,7 @@ def test_regression_train():
             "read_from": DATASET_PATH,
             "file_format": ".xyz",
             "key": "U0",
+            "unit": "eV",
             "forces": False,
             "stress": False,
             "virial": False,
@@ -102,11 +103,11 @@ def test_regression_train():
 
     expected_output = torch.tensor(
         [
-            [-40.564655303955],
-            [-56.517837524414],
+            [-40.564579010010],
+            [-56.517944335938],
             [-76.497428894043],
-            [-77.327507019043],
-            [-93.407928466797],
+            [-77.327369689941],
+            [-93.407913208008],
         ]
     )
 
