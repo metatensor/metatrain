@@ -79,21 +79,14 @@ def test_regression_train():
             "virial": False,
         }
     }
-    targets = read_targets(OmegaConf.create(conf))
+    targets, target_info_dict = read_targets(OmegaConf.create(conf))
     dataset = Dataset({"system": systems, "mtm::U0": targets["mtm::U0"]})
 
     hypers = DEFAULT_HYPERS.copy()
     hypers["training"]["num_epochs"] = 2
 
     dataset_info = DatasetInfo(
-        length_unit="Angstrom",
-        atomic_types={1, 6, 7, 8},
-        targets={
-            "mtm::U0": TargetInfo(
-                quantity="energy",
-                unit="eV",
-            ),
-        },
+        length_unit="Angstrom", atomic_types={1, 6, 7, 8}, targets=target_info_dict
     )
     model = SoapBpnn(MODEL_HYPERS, dataset_info)
 

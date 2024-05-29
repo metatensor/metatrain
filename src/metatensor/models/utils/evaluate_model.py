@@ -11,7 +11,7 @@ from metatensor.torch.atomistic import (
     register_autograd_neighbors,
 )
 
-from .data import TargetInfo
+from .data import TargetInfoDict
 from .export import is_exported
 from .output_gradient import compute_gradient
 
@@ -23,7 +23,6 @@ warnings.filterwarnings(
     category=UserWarning,
     message="neighbor",
 )  # TODO: this is not filtering out the warning for some reason, therefore:
-warnings.filterwarnings("ignore")  # ignore all warnings if not in debug mode
 
 
 def evaluate_model(
@@ -33,7 +32,7 @@ def evaluate_model(
         torch.jit._script.RecursiveScriptModule,
     ],
     systems: List[System],
-    targets: Dict[str, TargetInfo],
+    targets: TargetInfoDict,
     is_training: bool,
 ) -> Dict[str, TensorMap]:
     """
@@ -296,7 +295,7 @@ def _get_model_outputs(
         torch.jit._script.RecursiveScriptModule,
     ],
     systems: List[System],
-    targets: Dict[str, TargetInfo],
+    targets: TargetInfoDict,
 ) -> Dict[str, TensorMap]:
     if is_exported(model):
         # put together an EvaluationOptions object

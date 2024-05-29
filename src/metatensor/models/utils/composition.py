@@ -1,4 +1,4 @@
-from typing import List, Tuple, Union
+from typing import List, Union
 
 import torch
 from metatensor.torch import Labels, TensorBlock, TensorMap
@@ -32,7 +32,9 @@ def calculate_composition_weights(
     structure_list = [sample["system"] for dataset in datasets for sample in dataset]
 
     dtype = structure_list[0].positions.dtype
-    composition_features = torch.empty((len(structure_list), len(atomic_types)), dtype=dtype)
+    composition_features = torch.empty(
+        (len(structure_list), len(atomic_types)), dtype=dtype
+    )
     for i, structure in enumerate(structure_list):
         for j, s in enumerate(atomic_types):
             composition_features[i, j] = torch.sum(structure.types == s)
@@ -76,9 +78,9 @@ def apply_composition_contribution(
     new_keys: List[int] = []
     new_blocks: List[TensorBlock] = []
     for key, block in atomic_property.items():
-        atomic_types = int(key.values.item())
-        new_keys.append(atomic_types)
-        new_values = block.values + composition_weights[atomic_types]
+        atomic_type = int(key.values.item())
+        new_keys.append(atomic_type)
+        new_values = block.values + composition_weights[atomic_type]
         new_blocks.append(
             TensorBlock(
                 values=new_values,

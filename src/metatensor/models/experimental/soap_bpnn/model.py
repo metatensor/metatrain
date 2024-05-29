@@ -138,11 +138,7 @@ class SoapBpnn(torch.nn.Module):
         }
 
         soap_size = (
-            (
-                len(self.atomic_types)
-                * (len(self.atomic_types) + 1)
-                // 2
-            )
+            (len(self.atomic_types) * (len(self.atomic_types) + 1) // 2)
             * self.hypers["soap"]["max_radial"] ** 2
             * (self.hypers["soap"]["max_angular"] + 1)
         )
@@ -179,9 +175,7 @@ class SoapBpnn(torch.nn.Module):
                 output_name: LinearMap(
                     Labels(
                         "central_species",
-                        values=torch.tensor(self.atomic_types).reshape(
-                            -1, 1
-                        ),
+                        values=torch.tensor(self.atomic_types).reshape(-1, 1),
                     ),
                     in_features=n_inputs_last_layer,
                     out_features=1,
@@ -201,7 +195,7 @@ class SoapBpnn(torch.nn.Module):
 
     def restart(self, dataset_info: DatasetInfo) -> "SoapBpnn":
         # merge old and new dataset info
-        merged_info = dataset_info.union(self.dataset_info, dataset_info)
+        merged_info = self.dataset_info.union(dataset_info)
         new_atomic_types = merged_info.atomic_types - self.dataset_info.atomic_types
         new_targets = merged_info.targets - self.dataset_info.targets
 
