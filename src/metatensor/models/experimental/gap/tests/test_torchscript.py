@@ -42,21 +42,20 @@ def test_torchscript():
     targets = read_targets(OmegaConf.create(conf), dtype=torch.float64)
     systems = read_systems(DATASET_PATH, dtype=torch.float64)
 
-    for system in systems:
-        system.types = torch.ones(len(system.types), dtype=torch.int32)
+    # for system in systems:
+    #    system.types = torch.ones(len(system.types), dtype=torch.int32)
     dataset = Dataset({"system": systems, "mtm::U0": targets["mtm::U0"]})
 
     hypers = DEFAULT_HYPERS.copy()
     gap = GAP(DEFAULT_HYPERS["model"], dataset_info)
     trainer = Trainer(hypers["training"])
-    trainer.train(gap, [torch.device("cpu")], [dataset], [dataset], ".")
+    gap = trainer.train(gap, [torch.device("cpu")], [dataset], [dataset], ".")
     scripted_gap = torch.jit.script(gap)
 
-    ref_output = gap(systems[:5], {"mtm::U0": gap.outputs["mtm::U0"]})
-    scripted_output = scripted_gap(systems[:5], {"mtm::U0": gap.outputs["mtm::U0"]})
-
-    print(ref_output["mtm::U0"].block().values)
-    print(scripted_output["mtm::U0"].block().values)
+    ref_output = gap.forward(systems[:5], {"mtm::U0": gap.outputs["mtm::U0"]})
+    scripted_output = scripted_gap.forward(
+        systems[:5], {"mtm::U0": gap.outputs["mtm::U0"]}
+    )
 
     assert torch.allclose(
         ref_output["mtm::U0"].block().values,

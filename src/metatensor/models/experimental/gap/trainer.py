@@ -114,6 +114,15 @@ class Trainer:
         train_tensor = torch_tensor_map_to_core(train_tensor)
         train_y = torch_tensor_map_to_core(train_y)
 
+        lens = len(train_tensor[0].values)
+        if model._sampler._n_to_select > lens:
+            raise ValueError(
+                f"""number of sparse points
+                             ({model._sampler._n_to_select})
+                             should be smaller than the number
+                             of environments
+                             ({lens})"""
+            )
         sparse_points = model._sampler.fit_transform(train_tensor)
         sparse_points = metatensor.operations.remove_gradients(sparse_points)
         alpha_energy = self.hypers["regularizer"]
@@ -131,6 +140,10 @@ class Trainer:
             train_y,
             alpha=alpha_energy,
             alpha_forces=alpha_forces,
+        )
+
+        model._subset_of_regressors_torch = (
+            model._subset_of_regressors.export_torch_script_model()
         )
 
         return model

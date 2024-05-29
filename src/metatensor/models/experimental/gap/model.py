@@ -26,7 +26,6 @@ from ...utils.export import export
 
 
 class GAP(torch.nn.Module):
-
     __supported_devices__ = ["cpu"]
     __supported_dtypes__ = [torch.float64]
 
@@ -103,6 +102,7 @@ class GAP(torch.nn.Module):
 
         # set it do dummy keys, these are properly set during training
         self._keys = TorchLabels.empty("_")
+
         dummy_weights = TorchTensorMap(
             TorchLabels(["_"], torch.tensor([[0]])),
             [metatensor.torch.block_from_array(torch.empty(1, 1))],
@@ -112,7 +112,11 @@ class GAP(torch.nn.Module):
             [metatensor.torch.block_from_array(torch.empty(1, 1))],
         )
         self._subset_of_regressors_torch = TorchSubsetofRegressors(
-            dummy_weights, dummy_X_pseudo
+            dummy_weights,
+            dummy_X_pseudo,
+            kernel_kwargs={
+                "aggregate_names": ["atom", "center_type"],
+            },
         )
         self._species_labels: TorchLabels = TorchLabels.empty("_")
 
@@ -469,7 +473,7 @@ class AggregateKernel(torch.nn.Module):
 
     def __init__(
         self,
-        aggregate_names: Union[str, List[str]] = "aggregate",
+        aggregate_names: Union[str, List[str]],
         aggregate_type: str = "sum",
         structurewise_aggregate: bool = False,
     ):
@@ -544,7 +548,7 @@ class AggregateKernel(torch.nn.Module):
 class AggregateLinear(AggregateKernel):
     def __init__(
         self,
-        aggregate_names: Union[str, List[str]] = "aggregate",
+        aggregate_names: Union[str, List[str]],
         aggregate_type: str = "sum",
         structurewise_aggregate: bool = False,
     ):
@@ -571,7 +575,7 @@ class AggregateLinear(AggregateKernel):
 class AggregatePolynomial(AggregateKernel):
     def __init__(
         self,
-        aggregate_names: Union[str, List[str]] = "aggregate",
+        aggregate_names: Union[str, List[str]],
         aggregate_type: str = "sum",
         structurewise_aggregate: bool = False,
         degree: int = 2,
@@ -595,7 +599,7 @@ class TorchAggregateKernel(torch.nn.Module):
 
     def __init__(
         self,
-        aggregate_names: Union[str, List[str]] = "aggregate",
+        aggregate_names: Union[str, List[str]],
         aggregate_type: str = "sum",
         structurewise_aggregate: bool = False,
     ):
@@ -678,7 +682,7 @@ class TorchAggregateKernel(torch.nn.Module):
 class TorchAggregateLinear(TorchAggregateKernel):
     def __init__(
         self,
-        aggregate_names: Union[str, List[str]] = "aggregate",
+        aggregate_names: Union[str, List[str]],
         aggregate_type: str = "sum",
         structurewise_aggregate: bool = False,
     ):
@@ -707,7 +711,7 @@ class TorchAggregateLinear(TorchAggregateKernel):
 class TorchAggregatePolynomial(TorchAggregateKernel):
     def __init__(
         self,
-        aggregate_names: Union[str, List[str]] = "aggregate",
+        aggregate_names: Union[str, List[str]],
         aggregate_type: str = "sum",
         structurewise_aggregate: bool = False,
         degree: int = 2,
@@ -871,6 +875,7 @@ class FPS(GreedySelector):
             full=full,
             random_state=random_state,
         )
+        self._n_to_select = n_to_select
 
 
 def torch_tensor_map_to_core(torch_tensor: TorchTensorMap):
