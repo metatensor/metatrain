@@ -104,7 +104,7 @@ class SoapBpnn(torch.nn.Module):
         self.hypers = model_hypers
         self.dataset_info = dataset_info
         self.new_outputs = list(dataset_info.targets.keys())
-        self.atomic_types = list(dataset_info.atomic_types)
+        self.atomic_types = sorted(dataset_info.atomic_types)
 
         self.soap_calculator = rascaline.torch.SoapPowerSpectrum(
             radial_basis={"Gto": {}}, **self.hypers["soap"]
@@ -210,6 +210,8 @@ class SoapBpnn(torch.nn.Module):
             self.add_output(output_name)
 
         self.dataset_info = merged_info
+        self.atomic_types = sorted(self.dataset_info.atomic_types)
+
         for target_name, target in new_targets.items():
             self.outputs[target_name] = ModelOutput(
                 quantity=target.quantity,

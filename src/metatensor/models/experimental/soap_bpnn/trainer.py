@@ -98,7 +98,7 @@ class Trainer:
                     train_datasets_with_target, target_name
                 )
                 model.set_composition_weights(
-                    target_name, composition_weights, composition_types 
+                    target_name, composition_weights, composition_types
                 )
 
         logger.info("Setting up data loaders")

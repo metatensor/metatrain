@@ -9,10 +9,10 @@ from ...utils.composition import calculate_composition_weights
 from ...utils.data import (
     CombinedDataLoader,
     Dataset,
+    TargetInfoDict,
     check_datasets,
     collate_fn,
     get_all_targets,
-    TargetInfoDict
 )
 from ...utils.evaluate_model import evaluate_model
 from ...utils.external_naming import to_external_name
@@ -250,9 +250,11 @@ class Trainer:
                 predictions = evaluate_model(
                     model,
                     systems,
-                    TargetInfoDict
-                    ** (
-                        {key: model.dataset_info.targets[key] for key in targets.keys()}
+                    TargetInfoDict(
+                        **{
+                            key: model.dataset_info.targets[key]
+                            for key in targets.keys()
+                        }
                     ),
                     is_training=False,
                 )

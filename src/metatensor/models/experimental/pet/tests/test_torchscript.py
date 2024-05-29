@@ -25,7 +25,7 @@ def test_torchscript():
     )
     model = WrappedPET(DEFAULT_HYPERS["model"], dataset_info)
     ARCHITECTURAL_HYPERS = Hypers(model.hypers)
-    raw_pet = PET(ARCHITECTURAL_HYPERS, 0.0, len(model.species))
+    raw_pet = PET(ARCHITECTURAL_HYPERS, 0.0, len(model.atomic_types))
     model.set_trained_model(raw_pet)
     torch.jit.script(model)
 
@@ -45,7 +45,7 @@ def test_torchscript_save_load():
     )
     model = WrappedPET(DEFAULT_HYPERS["model"], dataset_info)
     ARCHITECTURAL_HYPERS = Hypers(model.hypers)
-    raw_pet = PET(ARCHITECTURAL_HYPERS, 0.0, len(model.species))
+    raw_pet = PET(ARCHITECTURAL_HYPERS, 0.0, len(model.atomic_types))
     model.set_trained_model(raw_pet)
     torch.jit.script(model)
     torch.jit.save(

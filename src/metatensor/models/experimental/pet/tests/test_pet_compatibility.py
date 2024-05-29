@@ -56,7 +56,7 @@ def test_batch_dicts_compatibility(cutoff):
     is consitent with PET implementation."""
 
     structure = ase.io.read(DATASET_PATH)
-    all_species = sorted(list(set(structure.numbers)))
+    atomic_types = sorted(set(structure.numbers))
     system = systems_to_torch(structure)
     options = NeighborListOptions(cutoff=cutoff, full_list=True)
     system = get_system_with_neighbor_lists(system, [options])
@@ -64,7 +64,7 @@ def test_batch_dicts_compatibility(cutoff):
     ARCHITECTURAL_HYPERS = Hypers(DEFAULT_HYPERS["model"])
     batch = get_pyg_graphs(
         [structure],
-        all_species,
+        atomic_types,
         cutoff,
         ARCHITECTURAL_HYPERS.USE_ADDITIONAL_SCALAR_ATTRIBUTES,
         ARCHITECTURAL_HYPERS.USE_LONG_RANGE,
@@ -80,7 +80,7 @@ def test_batch_dicts_compatibility(cutoff):
         "neighbors_index": batch.neighbors_index.transpose(0, 1),
         "neighbors_pos": batch.neighbors_pos,
     }
-    trial_batch_dict = systems_to_batch_dict([system], options, all_species, None)
+    trial_batch_dict = systems_to_batch_dict([system], options, atomic_types, None)
     check_batch_dict_consistency(ref_batch_dict, trial_batch_dict)
 
 
@@ -104,7 +104,7 @@ def test_predictions_compatibility(cutoff):
     )
     capabilities = ModelCapabilities(
         length_unit="Angstrom",
-        atomic_types=list(atomic_types),
+        atomic_types=sorted(atomic_types),
         outputs={
             "energy": ModelOutput(
                 quantity="energy",
@@ -120,7 +120,7 @@ def test_predictions_compatibility(cutoff):
     hypers["R_CUT"] = cutoff
     model = WrappedPET(DEFAULT_HYPERS["model"], dataset_info)
     ARCHITECTURAL_HYPERS = Hypers(model.hypers)
-    raw_pet = PET(ARCHITECTURAL_HYPERS, 0.0, len(model.species))
+    raw_pet = PET(ARCHITECTURAL_HYPERS, 0.0, len(model.atomic_types))
     model.set_trained_model(raw_pet)
 
     system = systems_to_torch(structure)
@@ -146,7 +146,7 @@ def test_predictions_compatibility(cutoff):
     ARCHITECTURAL_HYPERS = Hypers(DEFAULT_HYPERS["model"])
     batch = get_pyg_graphs(
         [structure],
-        atomic_types,
+        sorted(atomic_types),
         cutoff,
         ARCHITECTURAL_HYPERS.USE_ADDITIONAL_SCALAR_ATTRIBUTES,
         ARCHITECTURAL_HYPERS.USE_LONG_RANGE,

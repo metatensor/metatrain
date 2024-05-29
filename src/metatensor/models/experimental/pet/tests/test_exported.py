@@ -39,12 +39,12 @@ def test_to(device):
     )
     model = WrappedPET(DEFAULT_HYPERS["model"], dataset_info)
     ARCHITECTURAL_HYPERS = Hypers(model.hypers)
-    raw_pet = PET(ARCHITECTURAL_HYPERS, 0.0, len(model.species))
+    raw_pet = PET(ARCHITECTURAL_HYPERS, 0.0, len(model.atomic_types))
     model.set_trained_model(raw_pet)
 
     capabilities = ModelCapabilities(
         length_unit="Angstrom",
-        atomic_types={1, 6, 7, 8},
+        atomic_types=model.atomic_types,
         outputs={
             "energy": ModelOutput(
                 quantity="energy",
