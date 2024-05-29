@@ -5,6 +5,21 @@ from metatensor.torch import Labels
 from metatensor.torch.atomistic import NeighborListOptions, System
 
 
+def process_neighbors(
+    i_list: torch.Tensor,
+    j_list: torch.Tensor,
+    S_list: torch.Tensor,
+    D_list: torch.Tensor,
+    max_num: int,
+    n_atoms: int,
+    species: torch.Tensor,
+    all_species: torch.Tensor,
+):
+    return torch.ops.neighbors_convert.process(
+        i_list, j_list, S_list, D_list, max_num, n_atoms, species, all_species
+    )
+
+
 def collate_graph_dicts(
     graph_dicts: List[Dict[str, torch.Tensor]]
 ) -> Dict[str, torch.Tensor]:
@@ -79,6 +94,7 @@ def collate_graph_dicts(
 def get_max_num_neighbors(systems: List[System], options: NeighborListOptions):
     """
     Calculates the maximum number of neighbors that atoms in a list of systems have.
+
     """
     max_system_num_neighbors = []
     for system in systems:
@@ -91,7 +107,7 @@ def get_max_num_neighbors(systems: List[System], options: NeighborListOptions):
         else:
             max_atom_num_neighbors = torch.bincount(i_list).max()
         max_system_num_neighbors.append(max_atom_num_neighbors)
-    return int(torch.stack(max_system_num_neighbors).max().item())
+    return torch.stack(max_system_num_neighbors).max()
 
 
 def get_central_species(
@@ -185,6 +201,90 @@ def get_system_batch_dict(
     system: System,
     options: NeighborListOptions,
     all_species: torch.Tensor,
+    max_num_neighbors: torch.Tensor,
+    selected_atoms_index: torch.Tensor,
+    device: torch.device,
+    debug: bool = False,
+) -> Dict[str, torch.Tensor]:
+    if debug:
+        write_system_data(system, options, selected_atoms_index)
+    nl = system.get_neighbor_list(options)
+    i_list = nl.samples.column("first_atom")
+    j_list = nl.samples.column("second_atom")
+
+    unique_neighbors_index, _ = torch.unique(i_list, return_counts=True)
+    unique_index = torch.unique(
+        torch.cat((selected_atoms_index, unique_neighbors_index))
+    )
+
+    # We calculate the actual size of the system, which is the number of
+    # unique atoms in the system.
+    # This is required for LAMMPS interface, because by default
+    # it produces the system with both local and ghost atoms.
+    actual_system_size = len(unique_index)
+
+    # Then we remap the indices of the atoms to a contiguous format.
+    # Also see the docstring of the function for more details.
+    i_list, j_list, unique_neighbors_index = remap_to_contiguous_indexing(
+        i_list, j_list, unique_neighbors_index, unique_index, device
+    )
+
+    index = torch.argsort(i_list, stable=True)
+    j_list = j_list[index]
+    i_list = i_list[index]
+    S_list: torch.Tensor = (
+        torch.cat(
+            (
+                nl.samples.column("cell_shift_a")[None],
+                nl.samples.column("cell_shift_b")[None],
+                nl.samples.column("cell_shift_c")[None],
+            )
+        )
+        .transpose(0, 1)[index]
+        .to(torch.int64)
+    )
+
+    D_list: torch.Tensor = nl.values[:, :, 0][index]
+
+    species = system.types[unique_index].to(torch.int64)
+
+    res = process_neighbors(
+        i_list,
+        j_list,
+        S_list,
+        D_list,
+        max_num_neighbors,
+        torch.tensor(actual_system_size),
+        species,
+        all_species,
+    )
+
+    neighbors_index = res[0]
+    relative_positions = res[1]
+    nums = res[2]
+    mask = res[3]
+    neighbor_species = res[4]
+    neighbors_pos = res[5]
+    species_mapped = res[6]
+
+    system_dict = {
+        "central_species": species_mapped,
+        "x": relative_positions,
+        "neighbor_species": neighbor_species,
+        "neighbors_pos": neighbors_pos,
+        "neighbors_index": neighbors_index,
+        "nums": nums,
+        "mask": mask,
+    }
+    if debug:
+        write_batch_dict(system_dict)
+    return system_dict
+
+
+def get_system_batch_dict_old(
+    system: System,
+    options: NeighborListOptions,
+    all_species: torch.Tensor,
     max_num_neighbors: int,
     selected_atoms_index: torch.Tensor,
     device: torch.device,
@@ -254,7 +354,7 @@ def get_system_batch_dict(
     # starting and ending indices of each atoms' neighbors in the
     # j_list.
     cum_sum = counts.cumsum(0)
-    cum_sum = torch.cat((torch.tensor([0], device=counts.device), cum_sum))
+    cum_sum = torch.cat((torch.tensor([0]), cum_sum))
 
     # We initialize the tensors for the neighbors indices, shifts and
     # displacement vectors with zeros, and then for each atom we
@@ -336,9 +436,7 @@ def get_system_batch_dict(
         if len(tmp_index_1) > 0:
             _, counts = torch.unique(tmp_index_1, return_counts=True)
             cum_sum = counts.cumsum(0)
-            cum_sum = torch.cat(
-                (torch.tensor([0], device=cum_sum.device), cum_sum[:-1])
-            )
+            cum_sum = torch.cat((torch.tensor([0]), cum_sum[:-1]))
             reversed_neighbors_index[j, : number_of_neighbors[j]] = tmp_index_2[
                 cum_sum
             ][: number_of_neighbors[j]]
