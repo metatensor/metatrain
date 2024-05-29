@@ -45,7 +45,7 @@ def test_continue(monkeypatch, tmp_path):
             "virial": False,
         }
     }
-    targets = read_targets(OmegaConf.create(conf))
+    targets, _ = read_targets(OmegaConf.create(conf))
     dataset = Dataset({"system": systems, "mtm::U0": targets["mtm::U0"]})
 
     hypers = DEFAULT_HYPERS.copy()

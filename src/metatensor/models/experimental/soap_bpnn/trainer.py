@@ -7,7 +7,13 @@ import torch
 from metatensor.learn.data import DataLoader
 
 from ...utils.composition import calculate_composition_weights
-from ...utils.data import CombinedDataLoader, Dataset, collate_fn, get_all_targets
+from ...utils.data import (
+    CombinedDataLoader,
+    Dataset,
+    TargetInfoDict,
+    collate_fn,
+    get_all_targets,
+)
 from ...utils.data.extract_targets import get_targets_dict
 from ...utils.evaluate_model import evaluate_model
 from ...utils.external_naming import to_external_name
@@ -186,7 +192,9 @@ class Trainer:
                 predictions = evaluate_model(
                     model,
                     systems,
-                    {key: training_targets[key] for key in targets.keys()},
+                    TargetInfoDict(
+                        **{key: training_targets[key] for key in targets.keys()}
+                    ),
                     is_training=True,
                 )
 
@@ -215,7 +223,9 @@ class Trainer:
                 predictions = evaluate_model(
                     model,
                     systems,
-                    {key: training_targets[key] for key in targets.keys()},
+                    TargetInfoDict(
+                        **{key: training_targets[key] for key in targets.keys()}
+                    ),
                     is_training=False,
                 )
 

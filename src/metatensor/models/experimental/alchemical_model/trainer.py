@@ -5,6 +5,8 @@ from typing import List, Union
 import torch
 from metatensor.learn.data import DataLoader
 
+from metatensor.models.utils.data.dataset import TargetInfoDict
+
 from ...utils.composition import calculate_composition_weights
 from ...utils.data import (
     CombinedDataLoader,
@@ -212,7 +214,12 @@ class Trainer:
                 predictions = evaluate_model(
                     model,
                     systems,
-                    {key: model.dataset_info.targets[key] for key in targets.keys()},
+                    TargetInfoDict(
+                        **{
+                            key: model.dataset_info.targets[key]
+                            for key in targets.keys()
+                        }
+                    ),
                     is_training=True,
                 )
 
@@ -242,7 +249,10 @@ class Trainer:
                 predictions = evaluate_model(
                     model,
                     systems,
-                    {key: model.dataset_info.targets[key] for key in targets.keys()},
+                    TargetInfoDict
+                    ** (
+                        {key: model.dataset_info.targets[key] for key in targets.keys()}
+                    ),
                     is_training=False,
                 )
 
