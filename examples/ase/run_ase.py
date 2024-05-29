@@ -15,7 +15,7 @@ The model was trained using the following training options.
 .. literalinclude:: options.yaml
    :language: yaml
 
-You can use the pretrained and exported :download:`model <exported-model.pt>`
+You can use the pretrained and exported :download:`model <model.pt>`
 or train the model yourself with
 
 .. literalinclude:: train.sh
@@ -82,7 +82,7 @@ ase.md.velocitydistribution.MaxwellBoltzmannDistribution(atoms, temperature_K=30
 # We now register our exported model as the energy calculator to obtain energies and
 # forces.
 
-atoms.calc = MetatensorCalculator("exported-model.pt")
+atoms.calc = MetatensorCalculator("model.pt")
 
 # %%
 #
