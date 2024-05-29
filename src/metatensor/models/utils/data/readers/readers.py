@@ -7,7 +7,7 @@ from metatensor.torch import Labels, TensorBlock, TensorMap
 from metatensor.torch.atomistic import System
 from omegaconf import DictConfig
 
-from ..dataset import TargetInfoDict, TargetInfo
+from ..dataset import TargetInfo, TargetInfoDict
 from .systems import SYSTEM_READERS
 from .targets import ENERGY_READERS, FORCES_READERS, STRESS_READERS, VIRIAL_READERS
 
@@ -166,8 +166,8 @@ def read_targets(
 
     :param conf: config containing the keys for what should be read.
     :param dtype: desired data type of returned tensor
-    :returns: Dictionary containing one TensorMaps for each target section in the
-        config.
+    :returns: Dictionary containing one TensorMaps for each target section in the config
+        as well as a ``TargetInfoDict`` instance containing the metadata of the targets.
 
     :raises ValueError: if the target name is not valid. Valid target names are
         those that either start with ``mtm::`` or those that are in the list of
@@ -283,8 +283,8 @@ def read_targets(
         ]
 
         target_info_dictionary[target_key] = TargetInfo(
-            quantity=target["unit"],
-            unit=target,
+            quantity=target["quantity"],
+            unit=target["unit"],
             per_atom=False,  # TODO: read this from the config
             gradients=target_info_gradients,
         )

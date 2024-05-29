@@ -23,7 +23,7 @@ def test_export(monkeypatch, tmp_path, path):
 
     dataset_info = DatasetInfo(
         length_unit="angstrom",
-        atomic_types={1}
+        atomic_types={1},
         targets={
             "energy": TargetInfo(
                 quantity="energy", unit="eV", per_atom=False, gradients=[]

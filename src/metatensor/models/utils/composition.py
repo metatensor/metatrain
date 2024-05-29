@@ -8,7 +8,7 @@ from metatensor.models.utils.data import Dataset, get_atomic_types
 
 def calculate_composition_weights(
     datasets: Union[Dataset, List[Dataset]], property: str
-) -> Tuple[torch.Tensor, List[int]]:
+) -> torch.Tensor:
     """Calculate the composition weights for a dataset.
 
     For now, it assumes per-system properties.
@@ -20,7 +20,7 @@ def calculate_composition_weights(
     if not isinstance(datasets, list):
         datasets = [datasets]
 
-    species = get_atomic_types(datasets)
+    atomic_types = get_atomic_types(datasets)
     # note that this is sorted, and the composition weights are sorted
     # as well, because the species are sorted in the composition features
 
@@ -32,9 +32,9 @@ def calculate_composition_weights(
     structure_list = [sample["system"] for dataset in datasets for sample in dataset]
 
     dtype = structure_list[0].positions.dtype
-    composition_features = torch.empty((len(structure_list), len(species)), dtype=dtype)
+    composition_features = torch.empty((len(structure_list), len(atomic_types)), dtype=dtype)
     for i, structure in enumerate(structure_list):
-        for j, s in enumerate(species):
+        for j, s in enumerate(atomic_types):
             composition_features[i, j] = torch.sum(structure.types == s)
 
     regularizer = 1e-20
@@ -60,7 +60,7 @@ def calculate_composition_weights(
         except torch._C._LinAlgError:
             regularizer *= 10.0
 
-    return solution, species
+    return solution
 
 
 def apply_composition_contribution(

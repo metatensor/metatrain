@@ -53,10 +53,10 @@ class TargetInfo:
 
     :param quantity: The quantity of the target.
     :param unit: The unit of the target. If :py:obj:`None` the ``unit`` will be set to
-        an ampty string ``""``.
+        an empty string ``""``.
     :param per_atom: Whether the target is a per-atom quantity.
-    :param gradients: Gradients of the target that are defined in the current dataset.
-        Examples are ``"positions"`` or ``"strain"``.
+    :param gradients: Set of gradients of the target that are defined in the current
+        dataset. Examples are ``"positions"`` or ``"strain"``.
     """
 
     quantity: str
@@ -81,7 +81,7 @@ class TargetInfo:
         )
 
     def update(self, other: "TargetInfo") -> None:
-        """Update this instance with the union of itself and others.
+        """Update this instance with the union of itself and ``other``.
 
         :raises ValueError: If ``quantity``, ``unit`` or ``per_atom`` do not match.
         """
@@ -116,11 +116,12 @@ class TargetInfoDict(UserDict):
     """
     A custom dictionary class for storing and managing ``TargetInfo`` instances.
 
-    This dictionary subclass handles the update of :py:class:`TargetInfo` if a ``key``
-    is already present
+    The subclass handles the update of :py:class:`TargetInfo` if a ``key`` is already
+    present.
     """
-    # We use a UserDict with special method because a normal dict does not support the
-    # update of nested instances.
+
+    # We use a `UserDict` with special methods because a normal dict does not support
+    # the update of nested instances.
     def __setitem__(self, key, value):
         if not isinstance(value, TargetInfo):
             raise ValueError("value to set is not a `TargetInfo` instance")
@@ -136,7 +137,7 @@ class TargetInfoDict(UserDict):
         return self.difference(other)
 
     def union(self, other: "TargetInfoDict") -> "TargetInfoDict":
-        """Return the union of this instance with ``other``."""
+        """Union of this instance with ``other``."""
         new = self.copy()
         new.update(other)
         return new
@@ -157,14 +158,15 @@ class TargetInfoDict(UserDict):
             return self_intersect
         else:
             raise ValueError(
-                f"Intersected items with the same key are not the same. Intersected "
-                "keys are {','.join(new_keys)}"
+                "Intersected items with the same key are not the same. Intersected "
+                f"keys are {','.join(new_keys)}"
             )
 
     def difference(self, other: "TargetInfoDict") -> "TargetInfoDict":
         """Difference of two instances as a new ``TargetInfoDict``.
 
-        (i.e. all elements that are in this set but not the others.)"""
+        (i.e. all elements that are in this set but not in the other.)
+        """
 
         new_keys = self.keys() - other.keys()
         return {key: self[key] for key in new_keys}
@@ -172,15 +174,15 @@ class TargetInfoDict(UserDict):
 
 @dataclass
 class DatasetInfo:
-    """A class that contains information about one or more datasets.
+    """A class that contains information about datasets.
 
     This dataclass is used to communicate additional dataset details to the
     training functions of the individual models.
 
-    :param length_unit: unit of length used in the dataset. If :py:obj:`None` the
-        ``length_unit`` will be set to an ampty string ``""``.
-    :param atomic_types: all possible atomic types present in the dataset
-    :param targets: information about targets in the dataset
+    :param length_unit: Unit of length used in the dataset. If :py:obj:`None` the
+        ``length_unit`` will be set to an empty string ``""``.
+    :param atomic_types: All possible atomic types present in the dataset.
+    :param targets: Information about targets in the dataset.
     """
 
     length_unit: Union[None, str]
@@ -203,21 +205,18 @@ class DatasetInfo:
         )
 
     def update(self, other: "DatasetInfo") -> "DatasetInfo":
-        """Update this instance with the union of itself and others.
+        """Update this instance with the union of itself and ``other``.
 
         :raises ValueError: If the ``length_units`` are different.
         """
         if self.length_unit != other.length_unit:
             raise ValueError(
-                f"Can't update DatasetInfo with a different `length_unit`: "
+                "Can't update DatasetInfo with a different `length_unit`: "
                 f"({self.length_unit} != {other.length_unit})"
             )
 
-        self = DatasetInfo(
-            length_unit=self.length_unit,
-            atomic_types=self.atomic_types.union(other.atomic_types),
-            targets=self.targets.merge(other.targets),
-        )
+        self.atomic_types = self.atomic_types.union(other.atomic_types)
+        self.targets = self.targets.union(other.targets)
 
     def union(self, other: "DatasetInfo") -> "DatasetInfo":
         """Return the union of this instance with ``other``."""

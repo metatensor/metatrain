@@ -28,6 +28,7 @@ class AlchemicalModel(torch.nn.Module):
         super().__init__()
         self.hypers = model_hypers
         self.dataset_info = dataset_info
+        self.atomic_types = list(dataset_info.atomic_types)
 
         if len(dataset_info.targets) != 1:
             raise ValueError("The AlchemicalModel only supports a single target")
@@ -49,7 +50,7 @@ class AlchemicalModel(torch.nn.Module):
         }
 
         self.alchemical_model = AlchemicalModelUpstream(
-            unique_numbers=list(self.dataset_info.atomic_types),
+            unique_numbers=self.atomic_types,
             **self.hypers["soap"],
             **self.hypers["bpnn"],
         )
@@ -158,7 +159,7 @@ class AlchemicalModel(torch.nn.Module):
 
         capabilities = ModelCapabilities(
             outputs=self.outputs,
-            atomic_types=list(self.dataset_info.atomic_types),
+            atomic_types=self.atomic_types,
             interaction_range=self.hypers["soap"]["cutoff"],
             length_unit=self.dataset_info.length_unit,
             supported_devices=self.__supported_devices__,
@@ -170,14 +171,13 @@ class AlchemicalModel(torch.nn.Module):
     def set_composition_weights(
         self,
         input_composition_weights: torch.Tensor,
-        species: List[int],
     ) -> None:
         """Set the composition weights for a given output."""
         input_composition_weights = input_composition_weights.to(
             dtype=self.alchemical_model.composition_weights.dtype,
             device=self.alchemical_model.composition_weights.device,
         )
-        index = [list(self.dataset_info.atomic_types.index(s)) for s in species]
+        index = [self.atomic_types.index(s) for s in self.atomic_types]
         composition_weights = input_composition_weights[:, index]
         self.alchemical_model.set_composition_weights(composition_weights)
 
