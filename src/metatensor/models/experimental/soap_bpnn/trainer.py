@@ -94,11 +94,11 @@ class Trainer:
                         f"Target {target_name} in the model's new capabilities is not "
                         "present in any of the training datasets."
                     )
-                composition_weights, compoistion_types = calculate_composition_weights(
+                composition_weights, composition_types = calculate_composition_weights(
                     train_datasets_with_target, target_name
                 )
                 model.set_composition_weights(
-                    target_name, composition_weights, compoistion_types
+                    target_name, composition_weights, composition_types 
                 )
 
         logger.info("Setting up data loaders")

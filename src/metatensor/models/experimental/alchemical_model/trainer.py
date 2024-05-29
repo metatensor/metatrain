@@ -5,8 +5,6 @@ from typing import List, Union
 import torch
 from metatensor.learn.data import DataLoader
 
-from metatensor.models.utils.data.dataset import TargetInfoDict
-
 from ...utils.composition import calculate_composition_weights
 from ...utils.data import (
     CombinedDataLoader,
@@ -14,6 +12,7 @@ from ...utils.data import (
     check_datasets,
     collate_fn,
     get_all_targets,
+    TargetInfoDict
 )
 from ...utils.evaluate_model import evaluate_model
 from ...utils.external_naming import to_external_name
@@ -98,11 +97,11 @@ class Trainer:
                         f"Target {target_name} in the model's new capabilities is not "
                         "present in any of the training datasets."
                     )
-                composition_weights, compoistion_types = calculate_composition_weights(
+                composition_weights, composition_types = calculate_composition_weights(
                     train_datasets_with_target, target_name
                 )
                 model.set_composition_weights(
-                    composition_weights.unsqueeze(0), compoistion_types
+                    composition_weights.unsqueeze(0), composition_types
                 )
 
         # Remove the composition from the datasets:
