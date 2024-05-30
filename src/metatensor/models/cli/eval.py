@@ -251,22 +251,22 @@ def eval_model(
             dtype=dtype,
         )
 
-        eval_outputs = TargetInfoDict()
         if hasattr(options, "targets"):
             # in this case, we only evaluate the targets specified in the options
             # and we calculate RMSEs
-            eval_targets, eval_outputs = read_targets(options["targets"], dtype=dtype)
+            eval_targets, eval_info_dict = read_targets(options["targets"], dtype=dtype)
         else:
             # in this case, we have no targets: we evaluate everything
             # (but we don't/can't calculate RMSEs)
             # TODO: allow the user to specify which outputs to evaluate
             eval_targets = {}
+            eval_info_dict = TargetInfoDict()
             gradients = {"positions"}
             if all(not torch.all(system.cell == 0) for system in eval_systems):
                 # only add strain if all structures have cells
                 gradients.add("strain")
             for key in model.capabilities().outputs.keys():
-                eval_outputs[key] = TargetInfo(
+                eval_info_dict[key] = TargetInfo(
                     quantity=model.capabilities().outputs[key].quantity,
                     unit=model.capabilities().outputs[key].unit,
                     per_atom=False,  # TODO: allow the user to specify this
@@ -280,7 +280,7 @@ def eval_model(
             predictions = _eval_targets(
                 model=model,
                 dataset=eval_dataset,
-                options=eval_outputs,
+                options=eval_info_dict,
                 return_predictions=True,
             )
         except Exception as e:
