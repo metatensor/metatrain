@@ -39,7 +39,7 @@ def test_average_by_num_atoms():
     averaged = average_by_num_atoms(tensor_map_dict, systems, per_structure_keys=[])
 
     torch.testing.assert_close(
-        averaged["energy"].block().values, torch.tensor([1.0, 1.0, 1.0])
+        averaged["energy"].block().values, torch.tensor([[1.0], [1.0], [1.0]])
     )
 
 
@@ -88,7 +88,10 @@ def test_divide_by_num_atoms():
     tensor_map = divide_by_num_atoms(tensor_map, n_atoms)
 
     # energies and virials should be divided by the number of atoms
-    torch.testing.assert_close(tensor_map.block().values, torch.tensor([1.0, 1.0, 1.0]))
+    torch.testing.assert_close(
+        tensor_map.block().values,
+        torch.tensor([[1.0], [1.0], [1.0]]),
+    )
     torch.testing.assert_close(
         tensor_map.block().gradient("strain").values,
         torch.tensor([[1.0], [1.0], [1.0]]),
