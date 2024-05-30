@@ -168,7 +168,7 @@ def test_predictions_compatibility(cutoff):
     pet = model._module.pet
 
     pet_prediction = pet.forward(batch_dict)
-    assert torch.testing.assert_allclose(
-        mtm_pet_prediction,
-        pet_prediction.sum(dim=0),
+
+    torch.testing.assert_close(
+        mtm_pet_prediction, pet_prediction.sum(dim=0, keepdim=True)
     )
