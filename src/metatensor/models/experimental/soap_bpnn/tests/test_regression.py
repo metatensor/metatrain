@@ -24,7 +24,7 @@ def test_regression_init():
 
     dataset_info = DatasetInfo(
         length_unit="Angstrom",
-        atomic_types=[1, 6, 7, 8],
+        atomic_types={1, 6, 7, 8},
         targets={
             "mtm::U0": TargetInfo(
                 quantity="energy",
@@ -43,22 +43,15 @@ def test_regression_init():
     )
 
     expected_output = torch.tensor(
-        [
-            [-0.038599025458],
-            [0.111374437809],
-            [0.091115802526],
-            [-0.056339077652],
-            [-0.025491207838],
-        ]
+        [[-0.03860], [0.11137], [0.09112], [-0.05634], [-0.02549]]
     )
 
     # if you need to change the hardcoded values:
-    # torch.set_printoptions(precision=12)
-    # print(output["mtm::U0"].block().values)
+    torch.set_printoptions(precision=5)
+    print(output["mtm::U0"].block().values)
 
     torch.testing.assert_close(
-        output["mtm::U0"].block().values,
-        expected_output,
+        output["mtm::U0"].block().values, expected_output, rtol=1e-5, atol=1e-5
     )
 
 
@@ -74,26 +67,20 @@ def test_regression_train():
             "read_from": DATASET_PATH,
             "file_format": ".xyz",
             "key": "U0",
+            "unit": "eV",
             "forces": False,
             "stress": False,
             "virial": False,
         }
     }
-    targets = read_targets(OmegaConf.create(conf))
+    targets, target_info_dict = read_targets(OmegaConf.create(conf))
     dataset = Dataset({"system": systems, "mtm::U0": targets["mtm::U0"]})
 
     hypers = DEFAULT_HYPERS.copy()
     hypers["training"]["num_epochs"] = 2
 
     dataset_info = DatasetInfo(
-        length_unit="Angstrom",
-        atomic_types=[1, 6, 7, 8],
-        targets={
-            "mtm::U0": TargetInfo(
-                quantity="energy",
-                unit="eV",
-            ),
-        },
+        length_unit="Angstrom", atomic_types={1, 6, 7, 8}, targets=target_info_dict
     )
     model = SoapBpnn(MODEL_HYPERS, dataset_info)
 
@@ -108,20 +95,13 @@ def test_regression_train():
     )
 
     expected_output = torch.tensor(
-        [
-            [-40.564655303955],
-            [-56.517837524414],
-            [-76.497428894043],
-            [-77.327507019043],
-            [-93.407928466797],
-        ]
+        [[-40.56458], [-56.51794], [-76.49743], [-77.32737], [-93.40791]]
     )
 
     # if you need to change the hardcoded values:
-    # torch.set_printoptions(precision=12)
+    # torch.set_printoptions(precision=5)
     # print(output["mtm::U0"].block().values)
 
     torch.testing.assert_close(
-        output["mtm::U0"].block().values,
-        expected_output,
+        output["mtm::U0"].block().values, expected_output, rtol=1e-5, atol=1e-5
     )

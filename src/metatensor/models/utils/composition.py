@@ -20,9 +20,9 @@ def calculate_composition_weights(
     if not isinstance(datasets, list):
         datasets = [datasets]
 
-    species = get_atomic_types(datasets)
-    # note that this is sorted, and the composition weights are sorted
-    # as well, because the species are sorted in the composition features
+    # Note: `atomic_types` are sorted, and the composition weights are sorted as
+    # well, because the species are sorted in the composition features.
+    atomic_types = sorted(get_atomic_types(datasets))
 
     targets = torch.stack(
         [sample[property].block().values for dataset in datasets for sample in dataset]
@@ -32,9 +32,11 @@ def calculate_composition_weights(
     structure_list = [sample["system"] for dataset in datasets for sample in dataset]
 
     dtype = structure_list[0].positions.dtype
-    composition_features = torch.empty((len(structure_list), len(species)), dtype=dtype)
+    composition_features = torch.empty(
+        (len(structure_list), len(atomic_types)), dtype=dtype
+    )
     for i, structure in enumerate(structure_list):
-        for j, s in enumerate(species):
+        for j, s in enumerate(atomic_types):
             composition_features[i, j] = torch.sum(structure.types == s)
 
     regularizer = 1e-20
@@ -60,7 +62,7 @@ def calculate_composition_weights(
         except torch._C._LinAlgError:
             regularizer *= 10.0
 
-    return solution, species
+    return solution, atomic_types
 
 
 def apply_composition_contribution(
@@ -76,9 +78,9 @@ def apply_composition_contribution(
     new_keys: List[int] = []
     new_blocks: List[TensorBlock] = []
     for key, block in atomic_property.items():
-        atomic_species = int(key.values.item())
-        new_keys.append(atomic_species)
-        new_values = block.values + composition_weights[atomic_species]
+        atomic_type = int(key.values.item())
+        new_keys.append(atomic_type)
+        new_values = block.values + composition_weights[atomic_type]
         new_blocks.append(
             TensorBlock(
                 values=new_values,

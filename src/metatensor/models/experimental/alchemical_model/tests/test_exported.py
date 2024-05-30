@@ -19,7 +19,7 @@ def test_to(device, dtype):
 
     dataset_info = DatasetInfo(
         length_unit="Angstrom",
-        atomic_types=[1, 6, 7, 8],
+        atomic_types={1, 6, 7, 8},
         targets={
             "energy": TargetInfo(
                 quantity="energy",

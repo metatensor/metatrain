@@ -7,7 +7,13 @@ import torch
 from metatensor.learn.data import DataLoader
 
 from ...utils.composition import calculate_composition_weights
-from ...utils.data import CombinedDataLoader, Dataset, collate_fn, get_all_targets
+from ...utils.data import (
+    CombinedDataLoader,
+    Dataset,
+    TargetInfoDict,
+    collate_fn,
+    get_all_targets,
+)
 from ...utils.data.extract_targets import get_targets_dict
 from ...utils.evaluate_model import evaluate_model
 from ...utils.external_naming import to_external_name
@@ -62,19 +68,21 @@ class Trainer:
                     "user-supplied composition weights"
                 )
                 cur_weight_dict = self.hypers["fixed_composition_weights"][target_name]
-                atomic_types = []
+                atomic_types = set()
                 num_species = len(cur_weight_dict)
                 fixed_weights = torch.zeros(num_species, dtype=dtype, device=device)
 
                 for ii, (key, weight) in enumerate(cur_weight_dict.items()):
-                    atomic_types.append(key)
+                    atomic_types.add(key)
                     fixed_weights[ii] = weight
 
-                if not set(atomic_types) == set(model.dataset_info.atomic_types):
+                if not set(atomic_types) == model.atomic_types:
                     raise ValueError(
                         "Supplied atomic types are not present in the dataset."
                     )
-                model.set_composition_weights(target_name, fixed_weights, atomic_types)
+                model.set_composition_weights(
+                    target_name, fixed_weights, list(atomic_types)
+                )
 
             else:
                 train_datasets_with_target = []
@@ -86,11 +94,11 @@ class Trainer:
                         f"Target {target_name} in the model's new capabilities is not "
                         "present in any of the training datasets."
                     )
-                composition_weights, atomic_types = calculate_composition_weights(
+                composition_weights, composition_types = calculate_composition_weights(
                     train_datasets_with_target, target_name
                 )
                 model.set_composition_weights(
-                    target_name, composition_weights, atomic_types
+                    target_name, composition_weights, composition_types
                 )
 
         logger.info("Setting up data loaders")
@@ -188,7 +196,9 @@ class Trainer:
                 predictions = evaluate_model(
                     model,
                     systems,
-                    {key: training_targets[key] for key in targets.keys()},
+                    TargetInfoDict(
+                        **{key: training_targets[key] for key in targets.keys()}
+                    ),
                     is_training=True,
                 )
 
@@ -217,7 +227,9 @@ class Trainer:
                 predictions = evaluate_model(
                     model,
                     systems,
-                    {key: training_targets[key] for key in targets.keys()},
+                    TargetInfoDict(
+                        **{key: training_targets[key] for key in targets.keys()}
+                    ),
                     is_training=False,
                 )
 
