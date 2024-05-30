@@ -389,7 +389,7 @@ def train_model(
         raise ArchitectureError(e)
 
     mts_atomistic_model = model.export()
-    mts_atomistic_model.export(str(output_checked))
+    mts_atomistic_model.export(str(output_checked), collect_extensions="extensions")
 
     ###########################
     # EVALUATE FINAL MODEL ####

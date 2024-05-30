@@ -32,10 +32,10 @@ to these lines
         checkpoint_dir="path",
     )
 
-    model.save_checkpoint("final.ckpt")
+    model.save_checkpoint("model.ckpt")
 
     mts_atomistic_model = model.export()
-    mts_atomistic_model.export("path", collect_extensions="extensions-dir/")
+    mts_atomistic_model.export("model.pt", collect_extensions="extensions/")
 
 
 In order to follow this, a new architectures has two define two classes

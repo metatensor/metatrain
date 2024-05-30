@@ -20,21 +20,6 @@ from .utils.architectures import check_architecture_name
 from .utils.logging import setup_logging
 
 
-# This import is necessary to avoid errors when loading an
-# exported alchemical model, which depends on sphericart-torch.
-# TODO: Remove this when https://github.com/lab-cosmo/metatensor/issues/512
-# is ready
-try:
-    import sphericart.torch  # noqa: F401
-except ImportError:
-    pass
-
-try:
-    import rascaline.torch  # noqa: F401
-except ImportError:
-    pass
-
-
 logger = logging.getLogger(__name__)
 
 

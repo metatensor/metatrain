@@ -58,7 +58,7 @@ def _add_eval_model_parser(subparser: argparse._SubParsersAction) -> None:
     )
     parser.add_argument(
         "-e",
-        "--extdir",
+        "--extensions-dir",
         type=str,
         required=False,
         dest="extensions_directory",

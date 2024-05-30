@@ -22,7 +22,8 @@ warnings.filterwarnings(
     "ignore",
     category=UserWarning,
     message="neighbor",
-)  # TODO: this is not filtering out the warning for some reason
+)  # TODO: this is not filtering out the warning for some reason, therefore:
+warnings.filterwarnings("ignore")  # ignore all warnings if not in debug mode
 
 
 def evaluate_model(
