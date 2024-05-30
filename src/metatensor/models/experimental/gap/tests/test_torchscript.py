@@ -34,12 +34,13 @@ def test_torchscript():
             "read_from": DATASET_PATH,
             "file_format": ".xyz",
             "key": "U0",
+            "unit": "kcal/mol",
             "forces": False,
             "stress": False,
             "virial": False,
         }
     }
-    targets = read_targets(OmegaConf.create(conf), dtype=torch.float64)
+    targets, _ = read_targets(OmegaConf.create(conf), dtype=torch.float64)
     systems = read_systems(DATASET_PATH, dtype=torch.float64)
 
     # for system in systems:

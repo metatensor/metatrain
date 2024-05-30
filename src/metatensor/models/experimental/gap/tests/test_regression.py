@@ -57,12 +57,13 @@ def test_regression_train_and_invariance():
             "read_from": DATASET_PATH,
             "file_format": ".xyz",
             "key": "U0",
+            "unit": "kcal/mol",
             "forces": False,
             "stress": False,
             "virial": False,
         }
     }
-    targets = read_targets(OmegaConf.create(conf), dtype=torch.float64)
+    targets, _ = read_targets(OmegaConf.create(conf), dtype=torch.float64)
     dataset = Dataset({"system": systems, "mtm::U0": targets["mtm::U0"]})
 
     dataset_info = DatasetInfo(
@@ -129,12 +130,13 @@ def test_ethanol_regression_train_and_invariance():
                 "file_format": ".xyz",
                 "key": "forces",
             },
+            "unit": "kcal/mol",
             "stress": False,
             "virial": False,
         }
     }
 
-    targets = read_targets(OmegaConf.create(conf), dtype=torch.float64)
+    targets, _ = read_targets(OmegaConf.create(conf), dtype=torch.float64)
     dataset = Dataset({"system": systems, "energy": targets["energy"]})
 
     hypers = copy.deepcopy(DEFAULT_HYPERS)
