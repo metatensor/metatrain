@@ -11,6 +11,7 @@ from metatensor.torch import Labels
 from omegaconf import OmegaConf
 from targets.test_targets_ase import ase_system, ase_systems
 
+from metatensor.models.utils.data.dataset import TargetInfo, TargetInfoDict
 from metatensor.models.utils.data.readers import (
     read_energy,
     read_forces,
@@ -149,6 +150,7 @@ def test_read_targets(stress_dict, virial_dict, monkeypatch, tmp_path, caplog):
         "read_from": filename,
         "file_format": ".xyz",
         "key": "true_energy",
+        "unit": "eV",
         "forces": {"read_from": filename, "file_format": ".xyz", "key": "forces"},
         "stress": stress_dict,
         "virial": virial_dict,
@@ -160,9 +162,12 @@ def test_read_targets(stress_dict, virial_dict, monkeypatch, tmp_path, caplog):
     }
 
     caplog.set_level(logging.INFO)
-    result = read_targets(OmegaConf.create(conf), dtype=torch.float16)
+    result, target_info_dict = read_targets(OmegaConf.create(conf), dtype=torch.float16)
 
     assert any(["Forces found" in rec.message for rec in caplog.records])
+
+    assert type(result) is dict
+    assert type(target_info_dict) is TargetInfoDict
 
     if stress_dict:
         assert any(["Stress found" in rec.message for rec in caplog.records])
@@ -170,7 +175,14 @@ def test_read_targets(stress_dict, virial_dict, monkeypatch, tmp_path, caplog):
         assert any(["Virial found" in rec.message for rec in caplog.records])
 
     for target_name, target_list in result.items():
-        conf[target_name]
+        target_section = conf[target_name]
+
+        target_info = target_info_dict[target_name]
+        assert type(target_info) is TargetInfo
+        assert target_info.quantity == target_section["quantity"]
+        assert target_info.unit == target_section["unit"]
+        assert target_info.per_atom is False
+        assert target_info.gradients == {"positions", "strain"}
 
         assert type(target_list) is list
         for target in target_list:
@@ -222,6 +234,7 @@ def test_read_targets_warnings(stress_dict, virial_dict, monkeypatch, tmp_path, 
         "read_from": filename,
         "file_format": ".xyz",
         "key": "true_energy",
+        "unit": "eV",
         "forces": {"read_from": filename, "file_format": ".xyz", "key": "forces"},
         "stress": stress_dict,
         "virial": virial_dict,

@@ -142,7 +142,7 @@ class Trainer:
         state_dict = torch.load(load_path)
 
         ARCHITECTURAL_HYPERS = Hypers(model.hypers)
-        raw_pet = PET(ARCHITECTURAL_HYPERS, 0.0, len(model.species))
+        raw_pet = PET(ARCHITECTURAL_HYPERS, 0.0, len(model.atomic_types))
 
         new_state_dict = {}
         for name, value in state_dict.items():

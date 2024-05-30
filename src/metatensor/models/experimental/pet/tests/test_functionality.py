@@ -26,7 +26,7 @@ def test_prediction():
 
     dataset_info = DatasetInfo(
         length_unit="Angstrom",
-        atomic_types=[1, 6, 7, 8],
+        atomic_types={1, 6, 7, 8},
         targets={
             "energy": TargetInfo(
                 quantity="energy",
@@ -36,7 +36,7 @@ def test_prediction():
     )
     model = WrappedPET(DEFAULT_HYPERS["model"], dataset_info)
     ARCHITECTURAL_HYPERS = Hypers(model.hypers)
-    raw_pet = PET(ARCHITECTURAL_HYPERS, 0.0, len(model.species))
+    raw_pet = PET(ARCHITECTURAL_HYPERS, 0.0, len(model.atomic_types))
     model.set_trained_model(raw_pet)
 
     structure = ase.Atoms("O2", positions=[[0.0, 0.0, 0.0], [0.0, 0.0, 1.0]])
@@ -50,7 +50,7 @@ def test_prediction():
 
     capabilities = ModelCapabilities(
         length_unit="Angstrom",
-        atomic_types=[1, 6, 7, 8],
+        atomic_types=model.atomic_types,
         outputs={
             "energy": ModelOutput(
                 quantity="energy",
@@ -77,7 +77,7 @@ def test_per_atom_predictions_functionality():
 
     dataset_info = DatasetInfo(
         length_unit="Angstrom",
-        atomic_types=[1, 6, 7, 8],
+        atomic_types={1, 6, 7, 8},
         targets={
             "energy": TargetInfo(
                 quantity="energy",
@@ -87,7 +87,7 @@ def test_per_atom_predictions_functionality():
     )
     model = WrappedPET(DEFAULT_HYPERS["model"], dataset_info)
     ARCHITECTURAL_HYPERS = Hypers(model.hypers)
-    raw_pet = PET(ARCHITECTURAL_HYPERS, 0.0, len(model.species))
+    raw_pet = PET(ARCHITECTURAL_HYPERS, 0.0, len(model.atomic_types))
     model.set_trained_model(raw_pet)
 
     structure = ase.Atoms("O2", positions=[[0.0, 0.0, 0.0], [0.0, 0.0, 1.0]])
@@ -101,7 +101,7 @@ def test_per_atom_predictions_functionality():
 
     capabilities = ModelCapabilities(
         length_unit="Angstrom",
-        atomic_types=[1, 6, 7, 8],
+        atomic_types=model.atomic_types,
         outputs={
             "energy": ModelOutput(
                 quantity="energy",
@@ -129,7 +129,7 @@ def test_selected_atoms_functionality():
 
     dataset_info = DatasetInfo(
         length_unit="Angstrom",
-        atomic_types=[1, 6, 7, 8],
+        atomic_types={1, 6, 7, 8},
         targets={
             "energy": TargetInfo(
                 quantity="energy",
@@ -139,7 +139,7 @@ def test_selected_atoms_functionality():
     )
     model = WrappedPET(DEFAULT_HYPERS["model"], dataset_info)
     ARCHITECTURAL_HYPERS = Hypers(model.hypers)
-    raw_pet = PET(ARCHITECTURAL_HYPERS, 0.0, len(model.species))
+    raw_pet = PET(ARCHITECTURAL_HYPERS, 0.0, len(model.atomic_types))
     model.set_trained_model(raw_pet)
 
     structure = ase.Atoms("O2", positions=[[0.0, 0.0, 0.0], [0.0, 0.0, 1.0]])
@@ -153,7 +153,7 @@ def test_selected_atoms_functionality():
 
     capabilities = ModelCapabilities(
         length_unit="Angstrom",
-        atomic_types=[1, 6, 7, 8],
+        atomic_types=model.atomic_types,
         outputs={
             "energy": ModelOutput(
                 quantity="energy",
