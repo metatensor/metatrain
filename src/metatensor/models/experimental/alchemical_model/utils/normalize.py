@@ -63,7 +63,7 @@ def get_average_number_of_neighbors(
 
 def remove_composition_from_dataset(
     dataset: Union[Dataset, torch.utils.data.Subset],
-    all_species: List[int],
+    atomic_types: List[int],
     composition_weights: torch.Tensor,
 ) -> List[Union[Dataset, torch.utils.data.Subset]]:
     """Remove the composition from the dataset.
@@ -84,8 +84,8 @@ def remove_composition_from_dataset(
         system = dataset[i]["system"]
         property = dataset[i][property_name]
         numbers = system.types
-        composition = torch.bincount(numbers, minlength=max(all_species) + 1)
-        composition = composition[all_species].to(
+        composition = torch.bincount(numbers, minlength=max(atomic_types) + 1)
+        composition = composition[atomic_types].to(
             device=composition_weights.device, dtype=composition_weights.dtype
         )
         property = metatensor.torch.subtract(
