@@ -181,7 +181,12 @@ class DatasetInfo:
 
     :param length_unit: Unit of length used in the dataset. If :py:obj:`None` the
         ``length_unit`` will be set to an empty string ``""``.
-    :param atomic_types: All possible atomic types present in the dataset.
+    :param atomic_types: Unordered set of all atomic types present in the dataset.
+
+        .. note::
+
+            ``atomic_types`` is a :py:class:`set` and **not ordered**. Use
+            :py:func:`sorted` for an ordered :py:class:`list`.
     :param targets: Information about targets in the dataset.
     """
 
@@ -245,11 +250,10 @@ def get_atomic_types(datasets: Union[Dataset, List[Dataset]]) -> Set[int]:
 
 
 def get_all_targets(datasets: Union[Dataset, List[Dataset]]) -> List[str]:
-    """List of all targets present in a dataset or list of datasets.
+    """Sorted list of all unique targets present in a dataset or list of datasets.
 
     :param datasets: the dataset(s).
-    :returns: list of targets present in the dataset(s), sorted according to the
-        ``sort()`` method of Python lists.
+    :returns: Sorted list of all targets present in the dataset(s).
     """
 
     if not isinstance(datasets, list):

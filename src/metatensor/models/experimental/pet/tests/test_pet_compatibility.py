@@ -34,9 +34,10 @@ def check_batch_dict_consistency(ref_batch, trial_batch):
 
     for key in ref_batch:
         if key == "x":
-            assert torch.allclose(
+            torch.testing.assert_close(
                 ref_batch["x"].flatten().sort()[0],
                 trial_batch["x"].flatten().sort()[0],
+                rtol=1e-6,
                 atol=1e-5,
             )
         elif key in ("central_species", "mask", "nums", "batch"):
@@ -167,7 +168,7 @@ def test_predictions_compatibility(cutoff):
     pet = model._module.pet
 
     pet_prediction = pet.forward(batch_dict)
-    assert torch.allclose(
+    assert torch.testing.assert_allclose(
         mtm_pet_prediction,
         pet_prediction.sum(dim=0),
     )
