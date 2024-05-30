@@ -1,0 +1,36 @@
+name: GAP tests
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    # Check all PR
+
+jobs:
+  tests:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        include:
+          - os: ubuntu-22.04
+            python-version: "3.11"
+
+    steps:
+    - uses: actions/checkout@v3
+
+    - name: Set up Python ${{ matrix.python-version }}
+      uses: actions/setup-python@v4
+      with:
+        python-version: ${{ matrix.python-version }}
+    - run: pip install tox
+
+    - name: run SparseGAP tests
+      run: tox -e gap-tests
+      env:
+        # Use the CPU only version of torch when building/running the code
+        PIP_EXTRA_INDEX_URL: https://download.pytorch.org/whl/cpu
+
+    - name: Upload codecoverage
+      uses: codecov/codecov-action@v3
+      with:
+        files: ./tests/coverage.xml
