@@ -25,7 +25,7 @@ def test_regression_init():
 
     dataset_info = DatasetInfo(
         length_unit="Angstrom",
-        atomic_types=[1, 6, 7, 8],
+        atomic_types={1, 6, 7, 8},
         targets={
             "mtm::U0": TargetInfo(
                 quantity="energy",
@@ -84,25 +84,19 @@ def test_regression_train():
             "read_from": DATASET_PATH,
             "file_format": ".xyz",
             "key": "U0",
+            "unit": "eV",
             "forces": False,
             "stress": False,
             "virial": False,
         }
     }
-    targets = read_targets(OmegaConf.create(conf))
+    targets, target_info_dict = read_targets(OmegaConf.create(conf))
     dataset = Dataset({"system": systems, "mtm::U0": targets["mtm::U0"]})
 
     hypers = DEFAULT_HYPERS.copy()
 
     dataset_info = DatasetInfo(
-        length_unit="Angstrom",
-        atomic_types=[1, 6, 7, 8],
-        targets={
-            "mtm::U0": TargetInfo(
-                quantity="energy",
-                unit="eV",
-            ),
-        },
+        length_unit="Angstrom", atomic_types={1, 6, 7, 8}, targets=target_info_dict
     )
     model = AlchemicalModel(MODEL_HYPERS, dataset_info)
 

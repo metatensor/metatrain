@@ -9,6 +9,7 @@ from ...utils.composition import calculate_composition_weights
 from ...utils.data import (
     CombinedDataLoader,
     Dataset,
+    TargetInfoDict,
     check_datasets,
     collate_fn,
     get_all_targets,
@@ -96,23 +97,25 @@ class Trainer:
                         f"Target {target_name} in the model's new capabilities is not "
                         "present in any of the training datasets."
                     )
-                composition_weights, species = calculate_composition_weights(
+                composition_weights, composition_types = calculate_composition_weights(
                     train_datasets_with_target, target_name
                 )
-                model.set_composition_weights(composition_weights.unsqueeze(0), species)
+                model.set_composition_weights(
+                    composition_weights.unsqueeze(0), composition_types
+                )
 
         # Remove the composition from the datasets:
         train_datasets = [
             remove_composition_from_dataset(
                 train_datasets[0],
-                model.dataset_info.atomic_types,
+                model.atomic_types,
                 model.alchemical_model.composition_weights.squeeze(0),
             )
         ]
         validation_datasets = [
             remove_composition_from_dataset(
                 validation_datasets[0],
-                model.dataset_info.atomic_types,
+                model.atomic_types,
                 model.alchemical_model.composition_weights.squeeze(0),
             )
         ]
@@ -212,7 +215,12 @@ class Trainer:
                 predictions = evaluate_model(
                     model,
                     systems,
-                    {key: model.dataset_info.targets[key] for key in targets.keys()},
+                    TargetInfoDict(
+                        **{
+                            key: model.dataset_info.targets[key]
+                            for key in targets.keys()
+                        }
+                    ),
                     is_training=True,
                 )
 
@@ -242,7 +250,12 @@ class Trainer:
                 predictions = evaluate_model(
                     model,
                     systems,
-                    {key: model.dataset_info.targets[key] for key in targets.keys()},
+                    TargetInfoDict(
+                        **{
+                            key: model.dataset_info.targets[key]
+                            for key in targets.keys()
+                        }
+                    ),
                     is_training=False,
                 )
 

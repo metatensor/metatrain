@@ -29,12 +29,13 @@ def test_without_shuffling():
             "read_from": RESOURCES_PATH / "qm9_reduced_100.xyz",
             "file_format": ".xyz",
             "key": "U0",
+            "unit": "eV",
             "forces": False,
             "stress": False,
             "virial": False,
         }
     }
-    targets = read_targets(OmegaConf.create(conf))
+    targets, _ = read_targets(OmegaConf.create(conf))
     dataset = Dataset({"system": systems, "mtm::U0": targets["mtm::U0"]})
     dataloader_qm9 = DataLoader(dataset, batch_size=10, collate_fn=collate_fn)
     # will yield 10 batches of 10
@@ -47,12 +48,13 @@ def test_without_shuffling():
             "read_from": RESOURCES_PATH / "alchemical_reduced_10.xyz",
             "file_format": ".xyz",
             "key": "free_energy",
+            "unit": "eV",
             "forces": False,
             "stress": False,
             "virial": False,
         }
     }
-    targets = read_targets(OmegaConf.create(conf))
+    targets, _ = read_targets(OmegaConf.create(conf))
     dataset = Dataset(
         {"system": systems, "mtm::free_energy": targets["mtm::free_energy"]}
     )
@@ -84,12 +86,13 @@ def test_with_shuffling():
             "read_from": RESOURCES_PATH / "qm9_reduced_100.xyz",
             "file_format": ".xyz",
             "key": "U0",
+            "unit": "eV",
             "forces": False,
             "stress": False,
             "virial": False,
         }
     }
-    targets = read_targets(OmegaConf.create(conf))
+    targets, _ = read_targets(OmegaConf.create(conf))
     dataset = Dataset({"system": systems, "mtm::U0": targets["mtm::U0"]})
     dataloader_qm9 = DataLoader(
         dataset, batch_size=10, collate_fn=collate_fn, shuffle=True
@@ -104,12 +107,13 @@ def test_with_shuffling():
             "read_from": RESOURCES_PATH / "alchemical_reduced_10.xyz",
             "file_format": ".xyz",
             "key": "free_energy",
+            "unit": "eV",
             "forces": False,
             "stress": False,
             "virial": False,
         }
     }
-    targets = read_targets(OmegaConf.create(conf))
+    targets, _ = read_targets(OmegaConf.create(conf))
     dataset = Dataset(
         {"system": systems, "mtm::free_energy": targets["mtm::free_energy"]}
     )

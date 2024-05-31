@@ -63,9 +63,9 @@ def test_calculate_composition_weights():
     ]
     dataset = Dataset({"system": systems, "energy": energies})
 
-    weights, species = calculate_composition_weights(dataset, "energy")
+    weights, atomic_types = calculate_composition_weights(dataset, "energy")
 
-    assert len(weights) == len(species)
+    assert len(weights) == len(atomic_types)
     assert len(weights) == 2
-    assert species == [1, 8]
+    assert atomic_types == [1, 8]
     torch.testing.assert_close(weights, torch.tensor([2.0, 1.0]))

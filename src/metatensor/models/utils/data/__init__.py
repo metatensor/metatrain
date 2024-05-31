@@ -1,13 +1,13 @@
 from .dataset import (  # noqa: F401
     Dataset,
     TargetInfo,
+    TargetInfoDict,
     DatasetInfo,
     get_atomic_types,
     get_all_targets,
     collate_fn,
     check_datasets,
     group_and_join,
-    merge_dataset_info,
 )
 from .readers import (  # noqa: F401
     read_energy,
