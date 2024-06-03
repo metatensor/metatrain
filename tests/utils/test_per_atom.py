@@ -2,7 +2,7 @@ import torch
 from metatensor.torch import Labels, TensorBlock, TensorMap
 from metatensor.torch.atomistic import System
 
-from metatensor.models.utils.per_atom import average_by_num_atoms, divide_by_num_atoms
+from metatrain.utils.per_atom import average_by_num_atoms, divide_by_num_atoms
 
 
 def test_average_by_num_atoms():

@@ -1,7 +1,7 @@
 Export
 ######
 
-.. automodule:: metatensor.models.cli.export
+.. automodule:: metatrain.cli.export
     :members:
     :undoc-members:
     :show-inheritance:

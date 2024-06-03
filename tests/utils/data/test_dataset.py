@@ -4,7 +4,7 @@ import pytest
 import torch
 from omegaconf import OmegaConf
 
-from metatensor.models.utils.data import (
+from metatrain.utils.data import (
     Dataset,
     DatasetInfo,
     TargetInfo,

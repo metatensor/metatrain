@@ -17,12 +17,12 @@ The mapping which reader is used for which file type is stored in a dictionary.
 Energy
 ======
 
-.. autodata:: metatensor.models.utils.data.readers.targets.ENERGY_READERS
+.. autodata:: metatrain.utils.data.readers.targets.ENERGY_READERS
 
 Implemented Readers
 -------------------
 
-.. autofunction:: metatensor.models.utils.data.readers.targets.read_energy_ase
+.. autofunction:: metatrain.utils.data.readers.targets.read_energy_ase
 
 
 .. _forces:
@@ -30,33 +30,33 @@ Implemented Readers
 Forces
 ======
 
-.. autodata:: metatensor.models.utils.data.readers.targets.FORCES_READERS
+.. autodata:: metatrain.utils.data.readers.targets.FORCES_READERS
 
 Implemented Readers
 -------------------
 
-.. autofunction:: metatensor.models.utils.data.readers.targets.read_forces_ase
+.. autofunction:: metatrain.utils.data.readers.targets.read_forces_ase
 
 .. _stress:
 
 Stress
 ======
 
-.. autodata:: metatensor.models.utils.data.readers.targets.STRESS_READERS
+.. autodata:: metatrain.utils.data.readers.targets.STRESS_READERS
 
 Implemented Readers
 -------------------
 
-.. autofunction:: metatensor.models.utils.data.readers.targets.read_stress_ase
+.. autofunction:: metatrain.utils.data.readers.targets.read_stress_ase
 
 .. _virial:
 
 Virial
 ======
 
-.. autodata:: metatensor.models.utils.data.readers.targets.VIRIAL_READERS
+.. autodata:: metatrain.utils.data.readers.targets.VIRIAL_READERS
 
 Implemented Readers
 -------------------
 
-.. autofunction:: metatensor.models.utils.data.readers.targets.read_virial_ase
+.. autofunction:: metatrain.utils.data.readers.targets.read_virial_ase

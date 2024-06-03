@@ -1,7 +1,7 @@
 import logging
 import re
 
-from metatensor.models.utils.logging import setup_logging
+from metatrain.utils.logging import setup_logging
 
 
 def assert_log_entry(logtext: str, loglevel: str, message: str) -> None:

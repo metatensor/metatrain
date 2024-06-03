@@ -1,6 +1,6 @@
 import pytest
 
-from metatensor.models.utils.errors import ArchitectureError
+from metatrain.utils.errors import ArchitectureError
 
 
 def test_architecture_error():

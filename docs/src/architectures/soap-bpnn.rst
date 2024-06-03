@@ -119,7 +119,7 @@ Default Hyperparameters
 -----------------------
 The default hyperparameters for the SOAP-BPNN model are:
 
-.. literalinclude:: ../../../src/metatensor/models/experimental/soap_bpnn/default-hypers.yaml
+.. literalinclude:: ../../../src/metatrain/experimental/soap_bpnn/default-hypers.yaml
    :language: yaml
 
 

@@ -12,8 +12,8 @@ from typing import List
 import pytest
 import torch
 
-from metatensor.models.utils import devices
-from metatensor.models.utils.devices import pick_devices
+from metatrain.utils import devices
+from metatrain.utils.devices import pick_devices
 
 
 @pytest.mark.parametrize("desired_device", ["cpu", None])

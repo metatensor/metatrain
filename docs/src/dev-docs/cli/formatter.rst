@@ -1,7 +1,7 @@
-formatter
+Formatter
 #########
 
-.. automodule:: metatensor.models.cli.formatter
+.. automodule:: metatrain.cli.formatter
     :members:
     :undoc-members:
     :show-inheritance:

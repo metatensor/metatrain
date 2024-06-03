@@ -31,7 +31,7 @@ Default Hyperparameters
 -----------------------
 The default hyperparameters for the Alchemical Model model are:
 
-.. literalinclude:: ../../../src/metatensor/models/experimental/alchemical_model/default-hypers.yaml
+.. literalinclude:: ../../../src/metatrain/experimental/alchemical_model/default-hypers.yaml
    :language: yaml
 
 
