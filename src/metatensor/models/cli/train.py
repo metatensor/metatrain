@@ -366,15 +366,23 @@ def train_model(
     # SAVE FINAL MODEL ########
     ###########################
 
-    logger.info("Training finished; save final checkpoint and model")
     output_checked = check_suffix(filename=output, suffix=".pt")
+    logger.info(
+        "Training finished, saving final checkpoint "
+        f"to {str(Path(output_checked).stem)}.ckpt"
+    )
     try:
         model.save_checkpoint(f"{Path(output_checked).stem}.ckpt")
     except Exception as e:
         raise ArchitectureError(e)
 
     mts_atomistic_model = model.export()
-    mts_atomistic_model.export(str(output_checked))
+    extensions_path = "extensions/"
+
+    logger.info(
+        f"Exporting model to {output_checked} and extensions to {extensions_path}"
+    )
+    mts_atomistic_model.export(str(output_checked), collect_extensions=extensions_path)
 
     ###########################
     # EVALUATE FINAL MODEL ####

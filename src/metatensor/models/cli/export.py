@@ -1,4 +1,5 @@
 import argparse
+import logging
 from pathlib import Path
 from typing import Any, Union
 
@@ -7,6 +8,9 @@ import torch
 from ..utils.export import is_exported
 from ..utils.io import check_suffix
 from .formatter import CustomHelpFormatter
+
+
+logger = logging.getLogger(__name__)
 
 
 def _add_export_model_parser(subparser: argparse._SubParsersAction) -> None:
@@ -60,7 +64,10 @@ def export_model(model: Any, output: Union[Path, str] = "exported-model.pt") -> 
     path = str(check_suffix(filename=output, suffix=".pt"))
 
     if is_exported(model):
+        logger.info(f"The model is already exported. Saving it to `{path}`.")
         torch.jit.save(model, path)
     else:
+        extensions_path = "extensions/"
+        logger.info(f"Exporting model to {path} and extensions to {extensions_path}")
         mts_atomistic_model = model.export()
-        mts_atomistic_model.export(path)
+        mts_atomistic_model.export(path, collect_extensions=extensions_path)
