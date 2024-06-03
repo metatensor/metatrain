@@ -9,6 +9,7 @@ module.
 .. toctree::
    :maxdepth: 1
 
+   getting-started
    architecture-life-cycle
    new-architecture
    cli/index

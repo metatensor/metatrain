@@ -12,8 +12,9 @@ prune .tox
 
 exclude .codecov.yml
 exclude .gitignore
-exclude tox.ini
 exclude .readthedocs.yml
 exclude CODEOWNERS
+exclude CONTRIBUTING.rst
+exclude tox.ini
 
 global-exclude *.py[cod] __pycache__/* *.so *.dylib

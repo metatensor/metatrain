@@ -1,3 +1,5 @@
+.. _architecture-life-cycle:
+
 Life Cycle of an Architecture
 =============================
 
