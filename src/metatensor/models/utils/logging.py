@@ -45,11 +45,15 @@ class MetricLogger:
 
         self.names = names
 
-        # Since the quantities are supposed to decrease, we want to store the number of
-        # digits at the start of the training, so that we can align the output later:
+        # Since the quantities are supposed to decrease, we want to store the
+        # number of digits at the start of the training, so that we can align
+        # the output later:
         self.digits = {}
         for name, metrics_dict in zip(names, initial_metrics):
             for key, value in metrics_dict.items():
+                if "loss" in key:
+                    # losses will be printed in scientific notation
+                    continue
                 self.digits[f"{name}_{key}"] = _get_digits(value)
 
         # Save the model outputs. This will be useful to know
@@ -89,14 +93,19 @@ class MetricLogger:
                 new_key = key
                 if key != "loss":  # special case: not a metric associated with a target
                     target_name, metric = new_key.split(" ", 1)
-                    target_name = to_external_name(target_name, self.model_outputs)
+                    target_name = to_external_name(
+                        target_name, self.model_capabilities.outputs
+                    )
                     new_key = f"{target_name} {metric}"
 
                 if name == "":
                     logging_string += f", {new_key}: "
                 else:
                     logging_string += f", {name} {new_key}: "
-                logging_string += f"{value:{self.digits[f'{name}_{key}'][0]}.{self.digits[f'{name}_{key}'][1]}f}"  # noqa: E501
+                if "loss" in key:  # print losses with scientific notation
+                    logging_string += f"{value:.3e}"
+                else:
+                    logging_string += f"{value:{self.digits[f'{name}_{key}'][0]}.{self.digits[f'{name}_{key}'][1]}f}"  # noqa: E501
 
         # If there is no epoch, the string will start with a comma. Remove it:
         if logging_string.startswith(", "):
