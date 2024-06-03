@@ -93,9 +93,7 @@ class MetricLogger:
                 new_key = key
                 if key != "loss":  # special case: not a metric associated with a target
                     target_name, metric = new_key.split(" ", 1)
-                    target_name = to_external_name(
-                        target_name, self.model_capabilities.outputs
-                    )
+                    target_name = to_external_name(target_name, self.model_outputs)
                     new_key = f"{target_name} {metric}"
 
                 if name == "":
