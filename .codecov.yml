@@ -2,8 +2,10 @@ coverage:
   status:
     project:
       default:
-        target: 80%
-    patch: off
+        target: 90%
+    patch:
+      default:
+        target: 90%
   ignore:
      - "tests/.*"
      - "examples/.*"
