@@ -54,8 +54,9 @@ Then this package itself
 
 .. code-block:: bash
 
-  git clone https://github.com/lab-cosmo/metatensor-models cd metatensor-models pip
-  install -e .
+  git clone https://github.com/lab-cosmo/metatensor-models 
+  cd metatensor-models 
+  pip install -e .
 
 This install the package in development mode, making it importable globally and allowing
 you to edit the code and directly use the updated version. To see a list of all
@@ -96,7 +97,7 @@ If you want to test a specific archicture you can also do it. For example
       tox -e soap-bpnn-tests
 
 Will run the unit and regression tests for the :ref:`SOAP-BPNN <architecture-soap-bpnn>`
-model. Note that architecture tests are not run by default if yiu just type ``tox``.
+model. Note that architecture tests are not run by default if you just type ``tox``.
 
 .. _unittest: https://docs.python.org/3/library/unittest.html
 .. _tox: https://tox.readthedocs.io/en/latest

@@ -25,7 +25,7 @@
 - [ ] Compatibility with JIT compilation using `TorchScript
    <https://pytorch.org/docs/stable/jit.html>`_.
 - [ ] Provision of reasonable default hyperparameters.
-- [ ] A contact person designated as the maintainer.
+- [ ] A contact person designated as the maintainer, mentioned in `__maintainers__` and the `CODEOWNERS` file
 - [ ] All external dependencies must be pip-installable. While not required to be on
    PyPI, a public git repository or another public URL with a repository is acceptable.
 
