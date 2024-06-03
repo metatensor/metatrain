@@ -3,6 +3,7 @@
 Actual unit tests for the function are performed in `tests/utils/test_export`.
 """
 
+import glob
 import subprocess
 from pathlib import Path
 
@@ -33,6 +34,10 @@ def test_export(monkeypatch, tmp_path, path):
     model = __model__(model_hypers=MODEL_HYPERS, dataset_info=dataset_info)
     export_model(model, path)
 
+    # Test if extensions are saved
+    extensions_glob = glob.glob("extensions/")
+    assert len(extensions_glob) == 1
+
     assert Path(path).is_file()
 
 
@@ -54,6 +59,10 @@ def test_export_cli(monkeypatch, tmp_path, output):
 
     subprocess.check_call(command)
     assert Path(output).is_file()
+
+    # Test if extensions are saved
+    extensions_glob = glob.glob("extensions/")
+    assert len(extensions_glob) == 1
 
 
 def test_reexport(monkeypatch, tmp_path):

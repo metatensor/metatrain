@@ -57,6 +57,10 @@ def test_train(capfd, monkeypatch, tmp_path, output):
     log_glob = glob.glob("outputs/*/*/train.log")
     assert len(log_glob) == 1
 
+    # Test if extensions are saved
+    extensions_glob = glob.glob("extensions/")
+    assert len(extensions_glob) == 1
+
     # Open the log file and check if the logging is correct
     with open(log_glob[0]) as f:
         file_log = f.read()
