@@ -3,9 +3,9 @@
 Basic Usage
 ===========
 
-``metatrain`` is designed for an direct usage from the the command line (cli). The
-program is registered via the abbreviation ``mtt`` to your command line. The general
-help of ``metatrain`` can be accessed using
+``metatrain`` is designed for a direct usage from the command line (cli). The program is
+registered via the abbreviation ``mtt`` to your command line. The general help of
+``metatrain`` can be accessed using
 
 .. code-block:: bash
 
