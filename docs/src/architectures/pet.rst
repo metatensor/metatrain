@@ -164,40 +164,32 @@ expected minimal deterioration in accuracy.
 Description of Hyperparameters
 ------------------------------
 
-``RANDOM_SEED``: random seed
-``CUDA_DETERMINISTIC``: if applying PyTorch reproducibility settings
-``MULTI_GPU``: use multi-GPU training (on one node) using DataParallel from 
-PyTorch-Geometric
-
-``MODEL_TO_START_WITH``: If not None, then training will be continued from this 
-checkpoint (only relates to weights of the model, and not to the state of the 
-learning rate scheduler and optimizer)
-
-``R_CUT``: cutoff radius
-``CUTOFF_DELTA``: width of the transition region for a cutoff function used by 
-PET to ensure smoothness with respect to the (dis)appearance of atoms at the 
-cutoff sphere
-
-``GLOBAL_AUG``: whether to use global augmentation or a local one, rotating 
-atomic environments independently
-
-``USE_ENERGIES``: whether to use energies for training
-``USE_FORCES``: whether to use forces for training
-``SLIDING_FACTOR``: sliding factor for exponential sliding averages of MSE in 
-energies and forces in our combined loss definition
-``ENERGY_WEIGHT``: $w_{E}$, dimensionless energy weight in our combined loss 
-definition
-
-``N_GNN_LAYERS``: number of message-passing blocks
-``TRANSFORMER_D_MODEL``: was denoted as d_{pet} in the main text
-``TRANSFORMER_N_HEAD``: number of heads of each transformer
-``TRANSFORMER_DIM_FEEDFORWARD``: feedforward dimensionality of each transformer
-``HEAD_N_NEURONS``: number of neurons in the intermediate layers of HEAD MLPs
-``N_TRANS_LAYERS``: number of layers of each transformer
-``ACTIVATION``: activation function used everywhere
-``INITIAL_LR``: initial learning rate
-
-``MAX_TIME``: maximal time to train the model in seconds
+- ``RANDOM_SEED``: random seed
+- ``CUDA_DETERMINISTIC``: if applying PyTorch reproducibility settings
+- ``MULTI_GPU``: use multi-GPU training (on one node) using DataParallel from 
+  PyTorch-Geometric
+- ``R_CUT``: cutoff radius
+- ``CUTOFF_DELTA``: width of the transition region for a cutoff function used 
+  by PET to ensure smoothness with respect to the (dis)appearance of atoms at 
+  the cutoff sphere
+- ``GLOBAL_AUG``: whether to use global augmentation or a local one, rotating 
+  atomic environments independently
+- ``USE_ENERGIES``: whether to use energies for training
+- ``USE_FORCES``: whether to use forces for training
+- ``SLIDING_FACTOR``: sliding factor for exponential sliding averages of MSE in 
+  energies and forces in our combined loss definition
+- ``ENERGY_WEIGHT``: $w_{E}$, dimensionless energy weight in our combined loss 
+  definition
+- ``N_GNN_LAYERS``: number of message-passing blocks
+- ``TRANSFORMER_D_MODEL``: was denoted as d_{pet} in the main text
+- ``TRANSFORMER_N_HEAD``: number of heads of each transformer
+- ``TRANSFORMER_DIM_FEEDFORWARD``: feedforward dimensionality of each 
+  transformer
+- ``HEAD_N_NEURONS``: number of neurons in the intermediate layers of HEAD MLPs
+- ``N_TRANS_LAYERS``: number of layers of each transformer
+- ``ACTIVATION``: activation function used everywhere
+- ``INITIAL_LR``: initial learning rate
+- ``MAX_TIME``: maximal time to train the model in seconds
 
 ::
 
@@ -208,50 +200,42 @@ For parameters such as ``EPOCH_NUM`` the user can specify either normal
 ``EPOCH_NUM`` is computed as ``EPOCH_NUM_ATOMIC / (total number of atoms in the 
 training dataset)``. Similarly defined are:
 
-``SCHEDULER_STEP_SIZE_ATOMIC``: step size of StepLR learning rate schedule
-``EPOCHS_WARMUP_ATOMIC``: linear warmup time
+- ``SCHEDULER_STEP_SIZE_ATOMIC``: step size of StepLR learning rate schedule
+- ``EPOCHS_WARMUP_ATOMIC``: linear warmup time
 
 For the batch size, the normal version of batch size is computed as 
 ``BATCH_SIZE_ATOMIC / (average number of atoms in structures in the training 
 dataset)``
-``ATOMIC_BATCH_SIZE``: batch size
+
+- ``ATOMIC_BATCH_SIZE``: batch size
 
 ::
 
   *********************************************
 
-``USE_LENGTH``: explicitly use length in r embedding or not
+- ``USE_LENGTH``: explicitly use length in r embedding or not
+- ``USE_ONLY_LENGTH``: use only length in r embedding (used to get auxiliary 
+  intrinsically invariant models)
+- ``USE_BOND_ENERGIES``: use bond contributions to energies or not
+- ``AVERAGE_BOND_ENERGIES``: average bond contributions or sum
+- ``BLEND_NEIGHBOR_SPECIES``: if True, explicitly encode embeddings of neighbor 
+  species to the overall embeddings in each message-passing block; if False, 
+  specify the very first input messages as embeddings of neighbor species 
+  instead
+- ``R_EMBEDDING_ACTIVATION``: apply or not activation after computing r 
+  embedding by a linear layer
+- ``COMPRESS_MODE``: if "mlp," get overall embedding either by MLP; if 
+  "linear," use simple linear compression instead
+- ``ADD_TOKEN_FIRST``: add or not token associated with central atom for the 
+  very first message-passing block
+- ``ADD_TOKEN_SECOND``: add or not token associated with central atom for all 
+  the others (to be renamed in future)
+- ``AVERAGE_POOLING``: if not using a central token, controls if summation or 
+  average pooling is used
+- ``USE_ADDITIONAL_SCALAR_ATTRIBUTES``: if using additional scalar attributes 
+  such as collinear spins
+- ``SCALAR_ATTRIBUTES_SIZE``: dimensionality of additional scalar attributes
 
-``USE_ONLY_LENGTH``: use only length in r embedding (used to get auxiliary 
-intrinsically invariant models)
-
-``USE_BOND_ENERGIES``: use bond contributions to energies or not
-
-``AVERAGE_BOND_ENERGIES``: average bond contributions or sum
-
-``BLEND_NEIGHBOR_SPECIES``: if True, explicitly encode embeddings of neighbor 
-species to the overall embeddings in each message-passing block; if False, 
-specify the very first input messages as embeddings of neighbor species instead
-
-``R_EMBEDDING_ACTIVATION``: apply or not activation after computing r embedding 
-by a linear layer
-
-``COMPRESS_MODE``: if "mlp," get overall embedding either by MLP; if "linear," 
-use simple linear compression instead
-
-``ADD_TOKEN_FIRST``: add or not token associated with central atom for the very 
-first message-passing block
-
-``ADD_TOKEN_SECOND``: add or not token associated with central atom for all the 
-others (to be renamed in future)
-
-``AVERAGE_POOLING``: if not using a central token, controls if summation or 
-average pooling is used
-
-``USE_ADDITIONAL_SCALAR_ATTRIBUTES``: if using additional scalar attributes 
-such as collinear spins
-
-``SCALAR_ATTRIBUTES_SIZE``: dimensionality of additional scalar attributes
 
 Default Hyperparameters
 -----------------------
