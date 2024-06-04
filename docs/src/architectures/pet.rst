@@ -16,7 +16,7 @@ PET
 PET basic fitting guide
 ----------------------------
 
-TLDR
+TL;DR
 ~~~~
 
 1) Set ``R_CUT`` so that there are about 20-30 neighbors on average for your dataset.
