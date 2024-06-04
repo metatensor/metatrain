@@ -115,6 +115,6 @@ Default Hyperparameters
 -----------------------
 The default hyperparameters for the GAP model are:
 
-.. literalinclude:: ../../../src/metatensor/models/experimental/gap/default-hypers.yaml
+.. literalinclude:: ../../../src/metatrain/experimental/gap/default-hypers.yaml
    :language: yaml
 
