@@ -145,8 +145,8 @@ exceeding the specified maximum fitting time (controlled by the hyperparameter
 of epochs set nearly to infinity, while the default maximum time is set to be 65
 hours.
 
-Lightweighted Model
-********************
+Lightweight Model
+******************
 
 The default hyperparameters were selected with one goal in mind: to maximize the
 probability of achieving the best accuracy on a typical moderate-sized dataset.
