@@ -181,7 +181,7 @@ Description of Hyperparameters
   definition
 - ``N_GNN_LAYERS``: number of message-passing blocks
 - ``TRANSFORMER_D_MODEL``: was denoted as d_{pet} in the main text of
-the paper
+  the paper
 - ``TRANSFORMER_N_HEAD``: number of heads of each transformer
 - ``TRANSFORMER_DIM_FEEDFORWARD``: feedforward dimensionality of each
   transformer
