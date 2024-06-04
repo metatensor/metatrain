@@ -1,17 +1,21 @@
+seed: 2
+base_precision: 32
+device: cuda
+
 architecture:
-  name: experimental.soap_bpnn
+  name: experimental.phace
   training:
-    batch_size: 2
-    num_epochs: 1
+    batch_size: 100
+    num_epochs: 1000
 
 training_set:
   systems:
-    read_from: qm9_reduced_100.xyz
+    read_from: ethanol_reduced_100.xyz
     length_unit: angstrom
   targets:
     energy:
-      key: U0
+      key: energy
       unit: eV
 
-test_set: 0.5
-validation_set: 0.1
+test_set: 0.0
+validation_set: 0.5
