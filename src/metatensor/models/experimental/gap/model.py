@@ -64,7 +64,7 @@ class GAP(torch.nn.Module):
             for key, value in dataset_info.targets.items()
         }
 
-        self.all_species = dataset_info.atomic_types
+        self.atomic_types = sorted(dataset_info.atomic_types)
         self.hypers = model_hypers
 
         # creates a composition weight tensor that can be directly indexed by species,
@@ -72,7 +72,7 @@ class GAP(torch.nn.Module):
         # set_composition_weights (recommended for better accuracy)
         n_outputs = len(dataset_info.targets)
         self.register_buffer(
-            "composition_weights", torch.zeros((n_outputs, max(self.all_species) + 1))
+            "composition_weights", torch.zeros((n_outputs, max(self.atomic_types) + 1))
         )
         # buffers cannot be indexed by strings (torchscript), so we create a single
         # tensor for all output. Due to this, we need to slice the tensor when we use
