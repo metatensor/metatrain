@@ -9,35 +9,27 @@ from metatensor.torch.atomistic import (
 )
 
 
-# TODO: DELETE OR CHANGE THIS FUNCTION.
-# EXPORT IS NOW PER-ARCHITECTURE
+def export(model: torch.nn.Module) -> MetatensorAtomisticModel:
+    """Export a trained model to allow it to make predictions.
 
-
-def export(
-    model: torch.nn.Module, model_capabilities: ModelCapabilities
-) -> MetatensorAtomisticModel:
-    """Export a torch.nn.Module model to a MetatensorAtomisticModel.
-
-    The exoort allows the model to make predictions especially in molecular simulation
-    engines. Exported models can be be saved to a file with
-    ``exported_model.export(path)``.
+    This includes predictions within molecular simulation engines. Exported models can
+    be be saved to a file with ``exported_model.export(path)``.
 
     :param model: model to be exported
-    :param model_capabilities: capabilities of the model
     :returns: exprted model
     """
 
     if is_exported(model):
         return model
 
-    if model_capabilities.length_unit == "":
+    if model.capabilities.length_unit == "":
         warnings.warn(
             "No `length_unit` was provided for the model. As a result, lengths "
             "and any derived quantities will be passed to MD engines as is.",
             stacklevel=1,
         )
 
-    for model_output_name, model_output in model_capabilities.outputs.items():
+    for model_output_name, model_output in model.capabilities.outputs.items():
         if model_output.unit == "":
             warnings.warn(
                 f"No target units were provided for output {model_output_name!r}. "
@@ -45,7 +37,18 @@ def export(
                 stacklevel=1,
             )
 
-    return MetatensorAtomisticModel(model.eval(), ModelMetadata(), model_capabilities)
+    model_capabilities_with_devices = ModelCapabilities(
+        length_unit=model.capabilities.length_unit,
+        atomic_types=model.capabilities.atomic_types,
+        outputs=model.capabilities.outputs,
+        supported_devices=["cpu", "cuda"],
+        interaction_range=model.capabilities.interaction_range,
+        dtype=model.capabilities.dtype,
+    )
+
+    return MetatensorAtomisticModel(
+        model.eval(), ModelMetadata(), model_capabilities_with_devices
+    )
 
 
 def is_exported(model: Any) -> bool:
@@ -55,7 +58,7 @@ def is_exported(model: Any) -> bool:
     :return: :py:obj:`True` if the ``model`` has been exported, :py:obj:`False`
         otherwise.
     """
-    # If the model is saved and loaded again, its type is RecursiveScriptModule
+    # If the model is saved an loaded again it's type is ScriptModule
     if type(model) in [
         MetatensorAtomisticModel,
         torch.jit._script.RecursiveScriptModule,

@@ -1,22 +1,20 @@
 """The main entry point for the metatensor-models command line interface."""
 
 import argparse
-import importlib
 import logging
 import os
 import sys
 import traceback
+import warnings
 from datetime import datetime
 from pathlib import Path
 
-import metatensor.torch
 from omegaconf import OmegaConf
 
 from . import __version__
 from .cli.eval import _add_eval_model_parser, eval_model
 from .cli.export import _add_export_model_parser, export_model
 from .cli.train import _add_train_model_parser, train_model
-from .utils.architectures import check_architecture_name
 from .utils.logging import setup_logging
 
 
@@ -71,30 +69,17 @@ def main():
     args = ap.parse_args()
     callable = args.__dict__.pop("callable")
     debug = args.__dict__.pop("debug")
-    logfile = None
 
     if debug:
         level = logging.DEBUG
     else:
         level = logging.INFO
+        warnings.filterwarnings("ignore")  # ignore all warnings if not in debug mode
 
-    if callable == "eval_model":
-        args.__dict__["model"] = metatensor.torch.atomistic.load_atomistic_model(
-            path=args.__dict__.pop("path"),
-            extensions_directory=args.__dict__.pop("extensions_directory"),
-        )
-    elif callable == "export_model":
-        architecture_name = args.__dict__.pop("architecture_name")
-        check_architecture_name(architecture_name)
-        architecture = importlib.import_module(f"metatensor.models.{architecture_name}")
-
-        args.__dict__["model"] = architecture.__model__.load_checkpoint(
-            args.__dict__.pop("path")
-        )
-    elif callable == "train_model":
+    if callable == "train_model":
         # define and create `checkpoint_dir` based on current directory and date/time
         checkpoint_dir = _datetime_output_path(now=datetime.now())
-        os.makedirs(checkpoint_dir)
+        os.makedirs(checkpoint_dir, exist_ok=True)  # exist_ok=True for distributed
         args.__dict__["checkpoint_dir"] = checkpoint_dir
 
         # save log to file
@@ -107,7 +92,7 @@ def main():
 
         args.options = OmegaConf.merge(args.options, override_options)
     else:
-        raise ValueError("internal error when selecting a sub-command.")
+        logfile = None
 
     with setup_logging(logger, logfile=logfile, level=level):
         try:
@@ -119,11 +104,11 @@ def main():
                 train_model(**args.__dict__)
             else:
                 raise ValueError("internal error when selecting a sub-command.")
-        except Exception as err:
+        except Exception as e:
             if debug:
                 traceback.print_exc()
             else:
-                sys.exit(str(err))
+                sys.exit(f"\033[31mERROR: {e}\033[0m")  # format error in red!
 
 
 if __name__ == "__main__":

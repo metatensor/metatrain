@@ -1,25 +1,15 @@
-from pathlib import Path
-from typing import Dict, List, Optional, Union
+from typing import Dict, List, Optional
 
 import metatensor.torch
 import rascaline.torch
 import torch
 from metatensor.torch import Labels, TensorBlock, TensorMap
-from metatensor.torch.atomistic import (
-    MetatensorAtomisticModel,
-    ModelCapabilities,
-    ModelOutput,
-    System,
-)
+from metatensor.torch.atomistic import ModelCapabilities, ModelOutput, System
 from metatensor.torch.learn.nn import Linear as LinearMap
 from metatensor.torch.learn.nn import ModuleMap
 
-from metatensor.models.utils.data.dataset import DatasetInfo
-
 from ...utils.composition import apply_composition_contribution
-from ...utils.dtype import dtype_to_str
-from ...utils.export import export
-from ...utils.io import check_suffix
+from . import ARCHITECTURE_NAME, DEFAULT_MODEL_HYPERS
 
 
 class Identity(torch.nn.Module):
@@ -31,13 +21,13 @@ class Identity(torch.nn.Module):
 
 
 class MLPMap(ModuleMap):
-    def __init__(self, atomic_types: List[int], hypers: dict) -> None:
+    def __init__(self, all_species: List[int], hypers: dict) -> None:
         # hardcoded for now, but could be a hyperparameter
         activation_function = torch.nn.SiLU()
 
         # Build a neural network for each species
         nns_per_species = []
-        for _ in atomic_types:
+        for _ in all_species:
             module_list: List[torch.nn.Module] = []
             for _ in range(hypers["num_hidden_layers"]):
                 if len(module_list) == 0:
@@ -58,7 +48,7 @@ class MLPMap(ModuleMap):
             nns_per_species.append(torch.nn.Sequential(*module_list))
         in_keys = Labels(
             "central_species",
-            values=torch.tensor(atomic_types).reshape(-1, 1),
+            values=torch.tensor(all_species).reshape(-1, 1),
         )
         out_properties = [
             Labels(
@@ -74,15 +64,15 @@ class MLPMap(ModuleMap):
 
 
 class LayerNormMap(ModuleMap):
-    def __init__(self, atomic_types: List[int], n_layer: int) -> None:
+    def __init__(self, all_species: List[int], n_layer: int) -> None:
         # one layernorm for each species
         layernorm_per_species = []
-        for _ in atomic_types:
+        for _ in all_species:
             layernorm_per_species.append(torch.nn.LayerNorm((n_layer,)))
 
         in_keys = Labels(
             "central_species",
-            values=torch.tensor(atomic_types).reshape(-1, 1),
+            values=torch.tensor(all_species).reshape(-1, 1),
         )
         out_properties = [
             Labels(
@@ -94,75 +84,60 @@ class LayerNormMap(ModuleMap):
         super().__init__(in_keys, layernorm_per_species, out_properties)
 
 
-class SoapBpnn(torch.nn.Module):
-
-    __supported_devices__ = ["cuda", "cpu"]
-    __supported_dtypes__ = [torch.float64, torch.float32]
-
-    def __init__(self, model_hypers: Dict, dataset_info: DatasetInfo) -> None:
+class Model(torch.nn.Module):
+    def __init__(
+        self, capabilities: ModelCapabilities, hypers: Dict = DEFAULT_MODEL_HYPERS
+    ) -> None:
         super().__init__()
-        self.hypers = model_hypers
-        self.dataset_info = dataset_info
-        self.new_outputs = list(dataset_info.targets.keys())
-        self.atomic_types = sorted(dataset_info.atomic_types)
+        self.name = ARCHITECTURE_NAME
 
-        self.soap_calculator = rascaline.torch.SoapPowerSpectrum(
-            radial_basis={"Gto": {}}, **self.hypers["soap"]
-        )
-
-        self.outputs = {
-            key: ModelOutput(
-                quantity=value.quantity,
-                unit=value.unit,
-                per_atom=True,
-            )
-            for key, value in dataset_info.targets.items()
-        }
-
-        # the model is always capable of outputting the last layer features
-        self.outputs["mtm::aux::last_layer_features"] = ModelOutput(per_atom=True)
+        self.capabilities = capabilities
+        self.all_species = capabilities.atomic_types
+        self.hypers = hypers
 
         # creates a composition weight tensor that can be directly indexed by species,
         # this can be left as a tensor of zero or set from the outside using
         # set_composition_weights (recommended for better accuracy)
-        n_outputs = len(self.outputs)
+        n_outputs = len(capabilities.outputs)
         self.register_buffer(
-            "composition_weights",
-            torch.zeros((n_outputs, max(self.atomic_types) + 1)),
+            "composition_weights", torch.zeros((n_outputs, max(self.all_species) + 1))
         )
         # buffers cannot be indexed by strings (torchscript), so we create a single
         # tensor for all output. Due to this, we need to slice the tensor when we use
         # it and use the output name to select the correct slice via a dictionary
         self.output_to_index = {
-            output_name: i for i, output_name in enumerate(self.outputs.keys())
+            output_name: i for i, output_name in enumerate(capabilities.outputs.keys())
         }
 
+        self.soap_calculator = rascaline.torch.SoapPowerSpectrum(
+            radial_basis={"Gto": {}}, **hypers["soap"]
+        )
         soap_size = (
-            (len(self.atomic_types) * (len(self.atomic_types) + 1) // 2)
-            * self.hypers["soap"]["max_radial"] ** 2
-            * (self.hypers["soap"]["max_angular"] + 1)
+            (len(self.all_species) * (len(self.all_species) + 1) // 2)
+            * hypers["soap"]["max_radial"] ** 2
+            * (hypers["soap"]["max_angular"] + 1)
         )
 
-        hypers_bpnn = self.hypers["bpnn"]
+        hypers_bpnn = hypers["bpnn"]
         hypers_bpnn["input_size"] = soap_size
 
         if hypers_bpnn["layernorm"]:
-            self.layernorm = LayerNormMap(self.atomic_types, soap_size)
+            self.layernorm = LayerNormMap(self.all_species, soap_size)
         else:
             self.layernorm = Identity()
 
-        self.bpnn = MLPMap(self.atomic_types, hypers_bpnn)
+        self.bpnn = MLPMap(self.all_species, hypers_bpnn)
 
         self.neighbors_species_labels = Labels(
             names=["neighbor_1_type", "neighbor_2_type"],
             values=torch.combinations(
-                torch.tensor(self.atomic_types, dtype=torch.int),
+                torch.tensor(self.all_species, dtype=torch.int),
                 with_replacement=True,
             ),
         )
         self.center_type_labels = Labels(
             names=["center_type"],
-            values=torch.tensor(self.atomic_types).reshape(-1, 1),
+            values=torch.tensor(self.all_species).reshape(-1, 1),
         )
 
         if hypers_bpnn["num_hidden_layers"] == 0:
@@ -175,7 +150,7 @@ class SoapBpnn(torch.nn.Module):
                 output_name: LinearMap(
                     Labels(
                         "central_species",
-                        values=torch.tensor(self.atomic_types).reshape(-1, 1),
+                        values=torch.tensor(self.all_species).reshape(-1, 1),
                     ),
                     in_features=n_inputs_last_layer,
                     out_features=1,
@@ -185,42 +160,13 @@ class SoapBpnn(torch.nn.Module):
                             names=["energy"],
                             values=torch.tensor([[0]]),
                         )
-                        for _ in self.atomic_types
+                        for _ in self.all_species
                     ],
                 )
-                for output_name in self.outputs.keys()
+                for output_name in capabilities.outputs.keys()
                 if "mtm::aux::" not in output_name
             }
         )
-
-    def restart(self, dataset_info: DatasetInfo) -> "SoapBpnn":
-        # merge old and new dataset info
-        merged_info = self.dataset_info.union(dataset_info)
-        new_atomic_types = merged_info.atomic_types - self.dataset_info.atomic_types
-        new_targets = merged_info.targets - self.dataset_info.targets
-
-        if len(new_atomic_types) > 0:
-            raise ValueError(
-                f"New atomic types found in the dataset: {new_atomic_types}. "
-                "The SOAP-BPNN model does not support adding new atomic types."
-            )
-
-        # register new outputs as new last layers
-        for output_name in new_targets:
-            self.add_output(output_name)
-
-        self.dataset_info = merged_info
-        self.atomic_types = sorted(self.dataset_info.atomic_types)
-
-        for target_name, target in new_targets.items():
-            self.outputs[target_name] = ModelOutput(
-                quantity=target.quantity,
-                unit=target.unit,
-                per_atom=True,
-            )
-        self.new_outputs = list(new_targets.keys())
-
-        return self
 
     def forward(
         self,
@@ -279,67 +225,24 @@ class SoapBpnn(torch.nn.Module):
 
         return return_dict
 
-    def save_checkpoint(self, path: Union[str, Path]):
-        torch.save(
-            {
-                "model_hypers": {
-                    "model_hypers": self.hypers,
-                    "dataset_info": self.dataset_info,
-                },
-                "model_state_dict": self.state_dict(),
-            },
-            check_suffix(path, ".ckpt"),
-        )
-
-    @classmethod
-    def load_checkpoint(cls, path: Union[str, Path]) -> "SoapBpnn":
-
-        # Load the model and the metadata
-        model_dict = torch.load(path)
-
-        # Create the model
-        model = cls(**model_dict["model_hypers"])
-
-        # Load the model weights
-        model.load_state_dict(model_dict["model_state_dict"])
-
-        return model
-
-    def export(self) -> MetatensorAtomisticModel:
-        dtype = next(self.parameters()).dtype
-        if dtype not in self.__supported_dtypes__:
-            raise ValueError(f"unsupported dtype {self.dtype} for SoapBpnn")
-
-        capabilities = ModelCapabilities(
-            outputs=self.outputs,
-            atomic_types=self.atomic_types,
-            interaction_range=self.hypers["soap"]["cutoff"],
-            length_unit=self.dataset_info.length_unit,
-            supported_devices=self.__supported_devices__,
-            dtype=dtype_to_str(dtype),
-        )
-
-        return export(model=self, model_capabilities=capabilities)
-
     def set_composition_weights(
         self,
         output_name: str,
         input_composition_weights: torch.Tensor,
-        atomic_types: List[int],
+        species: List[int],
     ) -> None:
         """Set the composition weights for a given output."""
         # all species that are not present retain their weight of zero
         self.composition_weights[self.output_to_index[output_name]][  # type: ignore
-            atomic_types
+            species
         ] = input_composition_weights.to(
             dtype=self.composition_weights.dtype,  # type: ignore
             device=self.composition_weights.device,  # type: ignore
         )
 
     def add_output(self, output_name: str) -> None:
-        """Add a new output to the self."""
+        """Add a new output to the model."""
         # add a new row to the composition weights tensor
-        # initialize it with zeros
         self.composition_weights = torch.cat(
             [
                 self.composition_weights,  # type: ignore
@@ -361,7 +264,7 @@ class SoapBpnn(torch.nn.Module):
         self.last_layers[output_name] = LinearMap(
             Labels(
                 "central_species",
-                values=torch.tensor(self.atomic_types).reshape(-1, 1),
+                values=torch.tensor(self.all_species).reshape(-1, 1),
             ),
             in_features=n_inputs_last_layer,
             out_features=1,
@@ -371,7 +274,7 @@ class SoapBpnn(torch.nn.Module):
                     names=["energy"],
                     values=torch.tensor([[0]]),
                 )
-                for _ in self.atomic_types
+                for _ in self.all_species
             ],
         )
 

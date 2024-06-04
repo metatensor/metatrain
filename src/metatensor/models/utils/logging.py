@@ -7,36 +7,37 @@ from pathlib import Path
 from typing import Dict, List, Optional, Tuple, Union
 
 import numpy as np
-from metatensor.torch.atomistic import ModelOutput
+from metatensor.torch.atomistic import ModelCapabilities
 
+from .distributed.logging import is_main_process
 from .external_naming import to_external_name
 from .io import check_suffix
 
 
+logger = logging.getLogger(__name__)
+
+
 class MetricLogger:
+    """This class provides a simple interface to log training metrics to a file."""
+
     def __init__(
         self,
-        logobj: logging.Logger,
-        model_outputs: Dict[str, ModelOutput],
+        model_capabilities: ModelCapabilities,
         initial_metrics: Union[Dict[str, float], List[Dict[str, float]]],
         names: Union[str, List[str]] = "",
     ):
         """
-        Simple interface to log training metrics logging instance.
-
         Initialize the metric logger. The logger is initialized with the initial metrics
         and names relative to the metrics (e.g., "train", "validation").
 
         In this way, and by assuming that these metrics never increase, the logger can
         align the output to make it easier to read.
 
-        :param logobj: A logging instance
-        :param model_outputs: outputs of the model
-        :param initial_metrics: initial training metrics
-        :param validation_info_0: initial validation metrics
+        :param model_capabilities: The capabilities of the model.
+        :param initial_metrics: The initial training metrics.
+        :param validation_info_0: The initial validation metrics.
+        :param names: The names of the metrics (e.g., "train", "validation").
         """
-        self.logobj = logobj
-        self.model_outputs = model_outputs
 
         if isinstance(initial_metrics, dict):
             initial_metrics = [initial_metrics]
@@ -45,21 +46,23 @@ class MetricLogger:
 
         self.names = names
 
-        # Since the quantities are supposed to decrease, we want to store the number of
-        # digits at the start of the training, so that we can align the output later:
+        # Since the quantities are supposed to decrease, we want to store the
+        # number of digits at the start of the training, so that we can align
+        # the output later:
         self.digits = {}
         for name, metrics_dict in zip(names, initial_metrics):
             for key, value in metrics_dict.items():
                 self.digits[f"{name}_{key}"] = _get_digits(value)
 
-        # Save the model outputs. This will be useful to know
+        # Save the model capabilities. This will be useful to know
         # what physical quantities we are printing
-        self.model_outputs = model_outputs
+        self.model_capabilities = model_capabilities
 
     def log(
         self,
         metrics: Union[Dict[str, float], List[Dict[str, float]]],
         epoch: Optional[int] = None,
+        rank: Optional[int] = None,
     ):
         """
         Log the metrics.
@@ -71,6 +74,8 @@ class MetricLogger:
         :param epoch: The current epoch (optional). If :py:class:`None`, the epoch
             will not be printed, and the logging string will start with the first
             metric in the ``metrics`` dictionary.
+        :param rank: The rank of the process, if the training is distributed. In that
+            case, the logger will only print the metrics for the process with rank 0.
         """
 
         if isinstance(metrics, dict):
@@ -89,7 +94,9 @@ class MetricLogger:
                 new_key = key
                 if key != "loss":  # special case: not a metric associated with a target
                     target_name, metric = new_key.split(" ", 1)
-                    target_name = to_external_name(target_name, self.model_outputs)
+                    target_name = to_external_name(
+                        target_name, self.model_capabilities.outputs
+                    )
                     new_key = f"{target_name} {metric}"
 
                 if name == "":
@@ -102,7 +109,8 @@ class MetricLogger:
         if logging_string.startswith(", "):
             logging_string = logging_string[2:]
 
-        self.logobj.info(logging_string)
+        if rank is None or rank == 0:
+            logger.info(logging_string)
 
 
 def _get_digits(value: float) -> Tuple[int, int]:
@@ -171,6 +179,10 @@ def setup_logging(
             file_handler = logging.FileHandler(filename=str(logfile), encoding="utf-8")
             file_handler.setFormatter(formatter)
             handlers.append(file_handler)
+
+        # hide logging up to ERROR from secondary processes in distributed environments:
+        if not is_main_process():
+            level = logging.ERROR
 
         logging.basicConfig(format=format, handlers=handlers, level=level, style="{")
 

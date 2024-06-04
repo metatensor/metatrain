@@ -49,7 +49,7 @@ class CombinedDataLoader:
         return self.full_list[idx]
 
     def __len__(self):
-        """Total number of batches in all dataloaders.
+        """Returns the total number of batches in all dataloaders.
 
         This returns the total number of batches in all dataloaders
         (as opposed to the total number of samples or the number of

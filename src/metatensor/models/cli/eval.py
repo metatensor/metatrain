@@ -12,14 +12,15 @@ from omegaconf import DictConfig, OmegaConf
 from ..utils.data import (
     Dataset,
     TargetInfo,
-    TargetInfoDict,
     collate_fn,
     read_systems,
     read_targets,
     write_predictions,
 )
 from ..utils.errors import ArchitectureError
-from ..utils.evaluate_model import _get_outputs, evaluate_model
+from ..utils.evaluate_model import evaluate_model
+from ..utils.export import is_exported
+from ..utils.io import load
 from ..utils.logging import MetricLogger
 from ..utils.metrics import RMSEAccumulator
 from ..utils.neighbor_lists import get_system_with_neighbor_lists
@@ -48,26 +49,14 @@ def _add_eval_model_parser(subparser: argparse._SubParsersAction) -> None:
     )
     parser.set_defaults(callable="eval_model")
     parser.add_argument(
-        "path",
-        type=str,
+        "model",
+        type=load,
         help="Saved exported model to be evaluated.",
     )
     parser.add_argument(
         "options",
         type=OmegaConf.load,
         help="Eval options file to define a dataset for evaluation.",
-    )
-    parser.add_argument(
-        "-e",
-        "--extensions-dir",
-        type=str,
-        required=False,
-        dest="extensions_directory",
-        default=None,
-        help=(
-            "path to a directory containing all extensions required by the exported "
-            "model"
-        ),
     )
     parser.add_argument(
         "-o",
@@ -138,7 +127,7 @@ def _concatenate_tensormaps(
 def _eval_targets(
     model: Union[MetatensorAtomisticModel, torch.jit._script.RecursiveScriptModule],
     dataset: Union[Dataset, torch.utils.data.Subset],
-    options: TargetInfoDict,
+    options: Dict[str, TargetInfo],
     return_predictions: bool,
 ) -> Optional[Dict[str, TensorMap]]:
     """Evaluates an exported model on a dataset and prints the RMSEs for each target.
@@ -197,8 +186,7 @@ def _eval_targets(
     rmse_values = rmse_accumulator.finalize(not_per_atom=["positions_gradients"])
     # print the RMSEs with MetricLogger
     metric_logger = MetricLogger(
-        logobj=logger,
-        model_outputs=_get_outputs(model),
+        model_capabilities=model.capabilities(),
         initial_metrics=rmse_values,
     )
     metric_logger.log(rmse_values)
@@ -212,9 +200,7 @@ def _eval_targets(
 
 
 def eval_model(
-    model: Union[MetatensorAtomisticModel, torch.jit._script.RecursiveScriptModule],
-    options: DictConfig,
-    output: Union[Path, str] = "output.xyz",
+    model: torch.nn.Module, options: DictConfig, output: Union[Path, str] = "output.xyz"
 ) -> None:
     """Evaluate an exported model on a given data set.
 
@@ -226,6 +212,12 @@ def eval_model(
     :param options: DictConfig to define a test dataset taken for the evaluation.
     :param output: Path to save the predicted values
     """
+    if not is_exported(model):
+        raise ValueError(
+            "The model must already be exported to be used in `eval`. "
+            "If you are trying to evaluate a checkpoint, export it first "
+            "with the `metatensor-models export` command."
+        )
     logger.info("Setting up evaluation set.")
 
     # TODO: once https://github.com/lab-cosmo/metatensor/pull/551 is merged and released
@@ -254,24 +246,34 @@ def eval_model(
         if hasattr(options, "targets"):
             # in this case, we only evaluate the targets specified in the options
             # and we calculate RMSEs
-            eval_targets, eval_info_dict = read_targets(options["targets"], dtype=dtype)
+            eval_targets = read_targets(options["targets"], dtype=dtype)
+            eval_outputs = {
+                key: TargetInfo(
+                    quantity=model.capabilities().outputs[key].quantity,
+                    unit=model.capabilities().outputs[key].unit,
+                    per_atom=False,  # TODO: allow the user to specify this
+                    gradients=tensormaps[0].block().gradients_list(),
+                )
+                for key, tensormaps in eval_targets.items()
+            }
         else:
             # in this case, we have no targets: we evaluate everything
             # (but we don't/can't calculate RMSEs)
             # TODO: allow the user to specify which outputs to evaluate
             eval_targets = {}
-            eval_info_dict = TargetInfoDict()
-            gradients = {"positions"}
+            gradients = ["positions"]
             if all(not torch.all(system.cell == 0) for system in eval_systems):
                 # only add strain if all structures have cells
-                gradients.add("strain")
-            for key in model.capabilities().outputs.keys():
-                eval_info_dict[key] = TargetInfo(
+                gradients.append("strain")
+            eval_outputs = {
+                key: TargetInfo(
                     quantity=model.capabilities().outputs[key].quantity,
                     unit=model.capabilities().outputs[key].unit,
                     per_atom=False,  # TODO: allow the user to specify this
                     gradients=gradients,
                 )
+                for key in model.capabilities().outputs.keys()
+            }
 
         eval_dataset = Dataset({"system": eval_systems, **eval_targets})
 
@@ -280,7 +282,7 @@ def eval_model(
             predictions = _eval_targets(
                 model=model,
                 dataset=eval_dataset,
-                options=eval_info_dict,
+                options=eval_outputs,
                 return_predictions=True,
             )
         except Exception as e:

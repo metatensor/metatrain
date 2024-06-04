@@ -1,16 +1,12 @@
 import argparse
-import logging
 from pathlib import Path
-from typing import Any, Union
+from typing import Union
 
 import torch
 
-from ..utils.export import is_exported
-from ..utils.io import check_suffix
+from ..utils.export import export, is_exported
+from ..utils.io import check_suffix, load
 from .formatter import CustomHelpFormatter
-
-
-logger = logging.getLogger(__name__)
 
 
 def _add_export_model_parser(subparser: argparse._SubParsersAction) -> None:
@@ -31,13 +27,8 @@ def _add_export_model_parser(subparser: argparse._SubParsersAction) -> None:
     parser.set_defaults(callable="export_model")
 
     parser.add_argument(
-        "architecture_name",
-        type=str,
-        help="name of the model's architecture",
-    )
-    parser.add_argument(
-        "path",
-        type=str,
+        "model",
+        type=load,
         help="Saved model which should be exported",
     )
     parser.add_argument(
@@ -51,7 +42,9 @@ def _add_export_model_parser(subparser: argparse._SubParsersAction) -> None:
     )
 
 
-def export_model(model: Any, output: Union[Path, str] = "exported-model.pt") -> None:
+def export_model(
+    model: torch.nn.Module, output: Union[Path, str] = "exported-model.pt"
+) -> None:
     """Export a trained model to allow it to make predictions.
 
     This includes predictions within molecular simulation engines. Exported models will
@@ -64,10 +57,7 @@ def export_model(model: Any, output: Union[Path, str] = "exported-model.pt") -> 
     path = str(check_suffix(filename=output, suffix=".pt"))
 
     if is_exported(model):
-        logger.info(f"The model is already exported. Saving it to `{path}`.")
         torch.jit.save(model, path)
     else:
-        extensions_path = "extensions/"
-        logger.info(f"Exporting model to {path} and extensions to {extensions_path}")
-        mts_atomistic_model = model.export()
-        mts_atomistic_model.export(path, collect_extensions=extensions_path)
+        exported_model = export(model)
+        exported_model.export(path)

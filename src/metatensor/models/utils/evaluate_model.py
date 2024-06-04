@@ -11,7 +11,7 @@ from metatensor.torch.atomistic import (
     register_autograd_neighbors,
 )
 
-from .data import TargetInfoDict
+from .data import TargetInfo
 from .export import is_exported
 from .output_gradient import compute_gradient
 
@@ -22,7 +22,7 @@ warnings.filterwarnings(
     "ignore",
     category=UserWarning,
     message="neighbor",
-)  # TODO: this is not filtering out the warning for some reason, therefore:
+)  # TODO: this is not filtering out the warning for some reason
 
 
 def evaluate_model(
@@ -32,7 +32,7 @@ def evaluate_model(
         torch.jit._script.RecursiveScriptModule,
     ],
     systems: List[System],
-    targets: TargetInfoDict,
+    targets: Dict[str, TargetInfo],
     is_training: bool,
 ) -> Dict[str, TensorMap]:
     """
@@ -48,9 +48,9 @@ def evaluate_model(
 
     :returns: The predictions of the model for the requested targets.
     """
-    model_outputs = _get_outputs(model)
+    outputs_capabilities = _get_capabilities(model).outputs
     # Assert that all targets are within the model's capabilities:
-    if not set(targets.keys()).issubset(model_outputs.keys()):
+    if not set(targets.keys()).issubset(outputs_capabilities.keys()):
         raise ValueError("Not all targets are within the model's capabilities.")
 
     # Find if there are any energy targets that require gradients:
@@ -59,7 +59,7 @@ def evaluate_model(
     energy_targets_that_require_strain_gradients = []
     for target_name in targets.keys():
         # Check if the target is an energy:
-        if model_outputs[target_name].quantity == "energy":
+        if outputs_capabilities[target_name].quantity == "energy":
             energy_targets.append(target_name)
             # Check if the energy requires gradients:
             if "positions" in targets[target_name].gradients:
@@ -107,41 +107,9 @@ def evaluate_model(
         systems = new_systems
     else:
         if len(energy_targets_that_require_position_gradients) > 0:
-            if not is_exported(model):
-                new_systems = []
-                for system in systems:
-                    new_system = System(
-                        positions=system.positions.detach()
-                        .clone()
-                        .requires_grad_(True),
-                        cell=system.cell,
-                        types=system.types,
-                    )
-                    for nl_options in system.known_neighbor_lists():
-                        nl = system.get_neighbor_list(nl_options)
-                        register_autograd_neighbors(
-                            new_system,
-                            TensorBlock(
-                                values=nl.values.detach(),
-                                samples=nl.samples,
-                                components=nl.components,
-                                properties=nl.properties,
-                            ),
-                            check_consistency=True,
-                        )
-                        new_system.add_neighbor_list(nl_options, nl)
-                    new_systems.append(new_system)
-                systems = new_systems
-            else:
-                for system in systems:
-                    system.positions.requires_grad_(True)
-                    for nl_options in system.known_neighbor_lists():
-                        nl = system.get_neighbor_list(nl_options)
-                        register_autograd_neighbors(
-                            system,
-                            nl,
-                            check_consistency=True,
-                        )
+            # Set positions to require gradients:
+            for system in systems:
+                system.positions.requires_grad_(True)
 
     # Based on the keys of the targets, get the outputs of the model:
     model_outputs = _get_model_outputs(model, systems, targets)
@@ -279,13 +247,13 @@ def _strain_gradients_to_block(gradients_list):
     )
 
 
-def _get_outputs(
-    model: Union[torch.nn.Module, torch.jit._script.RecursiveScriptModule]
+def _get_capabilities(
+    model: Union[torch.nn.Module, torch.jit._script.RecursiveScriptModule],
 ):
     if is_exported(model):
-        return model.capabilities().outputs
+        return model.capabilities()
     else:
-        return model.outputs
+        return model.capabilities
 
 
 def _get_model_outputs(
@@ -295,7 +263,7 @@ def _get_model_outputs(
         torch.jit._script.RecursiveScriptModule,
     ],
     systems: List[System],
-    targets: TargetInfoDict,
+    targets: Dict[str, TargetInfo],
 ) -> Dict[str, TensorMap]:
     if is_exported(model):
         # put together an EvaluationOptions object

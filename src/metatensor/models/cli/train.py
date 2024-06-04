@@ -4,26 +4,21 @@ import logging
 import os
 import random
 from pathlib import Path
-from typing import Dict, Optional, Union
+from typing import Dict, List, Optional, Union
 
 import numpy as np
 import torch
 from omegaconf import DictConfig, OmegaConf
 from omegaconf.errors import ConfigKeyError
 
-from ..utils.architectures import check_architecture_name, get_default_hypers
-from ..utils.data import (
-    Dataset,
-    DatasetInfo,
-    TargetInfoDict,
-    get_atomic_types,
-    read_systems,
-    read_targets,
-)
+from ..utils.architectures import check_architecture_name
+from ..utils.data import Dataset, DatasetInfo, TargetInfo, read_systems, read_targets
 from ..utils.data.dataset import _train_test_random_split
 from ..utils.devices import pick_devices
+from ..utils.distributed.logging import is_main_process
 from ..utils.errors import ArchitectureError
-from ..utils.io import check_suffix
+from ..utils.export import export
+from ..utils.io import check_suffix, save
 from ..utils.omegaconf import (
     BASE_OPTIONS,
     check_options_list,
@@ -105,43 +100,31 @@ def train_model(
         like the fully expanded training options for a later restart.
     :param continue_from: File to continue training from.
     """
-    ###########################
-    # LOAD ARCHITECTURE #######
-    ###########################
+    output_checked = check_suffix(filename=output, suffix=".pt")
 
     try:
         architecture_name = options["architecture"]["name"]
     except ConfigKeyError as exc:
-        raise ValueError("Architecture name is not defined!") from exc
+        raise ConfigKeyError("Architecture name is not defined!") from exc
 
     check_architecture_name(architecture_name)
     architecture = importlib.import_module(f"metatensor.models.{architecture_name}")
+    architecture_capabilities = architecture.__ARCHITECTURE_CAPABILITIES__
 
-    Model = architecture.__model__
-    Trainer = architecture.__trainer__
-
-    ###########################
-    # CREATE OPTIONS ##########
-    ###########################
-
-    options = OmegaConf.merge(
-        BASE_OPTIONS,
-        {"architecture": get_default_hypers(architecture_name)},
-        options,
-    )
-    hypers = OmegaConf.to_container(options["architecture"])
+    # Create training options merging base, architecture, user and override options in
+    # order of importance.
+    architecture_default_hypers = {"architecture": architecture.DEFAULT_HYPERS}
+    options = OmegaConf.merge(BASE_OPTIONS, architecture_default_hypers, options)
 
     ###########################
     # PROCESS BASE PARAMETERS #
     ###########################
-
-    # process devices
     devices = pick_devices(
-        architecture_devices=Model.__supported_devices__,
+        architecture_devices=architecture_capabilities["supported_devices"],
         desired_device=options["device"],
     )
 
-    # process base_precision/dtypes
+    # process dtypes
     if options["base_precision"] == 64:
         dtype = torch.float64
     elif options["base_precision"] == 32:
@@ -151,17 +134,16 @@ def train_model(
     else:
         raise ValueError("Only 64, 32 or 16 are possible values for `base_precision`.")
 
-    if dtype not in Model.__supported_dtypes__:
+    if dtype not in architecture_capabilities["supported_dtypes"]:
         raise ValueError(
             f"Requested dtype {dtype} is not supported. {architecture_name} only "
-            f"supports {Model.__supported_dtypes__}."
+            f"supports {architecture_capabilities['supported_dtypes']}."
         )
 
-    # process random seeds
     if options["seed"] < 0:
         raise ValueError("`seed` should be a positive number")
     else:
-        logger.info(f"Random seed of this run is {options['seed']}")
+        logger.info(f"random seed of this run is {options['seed']}")
         torch.manual_seed(options["seed"])
         np.random.seed(options["seed"])
         random.seed(options["seed"])
@@ -171,33 +153,23 @@ def train_model(
             torch.cuda.manual_seed_all(options["seed"])
 
     ###########################
-    # SETUP TRAINING SET ######
+    # SETUP DATA SETS #########
     ###########################
-
     logger.info("Setting up training set")
     train_options_list = expand_dataset_config(options["training_set"])
     check_options_list(train_options_list)
 
     train_datasets = []
-    target_infos = TargetInfoDict()
     for train_options in train_options_list:
         train_systems = read_systems(
             filename=train_options["systems"]["read_from"],
             fileformat=train_options["systems"]["file_format"],
             dtype=dtype,
         )
-        train_targets, target_info_dictionary = read_targets(
-            conf=train_options["targets"], dtype=dtype
-        )
-
-        target_infos.update(target_info_dictionary)
+        train_targets = read_targets(conf=train_options["targets"], dtype=dtype)
         train_datasets.append(Dataset({"system": train_systems, **train_targets}))
 
     train_size = 1.0
-
-    ###########################
-    # SETUP TEST SET ##########
-    ###########################
 
     logger.info("Setting up test set")
     test_options = options["test_set"]
@@ -208,7 +180,8 @@ def train_model(
 
         if test_size < 0 or test_size >= 1:
             raise ValueError(
-                "Test set split must be greater or equal than 0 and lesser than 1."
+                "Test set split must be greater "
+                "than (or equal to) 0 and lesser than 1."
             )
 
         generator = torch.Generator()
@@ -245,13 +218,9 @@ def train_model(
                 fileformat=test_options["systems"]["file_format"],
                 dtype=dtype,
             )
-            test_targets, _ = read_targets(conf=test_options["targets"], dtype=dtype)
+            test_targets = read_targets(conf=test_options["targets"], dtype=dtype)
             test_dataset = Dataset({"system": test_systems, **test_targets})
             test_datasets.append(test_dataset)
-
-    ###########################
-    # SETUP VALIDATION SET ####
-    ###########################
 
     logger.info("Setting up validation set")
     validation_options = options["validation_set"]
@@ -262,7 +231,7 @@ def train_model(
 
         if validation_size <= 0 or validation_size >= 1:
             raise ValueError(
-                "Validation set split must be greater than 0 and lesser than 1."
+                "Validation set split must be greater " "than 0 and lesser than 1."
             )
 
         generator = torch.Generator()
@@ -300,7 +269,7 @@ def train_model(
                 fileformat=validation_options["systems"]["file_format"],
                 dtype=dtype,
             )
-            validation_targets, _ = read_targets(
+            validation_targets = read_targets(
                 conf=validation_options["targets"], dtype=dtype
             )
             validation_dataset = Dataset(
@@ -308,85 +277,66 @@ def train_model(
             )
             validation_datasets.append(validation_dataset)
 
-    ###########################
-    # SAVE EXPANDED OPTIONS ###
-    ###########################
-
+    # Save fully expanded config
     OmegaConf.save(
         config=options, f=Path(checkpoint_dir) / "options_restart.yaml", resolve=True
     )
 
     ###########################
-    # CREATE DATASET_INFO #####
+    # SETUP MODEL #############
     ###########################
+    logger.info("Setting up model")
 
-    atomic_types = get_atomic_types(
-        train_datasets + train_datasets + validation_datasets
-    )
+    # TODO: A more direct way to look up the gradients would be to get them from
+    # the configuration dict of the training run.
+    gradients: Dict[str, List[str]] = {}
+    for train_options in train_options_list:
+        for key in train_options["targets"].keys():
+            # look inside training sets and find gradients
+            for train_dataset in train_datasets:
+                if key in train_dataset[0].keys():
+                    gradients[key] = train_dataset[0][key].block().gradients_list()
 
     dataset_info = DatasetInfo(
-        length_unit=train_options_list[0]["systems"]["length_unit"],
-        atomic_types=atomic_types,
-        targets=target_infos,
+        length_unit=(
+            train_options_list[0]["systems"]["length_unit"]
+            if train_options_list[0]["systems"]["length_unit"] is not None
+            else ""
+        ),  # these units are guaranteed to be the same across all datasets
+        targets={
+            key: TargetInfo(
+                quantity=value["quantity"],
+                unit=(value["unit"] if value["unit"] is not None else ""),
+                per_atom=False,  # TODO: read this from the config
+                gradients=gradients[key],
+            )
+            for train_options in train_options_list
+            for key, value in train_options["targets"].items()
+        },
     )
 
-    ###########################
-    # SETTING UP MODEL ########
-    ###########################
-
-    logger.info("Setting up model")
+    logger.info("Calling architecture trainer")
     try:
-        if continue_from is not None:
-            logger.info(f"Loading checkpoint from `{continue_from}`")
-            model = Model.load_checkpoint(continue_from)
-            model = model.restart(dataset_info)
-        else:
-            model = Model(hypers["model"], dataset_info)
-    except Exception as e:
-        raise ArchitectureError(e)
-
-    ###########################
-    # TRAIN MODEL #############
-    ###########################
-
-    logger.info("Start training")
-    try:
-        trainer = Trainer(hypers["training"])
-        trainer.train(
-            model=model,
-            devices=devices,
+        model = architecture.train(
             train_datasets=train_datasets,
             validation_datasets=validation_datasets,
+            dataset_info=dataset_info,
+            devices=devices,
+            hypers=OmegaConf.to_container(options["architecture"]),
+            continue_from=continue_from,
             checkpoint_dir=str(checkpoint_dir),
         )
+
+        exported_model = export(model)
     except Exception as e:
         raise ArchitectureError(e)
 
-    ###########################
-    # SAVE FINAL MODEL ########
-    ###########################
+    if not is_main_process():
+        return  # only evaluate on the main process
 
-    output_checked = check_suffix(filename=output, suffix=".pt")
-    logger.info(
-        "Training finished, saving final checkpoint "
-        f"to {str(Path(output_checked).stem)}.ckpt"
-    )
-    try:
-        model.save_checkpoint(f"{Path(output_checked).stem}.ckpt")
-    except Exception as e:
-        raise ArchitectureError(e)
-
-    mts_atomistic_model = model.export()
-    extensions_path = "extensions/"
-
-    logger.info(
-        f"Exporting model to {output_checked} and extensions to {extensions_path}"
-    )
-    mts_atomistic_model.export(str(output_checked), collect_extensions=extensions_path)
-
-    ###########################
-    # EVALUATE FINAL MODEL ####
-    ###########################
+    # TODO: Backup already existing output file?
+    save(model, f"{Path(output_checked).stem}.ckpt")
+    exported_model.export(output_checked)
 
     for i, train_dataset in enumerate(train_datasets):
         if len(train_datasets) == 1:
@@ -396,7 +346,7 @@ def train_model(
 
         logger.info(f"Evaluating training dataset{extra_log_message}")
         _eval_targets(
-            mts_atomistic_model,
+            exported_model,
             train_dataset,
             dataset_info.targets,
             return_predictions=False,
@@ -410,7 +360,7 @@ def train_model(
 
         logger.info(f"Evaluating validation dataset{extra_log_message}")
         _eval_targets(
-            mts_atomistic_model,
+            exported_model,
             validation_dataset,
             dataset_info.targets,
             return_predictions=False,
@@ -424,7 +374,7 @@ def train_model(
 
         logger.info(f"Evaluating test dataset{extra_log_message}")
         _eval_targets(
-            mts_atomistic_model,
+            exported_model,
             test_dataset,
             dataset_info.targets,
             return_predictions=False,

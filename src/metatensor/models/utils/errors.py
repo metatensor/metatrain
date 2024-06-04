@@ -8,6 +8,9 @@ class ArchitectureError(Exception):
 
     :param exception: The original exception that was caught, which led to raising this
         custom exception.
+    :type exception: The exception message includes the message of the original
+        exception, followed by a note emphasizing that the error likely originates from
+        an architecture.
     """
 
     def __init__(self, exception):
