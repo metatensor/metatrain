@@ -1,11 +1,8 @@
-from .model import Model, DEFAULT_HYPERS  # noqa: F401
-from .train import train  # noqa: F401
-import torch
+from .model import PhACE
+from .trainer import Trainer
 
-__ARCHITECTURE_CAPABILITIES__ = {
-    "supported_devices": ["cuda", "cpu"],
-    "supported_dtypes": [torch.float64, torch.float32],
-}
+__model__ = PhACE
+__trainer__ = Trainer
 
 __authors__ = [
     ("Filippo Bigi <filippo.bigi@epfl.ch>", "@frostedoyster"),

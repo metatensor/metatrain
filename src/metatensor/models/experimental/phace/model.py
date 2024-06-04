@@ -1,18 +1,22 @@
-from typing import Dict, List, Optional
+from pathlib import Path
+from typing import Dict, List, Optional, Union
 
 import metatensor.torch
 import torch
-from metatensor.torch import Labels, TensorBlock, TensorMap
+from metatensor.torch import Labels, TensorMap
 from metatensor.torch.atomistic import (
-    ModelCapabilities,
+    MetatensorAtomisticModel,
     ModelOutput,
-    NeighborsListOptions,
+    NeighborListOptions,
     System,
 )
-from omegaconf import OmegaConf
 
-from ... import ARCHITECTURE_CONFIG_PATH
+from metatensor.models.utils.data.dataset import DatasetInfo
+
 from ...utils.composition import apply_composition_contribution_samples
+from ...utils.dtype import dtype_to_str
+from ...utils.export import export
+from ...utils.io import check_suffix
 from ...utils.scaling import apply_scaling
 from .modules.center_embedding import CenterEmbedding
 from .modules.cg import get_cg_coefficients
@@ -26,29 +30,34 @@ from .modules.tensor_sum import TensorAdd
 from .utils import systems_to_batch
 
 
-ARCHITECTURE_NAME = "experimental.soap_bpnn"
-DEFAULT_HYPERS = OmegaConf.to_container(
-    OmegaConf.load(ARCHITECTURE_CONFIG_PATH / f"{ARCHITECTURE_NAME}.yaml")
-)
-DEFAULT_MODEL_HYPERS = DEFAULT_HYPERS["model"]
+class PhACE(torch.nn.Module):
 
+    __supported_devices__ = ["cuda", "cpu"]
+    __supported_dtypes__ = [torch.float64, torch.float32]
 
-class Model(torch.nn.Module):
-
-    def __init__(
-        self, capabilities: ModelCapabilities, hypers: Dict = DEFAULT_MODEL_HYPERS
-    ) -> None:
+    def __init__(self, model_hypers: Dict, dataset_info: DatasetInfo) -> None:
         super().__init__()
-        self.name = ARCHITECTURE_NAME
+        self.hypers = model_hypers
+        self.dataset_info = dataset_info
+        self.new_outputs = list(dataset_info.targets.keys())
+        self.all_species = sorted(dataset_info.atomic_types)
 
-        hypers["normalize"] = True
+        self.outputs = {
+            key: ModelOutput(
+                quantity=value.quantity,
+                unit=value.unit,
+                per_atom=True,
+            )
+            for key, value in dataset_info.targets.items()
+        }
 
-        self.cutoff_radius = hypers["cutoff"]
-        self.capabilities = capabilities
-        self.all_species = capabilities.atomic_types
-        self.hypers = hypers
+        model_hypers["normalize"] = True
 
-        n_channels = hypers["n_element_channels"]
+        self.cutoff_radius = model_hypers["cutoff"]
+        self.dataset_info = dataset_info
+        self.model_hypers = model_hypers
+
+        n_channels = model_hypers["n_element_channels"]
 
         species_to_species_index = torch.zeros(
             (max(self.all_species) + 1,), dtype=torch.int
@@ -60,13 +69,13 @@ class Model(torch.nn.Module):
         print("species_to_species_index", self.species_to_species_index)
         self.embeddings = torch.nn.Embedding(len(self.all_species), n_channels)
 
-        self.nu_max = hypers["nu_max"]
-        self.n_message_passing_layers = hypers["n_message_passing_layers"]
+        self.nu_max = model_hypers["nu_max"]
+        self.n_message_passing_layers = model_hypers["n_message_passing_layers"]
         if self.n_message_passing_layers < 1:
             raise ValueError("Number of message-passing layers must be at least 1")
 
         self.invariant_message_passer = MessagePasser(
-            hypers, self.all_species, [[(0, 1)]]
+            model_hypers, self.all_species, [[(0, 1)]]
         )
 
         self.all_species = self.all_species
@@ -112,7 +121,7 @@ class Model(torch.nn.Module):
                 + list(generalized_cg_iterators[-1].irreps_out.values())[:-1]
             )
             equivariant_message_passer = MessagePasser(
-                hypers, self.all_species, irreps_equiv_mp, cgs
+                model_hypers, self.all_species, irreps_equiv_mp, cgs
             )
             equivariant_message_passers.append(equivariant_message_passer)
             generalized_cg_iterator = GeneralizedCGIterator(
@@ -136,14 +145,14 @@ class Model(torch.nn.Module):
         self.last_layers = torch.nn.ModuleDict(
             {
                 output_name: LinearMap(self.k_max_l[0])
-                for output_name in capabilities.outputs.keys()
+                for output_name in self.outputs.keys()
             }
         )
 
         # creates a composition weight tensor that can be directly indexed by species,
         # this can be left as a tensor of zero or set from the outside using
         # set_composition_weights (recommended for better accuracy)
-        n_outputs = len(capabilities.outputs)
+        n_outputs = len(self.outputs)
         self.register_buffer(
             "composition_weights", torch.zeros((n_outputs, max(self.all_species) + 1))
         )
@@ -151,12 +160,41 @@ class Model(torch.nn.Module):
         # tensor for all output. Due to this, we need to slice the tensor when we use
         # it and use the output name to select the correct slice via a dictionary
         self.output_to_index = {
-            output_name: i for i, output_name in enumerate(capabilities.outputs.keys())
+            output_name: i for i, output_name in enumerate(self.outputs.keys())
         }
 
         # we also register a buffer for the shifts:
         # these are meant to be modified from outside
         self.register_buffer("scalings", torch.ones((n_outputs,)))
+
+    def restart(self, dataset_info: DatasetInfo) -> "PhACE":
+        # merge old and new dataset info
+        merged_info = self.dataset_info.union(dataset_info)
+        new_all_species = merged_info.all_species - self.all_species
+        new_targets = merged_info.targets - self.dataset_info.targets
+
+        if len(new_all_species) > 0:
+            raise ValueError(
+                f"New atomic types found in the dataset: {new_all_species}. "
+                "The SOAP-BPNN model does not support adding new atomic types."
+            )
+
+        # register new outputs as new last layers
+        for output_name in new_targets:
+            self.add_output(output_name)
+
+        self.dataset_info = merged_info
+        self.all_species = sorted(self.all_species)
+
+        for target_name, target in new_targets.items():
+            self.outputs[target_name] = ModelOutput(
+                quantity=target.quantity,
+                unit=target.unit,
+                per_atom=True,
+            )
+        self.new_outputs = list(new_targets.keys())
+
+        return self
 
     def forward(
         self,
@@ -167,7 +205,7 @@ class Model(torch.nn.Module):
         if selected_atoms is not None:
             raise NotImplementedError("PhACE does not support selected atoms.")
 
-        options = self.requested_neighbors_lists()[0]
+        options = self.requested_neighbor_lists()[0]
         structures = systems_to_batch(systems, options)
 
         n_atoms = len(structures["positions"])
@@ -260,6 +298,36 @@ class Model(torch.nn.Module):
 
         return total_energies
 
+    @classmethod
+    def load_checkpoint(cls, path: Union[str, Path]) -> "PhACE":
+
+        # Load the model and the metadata
+        model_dict = torch.load(path)
+
+        # Create the model
+        model = cls(**model_dict["model_model_hypers"])
+
+        # Load the model weights
+        model.load_state_dict(model_dict["model_state_dict"])
+
+        return model
+
+    def export(self) -> MetatensorAtomisticModel:
+        dtype = next(self.parameters()).dtype
+        if dtype not in self.__supported_dtypes__:
+            raise ValueError(f"unsupported dtype {self.dtype} for PhACE")
+
+        dataset_info = Modeldataset_info(
+            outputs=self.outputs,
+            all_species=self.all_species,
+            interaction_range=self.model_hypers["soap"]["cutoff"],
+            length_unit=self.dataset_info.length_unit,
+            supported_devices=self.__supported_devices__,
+            dtype=dtype_to_str(dtype),
+        )
+
+        return export(model=self, model_dataset_info=dataset_info)
+
     def set_composition_weights(
         self,
         output_name: str,
@@ -291,19 +359,31 @@ class Model(torch.nn.Module):
         )  # type: ignore
         self.output_to_index[output_name] = len(self.output_to_index)
         # add a new linear layer to the last layers
-        hypers_bpnn = self.hypers["bpnn"]
-        if hypers_bpnn["num_hidden_layers"] == 0:
-            n_inputs_last_layer = hypers_bpnn["input_size"]
+        model_hypers_bpnn = self.model_hypers["bpnn"]
+        if model_hypers_bpnn["num_hidden_layers"] == 0:
+            n_inputs_last_layer = model_hypers_bpnn["input_size"]
         else:
-            n_inputs_last_layer = hypers_bpnn["num_neurons_per_layer"]
+            n_inputs_last_layer = model_hypers_bpnn["num_neurons_per_layer"]
         self.last_layers[output_name] = LinearMap(self.all_species, n_inputs_last_layer)
 
-    def requested_neighbors_lists(
+    def requested_neighbor_lists(
         self,
-    ) -> List[NeighborsListOptions]:
+    ) -> List[NeighborListOptions]:
         return [
-            NeighborsListOptions(
+            NeighborListOptions(
                 cutoff=self.cutoff_radius,
                 full_list=True,
             )
         ]
+
+    def save_checkpoint(self, path: Union[str, Path]):
+        torch.save(
+            {
+                "model_model_hypers": {
+                    "model_model_hypers": self.model_hypers,
+                    "dataset_info": self.dataset_info,
+                },
+                "model_state_dict": self.state_dict(),
+            },
+            check_suffix(path, ".ckpt"),
+        )

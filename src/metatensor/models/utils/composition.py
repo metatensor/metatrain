@@ -98,3 +98,40 @@ def apply_composition_contribution(
     )
 
     return TensorMap(keys=new_keys_labels, blocks=new_blocks)
+
+
+def apply_composition_contribution_samples(
+    atomic_property: TensorMap, composition_weights: torch.Tensor
+) -> TensorMap:
+    """Apply the composition contribution to an atomic property.
+
+    In this variant, the atomic types are stored in the samples, and not in
+    the keys. Only one block is assumed.
+
+    :param atomic_property: Atomic property to apply the composition contribution to.
+    :param composition_weights: Composition weights to apply.
+    :returns: Atomic property with the composition contribution applied.
+    """
+
+    block = atomic_property.block()
+    center_types = block.samples.column("center_type")
+    atomic_species = torch.unique(center_types)
+
+    new_values = block.values.clone()
+    for s in atomic_species:
+        mask = center_types == s
+        new_values[mask] += composition_weights[s]
+    new_block = TensorBlock(
+        values=new_values,
+        samples=block.samples,
+        components=block.components,
+        properties=block.properties,
+    )
+
+    return TensorMap(
+        keys=Labels(
+            names=["_"],
+            values=torch.zeros(1, 1, dtype=torch.int32, device=new_values.device),
+        ),
+        blocks=[new_block],
+    )
