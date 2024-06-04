@@ -109,4 +109,9 @@ training:
 ^^^^^^^^^
 :param regularizer: value of the energy regularizer. Default 0.001
 :param regularizer_forces: value of the forces regularizer. Default null
+Default Hyperparameters
+-----------------------
+The default hyperparameters for the GAP model are:
 
+.. literalinclude:: ../../../src/metatensor/models/experimental/gap/default-hypers.yaml
+   :language: yaml
