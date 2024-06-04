@@ -283,7 +283,10 @@ def _get_outputs(
     model: Union[torch.nn.Module, torch.jit._script.RecursiveScriptModule]
 ):
     if is_exported(model):
-        return model.capabilities().outputs
+        try:
+            return model.capabilities().outputs
+        except AttributeError:
+            return model.outputs
     else:
         return model.outputs
 
@@ -298,18 +301,29 @@ def _get_model_outputs(
     targets: TargetInfoDict,
 ) -> Dict[str, TensorMap]:
     if is_exported(model):
-        # put together an EvaluationOptions object
-        options = ModelEvaluationOptions(
-            length_unit="",  # this is only needed for unit conversions in MD engines
-            outputs={
-                key: ModelOutput(
-                    quantity=value.quantity, unit=value.unit, per_atom=value.per_atom
-                )
-                for key, value in targets.items()
-            },
-        )
-        # we check consistency here because this could be called from eval
-        return model(systems, options, check_consistency=True)
+        try:
+            # put together an EvaluationOptions object
+            options = ModelEvaluationOptions(
+                length_unit="",  # this is only needed for unit conversions in MD engines
+                outputs={
+                    key: ModelOutput(
+                        quantity=value.quantity, unit=value.unit, per_atom=value.per_atom
+                    )
+                    for key, value in targets.items()
+                },
+            )
+            # we check consistency here because this could be called from eval
+            return model(systems, options, check_consistency=True)
+        except RuntimeError:
+            return model(
+                systems,
+                {
+                    key: ModelOutput(
+                        quantity=value.quantity, unit=value.unit, per_atom=value.per_atom
+                    )
+                    for key, value in targets.items()
+                },
+            )
     else:
         return model(
             systems,

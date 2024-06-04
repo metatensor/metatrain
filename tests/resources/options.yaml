@@ -6,7 +6,7 @@ architecture:
   name: experimental.phace
   training:
     batch_size: 100
-    num_epochs: 1000
+    num_epochs: 100
 
 training_set:
   systems:
@@ -17,5 +17,5 @@ training_set:
       key: energy
       unit: eV
 
-test_set: 0.0
+test_set: 0.1
 validation_set: 0.5

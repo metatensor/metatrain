@@ -19,11 +19,12 @@ from ...utils.evaluate_model import evaluate_model
 from ...utils.external_naming import to_external_name
 from ...utils.logging import MetricLogger
 from ...utils.loss import TensorMapDictLoss
-from ...utils.metrics import RMSEAccumulator
+from ...utils.metrics import RMSEAccumulator, MAEAccumulator
 from ...utils.neighbor_lists import get_system_with_neighbor_lists
 from ...utils.per_atom import average_by_num_atoms
 from ...utils.scaling import calculate_scaling
 from .model import PhACE
+import copy
 
 
 logger = logging.getLogger(__name__)
@@ -128,10 +129,13 @@ class Trainer:
             )
         train_dataloader = CombinedDataLoader(train_dataloaders, shuffle=True)
 
+        torch.jit.set_fusion_strategy([("DYNAMIC", 0)])
+        scripted_model = torch.jit.script(model)
+
         # scaling:
         # TODO: this will work sub-optimally if the model is restarting with
         # new targets (but it will still work)
-        calculate_scaling(model, train_dataloader, model.dataset_info, device)
+        calculate_scaling(scripted_model, train_dataloader, model.dataset_info, device)
 
         # Create dataloader for the validation datasets:
         validation_dataloaders = []
@@ -177,7 +181,7 @@ class Trainer:
 
         # Create an optimizer:
         optimizer = torch.optim.Adam(
-            model.parameters(), lr=self.hypers["learning_rate"]
+            scripted_model.parameters(), lr=self.hypers["learning_rate"]
         )
 
         # Create a scheduler:
@@ -188,18 +192,26 @@ class Trainer:
             patience=self.hypers["scheduler_patience"],
         )
 
-        # counters for early stopping:
-        best_validation_loss = float("inf")
-        epochs_without_improvement = 0
+        # per-atom targets:
+        per_structure_targets = self.hypers["per_structure_targets"]
+
+        # Create an optimizer and a scheduler:
+        optimizer = torch.optim.AdamW(scripted_model.parameters(), lr=self.hypers["learning_rate"], amsgrad=True, weight_decay=5e-5)
+        scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, factor=self.hypers["scheduler_factor"], patience=self.hypers["scheduler_patience"])
 
         # per-atom targets:
         per_structure_targets = self.hypers["per_structure_targets"]
 
         # Train the model:
         logger.info("Starting training")
+
+        best_validation_loss = float("inf")
+        n_epochs_without_improvement = 0
         for epoch in range(self.hypers["num_epochs"]):
             train_rmse_calculator = RMSEAccumulator()
+            train_mae_calculator = MAEAccumulator()
             validation_rmse_calculator = RMSEAccumulator()
+            validation_mae_calculator = MAEAccumulator()
 
             train_loss = 0.0
             for batch in train_dataloader:
@@ -211,7 +223,7 @@ class Trainer:
                     key: value.to(device=device) for key, value in targets.items()
                 }
                 predictions = evaluate_model(
-                    model,
+                    scripted_model,
                     systems,
                     TargetInfoDict(
                         **{key: training_targets[key] for key in targets.keys()}
@@ -230,9 +242,12 @@ class Trainer:
                 train_loss_batch.backward()
                 optimizer.step()
                 train_rmse_calculator.update(predictions, targets)
-            finalized_train_info = train_rmse_calculator.finalize(
-                not_per_atom=["positions_gradients"] + per_structure_targets
-            )
+                train_mae_calculator.update(predictions, targets)
+
+            finalized_train_info = {
+                **train_rmse_calculator.finalize(not_per_atom=["positions_gradients"] + per_structure_targets),
+                **train_mae_calculator.finalize(),
+            }
 
             validation_loss = 0.0
             for batch in validation_dataloader:
@@ -242,7 +257,7 @@ class Trainer:
                     key: value.to(device=device) for key, value in targets.items()
                 }
                 predictions = evaluate_model(
-                    model,
+                    scripted_model,
                     systems,
                     TargetInfoDict(
                         **{key: training_targets[key] for key in targets.keys()}
@@ -259,9 +274,12 @@ class Trainer:
                 validation_loss_batch = loss_fn(predictions, targets)
                 validation_loss += validation_loss_batch.item()
                 validation_rmse_calculator.update(predictions, targets)
-            finalized_validation_info = validation_rmse_calculator.finalize(
-                not_per_atom=["positions_gradients"] + per_structure_targets
-            )
+                validation_mae_calculator.update(predictions, targets)
+
+            finalized_validation_info = {
+                **validation_rmse_calculator.finalize(not_per_atom=["positions_gradients"] + per_structure_targets),
+                **validation_mae_calculator.finalize(),
+            }
 
             lr_scheduler.step(validation_loss)
 
@@ -285,19 +303,35 @@ class Trainer:
                     epoch=epoch,
                 )
 
-            if epoch % self.hypers["checkpoint_interval"] == 0:
-                model.save_checkpoint(Path(checkpoint_dir) / f"model_{epoch}.ckpt")
+            # if epoch % self.hypers["checkpoint_interval"] == 0:
+            #     model.save_checkpoint(Path(checkpoint_dir) / f"model_{epoch}.ckpt")
+            # TODO: how do I make this work given that it's scripted?
 
-            # early stopping criterion:
+            lr_before = optimizer.param_groups[0]["lr"]
+            scheduler.step(validation_loss)
+            lr_after = optimizer.param_groups[0]["lr"]
+            if lr_before != lr_after:
+                logger.info(f"Learning rate changed from {lr_before} to {lr_after}")
+                model.load_state_dict(best_state_dict)
+                optimizer.load_state_dict(best_optimizer_state_dict)
+                for param_group in optimizer.param_groups:
+                    param_group["lr"] = lr_after
+            if lr_after < 1e-6:
+                logger.info("Training has converged, stopping")
+                break
+
             if validation_loss < best_validation_loss:
                 best_validation_loss = validation_loss
-                epochs_without_improvement = 0
+                n_epochs_without_improvement = 0
+                best_state_dict = copy.deepcopy(scripted_model.state_dict())
+                best_optimizer_state_dict = copy.deepcopy(optimizer.state_dict())
+
             else:
-                epochs_without_improvement += 1
-                if epochs_without_improvement >= self.hypers["early_stopping_patience"]:
+                n_epochs_without_improvement += 1
+                if n_epochs_without_improvement >= self.hypers["early_stopping_patience"]:
                     logger.info(
-                        "Early stopping criterion reached after "
-                        f"{self.hypers['early_stopping_patience']} epochs "
-                        "without improvement."
+                        f"Stopping early after {n_epochs_without_improvement} epochs without improvement"
                     )
                     break
+
+        model.load_state_dict(best_state_dict)

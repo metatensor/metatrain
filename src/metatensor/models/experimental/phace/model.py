@@ -9,6 +9,7 @@ from metatensor.torch.atomistic import (
     ModelOutput,
     NeighborListOptions,
     System,
+    ModelCapabilities
 )
 
 from metatensor.models.utils.data.dataset import DatasetInfo
@@ -317,17 +318,18 @@ class PhACE(torch.nn.Module):
         if dtype not in self.__supported_dtypes__:
             raise ValueError(f"unsupported dtype {self.dtype} for PhACE")
 
-        dataset_info = Modeldataset_info(
+        capabilities = ModelCapabilities(
             outputs=self.outputs,
-            all_species=self.all_species,
-            interaction_range=self.model_hypers["soap"]["cutoff"],
+            atomic_types=self.all_species,
+            interaction_range=self.model_hypers["cutoff"],
             length_unit=self.dataset_info.length_unit,
             supported_devices=self.__supported_devices__,
             dtype=dtype_to_str(dtype),
         )
 
-        return export(model=self, model_dataset_info=dataset_info)
+        return export(model=self, model_capabilities=capabilities)
 
+    @torch.jit.export
     def set_composition_weights(
         self,
         output_name: str,
