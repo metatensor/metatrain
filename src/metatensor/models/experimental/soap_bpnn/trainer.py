@@ -52,7 +52,7 @@ class Trainer:
         assert len(devices) == 1
         device = devices[0]
 
-        logger.info(f"training on device {device} with dtype {dtype}")
+        logger.info(f"Training on device {device} with dtype {dtype}")
         model.to(device=device, dtype=dtype)
 
         # Calculate and set the composition weights for all targets:
