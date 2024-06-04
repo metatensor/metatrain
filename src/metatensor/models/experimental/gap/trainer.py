@@ -141,5 +141,3 @@ class Trainer:
         model._subset_of_regressors_torch = (
             model._subset_of_regressors.export_torch_script_model()
         )
-
-    # return model
