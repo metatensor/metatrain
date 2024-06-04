@@ -127,8 +127,8 @@ batch size for datasets with structures of very different sizes makes little
 sense. If one dataset contains molecules with 10 atoms on average and another 
 contains nanoparticles with 1000 atoms, it makes sense to use a 100 times 
 larger batch size in the first case. If ``BATCH_SIZE_ATOMIC`` is specified, the 
-normal batch size is computed as BATCH_SIZE = BATCH_SIZE_ATOMIC / 
-(average_number_of_atoms_in_the_training_dataset). Similar logic applies to 
+normal batch size is computed as ``BATCH_SIZE = BATCH_SIZE_ATOMIC / 
+(average_number_of_atoms_in_the_training_dataset)``. Similar logic applies to 
 ``SCHEDULER_STEP_SIZE,`` ``EPOCH_NUM,`` and ``EPOCHS_WARMUP.`` In these cases, 
 normal versions are obtained by division by the total number of atoms of 
 structures in the training dataset. All default values are given by atomic 
