@@ -50,7 +50,7 @@ def test_torchscript():
     hypers = DEFAULT_HYPERS.copy()
     gap = GAP(DEFAULT_HYPERS["model"], dataset_info)
     trainer = Trainer(hypers["training"])
-    gap = trainer.train(gap, [torch.device("cpu")], [dataset], [dataset], ".")
+    trainer.train(gap, [torch.device("cpu")], [dataset], [dataset], ".")
     scripted_gap = torch.jit.script(gap)
 
     ref_output = gap.forward(systems[:5], {"mtm::U0": gap.outputs["mtm::U0"]})

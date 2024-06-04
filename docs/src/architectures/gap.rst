@@ -29,8 +29,8 @@ of the repository:
 This will install the package with the GAP dependencies.
 
 
-Architecture Hyperparameters  
----------------------------- 
+Architecture Hyperparameters
+----------------------------
 
 :param name: ``experimental.gap``
 
@@ -41,7 +41,7 @@ soap
 :param cutoff: Spherical cutoff (Å) to use for atomic environments. Default 5.0
 :param max_radial: Number of radial basis function to use. Default 8
 :param max_angular: Number of angular basis function to use also denoted by the  maximum
-    degree of spherical harmonics. Default 6 
+    degree of spherical harmonics. Default 6
 :param atomic_gaussian_width: Width of the atom-centered gaussian creating the atomic
     density. Default 0.3
 :param center_atom_weight: Weight of the central atom contribution to the features. If
@@ -58,8 +58,9 @@ soap
         cutoff_function:
           Step:
 
-    - ``ShiftedCosine`` (Default value): Shifted cosine switching function ``f(r) = 1/2 * (1 + cos(π (r
-      - cutoff + width) / width ))``. This cutoff function takes the ``width``` as
+    - ``ShiftedCosine`` (Default value): Shifted cosine switching function
+      ``f(r) = 1/2 * (1 + cos(π (r- cutoff + width) / width ))``.
+      This cutoff function takes the ``width``` as
       additional parameter and can set as in ``options.yaml`` file as:
 
       .. code-block:: yaml
@@ -79,7 +80,8 @@ soap
         radial_scaling:
           None:
 
-    - ``Willatt2018`` (Default value): Use a long-range algebraic decay and smooth behavior at :math:`r
+    - ``Willatt2018`` (Default value): Use a long-range algebraic decay and
+      smooth behavior at :math:`r
       \rightarrow 0`: as introduced by :footcite:t:`willatt_feature_2018` as ``f(r) =
       rate / (rate + (r / scale) ^ exponent)`` This radial scaling function can be set
       in the ``options.yaml`` file as.
@@ -100,7 +102,8 @@ soap
 krr
 ^^^^
 :param degree: degree of the polynomial kernel. Default 2
-:param num_sparse_points: number of pseudo points to select (by farthest point sampling). Default 500
+:param num_sparse_points: number of pseudo points to select
+    (by farthest point sampling). Default 500
 
 training:
 ^^^^^^^^^

@@ -32,8 +32,7 @@ class Trainer:
         # checks
         assert devices == [torch.device("cpu")]
         dtype = train_datasets[0][0]["system"].positions.dtype
-        if dtype != torch.float64:
-            raise ValueError("GAP only supports float64")
+        assert dtype == torch.float64
         target_name = next(iter(model.dataset_info.targets.keys()))
         if len(train_datasets) != 1:
             raise ValueError("GAP only supports a single training dataset")
@@ -143,4 +142,4 @@ class Trainer:
             model._subset_of_regressors.export_torch_script_model()
         )
 
-        return model
+    # return model
