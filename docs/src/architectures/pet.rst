@@ -47,7 +47,7 @@ as batch size, the total number of epochs, learning rate, parameters of the lear
 scheduler, and so on.
 
 
-Within conventional wisdom originating from ``traditional`` models, such as linear and kernel 
+Within conventional wisdom originating from *traditional* models, such as linear and kernel 
 regression, the second group of hyperparameters that controls the 
 optimizer's behavior might seem unimportant. Indeed, when fitting linear
 or kernel models, the exact value of the optimum is usually achieved by 
