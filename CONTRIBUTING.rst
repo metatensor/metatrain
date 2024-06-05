@@ -2,14 +2,14 @@
 
 Contributing
 ============
-🎉 First off, thanks for taking the time to contribute to metatensor-models! 🎉
+🎉 First off, thanks for taking the time to contribute to metatrain! 🎉
 
 If you want to contribute but feel a bit lost, do not hesitate to contact us and ask
 your questions! We will happily mentor you through your first contributions.
 
 Area of contributions
 ---------------------
-The first and best way to contribute to metatensor-models is to use it and advertise it
+The first and best way to contribute to metatrain is to use it and advertise it
 to other potential users. Other than that, you can help with:
 
 - documentation: correcting typos, making various documentation clearer;
@@ -18,21 +18,21 @@ to other potential users. Other than that, you can help with:
 - and many more ...
 
 All these contributions are very welcome. We accept contributions via Github `pull
-request <https://github.com/metatensor-models/pulls>`_. If you want to work on the code
+request <https://github.com/metatrain/pulls>`_. If you want to work on the code
 and pick something easy to get started, have a look at the `good first issues
-<https://github.com/lab-cosmo/metatensor-models/labels/Good%20first%20issue>`_.
+<https://github.com/lab-cosmo/metatrain/labels/Good%20first%20issue>`_.
 
 
 Bug reports and feature requests
 --------------------------------
 Bug and feature requests should be reported as `Github issues
-<https://github.com/metatensor-models/issues>`_. For bugs, you should provide
+<https://github.com/metatrain/issues>`_. For bugs, you should provide
 information so that we can reproduce it: what did you try? What did you expect? What
 happened instead? Please provide any useful code snippet or input file with your bug
 report.
 
-If you want to add a new feature to metatensor-models, please create an `issue
-<https://github.com/lab-cosmo/metatensor-models/issues/new>`_ so that we can discuss it,
+If you want to add a new feature to metatrain, please create an `issue
+<https://github.com/lab-cosmo/metatrain/issues/new>`_ so that we can discuss it,
 and you have more chances to see your changes incorporated.
 
 
@@ -54,8 +54,8 @@ Then this package itself
 
 .. code-block:: bash
 
-  git clone https://github.com/lab-cosmo/metatensor-models 
-  cd metatensor-models 
+  git clone https://github.com/lab-cosmo/metatrain 
+  cd metatrain 
   pip install -e .
 
 This install the package in development mode, making it importable globally and allowing

@@ -36,5 +36,5 @@
 - [ ] Comprehensive architecture documentation
 - [ ] If an architecture has external dependencies, all must be publicly available on
   PyPI.
-- [ ] Adherence to the standard output infrastructure of `metatensor-models`, including
+- [ ] Adherence to the standard output infrastructure of `metatrain`, including
    logging and model save locations.

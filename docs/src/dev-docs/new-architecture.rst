@@ -48,7 +48,7 @@ In order to follow this, a new architectures has two define two classes
 
 .. note::
 
-    ``metatensor-models`` does not know the types and numbers of targets/datasets that
+    ``metatrain`` does not know the types and numbers of targets/datasets that
     an architecture can handle. As a result, it cannot generate useful error messages
     when a user attempts to train an architecture with unsupported target and dataset
     combinations. Therefore, it is the responsibility of the architecture developer to

@@ -12,7 +12,7 @@ implemented in `rascaline <RASCALINE_>`_.
 .. _GAP:  https://doi.org/10.1002/qua.24927
 .. _RASCALINE: https://github.com/Luthaf/rascaline
 
-The GAP model in metatensor-models can only train on CPU, but evaluation
+The GAP model in metatrain can only train on CPU, but evaluation
 is also supported on GPU.
 
 
