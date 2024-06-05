@@ -1,5 +1,5 @@
-Welcome to metatensor-models!
-=============================
+Welcome to metatrain!
+=====================
 
 .. include:: ../../README.rst
    :start-after: marker-introduction

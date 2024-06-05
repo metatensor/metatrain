@@ -5,9 +5,9 @@
 # New architecture TODOs
 
 - [ ] Add your architecture to the experimental folder
-  `src/metatensor/models/experimental/<architecture_name>`
+  `src/metatrain/experimental/<architecture_name>`
 - [ ] Add default hyperparameter file to
-  `src/metatensor/models/cli/conf/architecture/experimental.<architecture_name>.yaml`
+  `src/metatrain/cli/conf/architecture/experimental.<architecture_name>.yaml`
 - [ ] Add a `.yml` file into github workflows `.github/workflow/<architecture_name>.yml`
 - [ ] Architecture dependencies entry in the `optional-dependencies` section in the
   `pyproject.toml`

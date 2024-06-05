@@ -3,9 +3,9 @@ import pytest
 import torch
 from metatensor.torch.atomistic import System
 
-from metatensor.models.experimental.soap_bpnn import __model__
-from metatensor.models.utils.data import DatasetInfo, TargetInfo, read_systems
-from metatensor.models.utils.output_gradient import compute_gradient
+from metatrain.experimental.soap_bpnn import __model__
+from metatrain.utils.data import DatasetInfo, TargetInfo, read_systems
+from metatrain.utils.output_gradient import compute_gradient
 
 from . import MODEL_HYPERS, RESOURCES_PATH
 

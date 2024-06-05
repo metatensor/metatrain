@@ -4,7 +4,7 @@ Tutorials
 =========
 
 This sections includes some more advanced tutorials on the usage of the
-``metatensor-models`` package.
+``metatrain`` package.
 
 .. toctree::
    :maxdepth: 1

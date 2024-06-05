@@ -7,7 +7,7 @@ import ase.io
 import pytest
 import torch
 
-from metatensor.models.utils.data.readers.targets import (
+from metatrain.utils.data.readers.targets import (
     read_energy_ase,
     read_forces_ase,
     read_stress_ase,

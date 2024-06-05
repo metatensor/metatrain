@@ -1,7 +1,7 @@
 Eval
 ####
 
-.. automodule:: metatensor.models.cli.eval
+.. automodule:: metatrain.cli.eval
     :members:
     :undoc-members:
     :show-inheritance:

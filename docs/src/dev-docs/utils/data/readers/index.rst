@@ -4,20 +4,20 @@ system and Target data Readers
 The main entry point for reading system and target information are the two reader
 functions
 
-.. autofunction:: metatensor.models.utils.data.read_systems
-.. autofunction:: metatensor.models.utils.data.read_targets
+.. autofunction:: metatrain.utils.data.read_systems
+.. autofunction:: metatrain.utils.data.read_targets
 
 Target type specific readers
 ----------------------------
 
-:func:`metatensor.models.utils.data.read_targets` uses sub-functions to parse supported
+:func:`metatrain.utils.data.read_targets` uses sub-functions to parse supported
 target properties like the `energy` or `forces`. Currently we support reading the
 following target properties via
 
-.. autofunction:: metatensor.models.utils.data.read_energy
-.. autofunction:: metatensor.models.utils.data.read_forces
-.. autofunction:: metatensor.models.utils.data.read_virial
-.. autofunction:: metatensor.models.utils.data.read_stress
+.. autofunction:: metatrain.utils.data.read_energy
+.. autofunction:: metatrain.utils.data.read_forces
+.. autofunction:: metatrain.utils.data.read_virial
+.. autofunction:: metatrain.utils.data.read_stress
 
 File type specific readers
 --------------------------

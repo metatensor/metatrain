@@ -4,7 +4,7 @@ Customize a Dataset Configuration
 =================================
 Overview
 --------
-The main task in setting up a training procedure with `metatensor-models` is to provide
+The main task in setting up a training procedure with `metatrain` is to provide
 files for training, validation, and testing datasets. Our system allows flexibility in
 parsing data for training. Mandatory sections in the `options.yaml` file include:
 
@@ -78,7 +78,7 @@ A single string in this section automatically expands, using the string as the
 
 .. note::
 
-   `metatensor-models` does not convert units during training or evaluation. Units are
+   `metatrain` does not convert units during training or evaluation. Units are
    only required if model should be used to run MD simulations.
 
 Targets Section
@@ -133,7 +133,7 @@ without them.
 Multiple Datasets
 -----------------
 For some applications, it is required to provide more than one dataset for model
-training. `metatensor-models` supports stacking several datasets together using the
+training. `metatrain` supports stacking several datasets together using the
 ``YAML`` list syntax, which consists of lines beginning at the same indentation level
 starting with a ``"- "`` (a dash and a space)
 

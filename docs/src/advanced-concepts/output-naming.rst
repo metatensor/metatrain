@@ -1,7 +1,7 @@
 Output naming
 =============
 
-The name and format of the outputs in ``metatensor-models`` are based on
+The name and format of the outputs in ``metatrain`` are based on
 those of the `<metatensor.torch.atomistic
 https://lab-cosmo.github.io/metatensor/latest/atomistic/outputs.html>`_
 package. An immediate example is given by the ``energy`` output.

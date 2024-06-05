@@ -11,8 +11,8 @@ import pytest
 import torch
 from omegaconf import OmegaConf
 
-from metatensor.models.cli.train import train_model
-from metatensor.models.utils.errors import ArchitectureError
+from metatrain.cli.train import train_model
+from metatrain.utils.errors import ArchitectureError
 
 from . import (
     DATASET_PATH_ETHANOL,
@@ -35,7 +35,7 @@ def test_train(capfd, monkeypatch, tmp_path, output):
     shutil.copy(DATASET_PATH_QM9, "qm9_reduced_100.xyz")
     shutil.copy(OPTIONS_PATH, "options.yaml")
 
-    command = ["metatensor-models", "train", "options.yaml"]
+    command = ["mtt", "train", "options.yaml"]
 
     if output is not None:
         command += ["-o", output]
@@ -94,7 +94,7 @@ def test_command_line_override(monkeypatch, tmp_path, overrides):
     shutil.copy(DATASET_PATH_QM9, "qm9_reduced_100.xyz")
     shutil.copy(OPTIONS_PATH, "options.yaml")
 
-    command = ["metatensor-models", "train", "options.yaml", "-r", overrides]
+    command = ["mtt", "train", "options.yaml", "-r", overrides]
 
     subprocess.check_call(command)
 

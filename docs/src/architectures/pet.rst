@@ -241,5 +241,5 @@ Default Hyperparameters
 
 The default hyperparameters for the PET model are:
 
-.. literalinclude:: ../../../src/metatensor/models/experimental/pet/default-hypers.yaml
+.. literalinclude:: ../../../src/metatrain/experimental/pet/default-hypers.yaml
    :language: yaml

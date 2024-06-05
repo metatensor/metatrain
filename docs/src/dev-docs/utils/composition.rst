@@ -1,7 +1,7 @@
 Composition
 ###########
 
-.. automodule:: metatensor.models.utils.composition
+.. automodule:: metatrain.utils.composition
     :members:
     :undoc-members:
     :show-inheritance:
