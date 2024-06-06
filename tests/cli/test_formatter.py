@@ -1,6 +1,6 @@
 import argparse
 
-from metatensor.models.cli.formatter import CustomHelpFormatter
+from metatrain.cli.formatter import CustomHelpFormatter
 
 
 def test_formatter(capsys):

@@ -31,7 +31,7 @@ Default Hyperparameters
 -----------------------
 The default hyperparameters for the Alchemical Model model are:
 
-.. literalinclude:: ../../../src/metatensor/models/experimental/alchemical_model/default-hypers.yaml
+.. literalinclude:: ../../../src/metatrain/experimental/alchemical_model/default-hypers.yaml
    :language: yaml
 
 
@@ -59,6 +59,11 @@ hyperparameters to tune are (in decreasing order of importance):
   This hyperparameter controls the size and depth of the descriptors and the neural
   network. In general, increasing this might lead to better accuracy,
   especially on larger datasets, at the cost of increased training and evaluation time.
+- ``loss_weights``: This controls the weighting of different contributions to the loss
+  (e.g., energy, forces, virial, etc.). The default values work well for most datasets,
+  but they might need to be adjusted. For example, to set a weight of 1.0 for the energy
+  and 0.1 for the forces, you can set the following in the ``options.yaml`` file:
+  ``loss_weights: {"energy": 1.0, "forces": 0.1}``.
 
 
 Architecture Hyperparameters
@@ -110,7 +115,7 @@ bpnn
 
 training
 ########
-The parameters for the training loop are
+The hyperparameters for training are
 
 :param batch_size: batch size
 :param num_epochs: number of training epochs

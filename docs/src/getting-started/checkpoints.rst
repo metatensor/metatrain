@@ -16,25 +16,25 @@ The sub-command to continue training from a checkpoint is
 
 .. code-block:: bash
 
-    metatensor-models train options.yaml --continue model.ckpt
+    mtt train options.yaml --continue model.ckpt
 
 or
 
 .. code-block:: bash
 
-    metatensor-models train options.yaml -c model.ckpt
+    mtt train options.yaml -c model.ckpt
 
 Checkpoints can also be turned into exported models using the ``export`` sub-command.
 
 .. code-block:: bash
 
-    metatensor-models export model.ckpt -o model.pt
+    mtt export model.ckpt -o model.pt
 
 or
 
 .. code-block:: bash
 
-    metatensor-models export model.ckpt --output model.pt
+    mtt export model.ckpt --output model.pt
 
 Keep in mind that a checkpoint (``.ckpt``) is only a temporary file, which can have
 several dependencies and may become unusable if the corresponding architecture is

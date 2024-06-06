@@ -9,6 +9,6 @@ coverage:
   ignore:
      - "tests/.*"
      - "examples/.*"
-     - "src/metatensor/models/experimental/.*"
+     - "src/metatrain/experimental/.*"
 
 comment: false

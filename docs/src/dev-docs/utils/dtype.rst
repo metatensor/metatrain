@@ -1,7 +1,7 @@
 Dtype
 #####
 
-.. automodule:: metatensor.models.utils.dtype
+.. automodule:: metatrain.utils.dtype
     :members:
     :undoc-members:
     :show-inheritance:

@@ -1,7 +1,7 @@
 Loss
 ####
 
-.. automodule:: metatensor.models.utils.loss
+.. automodule:: metatrain.utils.loss
     :members:
     :undoc-members:
     :show-inheritance:

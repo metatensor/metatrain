@@ -6,7 +6,7 @@ import torch
 from metatensor.torch import Labels, TensorBlock, TensorMap
 from metatensor.torch.atomistic import ModelCapabilities, ModelOutput, System
 
-from metatensor.models.utils.data.writers import write_predictions, write_xyz
+from metatrain.utils.data.writers import write_predictions, write_xyz
 
 
 def systems_capabilities_predictions(cell: torch.tensor = None) -> List[System]:

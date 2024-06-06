@@ -1,6 +1,6 @@
 import torch
 
-from metatensor.models.utils.dtype import dtype_to_str
+from metatrain.utils.dtype import dtype_to_str
 
 
 def test_dtype_to_string():

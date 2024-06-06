@@ -1,7 +1,7 @@
 Train
 #####
 
-.. automodule:: metatensor.models.cli.train
+.. automodule:: metatrain.cli.train
     :members:
     :undoc-members:
     :show-inheritance:

@@ -51,7 +51,7 @@ possibility. The changes above can be achieved by typing:
 
 .. code-block:: bash
 
-   metatensor-models train options.yaml \
+   mtt train options.yaml \
       -r architecture.model.soap.cutoff=7.0 architecture.training.num_epochs=200
 
 Here, the ``-r`` or equivalent ``--override`` flag is used to parse the override flags.

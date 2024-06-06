@@ -1,7 +1,7 @@
 Logging
 #######
 
-.. automodule:: metatensor.models.utils.logging
+.. automodule:: metatrain.utils.logging
     :members:
     :undoc-members:
     :show-inheritance:
