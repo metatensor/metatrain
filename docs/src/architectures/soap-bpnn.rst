@@ -99,7 +99,7 @@ bpnn
 
 training
 ########
-The parameters for the training loop are
+The parameters for training are
 
 :param batch_size: batch size
 :param num_epochs: number of training epochs
@@ -148,7 +148,10 @@ hyperparameters to tune are (in decreasing order of importance):
   might need to be adjusted for specific datasets.
 - ``loss_weights``: This controls the weighting of different contributions to the loss
   (e.g., energy, forces, virial, etc.). The default values work well for most datasets,
-  but they might need to be adjusted.
+  but they might need to be adjusted. For example, to set a weight of 1.0 for the energy
+  and 0.1 for the forces, you can set the following in the ``options.yaml`` file:
+  ``loss_weights: {"energy": 1.0, "forces": 0.1}``.
+
 - ``layernorm``: Whether to use layer normalization before the neural network. Setting
   this hyperparameter to ``false`` will lead to slower convergence of training, but
   might lead to better generalization outside of the training set distribution.
