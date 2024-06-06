@@ -63,11 +63,7 @@ hyperparameters to tune are (in decreasing order of importance):
   (e.g., energy, forces, virial, etc.). The default values work well for most datasets,
   but they might need to be adjusted. For example, to set a weight of 1.0 for the energy
   and 0.1 for the forces, you can set the following in the ``options.yaml`` file:
-  .. code-block:: yaml
-
-    loss_weights:
-      energy: 1.0
-      forces: 0.1
+  ``loss_weights: {"energy": 1.0, "forces": 0.1}``.
 
 
 Architecture Hyperparameters
