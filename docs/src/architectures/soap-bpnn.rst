@@ -111,7 +111,7 @@ The parameters for training are
     any case, the final summary will be per-structure.
 :param loss_weights: Specifies the weights to be used in the loss for each target. The
     weights should be a dictionary of floats, one for each target. All missing targets
-    are assigned a weight of 1.0. For example, for a 
+    are assigned a weight of 1.0.
 
 
 
