@@ -1,4 +1,4 @@
 #!/bin/bash
 
-metatrain train options.yaml
+mtt train options.yaml
 
