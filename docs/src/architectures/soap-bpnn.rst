@@ -155,7 +155,7 @@ hyperparameters to tune are (in decreasing order of importance):
     loss_weights:
       energy: 1.0
       forces: 0.1
-  
+
 - ``layernorm``: Whether to use layer normalization before the neural network. Setting
   this hyperparameter to ``false`` will lead to slower convergence of training, but
   might lead to better generalization outside of the training set distribution.
