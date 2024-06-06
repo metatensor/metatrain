@@ -46,6 +46,16 @@ In order to follow this, a new architectures has two define two classes
   evaluated and exported. This class must implement the interface documented below in
   :py:class:`TrainerInterface`.
 
+.. note::
+
+    ``metatrain`` does not know the types and numbers of targets/datasets that
+    an architecture can handle. As a result, it cannot generate useful error messages
+    when a user attempts to train an architecture with unsupported target and dataset
+    combinations. Therefore, it is the responsibility of the architecture developer to
+    verify if the model and the trainer support the provided train_datasets and
+    validation_datasets passed to the Trainer, as well as the dataset_info passed to the
+    model.
+
 The ``ModelInterface`` is the main model class and must implement a
 ``save_checkpoint()``, ``load_checkpoint()``  as well as a ``restart()`` and
 ``export()`` method.
@@ -57,7 +67,7 @@ The ``ModelInterface`` is the main model class and must implement a
         __supported_devices__ = ["cuda", "cpu"]
         __supported_dtypes__ = [torch.float64, torch.float32]
 
-        def __init__(self, model_hypers, dataset_info: DatasetInfo):
+        def __init__(self, model_hypers: Dict, dataset_info: DatasetInfo):
             self.hypers = model_hypers
             self.dataset_info = dataset_info
 
@@ -135,10 +145,10 @@ these two constants the ``__init__.py`` must contain constants for the original
 
 
 :param __model__: Mapping of the custom ``ModelInterface`` to a general one to be loaded
-    by metatrain
+    by ``metatrain``.
 :param __trainer__: Same as ``__MODEL_CLASS__`` but the Trainer class.
 :param __authors__: Tuple denoting the original authors with email address and Github
     handle of an architecture. These do not necessary be in charge of maintaining the
-    the architecture
+    the architecture.
 :param __maintainers__: Tuple denoting the current maintainers of the architecture. Uses
     the same style as the ``__authors__`` constant.

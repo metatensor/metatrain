@@ -5,7 +5,7 @@ PET
 
 .. warning::
 
-    The metatensor-models interface to PET is **experimental**. You should
+    The metatrain interface to PET is **experimental**. You should
     not use it for anything important. Alternatively, for a moment, consider
     using (nonexperimental) native scripts available `here
     <https://spozdn.github.io/pet/train_model.html>`_.

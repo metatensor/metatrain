@@ -1,3 +1,5 @@
+.. _architecture-life-cycle:
+
 Life Cycle of an Architecture
 =============================
 
@@ -16,7 +18,7 @@ removal if maintenance is no longer feasible.
     architecture's internal functionality or any issues that may arise therein.
 
 Experimental Architectures
----------------------------
+--------------------------
 
 New architectures added to the library will initially be classified as experimental.
 These architectures are stored in the ``experimental`` subdirectory within the
