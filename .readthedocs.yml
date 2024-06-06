@@ -30,3 +30,15 @@ python:
     extra_requirements:
       - soap-bpnn
   - requirements: docs/requirements.txt
+
+build:
+  os: ubuntu-22.04
+  tools:
+    python: "3.12"
+  commands:
+    - bash -c "set -e && cd examples/basic_usage && bash usage.sh"
+    - bash -c "set -e && cd examples/ase && bash train.sh"
+  sphinx:
+    fail-on-warning: true
+    builder: html
+    configuration: docs/src/conf.py
