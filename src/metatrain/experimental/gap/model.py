@@ -209,7 +209,7 @@ class GAP(torch.nn.Module):
     def export(self) -> MetatensorAtomisticModel:
         capabilities = ModelCapabilities(
             outputs=self.outputs,
-            atomic_types=self.dataset_info.atomic_types,
+            atomic_types=sorted(self.dataset_info.atomic_types),
             interaction_range=self.hypers["soap"]["cutoff"],
             length_unit=self.dataset_info.length_unit,
             supported_devices=["cuda", "cpu"],
