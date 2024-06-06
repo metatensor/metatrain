@@ -1,7 +1,7 @@
 Device
 ######
 
-.. automodule:: metatensor.models.utils.devices
+.. automodule:: metatrain.utils.devices
     :members:
     :undoc-members:
     :show-inheritance:

@@ -1,7 +1,7 @@
 Data
 ====
 
-API for handling data in ``metatensor-models``.
+API for handling data in ``metatrain``.
 
 .. toctree::
    :maxdepth: 1

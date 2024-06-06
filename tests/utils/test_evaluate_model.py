@@ -2,11 +2,11 @@ import pytest
 import torch
 from metatensor.torch.atomistic import ModelCapabilities
 
-from metatensor.models.experimental.soap_bpnn import __model__
-from metatensor.models.utils.data import DatasetInfo, TargetInfo, read_systems
-from metatensor.models.utils.evaluate_model import evaluate_model
-from metatensor.models.utils.export import export
-from metatensor.models.utils.neighbor_lists import get_system_with_neighbor_lists
+from metatrain.experimental.soap_bpnn import __model__
+from metatrain.utils.data import DatasetInfo, TargetInfo, read_systems
+from metatrain.utils.evaluate_model import evaluate_model
+from metatrain.utils.export import export
+from metatrain.utils.neighbor_lists import get_system_with_neighbor_lists
 
 from . import MODEL_HYPERS, RESOURCES_PATH
 

@@ -4,9 +4,9 @@ import pytest
 import torch
 from omegaconf import ListConfig, OmegaConf
 
-from metatensor.models.experimental import soap_bpnn
-from metatensor.models.utils import omegaconf
-from metatensor.models.utils.omegaconf import (
+from metatrain.experimental import soap_bpnn
+from metatrain.utils import omegaconf
+from metatrain.utils.omegaconf import (
     check_options_list,
     check_units,
     expand_dataset_config,

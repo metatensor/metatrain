@@ -1,2 +1,2 @@
-Basic usage of the metatensor-models CLI
-========================================
+Basic usage of the metatrain CLI
+================================

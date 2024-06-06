@@ -14,8 +14,8 @@ rm -rf docs/build
 rm -rf docs/src/examples
 rm -rf docs/src/sg_execution_times.rst
 
-rm -rf src/metatensor/models/dist
-rm -rf src/metatensor/models/build
+rm -rf src/metatrain/dist
+rm -rf src/metatrain/build
 
 find . -name "*.egg-info" -exec rm -rf "{}" +
 find . -name "__pycache__" -exec rm -rf "{}" +

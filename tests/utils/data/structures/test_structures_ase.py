@@ -2,7 +2,7 @@ import ase
 import ase.io
 import torch
 
-from metatensor.models.utils.data.readers.systems import read_systems_ase
+from metatrain.utils.data.readers.systems import read_systems_ase
 
 
 def ase_system() -> ase.Atoms:
