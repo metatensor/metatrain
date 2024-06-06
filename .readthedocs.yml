@@ -38,7 +38,7 @@ build:
   commands:
     - bash -c "set -e && cd examples/basic_usage && bash usage.sh"
     - bash -c "set -e && cd examples/ase && bash train.sh"
-  sphinx:
+sphinx:
     builder: html
     configuration: docs/src/conf.py
     fail_on_warning: true
