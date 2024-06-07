@@ -1,10 +1,12 @@
 from pathlib import Path
 
 import pytest
+from jsonschema.exceptions import ValidationError
 
 from metatrain import PACKAGE_ROOT
 from metatrain.utils.architectures import (
     check_architecture_name,
+    check_architecture_options,
     find_all_architectures,
     get_architecture_name,
     get_architecture_path,
@@ -14,9 +16,12 @@ from metatrain.utils.architectures import (
 
 def test_find_all_architectures():
     all_arches = find_all_architectures()
-    assert "experimental.soap_bpnn" in all_arches
-    assert "experimental.pet" in all_arches
+    assert len(all_arches) == 4
+
     assert "experimental.alchemical_model" in all_arches
+    assert "experimental.gap" in all_arches
+    assert "experimental.pet" in all_arches
+    assert "experimental.soap_bpnn" in all_arches
 
 
 def test_get_architecture_path():
@@ -31,6 +36,7 @@ def test_get_default_hypers(name):
     """Test that architecture hypers for all arches can be loaded."""
     default_hypers = get_default_hypers(name)
     assert type(default_hypers) is dict
+    assert default_hypers["name"] == name
 
 
 def test_check_architecture_name():
@@ -81,3 +87,22 @@ def test_get_architecture_name_err_no_such_arch():
     match = f"`path` {str(path)!r} does not point to a valid architecture folder"
     with pytest.raises(ValueError, match=match):
         get_architecture_name(path)
+
+
+@pytest.mark.parametrize("name", find_all_architectures())
+def test_check_valid_default_architecture_options(name):
+    """Test that all default hypers are according to the provided schema."""
+    options = get_default_hypers(name)
+    check_architecture_options(name=name, options=options)
+
+
+def test_check_architecture_options_error_raise():
+    name = "experimental.soap_bpnn"
+    options = get_default_hypers(name)
+
+    # Add an unknown parameter
+    options["training"]["num_epochxxx"] = 10
+
+    match = r"Additional properties are not allowed \('num_epochxxx' was unexpected\)"
+    with pytest.raises(ValidationError, match=match):
+        check_architecture_options(name=name, options=options)

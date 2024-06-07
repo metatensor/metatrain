@@ -1,3 +1,5 @@
+name: experimental.alchemical_model
+
 model:
   soap:
     num_pseudo_species: 4
