@@ -1,7 +1,7 @@
 import ase
 import metatensor.torch
 import torch
-from metatensor.torch.atomistic import ModelOutput, systems_to_torch, System
+from metatensor.torch.atomistic import ModelOutput, System, systems_to_torch
 
 from metatrain.experimental.soap_bpnn import SoapBpnn
 from metatrain.utils.data import DatasetInfo, TargetInfo, TargetInfoDict
@@ -21,7 +21,13 @@ def test_prediction_subset_elements():
 
     model = SoapBpnn(MODEL_HYPERS, dataset_info)
 
-    system = System(atomic_types=[6, 6], positions=torch.tensor([[0.0, 0.0, 0.0], [0.0, 0.0, 1.0]], dtype=torch.get_default_dtype()), cell=torch.zeros(3, 3, dtype=torch.get_default_dtype()))
+    system = System(
+        atomic_types=[6, 6],
+        positions=torch.tensor(
+            [[0.0, 0.0, 0.0], [0.0, 0.0, 1.0]], dtype=torch.get_default_dtype()
+        ),
+        cell=torch.zeros(3, 3, dtype=torch.get_default_dtype()),
+    )
     model(
         [system],
         {"energy": model.outputs["energy"]},
@@ -45,8 +51,11 @@ def test_prediction_subset_atoms():
 
     system_monomer = System(
         atomic_types=[7, 8, 8],
-        positions=torch.tensor([[0.0, 0.0, 0.0], [0.0, 0.0, 1.0], [0.0, 0.0, 2.0]], dtype=torch.get_default_dtype()),
-        cell=torch.zeros(3, 3, dtype=torch.get_default_dtype())
+        positions=torch.tensor(
+            [[0.0, 0.0, 0.0], [0.0, 0.0, 1.0], [0.0, 0.0, 2.0]],
+            dtype=torch.get_default_dtype(),
+        ),
+        cell=torch.zeros(3, 3, dtype=torch.get_default_dtype()),
     )
 
     energy_monomer = model(
@@ -56,15 +65,17 @@ def test_prediction_subset_atoms():
 
     system_far_away_dimer = System(
         atomic_types=[7, 7, 8, 8, 8, 8],
-        positions=torch.tensor([
-            [0.0, 0.0, 0.0],
-            [0.0, 50.0, 0.0],
-            [0.0, 0.0, 1.0],
-            [0.0, 0.0, 2.0],
-            [0.0, 51.0, 0.0],
-            [0.0, 42.0, 0.0],
-        ]),
-        cell=torch.zeros(3, 3, dtype=torch.get_default_dtype())
+        positions=torch.tensor(
+            [
+                [0.0, 0.0, 0.0],
+                [0.0, 50.0, 0.0],
+                [0.0, 0.0, 1.0],
+                [0.0, 0.0, 2.0],
+                [0.0, 51.0, 0.0],
+                [0.0, 42.0, 0.0],
+            ]
+        ),
+        cell=torch.zeros(3, 3, dtype=torch.get_default_dtype()),
     )
 
     selection_labels = metatensor.torch.Labels(
@@ -104,8 +115,11 @@ def test_output_last_layer_features():
 
     system = System(
         atomic_types=[6, 1, 8, 7],
-        positions=torch.tensor([[0.0, 0.0, 0.0], [0.0, 0.0, 1.0], [0.0, 0.0, 2.0], [0.0, 0.0, 3.0]], dtype=torch.get_default_dtype()),
-        cell=torch.zeros(3, 3, dtype=torch.get_default_dtype())
+        positions=torch.tensor(
+            [[0.0, 0.0, 0.0], [0.0, 0.0, 1.0], [0.0, 0.0, 2.0], [0.0, 0.0, 3.0]],
+            dtype=torch.get_default_dtype(),
+        ),
+        cell=torch.zeros(3, 3, dtype=torch.get_default_dtype()),
     )
 
     # last-layer features per atom:
@@ -173,8 +187,11 @@ def test_output_per_atom():
 
     system = System(
         atomic_types=[6, 1, 8, 7],
-        positions=torch.tensor([[0.0, 0.0, 0.0], [0.0, 0.0, 1.0], [0.0, 0.0, 2.0], [0.0, 0.0, 3.0]], dtype=torch.get_default_dtype()),
-        cell=torch.zeros(3, 3, dtype=torch.get_default_dtype())
+        positions=torch.tensor(
+            [[0.0, 0.0, 0.0], [0.0, 0.0, 1.0], [0.0, 0.0, 2.0], [0.0, 0.0, 3.0]],
+            dtype=torch.get_default_dtype(),
+        ),
+        cell=torch.zeros(3, 3, dtype=torch.get_default_dtype()),
     )
 
     outputs = model(

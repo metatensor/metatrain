@@ -1,6 +1,7 @@
+import copy
+
 import torch
 from metatensor.torch.atomistic import System
-import copy
 
 from metatrain.experimental.soap_bpnn import SoapBpnn
 from metatrain.utils.data import DatasetInfo, TargetInfo, TargetInfoDict
@@ -20,8 +21,10 @@ def test_torchscript():
     model = torch.jit.script(model)
 
     system = System(
-        atomic_types = [6, 1, 8, 7],
-        positions = torch.tensor([[0.0, 0.0, 0.0], [0.0, 0.0, 1.0], [0.0, 0.0, 2.0], [0.0, 0.0, 3.0]]),
+        atomic_types=[6, 1, 8, 7],
+        positions=torch.tensor(
+            [[0.0, 0.0, 0.0], [0.0, 0.0, 1.0], [0.0, 0.0, 2.0], [0.0, 0.0, 3.0]]
+        ),
         cell=torch.zeros(3, 3),
     )
     model(
@@ -43,10 +46,11 @@ def test_torchscript_with_identity():
     model = SoapBpnn(hypers, dataset_info)
     model = torch.jit.script(model)
 
-
     system = System(
-        atomic_types = [6, 1, 8, 7],
-        positions = torch.tensor([[0.0, 0.0, 0.0], [0.0, 0.0, 1.0], [0.0, 0.0, 2.0], [0.0, 0.0, 3.0]],
+        atomic_types=[6, 1, 8, 7],
+        positions=torch.tensor(
+            [[0.0, 0.0, 0.0], [0.0, 0.0, 1.0], [0.0, 0.0, 2.0], [0.0, 0.0, 3.0]]
+        ),
         cell=torch.zeros(3, 3),
     )
     model(

@@ -1,7 +1,6 @@
-from metatensor.torch.atomistic import System
 import pytest
 import torch
-from metatensor.torch.atomistic import ModelEvaluationOptions, systems_to_torch
+from metatensor.torch.atomistic import ModelEvaluationOptions, System, systems_to_torch
 
 from metatrain.experimental.alchemical_model import AlchemicalModel
 from metatrain.utils.data import DatasetInfo, TargetInfo, TargetInfoDict
@@ -27,7 +26,13 @@ def test_to(device, dtype):
 
     exported.to(device=device)
 
-    system = System(atomic_types=[6, 6], positions=torch.tensor([[0.0, 0.0, 0.0], [0.0, 0.0, 1.0]], dtype=torch.get_default_dtype()), cell=torch.zeros(3, 3, dtype=torch.get_default_dtype()))
+    system = System(
+        atomic_types=[6, 6],
+        positions=torch.tensor(
+            [[0.0, 0.0, 0.0], [0.0, 0.0, 1.0]], dtype=torch.get_default_dtype()
+        ),
+        cell=torch.zeros(3, 3, dtype=torch.get_default_dtype()),
+    )
     system = get_system_with_neighbor_lists(system, exported.requested_neighbor_lists())
     system = system.to(device=device, dtype=dtype)
 

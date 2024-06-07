@@ -34,7 +34,13 @@ def test_prediction():
     raw_pet = PET(ARCHITECTURAL_HYPERS, 0.0, len(model.atomic_types))
     model.set_trained_model(raw_pet)
 
-    system = System(atomic_types=[6, 6], positions=torch.tensor([[0.0, 0.0, 0.0], [0.0, 0.0, 1.0]], dtype=torch.get_default_dtype()), cell=torch.zeros(3, 3, dtype=torch.get_default_dtype()))
+    system = System(
+        atomic_types=[6, 6],
+        positions=torch.tensor(
+            [[0.0, 0.0, 0.0], [0.0, 0.0, 1.0]], dtype=torch.get_default_dtype()
+        ),
+        cell=torch.zeros(3, 3, dtype=torch.get_default_dtype()),
+    )
     system = get_system_with_neighbor_lists(system, model.requested_neighbor_lists())
 
     evaluation_options = ModelEvaluationOptions(
@@ -79,7 +85,13 @@ def test_per_atom_predictions_functionality():
     raw_pet = PET(ARCHITECTURAL_HYPERS, 0.0, len(model.atomic_types))
     model.set_trained_model(raw_pet)
 
-    system = System(atomic_types=[6, 6], positions=torch.tensor([[0.0, 0.0, 0.0], [0.0, 0.0, 1.0]], dtype=torch.get_default_dtype()), cell=torch.zeros(3, 3, dtype=torch.get_default_dtype()))
+    system = System(
+        atomic_types=[6, 6],
+        positions=torch.tensor(
+            [[0.0, 0.0, 0.0], [0.0, 0.0, 1.0]], dtype=torch.get_default_dtype()
+        ),
+        cell=torch.zeros(3, 3, dtype=torch.get_default_dtype()),
+    )
     system = get_system_with_neighbor_lists(system, model.requested_neighbor_lists())
 
     evaluation_options = ModelEvaluationOptions(
@@ -125,7 +137,13 @@ def test_selected_atoms_functionality():
     raw_pet = PET(ARCHITECTURAL_HYPERS, 0.0, len(model.atomic_types))
     model.set_trained_model(raw_pet)
 
-    system = System(atomic_types=[6, 6], positions=torch.tensor([[0.0, 0.0, 0.0], [0.0, 0.0, 1.0]], dtype=torch.get_default_dtype()), cell=torch.zeros(3, 3, dtype=torch.get_default_dtype()))
+    system = System(
+        atomic_types=[6, 6],
+        positions=torch.tensor(
+            [[0.0, 0.0, 0.0], [0.0, 0.0, 1.0]], dtype=torch.get_default_dtype()
+        ),
+        cell=torch.zeros(3, 3, dtype=torch.get_default_dtype()),
+    )
     system = get_system_with_neighbor_lists(system, model.requested_neighbor_lists())
 
     evaluation_options = ModelEvaluationOptions(
