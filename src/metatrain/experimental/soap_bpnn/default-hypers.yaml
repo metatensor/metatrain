@@ -1,3 +1,5 @@
+name: experimental.soap_bpnn
+
 model:
   soap:
     cutoff: 5.0

@@ -3,7 +3,7 @@
 Adding a new architecture
 =========================
 
-To work with` metatrain` any architecture has to follow the same public API to
+To work with `metatrain` any architecture has to follow the same public API to
 be called correctly within the :py:func:`metatrain.cli.train` function to
 process the user's options. In brief, the core of the ``train`` function looks similar
 to these lines
