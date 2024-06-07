@@ -1,6 +1,6 @@
 import metatensor.torch
 import torch
-from metatensor.torch.atomistic import ModelOutput, System, systems_to_torch
+from metatensor.torch.atomistic import ModelOutput, System
 
 from metatrain.experimental.soap_bpnn import SoapBpnn
 from metatrain.utils.data import DatasetInfo, TargetInfo, TargetInfoDict
@@ -72,7 +72,8 @@ def test_prediction_subset_atoms():
                 [0.0, 0.0, 2.0],
                 [0.0, 51.0, 0.0],
                 [0.0, 42.0, 0.0],
-            ]
+            ],
+            dtype=torch.get_default_dtype(),
         ),
         cell=torch.zeros(3, 3, dtype=torch.get_default_dtype()),
     )
@@ -83,12 +84,12 @@ def test_prediction_subset_atoms():
     )
 
     energy_dimer = model(
-        [systems_to_torch(system_far_away_dimer)],
+        [system_far_away_dimer],
         {"energy": ModelOutput(per_atom=False)},
     )
 
     energy_monomer_in_dimer = model(
-        [systems_to_torch(system_far_away_dimer)],
+        [system_far_away_dimer],
         {"energy": ModelOutput(per_atom=False)},
         selected_atoms=selection_labels,
     )
@@ -156,7 +157,7 @@ def test_output_last_layer_features():
         per_atom=False,
     )
     outputs = model(
-        [systems_to_torch(system, dtype=torch.get_default_dtype())],
+        [system],
         {
             "energy": model.outputs["energy"],
             "mtm::aux::last_layer_features": ll_output_options,
