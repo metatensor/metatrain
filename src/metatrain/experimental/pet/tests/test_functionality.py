@@ -1,4 +1,3 @@
-import ase
 import torch
 from metatensor.torch import Labels
 from metatensor.torch.atomistic import (
@@ -35,7 +34,7 @@ def test_prediction():
     model.set_trained_model(raw_pet)
 
     system = System(
-        atomic_types=[6, 6],
+        types=[6, 6],
         positions=torch.tensor(
             [[0.0, 0.0, 0.0], [0.0, 0.0, 1.0]], dtype=torch.get_default_dtype()
         ),
@@ -86,7 +85,7 @@ def test_per_atom_predictions_functionality():
     model.set_trained_model(raw_pet)
 
     system = System(
-        atomic_types=[6, 6],
+        types=[6, 6],
         positions=torch.tensor(
             [[0.0, 0.0, 0.0], [0.0, 0.0, 1.0]], dtype=torch.get_default_dtype()
         ),
@@ -138,7 +137,7 @@ def test_selected_atoms_functionality():
     model.set_trained_model(raw_pet)
 
     system = System(
-        atomic_types=[6, 6],
+        types=[6, 6],
         positions=torch.tensor(
             [[0.0, 0.0, 0.0], [0.0, 0.0, 1.0]], dtype=torch.get_default_dtype()
         ),
