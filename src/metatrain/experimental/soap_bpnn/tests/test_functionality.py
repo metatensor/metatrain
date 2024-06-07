@@ -1,7 +1,7 @@
 import ase
 import metatensor.torch
 import torch
-from metatensor.torch.atomistic import ModelOutput, systems_to_torch
+from metatensor.torch.atomistic import ModelOutput, systems_to_torch, System
 
 from metatrain.experimental.soap_bpnn import SoapBpnn
 from metatrain.utils.data import DatasetInfo, TargetInfo, TargetInfoDict
@@ -21,9 +21,9 @@ def test_prediction_subset_elements():
 
     model = SoapBpnn(MODEL_HYPERS, dataset_info)
 
-    system = ase.Atoms("O2", positions=[[0.0, 0.0, 0.0], [0.0, 0.0, 1.0]])
+    system = System(atomic_types=[6, 6], positions=torch.tensor([[0.0, 0.0, 0.0], [0.0, 0.0, 1.0]], dtype=torch.get_default_dtype()), cell=torch.zeros(3, 3, dtype=torch.get_default_dtype()))
     model(
-        [systems_to_torch(system)],
+        [system],
         {"energy": model.outputs["energy"]},
     )
 
@@ -43,25 +43,28 @@ def test_prediction_subset_atoms():
     # Since we don't yet support atomic predictions, we will test this by
     # predicting on a system with two monomers at a large distance
 
-    system_monomer = ase.Atoms(
-        "NO2", positions=[[0.0, 0.0, 0.0], [0.0, 0.0, 1.0], [0.0, 0.0, 2.0]]
+    system_monomer = System(
+        atomic_types=[7, 8, 8],
+        positions=torch.tensor([[0.0, 0.0, 0.0], [0.0, 0.0, 1.0], [0.0, 0.0, 2.0]], dtype=torch.get_default_dtype()),
+        cell=torch.zeros(3, 3, dtype=torch.get_default_dtype())
     )
 
     energy_monomer = model(
-        [systems_to_torch(system_monomer)],
+        [system_monomer],
         {"energy": ModelOutput(per_atom=False)},
     )
 
-    system_far_away_dimer = ase.Atoms(
-        "N2O4",
-        positions=[
+    system_far_away_dimer = System(
+        atomic_types=[7, 7, 8, 8, 8, 8],
+        positions=torch.tensor([
             [0.0, 0.0, 0.0],
             [0.0, 50.0, 0.0],
             [0.0, 0.0, 1.0],
             [0.0, 0.0, 2.0],
             [0.0, 51.0, 0.0],
             [0.0, 42.0, 0.0],
-        ],
+        ]),
+        cell=torch.zeros(3, 3, dtype=torch.get_default_dtype())
     )
 
     selection_labels = metatensor.torch.Labels(
@@ -99,9 +102,10 @@ def test_output_last_layer_features():
 
     model = SoapBpnn(MODEL_HYPERS, dataset_info)
 
-    system = ase.Atoms(
-        "CHON",
-        positions=[[0.0, 0.0, 0.0], [0.0, 0.0, 1.0], [0.0, 0.0, 2.0], [0.0, 0.0, 3.0]],
+    system = System(
+        atomic_types=[6, 1, 8, 7],
+        positions=torch.tensor([[0.0, 0.0, 0.0], [0.0, 0.0, 1.0], [0.0, 0.0, 2.0], [0.0, 0.0, 3.0]], dtype=torch.get_default_dtype()),
+        cell=torch.zeros(3, 3, dtype=torch.get_default_dtype())
     )
 
     # last-layer features per atom:
@@ -111,7 +115,7 @@ def test_output_last_layer_features():
         per_atom=True,
     )
     outputs = model(
-        [systems_to_torch(system, dtype=torch.get_default_dtype())],
+        [system],
         {
             "energy": model.outputs["energy"],
             "mtm::aux::last_layer_features": ll_output_options,
@@ -167,13 +171,14 @@ def test_output_per_atom():
 
     model = SoapBpnn(MODEL_HYPERS, dataset_info)
 
-    system = ase.Atoms(
-        "CHON",
-        positions=[[0.0, 0.0, 0.0], [0.0, 0.0, 1.0], [0.0, 0.0, 2.0], [0.0, 0.0, 3.0]],
+    system = System(
+        atomic_types=[6, 1, 8, 7],
+        positions=torch.tensor([[0.0, 0.0, 0.0], [0.0, 0.0, 1.0], [0.0, 0.0, 2.0], [0.0, 0.0, 3.0]], dtype=torch.get_default_dtype()),
+        cell=torch.zeros(3, 3, dtype=torch.get_default_dtype())
     )
 
     outputs = model(
-        [systems_to_torch(system, dtype=torch.get_default_dtype())],
+        [system],
         {"energy": model.outputs["energy"]},
     )
 
