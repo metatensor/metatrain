@@ -26,7 +26,7 @@ Any custom ML architecture compatible with TorchScript can be integrated in
 ``metatrain``, gaining automatic access to a training and evaluation interface, as well
 as compatibility with various MD engines.
 
-Note: ``metatrain`` does not provide `per se` mathematical functionalities but relies on
+Note: ``metatrain`` does not provide mathematical functionalities `per se` but relies on
 external models that implement the various architectures.
 
 Features
