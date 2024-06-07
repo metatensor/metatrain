@@ -27,7 +27,7 @@ def test_to(device, dtype):
     exported.to(device=device)
 
     system = System(
-        types=[6, 6],
+        types=torch.tensor([6, 6]),
         positions=torch.tensor(
             [[0.0, 0.0, 0.0], [0.0, 0.0, 1.0]], dtype=torch.get_default_dtype()
         ),

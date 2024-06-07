@@ -21,7 +21,7 @@ def test_torchscript():
     model = torch.jit.script(model)
 
     system = System(
-        types=[6, 1, 8, 7],
+        types=torch.tensor([6, 1, 8, 7]),
         positions=torch.tensor(
             [[0.0, 0.0, 0.0], [0.0, 0.0, 1.0], [0.0, 0.0, 2.0], [0.0, 0.0, 3.0]]
         ),
@@ -47,7 +47,7 @@ def test_torchscript_with_identity():
     model = torch.jit.script(model)
 
     system = System(
-        types=[6, 1, 8, 7],
+        types=torch.tensor([6, 1, 8, 7]),
         positions=torch.tensor(
             [[0.0, 0.0, 0.0], [0.0, 0.0, 1.0], [0.0, 0.0, 2.0], [0.0, 0.0, 3.0]]
         ),

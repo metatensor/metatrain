@@ -21,7 +21,7 @@ def test_prediction_subset_elements():
     model = SoapBpnn(MODEL_HYPERS, dataset_info)
 
     system = System(
-        types=[6, 6],
+        types=torch.tensor([6, 6]),
         positions=torch.tensor(
             [[0.0, 0.0, 0.0], [0.0, 0.0, 1.0]], dtype=torch.get_default_dtype()
         ),
@@ -49,7 +49,7 @@ def test_prediction_subset_atoms():
     # predicting on a system with two monomers at a large distance
 
     system_monomer = System(
-        types=[7, 8, 8],
+        types=torch.tensor([7, 8, 8]),
         positions=torch.tensor(
             [[0.0, 0.0, 0.0], [0.0, 0.0, 1.0], [0.0, 0.0, 2.0]],
             dtype=torch.get_default_dtype(),
@@ -63,7 +63,7 @@ def test_prediction_subset_atoms():
     )
 
     system_far_away_dimer = System(
-        types=[7, 7, 8, 8, 8, 8],
+        types=torch.tensor([7, 7, 8, 8, 8, 8]),
         positions=torch.tensor(
             [
                 [0.0, 0.0, 0.0],
@@ -113,7 +113,7 @@ def test_output_last_layer_features():
     model = SoapBpnn(MODEL_HYPERS, dataset_info)
 
     system = System(
-        types=[6, 1, 8, 7],
+        types=torch.tensor([6, 1, 8, 7]),
         positions=torch.tensor(
             [[0.0, 0.0, 0.0], [0.0, 0.0, 1.0], [0.0, 0.0, 2.0], [0.0, 0.0, 3.0]],
             dtype=torch.get_default_dtype(),
@@ -185,7 +185,7 @@ def test_output_per_atom():
     model = SoapBpnn(MODEL_HYPERS, dataset_info)
 
     system = System(
-        types=[6, 1, 8, 7],
+        types=torch.tensor([6, 1, 8, 7]),
         positions=torch.tensor(
             [[0.0, 0.0, 0.0], [0.0, 0.0, 1.0], [0.0, 0.0, 2.0], [0.0, 0.0, 3.0]],
             dtype=torch.get_default_dtype(),
