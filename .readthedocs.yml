@@ -11,6 +11,9 @@ build:
   tools:
     python: "3.12"
     rust: "1.75"
+  jobs:
+    pre_build:
+      - set -e && cd examples/ase && bash train.sh
 
 
 # Build documentation in the docs/ directory with Sphinx
@@ -28,17 +31,6 @@ python:
   - method: pip
     path: .
     extra_requirements:
+      - gap
       - soap-bpnn
   - requirements: docs/requirements.txt
-
-build:
-  os: ubuntu-22.04
-  tools:
-    python: "3.12"
-  commands:
-    - bash -c "set -e && cd examples/basic_usage && bash usage.sh"
-    - bash -c "set -e && cd examples/ase && bash train.sh"
-sphinx:
-    builder: html
-    configuration: docs/src/conf.py
-    fail_on_warning: true
