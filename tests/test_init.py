@@ -1,5 +1,5 @@
-import metatensor.models
+import metatrain
 
 
 def test_version_exists():
-    metatensor.models.__version__
+    metatrain.__version__

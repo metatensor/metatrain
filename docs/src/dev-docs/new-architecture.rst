@@ -3,8 +3,8 @@
 Adding a new architecture
 =========================
 
-To work with` metatensor-models` any architecture has to follow the same public API to
-be called correctly within the :py:func:`metatensor.models.cli.train` function to
+To work with` metatrain` any architecture has to follow the same public API to
+be called correctly within the :py:func:`metatrain.cli.train` function to
 process the user's options. In brief, the core of the ``train`` function looks similar
 to these lines
 
@@ -46,6 +46,16 @@ In order to follow this, a new architectures has two define two classes
   evaluated and exported. This class must implement the interface documented below in
   :py:class:`TrainerInterface`.
 
+.. note::
+
+    ``metatrain`` does not know the types and numbers of targets/datasets that
+    an architecture can handle. As a result, it cannot generate useful error messages
+    when a user attempts to train an architecture with unsupported target and dataset
+    combinations. Therefore, it is the responsibility of the architecture developer to
+    verify if the model and the trainer support the provided train_datasets and
+    validation_datasets passed to the Trainer, as well as the dataset_info passed to the
+    model.
+
 The ``ModelInterface`` is the main model class and must implement a
 ``save_checkpoint()``, ``load_checkpoint()``  as well as a ``restart()`` and
 ``export()`` method.
@@ -57,7 +67,7 @@ The ``ModelInterface`` is the main model class and must implement a
         __supported_devices__ = ["cuda", "cpu"]
         __supported_dtypes__ = [torch.float64, torch.float32]
 
-        def __init__(self, model_hypers, dataset_info: DatasetInfo):
+        def __init__(self, model_hypers: Dict, dataset_info: DatasetInfo):
             self.hypers = model_hypers
             self.dataset_info = dataset_info
 
@@ -86,12 +96,12 @@ Note that the ``ModelInterface`` does not necessary inherit from
 :py:class:`torch.nn.Module` since training can be performed in any way.
 ``__supported_devices__`` and ``__supported_dtypes__`` can be defined to set the
 capabilities of the model. These two lists should be sorted in order of preference since
-`metatensor-models` will use these to determine, based on the user request and
+`metatrain` will use these to determine, based on the user request and
 machines's availability, the optimal `dtype` and `device` for training.
 
 The ``export()`` method is required to transform a trained model into a standalone file
 to be used in combination with molecular dynamic engines to run simulations. We provide
-a helper function :py:func:`metatensor.models.utils.export.export` to export a torch
+a helper function :py:func:`metatrain.utils.export.export` to export a torch
 model to an :py:class:`MetatensorAtomisticModel
 <metatensor.torch.atomistic.MetatensorAtomisticModel>`.
 
@@ -111,7 +121,7 @@ methods for ``train()``.
             train_datasets: List[Union[Dataset, torch.utils.data.Subset]],
             validation_datasets: List[Union[Dataset, torch.utils.data.Subset]],
             checkpoint_dir: str,
-        ): ...
+        ) -> None: ...
 
 The names of the ``ModelInterface`` and the ``TrainerInterface`` are free to choose but
 should be linked to constants in the ``__init__.py`` of each architecture. On top of
@@ -135,10 +145,10 @@ these two constants the ``__init__.py`` must contain constants for the original
 
 
 :param __model__: Mapping of the custom ``ModelInterface`` to a general one to be loaded
-    by metatensor-models
+    by ``metatrain``.
 :param __trainer__: Same as ``__MODEL_CLASS__`` but the Trainer class.
 :param __authors__: Tuple denoting the original authors with email address and Github
     handle of an architecture. These do not necessary be in charge of maintaining the
-    the architecture
+    the architecture.
 :param __maintainers__: Tuple denoting the current maintainers of the architecture. Uses
     the same style as the ``__authors__`` constant.

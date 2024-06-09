@@ -11,8 +11,8 @@ from metatensor.torch import Labels
 from omegaconf import OmegaConf
 from targets.test_targets_ase import ase_system, ase_systems
 
-from metatensor.models.utils.data.dataset import TargetInfo, TargetInfoDict
-from metatensor.models.utils.data.readers import (
+from metatrain.utils.data.dataset import TargetInfo, TargetInfoDict
+from metatrain.utils.data.readers import (
     read_energy,
     read_forces,
     read_stress,

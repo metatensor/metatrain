@@ -1,5 +1,5 @@
-from metatensor.models.utils.data.dataset import TargetInfo
-from metatensor.models.utils.external_naming import to_external_name, to_internal_name
+from metatrain.utils.data.dataset import TargetInfo
+from metatrain.utils.external_naming import to_external_name, to_internal_name
 
 
 def test_to_external_name():

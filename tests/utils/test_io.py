@@ -2,7 +2,7 @@ from pathlib import Path
 
 import pytest
 
-from metatensor.models.utils.io import check_suffix
+from metatrain.utils.io import check_suffix
 
 
 @pytest.mark.parametrize("filename", ["example.txt", Path("example.txt")])

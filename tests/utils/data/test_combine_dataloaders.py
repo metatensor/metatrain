@@ -4,7 +4,7 @@ import numpy as np
 from omegaconf import OmegaConf
 from torch.utils.data import DataLoader
 
-from metatensor.models.utils.data import (
+from metatrain.utils.data import (
     CombinedDataLoader,
     Dataset,
     collate_fn,

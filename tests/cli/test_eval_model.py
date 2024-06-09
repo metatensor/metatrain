@@ -8,9 +8,9 @@ import pytest
 import torch
 from omegaconf import OmegaConf
 
-from metatensor.models.cli.eval import eval_model
-from metatensor.models.experimental.soap_bpnn import __model__
-from metatensor.models.utils.data import DatasetInfo, TargetInfo
+from metatrain.cli.eval import eval_model
+from metatrain.experimental.soap_bpnn import __model__
+from metatrain.utils.data import DatasetInfo, TargetInfo
 
 from . import EVAL_OPTIONS_PATH, MODEL_HYPERS, MODEL_PATH, RESOURCES_PATH
 
@@ -31,7 +31,7 @@ def test_eval_cli(monkeypatch, tmp_path):
     shutil.copy(RESOURCES_PATH / "qm9_reduced_100.xyz", "qm9_reduced_100.xyz")
 
     command = [
-        "metatensor-models",
+        "mtt",
         "eval",
         str(MODEL_PATH),
         str(EVAL_OPTIONS_PATH),
