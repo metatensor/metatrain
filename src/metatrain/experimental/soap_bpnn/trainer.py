@@ -4,7 +4,9 @@ from pathlib import Path
 from typing import List, Union
 
 import torch
-from metatensor.learn.data import DataLoader
+import torch.distributed
+from metatensor.torch.atomistic import ModelCapabilities, ModelOutput
+from torch.utils.data import DataLoader, DistributedSampler
 
 from ...utils.composition import calculate_composition_weights
 from ...utils.data import (
@@ -22,6 +24,8 @@ from ...utils.loss import TensorMapDictLoss
 from ...utils.metrics import RMSEAccumulator
 from ...utils.per_atom import average_by_num_atoms
 from .model import SoapBpnn
+from ...utils.distributed.distributed_data_parallel import DistributedDataParallel
+from ...utils.distributed.slurm import DistributedEnvironment
 
 
 logger = logging.getLogger(__name__)
@@ -46,14 +50,36 @@ class Trainer:
         validation_datasets: List[Union[Dataset, torch.utils.data.Subset]],
         checkpoint_dir: str,
     ):
+
+        is_distributed = hypers["training"]["distributed"]
+
+        if is_distributed:
+            distr_env = DistributedEnvironment(hypers["training"]["distributed_port"])
+            torch.distributed.init_process_group(backend="nccl")
+            world_size = torch.distributed.get_world_size()
+            rank = torch.distributed.get_rank()
+        else:
+            rank = 0
+
+        if is_distributed:
+            if len(devices) > 1:
+                raise ValueError(
+                    "Requested distributed training with the `multi-gpu` device. If you "
+                    "want to run distributed training with SOAP-BPNN, please set `device` "
+                    "to cuda."
+                )
+            device = torch.device("cuda", distr_env.local_rank)
+        else:
+            device = devices[0]  # only one device, as we don't support multi-gpu for now
         dtype = train_datasets[0][0]["system"].positions.dtype
 
-        # only one device, as we don't support multi-gpu for now
-        assert len(devices) == 1
-        device = devices[0]
-
-        logger.info(f"Training on device {device} with dtype {dtype}")
+        if is_distributed:
+            logger.info(f"Training on {world_size} devices with dtype {dtype}")
+        else:
+            logger.info(f"Training on device {device} with dtype {dtype}")
         model.to(device=device, dtype=dtype)
+        if is_distributed:
+            model = DistributedDataParallel(model, device_ids=[device])
 
         # Calculate and set the composition weights for all targets:
         logger.info("Calculating composition weights")
@@ -80,8 +106,8 @@ class Trainer:
                     raise ValueError(
                         "Supplied atomic types are not present in the dataset."
                     )
-                model.set_composition_weights(
-                    target_name, fixed_weights, list(atomic_types)
+                (model.module if is_distributed else model).set_composition_weights(
+                    target_name, fixed_weights, species
                 )
 
             else:
@@ -97,20 +123,47 @@ class Trainer:
                 composition_weights, composition_types = calculate_composition_weights(
                     train_datasets_with_target, target_name
                 )
-                model.set_composition_weights(
-                    target_name, composition_weights, composition_types
+                (model.module if is_distributed else model).set_composition_weights(
+                    target_name, composition_weights, species
                 )
 
         logger.info("Setting up data loaders")
 
+        if is_distributed:
+            train_samplers = [
+                DistributedSampler(
+                    train_dataset,
+                    num_replicas=world_size,
+                    rank=rank,
+                    shuffle=True,
+                    drop_last=True,
+                )
+                for train_dataset in train_datasets
+            ]
+            validation_samplers = [
+                DistributedSampler(
+                    validation_dataset,
+                    num_replicas=world_size,
+                    rank=rank,
+                    shuffle=True,
+                    drop_last=True,
+                )
+                for validation_dataset in validation_datasets
+            ]
+        else:
+            train_samplers = [None] * len(train_datasets)
+            validation_samplers = [None] * len(validation_datasets)
+
         # Create dataloader for the training datasets:
         train_dataloaders = []
-        for dataset in train_datasets:
+        for dataset, sampler in zip(train_datasets, train_samplers):
             train_dataloaders.append(
                 DataLoader(
                     dataset=dataset,
-                    batch_size=self.hypers["batch_size"],
-                    shuffle=True,
+                    batch_size=hypers_training["batch_size"],
+                    sampler=sampler,
+                    shuffle=(sampler is None),
+                    drop_last=(sampler is None),
                     collate_fn=collate_fn,
                 )
             )
@@ -118,18 +171,18 @@ class Trainer:
 
         # Create dataloader for the validation datasets:
         validation_dataloaders = []
-        for dataset in validation_datasets:
+        for dataset, sampler in zip(validation_datasets, validation_samplers):
             validation_dataloaders.append(
                 DataLoader(
                     dataset=dataset,
-                    batch_size=self.hypers["batch_size"],
+                    batch_size=hypers_training["batch_size"],
+                    sampler=sampler,
                     shuffle=False,
+                    drop_last=False,
                     collate_fn=collate_fn,
                 )
             )
-        validation_dataloader = CombinedDataLoader(
-            validation_dataloaders, shuffle=False
-        )
+        validation_dataloader = CombinedDataLoader(validation_dataloaders, shuffle=False)
 
         # Extract all the possible outputs and their gradients:
         training_targets = get_targets_dict(train_datasets, model.dataset_info)
@@ -212,9 +265,16 @@ class Trainer:
                 train_loss += train_loss_batch.item()
                 train_loss_batch.backward()
                 optimizer.step()
+
+                if is_distributed:
+                    # sum the loss over all processes
+                    torch.distributed.all_reduce(train_loss_batch)
+                train_loss += train_loss_batch.item()
                 train_rmse_calculator.update(predictions, targets)
             finalized_train_info = train_rmse_calculator.finalize(
-                not_per_atom=["positions_gradients"] + per_structure_targets
+                not_per_atom=["positions_gradients"] + per_structure_targets,
+                is_distributed=is_distributed,
+                device=device,
             )
 
             validation_loss = 0.0
@@ -240,10 +300,16 @@ class Trainer:
                 targets = average_by_num_atoms(targets, systems, per_structure_targets)
 
                 validation_loss_batch = loss_fn(predictions, targets)
+
+                if is_distributed:
+                    # sum the loss over all processes
+                    torch.distributed.all_reduce(validation_loss_batch)
                 validation_loss += validation_loss_batch.item()
                 validation_rmse_calculator.update(predictions, targets)
             finalized_validation_info = validation_rmse_calculator.finalize(
-                not_per_atom=["positions_gradients"] + per_structure_targets
+                not_per_atom=["positions_gradients"] + per_structure_targets,
+                is_distributed=is_distributed,
+                device=device,
             )
 
             lr_scheduler.step(validation_loss)
@@ -268,8 +334,13 @@ class Trainer:
                     epoch=epoch,
                 )
 
-            if epoch % self.hypers["checkpoint_interval"] == 0:
-                model.save_checkpoint(Path(checkpoint_dir) / f"model_{epoch}.ckpt")
+            if epoch % hypers_training["checkpoint_interval"] == 0:
+                if is_distributed:
+                    torch.distributed.barrier()
+                save(
+                    (model.module if is_distributed else model),
+                    Path(checkpoint_dir) / f"model_{epoch}.ckpt",
+                )
 
             # early stopping criterion:
             if validation_loss < best_validation_loss:
