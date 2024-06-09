@@ -9,9 +9,9 @@ from typing import Dict, List, Optional, Tuple, Union
 import numpy as np
 from metatensor.torch.atomistic import ModelOutput
 
+from .distributed.logging import is_main_process
 from .external_naming import to_external_name
 from .io import check_suffix
-from .distributed.logging import is_main_process
 
 
 class MetricLogger:

@@ -5,7 +5,6 @@ from typing import List, Union
 
 import torch
 import torch.distributed
-from metatensor.torch.atomistic import ModelCapabilities, ModelOutput
 from torch.utils.data import DataLoader, DistributedSampler
 
 from ...utils.composition import calculate_composition_weights
@@ -17,6 +16,8 @@ from ...utils.data import (
     get_all_targets,
 )
 from ...utils.data.extract_targets import get_targets_dict
+from ...utils.distributed.distributed_data_parallel import DistributedDataParallel
+from ...utils.distributed.slurm import DistributedEnvironment
 from ...utils.evaluate_model import evaluate_model
 from ...utils.external_naming import to_external_name
 from ...utils.logging import MetricLogger
@@ -24,8 +25,6 @@ from ...utils.loss import TensorMapDictLoss
 from ...utils.metrics import RMSEAccumulator
 from ...utils.per_atom import average_by_num_atoms
 from .model import SoapBpnn
-from ...utils.distributed.distributed_data_parallel import DistributedDataParallel
-from ...utils.distributed.slurm import DistributedEnvironment
 
 
 logger = logging.getLogger(__name__)
@@ -64,13 +63,15 @@ class Trainer:
         if is_distributed:
             if len(devices) > 1:
                 raise ValueError(
-                    "Requested distributed training with the `multi-gpu` device. If you "
-                    "want to run distributed training with SOAP-BPNN, please set `device` "
-                    "to cuda."
+                    "Requested distributed training with the `multi-gpu` device. "
+                    " If you want to run distributed training with SOAP-BPNN, please "
+                    "set `device` to cuda."
                 )
             device = torch.device("cuda", distr_env.local_rank)
         else:
-            device = devices[0]  # only one device, as we don't support multi-gpu for now
+            device = devices[
+                0
+            ]  # only one device, as we don't support multi-gpu for now
         dtype = train_datasets[0][0]["system"].positions.dtype
 
         if is_distributed:
@@ -182,10 +183,14 @@ class Trainer:
                     collate_fn=collate_fn,
                 )
             )
-        validation_dataloader = CombinedDataLoader(validation_dataloaders, shuffle=False)
+        validation_dataloader = CombinedDataLoader(
+            validation_dataloaders, shuffle=False
+        )
 
         # Extract all the possible outputs and their gradients:
-        training_targets = get_targets_dict(train_datasets, (model.module if is_distributed else model).dataset_info)
+        training_targets = get_targets_dict(
+            train_datasets, (model.module if is_distributed else model).dataset_info
+        )
         outputs_list = []
         for target_name, target_info in training_targets.items():
             outputs_list.append(target_name)
@@ -337,7 +342,9 @@ class Trainer:
             if epoch % self.hypers["checkpoint_interval"] == 0:
                 if is_distributed:
                     torch.distributed.barrier()
-                (model.module if is_distributed else model).save_checkpoint(Path(checkpoint_dir) / f"model_{epoch}.ckpt")
+                (model.module if is_distributed else model).save_checkpoint(
+                    Path(checkpoint_dir) / f"model_{epoch}.ckpt"
+                )
 
             # early stopping criterion:
             if validation_loss < best_validation_loss:
