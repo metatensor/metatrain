@@ -51,10 +51,10 @@ class Trainer:
         checkpoint_dir: str,
     ):
 
-        is_distributed = hypers["training"]["distributed"]
+        is_distributed = self.hypers["distributed"]
 
         if is_distributed:
-            distr_env = DistributedEnvironment(hypers["training"]["distributed_port"])
+            distr_env = DistributedEnvironment(self.hypers["distributed_port"])
             torch.distributed.init_process_group(backend="nccl")
             world_size = torch.distributed.get_world_size()
             rank = torch.distributed.get_rank()
@@ -83,7 +83,7 @@ class Trainer:
 
         # Calculate and set the composition weights for all targets:
         logger.info("Calculating composition weights")
-        for target_name in model.new_outputs:
+        for target_name in (model.module if is_distributed else model).new_outputs:
             if "mtm::aux::" in target_name:
                 continue
             # TODO: document transfer learning and say that outputs that are already
@@ -107,7 +107,7 @@ class Trainer:
                         "Supplied atomic types are not present in the dataset."
                     )
                 (model.module if is_distributed else model).set_composition_weights(
-                    target_name, fixed_weights, species
+                    target_name, fixed_weights, atomic_types
                 )
 
             else:
@@ -124,7 +124,7 @@ class Trainer:
                     train_datasets_with_target, target_name
                 )
                 (model.module if is_distributed else model).set_composition_weights(
-                    target_name, composition_weights, species
+                    target_name, composition_weights, composition_types
                 )
 
         logger.info("Setting up data loaders")
@@ -160,7 +160,7 @@ class Trainer:
             train_dataloaders.append(
                 DataLoader(
                     dataset=dataset,
-                    batch_size=hypers_training["batch_size"],
+                    batch_size=self.hypers["batch_size"],
                     sampler=sampler,
                     shuffle=(sampler is None),
                     drop_last=(sampler is None),
@@ -175,7 +175,7 @@ class Trainer:
             validation_dataloaders.append(
                 DataLoader(
                     dataset=dataset,
-                    batch_size=hypers_training["batch_size"],
+                    batch_size=self.hypers["batch_size"],
                     sampler=sampler,
                     shuffle=False,
                     drop_last=False,
@@ -185,7 +185,7 @@ class Trainer:
         validation_dataloader = CombinedDataLoader(validation_dataloaders, shuffle=False)
 
         # Extract all the possible outputs and their gradients:
-        training_targets = get_targets_dict(train_datasets, model.dataset_info)
+        training_targets = get_targets_dict(train_datasets, (model.module if is_distributed else model).dataset_info)
         outputs_list = []
         for target_name, target_info in training_targets.items():
             outputs_list.append(target_name)
@@ -262,7 +262,6 @@ class Trainer:
                 targets = average_by_num_atoms(targets, systems, per_structure_targets)
 
                 train_loss_batch = loss_fn(predictions, targets)
-                train_loss += train_loss_batch.item()
                 train_loss_batch.backward()
                 optimizer.step()
 
@@ -332,15 +331,13 @@ class Trainer:
                 metric_logger.log(
                     metrics=[finalized_train_info, finalized_validation_info],
                     epoch=epoch,
+                    rank=rank,
                 )
 
-            if epoch % hypers_training["checkpoint_interval"] == 0:
+            if epoch % self.hypers["checkpoint_interval"] == 0:
                 if is_distributed:
                     torch.distributed.barrier()
-                save(
-                    (model.module if is_distributed else model),
-                    Path(checkpoint_dir) / f"model_{epoch}.ckpt",
-                )
+                (model.module if is_distributed else model).save_checkpoint(Path(checkpoint_dir) / f"model_{epoch}.ckpt")
 
             # early stopping criterion:
             if validation_loss < best_validation_loss:

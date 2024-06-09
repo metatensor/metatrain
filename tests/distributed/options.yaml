@@ -4,7 +4,7 @@ device: cuda
 architecture:
   name: experimental.soap_bpnn
   training:
-    batch_size: 90
+    batch_size: 50
     num_epochs: 100
 
 training_set:
@@ -18,4 +18,4 @@ training_set:
       forces: on
 
 test_set: 0.0
-validation_set: 0.1
+validation_set: 0.5

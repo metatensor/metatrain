@@ -1,20 +1,22 @@
 """The main entry point for the metatrain command line interface."""
 
 import argparse
+import importlib
 import logging
 import os
 import sys
 import traceback
-import warnings
 from datetime import datetime
 from pathlib import Path
 
+import metatensor.torch
 from omegaconf import OmegaConf
 
 from . import __version__
 from .cli.eval import _add_eval_model_parser, eval_model
 from .cli.export import _add_export_model_parser, export_model
 from .cli.train import _add_train_model_parser, train_model
+from .utils.architectures import check_architecture_name
 from .utils.logging import setup_logging
 
 
@@ -69,12 +71,12 @@ def main():
     args = ap.parse_args()
     callable = args.__dict__.pop("callable")
     debug = args.__dict__.pop("debug")
+    logfile = None
 
     if debug:
         level = logging.DEBUG
     else:
         level = logging.INFO
-        warnings.filterwarnings("ignore")  # ignore all warnings if not in debug mode
 
     if callable == "eval_model":
         args.__dict__["model"] = metatensor.torch.atomistic.load_atomistic_model(
@@ -105,7 +107,7 @@ def main():
 
         args.options = OmegaConf.merge(args.options, override_options)
     else:
-        logfile = None
+        raise ValueError("internal error when selecting a sub-command.")
 
     with setup_logging(logger, logfile=logfile, level=level):
         try:
@@ -117,11 +119,11 @@ def main():
                 train_model(**args.__dict__)
             else:
                 raise ValueError("internal error when selecting a sub-command.")
-        except Exception as e:
+        except Exception as err:
             if debug:
                 traceback.print_exc()
             else:
-                sys.exit(f"\033[31mERROR: {e}\033[0m")  # format error in red!
+                sys.exit(str(err))
 
 
 if __name__ == "__main__":

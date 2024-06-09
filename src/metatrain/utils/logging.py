@@ -7,37 +7,37 @@ from pathlib import Path
 from typing import Dict, List, Optional, Tuple, Union
 
 import numpy as np
-from metatensor.torch.atomistic import ModelCapabilities
+from metatensor.torch.atomistic import ModelOutput
 
-from .distributed.logging import is_main_process
 from .external_naming import to_external_name
 from .io import check_suffix
-
-
-logger = logging.getLogger(__name__)
+from .distributed.logging import is_main_process
 
 
 class MetricLogger:
-    """This class provides a simple interface to log training metrics to a file."""
-
     def __init__(
         self,
-        model_capabilities: ModelCapabilities,
+        logobj: logging.Logger,
+        model_outputs: Dict[str, ModelOutput],
         initial_metrics: Union[Dict[str, float], List[Dict[str, float]]],
         names: Union[str, List[str]] = "",
     ):
         """
+        Simple interface to log training metrics logging instance.
+
         Initialize the metric logger. The logger is initialized with the initial metrics
         and names relative to the metrics (e.g., "train", "validation").
 
         In this way, and by assuming that these metrics never increase, the logger can
         align the output to make it easier to read.
 
-        :param model_capabilities: The capabilities of the model.
-        :param initial_metrics: The initial training metrics.
-        :param validation_info_0: The initial validation metrics.
-        :param names: The names of the metrics (e.g., "train", "validation").
+        :param logobj: A logging instance
+        :param model_outputs: outputs of the model
+        :param initial_metrics: initial training metrics
+        :param validation_info_0: initial validation metrics
         """
+        self.logobj = logobj
+        self.model_outputs = model_outputs
 
         if isinstance(initial_metrics, dict):
             initial_metrics = [initial_metrics]
@@ -46,17 +46,16 @@ class MetricLogger:
 
         self.names = names
 
-        # Since the quantities are supposed to decrease, we want to store the
-        # number of digits at the start of the training, so that we can align
-        # the output later:
+        # Since the quantities are supposed to decrease, we want to store the number of
+        # digits at the start of the training, so that we can align the output later:
         self.digits = {}
         for name, metrics_dict in zip(names, initial_metrics):
             for key, value in metrics_dict.items():
                 self.digits[f"{name}_{key}"] = _get_digits(value)
 
-        # Save the model capabilities. This will be useful to know
+        # Save the model outputs. This will be useful to know
         # what physical quantities we are printing
-        self.model_capabilities = model_capabilities
+        self.model_outputs = model_outputs
 
     def log(
         self,
@@ -94,9 +93,7 @@ class MetricLogger:
                 new_key = key
                 if key != "loss":  # special case: not a metric associated with a target
                     target_name, metric = new_key.split(" ", 1)
-                    target_name = to_external_name(
-                        target_name, self.model_capabilities.outputs
-                    )
+                    target_name = to_external_name(target_name, self.model_outputs)
                     new_key = f"{target_name} {metric}"
 
                 if name == "":
@@ -110,7 +107,7 @@ class MetricLogger:
             logging_string = logging_string[2:]
 
         if rank is None or rank == 0:
-            logger.info(logging_string)
+            self.logobj.info(logging_string)
 
 
 def _get_digits(value: float) -> Tuple[int, int]:
