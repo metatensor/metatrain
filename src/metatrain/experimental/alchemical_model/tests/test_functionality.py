@@ -1,5 +1,5 @@
-import ase
-from metatensor.torch.atomistic import ModelEvaluationOptions, systems_to_torch
+import torch
+from metatensor.torch.atomistic import ModelEvaluationOptions, System
 
 from metatrain.experimental.alchemical_model import AlchemicalModel
 from metatrain.utils.data import DatasetInfo, TargetInfo, TargetInfoDict
@@ -20,8 +20,11 @@ def test_prediction_subset_elements():
 
     model = AlchemicalModel(MODEL_HYPERS, dataset_info)
 
-    system = ase.Atoms("O2", positions=[[0.0, 0.0, 0.0], [0.0, 0.0, 1.0]])
-    system = systems_to_torch(system)
+    system = System(
+        types=torch.tensor([6, 6]),
+        positions=torch.tensor([[0.0, 0.0, 0.0], [0.0, 0.0, 1.0]]),
+        cell=torch.zeros(3, 3),
+    )
     system = get_system_with_neighbor_lists(system, model.requested_neighbor_lists())
 
     evaluation_options = ModelEvaluationOptions(
