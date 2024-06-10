@@ -22,10 +22,8 @@ def test_prediction_subset_elements():
 
     system = System(
         types=torch.tensor([6, 6]),
-        positions=torch.tensor(
-            [[0.0, 0.0, 0.0], [0.0, 0.0, 1.0]], dtype=torch.get_default_dtype()
-        ),
-        cell=torch.zeros(3, 3, dtype=torch.get_default_dtype()),
+        positions=torch.tensor([[0.0, 0.0, 0.0], [0.0, 0.0, 1.0]]),
+        cell=torch.zeros(3, 3),
     )
     system = get_system_with_neighbor_lists(system, model.requested_neighbor_lists())
 

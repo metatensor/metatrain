@@ -22,10 +22,8 @@ def test_prediction_subset_elements():
 
     system = System(
         types=torch.tensor([6, 6]),
-        positions=torch.tensor(
-            [[0.0, 0.0, 0.0], [0.0, 0.0, 1.0]], dtype=torch.get_default_dtype()
-        ),
-        cell=torch.zeros(3, 3, dtype=torch.get_default_dtype()),
+        positions=torch.tensor([[0.0, 0.0, 0.0], [0.0, 0.0, 1.0]]),
+        cell=torch.zeros(3, 3),
     )
     model(
         [system],
@@ -52,9 +50,8 @@ def test_prediction_subset_atoms():
         types=torch.tensor([7, 8, 8]),
         positions=torch.tensor(
             [[0.0, 0.0, 0.0], [0.0, 0.0, 1.0], [0.0, 0.0, 2.0]],
-            dtype=torch.get_default_dtype(),
         ),
-        cell=torch.zeros(3, 3, dtype=torch.get_default_dtype()),
+        cell=torch.zeros(3, 3),
     )
 
     energy_monomer = model(
@@ -73,9 +70,8 @@ def test_prediction_subset_atoms():
                 [0.0, 51.0, 0.0],
                 [0.0, 42.0, 0.0],
             ],
-            dtype=torch.get_default_dtype(),
         ),
-        cell=torch.zeros(3, 3, dtype=torch.get_default_dtype()),
+        cell=torch.zeros(3, 3),
     )
 
     selection_labels = metatensor.torch.Labels(
@@ -117,9 +113,8 @@ def test_output_last_layer_features():
         types=torch.tensor([6, 1, 8, 7]),
         positions=torch.tensor(
             [[0.0, 0.0, 0.0], [0.0, 0.0, 1.0], [0.0, 0.0, 2.0], [0.0, 0.0, 3.0]],
-            dtype=torch.get_default_dtype(),
         ),
-        cell=torch.zeros(3, 3, dtype=torch.get_default_dtype()),
+        cell=torch.zeros(3, 3),
     )
 
     # last-layer features per atom:
@@ -189,9 +184,8 @@ def test_output_per_atom():
         types=torch.tensor([6, 1, 8, 7]),
         positions=torch.tensor(
             [[0.0, 0.0, 0.0], [0.0, 0.0, 1.0], [0.0, 0.0, 2.0], [0.0, 0.0, 3.0]],
-            dtype=torch.get_default_dtype(),
         ),
-        cell=torch.zeros(3, 3, dtype=torch.get_default_dtype()),
+        cell=torch.zeros(3, 3),
     )
 
     outputs = model(
