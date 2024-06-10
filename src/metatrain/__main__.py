@@ -120,10 +120,12 @@ def main():
             else:
                 raise ValueError("internal error when selecting a sub-command.")
         except Exception as err:
-            if debug:
-                traceback.print_exc()
-            else:
-                sys.exit(str(err))
+            logging.error({traceback.format_exc()})
+            logging.error(
+                "If the error message below is unclear, please help us improve it by "
+                "opening an issue at https://github.com/lab-cosmo/metatrain/issues. "
+                f"Thank you!\n\n{type(err).__name__}: {err}"
+            )
 
 
 if __name__ == "__main__":

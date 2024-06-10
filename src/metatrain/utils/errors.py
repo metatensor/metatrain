@@ -12,7 +12,7 @@ class ArchitectureError(Exception):
 
     def __init__(self, exception):
         super().__init__(
-            "The error below most likely originates from an architecture. If you think "
-            "this is a bug, please contact its maintainer (see the architecture's "
-            f"documentation).\n\n{exception}"
+            f"{exception}\n\nThe error wbove most likely originates from an "
+            "architecture. If you think this is a bug, please contact its maintainer "
+            "(see the architecture's documentation)."
         )

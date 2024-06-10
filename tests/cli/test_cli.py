@@ -98,7 +98,7 @@ def get_completion_suggestions(partial_word: str) -> List[str]:
 
 @pytest.mark.parametrize(
     "partial_word, expected_completion",
-    [(" ", ["--debug", "--help", "--version", "-h", "eval", "export", "train"])],
+    [(" ", ["--help", "--version", "-h", "eval", "export", "train"])],
 )
 def test_subcommand_completion(partial_word, expected_completion):
     """Test that expected subcommand completion matches."""
