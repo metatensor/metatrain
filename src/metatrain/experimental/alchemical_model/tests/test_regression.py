@@ -2,7 +2,7 @@ import random
 
 import numpy as np
 import torch
-from metatensor.torch.atomistic import ModelEvaluationOptions, systems_to_torch
+from metatensor.torch.atomistic import ModelEvaluationOptions
 from omegaconf import OmegaConf
 
 from metatrain.experimental.alchemical_model import AlchemicalModel, Trainer
@@ -38,7 +38,6 @@ def test_regression_init():
 
     # Predict on the first five systems
     systems = read_systems(DATASET_PATH)[:5]
-    systems = [systems_to_torch(system) for system in systems]
     systems = [
         get_system_with_neighbor_lists(system, model.requested_neighbor_lists())
         for system in systems

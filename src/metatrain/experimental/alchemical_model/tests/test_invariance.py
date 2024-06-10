@@ -1,10 +1,11 @@
 import copy
 
+import ase.io
 import torch
 from metatensor.torch.atomistic import ModelEvaluationOptions, systems_to_torch
 
 from metatrain.experimental.alchemical_model import AlchemicalModel
-from metatrain.utils.data import DatasetInfo, TargetInfo, TargetInfoDict, read_systems
+from metatrain.utils.data import DatasetInfo, TargetInfo, TargetInfoDict
 from metatrain.utils.neighbor_lists import get_system_with_neighbor_lists
 
 from . import DATASET_PATH, MODEL_HYPERS
@@ -20,12 +21,14 @@ def test_rotational_invariance():
     )
     model = AlchemicalModel(MODEL_HYPERS, dataset_info)
 
-    system = read_systems(filename=DATASET_PATH)[0]
+    system = ase.io.read(DATASET_PATH)
     original_system = copy.deepcopy(system)
     original_system = systems_to_torch(original_system)
     original_system = get_system_with_neighbor_lists(
         original_system, model.requested_neighbor_lists()
     )
+
+    system.rotate(48, "y")
     system = systems_to_torch(system)
     system = get_system_with_neighbor_lists(system, model.requested_neighbor_lists())
 

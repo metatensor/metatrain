@@ -54,7 +54,7 @@ def test_regression_train():
     """Perform a regression test on the model when
     trained for 2 epoch on a small dataset"""
 
-    systems = read_systems(DATASET_PATH)[:5]
+    systems = read_systems(DATASET_PATH)
 
     conf = {
         "mtm::U0": {
@@ -85,7 +85,7 @@ def test_regression_train():
 
     # Predict on the first five systems
     output = model(
-        systems,
+        systems[:5],
         {"mtm::U0": ModelOutput(quantity="energy", unit="", per_atom=False)},
     )
 
