@@ -146,8 +146,8 @@ class Trainer:
                     validation_dataset,
                     num_replicas=world_size,
                     rank=rank,
-                    shuffle=True,
-                    drop_last=True,
+                    shuffle=False,
+                    drop_last=False,
                 )
                 for validation_dataset in validation_datasets
             ]
@@ -163,8 +163,12 @@ class Trainer:
                     dataset=dataset,
                     batch_size=self.hypers["batch_size"],
                     sampler=sampler,
-                    shuffle=(sampler is None),
-                    drop_last=(sampler is None),
+                    shuffle=(
+                        sampler is None
+                    ),  # the sampler takes care of this (if present)
+                    drop_last=(
+                        sampler is None
+                    ),  # the sampler takes care of this (if present)
                     collate_fn=collate_fn,
                 )
             )
@@ -239,6 +243,9 @@ class Trainer:
         # Train the model:
         logger.info("Starting training")
         for epoch in range(self.hypers["num_epochs"]):
+            if is_distributed:
+                sampler.set_epoch(epoch)
+
             train_rmse_calculator = RMSEAccumulator()
             validation_rmse_calculator = RMSEAccumulator()
 
