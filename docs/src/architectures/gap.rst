@@ -29,6 +29,23 @@ of the repository:
 This will install the package with the GAP dependencies.
 
 
+Default Hyperparameters
+-----------------------
+The default hyperparameters for the GAP model are:
+
+.. literalinclude:: ../../../src/metatrain/experimental/gap/default-hypers.yaml
+   :language: yaml
+
+
+Tuning Hyperparameters
+----------------------
+The default hyperparameters above will work well in most cases, but they
+may not be optimal for your specific dataset. In general, the most important
+hyperparameters to tune are (in decreasing order of importance):
+
+TODO: Filippo, Davide
+
+
 Architecture Hyperparameters
 ----------------------------
 
@@ -109,12 +126,3 @@ training:
 ^^^^^^^^^
 :param regularizer: value of the energy regularizer. Default 0.001
 :param regularizer_forces: value of the forces regularizer. Default null
-
-
-Default Hyperparameters
------------------------
-The default hyperparameters for the GAP model are:
-
-.. literalinclude:: ../../../src/metatrain/experimental/gap/default-hypers.yaml
-   :language: yaml
-
