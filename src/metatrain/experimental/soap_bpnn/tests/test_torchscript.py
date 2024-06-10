@@ -1,8 +1,7 @@
 import copy
 
-import ase
 import torch
-from metatensor.torch.atomistic import systems_to_torch
+from metatensor.torch.atomistic import System
 
 from metatrain.experimental.soap_bpnn import SoapBpnn
 from metatrain.utils.data import DatasetInfo, TargetInfo, TargetInfoDict
@@ -21,12 +20,15 @@ def test_torchscript():
     model = SoapBpnn(MODEL_HYPERS, dataset_info)
     model = torch.jit.script(model)
 
-    system = ase.Atoms(
-        "OHCN",
-        positions=[[0.0, 0.0, 0.0], [0.0, 0.0, 1.0], [0.0, 0.0, 2.0], [0.0, 0.0, 3.0]],
+    system = System(
+        types=torch.tensor([6, 1, 8, 7]),
+        positions=torch.tensor(
+            [[0.0, 0.0, 0.0], [0.0, 0.0, 1.0], [0.0, 0.0, 2.0], [0.0, 0.0, 3.0]]
+        ),
+        cell=torch.zeros(3, 3),
     )
     model(
-        [systems_to_torch(system)],
+        [system],
         {"energy": model.outputs["energy"]},
     )
 
@@ -44,12 +46,15 @@ def test_torchscript_with_identity():
     model = SoapBpnn(hypers, dataset_info)
     model = torch.jit.script(model)
 
-    system = ase.Atoms(
-        "OHCN",
-        positions=[[0.0, 0.0, 0.0], [0.0, 0.0, 1.0], [0.0, 0.0, 2.0], [0.0, 0.0, 3.0]],
+    system = System(
+        types=torch.tensor([6, 1, 8, 7]),
+        positions=torch.tensor(
+            [[0.0, 0.0, 0.0], [0.0, 0.0, 1.0], [0.0, 0.0, 2.0], [0.0, 0.0, 3.0]]
+        ),
+        cell=torch.zeros(3, 3),
     )
     model(
-        [systems_to_torch(system)],
+        [system],
         {"energy": model.outputs["energy"]},
     )
 
