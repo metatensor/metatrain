@@ -117,8 +117,8 @@ class Trainer:
         lens = len(train_tensor[0].values)
         if model._sampler._n_to_select > lens:
             raise ValueError(
-                f"""number of sparse points ({model._sampler._n_to_select})
- should be smaller than the number of environments ({lens})"""
+                f"Number of sparse points ({model._sampler._n_to_select}) "
+                f"should be smaller than the number of environments ({lens})"
             )
         sparse_points = model._sampler.fit_transform(train_tensor)
         sparse_points = metatensor.operations.remove_gradients(sparse_points)
