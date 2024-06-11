@@ -7,12 +7,15 @@ metatrain
   **metatrain is still very early in the concept stage. You should not use it
   for anything important.**
 
-This is a repository for training machine learning models from various architecture for
-atomistic systems. The only requirement is for these models to be able to take
-`metatensor <https://docs.metatensor.org>`_ objects as inputs and outputs. The models do
-not need to live entirely in this repository: in the most extreme case, this repository
-can simply contain a wrapper
-to an external model.
+This is a repository for training and evaluating machine learning models from various
+architecture for atomistic systems. The only requirement is for these models to be able
+to take metatensor_ objects as inputs/outputs and have to be JIT compilable using
+TorchScript_. The architectures do not need to live entirely in this repository: in the
+most extreme case, this repository can simply contain a wrapper to an external
+architecture.
+
+.. _metatensor: https://docs.metatensor.org
+.. _TorchScript: https://pytorch.org/docs/stable/jit.html
 
 .. marker-introduction
 
@@ -31,7 +34,7 @@ external models that implement the various architectures.
 
 Features
 ########
-- **Custom ML Architecture**: Integrate any TorchScriptable ML model to explore innova
+- **Custom ML Architecture**: Integrate any TorchScriptable ML model
 - **MD Engine Compatibility**: Supports various MD engines for diverse research and
   application needs.
 - **Streamlined Training**: Automated process leveraging MD-generated data to optimize
