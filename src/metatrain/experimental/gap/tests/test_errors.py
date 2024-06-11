@@ -72,8 +72,8 @@ def test_ethanol_regression_train_and_invariance():
     with pytest.raises(
         ValueError,
         match=re.escape(
-            """number of sparse points (30)
- should be smaller than the number of environments (18)"""
+            "Number of sparse points (30) "
+            "should be smaller than the number of environments (18)"
         ),
     ):
         trainer.train(gap, [torch.device("cpu")], [dataset], [dataset], ".")

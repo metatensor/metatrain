@@ -309,6 +309,31 @@ def train_model(
             validation_datasets.append(validation_dataset)
 
     ###########################
+    # PRINT DATASET STATS #####
+    ###########################
+
+    for i, train_dataset in enumerate(train_datasets):
+        if len(train_datasets) == 1:
+            index = ""
+        else:
+            index = f" {i}"
+        logger.info(f"Training dataset{index} has size {len(train_dataset)}")
+
+    for i, validation_dataset in enumerate(validation_datasets):
+        if len(validation_datasets) == 1:
+            index = ""
+        else:
+            index = f" {i}"
+        logger.info(f"Validation dataset{index} has size {len(validation_dataset)}")
+
+    for i, test_dataset in enumerate(test_datasets):
+        if len(test_datasets) == 1:
+            index = ""
+        else:
+            index = f" {i}"
+        logger.info(f"Test dataset{index} has size {len(test_dataset)}")
+
+    ###########################
     # SAVE EXPANDED OPTIONS ###
     ###########################
 

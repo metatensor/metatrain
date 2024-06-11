@@ -43,7 +43,30 @@ The default hyperparameters above will work well in most cases, but they
 may not be optimal for your specific dataset. In general, the most important
 hyperparameters to tune are (in decreasing order of importance):
 
-TODO: Filippo, Davide
+- ``cutoff``: This should be set to a value after which most of the
+  interactions between atoms is expected to be negligible.
+- ``num_sparse_points``: Number of sparse points to use during
+  the training, it select the number of actual samples
+  to use during the training. The selection is done with
+  the Further Point Sampling (FPS) algorithm.
+  The optimal number of sparse points depends on the system.
+  Increasing it might impreve the accuracy, but it also increase the
+  memory and time required for training.
+- ``regularizer``: Value of the regularizer for the energy. It should
+  be tuned depending on the specific dataset. If it is too small might
+  lead to overfitting, if it is too big might lead to bad accuracy.
+- ``regularizer_forces``: Value of the regularizer for the forces. It has
+  a similar effect as ``regularizer``. By default is set equal to ``regularizer``.
+  It might be changed to have better accuracy.
+- ``max_radial``, ``max_angular``:
+  These hyperparameters control the size and depth of the SOAP descriptors, in
+  particular the total number of radial and angular channels.
+  In general, increasing these hyperparameters might lead to better accuracy,
+  especially on larger datasets, at the cost of increased training and evaluation time.
+- ``radial_scaling`` hyperparameters: These hyperparameters control the radial scaling
+  of the SOAP descriptor. In general, the default values should work well, but they
+  might need to be adjusted for specific datasets.
+- ``degree``: degree of the kernel. For now, only 2 is allowed.
 
 
 Architecture Hyperparameters
