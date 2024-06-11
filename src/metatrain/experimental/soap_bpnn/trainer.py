@@ -67,7 +67,10 @@ class Trainer:
                     " If you want to run distributed training with SOAP-BPNN, please "
                     "set `device` to cuda."
                 )
-            device = torch.device("cuda", distr_env.local_rank)
+            # the calculation of the device number works both when GPUs on different
+            # processes are not visible to each other and when they are
+            device_number = distr_env.local_rank % torch.cuda.device_count()
+            device = torch.device("cuda", device_number)
         else:
             device = devices[
                 0
