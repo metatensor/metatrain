@@ -60,7 +60,7 @@ hyperparameters to tune are (in decreasing order of importance):
   It might be changed to have better accuracy.
 - ``max_radial``, ``max_angular``:
   These hyperparameters control the size and depth of the SOAP descriptors, in
-  particularthe total number of radial and angular channels.
+  particular the total number of radial and angular channels.
   In general, increasing these hyperparameters might lead to better accuracy,
   especially on larger datasets, at the cost of increased training and evaluation time.
 - ``radial_scaling`` hyperparameters: These hyperparameters control the radial scaling
