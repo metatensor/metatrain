@@ -6,15 +6,33 @@ PET
 .. warning::
 
     The metatrain interface to PET is **experimental**. You should
-    not use it for anything important. Alternatively, for a moment, consider
-    using (nonexperimental) native scripts available `here
-    <https://spozdn.github.io/pet/train_model.html>`_.
+    not use it for anything important. You can also fit PET from
+    `here <https://spozdn.github.io/pet/train_model.html>`_.
 
-PET basic fitting guide
+
+Installation
+------------
+
+To install the package, you can run the following command in the root directory
+of the repository:
+
+.. code-block:: bash
+
+    pip install .[pet]
+
+This will install the package with the PET dependencies.
+
+
+Default Hyperparameters
 -----------------------
 
-TL;DR
-~~~~~
+The default hyperparameters for the PET model are:
+
+.. literalinclude:: ../../../src/metatrain/experimental/pet/default-hypers.yaml
+   :language: yaml
+
+Tuning Hyperparameters
+----------------------
 
 1) Set ``R_CUT`` so that there are about 20-30 neighbors on average for your
    dataset.
@@ -160,8 +178,8 @@ block (see more details in the `PET paper <https://arxiv.org/abs/2305.19302>`_).
 This adjustment would result in a model that is about 1.5 times more lightweight
 and faster, with an expected minimal deterioration in accuracy.
 
-Description of Hyperparameters
-------------------------------
+Architecture Hyperparameters
+----------------------------
 
 - ``RANDOM_SEED``: random seed
 - ``CUDA_DETERMINISTIC``: if applying PyTorch reproducibility settings
@@ -235,11 +253,3 @@ dataset)``.
 - ``USE_ADDITIONAL_SCALAR_ATTRIBUTES``: if using additional scalar attributes
   such as collinear spins
 - ``SCALAR_ATTRIBUTES_SIZE``: dimensionality of additional scalar attributes
-
-Default Hyperparameters
------------------------
-
-The default hyperparameters for the PET model are:
-
-.. literalinclude:: ../../../src/metatrain/experimental/pet/default-hypers.yaml
-   :language: yaml

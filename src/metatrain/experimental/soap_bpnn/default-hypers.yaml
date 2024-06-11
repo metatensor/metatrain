@@ -28,7 +28,7 @@ training:
   early_stopping_patience: 50
   scheduler_patience: 10
   scheduler_factor: 0.8
-  log_interval: 10
+  log_interval: 5
   checkpoint_interval: 25
   fixed_composition_weights: {}
   per_structure_targets: []
