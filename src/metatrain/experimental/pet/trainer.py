@@ -26,22 +26,22 @@ class Trainer:
         model: WrappedPET,
         devices: List[torch.device],
         train_datasets: List[Union[Dataset, torch.utils.data.Subset]],
-        validation_datasets: List[Union[Dataset, torch.utils.data.Subset]],
+        valid_datasets: List[Union[Dataset, torch.utils.data.Subset]],
         checkpoint_dir: str,
     ):
         if len(train_datasets) != 1:
             raise ValueError("PET only supports a single training dataset")
-        if len(validation_datasets) != 1:
+        if len(valid_datasets) != 1:
             raise ValueError("PET only supports a single validation dataset")
 
         if model.checkpoint_path is not None:
             self.hypers["FITTING_SCHEME"]["MODEL_TO_START_WITH"] = model.checkpoint_path
 
         logger.info("Checking datasets for consistency")
-        check_datasets(train_datasets, validation_datasets)
+        check_datasets(train_datasets, valid_datasets)
 
         train_dataset = train_datasets[0]
-        validation_dataset = validation_datasets[0]
+        valid_dataset = valid_datasets[0]
 
         # dummy dataloaders due to https://github.com/lab-cosmo/metatensor/issues/521
         train_dataloader = DataLoader(
@@ -50,8 +50,8 @@ class Trainer:
             shuffle=False,
             collate_fn=collate_fn,
         )
-        validation_dataloader = DataLoader(
-            validation_dataset,
+        valid_dataloader = DataLoader(
+            valid_dataset,
             batch_size=1,
             shuffle=False,
             collate_fn=collate_fn,
@@ -101,8 +101,8 @@ class Trainer:
                 )
             ase_train_dataset.append(ase_atoms)
 
-        ase_validation_dataset = []
-        for (system,), targets in validation_dataloader:
+        ase_valid_dataset = []
+        for (system,), targets in valid_dataloader:
             ase_atoms = system_to_ase(system)
             ase_atoms.info["energy"] = float(
                 targets[target_name].block().values.squeeze(-1).detach().cpu().numpy()
@@ -117,13 +117,13 @@ class Trainer:
                     .cpu()
                     .numpy()
                 )
-            ase_validation_dataset.append(ase_atoms)
+            ase_valid_dataset.append(ase_atoms)
 
         device = devices[0]  # only one device, as we don't support multi-gpu for now
 
         fit_pet(
             ase_train_dataset,
-            ase_validation_dataset,
+            ase_valid_dataset,
             self.hypers,
             "pet",
             device,

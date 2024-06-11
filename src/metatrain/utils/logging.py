@@ -33,7 +33,7 @@ class MetricLogger:
         :param logobj: A logging instance
         :param model_outputs: outputs of the model
         :param initial_metrics: initial training metrics
-        :param validation_info_0: initial validation metrics
+        :param names: names of the metrics (e.g., "train", "validation")
         """
         self.logobj = logobj
         self.model_outputs = model_outputs

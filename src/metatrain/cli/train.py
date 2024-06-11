@@ -254,13 +254,13 @@ def train_model(
     ###########################
 
     logger.info("Setting up validation set")
-    validation_options = options["validation_set"]
-    validation_datasets = []
-    if isinstance(validation_options, float):
-        validation_size = validation_options
-        train_size -= validation_size
+    valid_options = options["validation_set"]
+    valid_datasets = []
+    if isinstance(valid_options, float):
+        valid_size = valid_options
+        train_size -= valid_size
 
-        if validation_size <= 0 or validation_size >= 1:
+        if valid_size <= 0 or valid_size >= 1:
             raise ValueError(
                 "Validation set split must be greater than 0 and lesser than 1."
             )
@@ -270,43 +270,39 @@ def train_model(
             generator.manual_seed(options["seed"])
 
         for i_dataset, train_dataset in enumerate(train_datasets):
-            train_dataset_new, validation_dataset = _train_test_random_split(
+            train_dataset_new, valid_dataset = _train_test_random_split(
                 train_dataset=train_dataset,
                 train_size=train_size,
-                test_size=validation_size,
+                test_size=valid_size,
                 generator=generator,
             )
 
             train_datasets[i_dataset] = train_dataset_new
-            validation_datasets.append(validation_dataset)
+            valid_datasets.append(valid_dataset)
     else:
-        validation_options_list = expand_dataset_config(validation_options)
-        check_options_list(validation_options_list)
+        valid_options_list = expand_dataset_config(valid_options)
+        check_options_list(valid_options_list)
 
-        if len(validation_options_list) != len(train_options_list):
+        if len(valid_options_list) != len(train_options_list):
             raise ValueError(
-                f"Validation dataset with length {len(validation_options_list)} has "
+                f"Validation dataset with length {len(valid_options_list)} has "
                 "a different size than the train datatset with length "
                 f"{len(train_options_list)}."
             )
 
         check_units(
-            actual_options=validation_options_list, desired_options=train_options_list
+            actual_options=valid_options_list, desired_options=train_options_list
         )
 
-        for validation_options in validation_options_list:
-            validation_systems = read_systems(
-                filename=validation_options["systems"]["read_from"],
-                fileformat=validation_options["systems"]["file_format"],
+        for valid_options in valid_options_list:
+            valid_systems = read_systems(
+                filename=valid_options["systems"]["read_from"],
+                fileformat=valid_options["systems"]["file_format"],
                 dtype=dtype,
             )
-            validation_targets, _ = read_targets(
-                conf=validation_options["targets"], dtype=dtype
-            )
-            validation_dataset = Dataset(
-                {"system": validation_systems, **validation_targets}
-            )
-            validation_datasets.append(validation_dataset)
+            valid_targets, _ = read_targets(conf=valid_options["targets"], dtype=dtype)
+            valid_dataset = Dataset({"system": valid_systems, **valid_targets})
+            valid_datasets.append(valid_dataset)
 
     ###########################
     # SAVE EXPANDED OPTIONS ###
@@ -320,9 +316,7 @@ def train_model(
     # CREATE DATASET_INFO #####
     ###########################
 
-    atomic_types = get_atomic_types(
-        train_datasets + train_datasets + validation_datasets
-    )
+    atomic_types = get_atomic_types(train_datasets + train_datasets + valid_datasets)
 
     dataset_info = DatasetInfo(
         length_unit=train_options_list[0]["systems"]["length_unit"],
@@ -356,7 +350,7 @@ def train_model(
             model=model,
             devices=devices,
             train_datasets=train_datasets,
-            validation_datasets=validation_datasets,
+            valid_datasets=valid_datasets,
             checkpoint_dir=str(checkpoint_dir),
         )
     except Exception as e:
@@ -402,8 +396,8 @@ def train_model(
             return_predictions=False,
         )
 
-    for i, validation_dataset in enumerate(validation_datasets):
-        if len(validation_datasets) == 1:
+    for i, valid_dataset in enumerate(valid_datasets):
+        if len(valid_datasets) == 1:
             extra_log_message = ""
         else:
             extra_log_message = f" with index {i}"
@@ -411,7 +405,7 @@ def train_model(
         logger.info(f"Evaluating validation dataset{extra_log_message}")
         _eval_targets(
             mts_atomistic_model,
-            validation_dataset,
+            valid_dataset,
             dataset_info.targets,
             return_predictions=False,
         )

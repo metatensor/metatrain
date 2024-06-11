@@ -26,7 +26,7 @@ class Trainer:
         model: GAP,
         devices: List[torch.device],
         train_datasets: List[Union[Dataset, torch.utils.data.Subset]],
-        validation_datasets: List[Union[Dataset, torch.utils.data.Subset]],
+        valid_datasets: List[Union[Dataset, torch.utils.data.Subset]],
         checkpoint_dir: str,
     ):
         # checks
@@ -36,12 +36,12 @@ class Trainer:
         target_name = next(iter(model.dataset_info.targets.keys()))
         if len(train_datasets) != 1:
             raise ValueError("GAP only supports a single training dataset")
-        if len(validation_datasets) != 1:
+        if len(valid_datasets) != 1:
             raise ValueError("GAP only supports a single validation dataset")
 
         # Perform checks on the datasets:
         logger.info("Checking datasets for consistency")
-        check_datasets(train_datasets, validation_datasets)
+        check_datasets(train_datasets, valid_datasets)
 
         logger.info("Training on device cpu")
 

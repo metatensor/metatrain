@@ -446,40 +446,40 @@ def test_check_datasets():
     targets_ethanol, _ = read_targets(OmegaConf.create(conf_ethanol))
 
     # everything ok
-    training_set = Dataset({"system": systems_qm9, **targets_qm9})
-    validation_set = Dataset({"system": systems_qm9, **targets_qm9})
-    check_datasets([training_set], [validation_set])
+    train_set = Dataset({"system": systems_qm9, **targets_qm9})
+    valid_set = Dataset({"system": systems_qm9, **targets_qm9})
+    check_datasets([train_set], [valid_set])
 
     # extra species in validation dataset
-    training_set = Dataset({"system": systems_ethanol, **targets_qm9})
-    validation_set = Dataset({"system": systems_qm9, **targets_qm9})
+    train_set = Dataset({"system": systems_ethanol, **targets_qm9})
+    valid_set = Dataset({"system": systems_qm9, **targets_qm9})
     with pytest.raises(ValueError, match="The validation dataset has a species"):
-        check_datasets([training_set], [validation_set])
+        check_datasets([train_set], [valid_set])
 
     # extra targets in validation dataset
-    training_set = Dataset({"system": systems_qm9, **targets_qm9})
-    validation_set = Dataset({"system": systems_qm9, **targets_ethanol})
+    train_set = Dataset({"system": systems_qm9, **targets_qm9})
+    valid_set = Dataset({"system": systems_qm9, **targets_ethanol})
     with pytest.raises(ValueError, match="The validation dataset has a target"):
-        check_datasets([training_set], [validation_set])
+        check_datasets([train_set], [valid_set])
 
     # wrong dtype
     systems_qm9_64_bit = read_systems(
         RESOURCES_PATH / "qm9_reduced_100.xyz", dtype=torch.float64
     )
-    training_set_64_bit = Dataset({"system": systems_qm9_64_bit, **targets_qm9})
+    train_set_64_bit = Dataset({"system": systems_qm9_64_bit, **targets_qm9})
     match = (
         "`dtype` between datasets is inconsistent, found torch.float32 and "
-        "torch.float64 found in `validation_datasets`"
+        "torch.float64 found in `valid_datasets`"
     )
     with pytest.raises(TypeError, match=match):
-        check_datasets([training_set], [training_set_64_bit])
+        check_datasets([train_set], [train_set_64_bit])
 
     match = (
         "`dtype` between datasets is inconsistent, found torch.float32 and "
         "torch.float64 found in `train_datasets`"
     )
     with pytest.raises(TypeError, match=match):
-        check_datasets([training_set, training_set_64_bit], [validation_set])
+        check_datasets([train_set, train_set_64_bit], [valid_set])
 
 
 def test_collate_fn():
