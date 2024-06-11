@@ -27,6 +27,8 @@ def test_rotational_invariance():
     original_system = get_system_with_neighbor_lists(
         original_system, model.requested_neighbor_lists()
     )
+
+    system.rotate(48, "y")
     system = systems_to_torch(system)
     system = get_system_with_neighbor_lists(system, model.requested_neighbor_lists())
 

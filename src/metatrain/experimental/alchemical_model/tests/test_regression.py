@@ -1,15 +1,19 @@
 import random
 
-import ase.io
 import numpy as np
 import torch
-from metatensor.torch.atomistic import ModelEvaluationOptions, systems_to_torch
+from metatensor.torch.atomistic import ModelEvaluationOptions
 from omegaconf import OmegaConf
 
 from metatrain.experimental.alchemical_model import AlchemicalModel, Trainer
-from metatrain.utils.data import Dataset, DatasetInfo, TargetInfo
+from metatrain.utils.data import (
+    Dataset,
+    DatasetInfo,
+    TargetInfo,
+    read_systems,
+    read_targets,
+)
 from metatrain.utils.data.dataset import TargetInfoDict
-from metatrain.utils.data.readers import read_systems, read_targets
 from metatrain.utils.neighbor_lists import get_system_with_neighbor_lists
 
 from . import DATASET_PATH, DEFAULT_HYPERS, MODEL_HYPERS
@@ -33,8 +37,7 @@ def test_regression_init():
     model = AlchemicalModel(MODEL_HYPERS, dataset_info)
 
     # Predict on the first five systems
-    systems = ase.io.read(DATASET_PATH, ":5")
-    systems = [systems_to_torch(system) for system in systems]
+    systems = read_systems(DATASET_PATH)[:5]
     systems = [
         get_system_with_neighbor_lists(system, model.requested_neighbor_lists())
         for system in systems
