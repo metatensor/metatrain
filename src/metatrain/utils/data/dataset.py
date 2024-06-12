@@ -257,6 +257,8 @@ def _get_dataset_stats(
     if dataset_len == 0:
         return stats
 
+    # target_names will be used to store names of the targets,
+    # along with their gradients
     target_names = []
     for key, tensor_map in dataset[0].items():
         if key == "system":
@@ -267,6 +269,7 @@ def _get_dataset_stats(
             target_names.append(f"{key}_{gradient}_gradients")
 
     sums = {key: 0.0 for key in target_names}
+    sums_of_squares = {key: 0.0 for key in target_names}
     n_elements = {key: 0 for key in target_names}
     for sample in dataset:
         for key in target_names:
@@ -282,29 +285,14 @@ def _get_dataset_stats(
                     for block in sample[original_key].blocks()
                 ]
             sums[key] += sum(tensor.sum() for tensor in tensors)
+            sums_of_squares[key] += sum((tensor**2).sum() for tensor in tensors)
             n_elements[key] += sum(tensor.numel() for tensor in tensors)
     means = {key: sums[key] / n_elements[key] for key in target_names}
-
-    sum_of_squared_residuals = {key: 0.0 for key in target_names}
-    for sample in dataset:
-        for key in target_names:
-            if "_gradients" not in key:  # not a gradient
-                tensors = [block.values for block in sample[key].blocks()]
-            else:
-                original_key = key.split("_")[0]
-                gradient_name = key.replace(f"{original_key}_", "").replace(
-                    "_gradients", ""
-                )
-                tensors = [
-                    block.gradient(gradient_name).values
-                    for block in sample[original_key].blocks()
-                ]
-            sum_of_squared_residuals[key] += sum(
-                ((tensor - means[key]) ** 2).sum() for tensor in tensors
-            )
+    means_of_squares = {
+        key: sums_of_squares[key] / n_elements[key] for key in target_names
+    }
     stds = {
-        key: (sum_of_squared_residuals[key] / n_elements[key]) ** 0.5
-        for key in target_names
+        key: (means_of_squares[key] - means[key] ** 2) ** 0.5 for key in target_names
     }
 
     stats += "\n    Mean and standard deviation of targets:"
