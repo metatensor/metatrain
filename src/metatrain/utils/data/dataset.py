@@ -46,6 +46,40 @@ class Dataset:
         for i in range(len(self)):
             yield self[i]
 
+    def __repr__(self) -> str:
+        if hasattr(self, "_cached_repr"):
+            return self._cached_repr
+        repr = f"Dataset of size {len(self)}\n"
+        dataset_keys = self[0].keys()
+
+        sums = {key: 0.0 for key in dataset_keys}
+        n_elements = {key: 0 for key in dataset_keys}
+        for sample in self:
+            for key in dataset_keys:
+                tensors = [block.values for block in sample[key].blocks()]
+                sums[key] += sum(tensor.sum() for tensor in tensors)
+                n_elements[key] += sum(tensor.numel() for tensor in tensors)
+        means = {key: sums[key] / n_elements[key] for key in dataset_keys}
+
+        sum_of_squared_residuals = {key: 0.0 for key in dataset_keys}
+        for sample in self:
+            for key in dataset_keys:
+                tensors = [block.values for block in sample[key].blocks()]
+                sum_of_squared_residuals[key] += sum(
+                    ((tensor - means[key]) ** 2).sum() for tensor in tensors
+                )
+        stds = {
+            key: (sum_of_squared_residuals[key] / n_elements[key]) ** 0.5
+            for key in dataset_keys
+        }
+
+        repr += "  Mean and standard deviation of targets:\n"
+        for key in dataset_keys:
+            repr += f"  {key}: mean={means[key]:.3e}, std={stds[key]:.3e}\n"
+
+        self._cached_repr = repr
+        return repr
+
 
 @dataclass
 class TargetInfo:
