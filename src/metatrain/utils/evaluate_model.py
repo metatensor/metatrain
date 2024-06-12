@@ -1,6 +1,7 @@
 import warnings
 from typing import Dict, List, Union
 
+import metatensor.torch
 import torch
 from metatensor.torch import Labels, TensorBlock, TensorMap
 from metatensor.torch.atomistic import (
@@ -293,12 +294,7 @@ def _prepare_system(system: System, positions_grad: bool, strain_grad: bool):
         nl = system.get_neighbor_list(nl_options)
         register_autograd_neighbors(
             new_system,
-            TensorBlock(
-                values=nl.values.detach(),
-                samples=nl.samples,
-                components=nl.components,
-                properties=nl.properties,
-            ),
+            metatensor.torch.detach_block(nl),
             check_consistency=True,
         )
         new_system.add_neighbor_list(nl_options, nl)
