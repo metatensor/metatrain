@@ -14,13 +14,13 @@ torch.set_default_dtype(torch.float64)  # GAP only supports float64
 def test_torchscript():
     """Tests that the model can be jitted."""
     target_info_dict = TargetInfoDict()
-    target_info_dict["mtm::U0"] = TargetInfo(quantity="energy", unit="eV")
+    target_info_dict["mtt::U0"] = TargetInfo(quantity="energy", unit="eV")
 
     dataset_info = DatasetInfo(
         length_unit="Angstrom", atomic_types={1, 6, 7, 8}, targets=target_info_dict
     )
     conf = {
-        "mtm::U0": {
+        "mtt::U0": {
             "quantity": "energy",
             "read_from": DATASET_PATH,
             "file_format": ".xyz",
@@ -36,7 +36,7 @@ def test_torchscript():
 
     # for system in systems:
     #    system.types = torch.ones(len(system.types), dtype=torch.int32)
-    dataset = Dataset({"system": systems, "mtm::U0": targets["mtm::U0"]})
+    dataset = Dataset({"system": systems, "mtt::U0": targets["mtt::U0"]})
 
     hypers = DEFAULT_HYPERS.copy()
     gap = GAP(DEFAULT_HYPERS["model"], dataset_info)
@@ -44,21 +44,21 @@ def test_torchscript():
     trainer.train(gap, [torch.device("cpu")], [dataset], [dataset], ".")
     scripted_gap = torch.jit.script(gap)
 
-    ref_output = gap.forward(systems[:5], {"mtm::U0": gap.outputs["mtm::U0"]})
+    ref_output = gap.forward(systems[:5], {"mtt::U0": gap.outputs["mtt::U0"]})
     scripted_output = scripted_gap.forward(
-        systems[:5], {"mtm::U0": gap.outputs["mtm::U0"]}
+        systems[:5], {"mtt::U0": gap.outputs["mtt::U0"]}
     )
 
     assert torch.allclose(
-        ref_output["mtm::U0"].block().values,
-        scripted_output["mtm::U0"].block().values,
+        ref_output["mtt::U0"].block().values,
+        scripted_output["mtt::U0"].block().values,
     )
 
 
 def test_torchscript_save():
     """Tests that the model can be jitted and saved."""
     targets = TargetInfoDict()
-    targets["mtm::U0"] = TargetInfo(quantity="energy", unit="eV")
+    targets["mtt::U0"] = TargetInfo(quantity="energy", unit="eV")
 
     dataset_info = DatasetInfo(
         length_unit="Angstrom", atomic_types={1, 6, 7, 8}, targets=targets
