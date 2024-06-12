@@ -314,7 +314,7 @@ def train_model(
     # CREATE DATASET_INFO #####
     ###########################
 
-    atomic_types = get_atomic_types(train_datasets + train_datasets + val_datasets)
+    atomic_types = get_atomic_types(train_datasets + val_datasets)
 
     dataset_info = DatasetInfo(
         length_unit=train_options_list[0]["systems"]["length_unit"],
