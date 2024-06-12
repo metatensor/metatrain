@@ -1,7 +1,9 @@
 import logging
 import re
 
-from metatrain.utils.logging import setup_logging
+from metatensor.torch.atomistic import ModelOutput
+
+from metatrain.utils.logging import MetricLogger, setup_logging
 
 
 def assert_log_entry(logtext: str, loglevel: str, message: str) -> None:
@@ -78,4 +80,34 @@ def test_debug_log(caplog, monkeypatch, tmp_path, capsys):
         assert "foo" in logtext
         assert "A debug message" in logtext
         # Test that debug information is in output
-        assert "test_logging.py:test_debug_log:67" in logtext
+        assert "test_logging.py:test_debug_log:68" in logtext
+
+
+def test_metric_logger(caplog, capsys):
+    """Tests the MetricLogger class."""
+    caplog.set_level(logging.INFO)
+    logger = logging.getLogger("test")
+
+    outputs = {
+        "foo": ModelOutput(),
+        "bar": ModelOutput(),
+    }
+
+    names = ["train"]
+
+    initial_metrics = [
+        {
+            "loss": 0.1,
+            "foo RMSE": 1.0,
+            "bar RMSE": 0.1,
+        }
+    ]
+
+    with setup_logging(logger, logfile="logfile.log", level=logging.INFO):
+        metric_logger = MetricLogger(logger, outputs, initial_metrics, names)
+        metric_logger.log(initial_metrics)
+
+    stdout_log = capsys.readouterr().out
+    assert "train loss: 1.000e-01" in stdout_log
+    assert "train foo RMSE: 1.0000" in stdout_log
+    assert "train bar RMSE: 0.1000" in stdout_log
