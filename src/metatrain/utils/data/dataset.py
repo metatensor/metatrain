@@ -234,11 +234,7 @@ class Dataset:
             yield self[i]
 
     def get_stats(self, dataset_info: DatasetInfo) -> str:
-        if hasattr(self, "_cached_stats"):
-            return self._cached_stats  # type: ignore
-        stats = _get_dataset_stats(self, dataset_info)
-        self._cached_stats = stats
-        return stats
+        return _get_dataset_stats(self, dataset_info)
 
 
 class Subset(torch.utils.data.Subset):
@@ -248,14 +244,12 @@ class Subset(torch.utils.data.Subset):
     """
 
     def get_stats(self, dataset_info: DatasetInfo) -> str:
-        if hasattr(self, "_cached_stats"):
-            return self._cached_stats  # type: ignore
-        stats = _get_dataset_stats(self, dataset_info)
-        self._cached_stats = stats
-        return stats
+        return _get_dataset_stats(self, dataset_info)
 
 
-def _get_dataset_stats(dataset: Union[Dataset, Subset], dataset_info: DatasetInfo) -> str:
+def _get_dataset_stats(
+    dataset: Union[Dataset, Subset], dataset_info: DatasetInfo
+) -> str:
     """Returns the statistics of a dataset or subset as a string."""
 
     dataset_len = len(dataset)
