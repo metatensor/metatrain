@@ -5,7 +5,7 @@ requires-python = ">=3.9"
 
 readme = "README.md"
 license = {text = "BSD-3-Clause"}
-description = "Training machine learning models for atomistic systems."
+description = "Training and evaluating machine learning models for atomistic systems."
 authors = [{name = "metatrain developers"}]
 
 dependencies = [

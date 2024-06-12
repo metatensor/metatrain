@@ -149,8 +149,8 @@ def _get_digits(value: float) -> Tuple[int, int]:
 
 @contextlib.contextmanager
 def setup_logging(
-    logobj: logging.Logger,
-    logfile: Optional[Union[str, Path]] = None,
+    log_obj: logging.Logger,
+    log_file: Optional[Union[str, Path]] = None,
     level: int = logging.WARNING,
 ):
     """Create a logging environment for a given ``logobj``.
@@ -158,8 +158,8 @@ def setup_logging(
     Extracted and adjusted from
     github.com/MDAnalysis/mdacli/blob/main/src/mdacli/logger.py
 
-    :param logobj: A logging instance
-    :param logfile: Name of the log file
+    :param log_obj: A logging instance
+    :param log_file: Name of the log file
     :param level: Set the root logger level to the specified level. If for example set
         to :py:obj:`logging.DEBUG` detailed debug logs inludcing filename and function
         name are displayed. For :py:obj:`logging.INFO` only the message logged from
@@ -178,9 +178,9 @@ def setup_logging(
         stream_handler.setFormatter(formatter)
         handlers.append(stream_handler)
 
-        if logfile:
-            logfile = check_suffix(filename=logfile, suffix=".log")
-            file_handler = logging.FileHandler(filename=str(logfile), encoding="utf-8")
+        if log_file:
+            log_file = check_suffix(filename=log_file, suffix=".log")
+            file_handler = logging.FileHandler(filename=str(log_file), encoding="utf-8")
             file_handler.setFormatter(formatter)
             handlers.append(file_handler)
 
@@ -190,13 +190,14 @@ def setup_logging(
 
         logging.basicConfig(format=format, handlers=handlers, level=level, style="{")
 
-        if logfile:
-            logobj.info(f"This log is also available in {str(logfile)!r}.")
+        if log_file:
+            abs_path = str(Path(log_file).absolute().resolve())
+            log_obj.info(f"This log is also available at {abs_path!r}.")
         else:
-            logobj.info("Logging to file is disabled.")
+            log_obj.info("Logging to file is disabled.")
 
         for handler in handlers:
-            logobj.addHandler(handler)
+            log_obj.addHandler(handler)
 
         yield
 
@@ -204,4 +205,4 @@ def setup_logging(
         for handler in handlers:
             handler.flush()
             handler.close()
-            logobj.removeHandler(handler)
+            log_obj.removeHandler(handler)

@@ -57,7 +57,7 @@ def _add_train_model_parser(subparser: argparse._SubParsersAction) -> None:
 
     parser.add_argument(
         "options",
-        type=OmegaConf.load,
+        type=str,
         help="Options file",
     )
     parser.add_argument(
@@ -84,6 +84,17 @@ def _add_train_model_parser(subparser: argparse._SubParsersAction) -> None:
         type=lambda string: OmegaConf.from_dotlist(string.split()),
         help="Command line override flags.",
     )
+
+
+def _prepare_train_model_args(args: argparse.Namespace) -> None:
+    """Prepare arguments for train_model."""
+    args.options = OmegaConf.load(args.options)
+    # merge/override file options with command line options
+    override_options = args.__dict__.pop("override_options")
+    if override_options is None:
+        override_options = {}
+
+    args.options = OmegaConf.merge(args.options, override_options)
 
 
 def train_model(
