@@ -204,7 +204,7 @@ def read_targets(
                         fileformat=target["forces"]["file_format"],
                         dtype=dtype,
                     )
-                except KeyError:
+                except Exception:
                     logger.warning(
                         f"No Forces found in section {target_key!r}. "
                         "Continue without forces!"
@@ -232,7 +232,7 @@ def read_targets(
                         fileformat=target["stress"]["file_format"],
                         dtype=dtype,
                     )
-                except KeyError:
+                except Exception:
                     logger.warning(
                         f"No Stress found in section {target_key!r}. "
                         "Continue without stress!"
@@ -255,7 +255,7 @@ def read_targets(
                         fileformat=target["virial"]["file_format"],
                         dtype=dtype,
                     )
-                except KeyError:
+                except Exception:
                     logger.warning(
                         f"No Virial found in section {target_key!r}. "
                         "Continue without virial!"
