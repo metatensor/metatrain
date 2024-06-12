@@ -22,7 +22,7 @@ def test_regression_init():
     """Perform a regression test on the model at initialization"""
 
     targets = TargetInfoDict()
-    targets["mtm::U0"] = TargetInfo(quantity="energy", unit="eV")
+    targets["mtt::U0"] = TargetInfo(quantity="energy", unit="eV")
 
     dataset_info = DatasetInfo(
         length_unit="Angstrom", atomic_types={1, 6, 7, 8}, targets=targets
@@ -34,7 +34,7 @@ def test_regression_init():
 
     output = model(
         systems,
-        {"mtm::U0": ModelOutput(quantity="energy", unit="", per_atom=False)},
+        {"mtt::U0": ModelOutput(quantity="energy", unit="", per_atom=False)},
     )
 
     expected_output = torch.tensor(
@@ -43,10 +43,10 @@ def test_regression_init():
 
     # if you need to change the hardcoded values:
     torch.set_printoptions(precision=5)
-    print(output["mtm::U0"].block().values)
+    print(output["mtt::U0"].block().values)
 
     torch.testing.assert_close(
-        output["mtm::U0"].block().values, expected_output, rtol=1e-5, atol=1e-5
+        output["mtt::U0"].block().values, expected_output, rtol=1e-5, atol=1e-5
     )
 
 
@@ -57,7 +57,7 @@ def test_regression_train():
     systems = read_systems(DATASET_PATH)
 
     conf = {
-        "mtm::U0": {
+        "mtt::U0": {
             "quantity": "energy",
             "read_from": DATASET_PATH,
             "file_format": ".xyz",
@@ -69,7 +69,7 @@ def test_regression_train():
         }
     }
     targets, target_info_dict = read_targets(OmegaConf.create(conf))
-    dataset = Dataset({"system": systems, "mtm::U0": targets["mtm::U0"]})
+    dataset = Dataset({"system": systems, "mtt::U0": targets["mtt::U0"]})
 
     hypers = DEFAULT_HYPERS.copy()
     hypers["training"]["num_epochs"] = 2
@@ -86,7 +86,7 @@ def test_regression_train():
     # Predict on the first five systems
     output = model(
         systems[:5],
-        {"mtm::U0": ModelOutput(quantity="energy", unit="", per_atom=False)},
+        {"mtt::U0": ModelOutput(quantity="energy", unit="", per_atom=False)},
     )
 
     expected_output = torch.tensor(
@@ -95,8 +95,8 @@ def test_regression_train():
 
     # if you need to change the hardcoded values:
     # torch.set_printoptions(precision=5)
-    # print(output["mtm::U0"].block().values)
+    # print(output["mtt::U0"].block().values)
 
     torch.testing.assert_close(
-        output["mtm::U0"].block().values, expected_output, rtol=1e-5, atol=1e-5
+        output["mtt::U0"].block().values, expected_output, rtol=1e-5, atol=1e-5
     )

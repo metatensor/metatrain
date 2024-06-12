@@ -11,7 +11,7 @@ from torch.utils.data import Subset, random_split
 
 class Dataset:
     """A version of the `metatensor.learn.Dataset` class that allows for
-    the use of `mtm::` prefixes in the keys of the dictionary. See
+    the use of `mtt::` prefixes in the keys of the dictionary. See
     https://github.com/lab-cosmo/metatensor/issues/621.
 
     It is important to note that, instead of named tuples, this class
@@ -24,7 +24,7 @@ class Dataset:
 
         new_dict = {}
         for key, value in dict.items():
-            key = key.replace("mtm::", "mtm_")
+            key = key.replace("mtt::", "mtm_")
             new_dict[key] = value
 
         self.mts_learn_dataset = metatensor.learn.Dataset(**new_dict)
@@ -34,7 +34,7 @@ class Dataset:
         mts_dataset_item = self.mts_learn_dataset[idx]._asdict()
         new_dict = {}
         for key, value in mts_dataset_item.items():
-            key = key.replace("mtm_", "mtm::")
+            key = key.replace("mtm_", "mtt::")
             new_dict[key] = value
 
         return new_dict

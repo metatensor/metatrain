@@ -26,7 +26,7 @@ torch.manual_seed(0)
 def test_regression_init():
     """Perform a regression test on the model at initialization"""
     targets = TargetInfoDict()
-    targets["mtm::U0"] = TargetInfo(quantity="energy", unit="eV")
+    targets["mtt::U0"] = TargetInfo(quantity="energy", unit="eV")
 
     dataset_info = DatasetInfo(
         length_unit="Angstrom", atomic_types={1, 6, 7, 8}, targets=targets
@@ -43,7 +43,7 @@ def test_regression_train_and_invariance():
     systems = read_systems(DATASET_PATH, dtype=torch.float64)
 
     conf = {
-        "mtm::U0": {
+        "mtt::U0": {
             "quantity": "energy",
             "read_from": DATASET_PATH,
             "file_format": ".xyz",
@@ -55,10 +55,10 @@ def test_regression_train_and_invariance():
         }
     }
     targets, _ = read_targets(OmegaConf.create(conf), dtype=torch.float64)
-    dataset = Dataset({"system": systems, "mtm::U0": targets["mtm::U0"]})
+    dataset = Dataset({"system": systems, "mtt::U0": targets["mtt::U0"]})
 
     target_info_dict = TargetInfoDict()
-    target_info_dict["mtm::U0"] = TargetInfo(quantity="energy", unit="eV")
+    target_info_dict["mtt::U0"] = TargetInfo(quantity="energy", unit="eV")
 
     dataset_info = DatasetInfo(
         length_unit="Angstrom", atomic_types={1, 6, 7, 8}, targets=target_info_dict
@@ -69,13 +69,13 @@ def test_regression_train_and_invariance():
     trainer.train(gap, [torch.device("cpu")], [dataset], [dataset], ".")
 
     # Predict on the first five systems
-    output = gap(systems[:5], {"mtm::U0": gap.outputs["mtm::U0"]})
+    output = gap(systems[:5], {"mtt::U0": gap.outputs["mtt::U0"]})
 
     expected_output = torch.tensor(
         [[-40.5891], [-56.7122], [-76.4146], [-77.3364], [-93.4905]]
     )
 
-    assert torch.allclose(output["mtm::U0"].block().values, expected_output, rtol=0.3)
+    assert torch.allclose(output["mtt::U0"].block().values, expected_output, rtol=0.3)
 
     # Tests that the model is rotationally invariant
     system = ase.io.read(DATASET_PATH)
@@ -86,16 +86,16 @@ def test_regression_train_and_invariance():
 
     original_output = gap(
         [metatensor.torch.atomistic.systems_to_torch(original_system)],
-        {"mtm::U0": gap.outputs["mtm::U0"]},
+        {"mtt::U0": gap.outputs["mtt::U0"]},
     )
     rotated_output = gap(
         [metatensor.torch.atomistic.systems_to_torch(system)],
-        {"mtm::U0": gap.outputs["mtm::U0"]},
+        {"mtt::U0": gap.outputs["mtt::U0"]},
     )
 
     assert torch.allclose(
-        original_output["mtm::U0"].block().values,
-        rotated_output["mtm::U0"].block().values,
+        original_output["mtt::U0"].block().values,
+        rotated_output["mtt::U0"].block().values,
     )
 
 
