@@ -120,7 +120,7 @@ def test_output_last_layer_features():
     # last-layer features per atom:
     ll_output_options = ModelOutput(
         quantity="",
-        unit="",
+        unit="unitless",
         per_atom=True,
     )
     outputs = model(
@@ -148,7 +148,7 @@ def test_output_last_layer_features():
     # last-layer features per system:
     ll_output_options = ModelOutput(
         quantity="",
-        unit="",
+        unit="unitless",
         per_atom=False,
     )
     outputs = model(
