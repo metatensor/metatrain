@@ -67,68 +67,17 @@ def evaluate_model(
             if "strain" in targets[target_name].gradients:
                 energy_targets_that_require_strain_gradients.append(target_name)
 
-    if len(energy_targets_that_require_strain_gradients) > 0:
-        if not all([not torch.all(system.cell == 0) for system in systems]):
-            raise ValueError(
-                "One or more systems does not have a cell, "
-                "but strain gradients were requested."
-            )
-        strains = [
-            torch.eye(
-                3,
-                requires_grad=True,
-                dtype=system.cell.dtype,
-                device=system.cell.device,
-            )
-            for system in systems
-        ]
-        # Create new "displaced" systems:
-        new_systems = []
-        for system, strain in zip(systems, strains):
-            new_system = System(
-                positions=system.positions @ strain,
-                cell=system.cell @ strain,
-                types=system.types,
-            )
-            for nl_options in system.known_neighbor_lists():
-                nl = system.get_neighbor_list(nl_options)
-                register_autograd_neighbors(
-                    new_system,
-                    TensorBlock(
-                        values=nl.values.detach(),
-                        samples=nl.samples,
-                        components=nl.components,
-                        properties=nl.properties,
-                    ),
-                    check_consistency=True,
-                )
-                new_system.add_neighbor_list(nl_options, nl)
-            new_systems.append(new_system)
-        systems = new_systems
-    else:
-        if len(energy_targets_that_require_position_gradients) > 0:
-            new_systems = []
-            for system in systems:
-                new_system = System(
-                    positions=system.positions.detach().clone().requires_grad_(True),
-                    cell=system.cell,
-                    types=system.types,
-                )
-                for nl_options in system.known_neighbor_lists():
-                    nl = system.get_neighbor_list(nl_options)
-                    register_autograd_neighbors(
-                        new_system,
-                        TensorBlock(
-                            values=nl.values.detach(),
-                            samples=nl.samples,
-                            components=nl.components,
-                            properties=nl.properties,
-                        ),
-                        check_consistency=True,
-                    )
-                    new_system.add_neighbor_list(nl_options, nl)
-                new_systems.append(new_system)
-            systems = new_systems
+    new_systems = []
+    strains = []
+    for system in systems:
+        new_system, strain = _prepare_system(
+            system,
+            len(energy_targets_that_require_position_gradients) > 0,
+            len(energy_targets_that_require_strain_gradients) > 0,
+        )
+        new_systems.append(new_system)
+        strains.append(strain)
+    systems = new_systems
 
     # Based on the keys of the targets, get the outputs of the model:
     model_outputs = _get_model_outputs(model, systems, targets)
@@ -307,3 +256,50 @@ def _get_model_outputs(
                 for key, value in targets.items()
             },
         )
+
+
+def _prepare_system(system: System, positions_grad: bool, strain_grad: bool):
+    """
+    Prepares a system for gradient calculation.
+    """
+    if strain_grad:
+        strain = torch.eye(
+            3,
+            requires_grad=True,
+            dtype=system.cell.dtype,
+            device=system.cell.device,
+        )
+        new_system = System(
+            positions=system.positions @ strain,
+            cell=system.cell @ strain,
+            types=system.types,
+        )
+    else:
+        if positions_grad:
+            new_system = System(
+                positions=system.positions.detach().clone().requires_grad_(True),
+                cell=system.cell,
+                types=system.types,
+            )
+            strain = None
+        else:
+            new_system = System(
+                positions=system.positions,
+                cell=system.cell,
+                types=system.types,
+            )
+            strain = None
+    for nl_options in system.known_neighbor_lists():
+        nl = system.get_neighbor_list(nl_options)
+        register_autograd_neighbors(
+            new_system,
+            TensorBlock(
+                values=nl.values.detach(),
+                samples=nl.samples,
+                components=nl.components,
+                properties=nl.properties,
+            ),
+            check_consistency=True,
+        )
+        new_system.add_neighbor_list(nl_options, nl)
+    return new_system, strain
