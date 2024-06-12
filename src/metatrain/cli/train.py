@@ -324,12 +324,12 @@ def train_model(
             index = f" {i}"
         logger.info(f"Training dataset{index} has size {len(train_dataset)}")
 
-    for i, validation_dataset in enumerate(validation_datasets):
-        if len(validation_datasets) == 1:
+    for i, val_dataset in enumerate(val_datasets):
+        if len(val_datasets) == 1:
             index = ""
         else:
             index = f" {i}"
-        logger.info(f"Validation dataset{index} has size {len(validation_dataset)}")
+        logger.info(f"Validation dataset{index} has size {len(val_dataset)}")
 
     for i, test_dataset in enumerate(test_datasets):
         if len(test_datasets) == 1:
