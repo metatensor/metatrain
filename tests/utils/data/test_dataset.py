@@ -447,20 +447,20 @@ def test_check_datasets():
 
     # everything ok
     train_set = Dataset({"system": systems_qm9, **targets_qm9})
-    valid_set = Dataset({"system": systems_qm9, **targets_qm9})
-    check_datasets([train_set], [valid_set])
+    val_set = Dataset({"system": systems_qm9, **targets_qm9})
+    check_datasets([train_set], [val_set])
 
     # extra species in validation dataset
     train_set = Dataset({"system": systems_ethanol, **targets_qm9})
-    valid_set = Dataset({"system": systems_qm9, **targets_qm9})
+    val_set = Dataset({"system": systems_qm9, **targets_qm9})
     with pytest.raises(ValueError, match="The validation dataset has a species"):
-        check_datasets([train_set], [valid_set])
+        check_datasets([train_set], [val_set])
 
     # extra targets in validation dataset
     train_set = Dataset({"system": systems_qm9, **targets_qm9})
-    valid_set = Dataset({"system": systems_qm9, **targets_ethanol})
+    val_set = Dataset({"system": systems_qm9, **targets_ethanol})
     with pytest.raises(ValueError, match="The validation dataset has a target"):
-        check_datasets([train_set], [valid_set])
+        check_datasets([train_set], [val_set])
 
     # wrong dtype
     systems_qm9_64_bit = read_systems(
@@ -469,7 +469,7 @@ def test_check_datasets():
     train_set_64_bit = Dataset({"system": systems_qm9_64_bit, **targets_qm9})
     match = (
         "`dtype` between datasets is inconsistent, found torch.float32 and "
-        "torch.float64 found in `valid_datasets`"
+        "torch.float64 found in `val_datasets`"
     )
     with pytest.raises(TypeError, match=match):
         check_datasets([train_set], [train_set_64_bit])
@@ -479,7 +479,7 @@ def test_check_datasets():
         "torch.float64 found in `train_datasets`"
     )
     with pytest.raises(TypeError, match=match):
-        check_datasets([train_set, train_set_64_bit], [valid_set])
+        check_datasets([train_set, train_set_64_bit], [val_set])
 
 
 def test_collate_fn():

@@ -285,16 +285,16 @@ def collate_fn(batch: List[Dict[str, Any]]) -> Tuple[List, Dict[str, TensorMap]]
     return systems, collated_targets
 
 
-def check_datasets(train_datasets: List[Dataset], valid_datasets: List[Dataset]):
+def check_datasets(train_datasets: List[Dataset], val_datasets: List[Dataset]):
     """Check that the training and validation sets are compatible with one another
 
     Although these checks will not fit all use cases, most models would be expected
     to be able to use this function.
 
     :param train_datasets: A list of training datasets to check.
-    :param valid_datasets: A list of validation datasets to check
+    :param val_datasets: A list of validation datasets to check
     :raises TypeError: If the ``dtype`` within the datasets are inconsistent.
-    :raises ValueError: If the `valid_datasets` has a target that is not present in
+    :raises ValueError: If the `val_datasets` has a target that is not present in
         the ``train_datasets``.
     :raises ValueError: If the training or validation set contains chemical species
         or targets that are not present in the training set
@@ -307,18 +307,18 @@ def check_datasets(train_datasets: List[Dataset], valid_datasets: List[Dataset])
         if actual_dtype != desired_dtype:
             raise TypeError(f"{msg}{actual_dtype} found in `train_datasets`")
 
-    for valid_dataset in valid_datasets:
-        actual_dtype = valid_dataset[0]["system"].positions.dtype
+    for val_dataset in val_datasets:
+        actual_dtype = val_dataset[0]["system"].positions.dtype
         if actual_dtype != desired_dtype:
-            raise TypeError(f"{msg}{actual_dtype} found in `valid_datasets`")
+            raise TypeError(f"{msg}{actual_dtype} found in `val_datasets`")
 
     # Get all targets in the training and validation sets:
     train_targets = get_all_targets(train_datasets)
-    valid_targets = get_all_targets(valid_datasets)
+    val_targets = get_all_targets(val_datasets)
 
     # Check that the validation sets do not have targets that are not in the
     # training sets:
-    for target in valid_targets:
+    for target in val_targets:
         if target not in train_targets:
             raise ValueError(
                 f"The validation dataset has a target ({target}) that is not present "
@@ -326,11 +326,11 @@ def check_datasets(train_datasets: List[Dataset], valid_datasets: List[Dataset])
             )
     # Get all the species in the training and validation sets:
     all_train_species = get_atomic_types(train_datasets)
-    all_valid_species = get_atomic_types(valid_datasets)
+    all_val_species = get_atomic_types(val_datasets)
 
     # Check that the validation sets do not have species that are not in the
     # training sets:
-    for species in all_valid_species:
+    for species in all_val_species:
         if species not in all_train_species:
             raise ValueError(
                 f"The validation dataset has a species ({species}) that is not in the "

@@ -28,7 +28,7 @@ to these lines
         model=model,
         devices=[],
         train_datasets=[],
-        validation_datasets=[],
+        val_datasets=[],
         checkpoint_dir="path",
     )
 
@@ -53,7 +53,7 @@ In order to follow this, a new architectures has two define two classes
     when a user attempts to train an architecture with unsupported target and dataset
     combinations. Therefore, it is the responsibility of the architecture developer to
     verify if the model and the trainer support the provided train_datasets and
-    validation_datasets passed to the Trainer, as well as the dataset_info passed to the
+    val_datasets passed to the Trainer, as well as the dataset_info passed to the
     model.
 
 The ``ModelInterface`` is the main model class and must implement a
@@ -119,7 +119,7 @@ methods for ``train()``.
             model: ModelInterface,
             devices: List[torch.device],
             train_datasets: List[Union[Dataset, torch.utils.data.Subset]],
-            validation_datasets: List[Union[Dataset, torch.utils.data.Subset]],
+            val_datasets: List[Union[Dataset, torch.utils.data.Subset]],
             checkpoint_dir: str,
         ) -> None: ...
 

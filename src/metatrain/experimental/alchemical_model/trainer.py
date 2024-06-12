@@ -41,7 +41,7 @@ class Trainer:
         model: AlchemicalModel,
         devices: List[torch.device],
         train_datasets: List[Union[Dataset, torch.utils.data.Subset]],
-        valid_datasets: List[Union[Dataset, torch.utils.data.Subset]],
+        val_datasets: List[Union[Dataset, torch.utils.data.Subset]],
         checkpoint_dir: str,
     ):
         dtype = train_datasets[0][0]["system"].positions.dtype
@@ -57,12 +57,12 @@ class Trainer:
 
         # Perform canonical checks on the datasets:
         logger.info("Checking datasets for consistency")
-        check_datasets(train_datasets, valid_datasets)
+        check_datasets(train_datasets, val_datasets)
 
         # Calculating the neighbor lists for the training and validation datasets:
         logger.info("Calculating neighbor lists for the datasets")
         requested_neighbor_lists = model.requested_neighbor_lists()
-        for dataset in train_datasets + valid_datasets:
+        for dataset in train_datasets + val_datasets:
             for i in range(len(dataset)):
                 system = dataset[i]["system"]
                 # The following line attaches the neighbors lists to the system,
@@ -112,9 +112,9 @@ class Trainer:
                 model.alchemical_model.composition_weights.squeeze(0),
             )
         ]
-        valid_datasets = [
+        val_datasets = [
             remove_composition_from_dataset(
-                valid_datasets[0],
+                val_datasets[0],
                 model.atomic_types,
                 model.alchemical_model.composition_weights.squeeze(0),
             )
@@ -136,9 +136,9 @@ class Trainer:
         train_dataloader = CombinedDataLoader(train_dataloaders, shuffle=True)
 
         # Create dataloader for the validation datasets:
-        valid_dataloaders = []
-        for dataset in valid_datasets:
-            valid_dataloaders.append(
+        val_dataloaders = []
+        for dataset in val_datasets:
+            val_dataloaders.append(
                 DataLoader(
                     dataset=dataset,
                     batch_size=self.hypers["batch_size"],
@@ -146,7 +146,7 @@ class Trainer:
                     collate_fn=collate_fn,
                 )
             )
-        valid_dataloader = CombinedDataLoader(valid_dataloaders, shuffle=False)
+        val_dataloader = CombinedDataLoader(val_dataloaders, shuffle=False)
 
         # Extract all the possible outputs and their gradients:
         outputs_list = []
@@ -188,7 +188,7 @@ class Trainer:
         )
 
         # counters for early stopping:
-        best_valid_loss = float("inf")
+        best_val_loss = float("inf")
         epochs_without_improvement = 0
 
         # per-atom targets:
@@ -198,7 +198,7 @@ class Trainer:
         logger.info("Starting training")
         for epoch in range(self.hypers["num_epochs"]):
             train_rmse_calculator = RMSEAccumulator()
-            valid_rmse_calculator = RMSEAccumulator()
+            val_rmse_calculator = RMSEAccumulator()
 
             train_loss = 0.0
             for batch in train_dataloader:
@@ -237,8 +237,8 @@ class Trainer:
                 not_per_atom=["positions_gradients"] + per_structure_targets
             )
 
-            valid_loss = 0.0
-            for batch in valid_dataloader:
+            val_loss = 0.0
+            for batch in val_dataloader:
                 systems, targets = batch
                 assert len(systems[0].known_neighbor_lists()) > 0
                 systems = [system.to(device=device) for system in systems]
@@ -263,32 +263,32 @@ class Trainer:
                 )
                 targets = average_by_num_atoms(targets, systems, per_structure_targets)
 
-                valid_loss_batch = loss_fn(predictions, targets)
-                valid_loss += valid_loss_batch.item()
-                valid_rmse_calculator.update(predictions, targets)
-            finalized_valid_info = valid_rmse_calculator.finalize(
+                val_loss_batch = loss_fn(predictions, targets)
+                val_loss += val_loss_batch.item()
+                val_rmse_calculator.update(predictions, targets)
+            finalized_val_info = val_rmse_calculator.finalize(
                 not_per_atom=["positions_gradients"] + per_structure_targets
             )
 
-            lr_scheduler.step(valid_loss)
+            lr_scheduler.step(val_loss)
 
             # Now we log the information:
             finalized_train_info = {"loss": train_loss, **finalized_train_info}
-            finalized_valid_info = {
-                "loss": valid_loss,
-                **finalized_valid_info,
+            finalized_val_info = {
+                "loss": val_loss,
+                **finalized_val_info,
             }
 
             if epoch == 0:
                 metric_logger = MetricLogger(
                     logobj=logger,
                     model_outputs=model.outputs,
-                    initial_metrics=[finalized_train_info, finalized_valid_info],
+                    initial_metrics=[finalized_train_info, finalized_val_info],
                     names=["train", "validation"],
                 )
             if epoch % self.hypers["log_interval"] == 0:
                 metric_logger.log(
-                    metrics=[finalized_train_info, finalized_valid_info],
+                    metrics=[finalized_train_info, finalized_val_info],
                     epoch=epoch,
                 )
 
@@ -296,8 +296,8 @@ class Trainer:
                 model.save_checkpoint(Path(checkpoint_dir) / f"model_{epoch}.ckpt")
 
             # early stopping criterion:
-            if valid_loss < best_valid_loss:
-                best_valid_loss = valid_loss
+            if val_loss < best_val_loss:
+                best_val_loss = val_loss
                 epochs_without_improvement = 0
             else:
                 epochs_without_improvement += 1
