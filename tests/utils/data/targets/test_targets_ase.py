@@ -68,7 +68,7 @@ def test_ase_key_errors(func, target_name, monkeypatch, tmp_path):
 
     match = f"{target_name} key 'foo' was not found in system {filename!r} at index 0"
 
-    with pytest.raises(KeyError, match=match):
+    with pytest.raises(ValueError, match=match):
         func(filename=filename, key="foo")
 
 

@@ -1,8 +1,10 @@
 """Tests for argument parsing."""
 
+import glob
 import shutil
 import subprocess
 from pathlib import Path
+from subprocess import CalledProcessError
 from typing import List
 
 import pytest
@@ -98,8 +100,41 @@ def get_completion_suggestions(partial_word: str) -> List[str]:
 
 @pytest.mark.parametrize(
     "partial_word, expected_completion",
-    [(" ", ["--help", "--version", "-h", "eval", "export", "train"])],
+    [(" ", ["--debug", "--help", "--version", "-h", "eval", "export", "train"])],
 )
 def test_subcommand_completion(partial_word, expected_completion):
     """Test that expected subcommand completion matches."""
     assert set(get_completion_suggestions(partial_word)) == set(expected_completion)
+
+
+@pytest.mark.parametrize("subcommand", ["train", "eval"])
+def test_error(subcommand, capfd, monkeypatch, tmp_path):
+    """Test expected display of errors to stdout and log files."""
+    monkeypatch.chdir(tmp_path)
+
+    command = ["mtt", subcommand]
+    if subcommand == "eval":
+        command += ["model.pt"]
+
+    command += ["foo.yaml"]
+
+    with pytest.raises(CalledProcessError):
+        subprocess.check_call(command)
+
+    stdout_log = capfd.readouterr().out
+
+    if subcommand == "train":
+        error_glob = glob.glob("outputs/*/*/error.log")
+        error_file = error_glob[0]
+    else:
+        error_file = "error.log"
+
+    error_file = str(Path(error_file).absolute().resolve())
+
+    with open(error_file) as f:
+        error_log = f.read()
+
+    print(error_file)
+    assert f"please include the full traceback log from {error_file!r}" in stdout_log
+    assert "No such file or directory" in stdout_log
+    assert "Traceback" in error_log
