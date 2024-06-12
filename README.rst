@@ -7,31 +7,38 @@ metatrain
   **metatrain is still very early in the concept stage. You should not use it
   for anything important.**
 
-This is a repository for training machine learning models from various architecture for
-atomistic systems. The only requirement is for these models to be able to take
-`metatensor <https://docs.metatensor.org>`_ objects as inputs and outputs. The models do
-not need to live entirely in this repository: in the most extreme case, this repository
-can simply contain a wrapper
-to an external model.
+This is a repository for training and evaluating machine learning models from various
+architectures for atomistic systems. The only requirement is for an architecture to
+be able to take metatensor_ objects as inputs/outputs and have to be JIT compilable
+using TorchScript_. The architectures do not need to live entirely in this repository:
+in the most extreme case, this repository can simply contain a wrapper to an external
+architecture.
 
 .. marker-introduction
 
 What is metatrain?
 ##################
+``metatrain`` is a command line interface (cli) to `train` and `evaluate` atomistic
+models of various architectures. It features a common ``yaml`` option inputs to
+configure training and evaluation. Trained models are exported as standalone files that
+can be used directly in various molecular dynamics (MD) engines (e.g. ``LAMMPS``,
+``i-PI``, ``ASE`` ...) using the metatensor_ atomistic interface.
+
 The idea behind ``metatrain`` is to have a general hub that provide an homogeneous
-environment and user interface to train, export and evaluate ML models and to connect
-those models with various MD engines (e.g. ``LAMMPS``, ``i-PI``, ``ASE`` ...).
-``metatrain`` is the tool that transforms every ML architecture in an end-to-end model.
-Any custom ML architecture compatible with TorchScript can be integrated in
-``metatrain``, gaining automatic access to a training and evaluation interface, as well
-as compatibility with various MD engines.
+environment and user interface transforms every ML architecture in an end-to-end model
+that can be connected to an MD engine. Any custom architecture compatible with
+TorchScript_ can be integrated in ``metatrain``, gaining automatic access to a training
+and evaluation interface, as well as compatibility with various MD engines.
 
 Note: ``metatrain`` does not provide mathematical functionalities `per se` but relies on
 external models that implement the various architectures.
 
+.. _TorchScript: https://pytorch.org/docs/stable/jit.html
+.. _metatensor: https://docs.metatensor.org
+
 Features
 ########
-- **Custom ML Architecture**: Integrate any TorchScriptable ML model to explore innova
+- **Custom ML Architecture**: Integrate any TorchScriptable ML model
 - **MD Engine Compatibility**: Supports various MD engines for diverse research and
   application needs.
 - **Streamlined Training**: Automated process leveraging MD-generated data to optimize
