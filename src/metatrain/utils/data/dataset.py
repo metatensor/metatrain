@@ -255,7 +255,7 @@ class Subset(torch.utils.data.Subset):
         return stats
 
 
-def _get_dataset_stats(dataset: Union[Dataset, Subset], dataset_info: DatasetInfo):
+def _get_dataset_stats(dataset: Union[Dataset, Subset], dataset_info: DatasetInfo) -> str:
     """Returns the statistics of a dataset or subset as a string."""
 
     dataset_len = len(dataset)
