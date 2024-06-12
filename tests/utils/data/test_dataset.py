@@ -507,3 +507,55 @@ def test_collate_fn():
     assert isinstance(batch[0], tuple)
     assert len(batch[0]) == 3
     assert isinstance(batch[1], dict)
+
+
+def test_get_stats():
+    """Tests the get_stats method of Dataset and Subset."""
+
+    systems = read_systems(RESOURCES_PATH / "qm9_reduced_100.xyz")
+    conf = {
+        "mtm::U0": {
+            "quantity": "energy",
+            "read_from": str(RESOURCES_PATH / "qm9_reduced_100.xyz"),
+            "file_format": ".xyz",
+            "key": "U0",
+            "unit": "eV",
+            "forces": False,
+            "stress": False,
+            "virial": False,
+        }
+    }
+    systems_2 = read_systems(RESOURCES_PATH / "ethanol_reduced_100.xyz")
+    conf_2 = {
+        "energy": {
+            "quantity": "energy",
+            "read_from": str(RESOURCES_PATH / "ethanol_reduced_100.xyz"),
+            "file_format": ".xyz",
+            "key": "energy",
+            "unit": "eV",
+            "forces": False,
+            "stress": False,
+            "virial": False,
+        }
+    }
+    targets, _ = read_targets(OmegaConf.create(conf))
+    targets_2, _ = read_targets(OmegaConf.create(conf_2))
+    dataset = Dataset({"system": systems, **targets})
+    dataset_2 = Dataset({"system": systems_2, **targets_2})
+
+    dataset_info = DatasetInfo(
+        length_unit="angstrom",
+        atomic_types={1, 6},
+        targets={
+            "mtm::U0": TargetInfo(quantity="energy", unit="eV"),
+            "energy": TargetInfo(quantity="energy", unit="eV"),
+        },
+    )
+
+    stats = dataset.get_stats(dataset_info)
+    stats_2 = dataset_2.get_stats(dataset_info)
+
+    assert "size 100" in stats
+    assert "mtm::U0" in stats
+    assert "energy" in stats_2
+    assert "stress" not in stats_2

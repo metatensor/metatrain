@@ -72,9 +72,12 @@ def test_train(capfd, monkeypatch, tmp_path, output):
     for logtext in [stdout_log, file_log]:
         assert "This log is also available"
         assert re.search(r"Random seed of this run is [1-9]\d*", logtext)
-        assert "Training dataset has size"
-        assert "Validation dataset has size"
-        assert "Test dataset has size"
+        assert "Training dataset:" in logtext
+        assert "Validation dataset:" in logtext
+        assert "Test dataset:" in logtext
+        assert "size 50" in logtext
+        assert "mean=" in logtext
+        assert "std=" in logtext
         assert "[INFO]" in logtext
         assert "Epoch" in logtext
         assert "loss" in logtext
