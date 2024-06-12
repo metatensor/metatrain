@@ -58,7 +58,7 @@ class Trainer:
         # Calculate and set the composition weights for all targets:
         logger.info("Calculating composition weights")
         for target_name in model.new_outputs:
-            if "mtm::aux::" in target_name:
+            if "mtt::aux::" in target_name:
                 continue
             # TODO: document transfer learning and say that outputs that are already
             # present in the model will keep their composition weights

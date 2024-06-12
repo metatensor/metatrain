@@ -88,11 +88,11 @@ Allows defining multiple target sections, each with a unique name.
 - Commonly, a section named ``energy`` should be defined, which is essential for running
   molecular dynamics simulations. For the ``energy`` section gradients like `forces` and
   `stress` are enabled by default.
-- Other target sections can also be defined, as long as they are prefixed by ``mtm::``.
-  For example, ``mtm::free_energy``. In general, all targets that are not standard
+- Other target sections can also be defined, as long as they are prefixed by ``mtt::``.
+  For example, ``mtt::free_energy``. In general, all targets that are not standard
   outputs of ``metatensor.torch.atomistic`` (see
   https://docs.metatensor.org/latest/atomistic/outputs.html) should be prefixed by
-  ``mtm::``.
+  ``mtt::``.
 
 Target section parameters include:
 
