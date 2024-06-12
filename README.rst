@@ -8,7 +8,7 @@ metatrain
   for anything important.**
 
 This is a repository for training and evaluating machine learning models from various
-architectures for atomistic systems. The only requirement is for an architecture is to
+architectures for atomistic systems. The only requirement is for an architecture to
 be able to take metatensor_ objects as inputs/outputs and have to be JIT compilable
 using TorchScript_. The architectures do not need to live entirely in this repository:
 in the most extreme case, this repository can simply contain a wrapper to an external
