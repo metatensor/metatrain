@@ -26,6 +26,12 @@ def read_energy_ase(
 
     blocks = []
     for i_system, atoms in enumerate(frames):
+        if key not in atoms.info:
+            raise ValueError(
+                f"energy key {key!r} was not found in system {filename!r} at index "
+                f"{i_system}"
+            )
+
         values = torch.tensor([[atoms.info[key]]], dtype=dtype)
         samples = Labels(["system"], torch.tensor([[i_system]]))
 
@@ -62,6 +68,13 @@ def read_forces_ase(
 
     blocks = []
     for i_system, atoms in enumerate(frames):
+
+        if key not in atoms.arrays:
+            raise ValueError(
+                f"forces key {key!r} was not found in system {filename!r} at index "
+                f"{i_system}"
+            )
+
         # We store forces as positions gradients which means we invert the sign
         values = -torch.tensor(atoms.arrays[key], dtype=dtype)
         values = values.reshape(-1, 3, 1)
@@ -137,8 +150,7 @@ def _read_virial_stress_ase(
     :param is_virial: if target values are stored as stress or virials.
     :param dtype: desired data type of returned tensor
 
-    :returns:
-        TensorMap containing the given information
+    :returns: TensorMap containing the given information
     """
     frames = ase.io.read(filename, ":")
 
@@ -151,6 +163,16 @@ def _read_virial_stress_ase(
 
     blocks = []
     for i_system, atoms in enumerate(frames):
+        if key not in atoms.info:
+            if is_virial:
+                target_name = "virial"
+            else:
+                target_name = "stress"
+
+            raise ValueError(
+                f"{target_name} key {key!r} was not found in system {filename!r} at "
+                f"index {i_system}"
+            )
 
         values = torch.tensor(atoms.info[key].tolist(), dtype=dtype)
 

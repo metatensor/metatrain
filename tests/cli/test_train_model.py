@@ -69,22 +69,21 @@ def test_train(capfd, monkeypatch, tmp_path, output):
 
     assert file_log == stdout_log
 
-    for logtext in [stdout_log, file_log]:
-        assert "This log is also available"
-        assert re.search(r"Random seed of this run is [1-9]\d*", logtext)
-        assert "Training dataset:" in logtext
-        assert "Validation dataset:" in logtext
-        assert "Test dataset:" in logtext
-        assert "size 50" in logtext
-        assert "mean=" in logtext
-        assert "std=" in logtext
-        assert "[INFO]" in logtext
-        assert "Epoch" in logtext
-        assert "loss" in logtext
-        assert "validation" in logtext
-        assert "train" in logtext
-        assert "energy" in logtext
-        assert "with index" not in logtext  # index only printed for more than 1 dataset
+    assert "This log is also available" in stdout_log
+    assert re.search(r"Random seed of this run is [1-9]\d*", stdout_log)
+    assert "Training dataset:" in stdout_log
+    assert "Validation dataset:" in stdout_log
+    assert "Test dataset:" in stdout_log
+    assert "size 50" in stdout_log
+    assert "mean=" in stdout_log
+    assert "std=" in stdout_log
+    assert "[INFO]" in stdout_log
+    assert "Epoch" in stdout_log
+    assert "loss" in stdout_log
+    assert "validation" in stdout_log
+    assert "train" in stdout_log
+    assert "energy" in stdout_log
+    assert "with index" not in stdout_log  # index only printed for more than 1 dataset
 
 
 @pytest.mark.parametrize(
