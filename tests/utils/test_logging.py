@@ -40,7 +40,7 @@ def test_info_log(caplog, monkeypatch, tmp_path, capsys):
     caplog.set_level(logging.INFO)
     logger = logging.getLogger("test")
 
-    with setup_logging(logger, logfile="logfile.log", level=logging.INFO):
+    with setup_logging(logger, log_file="logfile.log", level=logging.INFO):
         logger.info("foo")
         logger.debug("A debug message")
 
@@ -48,10 +48,10 @@ def test_info_log(caplog, monkeypatch, tmp_path, capsys):
         file_log = f.read()
 
     stdout_log = capsys.readouterr().out
-
-    assert "This log is also available in 'logfile.log'" in caplog.text
+    log_path = str((tmp_path / "logfile.log").absolute())
 
     assert file_log == stdout_log
+    assert f"This log is also available at '{log_path}'" in caplog.text
 
     for logtext in [stdout_log, file_log]:
         assert_log_entry(logtext, loglevel="INFO", message="foo")
@@ -64,7 +64,7 @@ def test_debug_log(caplog, monkeypatch, tmp_path, capsys):
     caplog.set_level(logging.DEBUG)
     logger = logging.getLogger("test")
 
-    with setup_logging(logger, logfile="logfile.log", level=logging.DEBUG):
+    with setup_logging(logger, log_file="logfile.log", level=logging.DEBUG):
         logger.info("foo")
         logger.debug("A debug message")
 
@@ -72,9 +72,10 @@ def test_debug_log(caplog, monkeypatch, tmp_path, capsys):
         file_log = f.read()
 
     stdout_log = capsys.readouterr().out
+    log_path = str((tmp_path / "logfile.log").absolute())
 
     assert file_log == stdout_log
-    assert "This log is also available in 'logfile.log'" in caplog.text
+    assert f"This log is also available at '{log_path}'" in caplog.text
 
     for logtext in [stdout_log, file_log]:
         assert "foo" in logtext
@@ -103,7 +104,7 @@ def test_metric_logger(caplog, capsys):
         }
     ]
 
-    with setup_logging(logger, logfile="logfile.log", level=logging.INFO):
+    with setup_logging(logger, log_file="logfile.log", level=logging.INFO):
         metric_logger = MetricLogger(logger, outputs, initial_metrics, names)
         metric_logger.log(initial_metrics)
 

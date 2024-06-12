@@ -49,6 +49,29 @@ def test_read_energy_ase(monkeypatch, tmp_path):
         torch.testing.assert_close(result.values, expected)
 
 
+@pytest.mark.parametrize(
+    "func, target_name",
+    [
+        (read_energy_ase, "energy"),
+        (read_forces_ase, "forces"),
+        (read_virial_ase, "virial"),
+        (read_stress_ase, "stress"),
+    ],
+)
+def test_ase_key_errors(func, target_name, monkeypatch, tmp_path):
+    monkeypatch.chdir(tmp_path)
+
+    filename = "systems.xyz"
+
+    systems = ase_systems()
+    ase.io.write(filename, systems)
+
+    match = f"{target_name} key 'foo' was not found in system {filename!r} at index 0"
+
+    with pytest.raises(ValueError, match=match):
+        func(filename=filename, key="foo")
+
+
 def test_read_forces_ase(monkeypatch, tmp_path):
     monkeypatch.chdir(tmp_path)
 

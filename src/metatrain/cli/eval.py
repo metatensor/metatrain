@@ -55,7 +55,7 @@ def _add_eval_model_parser(subparser: argparse._SubParsersAction) -> None:
     )
     parser.add_argument(
         "options",
-        type=OmegaConf.load,
+        type=str,
         help="Eval options file to define a dataset for evaluation.",
     )
     parser.add_argument(
@@ -78,6 +78,15 @@ def _add_eval_model_parser(subparser: argparse._SubParsersAction) -> None:
         required=False,
         default="output.xyz",
         help="filename of the predictions (default: %(default)s)",
+    )
+
+
+def _prepare_eval_model_args(args: argparse.Namespace) -> None:
+    """Prepare arguments for eval_model."""
+    args.options = OmegaConf.load(args.options)
+    args.model = metatensor.torch.atomistic.load_atomistic_model(
+        path=args.__dict__.pop("path"),
+        extensions_directory=args.__dict__.pop("extensions_directory"),
     )
 
 
