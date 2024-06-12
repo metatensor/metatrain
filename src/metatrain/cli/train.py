@@ -56,7 +56,7 @@ def _add_train_model_parser(subparser: argparse._SubParsersAction) -> None:
 
     parser.add_argument(
         "options",
-        type=OmegaConf.load,
+        type=str,
         help="Options file",
     )
     parser.add_argument(
@@ -83,6 +83,17 @@ def _add_train_model_parser(subparser: argparse._SubParsersAction) -> None:
         type=lambda string: OmegaConf.from_dotlist(string.split()),
         help="Command line override flags.",
     )
+
+
+def _prepare_train_model_args(args: argparse.Namespace) -> None:
+    """Prepare arguments for train_model."""
+    args.options = OmegaConf.load(args.options)
+    # merge/override file options with command line options
+    override_options = args.__dict__.pop("override_options")
+    if override_options is None:
+        override_options = {}
+
+    args.options = OmegaConf.merge(args.options, override_options)
 
 
 def train_model(
@@ -307,6 +318,31 @@ def train_model(
                 {"system": validation_systems, **validation_targets}
             )
             validation_datasets.append(validation_dataset)
+
+    ###########################
+    # PRINT DATASET STATS #####
+    ###########################
+
+    for i, train_dataset in enumerate(train_datasets):
+        if len(train_datasets) == 1:
+            index = ""
+        else:
+            index = f" {i}"
+        logger.info(f"Training dataset{index} has size {len(train_dataset)}")
+
+    for i, validation_dataset in enumerate(validation_datasets):
+        if len(validation_datasets) == 1:
+            index = ""
+        else:
+            index = f" {i}"
+        logger.info(f"Validation dataset{index} has size {len(validation_dataset)}")
+
+    for i, test_dataset in enumerate(test_datasets):
+        if len(test_datasets) == 1:
+            index = ""
+        else:
+            index = f" {i}"
+        logger.info(f"Test dataset{index} has size {len(test_dataset)}")
 
     ###########################
     # SAVE EXPANDED OPTIONS ###

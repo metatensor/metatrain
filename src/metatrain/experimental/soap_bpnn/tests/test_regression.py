@@ -1,9 +1,8 @@
 import random
 
-import ase.io
 import numpy as np
 import torch
-from metatensor.torch.atomistic import ModelOutput, systems_to_torch
+from metatensor.torch.atomistic import ModelOutput
 from omegaconf import OmegaConf
 
 from metatrain.experimental.soap_bpnn import SoapBpnn, Trainer
@@ -31,10 +30,10 @@ def test_regression_init():
     model = SoapBpnn(MODEL_HYPERS, dataset_info)
 
     # Predict on the first five systems
-    systems = ase.io.read(DATASET_PATH, ":5")
+    systems = read_systems(DATASET_PATH)[:5]
 
     output = model(
-        [systems_to_torch(system) for system in systems],
+        systems,
         {"mtm::U0": ModelOutput(quantity="energy", unit="", per_atom=False)},
     )
 

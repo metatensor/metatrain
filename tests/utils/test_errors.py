@@ -4,7 +4,7 @@ from metatrain.utils.errors import ArchitectureError
 
 
 def test_architecture_error():
-    match = "The error below most likely originates from an architecture"
+    match = "The error above most likely originates from an architecture"
     with pytest.raises(ArchitectureError, match=match):
         try:
             raise ValueError("An example error from the architecture")
