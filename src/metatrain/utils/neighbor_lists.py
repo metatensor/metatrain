@@ -61,27 +61,27 @@ def _compute_single_neighbor_list(
             cutoff=options.cutoff,
         )
 
-    # Check the vesin NL against the ASE NL (1% of the time)
-    if random.random() < 0.01:
+    # Check the vesin NL against the ASE NL (5% of the time)
+    if random.random() < 0.05:
         nl_i_ase, nl_j_ase, nl_S_ase, nl_D_ase = ase.neighborlist.neighbor_list(
             "ijSD",
             atoms,
             cutoff=options.cutoff,
         )
-        vesin_nl = [(i, j, S, D) for i, j, S, D in zip(nl_i, nl_j, nl_S, nl_D)]
-        ase_nl = [
-            (i, j, S, D) for i, j, S, D in zip(nl_i_ase, nl_j_ase, nl_S_ase, nl_D_ase)
-        ]
-
-        assert len(ase_nl) == len(vesin_nl)
-        for i, j, S, D in vesin_nl:
-            found = False
-            for ref_i, ref_j, ref_S, ref_D in ase_nl:
-                if i == ref_i and j == ref_j and np.all(S == ref_S):
-                    assert np.allclose(D, ref_D)
-                    found = True
-                    break
-            assert found
+        assert len(nl_i) == len(nl_i_ase)
+        assert len(nl_j) == len(nl_j_ase)
+        assert len(nl_S) == len(nl_S_ase)
+        assert len(nl_D) == len(nl_D_ase)
+        nl_ijS = np.concatenate(
+            (nl_i.reshape(-1, 1), nl_j.reshape(-1, 1), nl_S), axis=1
+        )
+        nl_ijS_ase = np.concatenate(
+            (nl_i_ase.reshape(-1, 1), nl_j_ase.reshape(-1, 1), nl_S_ase), axis=1
+        )
+        sort_indices = np.lexsort(np.rot90(nl_ijS))
+        sort_indices_ase = np.lexsort(np.rot90(nl_ijS_ase))
+        assert np.array_equal(nl_ijS[sort_indices], nl_ijS_ase[sort_indices_ase])
+        assert np.allclose(nl_D[sort_indices], nl_D_ase[sort_indices_ase])
 
     selected = []
     for pair_i, (i, j, S) in enumerate(zip(nl_i, nl_j, nl_S)):
