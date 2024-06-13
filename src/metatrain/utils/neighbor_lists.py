@@ -47,7 +47,7 @@ def _compute_single_neighbor_list(
     # Computes a single neighbor list for an ASE atoms object
     # (as in metatensor.torch.atomistic)
 
-    if atoms.pbc == (False, False, False) or atoms.pbc == (True, True, True):
+    if np.all(atoms.pbc) or np.all(~atoms.pbc):
         nl_i, nl_j, nl_S, nl_D = vesin.ase_neighbor_list(
             "ijSD",
             atoms,
@@ -68,10 +68,20 @@ def _compute_single_neighbor_list(
             atoms,
             cutoff=options.cutoff,
         )
-        assert np.array_equal(nl_i, nl_i_ase)
-        assert np.array_equal(nl_j, nl_j_ase)
-        assert np.array_equal(nl_S, nl_S_ase)
-        assert np.allclose(nl_D, nl_D_ase)
+        vesin_nl = [(i, j, S, D) for i, j, S, D in zip(nl_i, nl_j, nl_S, nl_D)]
+        ase_nl = [
+            (i, j, S, D) for i, j, S, D in zip(nl_i_ase, nl_j_ase, nl_S_ase, nl_D_ase)
+        ]
+
+        assert len(ase_nl) == len(vesin_nl)
+        for i, j, S, D in vesin_nl:
+            found = False
+            for ref_i, ref_j, ref_S, ref_D in ase_nl:
+                if i == ref_i and j == ref_j and np.all(S == ref_S):
+                    assert np.allclose(D, ref_D)
+                    found = True
+                    break
+            assert found
 
     selected = []
     for pair_i, (i, j, S) in enumerate(zip(nl_i, nl_j, nl_S)):
