@@ -5,181 +5,171 @@ PET
 
 .. warning::
 
-    The metatrain interface to PET is **experimental**. You should
-    not use it for anything important. You can also fit PET from
-    `here <https://spozdn.github.io/pet/train_model.html>`_.
+  The metatrain interface to PET is **experimental**. You should not use it for
+  anything important. You can also fit PET from `here
+  <https://spozdn.github.io/pet/train_model.html>`_.
 
 
 Installation
 ------------
 
-To install the package, you can run the following command in the root directory
-of the repository:
+To install the package, you can run the following command in the root directory of the
+repository:
 
 .. code-block:: bash
 
-    pip install .[pet]
+  pip install .[pet]
 
 This will install the package with the PET dependencies.
 
 
 Default Hyperparameters
 -----------------------
-
 The default hyperparameters for the PET model are:
 
 .. literalinclude:: ../../../src/metatrain/experimental/pet/default-hypers.yaml
-   :language: yaml
+  :language: yaml
 
 Tuning Hyperparameters
 ----------------------
-
-1) Set ``R_CUT`` so that there are about 20-30 neighbors on average for your
-   dataset.
+1) Set ``R_CUT`` so that there are about 20-30 neighbors on average for your dataset.
 2) Fit the model with the default values for all the other hyperparameters.
-3) Ensure that you fit the model long enough for the error to converge.
-   (If not, you can always continue fitting the model from the last checkpoint.)
-4) [Optional, recommended for large datasets] Increase the scheduler step size,
-   and refit the model from scratch until convergence. Do this for several
-   progressively increased values for the scheduler step size until
-   convergence.
-5) [Optional, this step aims to create a lighter and faster model, not to
-   increase accuracy.] Set ``N_TRANS_LAYERS`` to 2 instead of 3, and repeat
-   steps 3) and 4). If step 4) was already done for the default
-   ``N_TRANS_LAYERS`` value of 3, you can probably reuse the converged
-   scheduler step size. The resulting model would be about 1.5 times faster
-   than the default one, hopefully with very little deterioration of the
-   accuracy or without any at all.
-6) [Optional, quite laborious, 99% you don't need this] Read sections 6 and 7
-   of the `PET paper <https://arxiv.org/abs/2305.19302>`_, which discuss the
-   architecture, main hyperparameters, and an ablation study illustrating their
-   impact on the model's accuracy. Design your own experiments.
+3) Ensure that you fit the model long enough for the error to converge. (If not, you can
+   always continue fitting the model from the last checkpoint.)
+4) [Optional, recommended for large datasets] Increase the scheduler step size, and
+   refit the model from scratch until convergence. Do this for several progressively
+   increased values for the scheduler step size until convergence.
+5) [Optional, this step aims to create a lighter and faster model, not to increase
+   accuracy.] Set ``N_TRANS_LAYERS`` to 2 instead of 3, and repeat steps 3) and 4). If
+   step 4) was already done for the default ``N_TRANS_LAYERS`` value of 3, you can
+   probably reuse the converged scheduler step size. The resulting model would be about
+   1.5 times faster than the default one, hopefully with very little deterioration of
+   the accuracy or without any at all.
+6) [Optional, quite laborious, 99% you don't need this] Read sections 6 and 7 of the
+   `PET paper <https://arxiv.org/abs/2305.19302>`_, which discuss the architecture, main
+   hyperparameters, and an ablation study illustrating their impact on the model's
+   accuracy. Design your own experiments.
 
 More details:
 ~~~~~~~~~~~~~
+There are two significant groups of hyperparameters controlling PET fits. The first
+group consists of the hyperparameters related to the model architecture itself, such as
+the number of layers, type of activation function, etc. The second group consists of
+settings that control how the fitting is done, such as batch size, the total number of
+epochs, learning rate, parameters of the learning rate scheduler, and so on.
 
-There are two significant groups of hyperparameters controlling PET fits. The
-first group consists of the hyperparameters related to the model architecture
-itself, such as the number of layers, type of activation function, etc. The
-second group consists of settings that control how the fitting is done, such as
-batch size, the total number of epochs, learning rate, parameters of the
-learning rate scheduler, and so on.
+Within conventional wisdom originating from *traditional* models, such as linear and
+kernel regression, the second group of hyperparameters that controls the optimizer's
+behavior might seem unimportant. Indeed, when fitting linear or kernel models, the exact
+value of the optimum is usually achieved by linear algebra methods, and thus, the
+particular choice of optimizer has little importance.
 
-Within conventional wisdom originating from *traditional* models, such as
-linear and kernel regression, the second group of hyperparameters that controls
-the optimizer's behavior might seem unimportant. Indeed, when fitting linear or
-kernel models, the exact value of the optimum is usually achieved by linear
-algebra methods, and thus, the particular choice of optimizer has little
-importance.
+However, with deep neural networks, the situation is drastically different. The exact
+minimum of the loss is typically never achieved; instead, the model asymptotically
+converges to it during fitting. It is essential to ensure that the total number of
+epochs is sufficient for the model to approach the optimum closely, thus achieving good
+accuracy.
 
-However, with deep neural networks, the situation is drastically different. The
-exact minimum of the loss is typically never achieved; instead, the model
-asymptotically converges to it during fitting. It is essential to ensure that
-the total number of epochs is sufficient for the model to approach the optimum
-closely, thus achieving good accuracy.
-
-**In the case of PET, there is only one hyperparameter that MUST be manually
-adjusted for each new dataset: the cutoff radius.** The selected cutoff
-significantly impacts the model's accuracy and fitting/inference times, making
-it very sensitive to this hyperparameter. All other hyperparameters can be
-safely set to their default values. The next reasonable step (after fitting
-with default settings), especially for large datasets is to try to increase the
-duration of fitting and see if it improves the accuracy of the obtained model.
+**In the case of PET, there is only one hyperparameter that MUST be manually adjusted
+for each new dataset: the cutoff radius.** The selected cutoff significantly impacts the
+model's accuracy and fitting/inference times, making it very sensitive to this
+hyperparameter. All other hyperparameters can be safely set to their default values. The
+next reasonable step (after fitting with default settings), especially for large
+datasets is to try to increase the duration of fitting and see if it improves the
+accuracy of the obtained model.
 
 Selection of ``R_CUT``
 **********************
+A good starting point is to select a cutoff radius that ensures about 20-30 neighbors on
+average. This can be done by analyzing the neighbor lists for different cutoffs before
+launching the training script. `This
+<https://wiki.fysik.dtu.dk/ase/ase/neighborlist.html>`_ is an example of a neighbor list
+constructor in Python.
 
-A good starting point is to select a cutoff radius that ensures about 20-30
-neighbors on average. This can be done by analyzing the neighbor lists for
-different cutoffs before launching the training script. `This
-<https://wiki.fysik.dtu.dk/ase/ase/neighborlist.html>`_ is an example of a
-neighbor list constructor in Python.
-
-For finite configurations, such as small molecules in COLL/QM9/rmd17 datasets,
-it makes sense to select ``R_CUT`` large enough to encompass the whole molecule.
-For instance, it can be set to 100 Å, as there are no numerical instabilities
-for arbitrarily large cutoffs.
+For finite configurations, such as small molecules in COLL/QM9/rmd17 datasets, it makes
+sense to select ``R_CUT`` large enough to encompass the whole molecule. For instance, it
+can be set to 100 Å, as there are no numerical instabilities for arbitrarily large
+cutoffs.
 
 The hyperparameter for the cutoff radius is called ``R_CUT.``
 
 Selection of fitting duration
 *****************************
+The second most important group of settings is the one that adjusts the fitting duration
+of the model. Unlike specifying a dataset-specific cutoff radius, this step is optional
+since reasonable results can be obtained with the default fitting duration. The time
+required to fit the model is a complex function of the model's size, the dataset's size,
+and the complexity of the studied interatomic interactions. The default value might be
+insufficient for large datasets. If the model is still underfit after the predefined
+number of epochs, the fitting procedure can be continued by relaunching the fitting
+script.
 
-The second most important group of settings is the one that adjusts the fitting
-duration of the model. Unlike specifying a dataset-specific cutoff radius, this
-step is optional since reasonable results can be obtained with the default
-fitting duration. The time required to fit the model is a complex function of
-the model's size, the dataset's size, and the complexity of the studied
-interatomic interactions. The default value might be insufficient for large
-datasets. If the model is still underfit after the predefined number of epochs,
-the fitting procedure can be continued by relaunching the fitting script.
+However, the total number of epochs is only part of the equation. Another key aspect is
+the rate at which the learning rate decays. We use `StepLR
+<https://pytorch.org/docs/stable/generated/torch.optim.lr_scheduler.StepLR.html>`_ as a
+learning rate scheduler. This scheduler reduces the learning rate by a factor of
+``gamma`` (``new_learning_rate = old_learning_rate * gamma``) every ``step_size``
+epochs. In the current implementation of PET, ``gamma`` is fixed at 0.5, meaning that
+the learning rate is halved every ``step_size`` epochs.
 
-However, the total number of epochs is only part of the equation. Another key
-aspect is the rate at which the learning rate decays. We use `StepLR
-<https://pytorch.org/docs/stable/generated/torch.optim.lr_scheduler.StepLR.html>`_
-as a learning rate scheduler. This scheduler reduces the learning rate by a
-factor of ``gamma`` (``new_learning_rate = old_learning_rate * gamma``) every
-``step_size`` epochs. In the current implementation of PET, ``gamma`` is fixed
-at 0.5, meaning that the learning rate is halved every ``step_size`` epochs.
+If ``step_size`` is set too small, the learning rate will decrease to very low values
+too quickly, hindering the convergence of PET. Prolonged fitting under these conditions
+will be ineffective due to the nearly zero learning rate. Therefore, achieving complete
+convergence requires not only a sufficient number of epochs but also an appropriately
+large ``step_size``. For typical moderately sized datasets, the default value should
+suffice. However, for particularly large datasets, increasing ``step_size`` may be
+necessary to ensure complete convergence. The hyperparameter controlling the
+``step_size`` of the StepLR learning rate scheduler is called ``SCHEDULER_STEP_SIZE``.
 
-If ``step_size`` is set too small, the learning rate will decrease to very low
-values too quickly, hindering the convergence of PET. Prolonged fitting under
-these conditions will be ineffective due to the nearly zero learning rate.
-Therefore, achieving complete convergence requires not only a sufficient number
-of epochs but also an appropriately large ``step_size``. For typical moderately
-sized datasets, the default value should suffice. However, for particularly
-large datasets, increasing ``step_size`` may be necessary to ensure complete
-convergence. The hyperparameter controlling the ``step_size`` of the StepLR
-learning rate scheduler is called ``SCHEDULER_STEP_SIZE``.
-
-For hyperparameters like ``SCHEDULER_STEP_SIZE``, ``EPOCH_NUM``, ``BATCH_SIZE``,
-and ``EPOCHS_WARMUP``, either normal or atomic versions can be specified.
-``SCHEDULER_STEP_SIZE`` was discussed above; ``EPOCH_NUM`` represents the total
-number of epochs, and ``BATCH_SIZE`` is the number of structures sampled in
-each minibatch for a single step of stochastic gradient descent. The atomic
-versions are termed ``SCHEDULER_STEP_SIZE_ATOMIC``, ``EPOCH_NUM_ATOMIC``,
-``BATCH_SIZE_ATOMIC``, and ``EPOCHS_WARMUP_ATOMIC``. The motivation for the
-atomic versions is to improve the transferability of default hyperparameters
-across heterogeneous datasets. For instance, using the same batch size for
-datasets with structures of very different sizes makes little sense. If one
-dataset contains molecules with 10 atoms on average and another contains
-nanoparticles with 1000 atoms, it makes sense to use a 100 times larger batch
-size in the first case. If ``BATCH_SIZE_ATOMIC`` is specified, the normal batch
-size is computed as ``BATCH_SIZE = BATCH_SIZE_ATOMIC /
+For hyperparameters like ``SCHEDULER_STEP_SIZE``, ``EPOCH_NUM``, ``BATCH_SIZE``, and
+``EPOCHS_WARMUP``, either normal or atomic versions can be specified.
+``SCHEDULER_STEP_SIZE`` was discussed above; ``EPOCH_NUM`` represents the total number
+of epochs, and ``BATCH_SIZE`` is the number of structures sampled in each minibatch for
+a single step of stochastic gradient descent. The atomic versions are termed
+``SCHEDULER_STEP_SIZE_ATOMIC``, ``EPOCH_NUM_ATOMIC``, ``BATCH_SIZE_ATOMIC``, and
+``EPOCHS_WARMUP_ATOMIC``. The motivation for the atomic versions is to improve the
+transferability of default hyperparameters across heterogeneous datasets. For instance,
+using the same batch size for datasets with structures of very different sizes makes
+little sense. If one dataset contains molecules with 10 atoms on average and another
+contains nanoparticles with 1000 atoms, it makes sense to use a 100 times larger batch
+size in the first case. If ``BATCH_SIZE_ATOMIC`` is specified, the normal batch size is
+computed as ``BATCH_SIZE = BATCH_SIZE_ATOMIC /
 (average_number_of_atoms_in_the_training_dataset)``. Similar logic applies to
-``SCHEDULER_STEP_SIZE,`` ``EPOCH_NUM,`` and ``EPOCHS_WARMUP.`` In these cases,
-normal versions are obtained by division by the total number of atoms of
-structures in the training dataset. All default values are given by atomic
-versions for better transferability across various datasets.
+``SCHEDULER_STEP_SIZE,`` ``EPOCH_NUM,`` and ``EPOCHS_WARMUP.`` In these cases, normal
+versions are obtained by division by the total number of atoms of structures in the
+training dataset. All default values are given by atomic versions for better
+transferability across various datasets.
 
-To increase the step size of the learning rate scheduler by, for example, 2
-times, take the default value for ``SCHEDULER_STEP_SIZE_ATOMIC`` from the
-default_hypers and specify a value that's twice as large.
+To increase the step size of the learning rate scheduler by, for example, 2 times, take
+the default value for ``SCHEDULER_STEP_SIZE_ATOMIC`` from the default_hypers and specify
+a value that's twice as large.
 
-It is worth noting that the stopping criterion of PET is either exceeding the
-maximum number of epochs (specified by ``EPOCH_NUM`` or ``EPOCH_NUM_ATOMIC``) or
-exceeding the specified maximum fitting time (controlled by the hyperparameter
-``MAX_TIME``). By default, the second criterion is used, with the default number
-of epochs set nearly to infinity, while the default maximum time is set to be 65
-hours.
+It is worth noting that the stopping criterion of PET is either exceeding the maximum
+number of epochs (specified by ``EPOCH_NUM`` or ``EPOCH_NUM_ATOMIC``) or exceeding the
+specified maximum fitting time (controlled by the hyperparameter ``MAX_TIME``). By
+default, the second criterion is used, with the default number of epochs set nearly to
+infinity, while the default maximum time is set to be 65 hours.
 
 Lightweight Model
 *****************
-
-The default hyperparameters were selected with one goal in mind: to maximize
-the probability of achieving the best accuracy on a typical moderate-sized
-dataset. As a result, some default hyperparameters might be excessive, meaning
-they could be adjusted to significantly increase the model's speed with minimal
-impact on accuracy. For practical use, especially when conducting massive
-calculations where model speed is crucial, it may be beneficial to set
-``N_TRANS_LAYERS`` to 2 instead of the default value of 3. The ``N_TRANS_LAYERS``
-hyperparameter controls the number of transformer layers in each message-passing
-block (see more details in the `PET paper <https://arxiv.org/abs/2305.19302>`_).
-This adjustment would result in a model that is about 1.5 times more lightweight
-and faster, with an expected minimal deterioration in accuracy.
+The default hyperparameters were selected with one goal in mind: to maximize the
+probability of achieving the best accuracy on a typical moderate-sized dataset. As a
+result, some default hyperparameters might be excessive, meaning they could be adjusted
+to significantly increase the model's speed with minimal impact on accuracy. For
+practical use, especially when conducting massive calculations where model speed is
+crucial, it may be beneficial to set ``N_TRANS_LAYERS`` to `2` instead of the default
+value of `3`. The ``N_TRANS_LAYERS`` hyperparameter controls the number of transformer
+layers in each message-passing block (see more details in the `PET paper
+<https://arxiv.org/abs/2305.19302>`_). This adjustment would result in a model that is
+about `1.5` times more lightweight and faster, with an expected minimal deterioration in
+accuracy.
 
 Architecture Hyperparameters
 ----------------------------
+.. warning::
+
+  While PET supports CPU training, it is highly recommended to use a CUDA GPU for
+  significantly faster training. CPU training can be very slow.
 
 - ``RANDOM_SEED``: random seed
 - ``CUDA_DETERMINISTIC``: if applying PyTorch reproducibility settings
@@ -209,9 +199,7 @@ Architecture Hyperparameters
 - ``INITIAL_LR``: initial learning rate
 - ``MAX_TIME``: maximal time to train the model in seconds
 
-::
-
-    *********************************************
+----
 
 For parameters such as ``EPOCH_NUM`` the user can specify either normal
 ``EPOCH_NUM`` or ``EPOCH_NUM_ATOMIC``. If the second is specified, normal
@@ -227,9 +215,7 @@ dataset)``.
 
 - ``ATOMIC_BATCH_SIZE``: batch size
 
-::
-
-    *********************************************
+----
 
 - ``USE_LENGTH``: explicitly use length in r embedding or not
 - ``USE_ONLY_LENGTH``: use only length in r embedding (used to get auxiliary
