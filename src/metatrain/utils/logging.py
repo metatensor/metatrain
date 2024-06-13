@@ -31,7 +31,8 @@ class MetricLogger:
         align the output to make it easier to read.
 
         :param logobj: A logging instance
-        :param model_outputs: outputs of the model
+        :param model_outputs: outputs of the model. Used to infer physical quantities
+            and units
         :param initial_metrics: initial training metrics
         :param names: names of the metrics (e.g., "train", "validation")
         """

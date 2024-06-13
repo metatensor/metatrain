@@ -314,6 +314,20 @@ def train_model(
             val_datasets.append(val_dataset)
 
     ###########################
+    # CREATE DATASET_INFO #####
+    ###########################
+
+    atomic_types = get_atomic_types(
+        train_datasets + train_datasets + validation_datasets
+    )
+
+    dataset_info = DatasetInfo(
+        length_unit=train_options_list[0]["systems"]["length_unit"],
+        atomic_types=atomic_types,
+        targets=target_infos,
+    )
+
+    ###########################
     # PRINT DATASET STATS #####
     ###########################
 
@@ -322,21 +336,23 @@ def train_model(
             index = ""
         else:
             index = f" {i}"
-        logger.info(f"Training dataset{index} has size {len(train_dataset)}")
+        logger.info(
+            f"Training dataset{index}:\n    {train_dataset.get_stats(dataset_info)}"
+        )
 
     for i, val_dataset in enumerate(val_datasets):
         if len(val_datasets) == 1:
             index = ""
         else:
             index = f" {i}"
-        logger.info(f"Validation dataset{index} has size {len(val_dataset)}")
+        logger.info(f"Validation dataset{index}:\n    {val_dataset.get_stats(dataset_info)}")
 
     for i, test_dataset in enumerate(test_datasets):
         if len(test_datasets) == 1:
             index = ""
         else:
             index = f" {i}"
-        logger.info(f"Test dataset{index} has size {len(test_dataset)}")
+        logger.info(f"Test dataset{index}:\n    {test_dataset.get_stats(dataset_info)}")
 
     ###########################
     # SAVE EXPANDED OPTIONS ###
@@ -344,18 +360,6 @@ def train_model(
 
     OmegaConf.save(
         config=options, f=Path(checkpoint_dir) / "options_restart.yaml", resolve=True
-    )
-
-    ###########################
-    # CREATE DATASET_INFO #####
-    ###########################
-
-    atomic_types = get_atomic_types(train_datasets + val_datasets)
-
-    dataset_info = DatasetInfo(
-        length_unit=train_options_list[0]["systems"]["length_unit"],
-        atomic_types=atomic_types,
-        targets=target_infos,
     )
 
     ###########################
