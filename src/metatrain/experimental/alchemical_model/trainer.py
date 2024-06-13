@@ -284,7 +284,7 @@ class Trainer:
                     logobj=logger,
                     model_outputs=model.outputs,
                     initial_metrics=[finalized_train_info, finalized_val_info],
-                    names=["train", "validation"],
+                    names=["training", "validation"],
                 )
             if epoch % self.hypers["log_interval"] == 0:
                 metric_logger.log(

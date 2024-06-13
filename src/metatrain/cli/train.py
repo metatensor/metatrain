@@ -317,9 +317,7 @@ def train_model(
     # CREATE DATASET_INFO #####
     ###########################
 
-    atomic_types = get_atomic_types(
-        train_datasets + train_datasets + validation_datasets
-    )
+    atomic_types = get_atomic_types(train_datasets + val_datasets)
 
     dataset_info = DatasetInfo(
         length_unit=train_options_list[0]["systems"]["length_unit"],
@@ -345,7 +343,9 @@ def train_model(
             index = ""
         else:
             index = f" {i}"
-        logger.info(f"Validation dataset{index}:\n    {val_dataset.get_stats(dataset_info)}")
+        logger.info(
+            f"Validation dataset{index}:\n    {val_dataset.get_stats(dataset_info)}"
+        )
 
     for i, test_dataset in enumerate(test_datasets):
         if len(test_datasets) == 1:
