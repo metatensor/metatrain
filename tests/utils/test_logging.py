@@ -1,7 +1,7 @@
 import logging
 import re
 
-from metatensor.torch.atomistic import ModelOutput
+from metatensor.torch.atomistic import ModelCapabilities, ModelOutput
 
 from metatrain.utils.logging import MetricLogger, setup_logging
 
@@ -90,25 +90,30 @@ def test_metric_logger(caplog, capsys):
     logger = logging.getLogger("test")
 
     outputs = {
-        "foo": ModelOutput(),
-        "bar": ModelOutput(),
+        "mtt::foo": ModelOutput(unit="eV"),
+        "mtt::bar": ModelOutput(unit="hartree"),
     }
+    capabilities = ModelCapabilities(
+        length_unit="angstrom",
+        atomic_types=[1, 2, 3],
+        outputs=outputs,
+    )
 
     names = ["train"]
 
     initial_metrics = [
         {
             "loss": 0.1,
-            "foo RMSE": 1.0,
-            "bar RMSE": 0.1,
+            "mtt::foo RMSE": 1.0,
+            "mtt::bar RMSE": 0.1,
         }
     ]
 
     with setup_logging(logger, log_file="logfile.log", level=logging.INFO):
-        metric_logger = MetricLogger(logger, outputs, initial_metrics, names)
+        metric_logger = MetricLogger(logger, capabilities, initial_metrics, names)
         metric_logger.log(initial_metrics)
 
     stdout_log = capsys.readouterr().out
     assert "train loss: 1.000e-01" in stdout_log
-    assert "train foo RMSE: 1.0000" in stdout_log
-    assert "train bar RMSE: 0.1000" in stdout_log
+    assert "train mtt::foo RMSE: 1000.0 meV" in stdout_log  # eV converted to meV
+    assert "train mtt::bar RMSE: 0.10000 hartree" in stdout_log

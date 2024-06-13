@@ -20,7 +20,7 @@ from ..utils.data import (
     write_predictions,
 )
 from ..utils.errors import ArchitectureError
-from ..utils.evaluate_model import _get_outputs, evaluate_model
+from ..utils.evaluate_model import evaluate_model
 from ..utils.logging import MetricLogger
 from ..utils.metrics import RMSEAccumulator
 from ..utils.neighbor_lists import get_system_with_neighbor_lists
@@ -208,7 +208,7 @@ def _eval_targets(
     # print the RMSEs with MetricLogger
     metric_logger = MetricLogger(
         logobj=logger,
-        model_outputs=_get_outputs(model),
+        dataset_info=model.capabilities(),
         initial_metrics=rmse_values,
     )
     metric_logger.log(rmse_values)

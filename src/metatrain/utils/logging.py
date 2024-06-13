@@ -7,18 +7,21 @@ from pathlib import Path
 from typing import Dict, List, Optional, Tuple, Union
 
 import numpy as np
-from metatensor.torch.atomistic import ModelOutput
+import torch
+from metatensor.torch.atomistic import ModelCapabilities
 
+from .data import DatasetInfo
 from .distributed.logging import is_main_process
 from .external_naming import to_external_name
 from .io import check_suffix
+from .units import ev_to_mev, get_gradient_units
 
 
 class MetricLogger:
     def __init__(
         self,
         logobj: logging.Logger,
-        model_outputs: Dict[str, ModelOutput],
+        dataset_info: Union[ModelCapabilities, DatasetInfo],
         initial_metrics: Union[Dict[str, float], List[Dict[str, float]]],
         names: Union[str, List[str]] = "",
     ):
@@ -38,7 +41,22 @@ class MetricLogger:
         :param names: names of the metrics (e.g., "train", "validation")
         """
         self.logobj = logobj
-        self.model_outputs = model_outputs
+
+        # Length units will be used to infer units of forces/virials
+        assert isinstance(dataset_info.length_unit, str)
+        self.length_unit = dataset_info.length_unit
+
+        # Save the model outputs. This will be useful to know
+        # what physical quantities we are printing, along with their units
+        if isinstance(dataset_info, DatasetInfo):
+            self.model_outputs = dataset_info.targets
+        elif isinstance(dataset_info, torch.ScriptObject):  # ModelCapabilities
+            self.model_outputs = dataset_info.outputs
+        else:
+            raise ValueError(
+                f"dataset_info must be of type `DatasetInfo` or `ModelCapabilities`, "
+                f"not {type(dataset_info)}"
+            )
 
         if isinstance(initial_metrics, dict):
             initial_metrics = [initial_metrics]
@@ -53,14 +71,13 @@ class MetricLogger:
         self.digits = {}
         for name, metrics_dict in zip(names, initial_metrics):
             for key, value in metrics_dict.items():
+                target_name = key.split(" ", 1)[0]
                 if "loss" in key:
                     # losses will be printed in scientific notation
                     continue
+                unit = self._get_units(target_name)
+                value, unit = ev_to_mev(value, unit)
                 self.digits[f"{name}_{key}"] = _get_digits(value)
-
-        # Save the model outputs. This will be useful to know
-        # what physical quantities we are printing
-        self.model_outputs = model_outputs
 
     def log(
         self,
@@ -98,8 +115,8 @@ class MetricLogger:
                 new_key = key
                 if key != "loss":  # special case: not a metric associated with a target
                     target_name, metric = new_key.split(" ", 1)
-                    target_name = to_external_name(target_name, self.model_outputs)
-                    new_key = f"{target_name} {metric}"
+                    external_name = to_external_name(target_name, self.model_outputs)  # type: ignore # noqa: E501
+                    new_key = f"{external_name} {metric}"
 
                 if name == "":
                     logging_string += f", {new_key}: "
@@ -108,7 +125,12 @@ class MetricLogger:
                 if "loss" in key:  # print losses with scientific notation
                     logging_string += f"{value:.3e}"
                 else:
-                    logging_string += f"{value:{self.digits[f'{name}_{key}'][0]}.{self.digits[f'{name}_{key}'][1]}f}"  # noqa: E501
+                    unit = self._get_units(target_name)
+                    value, unit = ev_to_mev(value, unit)
+                    logging_string += (
+                        f"{value:{self.digits[f'{name}_{key}'][0]}.{self.digits[f'{name}_{key}'][1]}f}"  # noqa: E501
+                        + (f" {unit}" if unit != "" else "")
+                    )
 
         # If there is no epoch, the string will start with a comma. Remove it:
         if logging_string.startswith(", "):
@@ -116,6 +138,25 @@ class MetricLogger:
 
         if rank is None or rank == 0:
             self.logobj.info(logging_string)
+
+    def _get_units(self, output: str) -> str:
+        # Gets the units of an output
+        if output.endswith("_gradients"):
+            # handling <base_name>_<gradient_name>_gradients
+            base_name = output[:-10]
+            gradient_name = base_name.split("_")[-1]
+            base_name = base_name.replace(f"_{gradient_name}", "")
+            base_unit = self.model_outputs[base_name].unit
+            unit = self._get_gradient_units(base_unit, gradient_name)
+        else:
+            unit = self.model_outputs[output].unit
+        return unit
+
+    def _get_gradient_units(self, base_unit: str, gradient_name: str) -> str:
+        # Get the gradient units based on the unit of the base quantity
+        # for example, if the base unit is "<unit>" and the gradient name is
+        # "positions", the gradient unit will be "<unit>/<length_unit>".
+        return get_gradient_units(base_unit, gradient_name, self.length_unit)
 
 
 def _get_digits(value: float) -> Tuple[int, int]:
