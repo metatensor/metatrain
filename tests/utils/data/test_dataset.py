@@ -46,6 +46,15 @@ def test_unit_none_conversion():
     assert info.unit == ""
 
 
+def test_length_unit_none_conversion():
+    dataset_info = DatasetInfo(
+        length_unit=None,
+        atomic_types={1, 2, 3},
+        targets=TargetInfoDict(energy=TargetInfo(quantity="energy", unit="kcal/mol")),
+    )
+    assert dataset_info.length_unit == ""
+
+
 def test_target_info_copy():
     info = TargetInfo(quantity="energy", unit="eV", gradients={"positions"})
     copy = info.copy()

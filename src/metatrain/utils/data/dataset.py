@@ -161,6 +161,9 @@ class DatasetInfo:
     targets: TargetInfoDict
 
     def __post_init__(self):
+        if self.length_unit is None:
+            self.length_unit = ""
+
         # For compatibility with list convert to set
         self.atomic_types = set(self.atomic_types)
 
