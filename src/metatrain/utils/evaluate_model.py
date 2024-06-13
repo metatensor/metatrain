@@ -88,10 +88,10 @@ def evaluate_model(
         target_requires_pos_gradients = (
             energy_target in energy_targets_that_require_position_gradients
         )
-        target_requires_disp_gradients = (
+        target_requires_strain_gradients = (
             energy_target in energy_targets_that_require_strain_gradients
         )
-        if target_requires_pos_gradients and target_requires_disp_gradients:
+        if target_requires_pos_gradients and target_requires_strain_gradients:
             gradients = compute_gradient(
                 model_outputs[energy_target].block().values,
                 [system.positions for system in systems] + strains,
@@ -125,7 +125,7 @@ def evaluate_model(
                 blocks=[new_block],
             )
             model_outputs[energy_target] = new_energy_tensor_map
-        elif target_requires_disp_gradients:
+        elif target_requires_strain_gradients:
             gradients = compute_gradient(
                 model_outputs[energy_target].block().values,
                 strains,
