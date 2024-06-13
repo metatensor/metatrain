@@ -9,6 +9,7 @@ from typing import Dict, List, Optional, Tuple, Union
 import numpy as np
 from metatensor.torch.atomistic import ModelOutput
 
+from .distributed.logging import is_main_process
 from .external_naming import to_external_name
 from .io import check_suffix
 
@@ -65,6 +66,7 @@ class MetricLogger:
         self,
         metrics: Union[Dict[str, float], List[Dict[str, float]]],
         epoch: Optional[int] = None,
+        rank: Optional[int] = None,
     ):
         """
         Log the metrics.
@@ -76,6 +78,8 @@ class MetricLogger:
         :param epoch: The current epoch (optional). If :py:class:`None`, the epoch
             will not be printed, and the logging string will start with the first
             metric in the ``metrics`` dictionary.
+        :param rank: The rank of the process, if the training is distributed. In that
+            case, the logger will only print the metrics for the process with rank 0.
         """
 
         if isinstance(metrics, dict):
@@ -110,7 +114,8 @@ class MetricLogger:
         if logging_string.startswith(", "):
             logging_string = logging_string[2:]
 
-        self.logobj.info(logging_string)
+        if rank is None or rank == 0:
+            self.logobj.info(logging_string)
 
 
 def _get_digits(value: float) -> Tuple[int, int]:
@@ -179,6 +184,10 @@ def setup_logging(
             file_handler = logging.FileHandler(filename=str(log_file), encoding="utf-8")
             file_handler.setFormatter(formatter)
             handlers.append(file_handler)
+
+        # hide logging up to ERROR from secondary processes in distributed environments:
+        if not is_main_process():
+            level = logging.ERROR
 
         logging.basicConfig(format=format, handlers=handlers, level=level, style="{")
 
