@@ -120,19 +120,19 @@ def test_output_last_layer_features():
     # last-layer features per atom:
     ll_output_options = ModelOutput(
         quantity="",
-        unit="",
+        unit="unitless",
         per_atom=True,
     )
     outputs = model(
         [system],
         {
             "energy": model.outputs["energy"],
-            "mtm::aux::last_layer_features": ll_output_options,
+            "mtt::aux::last_layer_features": ll_output_options,
         },
     )
     assert "energy" in outputs
-    assert "mtm::aux::last_layer_features" in outputs
-    last_layer_features = outputs["mtm::aux::last_layer_features"].block()
+    assert "mtt::aux::last_layer_features" in outputs
+    last_layer_features = outputs["mtt::aux::last_layer_features"].block()
     assert last_layer_features.samples.names == [
         "system",
         "atom",
@@ -148,24 +148,24 @@ def test_output_last_layer_features():
     # last-layer features per system:
     ll_output_options = ModelOutput(
         quantity="",
-        unit="",
+        unit="unitless",
         per_atom=False,
     )
     outputs = model(
         [system],
         {
             "energy": model.outputs["energy"],
-            "mtm::aux::last_layer_features": ll_output_options,
+            "mtt::aux::last_layer_features": ll_output_options,
         },
     )
     assert "energy" in outputs
-    assert "mtm::aux::last_layer_features" in outputs
-    assert outputs["mtm::aux::last_layer_features"].block().samples.names == ["system"]
-    assert outputs["mtm::aux::last_layer_features"].block().values.shape == (
+    assert "mtt::aux::last_layer_features" in outputs
+    assert outputs["mtt::aux::last_layer_features"].block().samples.names == ["system"]
+    assert outputs["mtt::aux::last_layer_features"].block().values.shape == (
         1,
         128,
     )
-    assert outputs["mtm::aux::last_layer_features"].block().properties.names == [
+    assert outputs["mtt::aux::last_layer_features"].block().properties.names == [
         "properties",
     ]
 

@@ -478,8 +478,8 @@ class AggregateKernel(torch.nn.Module):
         structurewise_aggregate: bool = False,
     ):
         super().__init__()
-        valid_aggregate_types = ["sum", "mean"]
-        if aggregate_type not in valid_aggregate_types:
+        val_aggregate_types = ["sum", "mean"]
+        if aggregate_type not in val_aggregate_types:
             raise ValueError(
                 f"Given aggregate_type {aggregate_type!r} but only "
                 f"{aggregate_type!r} are supported."
@@ -604,8 +604,8 @@ class TorchAggregateKernel(torch.nn.Module):
         structurewise_aggregate: bool = False,
     ):
         super().__init__()
-        valid_aggregate_types = ["sum", "mean"]
-        if aggregate_type not in valid_aggregate_types:
+        val_aggregate_types = ["sum", "mean"]
+        if aggregate_type not in val_aggregate_types:
             raise ValueError(
                 f"Given aggregate_type {aggregate_type} but only "
                 f"{aggregate_type} are supported."
@@ -999,7 +999,7 @@ class SubsetOfRegressors:
         self._weights = None
 
     def _set_kernel(self, kernel: Union[str, AggregateKernel], **kernel_kwargs):
-        valid_kernels = ["linear", "polynomial", "precomputed"]
+        val_kernels = ["linear", "polynomial", "precomputed"]
         aggregate_type = kernel_kwargs.get("aggregate_type", "sum")
         if aggregate_type != "sum":
             raise ValueError(
@@ -1017,7 +1017,7 @@ class SubsetOfRegressors:
         else:
             raise ValueError(
                 f"kernel type {kernel!r} is not supported. Please use one "
-                f"of the valid kernels {valid_kernels!r}"
+                f"of the valid kernels {val_kernels!r}"
             )
 
     def fit(
@@ -1222,7 +1222,7 @@ class TorchSubsetofRegressors(torch.nn.Module):
         return metatensor.torch.dot(k_tm, self._weights)
 
     def _set_kernel(self, kernel: Union[str, TorchAggregateKernel], **kernel_kwargs):
-        valid_kernels = ["linear", "polynomial", "precomputed"]
+        val_kernels = ["linear", "polynomial", "precomputed"]
         aggregate_type = kernel_kwargs.get("aggregate_type", "sum")
         if aggregate_type != "sum":
             raise ValueError(
@@ -1244,5 +1244,5 @@ class TorchSubsetofRegressors(torch.nn.Module):
         else:
             raise ValueError(
                 f"kernel type {kernel!r} is not supported. Please use one "
-                f"of the valid kernels {valid_kernels!r}"
+                f"of the valid kernels {val_kernels!r}"
             )
