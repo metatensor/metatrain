@@ -299,7 +299,7 @@ def _get_dataset_stats(
     for key in target_names:
         stats += (
             f"\n    - {to_external_name(key, dataset_info.targets)}: "  # type: ignore
-            f"mean={means[key]:.3e}, std={stds[key]:.3e}"
+            f"mean={means[key]:.4g}, std={stds[key]:.4g}"
         )
 
     return stats
