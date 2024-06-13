@@ -39,9 +39,9 @@ def ev_to_mev(value: float, unit: str) -> Tuple[float, str]:
     """
     if unit.startswith("eV") or unit.startswith("ev"):
         return value * 1000.0, (
-            unit.replace(
-                "eV", "meV" if unit.startswith("eV") else unit.replace("ev", "mev")
-            )
+            unit.replace("eV", "meV")
+            if unit.startswith("eV")
+            else unit.replace("ev", "mev")
         )
     else:
         return value, unit

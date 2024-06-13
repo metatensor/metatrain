@@ -90,12 +90,12 @@ def test_metric_logger(caplog, capsys):
     logger = logging.getLogger("test")
 
     outputs = {
-        "foo": ModelOutput(unit="eV"),
-        "bar": ModelOutput(unit="hartree"),
+        "mtt::foo": ModelOutput(unit="eV"),
+        "mtt::bar": ModelOutput(unit="hartree"),
     }
     capabilities = ModelCapabilities(
         length_unit="angstrom",
-        types=[1, 2, 3],
+        atomic_types=[1, 2, 3],
         outputs=outputs,
     )
 
@@ -104,8 +104,8 @@ def test_metric_logger(caplog, capsys):
     initial_metrics = [
         {
             "loss": 0.1,
-            "foo RMSE": 1.0,
-            "bar RMSE": 0.1,
+            "mtt::foo RMSE": 1.0,
+            "mtt::bar RMSE": 0.1,
         }
     ]
 
@@ -115,5 +115,5 @@ def test_metric_logger(caplog, capsys):
 
     stdout_log = capsys.readouterr().out
     assert "train loss: 1.000e-01" in stdout_log
-    assert "train foo RMSE: 1000.0 meV" in stdout_log
-    assert "train bar RMSE: 0.1000 hartree" in stdout_log
+    assert "train mtt::foo RMSE: 1000.0 meV" in stdout_log  # eV converted to meV
+    assert "train mtt::bar RMSE: 0.10000 hartree" in stdout_log

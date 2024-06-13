@@ -559,7 +559,11 @@ def test_get_stats():
     assert "mtt::U0" in stats
     assert "energy" in stats_2
     assert "mean " in stats
-    assert "std=" in stats
+    assert "std " in stats
     assert "mean " in stats_2
-    assert "std=" in stats_2
+    assert "std " in stats_2
     assert "stress" not in stats_2
+
+    # eV get converted to meV
+    assert "meV" in stats
+    assert "meV" in stats_2
