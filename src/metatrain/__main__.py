@@ -81,7 +81,7 @@ def main():
     if callable == "train_model":
         # define and create `checkpoint_dir` based on current directory, date and time
         checkpoint_dir = _datetime_output_path(now=datetime.now())
-        os.makedirs(checkpoint_dir)
+        os.makedirs(checkpoint_dir, exist_ok=True)  # exist_ok=True for distributed
         args.checkpoint_dir = checkpoint_dir
 
         log_file = checkpoint_dir / "train.log"

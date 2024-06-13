@@ -10,5 +10,7 @@ coverage:
      - "tests/.*"
      - "examples/.*"
      - "src/metatrain/experimental/.*"
+     - "src/metatrain/utils/distributed/.*"
+
 
 comment: false

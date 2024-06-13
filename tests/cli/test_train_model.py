@@ -75,8 +75,8 @@ def test_train(capfd, monkeypatch, tmp_path, output):
     assert "Validation dataset:" in stdout_log
     assert "Test dataset:" in stdout_log
     assert "size 50" in stdout_log
-    assert "mean=" in stdout_log
-    assert "std=" in stdout_log
+    assert "mean " in stdout_log
+    assert "std " in stdout_log
     assert "[INFO]" in stdout_log
     assert "Epoch" in stdout_log
     assert "loss" in stdout_log

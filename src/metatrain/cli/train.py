@@ -22,6 +22,7 @@ from ..utils.data import (
 )
 from ..utils.data.dataset import _train_test_random_split
 from ..utils.devices import pick_devices
+from ..utils.distributed.logging import is_main_process
 from ..utils.errors import ArchitectureError
 from ..utils.io import check_suffix
 from ..utils.omegaconf import (
@@ -393,6 +394,9 @@ def train_model(
         )
     except Exception as e:
         raise ArchitectureError(e)
+
+    if not is_main_process():
+        return  # only save and evaluate on the main process
 
     ###########################
     # SAVE FINAL MODEL ########

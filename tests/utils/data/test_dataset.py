@@ -46,6 +46,15 @@ def test_unit_none_conversion():
     assert info.unit == ""
 
 
+def test_length_unit_none_conversion():
+    dataset_info = DatasetInfo(
+        length_unit=None,
+        atomic_types={1, 2, 3},
+        targets=TargetInfoDict(energy=TargetInfo(quantity="energy", unit="kcal/mol")),
+    )
+    assert dataset_info.length_unit == ""
+
+
 def test_target_info_copy():
     info = TargetInfo(quantity="energy", unit="eV", gradients={"positions"})
     copy = info.copy()
@@ -211,15 +220,6 @@ def test_dataset_info():
     assert dataset_info.targets["energy"].unit == "kcal/mol"
     assert dataset_info.targets["mtt::U0"].quantity == "energy"
     assert dataset_info.targets["mtt::U0"].unit == "kcal/mol"
-
-
-def test_length_unit_none_conversion():
-    dataset_info = DatasetInfo(
-        length_unit=None,
-        atomic_types={1, 2, 3},
-        targets=TargetInfoDict(energy=TargetInfo(quantity="energy", unit="kcal/mol")),
-    )
-    assert dataset_info.length_unit == ""
 
 
 def test_dataset_info_copy():
@@ -558,8 +558,10 @@ def test_get_stats():
     assert "size 100" in stats
     assert "mtt::U0" in stats
     assert "energy" in stats_2
-    assert "mean=" in stats
-    assert "std=" in stats
-    assert "mean=" in stats_2
-    assert "std=" in stats_2
+    assert "mean " in stats
+    assert "std " in stats
+    assert "mean " in stats_2
+    assert "std " in stats_2
     assert "stress" not in stats_2
+    assert "eV" in stats
+    assert "eV" in stats_2
