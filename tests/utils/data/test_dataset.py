@@ -199,7 +199,7 @@ def test_dataset_info():
     """Tests the DatasetInfo class."""
 
     targets = TargetInfoDict(energy=TargetInfo(quantity="energy", unit="kcal/mol"))
-    targets["mtm::U0"] = TargetInfo(quantity="energy", unit="kcal/mol")
+    targets["mtt::U0"] = TargetInfo(quantity="energy", unit="kcal/mol")
 
     dataset_info = DatasetInfo(
         length_unit="angstrom", atomic_types={1, 2, 3}, targets=targets
@@ -209,8 +209,8 @@ def test_dataset_info():
     assert dataset_info.atomic_types == {1, 2, 3}
     assert dataset_info.targets["energy"].quantity == "energy"
     assert dataset_info.targets["energy"].unit == "kcal/mol"
-    assert dataset_info.targets["mtm::U0"].quantity == "energy"
-    assert dataset_info.targets["mtm::U0"].unit == "kcal/mol"
+    assert dataset_info.targets["mtt::U0"].quantity == "energy"
+    assert dataset_info.targets["mtt::U0"].unit == "kcal/mol"
 
 
 def test_length_unit_none_conversion():
@@ -225,7 +225,7 @@ def test_length_unit_none_conversion():
 def test_dataset_info_copy():
     targets = TargetInfoDict()
     targets["energy"] = TargetInfo(quantity="energy", unit="eV")
-    targets["forces"] = TargetInfo(quantity="mtm::forces", unit="eV/Angstrom")
+    targets["forces"] = TargetInfo(quantity="mtt::forces", unit="eV/Angstrom")
     info = DatasetInfo(length_unit="angstrom", atomic_types={1, 6}, targets=targets)
 
     copy = info.copy()
@@ -241,7 +241,7 @@ def test_dataset_info_update():
     info = DatasetInfo(length_unit="angstrom", atomic_types={1, 6}, targets=targets)
 
     targets2 = targets.copy()
-    targets2["forces"] = TargetInfo(quantity="mtm::forces", unit="eV/Angstrom")
+    targets2["forces"] = TargetInfo(quantity="mtt::forces", unit="eV/Angstrom")
 
     info2 = DatasetInfo(length_unit="angstrom", atomic_types={8}, targets=targets2)
     info.update(info2)
@@ -258,7 +258,7 @@ def test_dataset_info_update_non_matching_length_unit():
     info = DatasetInfo(length_unit="angstrom", atomic_types={1, 6}, targets=targets)
 
     targets2 = targets.copy()
-    targets2["forces"] = TargetInfo(quantity="mtm::forces", unit="eV/Angstrom")
+    targets2["forces"] = TargetInfo(quantity="mtt::forces", unit="eV/Angstrom")
 
     info2 = DatasetInfo(length_unit="nanometer", atomic_types={8}, targets=targets2)
 
@@ -291,11 +291,11 @@ def test_dataset_info_union():
     """Tests the union method."""
     targets = TargetInfoDict()
     targets["energy"] = TargetInfo(quantity="energy", unit="eV")
-    targets["forces"] = TargetInfo(quantity="mtm::forces", unit="eV/Angstrom")
+    targets["forces"] = TargetInfo(quantity="mtt::forces", unit="eV/Angstrom")
     info = DatasetInfo(length_unit="angstrom", atomic_types={1, 6}, targets=targets)
 
     other_targets = targets.copy()
-    other_targets["mtm::stress"] = TargetInfo(quantity="mtm::stress", unit="GPa")
+    other_targets["mtt::stress"] = TargetInfo(quantity="mtt::stress", unit="GPa")
 
     other_info = DatasetInfo(
         length_unit="angstrom", atomic_types={1}, targets=other_targets
@@ -341,7 +341,7 @@ def test_get_atomic_types():
 
     systems = read_systems(RESOURCES_PATH / "qm9_reduced_100.xyz")
     conf = {
-        "mtm::U0": {
+        "mtt::U0": {
             "quantity": "energy",
             "read_from": str(RESOURCES_PATH / "qm9_reduced_100.xyz"),
             "file_format": ".xyz",
@@ -380,7 +380,7 @@ def test_get_all_targets():
 
     systems = read_systems(RESOURCES_PATH / "qm9_reduced_100.xyz")
     conf = {
-        "mtm::U0": {
+        "mtt::U0": {
             "quantity": "energy",
             "read_from": str(RESOURCES_PATH / "qm9_reduced_100.xyz"),
             "file_format": ".xyz",
@@ -408,9 +408,9 @@ def test_get_all_targets():
     targets_2, _ = read_targets(OmegaConf.create(conf_2))
     dataset = Dataset({"system": systems, **targets})
     dataset_2 = Dataset({"system": systems_2, **targets_2})
-    assert get_all_targets(dataset) == ["mtm::U0"]
+    assert get_all_targets(dataset) == ["mtt::U0"]
     assert get_all_targets(dataset_2) == ["energy"]
-    assert get_all_targets([dataset, dataset_2]) == ["energy", "mtm::U0"]
+    assert get_all_targets([dataset, dataset_2]) == ["energy", "mtt::U0"]
 
 
 def test_check_datasets():
@@ -418,7 +418,7 @@ def test_check_datasets():
 
     systems_qm9 = read_systems(RESOURCES_PATH / "qm9_reduced_100.xyz")
     conf_qm9 = {
-        "mtm::U0": {
+        "mtt::U0": {
             "quantity": "energy",
             "read_from": str(RESOURCES_PATH / "qm9_reduced_100.xyz"),
             "file_format": ".xyz",
@@ -487,7 +487,7 @@ def test_collate_fn():
 
     systems = read_systems(RESOURCES_PATH / "qm9_reduced_100.xyz")
     conf = {
-        "mtm::U0": {
+        "mtt::U0": {
             "quantity": "energy",
             "read_from": str(RESOURCES_PATH / "qm9_reduced_100.xyz"),
             "file_format": ".xyz",
@@ -499,7 +499,7 @@ def test_collate_fn():
         }
     }
     targets, _ = read_targets(OmegaConf.create(conf))
-    dataset = Dataset({"system": systems, "mtm::U0": targets["mtm::U0"]})
+    dataset = Dataset({"system": systems, "mtt::U0": targets["mtt::U0"]})
 
     batch = collate_fn([dataset[0], dataset[1], dataset[2]])
 
@@ -514,7 +514,7 @@ def test_get_stats():
 
     systems = read_systems(RESOURCES_PATH / "qm9_reduced_100.xyz")
     conf = {
-        "mtm::U0": {
+        "mtt::U0": {
             "quantity": "energy",
             "read_from": str(RESOURCES_PATH / "qm9_reduced_100.xyz"),
             "file_format": ".xyz",
@@ -547,7 +547,7 @@ def test_get_stats():
         length_unit="angstrom",
         atomic_types={1, 6},
         targets={
-            "mtm::U0": TargetInfo(quantity="energy", unit="eV"),
+            "mtt::U0": TargetInfo(quantity="energy", unit="eV"),
             "energy": TargetInfo(quantity="energy", unit="eV"),
         },
     )
@@ -556,7 +556,7 @@ def test_get_stats():
     stats_2 = dataset_2.get_stats(dataset_info)
 
     assert "size 100" in stats
-    assert "mtm::U0" in stats
+    assert "mtt::U0" in stats
     assert "energy" in stats_2
     assert "mean=" in stats
     assert "std=" in stats

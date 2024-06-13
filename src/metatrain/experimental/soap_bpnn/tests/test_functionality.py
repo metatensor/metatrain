@@ -127,12 +127,12 @@ def test_output_last_layer_features():
         [system],
         {
             "energy": model.outputs["energy"],
-            "mtm::aux::last_layer_features": ll_output_options,
+            "mtt::aux::last_layer_features": ll_output_options,
         },
     )
     assert "energy" in outputs
-    assert "mtm::aux::last_layer_features" in outputs
-    last_layer_features = outputs["mtm::aux::last_layer_features"].block()
+    assert "mtt::aux::last_layer_features" in outputs
+    last_layer_features = outputs["mtt::aux::last_layer_features"].block()
     assert last_layer_features.samples.names == [
         "system",
         "atom",
@@ -155,17 +155,17 @@ def test_output_last_layer_features():
         [system],
         {
             "energy": model.outputs["energy"],
-            "mtm::aux::last_layer_features": ll_output_options,
+            "mtt::aux::last_layer_features": ll_output_options,
         },
     )
     assert "energy" in outputs
-    assert "mtm::aux::last_layer_features" in outputs
-    assert outputs["mtm::aux::last_layer_features"].block().samples.names == ["system"]
-    assert outputs["mtm::aux::last_layer_features"].block().values.shape == (
+    assert "mtt::aux::last_layer_features" in outputs
+    assert outputs["mtt::aux::last_layer_features"].block().samples.names == ["system"]
+    assert outputs["mtt::aux::last_layer_features"].block().values.shape == (
         1,
         128,
     )
-    assert outputs["mtm::aux::last_layer_features"].block().properties.names == [
+    assert outputs["mtt::aux::last_layer_features"].block().properties.names == [
         "properties",
     ]
 

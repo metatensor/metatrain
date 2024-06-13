@@ -120,7 +120,7 @@ class SoapBpnn(torch.nn.Module):
         }
 
         # the model is always capable of outputting the last layer features
-        self.outputs["mtm::aux::last_layer_features"] = ModelOutput(per_atom=True)
+        self.outputs["mtt::aux::last_layer_features"] = ModelOutput(per_atom=True)
 
         # creates a composition weight tensor that can be directly indexed by species,
         # this can be left as a tensor of zero or set from the outside using
@@ -189,7 +189,7 @@ class SoapBpnn(torch.nn.Module):
                     ],
                 )
                 for output_name in self.outputs.keys()
-                if "mtm::aux::" not in output_name
+                if "mtt::aux::" not in output_name
             }
         )
 
@@ -243,14 +243,14 @@ class SoapBpnn(torch.nn.Module):
         last_layer_features = self.bpnn(soap_features)
 
         # output the hidden features, if requested:
-        if "mtm::aux::last_layer_features" in outputs:
-            last_layer_features_options = outputs["mtm::aux::last_layer_features"]
+        if "mtt::aux::last_layer_features" in outputs:
+            last_layer_features_options = outputs["mtt::aux::last_layer_features"]
             out_features = last_layer_features.keys_to_properties(
                 self.center_type_labels.to(device)
             )
             if not last_layer_features_options.per_atom:
                 out_features = metatensor.torch.sum_over_samples(out_features, ["atom"])
-            return_dict["mtm::aux::last_layer_features"] = (
+            return_dict["mtt::aux::last_layer_features"] = (
                 _remove_center_type_from_properties(out_features)
             )
 

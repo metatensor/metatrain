@@ -158,7 +158,7 @@ def test_read_targets(stress_dict, virial_dict, monkeypatch, tmp_path, caplog):
 
     conf = {
         "energy": energy_section,
-        "mtm::energy2": energy_section,
+        "mtt::energy2": energy_section,
     }
 
     caplog.set_level(logging.INFO)
@@ -302,6 +302,6 @@ def test_unsupported_target_name():
 
     with pytest.raises(
         ValueError,
-        match="start with `mtm::`",
+        match="start with `mtt::`",
     ):
         read_targets(OmegaConf.create(conf))

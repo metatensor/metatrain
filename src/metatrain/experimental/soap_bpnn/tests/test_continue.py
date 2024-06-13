@@ -22,16 +22,16 @@ def test_continue(monkeypatch, tmp_path):
     systems = read_systems(DATASET_PATH)
 
     target_info_dict = TargetInfoDict()
-    target_info_dict["mtm::U0"] = TargetInfo(quantity="energy", unit="eV")
+    target_info_dict["mtt::U0"] = TargetInfo(quantity="energy", unit="eV")
 
     dataset_info = DatasetInfo(
         length_unit="Angstrom", atomic_types={1, 6, 7, 8}, targets=target_info_dict
     )
     model = SoapBpnn(MODEL_HYPERS, dataset_info)
-    output_before = model(systems[:5], {"mtm::U0": model.outputs["mtm::U0"]})
+    output_before = model(systems[:5], {"mtt::U0": model.outputs["mtt::U0"]})
 
     conf = {
-        "mtm::U0": {
+        "mtt::U0": {
             "quantity": "energy",
             "read_from": DATASET_PATH,
             "file_format": ".xyz",
@@ -43,7 +43,7 @@ def test_continue(monkeypatch, tmp_path):
         }
     }
     targets, _ = read_targets(OmegaConf.create(conf))
-    dataset = Dataset({"system": systems, "mtm::U0": targets["mtm::U0"]})
+    dataset = Dataset({"system": systems, "mtt::U0": targets["mtt::U0"]})
 
     hypers = DEFAULT_HYPERS.copy()
     hypers["training"]["num_epochs"] = 0
@@ -57,8 +57,8 @@ def test_continue(monkeypatch, tmp_path):
 
     # Predict on the first five systems
     output_before = model_before(
-        systems[:5], {"mtm::U0": model_before.outputs["mtm::U0"]}
+        systems[:5], {"mtt::U0": model_before.outputs["mtt::U0"]}
     )
-    output_after = model_after(systems[:5], {"mtm::U0": model_after.outputs["mtm::U0"]})
+    output_after = model_after(systems[:5], {"mtt::U0": model_after.outputs["mtt::U0"]})
 
-    assert metatensor.torch.allclose(output_before["mtm::U0"], output_after["mtm::U0"])
+    assert metatensor.torch.allclose(output_before["mtt::U0"], output_after["mtt::U0"])
