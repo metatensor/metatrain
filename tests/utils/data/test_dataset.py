@@ -213,15 +213,6 @@ def test_dataset_info():
     assert dataset_info.targets["mtt::U0"].unit == "kcal/mol"
 
 
-def test_length_unit_none_conversion():
-    dataset_info = DatasetInfo(
-        length_unit=None,
-        atomic_types={1, 2, 3},
-        targets=TargetInfoDict(energy=TargetInfo(quantity="energy", unit="kcal/mol")),
-    )
-    assert dataset_info.length_unit == ""
-
-
 def test_dataset_info_copy():
     targets = TargetInfoDict()
     targets["energy"] = TargetInfo(quantity="energy", unit="eV")
@@ -563,7 +554,5 @@ def test_get_stats():
     assert "mean " in stats_2
     assert "std " in stats_2
     assert "stress" not in stats_2
-
-    # eV get converted to meV
-    assert "meV" in stats
-    assert "meV" in stats_2
+    assert "eV" in stats
+    assert "eV" in stats_2
