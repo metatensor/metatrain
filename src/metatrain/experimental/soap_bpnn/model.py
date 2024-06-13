@@ -120,7 +120,9 @@ class SoapBpnn(torch.nn.Module):
         }
 
         # the model is always capable of outputting the last layer features
-        self.outputs["mtt::aux::last_layer_features"] = ModelOutput(per_atom=True)
+        self.outputs["mtt::aux::last_layer_features"] = ModelOutput(
+            unit="unitless", per_atom=True
+        )
 
         # creates a composition weight tensor that can be directly indexed by species,
         # this can be left as a tensor of zero or set from the outside using
