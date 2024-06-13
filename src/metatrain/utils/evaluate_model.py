@@ -73,8 +73,8 @@ def evaluate_model(
     for system in systems:
         new_system, strain = _prepare_system(
             system,
-            len(energy_targets_that_require_position_gradients) > 0,
-            len(energy_targets_that_require_strain_gradients) > 0,
+            positions_grad=len(energy_targets_that_require_position_gradients) > 0,
+            strain_grad=len(energy_targets_that_require_strain_gradients) > 0,
         )
         new_systems.append(new_system)
         strains.append(strain)
@@ -290,12 +290,11 @@ def _prepare_system(system: System, positions_grad: bool, strain_grad: bool):
                 types=system.types,
             )
             strain = None
+
     for nl_options in system.known_neighbor_lists():
         nl = system.get_neighbor_list(nl_options)
-        register_autograd_neighbors(
-            new_system,
-            metatensor.torch.detach_block(nl),
-            check_consistency=True,
-        )
+        nl = metatensor.torch.detach_block(nl)
+        register_autograd_neighbors(new_system, nl, check_consistency=True)
         new_system.add_neighbor_list(nl_options, nl)
+
     return new_system, strain
