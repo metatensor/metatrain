@@ -1,8 +1,10 @@
+import random
 from typing import List
 
 import ase.neighborlist
 import numpy as np
 import torch
+import vesin
 from metatensor.torch import Labels, TensorBlock
 from metatensor.torch.atomistic import (
     NeighborListOptions,
@@ -45,11 +47,31 @@ def _compute_single_neighbor_list(
     # Computes a single neighbor list for an ASE atoms object
     # (as in metatensor.torch.atomistic)
 
-    nl_i, nl_j, nl_S, nl_D = ase.neighborlist.neighbor_list(
-        "ijSD",
-        atoms,
-        cutoff=options.cutoff,
-    )
+    if atoms.pbc == (False, False, False) or atoms.pbc == (True, True, True):
+        nl_i, nl_j, nl_S, nl_D = vesin.ase_neighbor_list(
+            "ijSD",
+            atoms,
+            cutoff=options.cutoff,
+        )
+    else:
+        # this is not implemented in vesin, so we use ASE
+        nl_i, nl_j, nl_S, nl_D = ase.neighborlist.neighbor_list(
+            "ijSD",
+            atoms,
+            cutoff=options.cutoff,
+        )
+
+    # Check the vesin NL against the ASE NL (1% of the time)
+    if random.random() < 0.01:
+        nl_i_ase, nl_j_ase, nl_S_ase, nl_D_ase = ase.neighborlist.neighbor_list(
+            "ijSD",
+            atoms,
+            cutoff=options.cutoff,
+        )
+        assert np.array_equal(nl_i, nl_i_ase)
+        assert np.array_equal(nl_j, nl_j_ase)
+        assert np.array_equal(nl_S, nl_S_ase)
+        assert np.allclose(nl_D, nl_D_ase)
 
     selected = []
     for pair_i, (i, j, S) in enumerate(zip(nl_i, nl_j, nl_S)):
