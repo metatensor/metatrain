@@ -43,7 +43,7 @@ class Trainer:
         model: SoapBpnn,
         devices: List[torch.device],
         train_datasets: List[Union[Dataset, torch.utils.data.Subset]],
-        validation_datasets: List[Union[Dataset, torch.utils.data.Subset]],
+        val_datasets: List[Union[Dataset, torch.utils.data.Subset]],
         checkpoint_dir: str,
     ):
         dtype = train_datasets[0][0]["system"].positions.dtype
@@ -117,9 +117,9 @@ class Trainer:
         train_dataloader = CombinedDataLoader(train_dataloaders, shuffle=True)
 
         # Create dataloader for the validation datasets:
-        validation_dataloaders = []
-        for dataset in validation_datasets:
-            validation_dataloaders.append(
+        val_dataloaders = []
+        for dataset in val_datasets:
+            val_dataloaders.append(
                 DataLoader(
                     dataset=dataset,
                     batch_size=self.hypers["batch_size"],
@@ -127,14 +127,12 @@ class Trainer:
                     collate_fn=collate_fn,
                 )
             )
-        validation_dataloader = CombinedDataLoader(
-            validation_dataloaders, shuffle=False
-        )
+        val_dataloader = CombinedDataLoader(val_dataloaders, shuffle=False)
 
         # Extract all the possible outputs and their gradients:
-        training_targets = get_targets_dict(train_datasets, model.dataset_info)
+        train_targets = get_targets_dict(train_datasets, model.dataset_info)
         outputs_list = []
-        for target_name, target_info in training_targets.items():
+        for target_name, target_info in train_targets.items():
             outputs_list.append(target_name)
             for gradient_name in target_info.gradients:
                 outputs_list.append(f"{target_name}_{gradient_name}_gradients")
@@ -143,14 +141,14 @@ class Trainer:
         for output_name in outputs_list:
             loss_weights_dict[output_name] = (
                 self.hypers["loss_weights"][
-                    to_external_name(output_name, training_targets)
+                    to_external_name(output_name, train_targets)
                 ]
-                if to_external_name(output_name, training_targets)
+                if to_external_name(output_name, train_targets)
                 in self.hypers["loss_weights"]
                 else 1.0
             )
         loss_weights_dict_external = {
-            to_external_name(key, training_targets): value
+            to_external_name(key, train_targets): value
             for key, value in loss_weights_dict.items()
         }
         logging.info(f"Training with loss weights: {loss_weights_dict_external}")
@@ -172,7 +170,7 @@ class Trainer:
         )
 
         # counters for early stopping:
-        best_validation_loss = float("inf")
+        best_val_loss = float("inf")
         epochs_without_improvement = 0
 
         # per-atom targets:
@@ -182,7 +180,7 @@ class Trainer:
         logger.info("Starting training")
         for epoch in range(self.hypers["num_epochs"]):
             train_rmse_calculator = RMSEAccumulator()
-            validation_rmse_calculator = RMSEAccumulator()
+            val_rmse_calculator = RMSEAccumulator()
 
             train_loss = 0.0
             for batch in train_dataloader:
@@ -197,7 +195,7 @@ class Trainer:
                     model,
                     systems,
                     TargetInfoDict(
-                        **{key: training_targets[key] for key in targets.keys()}
+                        **{key: train_targets[key] for key in targets.keys()}
                     ),
                     is_training=True,
                 )
@@ -217,8 +215,8 @@ class Trainer:
                 not_per_atom=["positions_gradients"] + per_structure_targets
             )
 
-            validation_loss = 0.0
-            for batch in validation_dataloader:
+            val_loss = 0.0
+            for batch in val_dataloader:
                 systems, targets = batch
                 systems = [system.to(device=device) for system in systems]
                 targets = {
@@ -228,7 +226,7 @@ class Trainer:
                     model,
                     systems,
                     TargetInfoDict(
-                        **{key: training_targets[key] for key in targets.keys()}
+                        **{key: train_targets[key] for key in targets.keys()}
                     ),
                     is_training=False,
                 )
@@ -239,32 +237,32 @@ class Trainer:
                 )
                 targets = average_by_num_atoms(targets, systems, per_structure_targets)
 
-                validation_loss_batch = loss_fn(predictions, targets)
-                validation_loss += validation_loss_batch.item()
-                validation_rmse_calculator.update(predictions, targets)
-            finalized_validation_info = validation_rmse_calculator.finalize(
+                val_loss_batch = loss_fn(predictions, targets)
+                val_loss += val_loss_batch.item()
+                val_rmse_calculator.update(predictions, targets)
+            finalized_val_info = val_rmse_calculator.finalize(
                 not_per_atom=["positions_gradients"] + per_structure_targets
             )
 
-            lr_scheduler.step(validation_loss)
+            lr_scheduler.step(val_loss)
 
             # Now we log the information:
             finalized_train_info = {"loss": train_loss, **finalized_train_info}
-            finalized_validation_info = {
-                "loss": validation_loss,
-                **finalized_validation_info,
+            finalized_val_info = {
+                "loss": val_loss,
+                **finalized_val_info,
             }
 
             if epoch == 0:
                 metric_logger = MetricLogger(
                     logobj=logger,
                     model_outputs=model.outputs,
-                    initial_metrics=[finalized_train_info, finalized_validation_info],
-                    names=["train", "validation"],
+                    initial_metrics=[finalized_train_info, finalized_val_info],
+                    names=["training", "validation"],
                 )
             if epoch % self.hypers["log_interval"] == 0:
                 metric_logger.log(
-                    metrics=[finalized_train_info, finalized_validation_info],
+                    metrics=[finalized_train_info, finalized_val_info],
                     epoch=epoch,
                 )
 
@@ -272,8 +270,8 @@ class Trainer:
                 model.save_checkpoint(Path(checkpoint_dir) / f"model_{epoch}.ckpt")
 
             # early stopping criterion:
-            if validation_loss < best_validation_loss:
-                best_validation_loss = validation_loss
+            if val_loss < best_val_loss:
+                best_val_loss = val_loss
                 epochs_without_improvement = 0
             else:
                 epochs_without_improvement += 1
