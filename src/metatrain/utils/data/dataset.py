@@ -11,6 +11,7 @@ from metatensor.torch import TensorMap
 from torch import Generator, default_generator
 
 from ..external_naming import to_external_name
+from ..units import get_gradient_units
 
 
 @dataclass
@@ -145,8 +146,7 @@ class DatasetInfo:
     This dataclass is used to communicate additional dataset details to the
     training functions of the individual models.
 
-    :param length_unit: Unit of length used in the dataset. If :py:obj:`None` the
-        ``length_unit`` will be set to an empty string ``""``.
+    :param length_unit: Unit of length used in the dataset.
     :param atomic_types: Unordered set of all atomic types present in the dataset.
 
         .. note::
@@ -156,14 +156,11 @@ class DatasetInfo:
     :param targets: Information about targets in the dataset.
     """
 
-    length_unit: Union[None, str]
+    length_unit: str
     atomic_types: Set[int]
     targets: TargetInfoDict
 
     def __post_init__(self):
-        if self.length_unit is None:
-            self.length_unit = ""
-
         # For compatibility with list convert to set
         self.atomic_types = set(self.atomic_types)
 
@@ -295,11 +292,31 @@ def _get_dataset_stats(
         key: (means_of_squares[key] - means[key] ** 2) ** 0.5 for key in target_names
     }
 
+    # Find units
+    units = {}
+    for key in target_names:
+        # Gets the units of an output
+        if key.endswith("_gradients"):
+            # handling <base_name>_<gradient_name>_gradients
+            base_name = key[:-10]
+            gradient_name = base_name.split("_")[-1]
+            base_name = base_name.replace(f"_{gradient_name}", "")
+            base_unit = dataset_info.targets[base_name].unit
+            unit = get_gradient_units(
+                base_unit, gradient_name, dataset_info.length_unit
+            )
+        else:
+            unit = dataset_info.targets[key].unit
+        units[key] = unit
+
     stats += "\n    Mean and standard deviation of targets:"
     for key in target_names:
         stats += (
             f"\n    - {to_external_name(key, dataset_info.targets)}: "  # type: ignore
-            f"mean={means[key]:.4g}, std={stds[key]:.4g}"
+            + f"\n      - mean {means[key]:.4g}"
+            + (f" {units[key]}" if units[key] != "" else "")
+            + f"\n      - std  {stds[key]:.4g}"
+            + (f" {units[key]}" if units[key] != "" else "")
         )
 
     return stats
