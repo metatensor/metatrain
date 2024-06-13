@@ -170,7 +170,7 @@ def read_targets(
         as well as a ``TargetInfoDict`` instance containing the metadata of the targets.
 
     :raises ValueError: if the target name is not valid. Valid target names are
-        those that either start with ``mtm::`` or those that are in the list of
+        those that either start with ``mtt::`` or those that are in the list of
         standard outputs of ``metatensor.torch.atomistic`` (see
         https://docs.metatensor.org/latest/atomistic/outputs.html)
     """
@@ -182,11 +182,11 @@ def read_targets(
         target_info_gradients = set()
 
         if target_key not in standard_outputs_list and not target_key.startswith(
-            "mtm::"
+            "mtt::"
         ):
             raise ValueError(
                 f"Target names must either be one of {standard_outputs_list} "
-                "or start with `mtm::`."
+                "or start with `mtt::`."
             )
         if target["quantity"] == "energy":
             blocks = read_energy(

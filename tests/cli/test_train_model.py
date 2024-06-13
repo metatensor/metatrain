@@ -71,9 +71,12 @@ def test_train(capfd, monkeypatch, tmp_path, output):
 
     assert "This log is also available" in stdout_log
     assert re.search(r"Random seed of this run is [1-9]\d*", stdout_log)
-    assert "Training dataset has size" in stdout_log
-    assert "Validation dataset has size" in stdout_log
-    assert "Test dataset has size" in stdout_log
+    assert "Training dataset:" in stdout_log
+    assert "Validation dataset:" in stdout_log
+    assert "Test dataset:" in stdout_log
+    assert "size 50" in stdout_log
+    assert "mean=" in stdout_log
+    assert "std=" in stdout_log
     assert "[INFO]" in stdout_log
     assert "Epoch" in stdout_log
     assert "loss" in stdout_log
@@ -178,7 +181,7 @@ def test_train_multiple_datasets(monkeypatch, tmp_path, options):
     options["training_set"][1]["systems"]["read_from"] = "ethanol_reduced_100.xyz"
     options["training_set"][1]["targets"]["energy"]["key"] = "energy"
     options["training_set"][0]["targets"].pop("energy")
-    options["training_set"][0]["targets"]["mtm::U0"] = OmegaConf.create({"key": "U0"})
+    options["training_set"][0]["targets"]["mtt::U0"] = OmegaConf.create({"key": "U0"})
 
     train_model(options)
 
