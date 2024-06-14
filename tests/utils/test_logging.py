@@ -29,7 +29,7 @@ def test_default_log(caplog, capsys):
 
     stdout_log = capsys.readouterr().out
 
-    assert "Logging to file is disabled." in caplog.text
+    assert "Logging to file is disabled." not in caplog.text  # DEBUG message
     assert_log_entry(stdout_log, loglevel="INFO", message="foo")
     assert "A debug message" not in stdout_log
 
