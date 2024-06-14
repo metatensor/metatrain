@@ -231,6 +231,7 @@ def setup_logging(
             level = logging.ERROR
 
         logging.basicConfig(format=format, handlers=handlers, level=level, style="{")
+        logging.captureWarnings(True)
 
         if log_file:
             abs_path = str(Path(log_file).absolute().resolve())
