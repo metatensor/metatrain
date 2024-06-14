@@ -148,5 +148,5 @@ class Trainer:
         return
 
     @classmethod
-    def load_checkpoint(cls, path: Union[str, Path]) -> "GAP":
+    def load_checkpoint(cls, path: Union[str, Path], hypers_train) -> "GAP":
         raise ValueError("GAP does not allow restarting training")

@@ -3,7 +3,9 @@ seed: 42
 architecture:
   name: experimental.pet
   training:
-    EPOCH_NUM_ATOMIC: 10000
+    EPOCH_NUM_ATOMIC: 1000
+    EPOCHS_WARMUP_ATOMIC: 250
+    INITIAL_LR: 1e-200
 
 training_set:
   systems:

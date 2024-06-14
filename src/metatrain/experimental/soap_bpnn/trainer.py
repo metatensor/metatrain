@@ -400,13 +400,12 @@ class Trainer:
         )
 
     @classmethod
-    def load_checkpoint(cls, path: Union[str, Path]) -> "Trainer":
+    def load_checkpoint(cls, path: Union[str, Path], train_hypers) -> "Trainer":
 
         # Load the checkpoint
         checkpoint = torch.load(path)
         model_hypers = checkpoint["model_hypers"]
         model_state_dict = checkpoint["model_state_dict"]
-        train_hypers = checkpoint["train_hypers"]
         epoch = checkpoint["epoch"]
         optimizer_state_dict = checkpoint["optimizer_state_dict"]
         scheduler_state_dict = checkpoint["scheduler_state_dict"]
