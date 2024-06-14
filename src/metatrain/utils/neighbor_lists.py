@@ -78,8 +78,8 @@ def _compute_single_neighbor_list(
         nl_ijS_ase = np.concatenate(
             (nl_i_ase.reshape(-1, 1), nl_j_ase.reshape(-1, 1), nl_S_ase), axis=1
         )
-        sort_indices = np.lexsort(np.rot90(nl_ijS))
-        sort_indices_ase = np.lexsort(np.rot90(nl_ijS_ase))
+        sort_indices = np.lexsort(nl_ijS.T)
+        sort_indices_ase = np.lexsort(nl_ijS_ase.T)
         assert np.array_equal(nl_ijS[sort_indices], nl_ijS_ase[sort_indices_ase])
         assert np.allclose(nl_D[sort_indices], nl_D_ase[sort_indices_ase])
 
