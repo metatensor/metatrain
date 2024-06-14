@@ -1,8 +1,10 @@
+import random
 from typing import List
 
 import ase.neighborlist
 import numpy as np
 import torch
+import vesin
 from metatensor.torch import Labels, TensorBlock
 from metatensor.torch.atomistic import (
     NeighborListOptions,
@@ -45,11 +47,41 @@ def _compute_single_neighbor_list(
     # Computes a single neighbor list for an ASE atoms object
     # (as in metatensor.torch.atomistic)
 
-    nl_i, nl_j, nl_S, nl_D = ase.neighborlist.neighbor_list(
-        "ijSD",
-        atoms,
-        cutoff=options.cutoff,
-    )
+    if np.all(atoms.pbc) or np.all(~atoms.pbc):
+        nl_i, nl_j, nl_S, nl_D = vesin.ase_neighbor_list(
+            "ijSD",
+            atoms,
+            cutoff=options.cutoff,
+        )
+    else:
+        # this is not implemented in vesin, so we use ASE
+        nl_i, nl_j, nl_S, nl_D = ase.neighborlist.neighbor_list(
+            "ijSD",
+            atoms,
+            cutoff=options.cutoff,
+        )
+
+    # Check the vesin NL against the ASE NL (5% of the time)
+    if random.random() < 0.05:
+        nl_i_ase, nl_j_ase, nl_S_ase, nl_D_ase = ase.neighborlist.neighbor_list(
+            "ijSD",
+            atoms,
+            cutoff=options.cutoff,
+        )
+        assert len(nl_i) == len(nl_i_ase)
+        assert len(nl_j) == len(nl_j_ase)
+        assert len(nl_S) == len(nl_S_ase)
+        assert len(nl_D) == len(nl_D_ase)
+        nl_ijS = np.concatenate(
+            (nl_i.reshape(-1, 1), nl_j.reshape(-1, 1), nl_S), axis=1
+        )
+        nl_ijS_ase = np.concatenate(
+            (nl_i_ase.reshape(-1, 1), nl_j_ase.reshape(-1, 1), nl_S_ase), axis=1
+        )
+        sort_indices = np.lexsort(nl_ijS.T)
+        sort_indices_ase = np.lexsort(nl_ijS_ase.T)
+        assert np.array_equal(nl_ijS[sort_indices], nl_ijS_ase[sort_indices_ase])
+        assert np.allclose(nl_D[sort_indices], nl_D_ase[sort_indices_ase])
 
     selected = []
     for pair_i, (i, j, S) in enumerate(zip(nl_i, nl_j, nl_S)):
