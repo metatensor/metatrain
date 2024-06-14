@@ -1,0 +1,18 @@
+seed: 42
+
+architecture:
+  name: experimental.pet
+  training:
+    EPOCH_NUM_ATOMIC: 10000
+
+training_set:
+  systems:
+    read_from: ethanol_reduced_100.xyz
+    length_unit: angstrom
+  targets:
+    energy:
+      key: energy
+      unit: kcal/mol
+
+test_set: 0.5
+validation_set: 0.1

@@ -236,7 +236,7 @@ def setup_logging(
             abs_path = str(Path(log_file).absolute().resolve())
             log_obj.info(f"This log is also available at {abs_path!r}.")
         else:
-            log_obj.info("Logging to file is disabled.")
+            log_obj.debug("Logging to file is disabled.")
 
         for handler in handlers:
             log_obj.addHandler(handler)

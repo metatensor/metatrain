@@ -158,3 +158,6 @@ class Trainer:
         wrapper = SelfContributionsWrapper(raw_pet, self_contributions)
 
         model.set_trained_model(wrapper)
+
+    def save_checkpoint(self, model, checkpoint_dir: str):
+        model.save_checkpoint(checkpoint_dir)
