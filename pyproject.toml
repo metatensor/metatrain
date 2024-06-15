@@ -16,6 +16,7 @@ dependencies = [
     "omegaconf",
     "python-hostlist",
     "torch",
+    "vesin",
 ]
 
 keywords = ["machine learning", "molecular modeling"]
