@@ -1,4 +1,5 @@
 device: cpu
+base_precision: 64
 
 architecture:
   name: experimental.soap_bpnn
