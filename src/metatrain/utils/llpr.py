@@ -30,7 +30,7 @@ class LLPRModel(torch.nn.Module):
         for name, output in old_capabilities.outputs.items():
             if name.startswith("mtt::aux"):
                 continue  # auxiliary output
-            uncertainty_name = f"mtt::aux::{name.replace("mtt::", "")}_uncertainty"
+            uncertainty_name = f"mtt::aux::{name.replace('mtt::', '')}_uncertainty"
             additional_capabilities[uncertainty_name] = ModelOutput(
                 quantity="",
                 unit=f"({output.unit})^2",
@@ -220,7 +220,7 @@ class LLPRModel(torch.nn.Module):
                     unit="",
                     per_atom=False,
                 )
-                uncertainty_name = f"mtt::aux::{name.replace("mtt::", "")}_uncertainty"
+                uncertainty_name = f"mtt::aux::{name.replace('mtt::', '')}_uncertainty"
                 requested_outputs[uncertainty_name] = ModelOutput(
                     quantity="",
                     unit="",
@@ -228,7 +228,7 @@ class LLPRModel(torch.nn.Module):
                 )
             outputs = self.forward(systems, requested_outputs)
             for name, target in targets.items():
-                uncertainty_name = f"mtt::aux::{name.replace("mtt::", "")}_uncertainty"
+                uncertainty_name = f"mtt::aux::{name.replace('mtt::', '')}_uncertainty"
                 if name not in all_predictions:
                     all_predictions[name] = []
                     all_targets[name] = []
@@ -242,7 +242,7 @@ class LLPRModel(torch.nn.Module):
         for name in all_predictions:
             all_predictions[name] = torch.cat(all_predictions[name], dim=0)
             all_targets[name] = torch.cat(all_targets[name], dim=0)
-            uncertainty_name = f"mtt::aux::{name.replace("mtt::", "")}_uncertainty"
+            uncertainty_name = f"mtt::aux::{name.replace('mtt::', '')}_uncertainty"
             all_uncertainties[uncertainty_name] = torch.cat(
                 all_uncertainties[uncertainty_name], dim=0
             )
@@ -250,7 +250,7 @@ class LLPRModel(torch.nn.Module):
         for name in all_predictions:
             # compute the uncertainty multiplier
             residuals = all_predictions[name] - all_targets[name]
-            uncertainty_name = f"mtt::aux::{name.replace("mtt::", "")}_uncertainty"
+            uncertainty_name = f"mtt::aux::{name.replace('mtt::', '')}_uncertainty"
             uncertainties = all_uncertainties[uncertainty_name]
             self.uncertainty_multipliers[name] = torch.mean(
                 residuals**2 / uncertainties
