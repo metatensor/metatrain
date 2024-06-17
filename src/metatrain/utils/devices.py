@@ -39,6 +39,13 @@ def pick_devices(
     # intersect between available and architecture's devices. keep order of architecture
     possible_devices = [d for d in architecture_devices if d in available_devices]
 
+    if not possible_devices:
+        raise ValueError(
+            f"No matching device found! The architecture requires "
+            f"{', '.join(architecture_devices)}; but your system only has "
+            f"{', '.join(available_devices)}."
+        )
+
     # If desired device given compare the possible devices and try to find a match
     if desired_device is None:
         desired_device = possible_devices[0]

@@ -26,7 +26,7 @@ logger = logging.getLogger(__name__)
 
 
 class PET(torch.nn.Module):
-    __supported_devices__ = ["cuda"]
+    __supported_devices__ = ["cuda", "cpu"]
     __supported_dtypes__ = [torch.float32]
 
     def __init__(self, model_hypers: Dict, dataset_info: DatasetInfo) -> None:
