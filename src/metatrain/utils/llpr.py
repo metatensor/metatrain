@@ -83,7 +83,12 @@ class LLPRModel(torch.nn.Module):
 
         if all("_uncertainty" not in output for output in outputs):
             # no uncertainties requested
-            return self.model(systems, outputs, selected_atoms)
+            options = ModelEvaluationOptions(
+                length_unit="",
+                outputs=outputs,
+                selected_atoms=selected_atoms,
+            )
+            return self.model(systems, options, check_consistency=True)
 
         per_atom_all_targets = [output.per_atom for output in outputs.values()]
         # impose either all per atom or all not per atom
@@ -110,6 +115,7 @@ class LLPRModel(torch.nn.Module):
         options = ModelEvaluationOptions(
             length_unit="",
             outputs=outputs_for_model,
+            selected_atoms=selected_atoms,
         )
         return_dict = self.model(
             systems, options, check_consistency=True
@@ -125,22 +131,29 @@ class LLPRModel(torch.nn.Module):
             ll_features.block().values,
         ).unsqueeze(1)
         one_over_pr = TensorMap(
-            keys=Labels.single(),
+            keys=Labels(
+                names=["_"],
+                values=torch.tensor([[0]], device=ll_features.block().values.device),
+            ),
             blocks=[
                 TensorBlock(
                     values=one_over_pr_values,
                     samples=ll_features.block().samples,
                     components=ll_features.block().components,
-                    properties=Labels.single(),
+                    properties=Labels(
+                        names=["_"],
+                        values=torch.tensor(
+                            [[0]], device=ll_features.block().values.device
+                        ),
+                    ),
                 )
             ],
         )
 
-        requested_uncertainties = [
-            name
-            for name in outputs
-            if name.startswith("mtt::aux") and name.endswith("_uncertainty")
-        ]
+        requested_uncertainties: List[str] = []
+        for name in outputs.keys():
+            if name.startswith("mtt::aux") and name.endswith("_uncertainty"):
+                requested_uncertainties.append(name)
 
         for name in requested_uncertainties:
             return_dict[name] = metatensor.torch.multiply(
@@ -252,6 +265,6 @@ class LLPRModel(torch.nn.Module):
             residuals = all_predictions[name] - all_targets[name]
             uncertainty_name = f"mtt::aux::{name.replace('mtt::', '')}_uncertainty"
             uncertainties = all_uncertainties[uncertainty_name]
-            self.uncertainty_multipliers[name] = torch.mean(
+            self.uncertainty_multipliers[uncertainty_name] = torch.mean(
                 residuals**2 / uncertainties
-            )
+            ).item()
