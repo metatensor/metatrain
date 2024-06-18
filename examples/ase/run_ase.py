@@ -37,7 +37,6 @@ import ase.units
 import ase.visualize.plot
 import matplotlib.pyplot as plt
 import numpy as np
-import rascaline.torch  # noqa
 from ase.geometry.analysis import Analysis
 from metatensor.torch.atomistic.ase_calculator import MetatensorCalculator
 
@@ -82,7 +81,7 @@ ase.md.velocitydistribution.MaxwellBoltzmannDistribution(atoms, temperature_K=30
 # We now register our exported model as the energy calculator to obtain energies and
 # forces.
 
-atoms.calc = MetatensorCalculator("model.pt")
+atoms.calc = MetatensorCalculator("model.pt", extensions_directory="extensions/")
 
 # %%
 #
