@@ -3,12 +3,13 @@
 Basic Usage
 ===========
 
-`metatensor-models` is designed for an direct usage from the the command line (cli). The
-general help of `metatensor-models` can be accessed using
+``metatrain`` is designed for a direct usage from the command line (cli). The program is
+registered via the abbreviation ``mtt`` to your command line. The general help of
+``metatrain`` can be accessed using
 
 .. code-block:: bash
 
-    metatensor-models --help
+    mtt --help
 
 We now demonstrate how to `train` and `evaluate` a model from the command line. For this
 example we use the :ref:`architecture-soap-bpnn` architecture and a subset of the `QM9
@@ -18,10 +19,10 @@ from our :download:`website <../../static/qm9/qm9_reduced_100.xyz>`.
 Training
 ########
 
-To train models, `metatensor-models` uses a dynamic override strategy for your training
+To train models, `metatrain` uses a dynamic override strategy for your training
 options. We allow a dynamical composition and override of the default architecture with
 either your custom ``options.yaml`` and even command line override grammar. For
-reference and reproducibility purposes `metatensor-models` always writes the fully
+reference and reproducibility purposes `metatrain` always writes the fully
 expanded, including the overwritten option to ``options_restart.yaml``. The restart
 options file is written into a subfolder named with the current `date` and `time` inside
 the ``output`` directory of your current training run.
@@ -30,7 +31,7 @@ The sub-command to start a model training is
 
 .. code-block:: bash
 
-    metatensor-models train
+    mtt train
 
 To train a model you have to define your options. This includes the specific
 architecture you want to use and the data including the training systems and target
@@ -61,7 +62,7 @@ The sub-command to evaluate an already trained model is
 
 .. code-block:: bash
 
-    metatensor-models eval
+    mtt eval
 
 Besides the trained `model`, you will also have to provide a file containing the
 system and possible target values for evaluation. The system of this ``eval.yaml``

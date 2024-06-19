@@ -11,8 +11,8 @@ from metatensor.torch import Labels
 from omegaconf import OmegaConf
 from targets.test_targets_ase import ase_system, ase_systems
 
-from metatensor.models.utils.data.dataset import TargetInfo, TargetInfoDict
-from metatensor.models.utils.data.readers import (
+from metatrain.utils.data.dataset import TargetInfo, TargetInfoDict
+from metatrain.utils.data.readers import (
     read_energy,
     read_forces,
     read_stress,
@@ -158,7 +158,7 @@ def test_read_targets(stress_dict, virial_dict, monkeypatch, tmp_path, caplog):
 
     conf = {
         "energy": energy_section,
-        "mtm::energy2": energy_section,
+        "mtt::energy2": energy_section,
     }
 
     caplog.set_level(logging.INFO)
@@ -201,15 +201,15 @@ def test_read_targets(stress_dict, virial_dict, monkeypatch, tmp_path, caplog):
             ]
             assert pos_grad.properties == Labels("energy", torch.tensor([[0]]))
 
-            disp_grad = result_block.gradient("strain")
+            strain_grad = result_block.gradient("strain")
             components = [
                 Labels(["xyz_1"], torch.arange(3).reshape(-1, 1)),
                 Labels(["xyz_2"], torch.arange(3).reshape(-1, 1)),
             ]
-            assert disp_grad.values.dtype is torch.float16
-            assert disp_grad.samples.names == ["sample"]
-            assert disp_grad.components == components
-            assert disp_grad.properties == Labels("energy", torch.tensor([[0]]))
+            assert strain_grad.values.dtype is torch.float16
+            assert strain_grad.samples.names == ["sample"]
+            assert strain_grad.components == components
+            assert strain_grad.properties == Labels("energy", torch.tensor([[0]]))
 
 
 @pytest.mark.parametrize(
@@ -302,6 +302,6 @@ def test_unsupported_target_name():
 
     with pytest.raises(
         ValueError,
-        match="start with `mtm::`",
+        match="start with `mtt::`",
     ):
         read_targets(OmegaConf.create(conf))

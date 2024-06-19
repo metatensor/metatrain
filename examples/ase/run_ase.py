@@ -28,7 +28,7 @@ the :ref:`label_basic_usage` tutorial.
 # %%
 #
 # First, we start by importing the necessary libraries, including the integration of ASE
-# calculators for metatensor atomistic models
+# calculators for metatensor atomistic models.
 
 
 import ase.md
@@ -37,7 +37,6 @@ import ase.units
 import ase.visualize.plot
 import matplotlib.pyplot as plt
 import numpy as np
-import rascaline.torch  # noqa
 from ase.geometry.analysis import Analysis
 from metatensor.torch.atomistic.ase_calculator import MetatensorCalculator
 
@@ -55,8 +54,8 @@ from metatensor.torch.atomistic.ase_calculator import MetatensorCalculator
 # Next, we initialize the simulation by extracting the initial positions from the
 # dataset file which we initially trained the model on.
 
-training_frames = ase.io.read("ethanol_reduced_100.xyz", ":")
-atoms = training_frames[0].copy()
+train_frames = ase.io.read("ethanol_reduced_100.xyz", ":")
+atoms = train_frames[0].copy()
 
 # %%
 #
@@ -82,7 +81,7 @@ ase.md.velocitydistribution.MaxwellBoltzmannDistribution(atoms, temperature_K=30
 # We now register our exported model as the energy calculator to obtain energies and
 # forces.
 
-atoms.calc = MetatensorCalculator("model.pt")
+atoms.calc = MetatensorCalculator("model.pt", extensions_directory="extensions/")
 
 # %%
 #
@@ -168,7 +167,7 @@ plt.show()
 # To use the RDF code from ase we first have to define a unit cell for our systems.
 # We choose a cubic one with a side length of 10 Å.
 
-for atoms in training_frames:
+for atoms in train_frames:
     atoms.cell = 10 * np.ones(3)
     atoms.pbc = True
 
@@ -183,7 +182,7 @@ for atoms in trajectory:
 # method.
 
 ana_traj = Analysis(trajectory)
-ana_train = Analysis(training_frames)
+ana_train = Analysis(train_frames)
 
 rdf_traj = ana_traj.get_rdf(rmax=5, nbins=50, elements=["C", "H"], return_dists=True)
 rdf_train = ana_train.get_rdf(rmax=5, nbins=50, elements=["C", "H"], return_dists=True)

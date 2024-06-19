@@ -1,7 +1,7 @@
 import torch
 from metatensor.torch.atomistic import System
 
-from metatensor.models.utils.data import system_to_ase
+from metatrain.utils.data import system_to_ase
 
 
 def test_system_to_ase():

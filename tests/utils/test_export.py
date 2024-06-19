@@ -4,9 +4,9 @@ import pytest
 import torch
 from metatensor.torch.atomistic import ModelCapabilities, load_atomistic_model
 
-from metatensor.models.experimental.soap_bpnn import __model__
-from metatensor.models.utils.data import DatasetInfo, TargetInfo
-from metatensor.models.utils.export import export, is_exported
+from metatrain.experimental.soap_bpnn import __model__
+from metatrain.utils.data import DatasetInfo, TargetInfo
+from metatrain.utils.export import export, is_exported
 
 from . import MODEL_HYPERS, RESOURCES_PATH
 
@@ -100,7 +100,7 @@ def test_units_warning():
     dataset_info = DatasetInfo(
         length_unit="angstrom",
         atomic_types={1},
-        targets={"mtm::output": TargetInfo(quantity="energy")},
+        targets={"mtt::output": TargetInfo(quantity="energy")},
     )
     model = __model__(model_hypers=MODEL_HYPERS, dataset_info=dataset_info)
 
@@ -113,5 +113,5 @@ def test_units_warning():
         dtype="float32",
     )
 
-    with pytest.warns(match="No target units were provided for output 'mtm::output'"):
+    with pytest.warns(match="No target units were provided for output 'mtt::output'"):
         export(model, capabilities)

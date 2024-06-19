@@ -11,8 +11,8 @@ import pytest
 import torch
 from omegaconf import OmegaConf
 
-from metatensor.models.cli.train import train_model
-from metatensor.models.utils.errors import ArchitectureError
+from metatrain.cli.train import train_model
+from metatrain.utils.errors import ArchitectureError
 
 from . import (
     DATASET_PATH_ETHANOL,
@@ -35,7 +35,7 @@ def test_train(capfd, monkeypatch, tmp_path, output):
     shutil.copy(DATASET_PATH_QM9, "qm9_reduced_100.xyz")
     shutil.copy(OPTIONS_PATH, "options.yaml")
 
-    command = ["metatensor-models", "train", "options.yaml"]
+    command = ["mtt", "train", "options.yaml"]
 
     if output is not None:
         command += ["-o", output]
@@ -69,16 +69,21 @@ def test_train(capfd, monkeypatch, tmp_path, output):
 
     assert file_log == stdout_log
 
-    for logtext in [stdout_log, file_log]:
-        assert "This log is also available"
-        assert re.search(r"Random seed of this run is [1-9]\d*", logtext)
-        assert "[INFO]" in logtext
-        assert "Epoch" in logtext
-        assert "loss" in logtext
-        assert "validation" in logtext
-        assert "train" in logtext
-        assert "energy" in logtext
-        assert "with index" not in logtext  # index only printed for more than 1 dataset
+    assert "This log is also available" in stdout_log
+    assert re.search(r"Random seed of this run is [1-9]\d*", stdout_log)
+    assert "Training dataset:" in stdout_log
+    assert "Validation dataset:" in stdout_log
+    assert "Test dataset:" in stdout_log
+    assert "size 50" in stdout_log
+    assert "mean " in stdout_log
+    assert "std " in stdout_log
+    assert "[INFO]" in stdout_log
+    assert "Epoch" in stdout_log
+    assert "loss" in stdout_log
+    assert "validation" in stdout_log
+    assert "train" in stdout_log
+    assert "energy" in stdout_log
+    assert "with index" not in stdout_log  # index only printed for more than 1 dataset
 
 
 @pytest.mark.parametrize(
@@ -94,7 +99,7 @@ def test_command_line_override(monkeypatch, tmp_path, overrides):
     shutil.copy(DATASET_PATH_QM9, "qm9_reduced_100.xyz")
     shutil.copy(OPTIONS_PATH, "options.yaml")
 
-    command = ["metatensor-models", "train", "options.yaml", "-r", overrides]
+    command = ["mtt", "train", "options.yaml", "-r", overrides]
 
     subprocess.check_call(command)
 
@@ -176,7 +181,7 @@ def test_train_multiple_datasets(monkeypatch, tmp_path, options):
     options["training_set"][1]["systems"]["read_from"] = "ethanol_reduced_100.xyz"
     options["training_set"][1]["targets"]["energy"]["key"] = "energy"
     options["training_set"][0]["targets"].pop("energy")
-    options["training_set"][0]["targets"]["mtm::U0"] = OmegaConf.create({"key": "U0"})
+    options["training_set"][0]["targets"]["mtt::U0"] = OmegaConf.create({"key": "U0"})
 
     train_model(options)
 

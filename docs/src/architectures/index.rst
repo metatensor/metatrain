@@ -3,7 +3,7 @@
 Available Architectures
 =======================
 
-This is a list of all architectures available in ``metatensor-models``.
+This is a list of all architectures available in ``metatrain``.
 
 .. toctree::
    :maxdepth: 1

@@ -1,4 +1,4 @@
-from metatensor.models.utils.architectures import get_default_hypers
+from metatrain.utils.architectures import get_default_hypers
 from pathlib import Path
 
 MODEL_HYPERS = get_default_hypers("experimental.soap_bpnn")["model"]

@@ -24,8 +24,49 @@ directory of the repository:
 This will install the package with the SOAP-BPNN dependencies.
 
 
-Architecture Hyperparameters
-----------------------------
+Default Hyperparameters
+-----------------------
+The default hyperparameters for the SOAP-BPNN model are:
+
+.. literalinclude:: ../../../src/metatrain/experimental/soap_bpnn/default-hypers.yaml
+   :language: yaml
+
+
+Tuning Hyperparameters
+----------------------
+The default hyperparameters above will work well in most cases, but they
+may not be optimal for your specific dataset. In general, the most important
+hyperparameters to tune are (in decreasing order of importance):
+
+- ``cutoff``: This should be set to a value after which most of the interactions between
+  atoms is expected to be negligible.
+- ``learning_rate``: The learning rate for the neural network. This hyperparameter
+  controls how much the weights of the network are updated at each step of the
+  optimization. A larger learning rate will lead to faster training, but might cause
+  instability and/or divergence.
+- ``batch_size``: The number of samples to use in each batch of training. This
+  hyperparameter controls the tradeoff between training speed and memory usage. In
+  general, larger batch sizes will lead to faster training, but might require more
+  memory.
+- ``num_hidden_layers``, ``num_neurons_per_layer``, ``max_radial``, ``max_angular``:
+  These hyperparameters control the size and depth of the descriptors and the neural
+  network. In general, increasing these hyperparameters might lead to better accuracy,
+  especially on larger datasets, at the cost of increased training and evaluation time.
+- ``radial_scaling`` hyperparameters: These hyperparameters control the radial scaling
+  of the SOAP descriptor. In general, the default values should work well, but they
+  might need to be adjusted for specific datasets.
+- ``loss_weights``: This controls the weighting of different contributions to the loss
+  (e.g., energy, forces, virial, etc.). The default values work well for most datasets,
+  but they might need to be adjusted. For example, to set a weight of 1.0 for the energy
+  and 0.1 for the forces, you can set the following in the ``options.yaml`` file:
+  ``loss_weights: {"energy": 1.0, "forces": 0.1}``.
+- ``layernorm``: Whether to use layer normalization before the neural network. Setting
+  this hyperparameter to ``false`` will lead to slower convergence of training, but
+  might lead to better generalization outside of the training set distribution.
+
+
+All Hyperparameters
+-------------------
 :param name: ``experimental.soap_bpnn``
 
 model
@@ -99,7 +140,7 @@ bpnn
 
 training
 ########
-The parameters for the training loop are
+The parameters for training are
 
 :param batch_size: batch size
 :param num_epochs: number of training epochs
@@ -113,45 +154,6 @@ The parameters for the training loop are
     weights should be a dictionary of floats, one for each target. All missing targets
     are assigned a weight of 1.0.
 
-
-
-Default Hyperparameters
------------------------
-The default hyperparameters for the SOAP-BPNN model are:
-
-.. literalinclude:: ../../../src/metatensor/models/experimental/soap_bpnn/default-hypers.yaml
-   :language: yaml
-
-
-Tuning Hyperparameters
-----------------------
-The default hyperparameters above will work well in most cases, but they
-may not be optimal for your specific dataset. In general, the most important
-hyperparameters to tune are (in decreasing order of importance):
-
-- ``cutoff``: This should be set to a value after which most of the interactions between
-  atoms is expected to be negligible.
-- ``learning_rate``: The learning rate for the neural network. This hyperparameter
-  controls how much the weights of the network are updated at each step of the
-  optimization. A larger learning rate will lead to faster training, but might cause
-  instability and/or divergence.
-- ``batch_size``: The number of samples to use in each batch of training. This
-  hyperparameter controls the tradeoff between training speed and memory usage. In
-  general, larger batch sizes will lead to faster training, but might require more
-  memory.
-- ``num_hidden_layers``, ``num_neurons_per_layer``, ``max_radial``, ``max_angular``:
-  These hyperparameters control the size and depth of the descriptors and the neural
-  network. In general, increasing these hyperparameters might lead to better accuracy,
-  especially on larger datasets, at the cost of increased training and evaluation time.
-- ``radial_scaling`` hyperparameters: These hyperparameters control the radial scaling
-  of the SOAP descriptor. In general, the default values should work well, but they
-  might need to be adjusted for specific datasets.
-- ``loss_weights``: This controls the weighting of different contributions to the loss
-  (e.g., energy, forces, virial, etc.). The default values work well for most datasets,
-  but they might need to be adjusted.
-- ``layernorm``: Whether to use layer normalization before the neural network. Setting
-  this hyperparameter to ``false`` will lead to slower convergence of training, but
-  might lead to better generalization outside of the training set distribution.
 
 References
 ----------

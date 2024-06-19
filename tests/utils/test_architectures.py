@@ -2,8 +2,8 @@ from pathlib import Path
 
 import pytest
 
-from metatensor.models import PACKAGE_ROOT
-from metatensor.models.utils.architectures import (
+from metatrain import PACKAGE_ROOT
+from metatrain.utils.architectures import (
     check_architecture_name,
     find_all_architectures,
     get_architecture_name,

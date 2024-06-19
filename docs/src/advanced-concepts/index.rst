@@ -1,7 +1,7 @@
 Advanced concepts
 =================
 
-This section covers advanced concepts of the ``metatensor-models`` library,
+This section covers advanced concepts of the ``metatrain`` library,
 such as output naming, auxiliary outputs, and wrapper models.
 
 
@@ -10,3 +10,4 @@ such as output naming, auxiliary outputs, and wrapper models.
 
    output-naming
    auxiliary-outputs
+   multi-gpu
