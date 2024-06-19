@@ -12,7 +12,7 @@ from metatensor.torch.atomistic import (
     ModelCapabilities
 )
 
-from metatensor.models.utils.data.dataset import DatasetInfo
+from ...utils.data.dataset import DatasetInfo
 
 from ...utils.composition import apply_composition_contribution_samples
 from ...utils.dtype import dtype_to_str
@@ -51,6 +51,10 @@ class PhACE(torch.nn.Module):
             )
             for key, value in dataset_info.targets.items()
         }
+        # the model is always capable of outputting the last layer features
+        self.outputs["mtt::aux::last_layer_features"] = ModelOutput(
+            unit="unitless", per_atom=True
+        )
 
         model_hypers["normalize"] = True
 
@@ -277,6 +281,15 @@ class PhACE(torch.nn.Module):
 
         hidden_features = features[self.nu_max]
 
+        return_dict: Dict[str, TensorMap] = {}
+        # output the hidden features, if requested:
+        if "mtt::aux::last_layer_features" in outputs:
+            last_layer_features_options = outputs["mtt::aux::last_layer_features"]
+            out_features = hidden_features
+            if not last_layer_features_options.per_atom:
+                out_features = metatensor.torch.sum_over_samples(out_features, ["atom"])
+            return_dict["mtt::aux::last_layer_features"] = out_features
+
         atomic_energies: Dict[str, TensorMap] = {}
         for output_name, output_layer in self.last_layers.items():
             if output_name in outputs:
@@ -290,14 +303,13 @@ class PhACE(torch.nn.Module):
                     ],
                 )
 
-        # Sum the atomic energies coming from the BPNN to get the total energy
-        total_energies: Dict[str, TensorMap] = {}
+        # Sum the atomic energies to get the output
         for output_name, atomic_energy in atomic_energies.items():
-            total_energies[output_name] = metatensor.torch.sum_over_samples(
+            return_dict[output_name] = metatensor.torch.sum_over_samples(
                 atomic_energy, ["atom", "center_type"]
             )
 
-        return total_energies
+        return return_dict
 
     @classmethod
     def load_checkpoint(cls, path: Union[str, Path]) -> "PhACE":

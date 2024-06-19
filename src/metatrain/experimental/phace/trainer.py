@@ -46,7 +46,7 @@ class Trainer:
         model: PhACE,
         devices: List[torch.device],
         train_datasets: List[Union[Dataset, torch.utils.data.Subset]],
-        validation_datasets: List[Union[Dataset, torch.utils.data.Subset]],
+        val_datasets: List[Union[Dataset, torch.utils.data.Subset]],
         checkpoint_dir: str,
     ):
         dtype = train_datasets[0][0]["system"].positions.dtype
@@ -107,7 +107,7 @@ class Trainer:
         # Calculate NLs:
         logger.info("Calculating neighbors lists for the datasets")
         requested_neighbor_lists = model.requested_neighbor_lists()
-        for dataset in train_datasets + validation_datasets:
+        for dataset in train_datasets + val_datasets:
             for i in range(len(dataset)):
                 system = dataset[i]["system"]
                 # The following line attached the neighbors lists to the system,
@@ -138,9 +138,9 @@ class Trainer:
         calculate_scaling(scripted_model, train_dataloader, model.dataset_info, device)
 
         # Create dataloader for the validation datasets:
-        validation_dataloaders = []
-        for dataset in validation_datasets:
-            validation_dataloaders.append(
+        val_dataloaders = []
+        for dataset in val_datasets:
+            val_dataloaders.append(
                 DataLoader(
                     dataset=dataset,
                     batch_size=self.hypers["batch_size"],
@@ -148,8 +148,8 @@ class Trainer:
                     collate_fn=collate_fn,
                 )
             )
-        validation_dataloader = CombinedDataLoader(
-            validation_dataloaders, shuffle=False
+        val_dataloader = CombinedDataLoader(
+            val_dataloaders, shuffle=False
         )
 
         # Extract all the possible outputs and their gradients:
@@ -205,13 +205,13 @@ class Trainer:
         # Train the model:
         logger.info("Starting training")
 
-        best_validation_loss = float("inf")
+        best_val_loss = float("inf")
         n_epochs_without_improvement = 0
         for epoch in range(self.hypers["num_epochs"]):
             train_rmse_calculator = RMSEAccumulator()
             train_mae_calculator = MAEAccumulator()
-            validation_rmse_calculator = RMSEAccumulator()
-            validation_mae_calculator = MAEAccumulator()
+            val_rmse_calculator = RMSEAccumulator()
+            val_mae_calculator = MAEAccumulator()
 
             train_loss = 0.0
             for batch in train_dataloader:
@@ -249,8 +249,8 @@ class Trainer:
                 **train_mae_calculator.finalize(),
             }
 
-            validation_loss = 0.0
-            for batch in validation_dataloader:
+            val_loss = 0.0
+            for batch in val_dataloader:
                 systems, targets = batch
                 systems = [system.to(device=device) for system in systems]
                 targets = {
@@ -271,35 +271,35 @@ class Trainer:
                 )
                 targets = average_by_num_atoms(targets, systems, per_structure_targets)
 
-                validation_loss_batch = loss_fn(predictions, targets)
-                validation_loss += validation_loss_batch.item()
-                validation_rmse_calculator.update(predictions, targets)
-                validation_mae_calculator.update(predictions, targets)
+                val_loss_batch = loss_fn(predictions, targets)
+                val_loss += val_loss_batch.item()
+                val_rmse_calculator.update(predictions, targets)
+                val_mae_calculator.update(predictions, targets)
 
-            finalized_validation_info = {
-                **validation_rmse_calculator.finalize(not_per_atom=["positions_gradients"] + per_structure_targets),
-                **validation_mae_calculator.finalize(),
+            finalized_val_info = {
+                **val_rmse_calculator.finalize(not_per_atom=["positions_gradients"] + per_structure_targets),
+                **val_mae_calculator.finalize(),
             }
 
-            lr_scheduler.step(validation_loss)
+            lr_scheduler.step(val_loss)
 
             # Now we log the information:
             finalized_train_info = {"loss": train_loss, **finalized_train_info}
-            finalized_validation_info = {
-                "loss": validation_loss,
-                **finalized_validation_info,
+            finalized_val_info = {
+                "loss": val_loss,
+                **finalized_val_info,
             }
 
             if epoch == 0:
                 metric_logger = MetricLogger(
                     logobj=logger,
-                    model_outputs=model.outputs,
-                    initial_metrics=[finalized_train_info, finalized_validation_info],
-                    names=["train", "validation"],
+                    dataset_info=model.dataset_info,
+                    initial_metrics=[finalized_train_info, finalized_val_info],
+                    names=["training", "validation"],
                 )
             if epoch % self.hypers["log_interval"] == 0:
                 metric_logger.log(
-                    metrics=[finalized_train_info, finalized_validation_info],
+                    metrics=[finalized_train_info, finalized_val_info],
                     epoch=epoch,
                 )
 
@@ -308,7 +308,7 @@ class Trainer:
             # TODO: how do I make this work given that it's scripted?
 
             lr_before = optimizer.param_groups[0]["lr"]
-            scheduler.step(validation_loss)
+            scheduler.step(val_loss)
             lr_after = optimizer.param_groups[0]["lr"]
             if lr_before != lr_after:
                 logger.info(f"Learning rate changed from {lr_before} to {lr_after}")
@@ -320,8 +320,8 @@ class Trainer:
                 logger.info("Training has converged, stopping")
                 break
 
-            if validation_loss < best_validation_loss:
-                best_validation_loss = validation_loss
+            if val_loss < best_val_loss:
+                best_val_loss = val_loss
                 n_epochs_without_improvement = 0
                 best_state_dict = copy.deepcopy(scripted_model.state_dict())
                 best_optimizer_state_dict = copy.deepcopy(optimizer.state_dict())
