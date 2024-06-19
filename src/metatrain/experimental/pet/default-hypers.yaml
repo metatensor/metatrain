@@ -29,8 +29,7 @@ model:
   K_CUT: null # should be float; only used when USE_LONG_RANGE is True
   RESIDUAL_FACTOR: 0.5
 
-
-training:  
+training:
   INITIAL_LR: 1e-4
   EPOCH_NUM_ATOMIC: 1000000000000000000
   SCHEDULER_STEP_SIZE_ATOMIC: 500000000

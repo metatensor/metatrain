@@ -1,147 +1,147 @@
 {
-    "$schema": "http://json-schema.org/draft-07/schema#",
-    "$defs": {
-        "read_from": {
-            "type": "string",
-            "format": "uri"
-        },
-        "file_format": {
-            "type": "string"
-        },
-        "gradient_section": {
-            "oneOf": [
-                {
-                    "type": "boolean"
-                },
-                {
-                    "$ref": "#/$defs/read_from"
-                },
-                {
-                    "type": "object",
-                    "properties": {
-                        "read_from": {
-                            "$ref": "#/$defs/read_from"
-                        },
-                        "file_format": {
-                            "$ref": "#/$defs/file_format"
-                        },
-                        "key": {
-                            "type": "string"
-                        }
-                    },
-                    "additionalProperties": false
-                }
-            ]
-        },
-        "dataset_section": {
-            "oneOf": [
-                {
-                    "type": "object",
-                    "additionalProperties": true
-                },
-                {
-                    "type": "array",
-                    "items": {
-                        "type": "object",
-                        "additionalProperties": true
-                    }
-                },
-                {
-                    "type": "string",
-                    "format": "uri"
-                }
-            ]
-        }
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$defs": {
+    "read_from": {
+      "type": "string",
+      "format": "uri"
     },
-    "type": "object",
-    "properties": {
-        "systems": {
-            "oneOf": [
-                {
-                    "$ref": "#/$defs/read_from"
-                },
-                {
-                    "type": "object",
-                    "properties": {
-                        "read_from": {
-                            "$ref": "#/$defs/read_from"
-                        },
-                        "file_format": {
-                            "$ref": "#/$defs/file_format"
-                        },
-                        "length_unit": {
-                            "oneOf": [
-                                {
-                                    "type": "null"
-                                },
-                                {
-                                    "type": "string"
-                                }
-                            ]
-                        }
-                    },
-                    "additionalProperties": false
-                }
-            ]
+    "file_format": {
+      "type": "string"
+    },
+    "gradient_section": {
+      "oneOf": [
+        {
+          "type": "boolean"
         },
-        "targets": {
-            "type": "object",
-            "patternProperties": {
-                ".*": {
-                    "oneOf": [
-                        {
-                            "$ref": "#/$defs/read_from"
-                        },
-                        {
-                            "type": "object",
-                            "properties": {
-                                "quantity": {
-                                    "type": "string"
-                                },
-                                "read_from": {
-                                    "$ref": "#/$defs/read_from"
-                                },
-                                "file_format": {
-                                    "oneOf": [
-                                        {
-                                            "$ref": "#/$defs/file_format"
-                                        },
-                                        {
-                                            "type": "object",
-                                            "additionalProperties": true
-                                        }
-                                    ]
-                                },
-                                "key": {
-                                    "type": "string"
-                                },
-                                "unit": {
-                                    "oneOf": [
-                                        {
-                                            "type": "null"
-                                        },
-                                        {
-                                            "type": "string"
-                                        }
-                                    ]
-                                },
-                                "forces": {
-                                    "$ref": "#/$defs/gradient_section"
-                                },
-                                "stress": {
-                                    "$ref": "#/$defs/gradient_section"
-                                },
-                                "virial": {
-                                    "$ref": "#/$defs/gradient_section"
-                                }
-                            },
-                            "additionalProperties": false
-                        }
-                    ]
-                }
+        {
+          "$ref": "#/$defs/read_from"
+        },
+        {
+          "type": "object",
+          "properties": {
+            "read_from": {
+              "$ref": "#/$defs/read_from"
             },
-            "additionalProperties": false
+            "file_format": {
+              "$ref": "#/$defs/file_format"
+            },
+            "key": {
+              "type": "string"
+            }
+          },
+          "additionalProperties": false
         }
+      ]
     },
-    "additionalProperties": false
+    "dataset_section": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": true
+        },
+        {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": true
+          }
+        },
+        {
+          "type": "string",
+          "format": "uri"
+        }
+      ]
+    }
+  },
+  "type": "object",
+  "properties": {
+    "systems": {
+      "oneOf": [
+        {
+          "$ref": "#/$defs/read_from"
+        },
+        {
+          "type": "object",
+          "properties": {
+            "read_from": {
+              "$ref": "#/$defs/read_from"
+            },
+            "file_format": {
+              "$ref": "#/$defs/file_format"
+            },
+            "length_unit": {
+              "oneOf": [
+                {
+                  "type": "null"
+                },
+                {
+                  "type": "string"
+                }
+              ]
+            }
+          },
+          "additionalProperties": false
+        }
+      ]
+    },
+    "targets": {
+      "type": "object",
+      "patternProperties": {
+        ".*": {
+          "oneOf": [
+            {
+              "$ref": "#/$defs/read_from"
+            },
+            {
+              "type": "object",
+              "properties": {
+                "quantity": {
+                  "type": "string"
+                },
+                "read_from": {
+                  "$ref": "#/$defs/read_from"
+                },
+                "file_format": {
+                  "oneOf": [
+                    {
+                      "$ref": "#/$defs/file_format"
+                    },
+                    {
+                      "type": "object",
+                      "additionalProperties": true
+                    }
+                  ]
+                },
+                "key": {
+                  "type": "string"
+                },
+                "unit": {
+                  "oneOf": [
+                    {
+                      "type": "null"
+                    },
+                    {
+                      "type": "string"
+                    }
+                  ]
+                },
+                "forces": {
+                  "$ref": "#/$defs/gradient_section"
+                },
+                "stress": {
+                  "$ref": "#/$defs/gradient_section"
+                },
+                "virial": {
+                  "$ref": "#/$defs/gradient_section"
+                }
+              },
+              "additionalProperties": false
+            }
+          ]
+        }
+      },
+      "additionalProperties": false
+    }
+  },
+  "additionalProperties": false
 }

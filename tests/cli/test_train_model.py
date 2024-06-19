@@ -299,6 +299,7 @@ def test_empty_test_set(caplog, monkeypatch, tmp_path, options):
     # check if the logging is correct
     assert "This dataset is empty. No evaluation" in caplog.text
 
+
 @pytest.mark.parametrize(
     "test_set_file, validation_set_file", [(True, False), (False, True)]
 )
