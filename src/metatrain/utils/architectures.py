@@ -1,5 +1,6 @@
 import difflib
 import json
+import logging
 from importlib.util import find_spec
 from pathlib import Path
 from typing import Dict, List, Union
@@ -70,6 +71,8 @@ def check_architecture_options(
             schema = json.load(f)
 
         validate(instance=options, schema=schema)
+    else:
+        logging.debug("No schema found for {name!r} architecture. Skipping validation.")
 
 
 def get_architecture_name(path: Union[str, Path]) -> str:
