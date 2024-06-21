@@ -1,5 +1,6 @@
 import logging
 import os
+import warnings
 from pathlib import Path
 from typing import List, Union
 
@@ -38,6 +39,12 @@ class Trainer:
             raise ValueError("PET only supports a single training dataset")
         if len(val_datasets) != 1:
             raise ValueError("PET only supports a single validation dataset")
+        if torch.device("cpu") in devices:
+            warnings.warn(
+                "Training PET on a CPU is very slow! For better performance, use a "
+                "CUDA GPU.",
+                stacklevel=1,
+            )
 
         if model.checkpoint_path is not None:
             self.hypers["FITTING_SCHEME"]["MODEL_TO_START_WITH"] = model.checkpoint_path
