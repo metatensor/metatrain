@@ -371,10 +371,12 @@ def train_model(
     try:
         if continue_from is not None:
             logger.info(f"Loading checkpoint from `{continue_from}`")
+            trainer = Trainer.load_checkpoint(continue_from, hypers["training"])
             model = Model.load_checkpoint(continue_from)
             model = model.restart(dataset_info)
         else:
             model = Model(hypers["model"], dataset_info)
+            trainer = Trainer(hypers["training"])
     except Exception as e:
         raise ArchitectureError(e)
 
@@ -382,9 +384,8 @@ def train_model(
     # TRAIN MODEL #############
     ###########################
 
-    logger.info("Start training")
+    logger.info("Calling trainer")
     try:
-        trainer = Trainer(hypers["training"])
         trainer.train(
             model=model,
             devices=devices,
@@ -405,10 +406,10 @@ def train_model(
     output_checked = check_suffix(filename=output, suffix=".pt")
     logger.info(
         "Training finished, saving final checkpoint "
-        f"to {str(Path(output_checked).stem)}.ckpt"
+        f"to `{str(Path(output_checked).stem)}.ckpt`"
     )
     try:
-        model.save_checkpoint(f"{Path(output_checked).stem}.ckpt")
+        trainer.save_checkpoint(model, f"{Path(output_checked).stem}.ckpt")
     except Exception as e:
         raise ArchitectureError(e)
 
@@ -416,7 +417,7 @@ def train_model(
     extensions_path = "extensions/"
 
     logger.info(
-        f"Exporting model to {output_checked} and extensions to {extensions_path}"
+        f"Exporting model to `{output_checked}` and extensions to `{extensions_path}`"
     )
     mts_atomistic_model.export(str(output_checked), collect_extensions=extensions_path)
 

@@ -16,13 +16,13 @@ to these lines
     hypers = {}
     dataset_info = DatasetInfo()
 
-    if "continue_from":
-        model = Model.load_checkpoint("path")
+    if continue_from is not None:
+        trainer = Trainer.load_checkpoint(continue_from, hypers["training"])
+        model = Model.load_checkpoint(continue_from)
         model = model.restart(dataset_info)
     else:
-        model = Model(hypers["architecture"], dataset_info)
-
-    trainer = Trainer(hypers["training"])
+        model = Model(hypers["model"], dataset_info)
+        trainer = Trainer(hypers["training"])
 
     trainer.train(
         model=model,
@@ -56,9 +56,8 @@ In order to follow this, a new architectures has two define two classes
     val_datasets passed to the Trainer, as well as the dataset_info passed to the
     model.
 
-The ``ModelInterface`` is the main model class and must implement a
-``save_checkpoint()``, ``load_checkpoint()``  as well as a ``restart()`` and
-``export()`` method.
+The ``ModelInterface`` is the main model class and must implement the
+``load_checkpoint()``, ``restart()`` and ``export()`` methods.
 
 .. code-block:: python
 
@@ -70,9 +69,6 @@ The ``ModelInterface`` is the main model class and must implement a
         def __init__(self, model_hypers: Dict, dataset_info: DatasetInfo):
             self.hypers = model_hypers
             self.dataset_info = dataset_info
-
-        def save_checkpoint(self, path: Union[str, Path]):
-            pass
 
         @classmethod
         def load_checkpoint(cls, path: Union[str, Path]) -> "ModelInterface":
@@ -105,8 +101,8 @@ a helper function :py:func:`metatrain.utils.export.export` to export a torch
 model to an :py:class:`MetatensorAtomisticModel
 <metatensor.torch.atomistic.MetatensorAtomisticModel>`.
 
-The ``TrainerInterface`` class should have the following signature with a required
-methods for ``train()``.
+The ``TrainerInterface`` class should have the following signature with required
+methods for ``train()``, ``save_checkpoint()`` and ``load_checkpoint()``.
 
 .. code-block:: python
 
@@ -122,6 +118,18 @@ methods for ``train()``.
             val_datasets: List[Union[Dataset, torch.utils.data.Subset]],
             checkpoint_dir: str,
         ) -> None: ...
+
+        def save_checkpoint(self, path: Union[str, Path]) -> None: ...
+
+        @classmethod
+        def load_checkpoint(
+            cls, path: Union[str, Path], train_hypers: Dict
+        ) -> "TrainerInterface":
+            pass
+
+The format of checkpoints is not defined by `metatrain` and can be any format that
+can be loaded by the trainer (to restart training) and by the model (to export the
+checkpoint).
 
 The names of the ``ModelInterface`` and the ``TrainerInterface`` are free to choose but
 should be linked to constants in the ``__init__.py`` of each architecture. On top of
