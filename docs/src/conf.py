@@ -5,7 +5,7 @@ from datetime import datetime
 
 import tomli  # Replace by tomllib from std library once docs are build with Python 3.11
 
-import metatensor.models
+import metatrain
 
 
 # When importing metatensor-torch, this will change the definition of the classes
@@ -40,15 +40,10 @@ author = ", ".join(a["name"] for a in project_dict["authors"])
 copyright = f"{datetime.now().date().year}, {author}"
 
 # The full version, including alpha/beta/rc tags
-release = metatensor.models.__version__
+release = metatrain.__version__
 
 
 # -- General configuration ---------------------------------------------------
-
-# issue with the sphinx cache for sphinx >= 7.3 and sphinx-gallery 0.15.0
-# https://github.com/sphinx-gallery/sphinx-gallery/issues/1286
-# Remove the line below once a new version is relased
-suppress_warnings = ["config.cache"]
 
 
 def generate_examples():
@@ -58,7 +53,7 @@ def generate_examples():
     # include the corresponding output later.
     del os.environ["METATENSOR_IMPORT_FOR_SPHINX"]
     script = os.path.join(ROOT, "docs", "generate_examples", "generate-examples.py")
-    subprocess.run([sys.executable, script], capture_output=False)
+    subprocess.run([sys.executable, script])
     os.environ["METATENSOR_IMPORT_FOR_SPHINX"] = "1"
 
 

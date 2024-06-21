@@ -1,53 +1,50 @@
 """Tests for argument parsing."""
 
+import glob
 import shutil
 import subprocess
 from pathlib import Path
+from subprocess import CalledProcessError
 from typing import List
 
 import pytest
 
 
-COMPFILE = (
-    Path(__file__).parents[2]
-    / "src/metatensor/models/share/metatensor-models-completion.bash"
-)
+COMPFILE = Path(__file__).parents[2] / "src/metatrain/share/metatrain-completion.bash"
 
 
 def test_required_args():
     """Test required arguments."""
     with pytest.raises(subprocess.CalledProcessError):
-        subprocess.check_call(["metatensor-models"])
+        subprocess.check_call(["mtt"])
 
 
 def test_wrong_module():
     """Test wrong module."""
     with pytest.raises(subprocess.CalledProcessError):
-        subprocess.check_call(["metatensor-models", "foo"])
+        subprocess.check_call(["mtt", "foo"])
 
 
 @pytest.mark.parametrize("module", tuple(["eval", "export", "train"]))
 def test_available_modules(module):
     """Test available modules."""
-    subprocess.check_call(["metatensor-models", module, "--help"])
+    subprocess.check_call(["mtt", module, "--help"])
 
 
 @pytest.mark.parametrize("args", ("version", "help"))
 def test_extra_options(args):
     """Test extra options."""
-    subprocess.check_call(["metatensor-models", "--" + args])
+    subprocess.check_call(["mtt", "--" + args])
 
 
 def test_debug_flag():
     """Test that even if debug flag is set commands run normal."""
-    subprocess.check_call(["metatensor-models", "--debug", "train", "-h"])
+    subprocess.check_call(["mtt", "--debug", "train", "-h"])
 
 
 def test_shell_completion_flag():
     """Test that path to the `shell-completion` is correct."""
-    completion_path = subprocess.check_output(
-        ["metatensor-models", "--shell-completion"]
-    )
+    completion_path = subprocess.check_output(["mtt", "--shell-completion"])
 
     assert Path(completion_path.decode("ascii")).is_file
 
@@ -67,17 +64,17 @@ def test_syntax_completion(shell):
             shutil.which(shell),
             "-i",
             "-c",
-            "source $(metatensor-models --shell-completion)",
+            "source $(mtt --shell-completion)",
         ],
     )
 
 
 def get_completion_suggestions(partial_word: str) -> List[str]:
-    """Suggestions of a simulated <tab> completion of a metatensor-models subcommand.
+    """Suggestions of a simulated <tab> completion of a metatrain subcommand.
 
     https://stackoverflow.com/questions/9137245/unit-test-for-bash-completion-script
     """
-    cmd = ["metatensor-models", partial_word]
+    cmd = ["mtt", partial_word]
     cmdline = " ".join(cmd)
 
     out = subprocess.Popen(
@@ -108,3 +105,36 @@ def get_completion_suggestions(partial_word: str) -> List[str]:
 def test_subcommand_completion(partial_word, expected_completion):
     """Test that expected subcommand completion matches."""
     assert set(get_completion_suggestions(partial_word)) == set(expected_completion)
+
+
+@pytest.mark.parametrize("subcommand", ["train", "eval"])
+def test_error(subcommand, capfd, monkeypatch, tmp_path):
+    """Test expected display of errors to stdout and log files."""
+    monkeypatch.chdir(tmp_path)
+
+    command = ["mtt", subcommand]
+    if subcommand == "eval":
+        command += ["model.pt"]
+
+    command += ["foo.yaml"]
+
+    with pytest.raises(CalledProcessError):
+        subprocess.check_call(command)
+
+    stdout_log = capfd.readouterr().out
+
+    if subcommand == "train":
+        error_glob = glob.glob("outputs/*/*/error.log")
+        error_file = error_glob[0]
+    else:
+        error_file = "error.log"
+
+    error_file = str(Path(error_file).absolute().resolve())
+
+    with open(error_file) as f:
+        error_log = f.read()
+
+    print(error_file)
+    assert f"please include the full traceback log from {error_file!r}" in stdout_log
+    assert "No such file or directory" in stdout_log
+    assert "Traceback" in error_log

@@ -1,9 +1,9 @@
 Architectures
 #############
 
-Utility functions to detect architecture and verify their names in metatensor models.
+Utility functions to detect architecture and verify their names in metatrain.
 
-.. automodule:: metatensor.models.utils.architectures
+.. automodule:: metatrain.utils.architectures
     :members:
     :undoc-members:
     :show-inheritance:

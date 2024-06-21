@@ -1,4 +1,3 @@
 #!/bin/bash
 
-metatensor-models train options.yaml
-
+mtt train options.yaml

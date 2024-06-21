@@ -12,8 +12,8 @@ from typing import List
 import pytest
 import torch
 
-from metatensor.models.utils import devices
-from metatensor.models.utils.devices import pick_devices
+from metatrain.utils import devices
+from metatrain.utils.devices import pick_devices
 
 
 @pytest.mark.parametrize("desired_device", ["cpu", None])
@@ -34,6 +34,19 @@ def test_pick_devices_cuda(desired_device, monkeypatch):
     assert picked_devices == [torch.device("cuda")]
 
 
+def test_pick_devices_prefer_architecture(monkeypatch):
+    """Use architecture's preferred device if several matching devices are available."""
+
+    def _get_available_devices() -> List[str]:
+        return ["mps", "cpu", "cuda"]
+
+    monkeypatch.setattr(devices, "_get_available_devices", _get_available_devices)
+
+    picked_devices = pick_devices(["cuda", "cpu"])
+
+    assert picked_devices == [torch.device("cuda")]
+
+
 @pytest.mark.parametrize("desired_device", ["mps", None])
 def test_pick_devices_mps(desired_device, monkeypatch):
     def _get_available_devices() -> List[str]:
@@ -44,6 +57,20 @@ def test_pick_devices_mps(desired_device, monkeypatch):
     picked_devices = pick_devices(["mps", "cpu"], desired_device)
 
     assert picked_devices == [torch.device("mps")]
+
+
+def test_no_matching_device(monkeypatch):
+    def _get_available_devices() -> List[str]:
+        return ["cpu"]
+
+    monkeypatch.setattr(devices, "_get_available_devices", _get_available_devices)
+
+    match = (
+        "No matching device found! The architecture requires cuda, mps; but your "
+        "system only has cpu."
+    )
+    with pytest.raises(ValueError, match=match):
+        pick_devices(["cuda", "mps"])
 
 
 def test_pick_devices_unsoprted():

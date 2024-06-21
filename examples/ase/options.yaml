@@ -1,13 +1,7 @@
-device: cpu
-
 architecture:
-  name: experimental.soap_bpnn
-  training:
-    batch_size: 16
-    num_epochs: 100
-    learning_rate: 0.01
+  name: experimental.gap
 
-# Section defining the parameters for system and target data
+# training set section
 training_set:
   systems: "ethanol_reduced_100.xyz"
   targets:

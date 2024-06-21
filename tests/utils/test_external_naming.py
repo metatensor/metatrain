@@ -1,5 +1,5 @@
-from metatensor.models.utils.data.dataset import TargetInfo
-from metatensor.models.utils.external_naming import to_external_name, to_internal_name
+from metatrain.utils.data.dataset import TargetInfo
+from metatrain.utils.external_naming import to_external_name, to_internal_name
 
 
 def test_to_external_name():
@@ -7,31 +7,31 @@ def test_to_external_name():
 
     quantities = {
         "energy": TargetInfo(quantity="energy"),
-        "mtm::free_energy": TargetInfo(quantity="energy"),
-        "mtm::foo": TargetInfo(quantity="bar"),
+        "mtt::free_energy": TargetInfo(quantity="energy"),
+        "mtt::foo": TargetInfo(quantity="bar"),
     }
 
     assert to_external_name("energy_positions_gradients", quantities) == "forces"
     assert (
-        to_external_name("mtm::free_energy_positions_gradients", quantities)
-        == "forces[mtm::free_energy]"
+        to_external_name("mtt::free_energy_positions_gradients", quantities)
+        == "forces[mtt::free_energy]"
     )
     assert (
-        to_external_name("mtm::foo_positions_gradients", quantities)
-        == "mtm::foo_positions_gradients"
+        to_external_name("mtt::foo_positions_gradients", quantities)
+        == "mtt::foo_positions_gradients"
     )
     assert to_external_name("energy_strain_gradients", quantities) == "virial"
     assert (
-        to_external_name("mtm::free_energy_strain_gradients", quantities)
-        == "virial[mtm::free_energy]"
+        to_external_name("mtt::free_energy_strain_gradients", quantities)
+        == "virial[mtt::free_energy]"
     )
     assert (
-        to_external_name("mtm::foo_strain_gradients", quantities)
-        == "mtm::foo_strain_gradients"
+        to_external_name("mtt::foo_strain_gradients", quantities)
+        == "mtt::foo_strain_gradients"
     )
     assert to_external_name("energy", quantities) == "energy"
-    assert to_external_name("mtm::free_energy", quantities) == "mtm::free_energy"
-    assert to_external_name("mtm::foo", quantities) == "mtm::foo"
+    assert to_external_name("mtt::free_energy", quantities) == "mtt::free_energy"
+    assert to_external_name("mtt::foo", quantities) == "mtt::foo"
 
 
 def test_to_internal_name():
@@ -39,19 +39,19 @@ def test_to_internal_name():
 
     assert to_internal_name("forces") == "energy_positions_gradients"
     assert (
-        to_internal_name("forces[mtm::free_energy]")
-        == "mtm::free_energy_positions_gradients"
+        to_internal_name("forces[mtt::free_energy]")
+        == "mtt::free_energy_positions_gradients"
     )
     assert (
-        to_internal_name("mtm::foo_positions_gradients")
-        == "mtm::foo_positions_gradients"
+        to_internal_name("mtt::foo_positions_gradients")
+        == "mtt::foo_positions_gradients"
     )
     assert to_internal_name("virial") == "energy_strain_gradients"
     assert (
-        to_internal_name("virial[mtm::free_energy]")
-        == "mtm::free_energy_strain_gradients"
+        to_internal_name("virial[mtt::free_energy]")
+        == "mtt::free_energy_strain_gradients"
     )
-    assert to_internal_name("mtm::foo_strain_gradients") == "mtm::foo_strain_gradients"
+    assert to_internal_name("mtt::foo_strain_gradients") == "mtt::foo_strain_gradients"
     assert to_internal_name("energy") == "energy"
-    assert to_internal_name("mtm::free_energy") == "mtm::free_energy"
-    assert to_internal_name("mtm::foo") == "mtm::foo"
+    assert to_internal_name("mtt::free_energy") == "mtt::free_energy"
+    assert to_internal_name("mtt::foo") == "mtt::foo"

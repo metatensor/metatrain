@@ -3,15 +3,17 @@
 Actual unit tests for the function are performed in `tests/utils/test_export`.
 """
 
+import glob
 import subprocess
 from pathlib import Path
 
 import pytest
 from metatensor.torch.atomistic import load_atomistic_model
 
-from metatensor.models.cli.export import export_model
-from metatensor.models.experimental.soap_bpnn import __model__
-from metatensor.models.utils.data import DatasetInfo, TargetInfo
+from metatrain.cli.export import export_model
+from metatrain.experimental.soap_bpnn import __model__
+from metatrain.utils.architectures import find_all_architectures
+from metatrain.utils.data import DatasetInfo, TargetInfo
 
 from . import MODEL_HYPERS, RESOURCES_PATH
 
@@ -23,7 +25,7 @@ def test_export(monkeypatch, tmp_path, path):
 
     dataset_info = DatasetInfo(
         length_unit="angstrom",
-        atomic_types=[1],
+        atomic_types={1},
         targets={
             "energy": TargetInfo(
                 quantity="energy", unit="eV", per_atom=False, gradients=[]
@@ -33,6 +35,10 @@ def test_export(monkeypatch, tmp_path, path):
     model = __model__(model_hypers=MODEL_HYPERS, dataset_info=dataset_info)
     export_model(model, path)
 
+    # Test if extensions are saved
+    extensions_glob = glob.glob("extensions/")
+    assert len(extensions_glob) == 1
+
     assert Path(path).is_file()
 
 
@@ -41,7 +47,7 @@ def test_export_cli(monkeypatch, tmp_path, output):
     """Test that the export cli runs without an error raise."""
     monkeypatch.chdir(tmp_path)
     command = [
-        "metatensor-models",
+        "mtt",
         "export",
         "experimental.soap_bpnn",
         str(RESOURCES_PATH / "model-32-bit.ckpt"),
@@ -55,6 +61,18 @@ def test_export_cli(monkeypatch, tmp_path, output):
     subprocess.check_call(command)
     assert Path(output).is_file()
 
+    # Test if extensions are saved
+    extensions_glob = glob.glob("extensions/")
+    assert len(extensions_glob) == 1
+
+
+def test_export_cli_architecture_names_choices():
+    stderr = str(subprocess.run(["mtt", "export", "foo"], capture_output=True).stderr)
+
+    assert "invalid choice: 'foo'" in stderr
+    for architecture_name in find_all_architectures():
+        assert architecture_name in stderr
+
 
 def test_reexport(monkeypatch, tmp_path):
     """Test that an already exported model can be loaded and again exported."""
@@ -62,7 +80,7 @@ def test_reexport(monkeypatch, tmp_path):
 
     dataset_info = DatasetInfo(
         length_unit="angstrom",
-        atomic_types=[1, 6, 7, 8],
+        atomic_types={1, 6, 7, 8},
         targets={
             "energy": TargetInfo(
                 quantity="energy", unit="eV", per_atom=False, gradients=[]

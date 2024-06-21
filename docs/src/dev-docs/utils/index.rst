@@ -1,7 +1,7 @@
 Utility API
 ===========
 
-This is the API for the ``utils`` module of ``metatensor-models``.
+This is the API for the ``utils`` module of ``metatrain``.
 
 .. toctree::
    :maxdepth: 1
@@ -23,3 +23,4 @@ This is the API for the ``utils`` module of ``metatensor-models``.
    omegaconf
    output_gradient
    per_atom
+   units
