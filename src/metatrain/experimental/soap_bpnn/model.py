@@ -302,6 +302,7 @@ class SoapBpnn(torch.nn.Module):
 
         # Create the model
         model = cls(**model_dict["model_hypers"])
+        model = model.to(torch.float64)
 
         # Load the model weights
         model.load_state_dict(model_dict["model_state_dict"])
