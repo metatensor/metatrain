@@ -122,6 +122,9 @@ Each gradient section (like ``forces`` or ``stress``) has similar parameters:
 :param file_format: The file format, guessed from the suffix if not provided.
 :param key: The key for reading from the file.
 
+A single string in a gradient section automatically expands, using the string as the
+``read_from`` parameter.
+
 Sections set to ``true`` or ``on`` automatically expand with default parameters. A
 warning is raised if requisite data for a gradient is missing, but training proceeds
 without them.
