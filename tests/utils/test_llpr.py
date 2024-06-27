@@ -14,6 +14,9 @@ from metatrain.utils.neighbor_lists import get_system_with_neighbor_lists
 from . import RESOURCES_PATH
 
 
+torch.manual_seed(42)
+
+
 def test_llpr():
 
     model = load_atomistic_model(

@@ -1,3 +1,5 @@
+seed: 42
+
 architecture:
   name: experimental.soap_bpnn
   training:
