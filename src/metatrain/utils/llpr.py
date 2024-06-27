@@ -208,6 +208,10 @@ class LLPRModel(torch.nn.Module):
             )
             return_dict[name] = ensemble
 
+        # remove the last-layer features from return_dict if they were not requested
+        if "mtt::aux::last_layer_features" not in outputs:
+            return_dict.pop("mtt::aux::last_layer_features")
+
         return return_dict
 
     def compute_covariance(self, train_loader: DataLoader) -> None:

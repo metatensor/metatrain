@@ -1,11 +1,12 @@
 device: cpu
 base_precision: 64
+seed: 42
 
 architecture:
   name: experimental.soap_bpnn
   training:
     batch_size: 16
-    num_epochs: 100
+    num_epochs: 10
     learning_rate: 0.01
 
 # Section defining the parameters for system and target data
