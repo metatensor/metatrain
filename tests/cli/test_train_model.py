@@ -9,8 +9,10 @@ import ase.io
 import metatensor.torch  # noqa
 import pytest
 import torch
+from jsonschema.exceptions import ValidationError
 from omegaconf import OmegaConf
 
+from metatrain import RANDOM_SEED
 from metatrain.cli.train import train_model
 from metatrain.utils.errors import ArchitectureError
 
@@ -113,6 +115,49 @@ def test_command_line_override(monkeypatch, tmp_path, overrides):
         assert restart_options["architecture"]["training"]["batch_size"] == 3
 
 
+def test_train_from_options_restart_yaml(monkeypatch, tmp_path):
+    monkeypatch.chdir(tmp_path)
+    shutil.copy(DATASET_PATH_QM9, "qm9_reduced_100.xyz")
+
+    # run training with original options
+    options = OmegaConf.load(OPTIONS_PATH)
+    train_model(options)
+
+    # run training with options_restart.yaml
+    options_restart = OmegaConf.load("options_restart.yaml")
+    train_model(options_restart)
+
+
+def test_train_unknonw_arch_options(monkeypatch, tmp_path):
+    monkeypatch.chdir(tmp_path)
+    shutil.copy(DATASET_PATH_QM9, "qm9_reduced_100.xyz")
+
+    options_str = """
+    architecture:
+        name: experimental.soap_bpnn
+        training:
+            batch_size: 2
+            num_epoch: 1
+
+    training_set:
+        systems:
+            read_from: qm9_reduced_100.xyz
+            length_unit: angstrom
+        targets:
+            energy:
+            key: U0
+            unit: eV
+
+    test_set: 0.5
+    validation_set: 0.1
+    """
+    options = OmegaConf.create(options_str)
+
+    match = r"Additional properties are not allowed \('num_epoch' was unexpected\)"
+    with pytest.raises(ValidationError, match=match):
+        train_model(options)
+
+
 @pytest.mark.parametrize("n_datasets", [1, 2])
 @pytest.mark.parametrize("test_set_file", (True, False))
 @pytest.mark.parametrize("validation_set_file", (True, False))
@@ -211,8 +256,12 @@ def test_wrong_test_split_size(split, monkeypatch, tmp_path, options):
     options["validation_set"] = 0.1
     options["test_set"] = split
 
-    match = r"Test set split must be greater or equal than 0 and lesser than 1."
-    with pytest.raises(ValueError, match=match):
+    if split > 1:
+        match = rf"{split} is greater than or equal to the maximum of 1"
+    if split < 0:
+        match = rf"{split} is less than the minimum of 0"
+
+    with pytest.raises(ValidationError, match=match):
         train_model(options)
 
 
@@ -226,13 +275,17 @@ def test_wrong_validation_split_size(split, monkeypatch, tmp_path, options):
     options["validation_set"] = split
     options["test_set"] = 0.1
 
-    match = r"Validation set split must be greater than 0 and lesser than 1."
-    with pytest.raises(ValueError, match=match):
+    if split > 1:
+        match = rf"{split} is greater than or equal to the maximum of 1"
+    if split <= 0:
+        match = rf"{split} is less than or equal to the minimum of 0"
+
+    with pytest.raises(ValidationError, match=match):
         train_model(options)
 
 
 def test_empty_test_set(caplog, monkeypatch, tmp_path, options):
-    """Test that no error is raised if no test set is provided."""
+    """Test that NO error is raised if no test set is provided."""
     monkeypatch.chdir(tmp_path)
     caplog.set_level(logging.DEBUG)
 
@@ -307,7 +360,7 @@ def test_inconsistent_number_of_datasets(
         options["test_set"]["systems"]["read_from"] = "test.xyz"
         options["test_set"] = OmegaConf.create(2 * [options["test_set"]])
 
-    with pytest.raises(ValueError, match="different size than the train datatset"):
+    with pytest.raises(ValueError, match="different size than the training datatset"):
         train_model(options)
 
 
@@ -367,59 +420,43 @@ def test_continue_different_dataset(options, monkeypatch, tmp_path):
     train_model(options, continue_from=MODEL_PATH_64_BIT)
 
 
-def test_no_architecture_name(options):
-    """Test error raise if architecture.name is not set."""
-    options["architecture"].pop("name")
-
-    with pytest.raises(ValueError, match="Architecture name is not defined!"):
-        train_model(options)
-
-
-@pytest.mark.parametrize("seed", [1234, 0, -123])
-@pytest.mark.parametrize("architecture_name", ["experimental.soap_bpnn"])
-def test_model_consistency_with_seed(
-    options, monkeypatch, tmp_path, architecture_name, seed
-):
+@pytest.mark.parametrize("seed", [None, 1234])
+def test_model_consistency_with_seed(options, monkeypatch, tmp_path, seed):
     """Checks final model consistency with a fixed seed."""
     monkeypatch.chdir(tmp_path)
     shutil.copy(DATASET_PATH_QM9, "qm9_reduced_100.xyz")
 
-    options["architecture"]["name"] = architecture_name
-    options["seed"] = seed
-
-    if seed is not None and seed < 0:
-        with pytest.raises(ValueError, match="`seed` should be a positive number"):
-            train_model(options)
-        return
+    if seed is not None:
+        options["seed"] = seed
 
     train_model(options, output="model1.pt")
+
+    if seed is None:
+        options["seed"] = RANDOM_SEED + 1
+
     train_model(options, output="model2.pt")
 
     m1 = torch.load("model1.ckpt")
     m2 = torch.load("model2.ckpt")
 
-    for index, i in enumerate(m1["model_state_dict"]):
+    for i in m1["model_state_dict"]:
         tensor1 = m1["model_state_dict"][i]
         tensor2 = m2["model_state_dict"][i]
 
-        # The first tensor only depend on the chemical compositions (not on the
-        # seed) and should alwyas be the same.
-        if index == 0:
-            torch.testing.assert_close(tensor1, tensor2)
+        if seed is None:
+            assert not torch.allclose(tensor1, tensor2)
         else:
-            if seed is None:
-                assert not torch.allclose(tensor1, tensor2)
-            else:
-                torch.testing.assert_close(tensor1, tensor2)
+            torch.testing.assert_close(tensor1, tensor2)
 
 
-def test_error_base_precision(options, monkeypatch, tmp_path):
-    """Test unsupported `base_precision`"""
+def test_base_validation(options, monkeypatch, tmp_path):
+    """Test that the base options are validated."""
     monkeypatch.chdir(tmp_path)
 
-    options["base_precision"] = "123"
+    options["base_precision"] = 67
 
-    with pytest.raises(ValueError, match="Only 64, 32 or 16 are possible values for"):
+    match = r"67 is not one of \[16, 32, 64\]"
+    with pytest.raises(ValidationError, match=match):
         train_model(options)
 
 
@@ -433,22 +470,12 @@ def test_different_base_precision(options, monkeypatch, tmp_path, base_precision
     train_model(options)
 
 
-def test_unsupported_dtype(options):
-    options["base_precision"] = 16
-    match = (
-        r"Requested dtype torch.float16 is not supported. experimental.soap_bpnn "
-        r"only supports \[torch.float64, torch.float32\]."
-    )
-    with pytest.raises(ValueError, match=match):
-        train_model(options)
-
-
 def test_architecture_error(options, monkeypatch, tmp_path):
     """Test an error raise if there is problem wth the architecture."""
     monkeypatch.chdir(tmp_path)
     shutil.copy(DATASET_PATH_QM9, "qm9_reduced_100.xyz")
 
-    options["architecture"]["model"] = OmegaConf.create({"soap": {"cutoff": -1}})
+    options["architecture"]["model"] = OmegaConf.create({"soap": {"cutoff": -1.0}})
 
     with pytest.raises(ArchitectureError, match="originates from an architecture"):
         train_model(options)

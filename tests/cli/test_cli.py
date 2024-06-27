@@ -134,7 +134,6 @@ def test_error(subcommand, capfd, monkeypatch, tmp_path):
     with open(error_file) as f:
         error_log = f.read()
 
-    print(error_file)
     assert f"please include the full traceback log from {error_file!r}" in stdout_log
     assert "No such file or directory" in stdout_log
     assert "Traceback" in error_log

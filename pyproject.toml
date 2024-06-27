@@ -13,6 +13,7 @@ dependencies = [
     "metatensor-learn==0.2.2",
     "metatensor-operations==0.2.1",
     "metatensor-torch==0.5.1",
+    "jsonschema",
     "omegaconf",
     "python-hostlist",
     "torch",
