@@ -1,3 +1,5 @@
+name: experimental.pet
+
 model:
   CUTOFF_DELTA: 0.2
   AVERAGE_POOLING: False
@@ -27,8 +29,7 @@ model:
   K_CUT: null # should be float; only used when USE_LONG_RANGE is True
   RESIDUAL_FACTOR: 0.5
 
-
-training:  
+training:
   INITIAL_LR: 1e-4
   EPOCH_NUM_ATOMIC: 1000000000000000000
   SCHEDULER_STEP_SIZE_ATOMIC: 500000000
@@ -48,5 +49,5 @@ training:
   DO_GRADIENT_CLIPPING: False
   GRADIENT_CLIPPING_MAX_NORM: null # must be overwritten if DO_GRADIENT_CLIPPING is True
   USE_SHIFT_AGNOSTIC_LOSS: False # only used when fitting general target. Primary use case: EDOS
-  ENERGIES_LOSS: per_structure # per_structure or per_atom
+  ENERGIES_LOSS: per_structure # or per_atom
   BALANCED_DATA_LOADER: False

@@ -21,16 +21,15 @@ sphinx:
   configuration: docs/src/conf.py
   fail_on_warning: true
 
-
 # Declare the Python requirements required to build the docs.
 # Additionally, a custom environment variable
 # PIP_EXTRA_INDEX_URL: https://download.pytorch.org/whl/cpu
 # is declared in the project’s dashboard
 python:
   install:
-  - method: pip
-    path: .
-    extra_requirements:
-      - gap
-      - soap-bpnn
-  - requirements: docs/requirements.txt
+    - method: pip
+      path: .
+      extra_requirements:
+        - gap
+        - soap-bpnn
+    - requirements: docs/requirements.txt

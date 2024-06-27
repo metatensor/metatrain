@@ -7,7 +7,7 @@ from omegaconf import ListConfig, OmegaConf
 from metatrain.experimental import soap_bpnn
 from metatrain.utils import omegaconf
 from metatrain.utils.omegaconf import (
-    check_options_list,
+    check_dataset_options,
     check_units,
     expand_dataset_config,
 )
@@ -151,7 +151,7 @@ def test_expand_dataset_config(n_datasets):
 def test_expand_dataset_config_not_energy():
     file_name = "foo.xyz"
 
-    system_section = {"read_from": file_name, "unit": "angstrom"}
+    system_section = {"read_from": file_name, "length_unit": "angstrom"}
 
     target_section = {
         "quantity": "my_dipole_moment",
@@ -385,7 +385,8 @@ def list_conf():
     return OmegaConf.create(3 * [conf])
 
 
-def test_check_options_list_length_unit(list_conf):
+@pytest.mark.parametrize("func", [expand_dataset_config, check_dataset_options])
+def test_check_dataset_options_length_unit(func, list_conf):
     list_conf[1]["systems"]["length_unit"] = "foo"
     list_conf[2]["systems"]["length_unit"] = "bar"
 
@@ -395,10 +396,10 @@ def test_check_options_list_length_unit(list_conf):
     )
 
     with pytest.raises(ValueError, match=match):
-        check_options_list(list_conf)
+        func(list_conf)
 
 
-def test_check_options_list_target_unit(list_conf):
+def test_check_dataset_options_target_unit(list_conf):
     """Test three datasets where the unit of the 2nd and the 3rd is inconsistent."""
     list_conf[1]["targets"]["new_target"] = OmegaConf.create({"unit": "foo"})
     list_conf[2]["targets"]["new_target"] = OmegaConf.create({"unit": "bar"})
@@ -409,4 +410,19 @@ def test_check_options_list_target_unit(list_conf):
     )
 
     with pytest.raises(ValueError, match=match):
-        check_options_list(list_conf)
+        check_dataset_options(list_conf)
+
+
+def generate_reference_config():
+    return OmegaConf.create(
+        {
+            "componentA": {
+                "setting1": "value1",
+                "setting2": 1234,
+                "sub_component": {"sub_setting1": "value2"},
+            },
+            "componentB": {"option1": True, "option2": "enabled"},
+            "componentC": [{"item1": "value1"}, {"item2": "value2"}],
+            "componentD": ["value1", "value2"],
+        }
+    )
