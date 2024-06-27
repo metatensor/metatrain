@@ -1,4 +1,5 @@
 import logging
+from pathlib import Path
 from typing import List, Union
 
 import metatensor
@@ -140,3 +141,12 @@ class Trainer:
         model._subset_of_regressors_torch = (
             model._subset_of_regressors.export_torch_script_model()
         )
+
+    def save_checkpoint(self, model, checkpoint_dir: str):
+        # GAP won't save a checkpoint since it
+        # doesn't support restarting training
+        return
+
+    @classmethod
+    def load_checkpoint(cls, path: Union[str, Path], hypers_train) -> "GAP":
+        raise ValueError("GAP does not allow restarting training")
