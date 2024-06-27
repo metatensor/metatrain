@@ -5,6 +5,7 @@ from importlib.util import find_spec
 from pathlib import Path
 from typing import Dict, List, Union
 
+from jsonschema import validate
 from omegaconf import OmegaConf
 
 from .. import PACKAGE_ROOT
