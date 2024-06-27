@@ -265,21 +265,27 @@ class LLPRModel(torch.nn.Module):
                 + regularizer
                 * torch.eye(self.ll_feat_size, device=self.covariance.device)
             )
-            self.inv_covariance_computed = True
         else:
             # Try with an increasingly high regularization parameter until
             # the matrix is invertible
-            for log10_sigma_squared in torch.linspace(-16.0, 16.0, 33):
+            # TODO: start lower
+            for log10_sigma_squared in torch.linspace(-6.0, 16.0, 33):
                 try:
                     self.inv_covariance = torch.inverse(
                         self.covariance
                         + 10**log10_sigma_squared
                         * torch.eye(self.ll_feat_size, device=self.covariance.device)
                     )
+                    log10_regularizer = log10_sigma_squared
                     break
                 except torch.linalg.LinAlgError:
                     continue
-            self.inv_covariance_computed = True
+            self.inv_covariance = torch.inverse(
+                self.covariance
+                + 10 ** (log10_regularizer)  # add 2 to avoid numerical issues
+                * torch.eye(self.ll_feat_size, device=self.covariance.device)
+            )
+        self.inv_covariance_computed = True
 
     def calibrate(self, valid_loader: DataLoader):
         # calibrate the LLPR

@@ -51,7 +51,7 @@ def test_llpr():
 
     llpr_model = LLPRModel(model)
     llpr_model.compute_covariance(dataloader)
-    llpr_model.compute_inverse_covariance(regularizer=1e-4)
+    llpr_model.compute_inverse_covariance()
 
     exported_model = MetatensorAtomisticModel(
         llpr_model.eval(),
