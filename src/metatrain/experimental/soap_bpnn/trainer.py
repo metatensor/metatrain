@@ -20,6 +20,7 @@ from ...utils.distributed.distributed_data_parallel import DistributedDataParall
 from ...utils.distributed.slurm import DistributedEnvironment
 from ...utils.evaluate_model import evaluate_model
 from ...utils.external_naming import to_external_name
+from ...utils.io import check_suffix
 from ...utils.logging import MetricLogger
 from ...utils.loss import TensorMapDictLoss
 from ...utils.metrics import RMSEAccumulator
@@ -40,6 +41,9 @@ warnings.filterwarnings(
 class Trainer:
     def __init__(self, train_hypers):
         self.hypers = train_hypers
+        self.optimizer_state_dict = None
+        self.scheduler_state_dict = None
+        self.epoch = None
 
     def train(
         self,
@@ -225,6 +229,8 @@ class Trainer:
         optimizer = torch.optim.Adam(
             model.parameters(), lr=self.hypers["learning_rate"]
         )
+        if self.optimizer_state_dict is not None:
+            optimizer.load_state_dict(self.optimizer_state_dict)
 
         # Create a scheduler:
         lr_scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
@@ -233,6 +239,8 @@ class Trainer:
             factor=self.hypers["scheduler_factor"],
             patience=self.hypers["scheduler_patience"],
         )
+        if self.scheduler_state_dict is not None:
+            lr_scheduler.load_state_dict(self.scheduler_state_dict)
 
         # counters for early stopping:
         best_val_loss = float("inf")
@@ -241,9 +249,11 @@ class Trainer:
         # per-atom targets:
         per_structure_targets = self.hypers["per_structure_targets"]
 
+        start_epoch = 0 if self.epoch is None else self.epoch + 1
+
         # Train the model:
         logger.info("Starting training")
-        for epoch in range(self.hypers["num_epochs"]):
+        for epoch in range(start_epoch, start_epoch + self.hypers["num_epochs"]):
             if is_distributed:
                 sampler.set_epoch(epoch)
 
@@ -333,7 +343,7 @@ class Trainer:
                 **finalized_val_info,
             }
 
-            if epoch == 0:
+            if epoch == start_epoch:
                 metric_logger = MetricLogger(
                     logobj=logger,
                     dataset_info=model.dataset_info,
@@ -350,8 +360,12 @@ class Trainer:
             if epoch % self.hypers["checkpoint_interval"] == 0:
                 if is_distributed:
                     torch.distributed.barrier()
-                (model.module if is_distributed else model).save_checkpoint(
-                    Path(checkpoint_dir) / f"model_{epoch}.ckpt"
+                self.optimizer_state_dict = optimizer.state_dict()
+                self.scheduler_state_dict = lr_scheduler.state_dict()
+                self.epoch = epoch
+                self.save_checkpoint(
+                    (model.module if is_distributed else model),
+                    Path(checkpoint_dir) / f"model_{epoch}.ckpt",
                 )
 
             # early stopping criterion:
@@ -367,3 +381,43 @@ class Trainer:
                         "without improvement."
                     )
                     break
+
+    def save_checkpoint(self, model, path: Union[str, Path]):
+        checkpoint = {
+            "model_hypers": {
+                "model_hypers": model.hypers,
+                "dataset_info": model.dataset_info,
+            },
+            "model_state_dict": model.state_dict(),
+            "train_hypers": self.hypers,
+            "epoch": self.epoch,
+            "optimizer_state_dict": self.optimizer_state_dict,
+            "scheduler_state_dict": self.scheduler_state_dict,
+        }
+        torch.save(
+            checkpoint,
+            check_suffix(path, ".ckpt"),
+        )
+
+    @classmethod
+    def load_checkpoint(cls, path: Union[str, Path], train_hypers) -> "Trainer":
+
+        # Load the checkpoint
+        checkpoint = torch.load(path)
+        model_hypers = checkpoint["model_hypers"]
+        model_state_dict = checkpoint["model_state_dict"]
+        epoch = checkpoint["epoch"]
+        optimizer_state_dict = checkpoint["optimizer_state_dict"]
+        scheduler_state_dict = checkpoint["scheduler_state_dict"]
+
+        # Create the trainer
+        trainer = cls(train_hypers)
+        trainer.optimizer_state_dict = optimizer_state_dict
+        trainer.scheduler_state_dict = scheduler_state_dict
+        trainer.epoch = epoch
+
+        # Create the model
+        model = SoapBpnn(**model_hypers)
+        model.load_state_dict(model_state_dict)
+
+        return trainer

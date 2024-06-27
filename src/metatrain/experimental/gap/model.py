@@ -1,4 +1,3 @@
-from pathlib import Path
 from typing import Dict, List, Optional, Tuple, Type, Union
 
 import metatensor.torch
@@ -196,15 +195,6 @@ class GAP(torch.nn.Module):
         energies = self._subset_of_regressors_torch(soap_features)
         out_tensor = self.apply_composition_weights(systems, energies)
         return {output_key: out_tensor}
-
-    def save_checkpoint(self, path: Union[str, Path]):
-        # GAP will not save checkpoints, as it does not allow
-        # restarting training
-        return
-
-    @classmethod
-    def load_checkpoint(cls, path: Union[str, Path]) -> "GAP":
-        raise ValueError("GAP does not allow restarting training")
 
     def export(self) -> MetatensorAtomisticModel:
         capabilities = ModelCapabilities(
