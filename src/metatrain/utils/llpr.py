@@ -380,8 +380,12 @@ class LLPRModel(torch.nn.Module):
                 ],
             )
             ensemble_weights = sampler.sample((n_members,)).T
+            if not name.startswith("mtt::"):
+                mtt_name = "mtt::" + name
+            else:
+                mtt_name = name
             self.register_buffer(
-                name + "_ensemble_weights",
+                mtt_name + "_ensemble_weights",
                 ensemble_weights,
             )
 
@@ -389,9 +393,21 @@ class LLPRModel(torch.nn.Module):
         old_outputs = self.capabilities.outputs
         new_outputs = {}
         for name in weight_tensors.keys():
-            new_name = f"{name}_ensemble"
+            if not name.startswith("mtt::"):
+                mtt_name = "mtt::" + name
+            else:
+                mtt_name = name
+            new_name = f"{mtt_name}_ensemble"
             new_outputs[new_name] = ModelOutput(
                 quantity=old_outputs[name].quantity,
                 unit=old_outputs[name].unit,
                 per_atom=old_outputs[name].per_atom,
             )
+        self.capabilities = ModelCapabilities(
+            outputs={**old_outputs, **new_outputs},
+            atomic_types=self.capabilities.atomic_types,
+            interaction_range=self.capabilities.interaction_range,
+            length_unit=self.capabilities.length_unit,
+            supported_devices=self.capabilities.supported_devices,
+            dtype=self.capabilities.dtype,
+        )
