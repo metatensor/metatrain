@@ -13,7 +13,7 @@ from metatensor.torch.atomistic import (
 from torch.utils.data import DataLoader
 
 
-class LLPRModel(torch.nn.Module):
+class LLPRUncertaintyModel(torch.nn.Module):
     """A wrapper that adds LLPR uncertainties to a model.
 
     In order to be compatible with this class, a model needs to have the last-layer
@@ -282,7 +282,7 @@ class LLPRModel(torch.nn.Module):
                 else:
                     inverse = torch.inverse(
                         self.covariance
-                        + 10 ** (log10_sigma_squared + 1.0)
+                        + 10 ** (log10_sigma_squared + 0.0)
                         * torch.eye(self.ll_feat_size, device=self.covariance.device)
                     )
                     self.inv_covariance = (inverse + inverse.T) / 2.0
@@ -290,6 +290,19 @@ class LLPRModel(torch.nn.Module):
         self.inv_covariance_computed = True
 
     def calibrate(self, valid_loader: DataLoader):
+        """
+        Calibrate the LLPR model.
+
+        This function computes the calibration constants (one for each output)
+        that are used to scale the uncertainties in the LLPR model. The
+        calibration is performed in a simple way by computing the calibration
+        constant as the mean of the squared residuals divided by the mean of
+        the non-calibrated uncertainties.
+
+        :param valid_loader: A data loader with the validation data.
+            This data loader should be generated from a dataset from the
+            ``Dataset`` class in ``metatrain.utils.data``.
+        """
         # calibrate the LLPR
         device = self.covariance.device
         all_predictions = {}  # type: ignore

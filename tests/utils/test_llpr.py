@@ -8,7 +8,7 @@ from metatensor.torch.atomistic import (
 )
 
 from metatrain.utils.data import Dataset, collate_fn, read_systems, read_targets
-from metatrain.utils.llpr import LLPRModel
+from metatrain.utils.llpr import LLPRUncertaintyModel
 from metatrain.utils.neighbor_lists import get_system_with_neighbor_lists
 
 from . import RESOURCES_PATH
@@ -49,7 +49,7 @@ def test_llpr():
         collate_fn=collate_fn,
     )
 
-    llpr_model = LLPRModel(model)
+    llpr_model = LLPRUncertaintyModel(model)
     llpr_model.compute_covariance(dataloader)
     llpr_model.compute_inverse_covariance()
 
@@ -124,9 +124,6 @@ def test_llpr():
     ensemble_uncertainty = torch.var(
         outputs["mtt::energy_ensemble"].block().values, dim=1, keepdim=True
     )
-
-    print(analytical_uncertainty)
-    print(ensemble_uncertainty)
 
     torch.testing.assert_close(
         analytical_uncertainty, ensemble_uncertainty, rtol=1e-2, atol=1e-2

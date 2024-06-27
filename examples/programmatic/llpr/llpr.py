@@ -1,10 +1,17 @@
 """
-Using an exported model from Python
-===================================
+Computing LLPR uncertainties
+============================
 
-This tutorial demonstrates how to use an already trained and exported model from
-Python. This tutorial involves the computation of the Local Prediction Rigidity
-(LPR) for every atom of a single ethanol molecule.
+This tutorial demonstrates how to use an already trained and exported model
+from Python. It involves the computation of the local prediction rigidity
+(`LPR <LPR_>`_) for every atom of a single ethanol molecule, using the
+last-layer prediction rigidity (`LLPR <LLPR_>`_) approximation.
+
+.. _LPR: https://pubs.acs.org/doi/10.1021/acs.jctc.3c00704
+.. _LLPR: https://arxiv.org/html/2403.02251v1
+
+The GAP model in metatrain can only train on CPU, but evaluation
+is also supported on GPU.
 
 The model was trained using the following training options.
 
@@ -96,21 +103,25 @@ dataloader = torch.utils.data.DataLoader(
 
 # %%
 #
-# We now wrap the model in a LLPRModel object, which will allows us to compute
-# prediction rigidity metrics, which are useful for uncertainty quantification
-# and model introspection.
+# We now wrap the model in a LLPRUncertaintyModel object, which will allows us
+# to compute prediction rigidity metrics, which are useful for uncertainty
+# quantification and model introspection.
 
 from metatensor.torch.atomistic import (  # noqa: E402
     MetatensorAtomisticModel,
     ModelMetadata,
 )
 
-from metatrain.utils.llpr import LLPRModel  # noqa: E402
+from metatrain.utils.llpr import LLPRUncertaintyModel  # noqa: E402
 
 
-llpr_model = LLPRModel(model)
+llpr_model = LLPRUncertaintyModel(model)
 llpr_model.compute_covariance(dataloader)
 llpr_model.compute_inverse_covariance(regularizer=1e-4)
+
+# calibrate on the same dataset for simplicity. In reality, a separate
+# calibration/validation dataset should be used.
+llpr_model.calibrate(dataloader)
 
 exported_model = MetatensorAtomisticModel(
     llpr_model.eval(),
@@ -131,8 +142,11 @@ from metatensor.torch.atomistic import ModelEvaluationOptions, ModelOutput  # no
 evaluation_options = ModelEvaluationOptions(
     length_unit="angstrom",
     outputs={
+        # request the uncertainty in the atomic energy predictions
         "mtt::aux::energy_uncertainty": ModelOutput(per_atom=True),
-        # you can request any output from the model here, for example:
+        # `per_atom=False` would return the total uncertainty for the system,
+        # or (the inverse of) the TPR (total prediction rigidity)
+        # you also can request other outputs from the model here, for example:
         # "energy": ModelOutput(per_atom=True),
         # "mtt::aux::last_layer_features": ModelOutput(per_atom=True),
     },
@@ -158,7 +172,7 @@ norm = LogNorm(vmin=min(lpr), vmax=max(lpr))
 colormap = plt.get_cmap("viridis")
 colors = colormap(norm(lpr))
 ax = plot_atoms(structure, colors=colors, rotation="180x,0y,0z")
-custom_ticks = [1e10, 2e10, 3e10, 5e10, 7e10]
+custom_ticks = [1e10, 2e10, 5e10, 1e11, 2e11]
 cbar = plt.colorbar(
     plt.cm.ScalarMappable(norm=norm, cmap=colormap),
     ax=ax,
