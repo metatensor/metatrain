@@ -1,6 +1,7 @@
 from typing import Dict, List, Optional
 
 import metatensor.torch
+import numpy as np
 import torch
 from metatensor.torch import Labels, TensorBlock, TensorMap
 from metatensor.torch.atomistic import (
@@ -268,23 +269,24 @@ class LLPRModel(torch.nn.Module):
         else:
             # Try with an increasingly high regularization parameter until
             # the matrix is invertible
-            # TODO: start lower
-            for log10_sigma_squared in torch.linspace(-6.0, 16.0, 33):
-                try:
-                    self.inv_covariance = torch.inverse(
+            def is_psd(x):
+                return torch.all(torch.linalg.eigvalsh(x) >= 0.0)
+
+            for log10_sigma_squared in torch.linspace(-20.0, 16.0, 33):
+                if not is_psd(
+                    self.covariance
+                    + 10**log10_sigma_squared
+                    * torch.eye(self.ll_feat_size, device=self.covariance.device)
+                ):
+                    continue
+                else:
+                    inverse = torch.inverse(
                         self.covariance
-                        + 10**log10_sigma_squared
+                        + 10 ** (log10_sigma_squared + 1.0)
                         * torch.eye(self.ll_feat_size, device=self.covariance.device)
                     )
-                    log10_regularizer = log10_sigma_squared
+                    self.inv_covariance = (inverse + inverse.T) / 2.0
                     break
-                except torch.linalg.LinAlgError:
-                    continue
-            self.inv_covariance = torch.inverse(
-                self.covariance
-                + 10 ** (log10_regularizer)  # add 2 to avoid numerical issues
-                * torch.eye(self.ll_feat_size, device=self.covariance.device)
-            )
         self.inv_covariance_computed = True
 
     def calibrate(self, valid_loader: DataLoader):
@@ -378,14 +380,19 @@ class LLPRModel(torch.nn.Module):
         device = self.inv_covariance.device
         dtype = self.inv_covariance.dtype
         for name, weights in weight_tensors.items():
-            sampler = torch.distributions.multivariate_normal.MultivariateNormal(
-                loc=weights.to(device=device, dtype=dtype),
-                covariance_matrix=self.inv_covariance
+            rng = np.random.default_rng()
+            ensemble_weights = rng.multivariate_normal(
+                weights.clone().detach().cpu().numpy(),
+                self.inv_covariance.clone().detach().cpu().numpy()
                 * self.uncertainty_multipliers[
                     "mtt::aux::" + name.replace("_ensemble", "") + "_uncertainty"
                 ],
+                size=n_members,
+                method="svd",
+            ).T
+            ensemble_weights = torch.tensor(
+                ensemble_weights, device=device, dtype=dtype
             )
-            ensemble_weights = sampler.sample((n_members,)).T
             if not name.startswith("mtt::"):
                 mtt_name = "mtt::" + name
             else:

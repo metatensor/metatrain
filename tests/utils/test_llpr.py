@@ -125,6 +125,9 @@ def test_llpr():
         outputs["mtt::energy_ensemble"].block().values, dim=1, keepdim=True
     )
 
+    print(analytical_uncertainty)
+    print(ensemble_uncertainty)
+
     torch.testing.assert_close(
         analytical_uncertainty, ensemble_uncertainty, rtol=1e-2, atol=1e-2
     )
