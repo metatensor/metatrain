@@ -171,6 +171,7 @@ class SoapBpnn(torch.nn.Module):
         else:
             n_inputs_last_layer = hypers_bpnn["num_neurons_per_layer"]
 
+        self.last_layer_feature_size = n_inputs_last_layer * len(self.atomic_types)
         self.last_layers = torch.nn.ModuleDict(
             {
                 output_name: LinearMap(
