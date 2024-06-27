@@ -17,8 +17,8 @@ class LLPRModel(torch.nn.Module):
 
     In order to be compatible with this class, a model needs to have the last-layer
     feature size available as an attribute (with the ``last_layer_feature_size`` name)
-    and be capable of returning last-layer features (see auxiliary outputs in metatrain),
-    optionally per atom to calculate LPRs with the LLPR method.
+    and be capable of returning last-layer features (see auxiliary outputs in
+    metatrain), optionally per atom to calculate LPRs with the LLPR method.
 
     :param model: The model to wrap.
     """

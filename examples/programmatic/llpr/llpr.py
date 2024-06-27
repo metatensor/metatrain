@@ -43,8 +43,8 @@ model = load_atomistic_model("model.pt", extensions_directory="extensions/")
 # The following lines illustrate how to read systems and targets from xyz files, and
 # how to create a Dataset object from them.
 
-from metatrain.utils.data import Dataset, read_systems, read_targets
-from metatrain.utils.neighbor_lists import get_system_with_neighbor_lists
+from metatrain.utils.data import Dataset, read_systems, read_targets  # noqa: E402
+from metatrain.utils.neighbor_lists import get_system_with_neighbor_lists  # noqa: E402
 
 
 qm9_systems = read_systems("qm9_reduced_100.xyz", dtype=torch.float64)
@@ -70,8 +70,9 @@ qm9_systems = [
 ]
 dataset = Dataset({"system": qm9_systems, **targets})
 
-# We also load a single ethanol molecule on which we will compute properties. This system is
-# loaded without targets, as we are only interested in the LPR values.
+# We also load a single ethanol molecule on which we will compute properties.
+# This system is loaded without targets, as we are only interested in the LPR
+# values.
 ethanol_system = read_systems("ethanol_reduced_100.xyz", dtype=torch.float64)[0]
 ethanol_system = get_system_with_neighbor_lists(
     ethanol_system, requested_neighbor_lists
@@ -79,9 +80,10 @@ ethanol_system = get_system_with_neighbor_lists(
 
 # %%
 #
-# The dataset is fully compatible with torch. For example, be used to create a DataLoader object.
+# The dataset is fully compatible with torch. For example, be used to create
+# a DataLoader object.
 
-from metatrain.utils.data import collate_fn
+from metatrain.utils.data import collate_fn  # noqa: E402
 
 
 dataloader = torch.utils.data.DataLoader(
@@ -98,9 +100,12 @@ dataloader = torch.utils.data.DataLoader(
 # prediction rigidity metrics, which are useful for uncertainty quantification
 # and model introspection.
 
-from metatensor.torch.atomistic import MetatensorAtomisticModel, ModelMetadata
+from metatensor.torch.atomistic import (  # noqa: E402
+    MetatensorAtomisticModel,
+    ModelMetadata,
+)
 
-from metatrain.utils.llpr import LLPRModel
+from metatrain.utils.llpr import LLPRModel  # noqa: E402
 
 
 llpr_model = LLPRModel(model)
@@ -120,7 +125,7 @@ exported_model = MetatensorAtomisticModel(
 # specific outputs from the model. In this case, we request the uncertainty in the
 # atomic energy predictions.
 
-from metatensor.torch.atomistic import ModelEvaluationOptions, ModelOutput
+from metatensor.torch.atomistic import ModelEvaluationOptions, ModelOutput  # noqa: E402
 
 
 evaluation_options = ModelEvaluationOptions(
@@ -139,12 +144,13 @@ lpr = outputs["mtt::aux::energy_uncertainty"].block().values.detach().cpu().nump
 
 # %%
 #
-# We can now visualize the LPR values using the `plot_atoms` function from `ase.visualize.plot`.
+# We can now visualize the LPR values using the `plot_atoms` function from
+# ``ase.visualize.plot``.
 
-import ase.io
-import matplotlib.pyplot as plt
-from ase.visualize.plot import plot_atoms
-from matplotlib.colors import LogNorm
+import ase.io  # noqa: E402
+import matplotlib.pyplot as plt  # noqa: E402
+from ase.visualize.plot import plot_atoms  # noqa: E402
+from matplotlib.colors import LogNorm  # noqa: E402
 
 
 structure = ase.io.read("ethanol_reduced_100.xyz")
