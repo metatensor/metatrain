@@ -10,9 +10,6 @@ last-layer prediction rigidity (`LLPR <LLPR_>`_) approximation.
 .. _LPR: https://pubs.acs.org/doi/10.1021/acs.jctc.3c00704
 .. _LLPR: https://arxiv.org/html/2403.02251v1
 
-The GAP model in metatrain can only train on CPU, but evaluation
-is also supported on GPU.
-
 The model was trained using the following training options.
 
 .. literalinclude:: options.yaml
