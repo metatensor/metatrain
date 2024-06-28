@@ -418,7 +418,7 @@ def train_model(
     # always save on CPU. TODO: remove after release of
     # https://github.com/lab-cosmo/metatensor/pull/668
     mts_atomistic_model = mts_atomistic_model.to("cpu")
-    mts_atomistic_model.save(str(output_checked), collect_extensions=extensions_path)
+    mts_atomistic_model.export(str(output_checked), collect_extensions=extensions_path)
 
     ###########################
     # EVALUATE FINAL MODEL ####
