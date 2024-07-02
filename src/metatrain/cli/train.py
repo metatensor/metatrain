@@ -7,7 +7,6 @@ import random
 from pathlib import Path
 from typing import Dict, Optional, Union
 
-import jsonschema
 import numpy as np
 import torch
 from omegaconf import DictConfig, OmegaConf

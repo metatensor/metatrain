@@ -9,7 +9,6 @@ from jsonschema import validate
 from omegaconf import OmegaConf
 
 from .. import PACKAGE_ROOT
-from ..utils.jsonschema import validate
 
 
 def check_architecture_name(name: str) -> None:
