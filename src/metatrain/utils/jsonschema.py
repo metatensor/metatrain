@@ -22,6 +22,11 @@ def validate(instance, schema, cls=None, *args, **kwargs) -> None:
     except ValidationError as error:
         if error.validator == "additionalProperties":
 
+            # Change error message to be clearer for users
+            error.message = error.message.replace(
+                "Additional properties are not allowed", "Unrecognized options"
+            )
+
             known_properties = error.schema["properties"].keys()
             unknown_properties = error.instance.keys() - known_properties
 
@@ -37,4 +42,4 @@ def validate(instance, schema, cls=None, *args, **kwargs) -> None:
             if closest_matches:
                 error.message += f". Do you mean {', '.join(closest_matches)}?"
 
-        raise ValidationError(error.message)
+        raise ValidationError(message=error.message)

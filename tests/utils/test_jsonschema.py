@@ -29,8 +29,8 @@ def test_validate_single_suggestion():
         "training": {"nasdasd": 1, "batch_sizes": 2},
     }
     match = (
-        r"Additional properties are not allowed \('batch_sizes', 'nasdasd' were "
-        r"unexpected\). Do you mean 'batch_size'?"
+        r"Unrecognized options \('batch_sizes', 'nasdasd' were unexpected\). "
+        r"Do you mean 'batch_size'?"
     )
     with pytest.raises(ValidationError, match=match):
         validate(instance=instance, schema=schema())
@@ -42,8 +42,8 @@ def test_validate_multi_suggestion():
         "training": {"num_epoch": 1, "batch_sizes": 2},
     }
     match = (
-        r"Additional properties are not allowed \('batch_sizes', 'num_epoch' "
-        r"were unexpected\). Do you mean"
+        r"Unrecognized options \('batch_sizes', 'num_epoch' were unexpected\). "
+        r"Do you mean"
     )
     with pytest.raises(ValidationError, match=match):
         validate(instance=instance, schema=schema())
