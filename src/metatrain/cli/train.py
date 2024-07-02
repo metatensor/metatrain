@@ -406,7 +406,7 @@ def train_model(
     logger.info(
         f"Exporting model to `{output_checked}` and extensions to `{extensions_path}`"
     )
-    mts_atomistic_model.export(str(output_checked), collect_extensions=extensions_path)
+    mts_atomistic_model.save(str(output_checked), collect_extensions=extensions_path)
 
     ###########################
     # EVALUATE FINAL MODEL ####
