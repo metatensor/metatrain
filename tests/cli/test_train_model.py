@@ -6,7 +6,6 @@ import subprocess
 from pathlib import Path
 
 import ase.io
-import metatensor.torch  # noqa
 import pytest
 import torch
 from jsonschema.exceptions import ValidationError
