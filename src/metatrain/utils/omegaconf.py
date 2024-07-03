@@ -4,12 +4,12 @@ from pathlib import Path
 from typing import Any, Union
 
 import torch
-from jsonschema import validate
 from omegaconf import Container, DictConfig, ListConfig, OmegaConf
 from omegaconf.basecontainer import BaseContainer
 
 from .. import PACKAGE_ROOT, RANDOM_SEED
 from .devices import pick_devices
+from .jsonschema import validate
 
 
 def file_format(_parent_: Container) -> str:

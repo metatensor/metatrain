@@ -44,7 +44,17 @@ def test_check_architecture_name():
 
 
 def test_check_architecture_name_suggest():
-    name = "soap-bpnn"
+    name = "experimental.soap-bpnn"
+    match = (
+        rf"Architecture {name!r} is not a valid architecture. "
+        r"Do you mean 'experimental.soap_bpnn'?"
+    )
+    with pytest.raises(ValueError, match=match):
+        check_architecture_name(name)
+
+
+def test_check_architecture_no_name_suggest():
+    name = "sdlfijwpeofj"
     match = f"Architecture {name!r} is not a valid architecture."
     with pytest.raises(ValueError, match=match):
         check_architecture_name(name)
@@ -103,6 +113,6 @@ def test_check_architecture_options_error_raise():
     # Add an unknown parameter
     options["training"]["num_epochxxx"] = 10
 
-    match = r"Additional properties are not allowed \('num_epochxxx' was unexpected\)"
+    match = r"Unrecognized options \('num_epochxxx' was unexpected\)"
     with pytest.raises(ValidationError, match=match):
         check_architecture_options(name=name, options=options)

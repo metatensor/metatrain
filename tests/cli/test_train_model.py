@@ -6,7 +6,6 @@ import subprocess
 from pathlib import Path
 
 import ase.io
-import metatensor.torch  # noqa
 import pytest
 import torch
 from jsonschema.exceptions import ValidationError
@@ -72,6 +71,7 @@ def test_train(capfd, monkeypatch, tmp_path, output):
     assert file_log == stdout_log
 
     assert "This log is also available" in stdout_log
+    assert "Running training for 'experimental.soap_bpnn' architecture"
     assert re.search(r"Random seed of this run is [1-9]\d*", stdout_log)
     assert "Training dataset:" in stdout_log
     assert "Validation dataset:" in stdout_log
@@ -153,7 +153,10 @@ def test_train_unknonw_arch_options(monkeypatch, tmp_path):
     """
     options = OmegaConf.create(options_str)
 
-    match = r"Additional properties are not allowed \('num_epoch' was unexpected\)"
+    match = (
+        r"Unrecognized options \('num_epoch' was unexpected\). "
+        r"Do you mean 'num_epochs'?"
+    )
     with pytest.raises(ValidationError, match=match):
         train_model(options)
 
