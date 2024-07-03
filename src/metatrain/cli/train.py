@@ -422,7 +422,7 @@ def train_model(
     # https://github.com/lab-cosmo/metatensor/pull/668
     mts_atomistic_model = mts_atomistic_model.to("cpu")
     mts_atomistic_model.save(str(output_checked), collect_extensions=extensions_path)
-    # the model first saved and then reloaded 1) for good practice and 2) because
+    # the model is first saved and then reloaded 1) for good practice and 2) because
     # MetatensorAtomisticModel only torchscripts (makes faster) during save()
 
     ###########################
