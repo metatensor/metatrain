@@ -408,7 +408,8 @@ def train_model(
     logger.info(
         f"Exporting model to `{output_checked}` and extensions to `{extensions_path}`"
     )
-    # get device from the model
+    # get device from the model. This device could be different from devices[0]
+    # defined above in the case of multi-GPU and/or distributed training
     device = next(
         itertools.chain(
             mts_atomistic_model.parameters(),
@@ -419,6 +420,8 @@ def train_model(
     # https://github.com/lab-cosmo/metatensor/pull/668
     mts_atomistic_model = mts_atomistic_model.to("cpu")
     mts_atomistic_model.save(str(output_checked), collect_extensions=extensions_path)
+    # the model first saved and then reloaded 1) for good practice and 2) because
+    # MetatensorAtomisticModel only torchscripts (makes faster) during save()
 
     ###########################
     # EVALUATE FINAL MODEL ####
