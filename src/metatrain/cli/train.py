@@ -410,7 +410,7 @@ def train_model(
     )
     # get device from the model. This device could be different from devices[0]
     # defined above in the case of multi-GPU and/or distributed training
-    device = next(
+    final_device = next(
         itertools.chain(
             mts_atomistic_model.parameters(),
             mts_atomistic_model.buffers(),
@@ -430,7 +430,7 @@ def train_model(
     mts_atomistic_model = load_atomistic_model(
         str(output_checked), extensions_directory=extensions_path
     )
-    mts_atomistic_model = mts_atomistic_model.to(device)
+    mts_atomistic_model = mts_atomistic_model.to(final_device)
 
     for i, train_dataset in enumerate(train_datasets):
         if len(train_datasets) == 1:
