@@ -49,7 +49,7 @@ def test_export_cli(monkeypatch, tmp_path, output, dtype):
     """Test that the export cli runs without an error raise."""
     monkeypatch.chdir(tmp_path)
 
-    dtype_string = "64" if dtype == torch.float64 else "32"
+    dtype_string = str(dtype)[-2:]
     command = [
         "mtt",
         "export",
