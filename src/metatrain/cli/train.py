@@ -16,7 +16,9 @@ from .. import PACKAGE_ROOT
 from ..utils.architectures import check_architecture_options, get_default_hypers
 from ..utils.data import (
     Dataset,
+    DiskDataset,
     DatasetInfo,
+    TargetInfo,
     TargetInfoDict,
     get_atomic_types,
     read_systems,
@@ -189,17 +191,30 @@ def train_model(
     train_datasets = []
     target_infos = TargetInfoDict()
     for train_options in options["training_set"]:
-        train_systems = read_systems(
-            filename=train_options["systems"]["read_from"],
-            fileformat=train_options["systems"]["file_format"],
-            dtype=dtype,
-        )
-        train_targets, target_info_dictionary = read_targets(
-            conf=train_options["targets"], dtype=dtype
-        )
-
-        target_infos.update(target_info_dictionary)
-        train_datasets.append(Dataset({"system": train_systems, **train_targets}))
+        if Path(train_options["systems"]["read_from"]).suffix == "":
+            # metatensor disk dataset
+            dataset = DiskDataset(train_options["systems"]["read_from"])
+            print(dataset[0]["system"].known_neighbor_lists())
+            target_info_dictionary = TargetInfoDict()
+            target_info_dictionary["energy"] = TargetInfo(
+                quantity=train_options["targets"]["energy"]["quantity"],
+                unit=train_options["targets"]["energy"]["unit"],
+                per_atom=False,
+                gradients=[],
+            )
+            target_infos.update(target_info_dictionary)
+        else:
+            train_systems = read_systems(
+                filename=train_options["systems"]["read_from"],
+                fileformat=train_options["systems"]["file_format"],
+                dtype=dtype,
+            )
+            train_targets, target_info_dictionary = read_targets(
+                conf=train_options["targets"], dtype=dtype
+            )
+            target_infos.update(target_info_dictionary)
+            dataset = Dataset({"system": train_systems, **train_targets})
+        train_datasets.append(dataset)
 
     train_size = 1.0
 

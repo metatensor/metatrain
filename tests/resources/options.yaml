@@ -8,7 +8,7 @@ architecture:
 
 training_set:
   systems:
-    read_from: qm9_reduced_100.xyz
+    read_from: qm9_disk/
     length_unit: angstrom
   targets:
     energy:

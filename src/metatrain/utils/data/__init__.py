@@ -1,5 +1,6 @@
 from .dataset import (  # noqa: F401
     Dataset,
+    DiskDataset,
     TargetInfo,
     TargetInfoDict,
     DatasetInfo,

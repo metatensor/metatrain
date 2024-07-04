@@ -12,6 +12,7 @@ from torch import Generator, default_generator
 
 from ..external_naming import to_external_name
 from ..units import get_gradient_units
+import os
 
 
 @dataclass
@@ -235,6 +236,22 @@ class Dataset:
 
     def get_stats(self, dataset_info: DatasetInfo) -> str:
         return _get_dataset_stats(self, dataset_info)
+    
+
+class DiskDataset(Dataset):
+    """
+    Dataset that reads metatensor data from disk.
+    """
+
+    def __init__(self, path: str):
+        self.path = path
+        self.len = len(os.listdir(path))
+
+    def __getitem__(self, idx: int) -> Dict:
+        return torch.load(f"{self.path}/sample_{idx}.mts")
+
+    def __len__(self) -> int:
+        return self.len
 
 
 class Subset(torch.utils.data.Subset):
