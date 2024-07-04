@@ -1,4 +1,4 @@
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Callable
 
 import metatensor.torch
 import numpy as np
@@ -11,6 +11,10 @@ from metatensor.torch.atomistic import (
     System,
 )
 from torch.utils.data import DataLoader
+from .per_atom import average_by_num_atoms
+from .evaluate_model import evaluate_model
+from .data import TargetInfoDict, TargetInfo, get_atomic_types, DatasetInfo
+from .data.extract_targets import get_targets_dict
 
 
 class LLPRUncertaintyModel(torch.nn.Module):
@@ -249,6 +253,85 @@ class LLPRUncertaintyModel(torch.nn.Module):
             ll_feats = ll_feat_tmap.block().values / n_atoms.unsqueeze(1)
             self.covariance += ll_feats.T @ ll_feats
         self.covariance_computed = True
+
+    def compute_covariance_as_pseudo_hessian(
+            self,
+            train_loader: DataLoader,
+            target_info: TargetInfo,
+            loss_fn: Callable,
+            parameters: List[torch.nn.Parameter]
+        ) -> None:
+        """A function to compute the covariance matrix for a training set
+        as the pseudo-Hessian of the loss function.
+
+        The covariance/pseudo-Hessian is stored as a buffer in the model. The
+        loss function must be compatible with the Dataloader (i.e., it should
+        have the same structure as the outputs of the model and as the targets
+        in the dataset). All contributions to the loss functions are assumed to
+        be per-atom, except for quantities that are already per-atom (e.g.,
+        forces).
+
+        :param train_loader: A PyTorch DataLoader with the training data.
+            The individual samples need to be compatible with the ``Dataset``
+            class in ``metatrain``.
+        :param loss_fn: A loss function that takes the model outputs and the
+            targets and returns a scalar loss.
+        :param parameters: A list of model parameters for which the pseudo-Hessian
+            should be computed.
+        """
+        self.model = self.model.train()  # we need gradients w.r.t. parameters
+        # disable gradients for all parameters that are not in the list
+        for parameter in self.model.parameters():
+            parameter.requires_grad = False
+        for parameter in parameters:
+            parameter.requires_grad = True
+
+        target_infos = TargetInfoDict()
+        target_infos.update(target_info)
+        dataset = train_loader.dataset
+        dataset_info = DatasetInfo(
+            length_unit=self.capabilities.length_unit,  # TODO: check
+            atomic_types=get_atomic_types(dataset),
+            targets=target_infos,
+        )
+        train_targets = get_targets_dict([train_loader.dataset], dataset_info)
+        device = self.covariance.device
+        for batch in train_loader:
+            systems, targets = batch
+            systems = [system.to(device=device) for system in systems]
+            predictions = evaluate_model(
+                self.model,
+                systems,
+                TargetInfoDict(
+                    **{key: train_targets[key] for key in targets.keys()}
+                ),
+                is_training=True,  # keep the computational graph
+            )
+
+            # average by the number of atoms
+            predictions = average_by_num_atoms(
+                predictions, systems, []
+            )
+            targets = average_by_num_atoms(targets, systems, [])
+            
+            loss = loss_fn(predictions, targets)
+
+            grads = torch.autograd.grad(
+                loss,
+                parameters,
+                create_graph=False,
+                retain_graph=False,
+                allow_unused=True,  # if there are multiple last-layers
+                materialize_grads=True,  # avoid Nones
+            )
+
+            grads = torch.cat(grads, dim=1)
+            self.covariance += grads.T @ grads
+            for parameter in parameters:
+                parameter.grad = None  # reset the gradients
+
+        self.covariance_computed = True
+        self.model = self.model.eval()  # restore the model to evaluation mode
 
     def compute_inverse_covariance(self, regularizer: Optional[float] = None):
         """A function to compute the inverse covariance matrix.
