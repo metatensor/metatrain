@@ -1,8 +1,10 @@
+import os
+
+import torch
 from metatensor.torch.atomistic import NeighborListOptions
+
 from metatrain.utils.data import Dataset, read_systems, read_targets
 from metatrain.utils.neighbor_lists import get_system_with_neighbor_lists
-import torch
-import os
 
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -31,5 +33,5 @@ dataset = Dataset({"system": qm9_systems, **targets})
 
 if not os.path.exists(dataset_folder):
     os.makedirs(dataset_folder)
-for index, sample in enumerate(dataset):
-    torch.save(sample, os.path.join(dataset_folder, f"sample_{index}.mts"))
+
+dataset.save(dataset_folder)

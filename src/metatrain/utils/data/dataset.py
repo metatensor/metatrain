@@ -1,18 +1,22 @@
+import io
 import itertools
 import math
+import os
 import warnings
 from collections import UserDict
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional, Set, Tuple, Union
 
+import ase
+import ase.io
 import metatensor.learn
 import torch
 from metatensor.torch import TensorMap
+from metatensor.torch.atomistic import systems_to_torch
 from torch import Generator, default_generator
 
 from ..external_naming import to_external_name
 from ..units import get_gradient_units
-import os
 
 
 @dataclass
@@ -236,7 +240,26 @@ class Dataset:
 
     def get_stats(self, dataset_info: DatasetInfo) -> str:
         return _get_dataset_stats(self, dataset_info)
-    
+
+    def save(self, directory):
+        for idx, sample in enumerate(self):
+            if "system" in sample:
+                system = sample["system"]
+                atoms = ase.Atoms(
+                    numbers=system.types.detach().cpu().numpy(),
+                    positions=system.positions.detach().cpu().numpy(),
+                    cell=system.cell.detach().cpu().numpy(),
+                    pbc=not torch.all(system.cell == 0),
+                )
+
+                with io.StringIO() as fd:
+                    # We could pick another format here if needed
+                    ase.io.write(fd, atoms, format="extxyz")
+
+                    sample["system"] = fd.getvalue()
+
+            torch.save(sample, os.path.join(directory, f"sample_{idx}.pt"))
+
 
 class DiskDataset(Dataset):
     """
@@ -248,7 +271,13 @@ class DiskDataset(Dataset):
         self.len = len(os.listdir(path))
 
     def __getitem__(self, idx: int) -> Dict:
-        return torch.load(f"{self.path}/sample_{idx}.mts")
+        data = torch.load(f"{self.path}/sample_{idx}.pt")
+        if "system" in data:
+            with io.StringIO(data["system"]) as fd:
+                atoms = ase.io.read(fd, format="extxyz")
+                data["system"] = systems_to_torch(atoms)
+
+        return data
 
     def __len__(self) -> int:
         return self.len
