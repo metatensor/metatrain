@@ -17,7 +17,7 @@ from . import RESOURCES_PATH
 torch.manual_seed(42)
 
 
-def test_llpr():
+def test_llpr(tmpdir):
 
     model = load_atomistic_model(
         str(RESOURCES_PATH / "model-64-bit.pt"),
@@ -106,6 +106,14 @@ def test_llpr():
         llpr_model.eval(),
         ModelMetadata(),
         llpr_model.capabilities,
+    )
+
+    exported_model.save(
+        file=str(tmpdir / "llpr_model.pt"),
+        collect_extensions=str(tmpdir / "extensions"),
+    )
+    llpr_model = load_atomistic_model(
+        str(tmpdir / "llpr_model.pt"), extensions_directory=str(tmpdir / "extensions")
     )
 
     evaluation_options = ModelEvaluationOptions(
