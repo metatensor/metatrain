@@ -185,11 +185,8 @@ class LLPRUncertaintyModel(torch.nn.Module):
             for buffer_name, buffer in self.named_buffers():
                 if buffer_name == name + "_weights":
                     ensemble_weights = buffer
-            if len(ensemble_weights.shape) == 0:
-                # ensemble weights not found
-                raise ValueError(
-                    f"Ensemble weights for output '{name}' not found in model"
-                )
+            # the ensemble weights should always be found (checks are performed
+            # in the generate_ensemble method and in the metatensor wrapper)
             ensemble_values = torch.einsum(
                 "ij, jk -> ik",
                 ll_features.block().values,
