@@ -96,7 +96,7 @@ def test_debug_log(caplog, monkeypatch, tmp_path, capsys):
         assert "foo" in logtext
         assert "A debug message" in logtext
         # Test that debug information is in output
-        assert "test_logging.py:test_debug_log:83" in logtext
+        assert "test_logging.py:test_debug_log:" in logtext
 
 
 def test_metric_logger(caplog, capsys):

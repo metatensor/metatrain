@@ -3,14 +3,16 @@ within `test_readers.py`"""
 
 from typing import List
 
+import ase
 import ase.io
 import pytest
 import torch
 
-from metatrain.utils.data.readers.targets import (
+from metatrain.utils.data.readers.ase import (
     read_energy_ase,
     read_forces_ase,
     read_stress_ase,
+    read_systems_ase,
     read_virial_ase,
 )
 
@@ -28,6 +30,29 @@ def ase_system() -> ase.Atoms:
     atoms.set_array("forces", positions, dtype=float)
 
     return atoms
+
+
+def test_read_ase(monkeypatch, tmp_path):
+    monkeypatch.chdir(tmp_path)
+
+    filename = "systems.xyz"
+
+    systems = ase_system()
+    ase.io.write(filename, systems)
+
+    result = read_systems_ase(filename)
+
+    assert isinstance(result, list)
+    assert len(result) == 1
+    assert isinstance(result[0], torch.ScriptObject)
+
+    positions_actual = result[0].positions
+    positions_expected = torch.tensor(systems.positions, dtype=positions_actual.dtype)
+    torch.testing.assert_close(positions_actual, positions_expected)
+
+    types_expected = result[0].types
+    types_actual = torch.tensor([1, 1], dtype=types_expected.dtype)
+    torch.testing.assert_close(types_expected, types_actual)
 
 
 def ase_systems() -> List[ase.Atoms]:

@@ -195,7 +195,7 @@ def train_model(
     for train_options in options["training_set"]:
         train_systems = read_systems(
             filename=train_options["systems"]["read_from"],
-            fileformat=train_options["systems"]["file_format"],
+            reader=train_options["systems"]["reader"],
             dtype=dtype,
         )
         train_targets, target_info_dictionary = read_targets(
@@ -249,7 +249,7 @@ def train_model(
         for test_options in options["test_set"]:
             test_systems = read_systems(
                 filename=test_options["systems"]["read_from"],
-                fileformat=test_options["systems"]["file_format"],
+                reader=test_options["systems"]["reader"],
                 dtype=dtype,
             )
             test_targets, _ = read_targets(conf=test_options["targets"], dtype=dtype)
@@ -298,7 +298,7 @@ def train_model(
         for val_options in options["validation_set"]:
             val_systems = read_systems(
                 filename=val_options["systems"]["read_from"],
-                fileformat=val_options["systems"]["file_format"],
+                reader=val_options["systems"]["reader"],
                 dtype=dtype,
             )
             val_targets, _ = read_targets(conf=val_options["targets"], dtype=dtype)

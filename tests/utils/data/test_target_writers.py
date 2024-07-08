@@ -98,7 +98,7 @@ def test_write_xyz_cell(monkeypatch, tmp_path):
     # Read the file and verify its contents
     frames = ase.io.read(filename, index=":")
     for atoms in frames:
-        cell_actual = torch.tensor(atoms.cell, dtype=cell_expected.dtype)
+        cell_actual = torch.tensor(atoms.cell.array, dtype=cell_expected.dtype)
         torch.testing.assert_close(cell_actual, cell_expected)
         assert all(atoms.pbc == 3 * [True])
 

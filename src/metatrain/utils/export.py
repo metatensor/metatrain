@@ -20,7 +20,7 @@ def export(
 
     The exoort allows the model to make predictions especially in molecular simulation
     engines. Exported models can be be saved to a file with
-    ``exported_model.export(path)``.
+    ``exported_model.save(path)``.
 
     :param model: model to be exported
     :param model_capabilities: capabilities of the model

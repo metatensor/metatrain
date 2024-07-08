@@ -40,12 +40,12 @@ def test_ethanol_regression_train_and_invariance():
         "energy": {
             "quantity": "energy",
             "read_from": DATASET_ETHANOL_PATH,
-            "file_format": ".xyz",
+            "reader": "ase",
             "key": "energy",
             "unit": "kcal/mol",
             "forces": {
                 "read_from": DATASET_ETHANOL_PATH,
-                "file_format": ".xyz",
+                "reader": "ase",
                 "key": "forces",
             },
             "stress": False,

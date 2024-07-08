@@ -257,7 +257,7 @@ def eval_model(
 
         eval_systems = read_systems(
             filename=options["systems"]["read_from"],
-            fileformat=options["systems"]["file_format"],
+            reader=options["systems"]["reader"],
             dtype=dtype,
         )
 

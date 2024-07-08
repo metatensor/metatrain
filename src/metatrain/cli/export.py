@@ -84,5 +84,5 @@ def export_model(model: Any, output: Union[Path, str] = "exported-model.pt") -> 
             f"Exporting model to '{path}' and extensions to '{extensions_path}'"
         )
         mts_atomistic_model = model.export()
-        mts_atomistic_model.export(path, collect_extensions=extensions_path)
+        mts_atomistic_model.save(path, collect_extensions=extensions_path)
         logger.info("Model exported successfully")
