@@ -1,4 +1,6 @@
 import difflib
+import json
+import logging
 from importlib.util import find_spec
 from pathlib import Path
 from typing import Dict, List, Union
@@ -6,6 +8,7 @@ from typing import Dict, List, Union
 from omegaconf import OmegaConf
 
 from .. import PACKAGE_ROOT
+from .jsonschema import validate
 
 
 def check_architecture_name(name: str) -> None:
@@ -37,17 +40,37 @@ def check_architecture_name(name: str) -> None:
                 "deprecated architecture."
             )
     except ModuleNotFoundError:
+        msg = f"Architecture {name!r} is not a valid architecture."
+
         closest_match = difflib.get_close_matches(
-            word=name,
-            possibilities=find_all_architectures(),
-            cutoff=0.3,
+            word=name, possibilities=find_all_architectures()
         )
-        msg = (
-            f"Architecture {name!r} is not a valid architecture. Do you mean "
-            f"{', '.join(closest_match)}?"
-        )
+        if closest_match:
+            msg += f" Do you mean '{closest_match[0]}'?"
 
     raise ValueError(msg)
+
+
+def check_architecture_options(
+    name: str,
+    options: Dict,
+) -> None:
+    """Verifies that an options instance only contains valid keys
+
+    If the architecture developer does not provide a validation scheme the ``options``
+    will not checked.
+
+    :param name: name of the architecture
+    :param options: architecture options to check
+    """
+    schema_path = get_architecture_path(name) / "schema-hypers.json"
+    if schema_path.exists():
+        with open(schema_path, "r") as f:
+            schema = json.load(f)
+
+        validate(instance=options, schema=schema)
+    else:
+        logging.debug("No schema found for {name!r} architecture. Skipping validation.")
 
 
 def get_architecture_name(path: Union[str, Path]) -> str:

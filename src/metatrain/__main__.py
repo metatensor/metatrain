@@ -8,7 +8,7 @@ import traceback
 from datetime import datetime
 from pathlib import Path
 
-from . import __version__
+from . import PACKAGE_ROOT, __version__
 from .cli.eval import _add_eval_model_parser, _prepare_eval_model_args, eval_model
 from .cli.export import (
     _add_export_model_parser,
@@ -16,7 +16,7 @@ from .cli.export import (
     export_model,
 )
 from .cli.train import _add_train_model_parser, _prepare_train_model_args, train_model
-from .utils.logging import setup_logging
+from .utils.logging import get_cli_input, setup_logging
 
 
 logger = logging.getLogger(__name__)
@@ -58,7 +58,7 @@ def main():
         "--shell-completion",
         action="version",
         help="Path to the shell completion script",
-        version=str(Path(__file__).parent / "share/metatrain-completion.bash"),
+        version=str(PACKAGE_ROOT / "share/metatrain-completion.bash"),
     )
 
     # Add sub-parsers
@@ -88,6 +88,11 @@ def main():
         error_file = checkpoint_dir / error_file
 
     with setup_logging(logger, log_file=log_file, level=level):
+        logging.info(f"Package directory: {PACKAGE_ROOT}")
+        logging.info(f"Working directory: {Path('.').absolute()}")
+        logging.info(f"Metatrain version: {__version__}")
+        logging.info(f"Executed command: {get_cli_input()}")
+
         try:
             if callable == "eval_model":
                 _prepare_eval_model_args(args)

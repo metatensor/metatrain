@@ -7,10 +7,9 @@ coverage:
       default:
         target: 90%
   ignore:
-     - "tests/.*"
-     - "examples/.*"
-     - "src/metatrain/experimental/.*"
-     - "src/metatrain/utils/distributed/.*"
-
+    - "tests/.*"
+    - "examples/.*"
+    - "src/metatrain/experimental/.*"
+    - "src/metatrain/utils/distributed/.*"
 
 comment: false

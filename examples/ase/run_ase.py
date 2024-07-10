@@ -15,8 +15,7 @@ The model was trained using the following training options.
 .. literalinclude:: options.yaml
    :language: yaml
 
-You can use the pretrained and exported :download:`model <model.pt>`
-or train the model yourself with
+You can train the same model yourself with
 
 .. literalinclude:: train.sh
    :language: bash
