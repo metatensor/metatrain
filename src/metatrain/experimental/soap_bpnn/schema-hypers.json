@@ -1,0 +1,152 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "type": "object",
+  "properties": {
+    "name": {
+      "type": "string",
+      "enum": ["experimental.soap_bpnn"]
+    },
+    "model": {
+      "type": "object",
+      "properties": {
+        "soap": {
+          "type": "object",
+          "properties": {
+            "cutoff": {
+              "type": "number"
+            },
+            "max_radial": {
+              "type": "integer"
+            },
+            "max_angular": {
+              "type": "integer"
+            },
+            "atomic_gaussian_width": {
+              "type": "number"
+            },
+            "center_atom_weight": {
+              "type": "number"
+            },
+            "cutoff_function": {
+              "type": "object",
+              "properties": {
+                "ShiftedCosine": {
+                  "type": "object",
+                  "properties": {
+                    "width": {
+                      "type": "number"
+                    }
+                  },
+                  "additionalProperties": false
+                }
+              },
+              "additionalProperties": false
+            },
+            "radial_scaling": {
+              "type": "object",
+              "properties": {
+                "Willatt2018": {
+                  "type": "object",
+                  "properties": {
+                    "rate": {
+                      "type": "number"
+                    },
+                    "scale": {
+                      "type": "number"
+                    },
+                    "exponent": {
+                      "type": "number"
+                    }
+                  },
+                  "additionalProperties": false
+                }
+              },
+              "additionalProperties": false
+            }
+          },
+          "additionalProperties": false
+        },
+        "bpnn": {
+          "type": "object",
+          "properties": {
+            "layernorm": {
+              "type": "boolean"
+            },
+            "num_hidden_layers": {
+              "type": "integer"
+            },
+            "num_neurons_per_layer": {
+              "type": "integer"
+            }
+          },
+          "additionalProperties": false
+        }
+      },
+      "additionalProperties": false
+    },
+    "training": {
+      "type": "object",
+      "properties": {
+        "distributed": {
+          "type": "boolean"
+        },
+        "distributed_port": {
+          "type": "integer"
+        },
+        "batch_size": {
+          "type": "integer"
+        },
+        "num_epochs": {
+          "type": "integer"
+        },
+        "learning_rate": {
+          "type": "number"
+        },
+        "early_stopping_patience": {
+          "type": "integer"
+        },
+        "scheduler_patience": {
+          "type": "integer"
+        },
+        "scheduler_factor": {
+          "type": "number"
+        },
+        "log_interval": {
+          "type": "integer"
+        },
+        "checkpoint_interval": {
+          "type": "integer"
+        },
+        "fixed_composition_weights": {
+          "type": "object",
+          "patternProperties": {
+            "^[0-9]+$": {
+              "type": "number"
+            }
+          },
+          "additionalProperties": false
+        },
+        "per_structure_targets": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "loss_weights": {
+          "type": "object",
+          "properties": {
+            "energy": {
+              "type": "number"
+            },
+            "forces": {
+              "type": "number"
+            }
+          },
+          "additionalProperties": false
+        }
+      },
+      "additionalProperties": false
+    }
+  },
+  "additionalProperties": false
+}

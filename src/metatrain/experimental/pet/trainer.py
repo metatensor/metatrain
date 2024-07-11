@@ -1,4 +1,5 @@
 import logging
+import os
 import warnings
 from pathlib import Path
 from typing import List, Union
@@ -21,6 +22,8 @@ logger = logging.getLogger(__name__)
 class Trainer:
     def __init__(self, train_hypers):
         self.hypers = {"FITTING_SCHEME": train_hypers}
+        self.pet_dir = None
+        self.pet_checkpoint = None
 
     def train(
         self,
@@ -30,6 +33,8 @@ class Trainer:
         val_datasets: List[Union[Dataset, torch.utils.data.Subset]],
         checkpoint_dir: str,
     ):
+        self.pet_dir = Path(checkpoint_dir) / "pet"
+
         if len(train_datasets) != 1:
             raise ValueError("PET only supports a single training dataset")
         if len(val_datasets) != 1:
@@ -128,6 +133,18 @@ class Trainer:
 
         device = devices[0]  # only one device, as we don't support multi-gpu for now
 
+        if self.pet_checkpoint is not None:
+            # save the checkpoint to a temporary file, so that fit_pet can load it
+            torch.save(
+                self.pet_checkpoint["model_state_dict"],
+                Path(checkpoint_dir) / "checkpoint.temp",
+            )
+            self.hypers["FITTING_SCHEME"]["MODEL_TO_START_WITH"] = (
+                Path(checkpoint_dir) / "checkpoint.temp"
+            )
+        else:
+            self.hypers["FITTING_SCHEME"]["MODEL_TO_START_WITH"] = None
+
         fit_pet(
             ase_train_dataset,
             ase_val_dataset,
@@ -137,14 +154,14 @@ class Trainer:
             checkpoint_dir,
         )
 
+        if self.pet_checkpoint is not None:
+            # remove the temporary file
+            os.remove(Path(checkpoint_dir) / "checkpoint.temp")
+
         if do_forces:
-            load_path = (
-                Path(checkpoint_dir) / "pet" / "best_val_rmse_forces_model_state_dict"
-            )
+            load_path = self.pet_dir / "best_val_rmse_forces_model_state_dict"
         else:
-            load_path = (
-                Path(checkpoint_dir) / "pet" / "best_val_rmse_energies_model_state_dict"
-            )
+            load_path = self.pet_dir / "best_val_rmse_energies_model_state_dict"
 
         state_dict = torch.load(load_path)
 
@@ -158,10 +175,36 @@ class Trainer:
 
         raw_pet.load_state_dict(new_state_dict)
 
-        self_contributions_path = (
-            Path(checkpoint_dir) / "pet" / "self_contributions.npy"
-        )
+        self_contributions_path = self.pet_dir / "self_contributions.npy"
         self_contributions = np.load(self_contributions_path)
         wrapper = SelfContributionsWrapper(raw_pet, self_contributions)
 
         model.set_trained_model(wrapper)
+
+    def save_checkpoint(self, model, path: Union[str, Path]):
+        # This function takes a checkpoint from the PET folder and saves it
+        # together with the hypers inside a file that will act as a metatrain
+        # checkpoint
+        checkpoint_path = self.pet_dir / "checkpoint"  # type: ignore
+        checkpoint = torch.load(checkpoint_path)
+        torch.save(
+            {
+                "checkpoint": checkpoint,
+                "hypers": self.hypers,
+                "dataset_info": model.dataset_info,
+                "self_contributions": np.load(
+                    self.pet_dir / "self_contributions.npy"  # type: ignore
+                ),
+            },
+            path,
+        )
+
+    @classmethod
+    def load_checkpoint(cls, path: Union[str, Path], train_hypers) -> "Trainer":
+        # This function loads a metatrain PET checkpoint and returns a Trainer
+        # instance with the hypers, while also saving the checkpoint in the
+        # class
+        checkpoint = torch.load(path)
+        trainer = cls(train_hypers)
+        trainer.pet_checkpoint = checkpoint["checkpoint"]
+        return trainer

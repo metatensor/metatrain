@@ -212,7 +212,7 @@ def _eval_targets(
     metrics = {**rmse_values, **mae_values}
     # print the RMSEs with MetricLogger
     metric_logger = MetricLogger(
-        logobj=logger,
+        log_obj=logger,
         dataset_info=model.capabilities(),
         initial_metrics=metrics,
     )

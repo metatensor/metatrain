@@ -1,5 +1,7 @@
 import argparse
 import importlib
+import itertools
+import json
 import logging
 import os
 import random
@@ -8,10 +10,11 @@ from typing import Dict, Optional, Union
 
 import numpy as np
 import torch
+from metatensor.torch.atomistic import load_atomistic_model
 from omegaconf import DictConfig, OmegaConf
-from omegaconf.errors import ConfigKeyError
 
-from ..utils.architectures import check_architecture_name, get_default_hypers
+from .. import PACKAGE_ROOT
+from ..utils.architectures import check_architecture_options, get_default_hypers
 from ..utils.data import (
     Dataset,
     DatasetInfo,
@@ -25,12 +28,8 @@ from ..utils.devices import pick_devices
 from ..utils.distributed.logging import is_main_process
 from ..utils.errors import ArchitectureError
 from ..utils.io import check_suffix
-from ..utils.omegaconf import (
-    BASE_OPTIONS,
-    check_options_list,
-    check_units,
-    expand_dataset_config,
-)
+from ..utils.jsonschema import validate
+from ..utils.omegaconf import BASE_OPTIONS, check_units, expand_dataset_config
 from .eval import _eval_targets
 from .formatter import CustomHelpFormatter
 
@@ -118,22 +117,34 @@ def train_model(
     :param continue_from: File to continue training from.
     """
     ###########################
+    # VALIDATE BASE OPTIONS ###
+    ###########################
+
+    # Training, test and validation set options are verified within the
+    # `expand_dataset_config()` function.
+
+    with open(PACKAGE_ROOT / "share/schema-base.json", "r") as f:
+        schema_base = json.load(f)
+
+    validate(instance=OmegaConf.to_container(options), schema=schema_base)
+
+    ###########################
     # LOAD ARCHITECTURE #######
     ###########################
 
-    try:
-        architecture_name = options["architecture"]["name"]
-    except ConfigKeyError as exc:
-        raise ValueError("Architecture name is not defined!") from exc
-
-    check_architecture_name(architecture_name)
+    architecture_name = options["architecture"]["name"]
+    check_architecture_options(
+        name=architecture_name, options=OmegaConf.to_container(options["architecture"])
+    )
     architecture = importlib.import_module(f"metatrain.{architecture_name}")
+
+    logger.info(f"Running training for {architecture_name!r} architecture")
 
     Model = architecture.__model__
     Trainer = architecture.__trainer__
 
     ###########################
-    # CREATE OPTIONS ##########
+    # MERGE OPTIONS ###########
     ###########################
 
     options = OmegaConf.merge(
@@ -154,14 +165,7 @@ def train_model(
     )
 
     # process base_precision/dtypes
-    if options["base_precision"] == 64:
-        dtype = torch.float64
-    elif options["base_precision"] == 32:
-        dtype = torch.float32
-    elif options["base_precision"] == 16:
-        dtype = torch.float16
-    else:
-        raise ValueError("Only 64, 32 or 16 are possible values for `base_precision`.")
+    dtype = getattr(torch, f"float{options['base_precision']}")
 
     if dtype not in Model.__supported_dtypes__:
         raise ValueError(
@@ -170,29 +174,25 @@ def train_model(
         )
 
     # process random seeds
-    if options["seed"] < 0:
-        raise ValueError("`seed` should be a positive number")
-    else:
-        logger.info(f"Random seed of this run is {options['seed']}")
-        torch.manual_seed(options["seed"])
-        np.random.seed(options["seed"])
-        random.seed(options["seed"])
-        os.environ["PYTHONHASHSEED"] = str(options["seed"])
-        if torch.cuda.is_available():
-            torch.cuda.manual_seed(options["seed"])
-            torch.cuda.manual_seed_all(options["seed"])
+    logger.info(f"Random seed of this run is {options['seed']}")
+    torch.manual_seed(options["seed"])
+    np.random.seed(options["seed"])
+    random.seed(options["seed"])
+    os.environ["PYTHONHASHSEED"] = str(options["seed"])
+    if torch.cuda.is_available():
+        torch.cuda.manual_seed(options["seed"])
+        torch.cuda.manual_seed_all(options["seed"])
 
     ###########################
     # SETUP TRAINING SET ######
     ###########################
 
     logger.info("Setting up training set")
-    train_options_list = expand_dataset_config(options["training_set"])
-    check_options_list(train_options_list)
+    options["training_set"] = expand_dataset_config(options["training_set"])
 
     train_datasets = []
     target_infos = TargetInfoDict()
-    for train_options in train_options_list:
+    for train_options in options["training_set"]:
         train_systems = read_systems(
             filename=train_options["systems"]["read_from"],
             fileformat=train_options["systems"]["file_format"],
@@ -212,16 +212,10 @@ def train_model(
     ###########################
 
     logger.info("Setting up test set")
-    test_options = options["test_set"]
     test_datasets = []
-    if isinstance(test_options, float):
-        test_size = test_options
+    if isinstance(options["test_set"], float):
+        test_size = options["test_set"]
         train_size -= test_size
-
-        if test_size < 0 or test_size >= 1:
-            raise ValueError(
-                "Test set split must be greater or equal than 0 and lesser than 1."
-            )
 
         generator = torch.Generator()
         if options["seed"] is not None:
@@ -238,20 +232,21 @@ def train_model(
             train_datasets[i_dataset] = train_dataset_new
             test_datasets.append(test_dataset)
     else:
-        test_options_list = expand_dataset_config(test_options)
-        check_options_list(test_options_list)
+        options["test_set"] = expand_dataset_config(options["test_set"])
 
-        if len(test_options_list) != len(train_options_list):
+        if len(options["test_set"]) != len(options["training_set"]):
             raise ValueError(
-                f"Test dataset with length {len(test_options_list)} has a different "
-                f"size than the train datatset with length {len(train_options_list)}."
+                f"Test dataset with length {len(options['test_set'])} has a different "
+                f"size than the training datatset with length "
+                f"{len(options['training_set'])}."
             )
 
         check_units(
-            actual_options=test_options_list, desired_options=train_options_list
+            actual_options=options["test_set"],
+            desired_options=options["training_set"],
         )
 
-        for test_options in test_options_list:
+        for test_options in options["test_set"]:
             test_systems = read_systems(
                 filename=test_options["systems"]["read_from"],
                 fileformat=test_options["systems"]["file_format"],
@@ -266,16 +261,10 @@ def train_model(
     ###########################
 
     logger.info("Setting up validation set")
-    val_options = options["validation_set"]
     val_datasets = []
-    if isinstance(val_options, float):
-        val_size = val_options
+    if isinstance(options["validation_set"], float):
+        val_size = options["validation_set"]
         train_size -= val_size
-
-        if val_size <= 0 or val_size >= 1:
-            raise ValueError(
-                "Validation set split must be greater than 0 and lesser than 1."
-            )
 
         generator = torch.Generator()
         if options["seed"] is not None:
@@ -292,19 +281,21 @@ def train_model(
             train_datasets[i_dataset] = train_dataset_new
             val_datasets.append(val_dataset)
     else:
-        val_options_list = expand_dataset_config(val_options)
-        check_options_list(val_options_list)
+        options["validation_set"] = expand_dataset_config(options["validation_set"])
 
-        if len(val_options_list) != len(train_options_list):
+        if len(options["validation_set"]) != len(options["training_set"]):
             raise ValueError(
-                f"Validation dataset with length {len(val_options_list)} has "
-                "a different size than the train datatset with length "
-                f"{len(train_options_list)}."
+                f"Validation dataset with length {len(options['validation_set'])} has "
+                "a different size than the training datatset with length "
+                f"{len(options['training_set'])}."
             )
 
-        check_units(actual_options=val_options_list, desired_options=train_options_list)
+        check_units(
+            actual_options=options["validation_set"],
+            desired_options=options["training_set"],
+        )
 
-        for val_options in val_options_list:
+        for val_options in options["validation_set"]:
             val_systems = read_systems(
                 filename=val_options["systems"]["read_from"],
                 fileformat=val_options["systems"]["file_format"],
@@ -321,7 +312,7 @@ def train_model(
     atomic_types = get_atomic_types(train_datasets + val_datasets)
 
     dataset_info = DatasetInfo(
-        length_unit=train_options_list[0]["systems"]["length_unit"],
+        length_unit=options["training_set"][0]["systems"]["length_unit"],
         atomic_types=atomic_types,
         targets=target_infos,
     )
@@ -371,10 +362,12 @@ def train_model(
     try:
         if continue_from is not None:
             logger.info(f"Loading checkpoint from `{continue_from}`")
+            trainer = Trainer.load_checkpoint(continue_from, hypers["training"])
             model = Model.load_checkpoint(continue_from)
             model = model.restart(dataset_info)
         else:
             model = Model(hypers["model"], dataset_info)
+            trainer = Trainer(hypers["training"])
     except Exception as e:
         raise ArchitectureError(e)
 
@@ -382,9 +375,8 @@ def train_model(
     # TRAIN MODEL #############
     ###########################
 
-    logger.info("Start training")
+    logger.info("Calling trainer")
     try:
-        trainer = Trainer(hypers["training"])
         trainer.train(
             model=model,
             devices=devices,
@@ -405,10 +397,10 @@ def train_model(
     output_checked = check_suffix(filename=output, suffix=".pt")
     logger.info(
         "Training finished, saving final checkpoint "
-        f"to {str(Path(output_checked).stem)}.ckpt"
+        f"to `{str(Path(output_checked).stem)}.ckpt`"
     )
     try:
-        model.save_checkpoint(f"{Path(output_checked).stem}.ckpt")
+        trainer.save_checkpoint(model, f"{Path(output_checked).stem}.ckpt")
     except Exception as e:
         raise ArchitectureError(e)
 
@@ -416,13 +408,31 @@ def train_model(
     extensions_path = "extensions/"
 
     logger.info(
-        f"Exporting model to {output_checked} and extensions to {extensions_path}"
+        f"Exporting model to `{output_checked}` and extensions to `{extensions_path}`"
     )
-    mts_atomistic_model.export(str(output_checked), collect_extensions=extensions_path)
+    # get device from the model. This device could be different from devices[0]
+    # defined above in the case of multi-GPU and/or distributed training
+    final_device = next(
+        itertools.chain(
+            mts_atomistic_model.parameters(),
+            mts_atomistic_model.buffers(),
+        )
+    ).device
+    # always save on CPU. TODO: remove after release of
+    # https://github.com/lab-cosmo/metatensor/pull/668
+    mts_atomistic_model = mts_atomistic_model.to("cpu")
+    mts_atomistic_model.save(str(output_checked), collect_extensions=extensions_path)
+    # the model is first saved and then reloaded 1) for good practice and 2) because
+    # MetatensorAtomisticModel only torchscripts (makes faster) during save()
 
     ###########################
     # EVALUATE FINAL MODEL ####
     ###########################
+
+    mts_atomistic_model = load_atomistic_model(
+        str(output_checked), extensions_directory=extensions_path
+    )
+    mts_atomistic_model = mts_atomistic_model.to(final_device)
 
     for i, train_dataset in enumerate(train_datasets):
         if len(train_datasets) == 1:

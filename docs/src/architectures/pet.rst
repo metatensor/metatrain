@@ -6,8 +6,8 @@ PET
 .. warning::
 
   The metatrain interface to PET is **experimental**. You should not use it for
-  anything important. You can also fit PET from `here
-  <https://spozdn.github.io/pet/train_model.html>`_.
+  anything important. You can also fit PET using native scripts (not experimental)
+  from `here <https://spozdn.github.io/pet/train_model.html>`_.
 
 
 Installation
@@ -120,6 +120,17 @@ large ``step_size``. For typical moderately sized datasets, the default value sh
 suffice. However, for particularly large datasets, increasing ``step_size`` may be
 necessary to ensure complete convergence. The hyperparameter controlling the
 ``step_size`` of the StepLR learning rate scheduler is called ``SCHEDULER_STEP_SIZE``.
+
+It is worth noting that the default ``step_size`` is quite large. Thus, it is normal
+if, when fitting on V100, which is quite slow, there is no event of lr rate decrease
+during the first day or even during a couple of days. In addition, for some datasets,
+the fitting might take longer than for others (related to inhomogeneous densities),
+which can further postpone the first event of lr decrease.
+
+The discussed convergence above, especially in terms of the total duration of fitting,
+should preferably be checked on log-log plots showing how the validation error depends
+on the epoch number. The raw log values are typically hard to extract useful insights
+from.
 
 For hyperparameters like ``SCHEDULER_STEP_SIZE``, ``EPOCH_NUM``, ``BATCH_SIZE``, and
 ``EPOCHS_WARMUP``, either normal or atomic versions can be specified.

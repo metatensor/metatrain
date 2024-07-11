@@ -19,7 +19,6 @@ from metatrain.utils.data.dataset import DatasetInfo
 from ...utils.composition import apply_composition_contribution
 from ...utils.dtype import dtype_to_str
 from ...utils.export import export
-from ...utils.io import check_suffix
 
 
 class Identity(torch.nn.Module):
@@ -172,6 +171,7 @@ class SoapBpnn(torch.nn.Module):
         else:
             n_inputs_last_layer = hypers_bpnn["num_neurons_per_layer"]
 
+        self.last_layer_feature_size = n_inputs_last_layer * len(self.atomic_types)
         self.last_layers = torch.nn.ModuleDict(
             {
                 output_name: LinearMap(
@@ -281,29 +281,18 @@ class SoapBpnn(torch.nn.Module):
 
         return return_dict
 
-    def save_checkpoint(self, path: Union[str, Path]):
-        torch.save(
-            {
-                "model_hypers": {
-                    "model_hypers": self.hypers,
-                    "dataset_info": self.dataset_info,
-                },
-                "model_state_dict": self.state_dict(),
-            },
-            check_suffix(path, ".ckpt"),
-        )
-
     @classmethod
     def load_checkpoint(cls, path: Union[str, Path]) -> "SoapBpnn":
 
-        # Load the model and the metadata
-        model_dict = torch.load(path)
+        # Load the checkpoint
+        checkpoint = torch.load(path)
+        model_hypers = checkpoint["model_hypers"]
+        model_state_dict = checkpoint["model_state_dict"]
 
         # Create the model
-        model = cls(**model_dict["model_hypers"])
-
-        # Load the model weights
-        model.load_state_dict(model_dict["model_state_dict"])
+        model = cls(**model_hypers)
+        dtype = next(iter(model_state_dict.values())).dtype
+        model.to(dtype).load_state_dict(model_state_dict)
 
         return model
 

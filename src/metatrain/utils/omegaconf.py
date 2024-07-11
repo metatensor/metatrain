@@ -1,4 +1,5 @@
 import importlib
+import json
 from pathlib import Path
 from typing import Any, Union
 
@@ -6,8 +7,9 @@ import torch
 from omegaconf import Container, DictConfig, ListConfig, OmegaConf
 from omegaconf.basecontainer import BaseContainer
 
-from .. import RANDOM_SEED
+from .. import PACKAGE_ROOT, RANDOM_SEED
 from .devices import pick_devices
+from .jsonschema import validate
 
 
 def file_format(_parent_: Container) -> str:
@@ -80,7 +82,7 @@ def _resolve_single_str(config: str) -> DictConfig:
     return OmegaConf.create({"read_from": config})
 
 
-# BASE CONFIGURATIONS
+# Base options/configurations
 BASE_OPTIONS = OmegaConf.create(
     {
         "device": "${default_device:}",
@@ -119,11 +121,73 @@ CONF_GRADIENT = OmegaConf.create(
 
 KNWON_GRADIENTS = list(CONF_GRADIENTS.keys())
 
-# merge configs to get default configs for energies and other targets
+# Merge configs to get default configs for energies and other targets
 CONF_TARGET = OmegaConf.merge(CONF_TARGET_FIELDS, CONF_GRADIENTS)
 CONF_ENERGY = CONF_TARGET.copy()
 CONF_ENERGY["forces"] = CONF_GRADIENT.copy()
 CONF_ENERGY["stress"] = CONF_GRADIENT.copy()
+
+# Schema with the dataset options
+with open(PACKAGE_ROOT / "share/schema-dataset.json") as f:
+    SCHEMA_DATASET = json.load(f)
+
+
+def check_dataset_options(dataset_config: ListConfig) -> None:
+    """Perform consistency checks within one dataset config.
+
+    This is useful if the dataset config is made of several datasets.
+
+    - The function checks if ``length_units`` in each system section are known and the
+       same.
+    - For unknown quantities a warning is given.
+    - If the names of the ``"targets"`` sections are the same between the elements of
+       the list of datasets also the units must be the same.
+
+    :param dataset_config: A List of configuration to be checked. In the list contains
+        only one element no checks are performed.
+    :raises ValueError: If for a known quantity the units are not known.
+    """
+    desired_config = dataset_config[0]
+
+    if hasattr(desired_config, "targets"):
+        # save unit for each target seaction for later comparison
+        unit_dict = {k: v["unit"] for k, v in desired_config["targets"].items()}
+    else:
+        unit_dict = {}
+
+    if hasattr(desired_config, "systems"):
+        desired_length_unit = desired_config["systems"]["length_unit"]
+    else:
+        desired_length_unit = None
+
+    # loop over ALL configs because we have check units for all elements in
+    # `dataset_config`
+    for actual_config in dataset_config:
+        if desired_length_unit:
+            # Perform consistency checks between config elements
+            actual_length_unit = actual_config["systems"]["length_unit"]
+            if actual_length_unit != desired_length_unit:
+                raise ValueError(
+                    "`length_unit`s are inconsistent between one of the dataset "
+                    f"options. {actual_length_unit!r} != {desired_length_unit!r}."
+                )
+
+        if hasattr(actual_config, "targets"):
+            for target_key, target in actual_config["targets"].items():
+                unit = target["unit"]
+
+                # If a target section name is not part of the saved units we add it for
+                # later comparison. We do not have to start the loop again because this
+                # target section name is not present in one of the datasets checked
+                # before.
+                if target_key not in unit_dict.keys():
+                    unit_dict[target_key] = unit
+
+                if unit_dict[target_key] != unit:
+                    raise ValueError(
+                        f"Units of target section {target_key!r} are inconsistent. "
+                        f"Found {unit!r} and {unit_dict[target_key]!r}!"
+                    )
 
 
 def expand_dataset_config(conf: Union[str, DictConfig, ListConfig]) -> ListConfig:
@@ -168,6 +232,7 @@ def expand_dataset_config(conf: Union[str, DictConfig, ListConfig]) -> ListConfi
 
     # Perform expansion per config inside the ListConfig
     for conf_element in conf:
+        validate(instance=OmegaConf.to_container(conf_element), schema=SCHEMA_DATASET)
         if hasattr(conf_element, "systems"):
             if type(conf_element["systems"]) is str:
                 conf_element["systems"] = _resolve_single_str(conf_element["systems"])
@@ -240,6 +305,7 @@ def expand_dataset_config(conf: Union[str, DictConfig, ListConfig]) -> ListConfi
                         "`stress: off`."
                     )
 
+    check_dataset_options(conf)
     return conf
 
 
@@ -296,52 +362,4 @@ def check_units(
                 raise ValueError(
                     f"Target {target!r} is not present in one of the given dataset "
                     "options."
-                )
-
-
-def check_options_list(dataset_config: ListConfig) -> None:
-    """Perform consistency checks within one dataset config.
-
-    This is useful if the dataset config is made of several datasets.
-
-    - The function checks if ``length_units`` in each system section are known and the
-       same.
-    - For unknown quantities a warning is given.
-    - If the names of the ``"targets"`` sections are the same between the elements of
-       the list of datasets also the units must be the same.
-
-    :param dataset_config: A List of configuration to be checked. In the list contains
-        only one element no checks are performed.
-    :raises ValueError: If for a known quantity the units are not known.
-    """
-    desired_config = dataset_config[0]
-    # save unit for each target seaction for later comparison
-    unit_dict = {k: v["unit"] for k, v in desired_config["targets"].items()}
-
-    desired_length_unit = desired_config["systems"]["length_unit"]
-
-    # loop over ALL configs because we have check units for all elements in
-    # `dataset_config`
-    for actual_config in dataset_config:
-        # Perform consistency checks between config elements
-        actual_length_unit = actual_config["systems"]["length_unit"]
-        if actual_length_unit != desired_length_unit:
-            raise ValueError(
-                "`length_unit`s are inconsistent between one of the dataset options."
-                f" {actual_length_unit!r} != {desired_length_unit!r}."
-            )
-
-        for target_key, target in actual_config["targets"].items():
-            unit = target["unit"]
-
-            # If a target section name is not part of the saved units we add it for
-            # later comparison. We do not have to start the loop again because this
-            # target section name is not present in one of the datasets checked before.
-            if target_key not in unit_dict.keys():
-                unit_dict[target_key] = unit
-
-            if unit_dict[target_key] != unit:
-                raise ValueError(
-                    f"Units of target section {target_key!r} are inconsistent. Found "
-                    f"{unit!r} and {unit_dict[target_key]!r}!"
                 )

@@ -15,7 +15,6 @@ from torch_alchemical.models import AlchemicalModel as AlchemicalModelUpstream
 from ...utils.data.dataset import DatasetInfo
 from ...utils.dtype import dtype_to_str
 from ...utils.export import export
-from ...utils.io import check_suffix
 from .utils import systems_to_torch_alchemical_batch
 
 
@@ -126,29 +125,18 @@ class AlchemicalModel(torch.nn.Module):
         )
         return total_energies
 
-    def save_checkpoint(self, path: Union[str, Path]):
-        torch.save(
-            {
-                "model_hypers": {
-                    "model_hypers": self.hypers,
-                    "dataset_info": self.dataset_info,
-                },
-                "model_state_dict": self.state_dict(),
-            },
-            check_suffix(path, ".ckpt"),
-        )
-
     @classmethod
     def load_checkpoint(cls, path: Union[str, Path]) -> "AlchemicalModel":
 
-        # Load the model and the metadata
-        model_dict = torch.load(path)
+        # Load the checkpoint
+        checkpoint = torch.load(path)
+        model_hypers = checkpoint["model_hypers"]
+        model_state_dict = checkpoint["model_state_dict"]
 
         # Create the model
-        model = cls(**model_dict["model_hypers"])
-
-        # Load the model weights
-        model.load_state_dict(model_dict["model_state_dict"])
+        model = cls(**model_hypers)
+        dtype = next(iter(model_state_dict.values())).dtype
+        model.to(dtype).load_state_dict(model_state_dict)
 
         return model
 

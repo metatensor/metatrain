@@ -14,13 +14,12 @@ build:
   jobs:
     pre_build:
       - set -e && cd examples/ase && bash train.sh
-
+      - set -e && cd examples/programmatic/llpr && bash train.sh
 
 # Build documentation in the docs/ directory with Sphinx
 sphinx:
   configuration: docs/src/conf.py
   fail_on_warning: true
-
 
 # Declare the Python requirements required to build the docs.
 # Additionally, a custom environment variable
@@ -28,9 +27,9 @@ sphinx:
 # is declared in the project’s dashboard
 python:
   install:
-  - method: pip
-    path: .
-    extra_requirements:
-      - gap
-      - soap-bpnn
-  - requirements: docs/requirements.txt
+    - method: pip
+      path: .
+      extra_requirements:
+        - gap
+        - soap-bpnn
+    - requirements: docs/requirements.txt

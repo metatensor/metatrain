@@ -12,13 +12,14 @@ from metatensor.torch.atomistic import (
     NeighborListOptions,
     System,
 )
+from pet.hypers import Hypers
 from pet.pet import PET as RawPET
+from pet.pet import SelfContributionsWrapper
 
 from metatrain.utils.data import DatasetInfo
 
 from ...utils.dtype import dtype_to_str
 from ...utils.export import export
-from ...utils.io import check_suffix
 from .utils import systems_to_batch_dict
 
 
@@ -110,29 +111,34 @@ class PET(torch.nn.Module):
             output_quantities[output_name] = output_tmap
         return output_quantities
 
-    def save_checkpoint(self, path: Union[str, Path]):
-        torch.save(
-            {
-                "model_hypers": {
-                    "model_hypers": self.hypers,
-                    "dataset_info": self.dataset_info,
-                },
-                "model_state_dict": self.state_dict(),
-            },
-            check_suffix(path, ".ckpt"),
-        )
-
     @classmethod
     def load_checkpoint(cls, path: Union[str, Path]) -> "PET":
 
-        # Load the model and the metadata
-        model_dict = torch.load(path)
+        checkpoint = torch.load(path)
+        hypers = checkpoint["hypers"]
+        dataset_info = checkpoint["dataset_info"]
+        model = cls(
+            model_hypers=hypers["ARCHITECTURAL_HYPERS"], dataset_info=dataset_info
+        )
 
-        # Create the model
-        model = cls(**model_dict["model_hypers"])
+        checkpoint = torch.load(path)
+        state_dict = checkpoint["checkpoint"]["model_state_dict"]
 
-        # Load the model weights
-        model.load_state_dict(model_dict["model_state_dict"])
+        ARCHITECTURAL_HYPERS = Hypers(model.hypers)
+        raw_pet = RawPET(ARCHITECTURAL_HYPERS, 0.0, len(model.atomic_types))
+
+        new_state_dict = {}
+        for name, value in state_dict.items():
+            name = name.replace("model.pet_model.", "")
+            new_state_dict[name] = value
+
+        dtype = next(iter(new_state_dict.values())).dtype
+        raw_pet.to(dtype).load_state_dict(new_state_dict)
+
+        self_contributions = checkpoint["self_contributions"]
+        wrapper = SelfContributionsWrapper(raw_pet, self_contributions)
+
+        model.to(dtype).set_trained_model(wrapper)
 
         return model
 
