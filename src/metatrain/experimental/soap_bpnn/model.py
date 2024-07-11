@@ -291,12 +291,14 @@ class SoapBpnn(torch.nn.Module):
 
         # Create the model
         model = cls(**model_hypers)
-        model.load_state_dict(model_state_dict)
+        dtype = next(iter(model_state_dict.values())).dtype
+        model.to(dtype).load_state_dict(model_state_dict)
 
         return model
 
     def export(self) -> MetatensorAtomisticModel:
         dtype = next(self.parameters()).dtype
+        print(dtype)
         if dtype not in self.__supported_dtypes__:
             raise ValueError(f"unsupported dtype {self.dtype} for SoapBpnn")
 

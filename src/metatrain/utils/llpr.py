@@ -299,6 +299,7 @@ class LLPRUncertaintyModel(torch.nn.Module):
         for batch in train_loader:
             systems, targets = batch
             systems = [system.to(device=device) for system in systems]
+            targets = {name: tmap.to(device=device) for name, tmap in targets.items()}
             predictions = evaluate_model(
                 self.model,
                 systems,

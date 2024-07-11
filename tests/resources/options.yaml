@@ -3,17 +3,33 @@ seed: 42
 architecture:
   name: experimental.soap_bpnn
   training:
-    batch_size: 2
+    batch_size: 8
     num_epochs: 100
+    log_interval: 1
 
 training_set:
   systems:
-    read_from: train_atoms_bmim_nod3.extxyz
+    read_from: train.xyz
     length_unit: angstrom
   targets:
     energy:
       key: energy
       unit: eV
 
-test_set: 0.7
-validation_set: 0.05
+validation_set:
+  systems:
+    read_from: valid.xyz
+    length_unit: angstrom
+  targets:
+    energy:
+      key: energy
+      unit: eV
+
+test_set:
+  systems:
+    read_from: test.xyz
+    length_unit: angstrom
+  targets:
+    energy:
+      key: energy
+      unit: eV
