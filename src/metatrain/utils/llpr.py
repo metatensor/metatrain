@@ -331,6 +331,9 @@ class LLPRUncertaintyModel(torch.nn.Module):
                 parameter.grad = None  # reset the gradients
 
         self.covariance_computed = True
+
+        for parameter in self.model.parameters():
+            parameter.requires_grad = True
         self.model = self.model.eval()  # restore the model to evaluation mode
 
     def compute_inverse_covariance(self, regularizer: Optional[float] = None):

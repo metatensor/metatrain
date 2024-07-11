@@ -4,16 +4,16 @@ architecture:
   name: experimental.soap_bpnn
   training:
     batch_size: 2
-    num_epochs: 1
+    num_epochs: 100
 
 training_set:
   systems:
-    read_from: qm9_reduced_100.xyz
+    read_from: train_atoms_bmim_nod3.extxyz
     length_unit: angstrom
   targets:
     energy:
-      key: U0
+      key: energy
       unit: eV
 
-test_set: 0.5
-validation_set: 0.1
+test_set: 0.7
+validation_set: 0.05
