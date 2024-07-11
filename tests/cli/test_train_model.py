@@ -222,7 +222,7 @@ def test_train_multiple_datasets(monkeypatch, tmp_path, options):
     systems_qm9 = ase.io.read(DATASET_PATH_QM9, ":")
     systems_ethanol = ase.io.read(DATASET_PATH_ETHANOL, ":")
 
-    # delete calculator to avoid warninsgd during writing. Remove once updated to ase >=
+    # delete calculator to avoid warnings during writing. Remove once updated to ase >=
     # 3.23.0
     for atoms in systems_ethanol:
         atoms.calc = None

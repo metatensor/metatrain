@@ -16,9 +16,7 @@ def read_systems_ase(filename: str, dtype: torch.dtype = torch.float32) -> List[
     :returns:
         A list of systems
     """
-    systems = [atoms for atoms in ase.io.read(filename, ":")]
-
-    return [s.to(dtype=dtype) for s in systems_to_torch(systems)]
+    return systems_to_torch(ase.io.read(filename, ":"), dtype=dtype)
 
 
 def read_energy_ase(

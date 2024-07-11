@@ -1,7 +1,7 @@
 Readers
 #######
 
-Parsers for obtaining *system* and *target* information from disk. Currently,
+Parsers for obtaining *system* and *target* information from files. Currently,
 ``metatrain`` support the following libraries for reading data
 
 .. list-table::
@@ -9,19 +9,22 @@ Parsers for obtaining *system* and *target* information from disk. Currently,
 
   * - Library
     - Supported targets
-    - Default file format
+    - Linked file formats
   * - ``ase``
     - system, energy, forces, stress, virials
     - ``.xyz``, ``.extxyz``
 
-One can override these defaults by setting the ``reader`` option to the desired library.
+
+If the ``reader`` parameter is not set the library is determined from the file
+extension. Override this behavior is in particular useful, if a file format is not
+listed here but might be supported by a library.
+
 Below the synopsis of the reader functions in details.
 
-system and Target data Readers
+System and target data readers
 ==============================
 
-The main entry point for reading system and target information are the two reader
-functions
+The main entry point for reading system and target information are the reader functions
 
 .. autofunction:: metatrain.utils.data.read_systems
 .. autofunction:: metatrain.utils.data.read_targets

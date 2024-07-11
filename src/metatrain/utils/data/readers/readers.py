@@ -13,14 +13,14 @@ from ..dataset import TargetInfo, TargetInfoDict
 
 logger = logging.getLogger(__name__)
 
-SUPPORTED_READER_LIBRARIES = ["ase"]
+AVAILABLE_READERS = ["ase"]
 """:py:class:`list`: list containing all implemented reader libraries"""
 
-READER_FORMATS = {
+DEFAULT_READER = {
     ".xyz": "ase",
     ".extxyz": "ase",
 }
-""":py:class:`dict`: dictionary mapping file suffixes to default readers"""
+""":py:class:`dict`: dictionary mapping file suffixes to a default reader"""
 
 
 def _base_reader(
@@ -33,12 +33,12 @@ def _base_reader(
     if reader is None:
         try:
             filesuffix = Path(filename).suffix
-            reader = READER_FORMATS[filesuffix]
+            reader = DEFAULT_READER[filesuffix]
         except KeyError:
             raise ValueError(
                 f"File suffix {filesuffix!r} is not linked to a default reader "
-                "library. You can reading it by setting a specific 'reader' from the "
-                f"known ones: {', '.join(SUPPORTED_READER_LIBRARIES)} "
+                "library. You can try reading it by setting a specific 'reader' from "
+                f"the known ones: {', '.join(AVAILABLE_READERS)} "
             )
 
     try:
@@ -48,7 +48,7 @@ def _base_reader(
     except ImportError:
         raise ValueError(
             f"Reader library {reader!r} not supported. Choose from "
-            f"{', '.join(SUPPORTED_READER_LIBRARIES)}"
+            f"{', '.join(AVAILABLE_READERS)}"
         )
 
     try:
@@ -70,7 +70,7 @@ def read_energy(
     :param filename: name of the file to read
     :param target_value: target value key name to be parsed from the file.
     :param reader: reader library for parsing the file. If :py:obj:`None` the library is
-        tried to determined from the file suffix.
+        determined from the file extension.
     :param dtype: desired data type of returned tensor
     :returns: target value stored stored as a :class:`metatensor.TensorBlock`
     """
@@ -94,7 +94,7 @@ def read_forces(
     :param filename: name of the file to read
     :param target_value: target value key name to be parsed from the file
     :param reader: reader library for parsing the file. If :py:obj:`None` the library is
-        tried to determined from the file suffix.
+        determined from the file extension.
     :param dtype: desired data type of returned tensor
     :returns: target value stored stored as a :class:`metatensor.TensorBlock`
     """
@@ -118,7 +118,7 @@ def read_stress(
     :param filename: name of the file to read
     :param target_value: target value key name to be parsed from the file.
     :param reader: reader library for parsing the file. If :py:obj:`None` the library is
-        tried to determined from the file suffix.
+        determined from the file extension.
     :param dtype: desired data type of returned tensor
     :returns: target value stored stored as a :class:`metatensor.TensorBlock`
     """
@@ -140,7 +140,7 @@ def read_systems(
 
     :param filename: name of the file to read
     :param reader: reader library for parsing the file. If :py:obj:`None` the library is
-        tried to determined from the file suffix.
+        determined from the file extension.
     :param dtype: desired data type of returned tensor
     :returns: list of systems
     """
@@ -163,7 +163,7 @@ def read_virial(
     :param filename: name of the file to read
     :param target_value: target value key name to be parsed from the file.
     :param reader: reader library for parsing the file. If :py:obj:`None` the library is
-        tried to determined from the file suffix.
+        determined from the file extension.
     :param dtype: desired data type of returned tensor
     :returns: target value stored stored as a :class:`metatensor.TensorBlock`
     """
