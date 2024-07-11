@@ -23,6 +23,7 @@ from ...utils.metrics import RMSEAccumulator, MAEAccumulator
 from ...utils.neighbor_lists import get_system_with_neighbor_lists
 from ...utils.per_atom import average_by_num_atoms
 from ...utils.scaling import calculate_scaling
+from ...utils.io import check_suffix
 from .model import PhACE
 import copy
 
@@ -40,6 +41,9 @@ warnings.filterwarnings(
 class Trainer:
     def __init__(self, train_hypers):
         self.hypers = train_hypers
+        self.optimizer_state_dict = None
+        self.scheduler_state_dict = None
+        self.epoch = None
 
     def train(
         self,
@@ -183,6 +187,8 @@ class Trainer:
         optimizer = torch.optim.Adam(
             scripted_model.parameters(), lr=self.hypers["learning_rate"]
         )
+        if self.optimizer_state_dict is not None:
+            optimizer.load_state_dict(self.optimizer_state_dict)
 
         # Create a scheduler:
         lr_scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
@@ -191,6 +197,8 @@ class Trainer:
             factor=self.hypers["scheduler_factor"],
             patience=self.hypers["scheduler_patience"],
         )
+        if self.scheduler_state_dict is not None:
+            lr_scheduler.load_state_dict(self.scheduler_state_dict)
 
         # per-atom targets:
         per_structure_targets = self.hypers["per_structure_targets"]
@@ -292,7 +300,7 @@ class Trainer:
 
             if epoch == 0:
                 metric_logger = MetricLogger(
-                    logobj=logger,
+                    log_obj=logger,
                     dataset_info=model.dataset_info,
                     initial_metrics=[finalized_train_info, finalized_val_info],
                     names=["training", "validation"],
@@ -335,3 +343,44 @@ class Trainer:
                     break
 
         model.load_state_dict(best_state_dict)
+
+
+    def save_checkpoint(self, model, path: Union[str, Path]):
+        checkpoint = {
+            "model_hypers": {
+                "model_hypers": model.hypers,
+                "dataset_info": model.dataset_info,
+            },
+            "model_state_dict": model.state_dict(),
+            "train_hypers": self.hypers,
+            "epoch": self.epoch,
+            "optimizer_state_dict": self.optimizer_state_dict,
+            "scheduler_state_dict": self.scheduler_state_dict,
+        }
+        torch.save(
+            checkpoint,
+            check_suffix(path, ".ckpt"),
+        )
+
+    @classmethod
+    def load_checkpoint(cls, path: Union[str, Path], train_hypers) -> "Trainer":
+
+        # Load the checkpoint
+        checkpoint = torch.load(path)
+        model_hypers = checkpoint["model_hypers"]
+        model_state_dict = checkpoint["model_state_dict"]
+        epoch = checkpoint["epoch"]
+        optimizer_state_dict = checkpoint["optimizer_state_dict"]
+        scheduler_state_dict = checkpoint["scheduler_state_dict"]
+
+        # Create the trainer
+        trainer = cls(train_hypers)
+        trainer.optimizer_state_dict = optimizer_state_dict
+        trainer.scheduler_state_dict = scheduler_state_dict
+        trainer.epoch = epoch
+
+        # Create the model
+        model = PhACE(**model_hypers)
+        model.load_state_dict(model_state_dict)
+
+        return trainer

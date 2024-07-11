@@ -312,16 +312,17 @@ class PhACE(torch.nn.Module):
         return return_dict
 
     @classmethod
-    def load_checkpoint(cls, path: Union[str, Path]) -> "PhACE":
+    def load_checkpoint(cls, path: Union[str, Path]) -> "SoapBpnn":
 
-        # Load the model and the metadata
-        model_dict = torch.load(path)
+        # Load the checkpoint
+        checkpoint = torch.load(path)
+        model_hypers = checkpoint["model_hypers"]
+        model_state_dict = checkpoint["model_state_dict"]
 
         # Create the model
-        model = cls(**model_dict["model_model_hypers"])
-
-        # Load the model weights
-        model.load_state_dict(model_dict["model_state_dict"])
+        model = cls(**model_hypers)
+        dtype = next(iter(model_state_dict.values())).dtype
+        model.to(dtype).load_state_dict(model_state_dict)
 
         return model
 
