@@ -81,7 +81,14 @@ def test_regression_train():
 
     hypers["training"]["num_epochs"] = 1
     trainer = Trainer(hypers["training"])
-    trainer.train(model, [torch.device("cpu")], [dataset], [dataset], ".")
+    trainer.train(
+        model=model,
+        dtype=torch.float64,
+        devices=[torch.device("cpu")],
+        train_datasets=[dataset],
+        val_datasets=[dataset],
+        checkpoint_dir=".",
+    )
 
     # Predict on the first five systems
     output = model(

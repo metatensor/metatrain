@@ -152,8 +152,8 @@ training dataset. All default values are given by atomic versions for better
 transferability across various datasets.
 
 To increase the step size of the learning rate scheduler by, for example, 2 times, take
-the default value for ``SCHEDULER_STEP_SIZE_ATOMIC`` from the default_hypers and specify
-a value that's twice as large.
+the default value for ``SCHEDULER_STEP_SIZE_ATOMIC`` from the default hypers and
+specify a value that's twice as large.
 
 It is worth noting that the stopping criterion of PET is either exceeding the maximum
 number of epochs (specified by ``EPOCH_NUM`` or ``EPOCH_NUM_ATOMIC``) or exceeding the
@@ -168,11 +168,11 @@ probability of achieving the best accuracy on a typical moderate-sized dataset. 
 result, some default hyperparameters might be excessive, meaning they could be adjusted
 to significantly increase the model's speed with minimal impact on accuracy. For
 practical use, especially when conducting massive calculations where model speed is
-crucial, it may be beneficial to set ``N_TRANS_LAYERS`` to `2` instead of the default
-value of `3`. The ``N_TRANS_LAYERS`` hyperparameter controls the number of transformer
+crucial, it may be beneficial to set ``N_TRANS_LAYERS`` to ``2`` instead of the default
+value of ``3``. The ``N_TRANS_LAYERS`` hyperparameter controls the number of transformer
 layers in each message-passing block (see more details in the `PET paper
 <https://arxiv.org/abs/2305.19302>`_). This adjustment would result in a model that is
-about `1.5` times more lightweight and faster, with an expected minimal deterioration in
+about *1.5 times* more lightweight and faster, with an expected minimal deterioration in
 accuracy.
 
 Architecture Hyperparameters

@@ -48,11 +48,13 @@ class Trainer:
     def train(
         self,
         model: SoapBpnn,
+        dtype: torch.dtype,
         devices: List[torch.device],
         train_datasets: List[Union[Dataset, torch.utils.data.Subset]],
         val_datasets: List[Union[Dataset, torch.utils.data.Subset]],
         checkpoint_dir: str,
     ):
+        assert dtype in SoapBpnn.__supported_dtypes__
 
         is_distributed = self.hypers["distributed"]
 
@@ -79,7 +81,6 @@ class Trainer:
             device = devices[
                 0
             ]  # only one device, as we don't support multi-gpu for now
-        dtype = train_datasets[0][0]["system"].positions.dtype
 
         if is_distributed:
             logger.info(f"Training on {world_size} devices with dtype {dtype}")
@@ -265,9 +266,10 @@ class Trainer:
                 optimizer.zero_grad()
 
                 systems, targets = batch
-                systems = [system.to(device=device) for system in systems]
+                systems = [system.to(dtype=dtype, device=device) for system in systems]
                 targets = {
-                    key: value.to(device=device) for key, value in targets.items()
+                    key: value.to(dtype=dtype, device=device)
+                    for key, value in targets.items()
                 }
                 predictions = evaluate_model(
                     model,

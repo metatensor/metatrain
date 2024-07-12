@@ -53,7 +53,14 @@ def test_continue(monkeypatch, tmp_path):
 
     hypers["training"]["num_epochs"] = 0
     trainer = Trainer(hypers["training"])
-    trainer.train(model_after, [torch.device("cpu")], [dataset], [dataset], ".")
+    trainer.train(
+        model=model_after,
+        dtype=torch.float64,
+        devices=[torch.device("cpu")],
+        train_datasets=[dataset],
+        val_datasets=[dataset],
+        checkpoint_dir=".",
+    )
 
     # Predict on the first five systems
     output_before = model_before(
