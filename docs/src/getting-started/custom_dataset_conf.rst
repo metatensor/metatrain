@@ -38,22 +38,22 @@ format, which is also valid for initial input:
     training_set:
         systems:
             read_from: dataset.xyz
-            file_format: .xyz
+            reader: ase
             length_unit: null
         targets:
             energy:
                 quantity: energy
                 read_from: dataset.xyz
-                file_format: .xyz
+                reader: ase
                 key: energy
                 unit: null
                 forces:
                     read_from: dataset.xyz
-                    file_format: .xyz
+                    reader: ase
                     key: forces
                 stress:
                     read_from: dataset.xyz
-                    file_format: .xyz
+                    reader: ase
                     key: stress
                 virial: false
     test_set: 0.1
@@ -68,8 +68,8 @@ Systems Section
 Describes the system data like positions and cell information.
 
 :param read_from: The file containing system data.
-:param file_format: The file format, guessed from the suffix if ``null`` or not
-    provided.
+:param reader: The reader library to use for parsing, guessed from the file extension if
+    ``null`` or not provided.
 :param length_unit: The unit of lengths, optional but highly recommended for running
     simulations.
 
@@ -100,7 +100,8 @@ Target section parameters include:
     ``energy`` is supported.
 :param read_from: The file for target data, defaults to the ``systems.read_from``
   file if not provided.
-:param file_format: The file format, guessed from the suffix if not provided.
+:param reader: The reader library to use for parsing, guessed from the file extension if
+    ``null`` or not provided.
 :param key: The key for reading from the file, defaulting to the target section's name
   if not provided.
 :param unit: The unit of the target, optional but highly recommended for running
@@ -119,8 +120,8 @@ Gradient Section
 Each gradient section (like ``forces`` or ``stress``) has similar parameters:
 
 :param read_from: The file for gradient data.
-:param file_format: The file format, guessed from the suffix if not provided.
-:param key: The key for reading from the file.
+:param reader: The reader library to use for parsing, guessed from the file extension if
+    ``null`` or not provided.:param key: The key for reading from the file.
 
 A single string in a gradient section automatically expands, using the string as the
 ``read_from`` parameter.

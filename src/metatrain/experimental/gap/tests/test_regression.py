@@ -46,7 +46,7 @@ def test_regression_train_and_invariance():
         "mtt::U0": {
             "quantity": "energy",
             "read_from": DATASET_PATH,
-            "file_format": ".xyz",
+            "reader": "ase",
             "key": "U0",
             "unit": "kcal/mol",
             "forces": False,
@@ -111,11 +111,11 @@ def test_ethanol_regression_train_and_invariance():
         "energy": {
             "quantity": "energy",
             "read_from": DATASET_ETHANOL_PATH,
-            "file_format": ".xyz",
+            "reader": "ase",
             "key": "energy",
             "forces": {
                 "read_from": DATASET_ETHANOL_PATH,
-                "file_format": ".xyz",
+                "reader": "ase",
                 "key": "forces",
             },
             "unit": "kcal/mol",

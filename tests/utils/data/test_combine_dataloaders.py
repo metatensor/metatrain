@@ -27,7 +27,7 @@ def test_without_shuffling():
         "mtt::U0": {
             "quantity": "energy",
             "read_from": RESOURCES_PATH / "qm9_reduced_100.xyz",
-            "file_format": ".xyz",
+            "reader": "ase",
             "key": "U0",
             "unit": "eV",
             "forces": False,
@@ -46,7 +46,7 @@ def test_without_shuffling():
         "mtt::free_energy": {
             "quantity": "energy",
             "read_from": RESOURCES_PATH / "alchemical_reduced_10.xyz",
-            "file_format": ".xyz",
+            "reader": "ase",
             "key": "free_energy",
             "unit": "eV",
             "forces": False,
@@ -84,7 +84,7 @@ def test_with_shuffling():
         "mtt::U0": {
             "quantity": "energy",
             "read_from": RESOURCES_PATH / "qm9_reduced_100.xyz",
-            "file_format": ".xyz",
+            "reader": "ase",
             "key": "U0",
             "unit": "eV",
             "forces": False,
@@ -105,7 +105,7 @@ def test_with_shuffling():
         "mtt::free_energy": {
             "quantity": "energy",
             "read_from": RESOURCES_PATH / "alchemical_reduced_10.xyz",
-            "file_format": ".xyz",
+            "reader": "ase",
             "key": "free_energy",
             "unit": "eV",
             "forces": False,

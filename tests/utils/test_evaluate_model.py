@@ -23,7 +23,9 @@ def test_evaluate_model(training, exported):
     )
 
     targets = {
-        "energy": TargetInfo(quantity="energy", gradients=["positions", "strain"])
+        "energy": TargetInfo(
+            quantity="energy", unit="eV", gradients=["positions", "strain"]
+        )
     }
 
     dataset_info = DatasetInfo(

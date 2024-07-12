@@ -8,6 +8,6 @@ API for handling data in ``metatrain``.
 
    combine_dataloaders
    dataset
-   readers/index
+   readers
    writers
    systems_to_ase

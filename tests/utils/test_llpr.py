@@ -30,7 +30,7 @@ def test_llpr(tmpdir):
         "energy": {
             "quantity": "energy",
             "read_from": str(RESOURCES_PATH / "qm9_reduced_100.xyz"),
-            "file_format": ".xyz",
+            "reader": "ase",
             "key": "U0",
             "unit": "kcal/mol",
             "forces": False,
