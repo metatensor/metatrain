@@ -57,7 +57,7 @@ target_config = {
     "energy": {
         "quantity": "energy",
         "read_from": "ethanol_reduced_100.xyz",
-        "file_format": ".xyz",
+        "reader": "ase",
         "key": "energy",
         "unit": "kcal/mol",
         "forces": False,
