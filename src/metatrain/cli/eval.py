@@ -167,10 +167,10 @@ def _eval_targets(
         system = sample["system"]
         get_system_with_neighbor_lists(system, model.requested_neighbor_lists())
 
-    # Infer the device from the model
-    model_metadata = next(itertools.chain(model.parameters(), model.buffers()))
-    dtype = model_metadata.dtype
-    device = model_metadata.device
+    # Infer the device and dtype from the model
+    model_tensor = next(itertools.chain(model.parameters(), model.buffers()))
+    dtype = model_tensor.dtype
+    device = model_tensor.device
 
     # Create a dataloader
     dataloader = torch.utils.data.DataLoader(
