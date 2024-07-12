@@ -201,7 +201,7 @@ about the displacement vector ``r_ij`` from the central atom to the correspondin
 neighbor is incorporated into the token. After each message-passing layer, all
 output messages are fed into a head (individual for each message-passing layer),
 implemented as a shallow MLP, to produce a contribution to the total prediction.
-The total prediction, in this case, the potential energy of the system, is computed
+The total prediction is computed
 as the sum of all head outputs over all message-passing layers and all messages.
 
 This architecture is rigorously invariant with respect to translations because it
