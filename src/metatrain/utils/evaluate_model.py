@@ -245,8 +245,7 @@ def _get_model_outputs(
                 for key, value in targets.items()
             },
         )
-        # we check consistency here because this could be called from eval
-        return model(systems, options, check_consistency=True)
+        return model(systems, options, check_consistency=False)
     else:
         return model(
             systems,
@@ -294,7 +293,7 @@ def _prepare_system(system: System, positions_grad: bool, strain_grad: bool):
     for nl_options in system.known_neighbor_lists():
         nl = system.get_neighbor_list(nl_options)
         nl = metatensor.torch.detach_block(nl)
-        register_autograd_neighbors(new_system, nl, check_consistency=True)
+        register_autograd_neighbors(new_system, nl)
         new_system.add_neighbor_list(nl_options, nl)
 
     return new_system, strain
