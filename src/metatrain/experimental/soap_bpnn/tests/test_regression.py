@@ -31,6 +31,7 @@ def test_regression_init():
 
     # Predict on the first five systems
     systems = read_systems(DATASET_PATH)[:5]
+    systems = [system.to(torch.float32) for system in systems]
 
     output = model(
         systems,
@@ -83,7 +84,7 @@ def test_regression_train():
     trainer = Trainer(hypers["training"])
     trainer.train(
         model=model,
-        dtype=torch.float64,
+        dtype=torch.float32,
         devices=[torch.device("cpu")],
         train_datasets=[dataset],
         val_datasets=[dataset],
@@ -91,6 +92,7 @@ def test_regression_train():
     )
 
     # Predict on the first five systems
+    systems = [system.to(torch.float32) for system in systems]
     output = model(
         systems[:5],
         {"mtt::U0": ModelOutput(quantity="energy", unit="", per_atom=False)},
