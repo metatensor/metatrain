@@ -304,9 +304,10 @@ class Trainer:
             val_loss = 0.0
             for batch in val_dataloader:
                 systems, targets = batch
-                systems = [system.to(device=device) for system in systems]
+                systems = [system.to(dtype=dtype, device=device) for system in systems]
                 targets = {
-                    key: value.to(device=device) for key, value in targets.items()
+                    key: value.to(dtype=dtype, device=device)
+                    for key, value in targets.items()
                 }
                 predictions = evaluate_model(
                     model,
