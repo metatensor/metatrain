@@ -16,7 +16,7 @@ from ...utils.data import (
 )
 from ...utils.evaluate_model import evaluate_model
 from ...utils.external_naming import to_external_name
-from ...utils.io import check_suffix
+from ...utils.io import check_file_extension
 from ...utils.logging import MetricLogger
 from ...utils.loss import TensorMapDictLoss
 from ...utils.metrics import RMSEAccumulator
@@ -338,7 +338,7 @@ class Trainer:
         }
         torch.save(
             checkpoint,
-            check_suffix(path, ".ckpt"),
+            check_file_extension(path, ".ckpt"),
         )
 
     @classmethod

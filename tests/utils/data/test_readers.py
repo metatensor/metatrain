@@ -47,7 +47,7 @@ def test_read_systems(reader, monkeypatch, tmp_path):
 
 
 def test_read_systems_unknown_reader():
-    match = "File suffix '.bar' is not linked to a default reader"
+    match = "File extension '.bar' is not linked to a default reader"
     with pytest.raises(ValueError, match=match):
         read_systems("foo.bar")
 
@@ -133,7 +133,7 @@ def test_read_stress_virial(reader_func, reader, monkeypatch, tmp_path):
     "reader_func", [read_energy, read_forces, read_stress, read_virial]
 )
 def test_reader_unknown_reader(reader_func):
-    match = "File suffix '.bar' is not linked to a default reader"
+    match = "File extension '.bar' is not linked to a default reader"
     with pytest.raises(ValueError, match=match):
         reader_func("foo.bar", target_value="baz")
 

@@ -27,7 +27,7 @@ from ..utils.data.dataset import _train_test_random_split
 from ..utils.devices import pick_devices
 from ..utils.distributed.logging import is_main_process
 from ..utils.errors import ArchitectureError
-from ..utils.io import check_suffix
+from ..utils.io import check_file_extension
 from ..utils.jsonschema import validate
 from ..utils.omegaconf import BASE_OPTIONS, check_units, expand_dataset_config
 from .eval import _eval_targets
@@ -394,7 +394,7 @@ def train_model(
     # SAVE FINAL MODEL ########
     ###########################
 
-    output_checked = check_suffix(filename=output, suffix=".pt")
+    output_checked = check_file_extension(filename=output, extension=".pt")
     logger.info(
         "Training finished, saving final checkpoint "
         f"to `{str(Path(output_checked).stem)}.ckpt`"

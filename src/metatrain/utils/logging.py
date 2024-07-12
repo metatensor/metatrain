@@ -13,7 +13,7 @@ from metatensor.torch.atomistic import ModelCapabilities
 from .data import DatasetInfo
 from .distributed.logging import is_main_process
 from .external_naming import to_external_name
-from .io import check_suffix
+from .io import check_file_extension
 from .units import ev_to_mev, get_gradient_units
 
 
@@ -221,7 +221,7 @@ def setup_logging(
         handlers.append(stream_handler)
 
         if log_file:
-            log_file = check_suffix(filename=log_file, suffix=".log")
+            log_file = check_file_extension(filename=log_file, extension=".log")
             file_handler = logging.FileHandler(filename=str(log_file), encoding="utf-8")
             file_handler.setFormatter(formatter)
             handlers.append(file_handler)
