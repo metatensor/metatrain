@@ -96,6 +96,9 @@ source = [
     ".tox/*/lib/python*/site-packages/metatrain"
 ]
 
+[tool.black]
+exclude = 'docs/src/examples'
+
 [tool.isort]
 skip = "__init__.py"
 profile = "black"
@@ -106,4 +109,8 @@ lines_after_imports = 2
 known_first_party = "metatrain"
 
 [tool.mypy]
+exclude = [
+    "docs/src/examples"
+]
+follow_imports = 'skip'
 ignore_missing_imports = true
