@@ -20,7 +20,7 @@ DEFAULT_READER = {
     ".xyz": "ase",
     ".extxyz": "ase",
 }
-""":py:class:`dict`: dictionary mapping file suffixes to a default reader"""
+""":py:class:`dict`: dictionary mapping file extensions to a default reader"""
 
 
 def _base_reader(
@@ -36,7 +36,7 @@ def _base_reader(
             reader = DEFAULT_READER[filesuffix]
         except KeyError:
             raise ValueError(
-                f"File suffix {filesuffix!r} is not linked to a default reader "
+                f"File extension {filesuffix!r} is not linked to a default reader "
                 "library. You can try reading it by setting a specific 'reader' from "
                 f"the known ones: {', '.join(AVAILABLE_READERS)} "
             )

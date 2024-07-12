@@ -16,7 +16,7 @@ Parsers for obtaining *system* and *target* information from files. Currently,
 
 
 If the ``reader`` parameter is not set the library is determined from the file
-extension. Override this behavior is in particular useful, if a file format is not
+extension. Overriding this behavior is in particular useful, if a file format is not
 listed here but might be supported by a library.
 
 Below the synopsis of the reader functions in details.

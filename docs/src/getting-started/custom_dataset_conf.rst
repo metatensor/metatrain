@@ -68,7 +68,7 @@ Systems Section
 Describes the system data like positions and cell information.
 
 :param read_from: The file containing system data.
-:param reader: The reader library to use for parsing, guessed from the suffix if
+:param reader: The reader library to use for parsing, guessed from the file extension if
     ``null`` or not provided.
 :param length_unit: The unit of lengths, optional but highly recommended for running
     simulations.
@@ -100,7 +100,7 @@ Target section parameters include:
     ``energy`` is supported.
 :param read_from: The file for target data, defaults to the ``systems.read_from``
   file if not provided.
-:param reader: The reader library to use for parsing, guessed from the suffix if
+:param reader: The reader library to use for parsing, guessed from the file extension if
     ``null`` or not provided.
 :param key: The key for reading from the file, defaulting to the target section's name
   if not provided.
@@ -120,7 +120,7 @@ Gradient Section
 Each gradient section (like ``forces`` or ``stress``) has similar parameters:
 
 :param read_from: The file for gradient data.
-:param reader: The reader library to use for parsing, guessed from the suffix if
+:param reader: The reader library to use for parsing, guessed from the file extension if
     ``null`` or not provided.:param key: The key for reading from the file.
 
 A single string in a gradient section automatically expands, using the string as the
