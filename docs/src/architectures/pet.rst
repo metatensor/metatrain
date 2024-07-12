@@ -178,6 +178,8 @@ accuracy.
 
 Description of the Architecture
 -------------------------------
+This section contains a simplified description of the architecture covering
+most important macro-organization without all the details and nuances.
 
 PET is a graph neural network (GNN) architecture featuring
 ``N_GNN_LAYERS`` message-passing layers. At each layer, messages are exchanged
