@@ -29,7 +29,7 @@ def test_regression_init():
     targets["mtt::U0"] = TargetInfo(quantity="energy", unit="eV")
 
     dataset_info = DatasetInfo(
-        length_unit="Angstrom", atomic_types={1, 6, 7, 8}, targets=targets
+        length_unit="Angstrom", atomic_types=[1, 6, 7, 8], targets=targets
     )
     GAP(DEFAULT_HYPERS["model"], dataset_info)
 
@@ -61,7 +61,7 @@ def test_regression_train_and_invariance():
     target_info_dict["mtt::U0"] = TargetInfo(quantity="energy", unit="eV")
 
     dataset_info = DatasetInfo(
-        length_unit="Angstrom", atomic_types={1, 6, 7, 8}, targets=target_info_dict
+        length_unit="Angstrom", atomic_types=[1, 6, 7, 8], targets=target_info_dict
     )
 
     gap = GAP(DEFAULT_HYPERS["model"], dataset_info)
@@ -135,7 +135,7 @@ def test_ethanol_regression_train_and_invariance():
     )
 
     dataset_info = DatasetInfo(
-        length_unit="Angstrom", atomic_types={1, 6, 7, 8}, targets=target_info_dict
+        length_unit="Angstrom", atomic_types=[1, 6, 7, 8], targets=target_info_dict
     )
 
     gap = GAP(hypers["model"], dataset_info)

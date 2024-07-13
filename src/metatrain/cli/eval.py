@@ -271,10 +271,10 @@ def eval_model(
             # TODO: allow the user to specify which outputs to evaluate
             eval_targets = {}
             eval_info_dict = TargetInfoDict()
-            gradients = {"positions"}
+            gradients = ["positions"]
             if all(not torch.all(system.cell == 0) for system in eval_systems):
                 # only add strain if all structures have cells
-                gradients.add("strain")
+                gradients.append("strain")
             for key in model.capabilities().outputs.keys():
                 eval_info_dict[key] = TargetInfo(
                     quantity=model.capabilities().outputs[key].quantity,

@@ -25,7 +25,7 @@ def test_continue(monkeypatch, tmp_path):
     target_info_dict["mtt::U0"] = TargetInfo(quantity="energy", unit="eV")
 
     dataset_info = DatasetInfo(
-        length_unit="Angstrom", atomic_types={1, 6, 7, 8}, targets=target_info_dict
+        length_unit="Angstrom", atomic_types=[1, 6, 7, 8], targets=target_info_dict
     )
     model = SoapBpnn(MODEL_HYPERS, dataset_info)
     output_before = model(systems[:5], {"mtt::U0": model.outputs["mtt::U0"]})
