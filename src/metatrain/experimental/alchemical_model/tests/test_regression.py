@@ -128,6 +128,7 @@ def test_regression_train(dtype):
 
     exported = model.export()
 
+    systems = [system.to(dtype=dtype) for system in systems]
     output = exported(systems[:5], evaluation_options, check_consistency=True)
 
     expected_output = torch.tensor(

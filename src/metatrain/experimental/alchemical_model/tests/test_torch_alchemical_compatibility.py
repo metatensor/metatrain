@@ -25,6 +25,7 @@ np.random.seed(0)
 torch.manual_seed(0)
 
 systems = read_systems(ALCHEMICAL_DATASET_PATH)
+systems = [system.to(torch.float32) for system in systems]
 nl_options = NeighborListOptions(
     cutoff=5.0,
     full_list=True,
@@ -73,7 +74,6 @@ def test_alchemical_model_inference():
     )
 
     alchemical_model = AlchemicalModel(MODEL_HYPERS, dataset_info)
-    alchemical_model.to(dtype=torch.float64)
 
     evaluation_options = ModelEvaluationOptions(
         length_unit=dataset_info.length_unit,
