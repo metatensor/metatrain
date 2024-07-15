@@ -233,7 +233,7 @@ def train_model(
 
         for test_options in options["test_set"]:
             dataset, _ = get_dataset(test_options)
-            train_datasets.append(dataset)
+            test_datasets.append(dataset)
 
     ###########################
     # SETUP VALIDATION SET ####

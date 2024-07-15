@@ -23,9 +23,7 @@ def test_llpr(tmpdir):
         str(RESOURCES_PATH / "model-64-bit.pt"),
         extensions_directory=str(RESOURCES_PATH / "extensions/"),
     )
-    qm9_systems = read_systems(
-        RESOURCES_PATH / "qm9_reduced_100.xyz", dtype=torch.float64
-    )
+    qm9_systems = read_systems(RESOURCES_PATH / "qm9_reduced_100.xyz")
     target_config = {
         "energy": {
             "quantity": "energy",
@@ -38,7 +36,7 @@ def test_llpr(tmpdir):
             "virial": False,
         },
     }
-    targets, _ = read_targets(target_config, dtype=torch.float64)
+    targets, _ = read_targets(target_config)
     requested_neighbor_lists = model.requested_neighbor_lists()
     qm9_systems = [
         get_system_with_neighbor_lists(system, requested_neighbor_lists)

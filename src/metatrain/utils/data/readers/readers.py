@@ -174,8 +174,10 @@ def read_targets(
     added. Other gradients are silentlty irgnored.
 
     :param conf: config containing the keys for what should be read.
-    :returns: Dictionary containing one TensorMaps for each target section in the config
-        as well as a ``TargetInfoDict`` instance containing the metadata of the targets.
+    :returns: Dictionary containing a list of TensorMaps for each target section in the
+        config as well as a :py:class:`TargetInfoDict
+        <metatrain.utils.data.TargetInfoDict>` instance containing the metadata of the
+        targets.
 
     :raises ValueError: if the target name is not valid. Valid target names are
         those that either start with ``mtt::`` or those that are in the list of
