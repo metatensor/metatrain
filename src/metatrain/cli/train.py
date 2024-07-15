@@ -196,10 +196,12 @@ def train_model(
         train_systems = read_systems(
             filename=train_options["systems"]["read_from"],
             reader=train_options["systems"]["reader"],
-            dtype=dtype,
         )
         train_targets, target_info_dictionary = read_targets(
-            conf=train_options["targets"], dtype=dtype
+            conf=train_options["targets"]
+        )
+        train_targets, target_info_dictionary = read_targets(
+            conf=train_options["targets"]
         )
 
         target_infos.update(target_info_dictionary)
@@ -250,9 +252,8 @@ def train_model(
             test_systems = read_systems(
                 filename=test_options["systems"]["read_from"],
                 reader=test_options["systems"]["reader"],
-                dtype=dtype,
             )
-            test_targets, _ = read_targets(conf=test_options["targets"], dtype=dtype)
+            test_targets, _ = read_targets(conf=test_options["targets"])
             test_dataset = Dataset({"system": test_systems, **test_targets})
             test_datasets.append(test_dataset)
 
@@ -299,9 +300,8 @@ def train_model(
             val_systems = read_systems(
                 filename=val_options["systems"]["read_from"],
                 reader=val_options["systems"]["reader"],
-                dtype=dtype,
             )
-            val_targets, _ = read_targets(conf=val_options["targets"], dtype=dtype)
+            val_targets, _ = read_targets(conf=val_options["targets"])
             val_dataset = Dataset({"system": val_systems, **val_targets})
             val_datasets.append(val_dataset)
 
@@ -379,6 +379,7 @@ def train_model(
     try:
         trainer.train(
             model=model,
+            dtype=dtype,
             devices=devices,
             train_datasets=train_datasets,
             val_datasets=val_datasets,

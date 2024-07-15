@@ -7,31 +7,21 @@ from metatensor.torch import Labels, TensorBlock
 from metatensor.torch.atomistic import System, systems_to_torch
 
 
-def read_systems_ase(filename: str, dtype: torch.dtype = torch.float32) -> List[System]:
+def read_systems_ase(filename: str) -> List[System]:
     """Store system informations using ase.
 
     :param filename: name of the file to read
-    :param dtype: desired data type of returned tensor
-
-    :returns:
-        A list of systems
+    :returns: A list of systems
     """
-    return systems_to_torch(ase.io.read(filename, ":"), dtype=dtype)
+    return systems_to_torch(ase.io.read(filename, ":"), dtype=torch.float64)
 
 
-def read_energy_ase(
-    filename: str,
-    key: str,
-    dtype: torch.dtype = torch.float32,
-) -> List[TensorBlock]:
+def read_energy_ase(filename: str, key: str) -> List[TensorBlock]:
     """Store energy information in a List of :class:`metatensor.TensorBlock`.
 
     :param filename: name of the file to read
     :param key: target value key name to be parsed from the file.
-    :param dtype: desired data type of returned tensor
-
-    :returns:
-        TensorMap containing the given information
+    :returns: TensorMap containing the energies
     """
     frames = ase.io.read(filename, ":")
 
@@ -45,7 +35,7 @@ def read_energy_ase(
                 f"{i_system}"
             )
 
-        values = torch.tensor([[atoms.info[key]]], dtype=dtype)
+        values = torch.tensor([[atoms.info[key]]], dtype=torch.float64)
         samples = Labels(["system"], torch.tensor([[i_system]]))
 
         block = TensorBlock(
@@ -59,20 +49,13 @@ def read_energy_ase(
     return blocks
 
 
-def read_forces_ase(
-    filename: str,
-    key: str = "energy",
-    dtype: torch.dtype = torch.float32,
-) -> List[TensorBlock]:
+def read_forces_ase(filename: str, key: str = "energy") -> List[TensorBlock]:
     """Store force information in a List of :class:`metatensor.TensorBlock` which can be
     used as ``position`` gradients.
 
     :param filename: name of the file to read
     :param key: target value key name to be parsed from the file.
-    :param dtype: desired data type of returned tensor
-
-    :returns:
-        TensorMap containing the given information
+    :returns: TensorMap containing the forces
     """
     frames = ase.io.read(filename, ":")
 
@@ -89,7 +72,7 @@ def read_forces_ase(
             )
 
         # We store forces as positions gradients which means we invert the sign
-        values = -torch.tensor(atoms.arrays[key], dtype=dtype)
+        values = -torch.tensor(atoms.arrays[key], dtype=torch.float64)
         values = values.reshape(-1, 3, 1)
 
         samples = Labels(
@@ -109,62 +92,31 @@ def read_forces_ase(
     return blocks
 
 
-def read_virial_ase(
-    filename: str,
-    key: str = "virial",
-    dtype: torch.dtype = torch.float32,
-) -> List[TensorBlock]:
+def read_virial_ase(filename: str, key: str = "virial") -> List[TensorBlock]:
     """Store virial information in a List of :class:`metatensor.TensorBlock` which can
     be used as ``strain`` gradients.
 
     :param filename: name of the file to read
     :param key: target value key name to be parsed from the file
-    :param dtype: desired data type of returned tensor
-
-    :returns:
-        TensorMap containing the given information
+    :returns: TensorMap containing the virial
     """
-    return _read_virial_stress_ase(
-        filename=filename, key=key, is_virial=True, dtype=dtype
-    )
+    return _read_virial_stress_ase(filename=filename, key=key, is_virial=True)
 
 
-def read_stress_ase(
-    filename: str,
-    key: str = "stress",
-    dtype: torch.dtype = torch.float32,
-) -> List[TensorBlock]:
+def read_stress_ase(filename: str, key: str = "stress") -> List[TensorBlock]:
     """Store stress information in a List of :class:`metatensor.TensorBlock` which can
     be used as ``strain`` gradients.
 
     :param filename: name of the file to read
     :param key: target value key name to be parsed from the file
-    :param dtype: desired data type of returned tensor
-
-    :returns:
-        TensorMap containing the given information
+    :returns: TensorMap containing the stress
     """
-    return _read_virial_stress_ase(
-        filename=filename, key=key, is_virial=False, dtype=dtype
-    )
+    return _read_virial_stress_ase(filename=filename, key=key, is_virial=False)
 
 
 def _read_virial_stress_ase(
-    filename: str,
-    key: str,
-    is_virial: bool = True,
-    dtype: torch.dtype = torch.float32,
+    filename: str, key: str, is_virial: bool = True
 ) -> List[TensorBlock]:
-    """Store stress or virial information in a List of :class:`metatensor.TensorBlock`
-    which can be used as ``strain`` gradients.
-
-    :param filename: name of the file to read
-    :param key: target value key name to be parsed from the file
-    :param is_virial: if target values are stored as stress or virials.
-    :param dtype: desired data type of returned tensor
-
-    :returns: TensorMap containing the given information
-    """
     frames = ase.io.read(filename, ":")
 
     samples = Labels(["sample"], torch.tensor([[0]]))
@@ -187,7 +139,7 @@ def _read_virial_stress_ase(
                 f"index {i_system}"
             )
 
-        values = torch.tensor(atoms.info[key].tolist(), dtype=dtype)
+        values = torch.tensor(atoms.info[key].tolist(), dtype=torch.float64)
 
         if values.shape == (9,):
             warnings.warn(

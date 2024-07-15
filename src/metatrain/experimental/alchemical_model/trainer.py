@@ -43,12 +43,14 @@ class Trainer:
     def train(
         self,
         model: AlchemicalModel,
+        dtype: torch.dtype,
         devices: List[torch.device],
         train_datasets: List[Union[Dataset, torch.utils.data.Subset]],
         val_datasets: List[Union[Dataset, torch.utils.data.Subset]],
         checkpoint_dir: str,
     ):
-        dtype = train_datasets[0][0]["system"].positions.dtype
+        assert dtype in AlchemicalModel.__supported_dtypes__
+
         device = devices[0]  # only one device, as we don't support multi-gpu for now
 
         if len(model.dataset_info.targets) != 1:
@@ -216,9 +218,10 @@ class Trainer:
 
                 systems, targets = batch
                 assert len(systems[0].known_neighbor_lists()) > 0
-                systems = [system.to(device=device) for system in systems]
+                systems = [system.to(dtype=dtype, device=device) for system in systems]
                 targets = {
-                    key: value.to(device=device) for key, value in targets.items()
+                    key: value.to(dtype=dtype, device=device)
+                    for key, value in targets.items()
                 }
                 predictions = evaluate_model(
                     model,
@@ -251,9 +254,10 @@ class Trainer:
             for batch in val_dataloader:
                 systems, targets = batch
                 assert len(systems[0].known_neighbor_lists()) > 0
-                systems = [system.to(device=device) for system in systems]
+                systems = [system.to(dtype=dtype, device=device) for system in systems]
                 targets = {
-                    key: value.to(device=device) for key, value in targets.items()
+                    key: value.to(dtype=dtype, device=device)
+                    for key, value in targets.items()
                 }
                 predictions = evaluate_model(
                     model,
