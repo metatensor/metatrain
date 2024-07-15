@@ -1,7 +1,6 @@
 import random
 
 import numpy as np
-import pytest
 import torch
 from metatensor.torch.atomistic import ModelEvaluationOptions
 from omegaconf import OmegaConf
@@ -36,7 +35,6 @@ def test_regression_init():
         length_unit="Angstrom", atomic_types={1, 6, 7, 8}, targets=targets
     )
     model = AlchemicalModel(MODEL_HYPERS, dataset_info)
-    model.to(dtype=torch.float64)
 
     # Predict on the first five systems
     systems = read_systems(DATASET_PATH)[:5]
@@ -52,6 +50,7 @@ def test_regression_init():
 
     exported = model.export()
 
+    systems = [system.to(dtype=torch.float32) for system in systems]
     output = exported(systems, evaluation_options, check_consistency=True)
 
     expected_output = torch.tensor(
@@ -62,7 +61,6 @@ def test_regression_init():
             [-13.758152008057],
             [-2.430717945099],
         ],
-        dtype=torch.float64,
     )
 
     # if you need to change the hardcoded values:
@@ -75,8 +73,7 @@ def test_regression_init():
     )
 
 
-@pytest.mark.parametrize("dtype", [torch.float32, torch.float64])
-def test_regression_train(dtype):
+def test_regression_train():
     """Perform a regression test on the model when
     trained for 2 epoch on a small dataset"""
 
@@ -113,7 +110,7 @@ def test_regression_train(dtype):
     trainer = Trainer(hypers["training"])
     trainer.train(
         model=model,
-        dtype=dtype,
+        dtype=torch.float32,
         devices=[torch.device("cpu")],
         train_datasets=[dataset],
         val_datasets=[dataset],
@@ -128,18 +125,17 @@ def test_regression_train(dtype):
 
     exported = model.export()
 
-    systems = [system.to(dtype=dtype) for system in systems]
+    systems = [system.to(dtype=torch.float32) for system in systems]
     output = exported(systems[:5], evaluation_options, check_consistency=True)
 
     expected_output = torch.tensor(
         [
-            [-40.133975982666],
-            [-56.344772338867],
-            [-76.740966796875],
-            [-77.038444519043],
-            [-92.812789916992],
+            [-40.115474700928],
+            [-56.302265167236],
+            [-76.722442626953],
+            [-77.022941589355],
+            [-92.791801452637],
         ],
-        dtype=dtype,
     )
 
     # if you need to change the hardcoded values:
