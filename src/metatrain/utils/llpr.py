@@ -250,7 +250,7 @@ class LLPRUncertaintyModel(torch.nn.Module):
                 systems, options, check_consistency=True
             )  # TODO: True or False here?
             ll_feat_tmap = output["mtt::aux::last_layer_features"]
-            ll_feats = ll_feat_tmap.block().values / n_atoms.unsqueeze(1)
+            ll_feats = ll_feat_tmap.block().values.detach() / n_atoms.unsqueeze(1)
             self.covariance += ll_feats.T @ ll_feats
         self.covariance_computed = True
 
