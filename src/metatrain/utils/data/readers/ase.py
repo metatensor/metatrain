@@ -4,6 +4,19 @@ from typing import List
 import ase.io
 import torch
 from metatensor.torch import Labels, TensorBlock
+from metatensor.torch.atomistic import System, systems_to_torch
+
+
+def read_systems_ase(filename: str, dtype: torch.dtype = torch.float32) -> List[System]:
+    """Store system informations using ase.
+
+    :param filename: name of the file to read
+    :param dtype: desired data type of returned tensor
+
+    :returns:
+        A list of systems
+    """
+    return systems_to_torch(ase.io.read(filename, ":"), dtype=dtype)
 
 
 def read_energy_ase(

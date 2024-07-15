@@ -318,7 +318,7 @@ def test_dataset():
         "energy": {
             "quantity": "energy",
             "read_from": filename,
-            "file_format": ".xyz",
+            "reader": "ase",
             "key": "U0",
             "unit": "eV",
             "forces": False,
@@ -344,7 +344,7 @@ def test_get_atomic_types():
         "mtt::U0": {
             "quantity": "energy",
             "read_from": str(RESOURCES_PATH / "qm9_reduced_100.xyz"),
-            "file_format": ".xyz",
+            "reader": "ase",
             "key": "U0",
             "unit": "eV",
             "forces": False,
@@ -357,7 +357,7 @@ def test_get_atomic_types():
         "energy": {
             "quantity": "energy",
             "read_from": str(RESOURCES_PATH / "ethanol_reduced_100.xyz"),
-            "file_format": ".xyz",
+            "reader": "ase",
             "key": "energy",
             "unit": "eV",
             "forces": False,
@@ -383,7 +383,7 @@ def test_get_all_targets():
         "mtt::U0": {
             "quantity": "energy",
             "read_from": str(RESOURCES_PATH / "qm9_reduced_100.xyz"),
-            "file_format": ".xyz",
+            "reader": "ase",
             "key": "U0",
             "unit": "eV",
             "forces": False,
@@ -396,7 +396,7 @@ def test_get_all_targets():
         "energy": {
             "quantity": "energy",
             "read_from": str(RESOURCES_PATH / "ethanol_reduced_100.xyz"),
-            "file_format": ".xyz",
+            "reader": "ase",
             "key": "energy",
             "unit": "eV",
             "forces": False,
@@ -421,7 +421,7 @@ def test_check_datasets():
         "mtt::U0": {
             "quantity": "energy",
             "read_from": str(RESOURCES_PATH / "qm9_reduced_100.xyz"),
-            "file_format": ".xyz",
+            "reader": "ase",
             "key": "U0",
             "unit": "eV",
             "forces": False,
@@ -434,7 +434,7 @@ def test_check_datasets():
         "energy": {
             "quantity": "energy",
             "read_from": str(RESOURCES_PATH / "ethanol_reduced_100.xyz"),
-            "file_format": ".xyz",
+            "reader": "ase",
             "key": "energy",
             "unit": "eV",
             "forces": False,
@@ -490,7 +490,7 @@ def test_collate_fn():
         "mtt::U0": {
             "quantity": "energy",
             "read_from": str(RESOURCES_PATH / "qm9_reduced_100.xyz"),
-            "file_format": ".xyz",
+            "reader": "ase",
             "key": "U0",
             "unit": "eV",
             "forces": False,
@@ -517,7 +517,7 @@ def test_get_stats():
         "mtt::U0": {
             "quantity": "energy",
             "read_from": str(RESOURCES_PATH / "qm9_reduced_100.xyz"),
-            "file_format": ".xyz",
+            "reader": "ase",
             "key": "U0",
             "unit": "eV",
             "forces": False,
@@ -530,7 +530,7 @@ def test_get_stats():
         "energy": {
             "quantity": "energy",
             "read_from": str(RESOURCES_PATH / "ethanol_reduced_100.xyz"),
-            "file_format": ".xyz",
+            "reader": "ase",
             "key": "energy",
             "unit": "eV",
             "forces": False,

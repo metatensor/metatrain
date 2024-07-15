@@ -27,7 +27,7 @@ from ..utils.data.dataset import _train_test_random_split
 from ..utils.devices import pick_devices
 from ..utils.distributed.logging import is_main_process
 from ..utils.errors import ArchitectureError
-from ..utils.io import check_suffix
+from ..utils.io import check_file_extension
 from ..utils.jsonschema import validate
 from ..utils.omegaconf import BASE_OPTIONS, check_units, expand_dataset_config
 from .eval import _eval_targets
@@ -195,7 +195,7 @@ def train_model(
     for train_options in options["training_set"]:
         train_systems = read_systems(
             filename=train_options["systems"]["read_from"],
-            fileformat=train_options["systems"]["file_format"],
+            reader=train_options["systems"]["reader"],
             dtype=dtype,
         )
         train_targets, target_info_dictionary = read_targets(
@@ -249,7 +249,7 @@ def train_model(
         for test_options in options["test_set"]:
             test_systems = read_systems(
                 filename=test_options["systems"]["read_from"],
-                fileformat=test_options["systems"]["file_format"],
+                reader=test_options["systems"]["reader"],
                 dtype=dtype,
             )
             test_targets, _ = read_targets(conf=test_options["targets"], dtype=dtype)
@@ -298,7 +298,7 @@ def train_model(
         for val_options in options["validation_set"]:
             val_systems = read_systems(
                 filename=val_options["systems"]["read_from"],
-                fileformat=val_options["systems"]["file_format"],
+                reader=val_options["systems"]["reader"],
                 dtype=dtype,
             )
             val_targets, _ = read_targets(conf=val_options["targets"], dtype=dtype)
@@ -394,7 +394,7 @@ def train_model(
     # SAVE FINAL MODEL ########
     ###########################
 
-    output_checked = check_suffix(filename=output, suffix=".pt")
+    output_checked = check_file_extension(filename=output, extension=".pt")
     logger.info(
         "Training finished, saving final checkpoint "
         f"to `{str(Path(output_checked).stem)}.ckpt`"

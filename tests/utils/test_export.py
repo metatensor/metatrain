@@ -33,7 +33,7 @@ def test_export(tmp_path):
 
     # test `export()`
     exported_model = export(model, capabilities)
-    exported_model.export("model.pt")
+    exported_model.save("model.pt")
 
     # test `is_export()`
     assert not is_exported(model)

@@ -2,7 +2,7 @@ from pathlib import Path
 
 from metatensor.torch.atomistic import NeighborListOptions
 
-from metatrain.utils.data.readers.systems import read_systems_ase
+from metatrain.utils.data.readers.ase import read_systems_ase
 from metatrain.utils.neighbor_lists import get_system_with_neighbor_lists
 
 

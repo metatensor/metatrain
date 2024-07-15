@@ -1,23 +1,14 @@
 import importlib
 import json
-from pathlib import Path
 from typing import Any, Union
 
 import torch
-from omegaconf import Container, DictConfig, ListConfig, OmegaConf
+from omegaconf import DictConfig, ListConfig, OmegaConf
 from omegaconf.basecontainer import BaseContainer
 
 from .. import PACKAGE_ROOT, RANDOM_SEED
 from .devices import pick_devices
 from .jsonschema import validate
-
-
-def file_format(_parent_: Container) -> str:
-    """Custom OmegaConf resolver to find the file format.
-
-    File format is obtained based on the suffix of the ``read_from`` field in the same
-    section."""
-    return Path(_parent_["read_from"]).suffix
 
 
 def _get_architecture_model(conf: BaseContainer) -> Any:
@@ -72,7 +63,6 @@ def default_random_seed() -> int:
 
 
 # Register custom resolvers
-OmegaConf.register_new_resolver("file_format", file_format)
 OmegaConf.register_new_resolver("default_device", default_device)
 OmegaConf.register_new_resolver("default_precision", default_precision)
 OmegaConf.register_new_resolver("default_random_seed", default_random_seed)
@@ -95,7 +85,7 @@ BASE_OPTIONS = OmegaConf.create(
 CONF_SYSTEMS = OmegaConf.create(
     {
         "read_from": "${..read_from}",
-        "file_format": "${file_format:}",
+        "reader": None,
         "length_unit": None,
     }
 )
@@ -104,7 +94,7 @@ CONF_TARGET_FIELDS = OmegaConf.create(
     {
         "quantity": "energy",
         "read_from": "${...systems.read_from}",
-        "file_format": "${file_format:}",
+        "reader": None,
         "key": None,
         "unit": None,
     }
@@ -114,7 +104,7 @@ CONF_GRADIENTS = OmegaConf.create({"forces": False, "stress": False, "virial": F
 CONF_GRADIENT = OmegaConf.create(
     {
         "read_from": "${..read_from}",
-        "file_format": "${file_format:}",
+        "reader": None,
         "key": None,
     }
 )

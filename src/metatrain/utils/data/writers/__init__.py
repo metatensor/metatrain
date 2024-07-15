@@ -35,7 +35,7 @@ def write_predictions(
     :param predictions: :py:class:`metatensor.torch.TensorMap` containing the
         predictions that should be written
     :param fileformat: format of the target value file. If :py:obj:`None` the format is
-        determined from the suffix.
+        determined from the file extension.
     """
     if fileformat is None:
         fileformat = Path(filename).suffix
