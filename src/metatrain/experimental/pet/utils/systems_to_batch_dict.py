@@ -5,21 +5,6 @@ from metatensor.torch import Labels
 from metatensor.torch.atomistic import NeighborListOptions, System
 
 
-def process_neighbors(
-    i_list: torch.Tensor,
-    j_list: torch.Tensor,
-    S_list: torch.Tensor,
-    D_list: torch.Tensor,
-    max_num: int,
-    n_atoms: int,
-    species: torch.Tensor,
-    all_species: torch.Tensor,
-):
-    return torch.ops.neighbors_convert.process(
-        i_list, j_list, S_list, D_list, max_num, n_atoms, species, all_species
-    )
-
-
 def collate_graph_dicts(
     graph_dicts: List[Dict[str, torch.Tensor]]
 ) -> Dict[str, torch.Tensor]:
@@ -248,7 +233,7 @@ def get_system_batch_dict(
 
     species = system.types[unique_index].to(torch.int64)
 
-    res = process_neighbors(
+    res = torch.ops.neighbors_convert.process(
         i_list,
         j_list,
         S_list,
