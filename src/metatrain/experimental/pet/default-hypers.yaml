@@ -28,6 +28,8 @@ model:
   USE_LONG_RANGE: False
   K_CUT: null # should be float; only used when USE_LONG_RANGE is True
   RESIDUAL_FACTOR: 0.5
+  N_TARGETS: 1
+  TARGET_INDEX_KEY: target_index
 
 training:
   INITIAL_LR: 1e-4
