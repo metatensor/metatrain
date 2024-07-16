@@ -23,7 +23,9 @@ def test_evaluate_model(training, exported):
     )
 
     targets = {
-        "energy": TargetInfo(quantity="energy", gradients=["positions", "strain"])
+        "energy": TargetInfo(
+            quantity="energy", unit="eV", gradients=["positions", "strain"]
+        )
     }
 
     dataset_info = DatasetInfo(
@@ -48,6 +50,7 @@ def test_evaluate_model(training, exported):
             for system in systems
         ]
 
+    systems = [system.to(torch.float32) for system in systems]
     outputs = evaluate_model(model, systems, targets, is_training=training)
 
     assert isinstance(outputs, dict)

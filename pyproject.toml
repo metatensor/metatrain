@@ -58,16 +58,16 @@ build-backend = "setuptools.build_meta"
 
 [project.optional-dependencies]
 soap-bpnn = [
-    "rascaline-torch @ git+https://github.com/luthaf/rascaline@5348132#subdirectory=python/rascaline-torch",
+    "rascaline-torch @ git+https://github.com/luthaf/rascaline@e215461#subdirectory=python/rascaline-torch",
 ]
 alchemical-model = [
   "torch_alchemical @ git+https://github.com/abmazitov/torch_alchemical.git@51ff519",
 ]
 pet = [
-  "pet @ git+https://github.com/spozdn/pet.git@9f6119d",
+  "pet @ git+https://github.com/spozdn/pet.git@1a470c4",
 ]
 gap = [
-    "rascaline-torch @ git+https://github.com/luthaf/rascaline@5348132#subdirectory=python/rascaline-torch",
+    "rascaline-torch @ git+https://github.com/luthaf/rascaline@e215461#subdirectory=python/rascaline-torch",
     "skmatter",
     "metatensor-learn",
     "scipy",
@@ -96,6 +96,9 @@ source = [
     ".tox/*/lib/python*/site-packages/metatrain"
 ]
 
+[tool.black]
+exclude = 'docs/src/examples'
+
 [tool.isort]
 skip = "__init__.py"
 profile = "black"
@@ -106,4 +109,8 @@ lines_after_imports = 2
 known_first_party = "metatrain"
 
 [tool.mypy]
+exclude = [
+    "docs/src/examples"
+]
+follow_imports = 'skip'
 ignore_missing_imports = true

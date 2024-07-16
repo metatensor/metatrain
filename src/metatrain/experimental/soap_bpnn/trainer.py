@@ -20,7 +20,7 @@ from ...utils.distributed.distributed_data_parallel import DistributedDataParall
 from ...utils.distributed.slurm import DistributedEnvironment
 from ...utils.evaluate_model import evaluate_model
 from ...utils.external_naming import to_external_name
-from ...utils.io import check_suffix
+from ...utils.io import check_file_extension
 from ...utils.logging import MetricLogger
 from ...utils.loss import TensorMapDictLoss
 from ...utils.metrics import RMSEAccumulator
@@ -48,11 +48,13 @@ class Trainer:
     def train(
         self,
         model: SoapBpnn,
+        dtype: torch.dtype,
         devices: List[torch.device],
         train_datasets: List[Union[Dataset, torch.utils.data.Subset]],
         val_datasets: List[Union[Dataset, torch.utils.data.Subset]],
         checkpoint_dir: str,
     ):
+        assert dtype in SoapBpnn.__supported_dtypes__
 
         is_distributed = self.hypers["distributed"]
 
@@ -79,7 +81,6 @@ class Trainer:
             device = devices[
                 0
             ]  # only one device, as we don't support multi-gpu for now
-        dtype = train_datasets[0][0]["system"].positions.dtype
 
         if is_distributed:
             logger.info(f"Training on {world_size} devices with dtype {dtype}")
@@ -265,9 +266,10 @@ class Trainer:
                 optimizer.zero_grad()
 
                 systems, targets = batch
-                systems = [system.to(device=device) for system in systems]
+                systems = [system.to(dtype=dtype, device=device) for system in systems]
                 targets = {
-                    key: value.to(device=device) for key, value in targets.items()
+                    key: value.to(dtype=dtype, device=device)
+                    for key, value in targets.items()
                 }
                 predictions = evaluate_model(
                     model,
@@ -302,9 +304,10 @@ class Trainer:
             val_loss = 0.0
             for batch in val_dataloader:
                 systems, targets = batch
-                systems = [system.to(device=device) for system in systems]
+                systems = [system.to(dtype=dtype, device=device) for system in systems]
                 targets = {
-                    key: value.to(device=device) for key, value in targets.items()
+                    key: value.to(dtype=dtype, device=device)
+                    for key, value in targets.items()
                 }
                 predictions = evaluate_model(
                     model,
@@ -345,7 +348,7 @@ class Trainer:
 
             if epoch == start_epoch:
                 metric_logger = MetricLogger(
-                    logobj=logger,
+                    log_obj=logger,
                     dataset_info=model.dataset_info,
                     initial_metrics=[finalized_train_info, finalized_val_info],
                     names=["training", "validation"],
@@ -396,7 +399,7 @@ class Trainer:
         }
         torch.save(
             checkpoint,
-            check_suffix(path, ".ckpt"),
+            check_file_extension(path, ".ckpt"),
         )
 
     @classmethod

@@ -1,5 +1,5 @@
 """Test correct type and metadata of readers. Correct values will be checked
-within the tests for each fileformat."""
+within the tests for each reader."""
 
 import logging
 
@@ -9,7 +9,7 @@ import pytest
 import torch
 from metatensor.torch import Labels
 from omegaconf import OmegaConf
-from targets.test_targets_ase import ase_system, ase_systems
+from test_targets_ase import ase_system, ase_systems
 
 from metatrain.utils.data.dataset import TargetInfo, TargetInfoDict
 from metatrain.utils.data.readers import (
@@ -20,17 +20,18 @@ from metatrain.utils.data.readers import (
     read_targets,
     read_virial,
 )
+from metatrain.utils.data.readers.readers import _base_reader
 
 
-@pytest.mark.parametrize("fileformat", (None, ".xyz", ".extxyz"))
-def test_read_systems(fileformat, monkeypatch, tmp_path):
+@pytest.mark.parametrize("reader", (None, "ase"))
+def test_read_systems(reader, monkeypatch, tmp_path):
     monkeypatch.chdir(tmp_path)
 
     filename = "systems.xyz"
     systems = ase_systems()
     ase.io.write(filename, systems)
 
-    results = read_systems(filename, fileformat=fileformat, dtype=torch.float16)
+    results = read_systems(filename, reader=reader)
 
     assert isinstance(results, list)
     assert len(results) == len(systems)
@@ -38,55 +39,58 @@ def test_read_systems(fileformat, monkeypatch, tmp_path):
         assert isinstance(result, torch.ScriptObject)
 
         torch.testing.assert_close(
-            result.positions, torch.tensor(system.positions, dtype=torch.float16)
+            result.positions, torch.tensor(system.positions, dtype=torch.float64)
         )
         torch.testing.assert_close(
             result.types, torch.tensor([1, 1], dtype=torch.int32)
         )
 
 
-def test_read_systems_unknown_fileformat():
-    with pytest.raises(ValueError, match="fileformat '.bar' is not supported"):
+def test_read_systems_unknown_reader():
+    match = "File extension '.bar' is not linked to a default reader"
+    with pytest.raises(ValueError, match=match):
         read_systems("foo.bar")
 
 
-@pytest.mark.parametrize("fileformat", (None, ".xyz", ".extxyz"))
-def test_read_energies(fileformat, monkeypatch, tmp_path):
+def test_read_unknonw_library():
+    match = "Reader library 'foo' not supported."
+    with pytest.raises(ValueError, match=match):
+        read_systems("foo.foo", reader="foo")
+
+
+@pytest.mark.parametrize("reader", (None, "ase"))
+def test_read_energies(reader, monkeypatch, tmp_path):
     monkeypatch.chdir(tmp_path)
 
     filename = "systems.xyz"
     systems = ase_systems()
     ase.io.write(filename, systems)
 
-    results = read_energy(
-        filename, fileformat=fileformat, target_value="true_energy", dtype=torch.float16
-    )
+    results = read_energy(filename, reader=reader, target_value="true_energy")
 
     assert type(results) is list
     assert len(results) == len(systems)
     for i_system, result in enumerate(results):
-        assert result.values.dtype is torch.float16
+        assert result.values.dtype is torch.float64
         assert result.samples.names == ["system"]
         assert result.samples.values == torch.tensor([[i_system]])
         assert result.properties == Labels("energy", torch.tensor([[0]]))
 
 
-@pytest.mark.parametrize("fileformat", (None, ".xyz", ".extxyz"))
-def test_read_forces(fileformat, monkeypatch, tmp_path):
+@pytest.mark.parametrize("reader", (None, "ase"))
+def test_read_forces(reader, monkeypatch, tmp_path):
     monkeypatch.chdir(tmp_path)
 
     filename = "systems.xyz"
     systems = ase_systems()
     ase.io.write(filename, systems)
 
-    results = read_forces(
-        filename, fileformat=fileformat, target_value="forces", dtype=torch.float16
-    )
+    results = read_forces(filename, reader=reader, target_value="forces")
 
     assert type(results) is list
     assert len(results) == len(systems)
     for i_system, result in enumerate(results):
-        assert result.values.dtype is torch.float16
+        assert result.values.dtype is torch.float64
         assert result.samples.names == ["sample", "system", "atom"]
         assert torch.all(result.samples["sample"] == torch.tensor(0))
         assert torch.all(result.samples["system"] == torch.tensor(i_system))
@@ -94,18 +98,16 @@ def test_read_forces(fileformat, monkeypatch, tmp_path):
         assert result.properties == Labels("energy", torch.tensor([[0]]))
 
 
-@pytest.mark.parametrize("reader", [read_stress, read_virial])
-@pytest.mark.parametrize("fileformat", (None, ".xyz", ".extxyz"))
-def test_read_stress_virial(reader, fileformat, monkeypatch, tmp_path):
+@pytest.mark.parametrize("reader_func", [read_stress, read_virial])
+@pytest.mark.parametrize("reader", (None, "ase"))
+def test_read_stress_virial(reader_func, reader, monkeypatch, tmp_path):
     monkeypatch.chdir(tmp_path)
 
     filename = "systems.xyz"
     systems = ase_systems()
     ase.io.write(filename, systems)
 
-    results = reader(
-        filename, fileformat=fileformat, target_value="stress-3x3", dtype=torch.float16
-    )
+    results = reader_func(filename, reader=reader, target_value="stress-3x3")
 
     assert type(results) is list
     assert len(results) == len(systems)
@@ -114,22 +116,31 @@ def test_read_stress_virial(reader, fileformat, monkeypatch, tmp_path):
         Labels(["xyz_2"], torch.arange(3).reshape(-1, 1)),
     ]
     for result in results:
-        assert result.values.dtype is torch.float16
+        assert result.values.dtype is torch.float64
         assert result.samples.names == ["sample"]
         assert result.samples.values == torch.tensor([[0]])
         assert result.components == components
         assert result.properties == Labels("energy", torch.tensor([[0]]))
 
 
-@pytest.mark.parametrize("reader", [read_energy, read_forces, read_stress, read_virial])
-def test_reader_unknown_fileformat(reader):
-    with pytest.raises(ValueError, match="fileformat '.bar' is not supported"):
-        reader("foo.bar", target_value="baz")
+@pytest.mark.parametrize(
+    "reader_func", [read_energy, read_forces, read_stress, read_virial]
+)
+def test_reader_unknown_reader(reader_func):
+    match = "File extension '.bar' is not linked to a default reader"
+    with pytest.raises(ValueError, match=match):
+        reader_func("foo.bar", target_value="baz")
+
+
+def test_reader_unknown_target():
+    match = "Reader library 'ase' can't read 'mytarget'."
+    with pytest.raises(ValueError, match=match):
+        _base_reader(target="mytarget", filename="structures.xyz", reader="ase")
 
 
 STRESS_VIRIAL_DICT = {
     "read_from": "systems.xyz",
-    "file_format": ".xyz",
+    "reader": "ase",
     "key": "stress-3x3",
 }
 
@@ -148,10 +159,10 @@ def test_read_targets(stress_dict, virial_dict, monkeypatch, tmp_path, caplog):
     energy_section = {
         "quantity": "energy",
         "read_from": filename,
-        "file_format": ".xyz",
+        "reader": "ase",
         "key": "true_energy",
         "unit": "eV",
-        "forces": {"read_from": filename, "file_format": ".xyz", "key": "forces"},
+        "forces": {"read_from": filename, "reader": "ase", "key": "forces"},
         "stress": stress_dict,
         "virial": virial_dict,
     }
@@ -162,7 +173,7 @@ def test_read_targets(stress_dict, virial_dict, monkeypatch, tmp_path, caplog):
     }
 
     caplog.set_level(logging.INFO)
-    result, target_info_dict = read_targets(OmegaConf.create(conf), dtype=torch.float16)
+    result, target_info_dict = read_targets(OmegaConf.create(conf))
 
     assert any(["Forces found" in rec.message for rec in caplog.records])
 
@@ -189,12 +200,12 @@ def test_read_targets(stress_dict, virial_dict, monkeypatch, tmp_path, caplog):
             assert target.keys == Labels(["_"], torch.tensor([[0]]))
 
             result_block = target.block()
-            assert result_block.values.dtype is torch.float16
+            assert result_block.values.dtype is torch.float64
             assert result_block.samples.names == ["system"]
             assert result_block.properties == Labels("energy", torch.tensor([[0]]))
 
             pos_grad = result_block.gradient("positions")
-            assert pos_grad.values.dtype is torch.float16
+            assert pos_grad.values.dtype is torch.float64
             assert pos_grad.samples.names == ["sample", "system", "atom"]
             assert pos_grad.components == [
                 Labels(["xyz"], torch.arange(3).reshape(-1, 1))
@@ -206,7 +217,7 @@ def test_read_targets(stress_dict, virial_dict, monkeypatch, tmp_path, caplog):
                 Labels(["xyz_1"], torch.arange(3).reshape(-1, 1)),
                 Labels(["xyz_2"], torch.arange(3).reshape(-1, 1)),
             ]
-            assert strain_grad.values.dtype is torch.float16
+            assert strain_grad.values.dtype is torch.float64
             assert strain_grad.samples.names == ["sample"]
             assert strain_grad.components == components
             assert strain_grad.properties == Labels("energy", torch.tensor([[0]]))
@@ -232,10 +243,10 @@ def test_read_targets_warnings(stress_dict, virial_dict, monkeypatch, tmp_path, 
     energy_section = {
         "quantity": "energy",
         "read_from": filename,
-        "file_format": ".xyz",
+        "reader": "ase",
         "key": "true_energy",
         "unit": "eV",
-        "forces": {"read_from": filename, "file_format": ".xyz", "key": "forces"},
+        "forces": {"read_from": filename, "reader": "ase", "key": "forces"},
         "stress": stress_dict,
         "virial": virial_dict,
     }
@@ -263,9 +274,9 @@ def test_read_targets_error(monkeypatch, tmp_path):
     energy_section = {
         "quantity": "energy",
         "read_from": filename,
-        "file_format": ".xyz",
+        "reader": "ase",
         "key": "true_energy",
-        "forces": {"read_from": filename, "file_format": ".xyz", "key": "forces"},
+        "forces": {"read_from": filename, "reader": "ase", "key": "forces"},
         "stress": True,
         "virial": True,
     }

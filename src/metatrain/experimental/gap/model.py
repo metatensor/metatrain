@@ -71,7 +71,11 @@ class GAP(torch.nn.Module):
         # set_composition_weights (recommended for better accuracy)
         n_outputs = len(dataset_info.targets)
         self.register_buffer(
-            "composition_weights", torch.zeros((n_outputs, max(self.atomic_types) + 1))
+            "composition_weights",
+            torch.zeros(
+                (n_outputs, max(self.atomic_types) + 1),
+                dtype=torch.float64,  # we only support float64 for now
+            ),
         )
         # buffers cannot be indexed by strings (torchscript), so we create a single
         # tensor for all output. Due to this, we need to slice the tensor when we use
@@ -81,7 +85,11 @@ class GAP(torch.nn.Module):
         }
 
         self.register_buffer(
-            "kernel_weights", torch.zeros((model_hypers["krr"]["num_sparse_points"]))
+            "kernel_weights",
+            torch.zeros(
+                model_hypers["krr"]["num_sparse_points"],
+                dtype=torch.float64,  # we only support float64 for now
+            ),
         )
         self._soap_torch_calculator = rascaline.torch.SoapPowerSpectrum(
             **model_hypers["soap"]

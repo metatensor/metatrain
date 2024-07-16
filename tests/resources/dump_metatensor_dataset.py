@@ -1,6 +1,5 @@
 import os
 
-import torch
 from metatensor.torch.atomistic import NeighborListOptions
 
 from metatrain.utils.data import Dataset, read_systems, read_targets
@@ -10,7 +9,7 @@ from metatrain.utils.neighbor_lists import get_system_with_neighbor_lists
 HERE = os.path.dirname(os.path.abspath(__file__))
 dataset_folder = os.path.join(HERE, "qm9_disk/")
 
-qm9_systems = read_systems("qm9_reduced_100.xyz", dtype=torch.float64)
+qm9_systems = read_systems("qm9_reduced_100.xyz")
 target_config = {
     "energy": {
         "quantity": "energy",
@@ -23,7 +22,7 @@ target_config = {
         "virial": False,
     },
 }
-targets, _ = read_targets(target_config, dtype=torch.float64)
+targets, _ = read_targets(target_config)
 requested_neighbor_list = NeighborListOptions(cutoff=5.0, full_list=False)
 systems = [
     get_system_with_neighbor_lists(system, [requested_neighbor_list])

@@ -13,12 +13,6 @@ from metatrain.utils.omegaconf import (
 )
 
 
-def test_file_format_resolver():
-    conf = OmegaConf.create({"read_from": "foo.xyz", "file_format": "${file_format:}"})
-
-    assert (conf["file_format"]) == ".xyz"
-
-
 def test_random_seed_resolver():
     conf = OmegaConf.create({"seed": "${default_random_seed:}"})
 
@@ -96,14 +90,13 @@ def test_default_precision_resolver_unknown_dtype(monkeypatch):
 def test_expand_dataset_config(n_datasets):
     """Test dataset expansion for a list of n_datasets times the same config"""
     file_name = "foo.xyz"
-    file_format = ".xyz"
 
     system_section = {"read_from": file_name, "length_unit": "angstrom"}
 
     target_section = {
         "quantity": "energy",
         "forces": file_name,
-        "virial": {"read_from": "my_grad.dat", "key": "foo"},
+        "virial": {"read_from": "my_grad.extxyz", "key": "foo"},
     }
 
     conf = {
@@ -120,7 +113,7 @@ def test_expand_dataset_config(n_datasets):
 
     for conf_expanded in conf_expanded_list:
         assert conf_expanded["systems"]["read_from"] == file_name
-        assert conf_expanded["systems"]["file_format"] == file_format
+        assert conf_expanded["systems"]["reader"] is None
         assert conf_expanded["systems"]["length_unit"] == "angstrom"
 
         targets_conf = conf_expanded["targets"]
@@ -129,16 +122,15 @@ def test_expand_dataset_config(n_datasets):
         for target_key in ["energy", "my_target"]:
             assert targets_conf[target_key]["quantity"] == "energy"
             assert targets_conf[target_key]["read_from"] == file_name
-            assert targets_conf[target_key]["file_format"] == file_format
-            assert targets_conf[target_key]["file_format"] == file_format
+            assert targets_conf[target_key]["reader"] is None
             assert targets_conf[target_key]["unit"] is None
 
             assert targets_conf[target_key]["forces"]["read_from"] == file_name
-            assert targets_conf[target_key]["forces"]["file_format"] == file_format
+            assert targets_conf[target_key]["forces"]["reader"] is None
             assert targets_conf[target_key]["forces"]["key"] == "forces"
 
-            assert targets_conf[target_key]["virial"]["read_from"] == "my_grad.dat"
-            assert targets_conf[target_key]["virial"]["file_format"] == ".dat"
+            assert targets_conf[target_key]["virial"]["read_from"] == "my_grad.extxyz"
+            assert targets_conf[target_key]["virial"]["reader"] is None
             assert targets_conf[target_key]["virial"]["key"] == "foo"
 
             assert targets_conf[target_key]["stress"] is False
@@ -177,26 +169,24 @@ def test_expand_dataset_config_not_energy():
 
 def test_expand_dataset_config_min():
     file_name = "dataset.dat"
-    file_format = ".dat"
 
     conf_expanded_list = expand_dataset_config(file_name)
     conf_expanded = conf_expanded_list[0]
 
     assert conf_expanded["systems"]["read_from"] == file_name
-    assert conf_expanded["systems"]["file_format"] == file_format
+    assert conf_expanded["systems"]["reader"] is None
     assert conf_expanded["systems"]["length_unit"] is None
 
     targets_conf = conf_expanded["targets"]
     assert targets_conf["energy"]["quantity"] == "energy"
     assert targets_conf["energy"]["read_from"] == file_name
-    assert targets_conf["energy"]["file_format"] == file_format
-    assert targets_conf["energy"]["file_format"] == file_format
+    assert targets_conf["energy"]["reader"] is None
     assert targets_conf["energy"]["key"] == "energy"
     assert targets_conf["energy"]["unit"] is None
 
     for gradient in ["forces", "stress"]:
         assert targets_conf["energy"][gradient]["read_from"] == file_name
-        assert targets_conf["energy"][gradient]["file_format"] == file_format
+        assert targets_conf["energy"][gradient]["reader"] is None
         assert targets_conf["energy"][gradient]["key"] == gradient
 
     assert targets_conf["energy"]["virial"] is False
@@ -226,7 +216,7 @@ def test_expand_dataset_gradient():
         "systems": "foo.xyz",
         "targets": {
             "my_energy": {
-                "forces": "data.txt",
+                "forces": "data.xyz",
                 "virial": True,
                 "stress": False,
             }
@@ -236,8 +226,8 @@ def test_expand_dataset_gradient():
     conf_expanded_list = expand_dataset_config(OmegaConf.create(conf))
     conf_expanded = conf_expanded_list[0]
 
-    assert conf_expanded["targets"]["my_energy"]["forces"]["read_from"] == "data.txt"
-    assert conf_expanded["targets"]["my_energy"]["forces"]["file_format"] == ".txt"
+    assert conf_expanded["targets"]["my_energy"]["forces"]["read_from"] == "data.xyz"
+    assert conf_expanded["targets"]["my_energy"]["forces"]["reader"] is None
 
     assert conf_expanded["targets"]["my_energy"]["stress"] is False
     conf_expanded["targets"]["my_energy"]["virial"]["read_from"]
@@ -352,7 +342,7 @@ def test_missing_targets_section():
     conf_expanded = conf_expanded_list[0]
 
     assert conf_expanded["systems"]["read_from"] == "foo.xyz"
-    assert conf_expanded["systems"]["file_format"] == ".xyz"
+    assert conf_expanded["systems"]["reader"] is None
 
 
 def test_missing_strcutures_section():
@@ -361,7 +351,7 @@ def test_missing_strcutures_section():
     conf_expanded = conf_expanded_list[0]
 
     assert conf_expanded["targets"]["energies"]["read_from"] == "foo.xyz"
-    assert conf_expanded["targets"]["energies"]["file_format"] == ".xyz"
+    assert conf_expanded["targets"]["energies"]["reader"] is None
 
 
 @pytest.fixture

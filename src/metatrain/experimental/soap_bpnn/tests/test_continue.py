@@ -20,6 +20,7 @@ def test_continue(monkeypatch, tmp_path):
     shutil.copy(DATASET_PATH, "qm9_reduced_100.xyz")
 
     systems = read_systems(DATASET_PATH)
+    systems = [system.to(torch.float32) for system in systems]
 
     target_info_dict = TargetInfoDict()
     target_info_dict["mtt::U0"] = TargetInfo(quantity="energy", unit="eV")
@@ -34,7 +35,7 @@ def test_continue(monkeypatch, tmp_path):
         "mtt::U0": {
             "quantity": "energy",
             "read_from": DATASET_PATH,
-            "file_format": ".xyz",
+            "reader": "ase",
             "key": "U0",
             "unit": "eV",
             "forces": False,
@@ -53,7 +54,14 @@ def test_continue(monkeypatch, tmp_path):
 
     hypers["training"]["num_epochs"] = 0
     trainer = Trainer(hypers["training"])
-    trainer.train(model_after, [torch.device("cpu")], [dataset], [dataset], ".")
+    trainer.train(
+        model=model_after,
+        dtype=torch.float32,
+        devices=[torch.device("cpu")],
+        train_datasets=[dataset],
+        val_datasets=[dataset],
+        checkpoint_dir=".",
+    )
 
     # Predict on the first five systems
     output_before = model_before(

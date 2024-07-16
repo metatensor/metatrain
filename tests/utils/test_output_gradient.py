@@ -24,6 +24,7 @@ def test_forces(is_training):
         },
     )
     model = __model__(model_hypers=MODEL_HYPERS, dataset_info=dataset_info)
+    model.to(dtype=torch.float64)
 
     systems = read_systems(RESOURCES_PATH / "qm9_reduced_100.xyz")[:5]
     systems = [
@@ -99,6 +100,7 @@ def test_virial(is_training):
         },
     )
     model = __model__(model_hypers=MODEL_HYPERS, dataset_info=dataset_info)
+    model.to(dtype=torch.float64)
 
     systems = read_systems(RESOURCES_PATH / "alchemical_reduced_10.xyz")[:2]
 
@@ -189,6 +191,8 @@ def test_both(is_training):
         },
     )
     model = __model__(model_hypers=MODEL_HYPERS, dataset_info=dataset_info)
+    model.to(dtype=torch.float64)
+
     systems = read_systems(RESOURCES_PATH / "alchemical_reduced_10.xyz")[:2]
 
     # Here we re-create strains and systems, otherwise torch

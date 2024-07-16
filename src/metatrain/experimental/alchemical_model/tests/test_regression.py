@@ -50,6 +50,7 @@ def test_regression_init():
 
     exported = model.export()
 
+    systems = [system.to(dtype=torch.float32) for system in systems]
     output = exported(systems, evaluation_options, check_consistency=True)
 
     expected_output = torch.tensor(
@@ -59,7 +60,7 @@ def test_regression_init():
             [-4.632149219513],
             [-13.758152008057],
             [-2.430717945099],
-        ]
+        ],
     )
 
     # if you need to change the hardcoded values:
@@ -82,7 +83,7 @@ def test_regression_train():
         "mtt::U0": {
             "quantity": "energy",
             "read_from": DATASET_PATH,
-            "file_format": ".xyz",
+            "reader": "ase",
             "key": "U0",
             "unit": "eV",
             "forces": False,
@@ -107,7 +108,14 @@ def test_regression_train():
 
     hypers["training"]["num_epochs"] = 1
     trainer = Trainer(hypers["training"])
-    trainer.train(model, [torch.device("cpu")], [dataset], [dataset], ".")
+    trainer.train(
+        model=model,
+        dtype=torch.float32,
+        devices=[torch.device("cpu")],
+        train_datasets=[dataset],
+        val_datasets=[dataset],
+        checkpoint_dir=".",
+    )
 
     # Predict on the first five systems
     evaluation_options = ModelEvaluationOptions(
@@ -117,16 +125,17 @@ def test_regression_train():
 
     exported = model.export()
 
+    systems = [system.to(dtype=torch.float32) for system in systems]
     output = exported(systems[:5], evaluation_options, check_consistency=True)
 
     expected_output = torch.tensor(
         [
-            [-40.133975982666],
-            [-56.344772338867],
-            [-76.740966796875],
-            [-77.038444519043],
-            [-92.812789916992],
-        ]
+            [-40.115474700928],
+            [-56.302265167236],
+            [-76.722442626953],
+            [-77.022941589355],
+            [-92.791801452637],
+        ],
     )
 
     # if you need to change the hardcoded values:

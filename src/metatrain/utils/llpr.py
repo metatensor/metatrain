@@ -180,7 +180,13 @@ class LLPRUncertaintyModel(torch.nn.Module):
                 requested_ensembles.append(name)
 
         for name in requested_ensembles:
-            ensemble_weights = getattr(self, name + "_weights")
+            # get the ensemble weights (getattr not supported by torchscript)
+            ensemble_weights = torch.tensor(0.0)
+            for buffer_name, buffer in self.named_buffers():
+                if buffer_name == name + "_weights":
+                    ensemble_weights = buffer
+            # the ensemble weights should always be found (checks are performed
+            # in the generate_ensemble method and in the metatensor wrapper)
             ensemble_values = torch.einsum(
                 "ij, jk -> ik",
                 ll_features.block().values,

@@ -17,20 +17,18 @@ from . import RESOURCES_PATH
 torch.manual_seed(42)
 
 
-def test_llpr():
+def test_llpr(tmpdir):
 
     model = load_atomistic_model(
         str(RESOURCES_PATH / "model-64-bit.pt"),
         extensions_directory=str(RESOURCES_PATH / "extensions/"),
     )
-    qm9_systems = read_systems(
-        RESOURCES_PATH / "qm9_reduced_100.xyz", dtype=torch.float64
-    )
+    qm9_systems = read_systems(RESOURCES_PATH / "qm9_reduced_100.xyz")
     target_config = {
         "energy": {
             "quantity": "energy",
             "read_from": str(RESOURCES_PATH / "qm9_reduced_100.xyz"),
-            "file_format": ".xyz",
+            "reader": "ase",
             "key": "U0",
             "unit": "kcal/mol",
             "forces": False,
@@ -38,7 +36,7 @@ def test_llpr():
             "virial": False,
         },
     }
-    targets, _ = read_targets(target_config, dtype=torch.float64)
+    targets, _ = read_targets(target_config)
     requested_neighbor_lists = model.requested_neighbor_lists()
     qm9_systems = [
         get_system_with_neighbor_lists(system, requested_neighbor_lists)
@@ -106,6 +104,14 @@ def test_llpr():
         llpr_model.eval(),
         ModelMetadata(),
         llpr_model.capabilities,
+    )
+
+    exported_model.save(
+        file=str(tmpdir / "llpr_model.pt"),
+        collect_extensions=str(tmpdir / "extensions"),
+    )
+    llpr_model = load_atomistic_model(
+        str(tmpdir / "llpr_model.pt"), extensions_directory=str(tmpdir / "extensions")
     )
 
     evaluation_options = ModelEvaluationOptions(

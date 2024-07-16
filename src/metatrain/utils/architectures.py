@@ -5,10 +5,10 @@ from importlib.util import find_spec
 from pathlib import Path
 from typing import Dict, List, Union
 
-from jsonschema import validate
 from omegaconf import OmegaConf
 
 from .. import PACKAGE_ROOT
+from .jsonschema import validate
 
 
 def check_architecture_name(name: str) -> None:
@@ -40,15 +40,13 @@ def check_architecture_name(name: str) -> None:
                 "deprecated architecture."
             )
     except ModuleNotFoundError:
+        msg = f"Architecture {name!r} is not a valid architecture."
+
         closest_match = difflib.get_close_matches(
-            word=name,
-            possibilities=find_all_architectures(),
-            cutoff=0.3,
+            word=name, possibilities=find_all_architectures()
         )
-        msg = (
-            f"Architecture {name!r} is not a valid architecture. Do you mean "
-            f"{', '.join(closest_match)}?"
-        )
+        if closest_match:
+            msg += f" Do you mean '{closest_match[0]}'?"
 
     raise ValueError(msg)
 

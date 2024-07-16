@@ -318,7 +318,7 @@ def test_dataset():
         "energy": {
             "quantity": "energy",
             "read_from": filename,
-            "file_format": ".xyz",
+            "reader": "ase",
             "key": "U0",
             "unit": "eV",
             "forces": False,
@@ -344,7 +344,7 @@ def test_get_atomic_types():
         "mtt::U0": {
             "quantity": "energy",
             "read_from": str(RESOURCES_PATH / "qm9_reduced_100.xyz"),
-            "file_format": ".xyz",
+            "reader": "ase",
             "key": "U0",
             "unit": "eV",
             "forces": False,
@@ -357,7 +357,7 @@ def test_get_atomic_types():
         "energy": {
             "quantity": "energy",
             "read_from": str(RESOURCES_PATH / "ethanol_reduced_100.xyz"),
-            "file_format": ".xyz",
+            "reader": "ase",
             "key": "energy",
             "unit": "eV",
             "forces": False,
@@ -383,7 +383,7 @@ def test_get_all_targets():
         "mtt::U0": {
             "quantity": "energy",
             "read_from": str(RESOURCES_PATH / "qm9_reduced_100.xyz"),
-            "file_format": ".xyz",
+            "reader": "ase",
             "key": "U0",
             "unit": "eV",
             "forces": False,
@@ -396,7 +396,7 @@ def test_get_all_targets():
         "energy": {
             "quantity": "energy",
             "read_from": str(RESOURCES_PATH / "ethanol_reduced_100.xyz"),
-            "file_format": ".xyz",
+            "reader": "ase",
             "key": "energy",
             "unit": "eV",
             "forces": False,
@@ -421,7 +421,7 @@ def test_check_datasets():
         "mtt::U0": {
             "quantity": "energy",
             "read_from": str(RESOURCES_PATH / "qm9_reduced_100.xyz"),
-            "file_format": ".xyz",
+            "reader": "ase",
             "key": "U0",
             "unit": "eV",
             "forces": False,
@@ -434,7 +434,7 @@ def test_check_datasets():
         "energy": {
             "quantity": "energy",
             "read_from": str(RESOURCES_PATH / "ethanol_reduced_100.xyz"),
-            "file_format": ".xyz",
+            "reader": "ase",
             "key": "energy",
             "unit": "eV",
             "forces": False,
@@ -463,23 +463,25 @@ def test_check_datasets():
         check_datasets([train_set], [val_set])
 
     # wrong dtype
-    systems_qm9_64_bit = read_systems(
-        RESOURCES_PATH / "qm9_reduced_100.xyz", dtype=torch.float64
-    )
-    train_set_64_bit = Dataset({"system": systems_qm9_64_bit, **targets_qm9})
-    match = (
-        "`dtype` between datasets is inconsistent, found torch.float32 and "
-        "torch.float64 found in `val_datasets`"
-    )
-    with pytest.raises(TypeError, match=match):
-        check_datasets([train_set], [train_set_64_bit])
+    systems_qm9_32bit = [system.to(dtype=torch.float32) for system in systems_qm9]
+    targets_qm9_32bit = {
+        k: [v.to(dtype=torch.float32) for v in l] for k, l in targets_qm9.items()
+    }
+    train_set_32_bit = Dataset({"system": systems_qm9_32bit, **targets_qm9_32bit})
 
     match = (
-        "`dtype` between datasets is inconsistent, found torch.float32 and "
-        "torch.float64 found in `train_datasets`"
+        "`dtype` between datasets is inconsistent, found torch.float64 and "
+        "torch.float32 found in `val_datasets`"
     )
     with pytest.raises(TypeError, match=match):
-        check_datasets([train_set, train_set_64_bit], [val_set])
+        check_datasets([train_set], [train_set_32_bit])
+
+    match = (
+        "`dtype` between datasets is inconsistent, found torch.float64 and "
+        "torch.float32 found in `train_datasets`"
+    )
+    with pytest.raises(TypeError, match=match):
+        check_datasets([train_set, train_set_32_bit], [val_set])
 
 
 def test_collate_fn():
@@ -490,7 +492,7 @@ def test_collate_fn():
         "mtt::U0": {
             "quantity": "energy",
             "read_from": str(RESOURCES_PATH / "qm9_reduced_100.xyz"),
-            "file_format": ".xyz",
+            "reader": "ase",
             "key": "U0",
             "unit": "eV",
             "forces": False,
@@ -517,7 +519,7 @@ def test_get_stats():
         "mtt::U0": {
             "quantity": "energy",
             "read_from": str(RESOURCES_PATH / "qm9_reduced_100.xyz"),
-            "file_format": ".xyz",
+            "reader": "ase",
             "key": "U0",
             "unit": "eV",
             "forces": False,
@@ -530,7 +532,7 @@ def test_get_stats():
         "energy": {
             "quantity": "energy",
             "read_from": str(RESOURCES_PATH / "ethanol_reduced_100.xyz"),
-            "file_format": ".xyz",
+            "reader": "ase",
             "key": "energy",
             "unit": "eV",
             "forces": False,

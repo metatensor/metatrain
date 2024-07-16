@@ -6,7 +6,6 @@ import subprocess
 from pathlib import Path
 
 import ase.io
-import metatensor.torch  # noqa
 import pytest
 import torch
 from jsonschema.exceptions import ValidationError
@@ -72,6 +71,7 @@ def test_train(capfd, monkeypatch, tmp_path, output):
     assert file_log == stdout_log
 
     assert "This log is also available" in stdout_log
+    assert "Running training for 'experimental.soap_bpnn' architecture"
     assert re.search(r"Random seed of this run is [1-9]\d*", stdout_log)
     assert "Training dataset:" in stdout_log
     assert "Validation dataset:" in stdout_log
@@ -153,7 +153,10 @@ def test_train_unknonw_arch_options(monkeypatch, tmp_path):
     """
     options = OmegaConf.create(options_str)
 
-    match = r"Additional properties are not allowed \('num_epoch' was unexpected\)"
+    match = (
+        r"Unrecognized options \('num_epoch' was unexpected\). "
+        r"Do you mean 'num_epochs'?"
+    )
     with pytest.raises(ValidationError, match=match):
         train_model(options)
 
@@ -219,6 +222,11 @@ def test_train_multiple_datasets(monkeypatch, tmp_path, options):
     systems_qm9 = ase.io.read(DATASET_PATH_QM9, ":")
     systems_ethanol = ase.io.read(DATASET_PATH_ETHANOL, ":")
 
+    # delete calculator to avoid warnings during writing. Remove once updated to ase >=
+    # 3.23.0
+    for atoms in systems_ethanol:
+        atoms.calc = None
+
     ase.io.write("qm9_reduced_100.xyz", systems_qm9[:50])
     ase.io.write("ethanol_reduced_100.xyz", systems_ethanol[:50])
 
@@ -226,7 +234,9 @@ def test_train_multiple_datasets(monkeypatch, tmp_path, options):
     options["training_set"][1]["systems"]["read_from"] = "ethanol_reduced_100.xyz"
     options["training_set"][1]["targets"]["energy"]["key"] = "energy"
     options["training_set"][0]["targets"].pop("energy")
-    options["training_set"][0]["targets"]["mtt::U0"] = OmegaConf.create({"key": "U0"})
+    options["training_set"][0]["targets"]["mtt::U0"] = OmegaConf.create(
+        {"key": "U0", "unit": "eV"}
+    )
 
     train_model(options)
 
@@ -294,7 +304,9 @@ def test_empty_test_set(caplog, monkeypatch, tmp_path, options):
     options["validation_set"] = 0.4
     options["test_set"] = 0.0
 
-    train_model(options)
+    match = "Length of split at index 1 is 0. This might result in an empty dataset."
+    with pytest.warns(UserWarning, match=match):
+        train_model(options)
 
     # check if the logging is correct
     assert "This dataset is empty. No evaluation" in caplog.text

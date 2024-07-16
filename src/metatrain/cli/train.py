@@ -1,5 +1,6 @@
 import argparse
 import importlib
+import itertools
 import json
 import logging
 import os
@@ -7,28 +8,20 @@ import random
 from pathlib import Path
 from typing import Dict, Optional, Union
 
-import jsonschema
 import numpy as np
 import torch
+from metatensor.torch.atomistic import load_atomistic_model
 from omegaconf import DictConfig, OmegaConf
 
 from .. import PACKAGE_ROOT
 from ..utils.architectures import check_architecture_options, get_default_hypers
-from ..utils.data import (
-    Dataset,
-    DiskDataset,
-    DatasetInfo,
-    TargetInfo,
-    TargetInfoDict,
-    get_atomic_types,
-    read_systems,
-    read_targets,
-)
+from ..utils.data import DatasetInfo, TargetInfoDict, get_atomic_types, get_dataset
 from ..utils.data.dataset import _train_test_random_split
 from ..utils.devices import pick_devices
 from ..utils.distributed.logging import is_main_process
 from ..utils.errors import ArchitectureError
-from ..utils.io import check_suffix
+from ..utils.io import check_file_extension
+from ..utils.jsonschema import validate
 from ..utils.omegaconf import BASE_OPTIONS, check_units, expand_dataset_config
 from .eval import _eval_targets
 from .formatter import CustomHelpFormatter
@@ -126,7 +119,7 @@ def train_model(
     with open(PACKAGE_ROOT / "share/schema-base.json", "r") as f:
         schema_base = json.load(f)
 
-    jsonschema.validate(instance=OmegaConf.to_container(options), schema=schema_base)
+    validate(instance=OmegaConf.to_container(options), schema=schema_base)
 
     ###########################
     # LOAD ARCHITECTURE #######
@@ -137,6 +130,8 @@ def train_model(
         name=architecture_name, options=OmegaConf.to_container(options["architecture"])
     )
     architecture = importlib.import_module(f"metatrain.{architecture_name}")
+
+    logger.info(f"Running training for {architecture_name!r} architecture")
 
     Model = architecture.__model__
     Trainer = architecture.__trainer__
@@ -191,30 +186,9 @@ def train_model(
     train_datasets = []
     target_infos = TargetInfoDict()
     for train_options in options["training_set"]:
-        if Path(train_options["systems"]["read_from"]).suffix == "":
-            # metatensor disk dataset
-            dataset = DiskDataset(train_options["systems"]["read_from"])
-            print(dataset[0]["system"].known_neighbor_lists())
-            target_info_dictionary = TargetInfoDict()
-            target_info_dictionary["energy"] = TargetInfo(
-                quantity=train_options["targets"]["energy"]["quantity"],
-                unit=train_options["targets"]["energy"]["unit"],
-                per_atom=False,
-                gradients=[],
-            )
-            target_infos.update(target_info_dictionary)
-        else:
-            train_systems = read_systems(
-                filename=train_options["systems"]["read_from"],
-                fileformat=train_options["systems"]["file_format"],
-                dtype=dtype,
-            )
-            train_targets, target_info_dictionary = read_targets(
-                conf=train_options["targets"], dtype=dtype
-            )
-            target_infos.update(target_info_dictionary)
-            dataset = Dataset({"system": train_systems, **train_targets})
+        dataset, target_info_dict = get_dataset(train_options)
         train_datasets.append(dataset)
+        target_infos.update(target_info_dict)
 
     train_size = 1.0
 
@@ -258,14 +232,8 @@ def train_model(
         )
 
         for test_options in options["test_set"]:
-            test_systems = read_systems(
-                filename=test_options["systems"]["read_from"],
-                fileformat=test_options["systems"]["file_format"],
-                dtype=dtype,
-            )
-            test_targets, _ = read_targets(conf=test_options["targets"], dtype=dtype)
-            test_dataset = Dataset({"system": test_systems, **test_targets})
-            test_datasets.append(test_dataset)
+            dataset, _ = get_dataset(test_options)
+            test_datasets.append(dataset)
 
     ###########################
     # SETUP VALIDATION SET ####
@@ -306,15 +274,9 @@ def train_model(
             desired_options=options["training_set"],
         )
 
-        for val_options in options["validation_set"]:
-            val_systems = read_systems(
-                filename=val_options["systems"]["read_from"],
-                fileformat=val_options["systems"]["file_format"],
-                dtype=dtype,
-            )
-            val_targets, _ = read_targets(conf=val_options["targets"], dtype=dtype)
-            val_dataset = Dataset({"system": val_systems, **val_targets})
-            val_datasets.append(val_dataset)
+        for valid_options in options["validation_set"]:
+            dataset, _ = get_dataset(valid_options)
+            val_datasets.append(dataset)
 
     ###########################
     # CREATE DATASET_INFO #####
@@ -390,6 +352,7 @@ def train_model(
     try:
         trainer.train(
             model=model,
+            dtype=dtype,
             devices=devices,
             train_datasets=train_datasets,
             val_datasets=val_datasets,
@@ -405,7 +368,7 @@ def train_model(
     # SAVE FINAL MODEL ########
     ###########################
 
-    output_checked = check_suffix(filename=output, suffix=".pt")
+    output_checked = check_file_extension(filename=output, extension=".pt")
     logger.info(
         "Training finished, saving final checkpoint "
         f"to `{str(Path(output_checked).stem)}.ckpt`"
@@ -421,11 +384,29 @@ def train_model(
     logger.info(
         f"Exporting model to `{output_checked}` and extensions to `{extensions_path}`"
     )
+    # get device from the model. This device could be different from devices[0]
+    # defined above in the case of multi-GPU and/or distributed training
+    final_device = next(
+        itertools.chain(
+            mts_atomistic_model.parameters(),
+            mts_atomistic_model.buffers(),
+        )
+    ).device
+    # always save on CPU. TODO: remove after release of
+    # https://github.com/lab-cosmo/metatensor/pull/668
+    mts_atomistic_model = mts_atomistic_model.to("cpu")
     mts_atomistic_model.save(str(output_checked), collect_extensions=extensions_path)
+    # the model is first saved and then reloaded 1) for good practice and 2) because
+    # MetatensorAtomisticModel only torchscripts (makes faster) during save()
 
     ###########################
     # EVALUATE FINAL MODEL ####
     ###########################
+
+    mts_atomistic_model = load_atomistic_model(
+        str(output_checked), extensions_directory=extensions_path
+    )
+    mts_atomistic_model = mts_atomistic_model.to(final_device)
 
     for i, train_dataset in enumerate(train_datasets):
         if len(train_datasets) == 1:

@@ -40,13 +40,13 @@ def test_regression_train_and_invariance():
     for this.
     """
 
-    systems = read_systems(DATASET_PATH, dtype=torch.float64)
+    systems = read_systems(DATASET_PATH)
 
     conf = {
         "mtt::U0": {
             "quantity": "energy",
             "read_from": DATASET_PATH,
-            "file_format": ".xyz",
+            "reader": "ase",
             "key": "U0",
             "unit": "kcal/mol",
             "forces": False,
@@ -54,7 +54,7 @@ def test_regression_train_and_invariance():
             "virial": False,
         }
     }
-    targets, _ = read_targets(OmegaConf.create(conf), dtype=torch.float64)
+    targets, _ = read_targets(OmegaConf.create(conf))
     dataset = Dataset({"system": systems, "mtt::U0": targets["mtt::U0"]})
 
     target_info_dict = TargetInfoDict()
@@ -66,7 +66,14 @@ def test_regression_train_and_invariance():
 
     gap = GAP(DEFAULT_HYPERS["model"], dataset_info)
     trainer = Trainer(DEFAULT_HYPERS["training"])
-    trainer.train(gap, [torch.device("cpu")], [dataset], [dataset], ".")
+    trainer.train(
+        model=gap,
+        dtype=torch.float64,
+        devices=[torch.device("cpu")],
+        train_datasets=[dataset],
+        val_datasets=[dataset],
+        checkpoint_dir=".",
+    )
 
     # Predict on the first five systems
     output = gap(systems[:5], {"mtt::U0": gap.outputs["mtt::U0"]})
@@ -105,17 +112,17 @@ def test_ethanol_regression_train_and_invariance():
     for this.
     """
 
-    systems = read_systems(DATASET_ETHANOL_PATH, dtype=torch.float64)
+    systems = read_systems(DATASET_ETHANOL_PATH)
 
     conf = {
         "energy": {
             "quantity": "energy",
             "read_from": DATASET_ETHANOL_PATH,
-            "file_format": ".xyz",
+            "reader": "ase",
             "key": "energy",
             "forces": {
                 "read_from": DATASET_ETHANOL_PATH,
-                "file_format": ".xyz",
+                "reader": "ase",
                 "key": "forces",
             },
             "unit": "kcal/mol",
@@ -124,7 +131,7 @@ def test_ethanol_regression_train_and_invariance():
         }
     }
 
-    targets, _ = read_targets(OmegaConf.create(conf), dtype=torch.float64)
+    targets, _ = read_targets(OmegaConf.create(conf))
     dataset = Dataset({"system": systems, "energy": targets["energy"]})
 
     hypers = copy.deepcopy(DEFAULT_HYPERS)
@@ -140,7 +147,14 @@ def test_ethanol_regression_train_and_invariance():
 
     gap = GAP(hypers["model"], dataset_info)
     trainer = Trainer(hypers["training"])
-    trainer.train(gap, [torch.device("cpu")], [dataset], [dataset], ".")
+    trainer.train(
+        model=gap,
+        dtype=torch.float64,
+        devices=[torch.device("cpu")],
+        train_datasets=[dataset],
+        val_datasets=[dataset],
+        checkpoint_dir=".",
+    )
 
     # Predict on the first five systems
     output = gap(systems[:5], {"energy": gap.outputs["energy"]})

@@ -5,8 +5,15 @@
       "type": "string",
       "format": "uri"
     },
-    "file_format": {
-      "type": "string"
+    "reader": {
+      "oneOf": [
+        {
+          "type": "null"
+        },
+        {
+          "type": "string"
+        }
+      ]
     },
     "gradient_section": {
       "oneOf": [
@@ -22,8 +29,8 @@
             "read_from": {
               "$ref": "#/$defs/read_from"
             },
-            "file_format": {
-              "$ref": "#/$defs/file_format"
+            "reader": {
+              "$ref": "#/$defs/reader"
             },
             "key": {
               "type": "string"
@@ -66,8 +73,8 @@
             "read_from": {
               "$ref": "#/$defs/read_from"
             },
-            "file_format": {
-              "$ref": "#/$defs/file_format"
+            "reader": {
+              "$ref": "#/$defs/reader"
             },
             "length_unit": {
               "oneOf": [
@@ -101,10 +108,10 @@
                 "read_from": {
                   "$ref": "#/$defs/read_from"
                 },
-                "file_format": {
+                "reader": {
                   "oneOf": [
                     {
-                      "$ref": "#/$defs/file_format"
+                      "$ref": "#/$defs/reader"
                     },
                     {
                       "type": "object",
