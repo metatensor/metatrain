@@ -69,7 +69,7 @@ def test_alchemical_model_inference():
 
     dataset_info = DatasetInfo(
         length_unit="Angstrom",
-        atomic_types=set(unique_numbers),
+        atomic_types=unique_numbers,
         targets=TargetInfoDict(energy=TargetInfo(quantity="energy", unit="eV")),
     )
 

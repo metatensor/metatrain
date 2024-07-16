@@ -64,7 +64,7 @@ def test_ethanol_regression_train_and_invariance():
     )
 
     dataset_info = DatasetInfo(
-        length_unit="Angstrom", atomic_types={1, 6, 7, 8}, targets=target_info_dict
+        length_unit="Angstrom", atomic_types=[1, 6, 7, 8], targets=target_info_dict
     )
 
     gap = GAP(hypers["model"], dataset_info)

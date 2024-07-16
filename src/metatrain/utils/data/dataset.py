@@ -2,8 +2,7 @@ import itertools
 import math
 import warnings
 from collections import UserDict
-from dataclasses import dataclass, field
-from typing import Any, Dict, List, Optional, Set, Tuple, Union
+from typing import Any, Dict, List, Optional, Tuple, Union
 
 import metatensor.learn
 import torch
@@ -14,7 +13,6 @@ from ..external_naming import to_external_name
 from ..units import get_gradient_units
 
 
-@dataclass
 class TargetInfo:
     """A class that contains information about a target.
 
@@ -22,21 +20,50 @@ class TargetInfo:
     :param unit: The unit of the target. If :py:obj:`None` the ``unit`` will be set to
         an empty string ``""``.
     :param per_atom: Whether the target is a per-atom quantity.
-    :param gradients: Set of gradients of the target that are defined in the current
-        dataset. Examples are ``"positions"`` or ``"strain"``.
+    :param gradients: List containing the gradient names of the target that are present
+        in the target. Examples are ``"positions"`` or ``"strain"``. ``gradients`` will
+        be stored as a sorted list of **unique** gradients.
     """
 
-    quantity: str
-    unit: str = ""
-    per_atom: bool = False
-    gradients: Set[str] = field(default_factory=set)
+    def __init__(
+        self,
+        quantity: str,
+        unit: Union[None, str] = "",
+        per_atom: bool = False,
+        gradients: Optional[List[str]] = None,
+    ):
+        self.quantity = quantity
+        self.unit = unit if unit is not None else ""
+        self.per_atom = per_atom
+        self._gradients = set(gradients) if gradients is not None else set()
 
-    def __post_init__(self):
-        if self.unit is None:
-            self.unit = ""
+    @property
+    def gradients(self) -> List[str]:
+        """Sorted and unique list of gradient names."""
+        return sorted(self._gradients)
 
-        # For compatibility with list convert to set
-        self.gradients = set(self.gradients)
+    @gradients.setter
+    def gradients(self, value: List[str]):
+        self._gradients = set(value)
+
+    def __repr__(self):
+        return (
+            f"TargetInfo(quantity={self.quantity!r}, unit={self.unit!r}, "
+            f"per_atom={self.per_atom!r}, gradients={self.gradients!r})"
+        )
+
+    def __eq__(self, other):
+        if not isinstance(other, TargetInfo):
+            raise NotImplementedError(
+                "Comparison between a TargetInfo instance and a "
+                f"{type(other).__name__} instance is not implemented."
+            )
+        return (
+            self.quantity == other.quantity
+            and self.unit == other.unit
+            and self.per_atom == other.per_atom
+            and self._gradients == other._gradients
+        )
 
     def copy(self) -> "TargetInfo":
         """Return a shallow copy of the TargetInfo."""
@@ -70,7 +97,7 @@ class TargetInfo:
                 f"({self.per_atom} != {other.per_atom})"
             )
 
-        self.gradients = self.gradients.union(other.gradients)
+        self.gradients = self.gradients + other.gradients
 
     def union(self, other: "TargetInfo") -> "TargetInfo":
         """Return the union of this instance with ``other``."""
@@ -139,33 +166,53 @@ class TargetInfoDict(UserDict):
         return TargetInfoDict(**{key: self[key] for key in new_keys})
 
 
-@dataclass
 class DatasetInfo:
     """A class that contains information about datasets.
 
-    This dataclass is used to communicate additional dataset details to the
+    This class is used to communicate additional dataset details to the
     training functions of the individual models.
 
-    :param length_unit: Unit of length used in the dataset.
-    :param atomic_types: Unordered set of all atomic types present in the dataset.
-
-        .. note::
-
-            ``atomic_types`` is a :py:class:`set` and **not ordered**. Use
-            :py:func:`sorted` for an ordered :py:class:`list`.
+    :param length_unit: Unit of length used in the dataset. Examples are ``"angstrom"``
+        or ``"nanometer"``.
+    :param atomic_types: List containing all integer atomic types present in the
+        dataset. ``atomic_types`` will be stored as a sorted list of **unique** atomic
+        types.
     :param targets: Information about targets in the dataset.
     """
 
-    length_unit: str
-    atomic_types: Set[int]
-    targets: TargetInfoDict
+    def __init__(
+        self, length_unit: str, atomic_types: List[int], targets: TargetInfoDict
+    ):
+        self.length_unit = length_unit if length_unit is not None else ""
+        self._atomic_types = set(atomic_types)
+        self.targets = targets
 
-    def __post_init__(self):
-        if self.length_unit is None:
-            self.length_unit = ""
+    @property
+    def atomic_types(self) -> List[int]:
+        """Sorted list of unique integer atomic types."""
+        return sorted(self._atomic_types)
 
-        # For compatibility with list convert to set
-        self.atomic_types = set(self.atomic_types)
+    @atomic_types.setter
+    def atomic_types(self, value: List[int]):
+        self._atomic_types = set(value)
+
+    def __repr__(self):
+        return (
+            f"DatasetInfo(length_unit={self.length_unit!r}, "
+            f"atomic_types={self.atomic_types!r}, targets={self.targets!r})"
+        )
+
+    def __eq__(self, other):
+        if not isinstance(other, DatasetInfo):
+            raise NotImplementedError(
+                "Comparison between a DatasetInfo instance and a "
+                f"{type(other).__name__} instance is not implemented."
+            )
+        return (
+            self.length_unit == other.length_unit
+            and self._atomic_types == other._atomic_types
+            and self.targets == other.targets
+        )
 
     def copy(self) -> "DatasetInfo":
         """Return a shallow copy of the DatasetInfo."""
@@ -186,8 +233,8 @@ class DatasetInfo:
                 f"({self.length_unit} != {other.length_unit})"
             )
 
-        self.atomic_types = self.atomic_types.union(other.atomic_types)
-        self.targets = self.targets.union(other.targets)
+        self.atomic_types = self.atomic_types + other.atomic_types
+        self.targets.update(other.targets)
 
     def union(self, other: "DatasetInfo") -> "DatasetInfo":
         """Return the union of this instance with ``other``."""
@@ -325,7 +372,7 @@ def _get_dataset_stats(
     return stats
 
 
-def get_atomic_types(datasets: Union[Dataset, List[Dataset]]) -> Set[int]:
+def get_atomic_types(datasets: Union[Dataset, List[Dataset]]) -> List[int]:
     """List of all atomic types present in a dataset or list of datasets.
 
     :param datasets: the dataset, or list of datasets
@@ -341,7 +388,7 @@ def get_atomic_types(datasets: Union[Dataset, List[Dataset]]) -> Set[int]:
             system = dataset[index]["system"]
             types += system.types.tolist()
 
-    return set(types)
+    return sorted(set(types))
 
 
 def get_all_targets(datasets: Union[Dataset, List[Dataset]]) -> List[str]:

@@ -11,7 +11,7 @@ def test_torchscript():
 
     dataset_info = DatasetInfo(
         length_unit="Angstrom",
-        atomic_types={1, 6, 7, 8},
+        atomic_types=[1, 6, 7, 8],
         targets=TargetInfoDict(energy=TargetInfo(quantity="energy", unit="eV")),
     )
 
@@ -24,7 +24,7 @@ def test_torchscript_save_load():
 
     dataset_info = DatasetInfo(
         length_unit="Angstrom",
-        atomic_types={1, 6, 7, 8},
+        atomic_types=[1, 6, 7, 8],
         targets=TargetInfoDict(energy=TargetInfo(quantity="energy", unit="eV")),
     )
     model = AlchemicalModel(MODEL_HYPERS, dataset_info)

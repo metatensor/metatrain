@@ -17,7 +17,7 @@ def test_torchscript():
     target_info_dict["mtt::U0"] = TargetInfo(quantity="energy", unit="eV")
 
     dataset_info = DatasetInfo(
-        length_unit="Angstrom", atomic_types={1, 6, 7, 8}, targets=target_info_dict
+        length_unit="Angstrom", atomic_types=[1, 6, 7, 8], targets=target_info_dict
     )
     conf = {
         "mtt::U0": {
@@ -68,7 +68,7 @@ def test_torchscript_save():
     targets["mtt::U0"] = TargetInfo(quantity="energy", unit="eV")
 
     dataset_info = DatasetInfo(
-        length_unit="Angstrom", atomic_types={1, 6, 7, 8}, targets=targets
+        length_unit="Angstrom", atomic_types=[1, 6, 7, 8], targets=targets
     )
     gap = GAP(DEFAULT_HYPERS["model"], dataset_info)
     torch.jit.save(
