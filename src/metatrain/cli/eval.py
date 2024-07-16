@@ -167,8 +167,10 @@ def _eval_targets(
         system = sample["system"]
         get_system_with_neighbor_lists(system, model.requested_neighbor_lists())
 
-    # Infer the device from the model
-    device = next(itertools.chain(model.parameters(), model.buffers())).device
+    # Infer the device and dtype from the model
+    model_tensor = next(itertools.chain(model.parameters(), model.buffers()))
+    dtype = model_tensor.dtype
+    device = model_tensor.device
 
     # Create a dataloader
     dataloader = torch.utils.data.DataLoader(
@@ -188,9 +190,10 @@ def _eval_targets(
     # Evaluate the model
     for batch in dataloader:
         systems, batch_targets = batch
-        systems = [system.to(device=device) for system in systems]
+        systems = [system.to(dtype=dtype, device=device) for system in systems]
         batch_targets = {
-            key: value.to(device=device) for key, value in batch_targets.items()
+            key: value.to(dtype=dtype, device=device)
+            for key, value in batch_targets.items()
         }
         batch_predictions = evaluate_model(model, systems, options, is_training=False)
         batch_predictions = average_by_num_atoms(
@@ -238,10 +241,6 @@ def eval_model(
     """
     logger.info("Setting up evaluation set.")
 
-    # TODO: once https://github.com/lab-cosmo/metatensor/pull/551 is merged and released
-    # use capabilities instead of this workaround
-    dtype = next(model.parameters()).dtype
-
     if isinstance(output, str):
         output = Path(output)
 
@@ -258,13 +257,12 @@ def eval_model(
         eval_systems = read_systems(
             filename=options["systems"]["read_from"],
             reader=options["systems"]["reader"],
-            dtype=dtype,
         )
 
         if hasattr(options, "targets"):
             # in this case, we only evaluate the targets specified in the options
             # and we calculate RMSEs
-            eval_targets, eval_info_dict = read_targets(options["targets"], dtype=dtype)
+            eval_targets, eval_info_dict = read_targets(options["targets"])
         else:
             # in this case, we have no targets: we evaluate everything
             # (but we don't/can't calculate RMSEs)

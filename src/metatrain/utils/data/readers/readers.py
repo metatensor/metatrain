@@ -1,7 +1,7 @@
 import importlib
 import logging
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 import torch
 from metatensor.torch import Labels, TensorBlock, TensorMap
@@ -27,9 +27,8 @@ def _base_reader(
     target: str,
     filename: str,
     reader: Optional[str] = None,
-    dtype: torch.dtype = torch.float32,
     **reader_kwargs,
-):
+) -> List[Any]:
     if reader is None:
         try:
             filesuffix = Path(filename).suffix
@@ -56,30 +55,32 @@ def _base_reader(
     except AttributeError:
         raise ValueError(f"Reader library {reader!r} can't read {target!r}.")
 
-    return reader_met(filename, dtype=dtype, **reader_kwargs)
+    data = reader_met(filename, **reader_kwargs)
+
+    # elements in data are `torch.ScriptObject`s and their `dtype` is an integer.
+    # A C++ double/torch.float64 is `7` according to
+    # https://github.com/pytorch/pytorch/blob/207564bab1c4fe42750931765734ee604032fb69/c10/core/ScalarType.h#L54-L93
+    assert all(d.dtype == 7 for d in data)
+
+    return data
 
 
 def read_energy(
     filename: str,
     target_value: str = "energy",
     reader: Optional[str] = None,
-    dtype: torch.dtype = torch.float32,
 ) -> List[TensorBlock]:
     """Read energy informations from a file.
 
     :param filename: name of the file to read
     :param target_value: target value key name to be parsed from the file.
     :param reader: reader library for parsing the file. If :py:obj:`None` the library is
-        determined from the file extension.
-    :param dtype: desired data type of returned tensor
-    :returns: target value stored stored as a :class:`metatensor.TensorBlock`
+        is tried to determined from the file extension.
+    :returns: energy stored stored in double precision as a
+        :class:`metatensor.TensorBlock`
     """
     return _base_reader(
-        target="energy",
-        filename=filename,
-        reader=reader,
-        key=target_value,
-        dtype=dtype,
+        target="energy", filename=filename, reader=reader, key=target_value
     )
 
 
@@ -87,23 +88,18 @@ def read_forces(
     filename: str,
     target_value: str = "forces",
     reader: Optional[str] = None,
-    dtype: torch.dtype = torch.float32,
 ) -> List[TensorBlock]:
     """Read force informations from a file.
 
     :param filename: name of the file to read
     :param target_value: target value key name to be parsed from the file
     :param reader: reader library for parsing the file. If :py:obj:`None` the library is
-        determined from the file extension.
-    :param dtype: desired data type of returned tensor
-    :returns: target value stored stored as a :class:`metatensor.TensorBlock`
+        is tried to determined from the file extension.
+    :returns: forces stored in double precision stored as a
+        :class:`metatensor.TensorBlock`
     """
     return _base_reader(
-        target="forces",
-        filename=filename,
-        reader=reader,
-        key=target_value,
-        dtype=dtype,
+        target="forces", filename=filename, reader=reader, key=target_value
     )
 
 
@@ -111,79 +107,66 @@ def read_stress(
     filename: str,
     target_value: str = "stress",
     reader: Optional[str] = None,
-    dtype: torch.dtype = torch.float32,
 ) -> List[TensorBlock]:
     """Read stress informations from a file.
 
     :param filename: name of the file to read
     :param target_value: target value key name to be parsed from the file.
     :param reader: reader library for parsing the file. If :py:obj:`None` the library is
-        determined from the file extension.
-    :param dtype: desired data type of returned tensor
-    :returns: target value stored stored as a :class:`metatensor.TensorBlock`
+        is tried to determined from the file extension.
+    :returns: stress stored in double precision as a :class:`metatensor.TensorBlock`
     """
     return _base_reader(
-        target="stress",
-        filename=filename,
-        reader=reader,
-        key=target_value,
-        dtype=dtype,
+        target="stress", filename=filename, reader=reader, key=target_value
     )
 
 
 def read_systems(
     filename: str,
     reader: Optional[str] = None,
-    dtype: torch.dtype = torch.float32,
 ) -> List[System]:
     """Read system informations from a file.
 
     :param filename: name of the file to read
     :param reader: reader library for parsing the file. If :py:obj:`None` the library is
-        determined from the file extension.
+        is tried to determined from the file extension.
     :param dtype: desired data type of returned tensor
     :returns: list of systems
+        determined from the file extension.
+    :returns: list of systems stored in double precision
     """
-    return _base_reader(
-        target="systems",
-        filename=filename,
-        reader=reader,
-        dtype=dtype,
-    )
+    return _base_reader(target="systems", filename=filename, reader=reader)
 
 
 def read_virial(
     filename: str,
     target_value: str = "virial",
     reader: Optional[str] = None,
-    dtype: torch.dtype = torch.float32,
 ) -> List[TensorBlock]:
     """Read virial informations from a file.
 
     :param filename: name of the file to read
     :param target_value: target value key name to be parsed from the file.
     :param reader: reader library for parsing the file. If :py:obj:`None` the library is
-        determined from the file extension.
-    :param dtype: desired data type of returned tensor
-    :returns: target value stored stored as a :class:`metatensor.TensorBlock`
+        is tried to determined from the file extension.
+    :returns: virial stored in double precision as a :class:`metatensor.TensorBlock`
     """
     return _base_reader(
         target="virial",
         filename=filename,
         reader=reader,
         key=target_value,
-        dtype=dtype,
     )
 
 
 def read_targets(
     conf: DictConfig,
-    dtype: torch.dtype = torch.float32,
 ) -> Tuple[Dict[str, List[TensorMap]], TargetInfoDict]:
     """Reading all target information from a fully expanded config.
 
-    To get such a config you can use
-    :func:`metatrain.utils.omegaconf.expand_dataset_config`.
+    To get such a config you can use :func:`expand_dataset_config
+    <metatrain.utils.omegaconf.expand_dataset_config>`. All targets are stored in double
+    precision.
 
     This function uses subfunctions like :func:`read_energy` to parse the requested
     target quantity. Currently only `energy` is a supported target property. But, within
@@ -191,9 +174,10 @@ def read_targets(
     added. Other gradients are silentlty irgnored.
 
     :param conf: config containing the keys for what should be read.
-    :param dtype: desired data type of returned tensor
-    :returns: Dictionary containing one TensorMaps for each target section in the config
-        as well as a ``TargetInfoDict`` instance containing the metadata of the targets.
+    :returns: Dictionary containing a list of TensorMaps for each target section in the
+        config as well as a :py:class:`TargetInfoDict
+        <metatrain.utils.data.TargetInfoDict>` instance containing the metadata of the
+        targets.
 
     :raises ValueError: if the target name is not valid. Valid target names are
         those that either start with ``mtt::`` or those that are in the list of
@@ -219,7 +203,6 @@ def read_targets(
                 filename=target["read_from"],
                 target_value=target["key"],
                 reader=target["reader"],
-                dtype=dtype,
             )
 
             if target["forces"]:
@@ -228,7 +211,6 @@ def read_targets(
                         filename=target["forces"]["read_from"],
                         target_value=target["forces"]["key"],
                         reader=target["forces"]["reader"],
-                        dtype=dtype,
                     )
                 except Exception:
                     logger.warning(
@@ -256,7 +238,6 @@ def read_targets(
                         filename=target["stress"]["read_from"],
                         target_value=target["stress"]["key"],
                         reader=target["stress"]["reader"],
-                        dtype=dtype,
                     )
                 except Exception:
                     logger.warning(
@@ -279,7 +260,6 @@ def read_targets(
                         filename=target["virial"]["read_from"],
                         target_value=target["virial"]["key"],
                         reader=target["virial"]["reader"],
-                        dtype=dtype,
                     )
                 except Exception:
                     logger.warning(

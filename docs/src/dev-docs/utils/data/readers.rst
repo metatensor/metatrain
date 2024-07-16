@@ -33,7 +33,7 @@ Target type specific readers
 ----------------------------
 
 :func:`metatrain.utils.data.read_targets` uses sub-functions to parse supported
-target properties like the `energy` or `forces`. Currently we support reading the
+target properties like the ``energy`` or ``forces``. Currently we support reading the
 following target properties via
 
 .. autofunction:: metatrain.utils.data.read_energy

@@ -25,6 +25,7 @@ np.random.seed(0)
 torch.manual_seed(0)
 
 systems = read_systems(ALCHEMICAL_DATASET_PATH)
+systems = [system.to(torch.float32) for system in systems]
 nl_options = NeighborListOptions(
     cutoff=5.0,
     full_list=True,
@@ -43,13 +44,16 @@ batch = next(iter(dataloader))
 
 def test_systems_to_torch_alchemical_batch():
     batch_dict = systems_to_torch_alchemical_batch(systems, nl_options)
+    print(batch_dict["positions"].dtype, batch.pos.dtype)
     torch.testing.assert_close(batch_dict["positions"], batch.pos)
     torch.testing.assert_close(batch_dict["cells"], batch.cell)
     torch.testing.assert_close(batch_dict["numbers"], batch.numbers)
+
     index_1, counts_1 = torch.unique(batch_dict["batch"], return_counts=True)
     index_2, counts_2 = torch.unique(batch.batch, return_counts=True)
     torch.testing.assert_close(index_1, index_2)
     torch.testing.assert_close(counts_1, counts_2)
+
     offset_1, counts_1 = torch.unique(batch_dict["edge_offsets"], return_counts=True)
     offset_2, counts_2 = torch.unique(batch.edge_offsets, return_counts=True)
     torch.testing.assert_close(offset_1, offset_2)

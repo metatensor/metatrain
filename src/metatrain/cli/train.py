@@ -15,14 +15,7 @@ from omegaconf import DictConfig, OmegaConf
 
 from .. import PACKAGE_ROOT
 from ..utils.architectures import check_architecture_options, get_default_hypers
-from ..utils.data import (
-    Dataset,
-    DatasetInfo,
-    TargetInfoDict,
-    get_atomic_types,
-    read_systems,
-    read_targets,
-)
+from ..utils.data import DatasetInfo, TargetInfoDict, get_atomic_types, get_dataset
 from ..utils.data.dataset import _train_test_random_split
 from ..utils.devices import pick_devices
 from ..utils.distributed.logging import is_main_process
@@ -193,17 +186,9 @@ def train_model(
     train_datasets = []
     target_infos = TargetInfoDict()
     for train_options in options["training_set"]:
-        train_systems = read_systems(
-            filename=train_options["systems"]["read_from"],
-            reader=train_options["systems"]["reader"],
-            dtype=dtype,
-        )
-        train_targets, target_info_dictionary = read_targets(
-            conf=train_options["targets"], dtype=dtype
-        )
-
-        target_infos.update(target_info_dictionary)
-        train_datasets.append(Dataset({"system": train_systems, **train_targets}))
+        dataset, target_info_dict = get_dataset(train_options)
+        train_datasets.append(dataset)
+        target_infos.update(target_info_dict)
 
     train_size = 1.0
 
@@ -247,14 +232,8 @@ def train_model(
         )
 
         for test_options in options["test_set"]:
-            test_systems = read_systems(
-                filename=test_options["systems"]["read_from"],
-                reader=test_options["systems"]["reader"],
-                dtype=dtype,
-            )
-            test_targets, _ = read_targets(conf=test_options["targets"], dtype=dtype)
-            test_dataset = Dataset({"system": test_systems, **test_targets})
-            test_datasets.append(test_dataset)
+            dataset, _ = get_dataset(test_options)
+            test_datasets.append(dataset)
 
     ###########################
     # SETUP VALIDATION SET ####
@@ -295,15 +274,9 @@ def train_model(
             desired_options=options["training_set"],
         )
 
-        for val_options in options["validation_set"]:
-            val_systems = read_systems(
-                filename=val_options["systems"]["read_from"],
-                reader=val_options["systems"]["reader"],
-                dtype=dtype,
-            )
-            val_targets, _ = read_targets(conf=val_options["targets"], dtype=dtype)
-            val_dataset = Dataset({"system": val_systems, **val_targets})
-            val_datasets.append(val_dataset)
+        for valid_options in options["validation_set"]:
+            dataset, _ = get_dataset(valid_options)
+            val_datasets.append(dataset)
 
     ###########################
     # CREATE DATASET_INFO #####
@@ -379,6 +352,7 @@ def train_model(
     try:
         trainer.train(
             model=model,
+            dtype=dtype,
             devices=devices,
             train_datasets=train_datasets,
             val_datasets=val_datasets,

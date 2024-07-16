@@ -28,11 +28,14 @@ class Trainer:
     def train(
         self,
         model: WrappedPET,
+        dtype: torch.dtype,
         devices: List[torch.device],
         train_datasets: List[Union[Dataset, torch.utils.data.Subset]],
         val_datasets: List[Union[Dataset, torch.utils.data.Subset]],
         checkpoint_dir: str,
     ):
+        assert dtype in WrappedPET.__supported_dtypes__
+
         self.pet_dir = Path(checkpoint_dir) / "pet"
 
         if len(train_datasets) != 1:

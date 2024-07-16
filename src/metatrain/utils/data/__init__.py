@@ -22,3 +22,4 @@ from .writers import write_predictions  # noqa: F401
 from .combine_dataloaders import CombinedDataLoader  # noqa: F401
 from .system_to_ase import system_to_ase  # noqa: F401
 from .extract_targets import get_targets_dict  # noqa: F401
+from .get_dataset import get_dataset  # noqa: F401
