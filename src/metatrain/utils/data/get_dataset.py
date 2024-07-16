@@ -30,7 +30,7 @@ def get_dataset(
         dataset = DiskDataset(options["systems"]["read_from"])
         target_info_dictionary = TargetInfoDict()
         # TODO: generalize this
-        if len(options["targets"] != 1):
+        if len(options["targets"]) != 1:
             raise ValueError("DiskDataset currently only supports a single target.")
         if "energy" not in options["targets"]:
             raise ValueError("DiskDataset currently only supports energy as a target.")
