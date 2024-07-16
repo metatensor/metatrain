@@ -198,9 +198,9 @@ class SoapBpnn(torch.nn.Module):
     def restart(self, dataset_info: DatasetInfo) -> "SoapBpnn":
         # merge old and new dataset info
         merged_info = self.dataset_info.union(dataset_info)
-        new_atomic_types = sorted(
-            set(merged_info.atomic_types) - set(self.dataset_info.atomic_types)
-        )
+        new_atomic_types = [
+            at for at in merged_info.atomic_types if at not in self.atomic_types
+        ]
         new_targets = merged_info.targets - self.dataset_info.targets
 
         if len(new_atomic_types) > 0:

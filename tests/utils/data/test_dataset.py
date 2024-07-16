@@ -55,14 +55,14 @@ def test_target_info_gradients():
     assert target_info.__repr__() == expected
 
 
-def test_set_gradients():
+def test_list_gradients():
     info1 = TargetInfo(quantity="energy", unit="eV")
 
-    info1.gradients = ["psoitions"]
-    assert info1.gradients == ["psoitions"]
+    info1.gradients = ["positions"]
+    assert info1.gradients == ["positions"]
 
     info1.gradients += ["strain"]
-    assert info1.gradients == ["psoitions", "strain"]
+    assert info1.gradients == ["positions", "strain"]
 
 
 def test_unit_none_conversion():
