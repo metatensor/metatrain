@@ -37,6 +37,7 @@ def test_eval_cli(monkeypatch, tmp_path):
         str(EVAL_OPTIONS_PATH),
         "-e",
         str(RESOURCES_PATH / "extensions"),
+        "-c",  # check consistency
     ]
 
     output = subprocess.check_output(command, stderr=subprocess.STDOUT)
@@ -60,6 +61,7 @@ def test_eval(monkeypatch, tmp_path, caplog, model_name, options):
         model=model,
         options=options,
         output="foo.xyz",
+        check_consistency=True,
     )
 
     # Test target predictions
@@ -94,6 +96,7 @@ def test_eval_export(monkeypatch, tmp_path, options):
         model=exported_model,
         options=options,
         output="foo.xyz",
+        check_consistency=True,
     )
 
 
@@ -108,6 +111,7 @@ def test_eval_multi_dataset(monkeypatch, tmp_path, caplog, model, options):
         model=model,
         options=OmegaConf.create([options, options]),
         output="foo.xyz",
+        check_consistency=True,
     )
 
     # Test target predictions
@@ -131,6 +135,7 @@ def test_eval_no_targets(monkeypatch, tmp_path, model, options):
     eval_model(
         model=model,
         options=options,
+        check_consistency=True,
     )
 
     assert Path("output.xyz").is_file()

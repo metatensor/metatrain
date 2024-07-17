@@ -50,7 +50,9 @@ def test_evaluate_model(training, exported):
             for system in systems
         ]
 
-    outputs = evaluate_model(model, systems, targets, is_training=training)
+    outputs = evaluate_model(
+        model, systems, targets, is_training=training, check_consistency=True
+    )
 
     assert isinstance(outputs, dict)
     assert "energy" in outputs
