@@ -50,6 +50,7 @@ def test_evaluate_model(training, exported):
             for system in systems
         ]
 
+    systems = [system.to(torch.float32) for system in systems]
     outputs = evaluate_model(
         model, systems, targets, is_training=training, check_consistency=True
     )

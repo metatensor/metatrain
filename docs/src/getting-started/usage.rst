@@ -11,20 +11,20 @@ registered via the abbreviation ``mtt`` to your command line. The general help o
 
     mtt --help
 
-We now demonstrate how to `train` and `evaluate` a model from the command line. For this
-example we use the :ref:`architecture-soap-bpnn` architecture and a subset of the `QM9
-dataset <https://paperswithcode.com/dataset/qm9>`_. You can obtain the reduced dataset
-from our :download:`website <../../static/qm9/qm9_reduced_100.xyz>`.
+We now demonstrate how to ``train`` and ``evaluate`` a model from the command line. For
+this example we use the :ref:`architecture-soap-bpnn` architecture and a subset of the
+`QM9 dataset <https://paperswithcode.com/dataset/qm9>`_. You can obtain the reduced
+dataset from our :download:`website <../../static/qm9/qm9_reduced_100.xyz>`.
 
 Training
 ########
 
-To train models, `metatrain` uses a dynamic override strategy for your training
+To train models, ``metatrain`` uses a dynamic override strategy for your training
 options. We allow a dynamical composition and override of the default architecture with
 either your custom ``options.yaml`` and even command line override grammar. For
-reference and reproducibility purposes `metatrain` always writes the fully
+reference and reproducibility purposes ``metatrain`` always writes the fully
 expanded, including the overwritten option to ``options_restart.yaml``. The restart
-options file is written into a subfolder named with the current `date` and `time` inside
+options file is written into a subfolder named with the current *date* and *time* inside
 the ``output`` directory of your current training run.
 
 The sub-command to start a model training is
@@ -45,7 +45,7 @@ training using the default hyperparameters of an SOAP BPNN model
    :language: yaml
 
 For each training run a new output directory in the format
-``output/YYYY-MM-DD/HH-MM-SS`` based on the current `date` and `time` is created. We use
+``output/YYYY-MM-DD/HH-MM-SS`` based on the current *date* and *time* is created. We use
 this output directory to store checkpoints, the ``train.log`` log file  as well the
 restart ``options_restart.yaml`` file. To start the training create an ``options.yaml``
 file in the current directory and type
@@ -64,7 +64,7 @@ The sub-command to evaluate an already trained model is
 
     mtt eval
 
-Besides the trained `model`, you will also have to provide a file containing the
+Besides the trained ``model``, you will also have to provide a file containing the
 system and possible target values for evaluation. The system of this ``eval.yaml``
 is exactly the same as for a dataset in the ``options.yaml`` file.
 

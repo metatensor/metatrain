@@ -31,7 +31,7 @@ def test_read_systems(reader, monkeypatch, tmp_path):
     systems = ase_systems()
     ase.io.write(filename, systems)
 
-    results = read_systems(filename, reader=reader, dtype=torch.float16)
+    results = read_systems(filename, reader=reader)
 
     assert isinstance(results, list)
     assert len(results) == len(systems)
@@ -39,7 +39,7 @@ def test_read_systems(reader, monkeypatch, tmp_path):
         assert isinstance(result, torch.ScriptObject)
 
         torch.testing.assert_close(
-            result.positions, torch.tensor(system.positions, dtype=torch.float16)
+            result.positions, torch.tensor(system.positions, dtype=torch.float64)
         )
         torch.testing.assert_close(
             result.types, torch.tensor([1, 1], dtype=torch.int32)
@@ -66,14 +66,12 @@ def test_read_energies(reader, monkeypatch, tmp_path):
     systems = ase_systems()
     ase.io.write(filename, systems)
 
-    results = read_energy(
-        filename, reader=reader, target_value="true_energy", dtype=torch.float16
-    )
+    results = read_energy(filename, reader=reader, target_value="true_energy")
 
     assert type(results) is list
     assert len(results) == len(systems)
     for i_system, result in enumerate(results):
-        assert result.values.dtype is torch.float16
+        assert result.values.dtype is torch.float64
         assert result.samples.names == ["system"]
         assert result.samples.values == torch.tensor([[i_system]])
         assert result.properties == Labels("energy", torch.tensor([[0]]))
@@ -87,14 +85,12 @@ def test_read_forces(reader, monkeypatch, tmp_path):
     systems = ase_systems()
     ase.io.write(filename, systems)
 
-    results = read_forces(
-        filename, reader=reader, target_value="forces", dtype=torch.float16
-    )
+    results = read_forces(filename, reader=reader, target_value="forces")
 
     assert type(results) is list
     assert len(results) == len(systems)
     for i_system, result in enumerate(results):
-        assert result.values.dtype is torch.float16
+        assert result.values.dtype is torch.float64
         assert result.samples.names == ["sample", "system", "atom"]
         assert torch.all(result.samples["sample"] == torch.tensor(0))
         assert torch.all(result.samples["system"] == torch.tensor(i_system))
@@ -111,9 +107,7 @@ def test_read_stress_virial(reader_func, reader, monkeypatch, tmp_path):
     systems = ase_systems()
     ase.io.write(filename, systems)
 
-    results = reader_func(
-        filename, reader=reader, target_value="stress-3x3", dtype=torch.float16
-    )
+    results = reader_func(filename, reader=reader, target_value="stress-3x3")
 
     assert type(results) is list
     assert len(results) == len(systems)
@@ -122,7 +116,7 @@ def test_read_stress_virial(reader_func, reader, monkeypatch, tmp_path):
         Labels(["xyz_2"], torch.arange(3).reshape(-1, 1)),
     ]
     for result in results:
-        assert result.values.dtype is torch.float16
+        assert result.values.dtype is torch.float64
         assert result.samples.names == ["sample"]
         assert result.samples.values == torch.tensor([[0]])
         assert result.components == components
@@ -179,7 +173,7 @@ def test_read_targets(stress_dict, virial_dict, monkeypatch, tmp_path, caplog):
     }
 
     caplog.set_level(logging.INFO)
-    result, target_info_dict = read_targets(OmegaConf.create(conf), dtype=torch.float16)
+    result, target_info_dict = read_targets(OmegaConf.create(conf))
 
     assert any(["Forces found" in rec.message for rec in caplog.records])
 
@@ -199,19 +193,19 @@ def test_read_targets(stress_dict, virial_dict, monkeypatch, tmp_path, caplog):
         assert target_info.quantity == target_section["quantity"]
         assert target_info.unit == target_section["unit"]
         assert target_info.per_atom is False
-        assert target_info.gradients == {"positions", "strain"}
+        assert target_info.gradients == ["positions", "strain"]
 
         assert type(target_list) is list
         for target in target_list:
             assert target.keys == Labels(["_"], torch.tensor([[0]]))
 
             result_block = target.block()
-            assert result_block.values.dtype is torch.float16
+            assert result_block.values.dtype is torch.float64
             assert result_block.samples.names == ["system"]
             assert result_block.properties == Labels("energy", torch.tensor([[0]]))
 
             pos_grad = result_block.gradient("positions")
-            assert pos_grad.values.dtype is torch.float16
+            assert pos_grad.values.dtype is torch.float64
             assert pos_grad.samples.names == ["sample", "system", "atom"]
             assert pos_grad.components == [
                 Labels(["xyz"], torch.arange(3).reshape(-1, 1))
@@ -223,7 +217,7 @@ def test_read_targets(stress_dict, virial_dict, monkeypatch, tmp_path, caplog):
                 Labels(["xyz_1"], torch.arange(3).reshape(-1, 1)),
                 Labels(["xyz_2"], torch.arange(3).reshape(-1, 1)),
             ]
-            assert strain_grad.values.dtype is torch.float16
+            assert strain_grad.values.dtype is torch.float64
             assert strain_grad.samples.names == ["sample"]
             assert strain_grad.components == components
             assert strain_grad.properties == Labels("energy", torch.tensor([[0]]))

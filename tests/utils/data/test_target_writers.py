@@ -1,4 +1,4 @@
-from typing import List
+from typing import Dict, List, Tuple
 
 import ase.io
 import pytest
@@ -9,7 +9,9 @@ from metatensor.torch.atomistic import ModelCapabilities, ModelOutput, System
 from metatrain.utils.data.writers import write_predictions, write_xyz
 
 
-def systems_capabilities_predictions(cell: torch.tensor = None) -> List[System]:
+def systems_capabilities_predictions(
+    cell: torch.tensor = None,
+) -> Tuple[List[System], ModelCapabilities, Dict[str, TensorMap]]:
     if cell is None:
         cell = torch.zeros((3, 3))
 

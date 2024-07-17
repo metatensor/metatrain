@@ -12,7 +12,7 @@ the ``eval`` and the ``export`` functions of ``metatrain``.
    export
 
 We provide a custom formatter class for the formatting the help message of the
-`argparse` package.
+``argparse`` package.
 
 .. toctree::
    :maxdepth: 1

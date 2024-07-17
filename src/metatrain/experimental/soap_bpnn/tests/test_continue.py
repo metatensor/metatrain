@@ -20,12 +20,13 @@ def test_continue(monkeypatch, tmp_path):
     shutil.copy(DATASET_PATH, "qm9_reduced_100.xyz")
 
     systems = read_systems(DATASET_PATH)
+    systems = [system.to(torch.float32) for system in systems]
 
     target_info_dict = TargetInfoDict()
     target_info_dict["mtt::U0"] = TargetInfo(quantity="energy", unit="eV")
 
     dataset_info = DatasetInfo(
-        length_unit="Angstrom", atomic_types={1, 6, 7, 8}, targets=target_info_dict
+        length_unit="Angstrom", atomic_types=[1, 6, 7, 8], targets=target_info_dict
     )
     model = SoapBpnn(MODEL_HYPERS, dataset_info)
     output_before = model(systems[:5], {"mtt::U0": model.outputs["mtt::U0"]})
@@ -53,7 +54,14 @@ def test_continue(monkeypatch, tmp_path):
 
     hypers["training"]["num_epochs"] = 0
     trainer = Trainer(hypers["training"])
-    trainer.train(model_after, [torch.device("cpu")], [dataset], [dataset], ".")
+    trainer.train(
+        model=model_after,
+        dtype=torch.float32,
+        devices=[torch.device("cpu")],
+        train_datasets=[dataset],
+        val_datasets=[dataset],
+        checkpoint_dir=".",
+    )
 
     # Predict on the first five systems
     output_before = model_before(
