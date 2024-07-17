@@ -1,7 +1,7 @@
 seed: 42
 
 architecture:
-  name: experimental.soap_bpnn
+  name: experimental.nanopet
   training:
     batch_size: 16
     num_epochs: 100

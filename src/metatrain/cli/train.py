@@ -176,9 +176,9 @@ def train_model(
         torch.cuda.manual_seed(options["seed"])
         torch.cuda.manual_seed_all(options["seed"])
 
-    ###########################
-    # SETUP TRAINING SET ######
-    ###########################
+    ############################
+    # SET UP TRAINING SET ######
+    ############################
 
     logger.info("Setting up training set")
     options["training_set"] = expand_dataset_config(options["training_set"])
@@ -192,9 +192,9 @@ def train_model(
 
     train_size = 1.0
 
-    ###########################
-    # SETUP TEST SET ##########
-    ###########################
+    ############################
+    # SET UP TEST SET ##########
+    ############################
 
     logger.info("Setting up test set")
     test_datasets = []
@@ -235,9 +235,9 @@ def train_model(
             dataset, _ = get_dataset(test_options)
             test_datasets.append(dataset)
 
-    ###########################
-    # SETUP VALIDATION SET ####
-    ###########################
+    ############################
+    # SET UP VALIDATION SET ####
+    ############################
 
     logger.info("Setting up validation set")
     val_datasets = []
