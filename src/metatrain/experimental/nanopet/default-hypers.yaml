@@ -17,7 +17,7 @@ training:
   num_epochs: 10000
   learning_rate: 3e-4
   early_stopping_patience: 1000
-  scheduler_patience: 10
+  scheduler_patience: 100
   scheduler_factor: 0.8
   log_interval: 10
   checkpoint_interval: 100
