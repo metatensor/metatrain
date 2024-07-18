@@ -157,12 +157,6 @@ class NanoPET(torch.nn.Module):
         # Checks on systems (species) and outputs are done in the
         # MetatensorAtomisticModel wrapper
 
-        if selected_atoms is not None:
-            raise NotImplementedError(
-                "The PET model does not support domain decomposition."
-            )
-
-        n_structures = len(systems)
         positions, centers, neighbors, species, segment_indices, edge_vectors = (
             concatenate_structures(systems)
         )
@@ -283,10 +277,16 @@ class NanoPET(torch.nn.Module):
         }
 
         return_dict: Dict[str, TensorMap] = {}
-        for name, tmap in atomic_energies_tmap.items():
-            return_dict[name] = apply_composition_contribution_samples(
-                tmap, self.composition_weights[self.output_to_index[name]]
+        for output_name, tmap in atomic_energies_tmap.items():
+            return_dict[output_name] = apply_composition_contribution_samples(
+                tmap, self.composition_weights[self.output_to_index[output_name]]
             )
+
+        if selected_atoms is not None:
+            for output_name, tmap in atomic_energies_tmap.items():
+                return_dict[output_name] = metatensor.torch.slice(
+                    tmap, axis="samples", labels=selected_atoms
+                )
 
         for output_name, atomic_energy in return_dict.items():
             if outputs[output_name].per_atom:
