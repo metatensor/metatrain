@@ -27,7 +27,7 @@ from ...utils.metrics import RMSEAccumulator
 from ...utils.neighbor_lists import get_system_with_neighbor_lists
 from ...utils.per_atom import average_by_num_atoms
 from .model import NanoPET
-from .modules.augmentation import apply_random_augmentation
+from .modules.augmentation import apply_random_augmentations
 
 
 logger = logging.getLogger(__name__)
@@ -278,7 +278,7 @@ class Trainer:
                 optimizer.zero_grad()
 
                 systems, targets = batch
-                systems = [apply_random_augmentation(system) for system in systems]
+                systems, targets = apply_random_augmentations(systems, targets)
                 systems = [system.to(dtype=dtype, device=device) for system in systems]
                 targets = {
                     key: value.to(dtype=dtype, device=device)
