@@ -92,11 +92,8 @@
         },
         "loss_weights": {
           "type": "object",
-          "properties": {
-            "energy": {
-              "type": "number"
-            },
-            "forces": {
+          "patternProperties": {
+            ".*": {
               "type": "number"
             }
           },
