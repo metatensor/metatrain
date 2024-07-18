@@ -35,6 +35,7 @@ def evaluate_model(
     systems: List[System],
     targets: TargetInfoDict,
     is_training: bool,
+    check_consistency: bool = False,
 ) -> Dict[str, TensorMap]:
     """
     Evaluate the model (in training or exported) on a set of requested targets.
@@ -75,13 +76,14 @@ def evaluate_model(
             system,
             positions_grad=len(energy_targets_that_require_position_gradients) > 0,
             strain_grad=len(energy_targets_that_require_strain_gradients) > 0,
+            check_consistency=check_consistency,
         )
         new_systems.append(new_system)
         strains.append(strain)
     systems = new_systems
 
     # Based on the keys of the targets, get the outputs of the model:
-    model_outputs = _get_model_outputs(model, systems, targets)
+    model_outputs = _get_model_outputs(model, systems, targets, check_consistency)
 
     for energy_target in energy_targets:
         # If the energy target requires gradients, compute them:
@@ -233,6 +235,7 @@ def _get_model_outputs(
     ],
     systems: List[System],
     targets: TargetInfoDict,
+    check_consistency: bool,
 ) -> Dict[str, TensorMap]:
     if is_exported(model):
         # put together an EvaluationOptions object
@@ -245,8 +248,7 @@ def _get_model_outputs(
                 for key, value in targets.items()
             },
         )
-        # we check consistency here because this could be called from eval
-        return model(systems, options, check_consistency=True)
+        return model(systems, options, check_consistency=check_consistency)
     else:
         return model(
             systems,
@@ -259,7 +261,9 @@ def _get_model_outputs(
         )
 
 
-def _prepare_system(system: System, positions_grad: bool, strain_grad: bool):
+def _prepare_system(
+    system: System, positions_grad: bool, strain_grad: bool, check_consistency: bool
+):
     """
     Prepares a system for gradient calculation.
     """
@@ -294,7 +298,7 @@ def _prepare_system(system: System, positions_grad: bool, strain_grad: bool):
     for nl_options in system.known_neighbor_lists():
         nl = system.get_neighbor_list(nl_options)
         nl = metatensor.torch.detach_block(nl)
-        register_autograd_neighbors(new_system, nl, check_consistency=True)
+        register_autograd_neighbors(new_system, nl, check_consistency)
         new_system.add_neighbor_list(nl_options, nl)
 
     return new_system, strain

@@ -150,7 +150,7 @@ evaluation_options = ModelEvaluationOptions(
     selected_atoms=None,
 )
 
-outputs = exported_model([ethanol_system], evaluation_options, check_consistency=True)
+outputs = exported_model([ethanol_system], evaluation_options, check_consistency=False)
 lpr = outputs["mtt::aux::energy_uncertainty"].block().values.detach().cpu().numpy()
 
 # %%
