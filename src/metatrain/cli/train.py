@@ -193,49 +193,6 @@ def train_model(
     train_size = 1.0
 
     ############################
-    # SET UP TEST SET ##########
-    ############################
-
-    logger.info("Setting up test set")
-    test_datasets = []
-    if isinstance(options["test_set"], float):
-        test_size = options["test_set"]
-        train_size -= test_size
-
-        generator = torch.Generator()
-        if options["seed"] is not None:
-            generator.manual_seed(options["seed"])
-
-        for i_dataset, train_dataset in enumerate(train_datasets):
-            train_dataset_new, test_dataset = _train_test_random_split(
-                train_dataset=train_dataset,
-                train_size=train_size,
-                test_size=test_size,
-                generator=generator,
-            )
-
-            train_datasets[i_dataset] = train_dataset_new
-            test_datasets.append(test_dataset)
-    else:
-        options["test_set"] = expand_dataset_config(options["test_set"])
-
-        if len(options["test_set"]) != len(options["training_set"]):
-            raise ValueError(
-                f"Test dataset with length {len(options['test_set'])} has a different "
-                f"size than the training datatset with length "
-                f"{len(options['training_set'])}."
-            )
-
-        check_units(
-            actual_options=options["test_set"],
-            desired_options=options["training_set"],
-        )
-
-        for test_options in options["test_set"]:
-            dataset, _ = get_dataset(test_options)
-            test_datasets.append(dataset)
-
-    ############################
     # SET UP VALIDATION SET ####
     ############################
 
@@ -245,16 +202,11 @@ def train_model(
         val_size = options["validation_set"]
         train_size -= val_size
 
-        generator = torch.Generator()
-        if options["seed"] is not None:
-            generator.manual_seed(options["seed"])
-
         for i_dataset, train_dataset in enumerate(train_datasets):
             train_dataset_new, val_dataset = _train_test_random_split(
                 train_dataset=train_dataset,
                 train_size=train_size,
                 test_size=val_size,
-                generator=generator,
             )
 
             train_datasets[i_dataset] = train_dataset_new
@@ -277,6 +229,44 @@ def train_model(
         for valid_options in options["validation_set"]:
             dataset, _ = get_dataset(valid_options)
             val_datasets.append(dataset)
+
+    ############################
+    # SET UP TEST SET ##########
+    ############################
+
+    logger.info("Setting up test set")
+    test_datasets = []
+    if isinstance(options["test_set"], float):
+        test_size = options["test_set"]
+        train_size -= test_size
+
+        for i_dataset, train_dataset in enumerate(train_datasets):
+            train_dataset_new, test_dataset = _train_test_random_split(
+                train_dataset=train_dataset,
+                train_size=train_size,
+                test_size=test_size,
+            )
+
+            train_datasets[i_dataset] = train_dataset_new
+            test_datasets.append(test_dataset)
+    else:
+        options["test_set"] = expand_dataset_config(options["test_set"])
+
+        if len(options["test_set"]) != len(options["training_set"]):
+            raise ValueError(
+                f"Test dataset with length {len(options['test_set'])} has a different "
+                f"size than the training datatset with length "
+                f"{len(options['training_set'])}."
+            )
+
+        check_units(
+            actual_options=options["test_set"],
+            desired_options=options["training_set"],
+        )
+
+        for test_options in options["test_set"]:
+            dataset, _ = get_dataset(test_options)
+            test_datasets.append(dataset)
 
     ###########################
     # CREATE DATASET_INFO #####

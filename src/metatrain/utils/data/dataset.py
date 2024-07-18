@@ -1,13 +1,12 @@
-import itertools
 import math
 import warnings
 from collections import UserDict
 from typing import Any, Dict, List, Optional, Tuple, Union
 
 import metatensor.learn
+import numpy as np
 import torch
 from metatensor.torch import TensorMap
-from torch import Generator, default_generator
 
 from ..external_naming import to_external_name
 from ..units import get_gradient_units
@@ -485,49 +484,36 @@ def _train_test_random_split(
     train_dataset: Dataset,
     train_size: float,
     test_size: float,
-    generator: Optional[Generator] = default_generator,
 ) -> List[Dataset]:
     if train_size <= 0:
         raise ValueError("Fraction of the train set is smaller or equal to 0!")
 
-    # normalize fractions
-    lengths = torch.tensor([train_size, test_size])
-    lengths /= lengths.sum()
+    # normalize the sizes
+    size_sum = train_size + test_size
+    train_size /= size_sum
+    test_size /= size_sum
 
-    if math.isclose(sum(lengths), 1) and sum(lengths) <= 1:
-        subset_lengths: List[int] = []
-        for i, frac in enumerate(lengths):
-            if frac < 0 or frac > 1:
-                raise ValueError(f"Fraction at index {i} is not between 0 and 1")
-            n_items_in_split = int(
-                math.floor(len(train_dataset) * frac)  # type: ignore[arg-type]
-            )
-            subset_lengths.append(n_items_in_split)
-        remainder = len(train_dataset) - sum(subset_lengths)  # type: ignore[arg-type]
-        # add 1 to all the lengths in round-robin fashion until the remainder is 0
-        for i in range(remainder):
-            idx_to_add_at = i % len(subset_lengths)
-            subset_lengths[idx_to_add_at] += 1
-        lengths = subset_lengths
-        for i, length in enumerate(lengths):
-            if length == 0:
-                warnings.warn(
-                    f"Length of split at index {i} is 0. "
-                    f"This might result in an empty dataset.",
-                    UserWarning,
-                    stacklevel=2,
-                )
-
-    # Cannot verify that train_dataset is Sized
-    if sum(lengths) != len(train_dataset):  # type: ignore[arg-type]
-        raise ValueError(
-            "Sum of input lengths does not equal the length of the input dataset!"
+    # find number of samples in the train and test sets
+    test_len = math.floor(len(train_dataset) * test_size)
+    if test_len == 0:
+        warnings.warn(
+            "Requested dataset of zero length. This dataset will be empty.",
+            UserWarning,
+            stacklevel=2,
         )
+    train_len = len(train_dataset) - test_len
+    if train_len == 0:
+        raise ValueError("No samples left in the training set.")
 
-    indices = torch.randperm(sum(lengths), generator=generator).tolist()
+    # find train, test indices
+    indices = list(range(len(train_dataset)))
+    np.random.shuffle(indices)
+    train_indices = indices[:train_len]
+    test_indices = indices[train_len:]
+
     return [
-        Subset(train_dataset, indices[offset - length : offset])
-        for offset, length in zip(itertools.accumulate(lengths), lengths)
+        Subset(train_dataset, train_indices),
+        Subset(train_dataset, test_indices),
     ]
 
 
