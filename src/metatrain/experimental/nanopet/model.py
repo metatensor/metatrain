@@ -11,6 +11,7 @@ from metatensor.torch.atomistic import (
     NeighborListOptions,
     System,
 )
+from nanopet_neighbors import get_corresponding_edges, get_nef_indices
 
 from ...utils.composition import apply_composition_contribution_samples
 from ...utils.data import DatasetInfo
@@ -21,7 +22,6 @@ from .modules.nef import edge_array_to_nef, nef_array_to_edges
 from .modules.radial_mask import get_radial_mask
 from .modules.structures import concatenate_structures
 from .modules.transformer import Transformer
-from nanopet_neighbors import get_nef_indices, get_corresponding_edges
 
 
 class NanoPET(torch.nn.Module):

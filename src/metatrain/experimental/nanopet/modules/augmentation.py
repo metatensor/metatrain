@@ -1,21 +1,21 @@
 import random
-
-import torch
-from metatensor.torch import Labels, TensorBlock, TensorMap
-from metatensor.torch.atomistic import System
-from scipy.spatial.transform import Rotation
 from typing import Dict, List, Tuple
 
+import torch
+from metatensor.torch import TensorBlock, TensorMap
+from metatensor.torch.atomistic import System
+from scipy.spatial.transform import Rotation
 
-def apply_random_augmentations(systems: List[System], targets: Dict[str, TensorMap]) -> Tuple[List[System], Dict[str, TensorMap]]:
+
+def apply_random_augmentations(
+    systems: List[System], targets: Dict[str, TensorMap]
+) -> Tuple[List[System], Dict[str, TensorMap]]:
     """
     Apply a random augmentation to a number of ``System`` objects and its targets.
     """
 
     transformations = [
-        torch.tensor(
-            get_random_augmentation(), dtype=systems[0].positions.dtype
-        )
+        torch.tensor(get_random_augmentation(), dtype=systems[0].positions.dtype)
         for _ in range(len(systems))
     ]
 
@@ -23,7 +23,11 @@ def apply_random_augmentations(systems: List[System], targets: Dict[str, TensorM
 
 
 @torch.jit.script
-def _apply_random_augmentations(systems: List[System], targets: Dict[str, TensorMap], transformations: List[torch.Tensor]) -> Tuple[List[System], Dict[str, TensorMap]]:
+def _apply_random_augmentations(
+    systems: List[System],
+    targets: Dict[str, TensorMap],
+    transformations: List[torch.Tensor],
+) -> Tuple[List[System], Dict[str, TensorMap]]:
 
     split_sizes_forces = [system.positions.shape[0] for system in systems]
 
@@ -56,15 +60,20 @@ def _apply_random_augmentations(systems: List[System], targets: Dict[str, Tensor
             values=target_tmap.block().values,
             samples=target_tmap.block().samples,
             components=target_tmap.block().components,
-            properties=target_tmap.block().properties
+            properties=target_tmap.block().properties,
         )
         if target_tmap.block().has_gradient("positions"):
             # transform position gradients:
             block = target_tmap.block().gradient("positions")
             position_gradients = block.values.squeeze(-1)
-            split_position_gradients = torch.split(position_gradients, split_sizes_forces)
+            split_position_gradients = torch.split(
+                position_gradients, split_sizes_forces
+            )
             position_gradients = torch.cat(
-                [split_position_gradients[i] @ transformations[i].T for i in range(len(systems))]
+                [
+                    split_position_gradients[i] @ transformations[i].T
+                    for i in range(len(systems))
+                ]
             )
             energy_block.add_gradient(
                 "positions",
@@ -72,8 +81,8 @@ def _apply_random_augmentations(systems: List[System], targets: Dict[str, Tensor
                     values=position_gradients.unsqueeze(-1),
                     samples=block.samples,
                     components=block.components,
-                    properties=block.properties
-                )
+                    properties=block.properties,
+                ),
             )
         if target_tmap.block().has_gradient("strain"):
             # transform strain gradients (rank 2 tensor):
@@ -81,7 +90,13 @@ def _apply_random_augmentations(systems: List[System], targets: Dict[str, Tensor
             strain_gradients = block.values.squeeze(-1)
             split_strain_gradients = torch.split(strain_gradients, 1)
             new_strain_gradients = torch.stack(
-                [transformations[i] @ split_strain_gradients[i].squeeze(0) @ transformations[i].T for i in range(len(systems))], dim=0
+                [
+                    transformations[i]
+                    @ split_strain_gradients[i].squeeze(0)
+                    @ transformations[i].T
+                    for i in range(len(systems))
+                ],
+                dim=0,
             )
             energy_block.add_gradient(
                 "strain",
@@ -89,8 +104,8 @@ def _apply_random_augmentations(systems: List[System], targets: Dict[str, Tensor
                     values=new_strain_gradients.unsqueeze(-1),
                     samples=block.samples,
                     components=block.components,
-                    properties=block.properties
-                )
+                    properties=block.properties,
+                ),
             )
         new_targets[name] = TensorMap(
             keys=target_tmap.keys,
