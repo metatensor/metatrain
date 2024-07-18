@@ -222,7 +222,7 @@ class NanoPET(torch.nn.Module):
 
         # Readout
         edge_energies = {
-            output_name: 0.001 * last_layer(features)
+            output_name: last_layer(features)
             for output_name, last_layer in self.last_layers.items()
         }
         # Apply radial weights

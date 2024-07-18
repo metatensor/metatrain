@@ -5,11 +5,10 @@ base_precision: 32
 architecture:
   name: experimental.nanopet
   training:
-    batch_size: 16
+    batch_size: 8
     num_epochs: 10000
     log_interval: 10
-    learning_rate: 1e-3
-    n_gnn_layers: 2
+    learning_rate: 1e-4
 
 training_set:
   systems:
