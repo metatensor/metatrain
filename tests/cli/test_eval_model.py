@@ -37,7 +37,7 @@ def test_eval_cli(monkeypatch, tmp_path):
         str(EVAL_OPTIONS_PATH),
         "-e",
         str(RESOURCES_PATH / "extensions"),
-        "-c",  # check consistency
+        "--check-consistency",
     ]
 
     output = subprocess.check_output(command, stderr=subprocess.STDOUT)

@@ -80,7 +80,6 @@ def _add_eval_model_parser(subparser: argparse._SubParsersAction) -> None:
         help="filename of the predictions (default: %(default)s)",
     )
     parser.add_argument(
-        "-c",
         "--check-consistency",
         dest="check_consistency",
         action="store_true",
