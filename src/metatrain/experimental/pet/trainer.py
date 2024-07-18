@@ -80,9 +80,6 @@ class Trainer:
 
         # set model hypers
         self.hypers["ARCHITECTURAL_HYPERS"] = model.hypers
-        dtype = train_datasets[0][0]["system"].positions.dtype
-        if dtype != torch.float32:
-            raise ValueError("PET only supports float32 as dtype")
         self.hypers["ARCHITECTURAL_HYPERS"]["DTYPE"] = "float32"
 
         # set MLIP_SETTINGS
