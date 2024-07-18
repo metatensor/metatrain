@@ -304,7 +304,7 @@ def test_empty_test_set(caplog, monkeypatch, tmp_path, options):
     options["validation_set"] = 0.4
     options["test_set"] = 0.0
 
-    match = "Length of split at index 1 is 0. This might result in an empty dataset."
+    match = "Requested dataset of zero length. This dataset will be empty."
     with pytest.warns(UserWarning, match=match):
         train_model(options)
 
@@ -491,3 +491,22 @@ def test_architecture_error(options, monkeypatch, tmp_path):
 
     with pytest.raises(ArchitectureError, match="originates from an architecture"):
         train_model(options)
+
+
+def test_train_issue_290(monkeypatch, tmp_path):
+    """Test the potential problem from issue #290."""
+    monkeypatch.chdir(tmp_path)
+    shutil.copy(DATASET_PATH_ETHANOL, "ethanol_reduced_100.xyz")
+
+    structures = ase.io.read("ethanol_reduced_100.xyz", ":")
+    more_structures = structures * 15 + [structures[0]]
+    ase.io.write("ethanol_1501.xyz", more_structures)
+
+    # run training with original options
+    options = OmegaConf.load(OPTIONS_PATH)
+    options["training_set"]["systems"]["read_from"] = "ethanol_1501.xyz"
+    options["training_set"]["targets"]["energy"]["key"] = "energy"
+    options["validation_set"] = 0.01
+    options["test_set"] = 0.85
+
+    train_model(options)
