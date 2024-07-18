@@ -99,7 +99,7 @@ class LLPRUncertaintyModel(torch.nn.Module):
                 outputs=outputs,
                 selected_atoms=selected_atoms,
             )
-            return self.model(systems, options, check_consistency=True)
+            return self.model(systems, options, check_consistency=False)
 
         per_atom_all_targets = [output.per_atom for output in outputs.values()]
         # impose either all per atom or all not per atom
@@ -130,9 +130,7 @@ class LLPRUncertaintyModel(torch.nn.Module):
             outputs=outputs_for_model,
             selected_atoms=selected_atoms,
         )
-        return_dict = self.model(
-            systems, options, check_consistency=True
-        )  # TODO: True or False here?
+        return_dict = self.model(systems, options, check_consistency=False)
 
         ll_features = return_dict["mtt::aux::last_layer_features"]
 
@@ -248,9 +246,7 @@ class LLPRUncertaintyModel(torch.nn.Module):
                 length_unit="",
                 outputs=outputs,
             )
-            output = self.model(
-                systems, options, check_consistency=True
-            )  # TODO: True or False here?
+            output = self.model(systems, options, check_consistency=False)
             ll_feat_tmap = output["mtt::aux::last_layer_features"]
             ll_feats = ll_feat_tmap.block().values / n_atoms.unsqueeze(1)
             self.covariance += ll_feats.T @ ll_feats
