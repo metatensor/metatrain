@@ -132,6 +132,7 @@ loss_fn = TensorMapDictLoss(loss_weight_dict)
 
 llpr_model = LLPRUncertaintyModel(model)
 
+print("Last layer parameters:")
 parameters = []
 for name, param in llpr_model.named_parameters():
     if "last_layers" in name:
@@ -165,7 +166,6 @@ force_errors = []
 force_uncertainties = []
 
 for batch in test_dataloader:
-    print("new_batch")
     systems, targets = batch
     systems = [system.to("cuda") for system in systems]
     for system in systems:
