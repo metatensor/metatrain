@@ -18,74 +18,74 @@ from metatrain.utils.neighbor_lists import get_system_with_neighbor_lists
 model = load_atomistic_model("model.pt", extensions_directory="extensions/")
 model = model.to("cuda")
 
-train_systems = read_systems("train.xyz", dtype=torch.float64)
+train_systems = read_systems("train.xyz")
 train_target_config = {
     "energy": {
         "quantity": "energy",
         "read_from": "train.xyz",
-        "file_format": ".xyz",
+        "reader": "ase",
         "key": "energy",
         "unit": "kcal/mol",
         "forces": {
             "read_from": "train.xyz",
-            "file_format": ".xyz",
+            "reader": "ase",
             "key": "forces",
         },
         "stress": {
             "read_from": "train.xyz",
-            "file_format": ".xyz",
+            "reader": "ase",
             "key": "stress",
         },
         "virial": False,
     },
 }
-train_targets, _ = read_targets(train_target_config, dtype=torch.float64)
+train_targets, _ = read_targets(train_target_config)
 
-valid_systems = read_systems("valid.xyz", dtype=torch.float64)
+valid_systems = read_systems("valid.xyz")
 valid_target_config = {
     "energy": {
         "quantity": "energy",
         "read_from": "valid.xyz",
-        "file_format": ".xyz",
+        "reader": "ase",
         "key": "energy",
         "unit": "kcal/mol",
         "forces": {
             "read_from": "valid.xyz",
-            "file_format": ".xyz",
+            "reader": "ase",
             "key": "forces",
         },
         "stress": {
             "read_from": "valid.xyz",
-            "file_format": ".xyz",
+            "reader": "ase",
             "key": "stress",
         },
         "virial": False,
     },
 }
-valid_targets, _ = read_targets(valid_target_config, dtype=torch.float64)
+valid_targets, _ = read_targets(valid_target_config)
 
-test_systems = read_systems("test.xyz", dtype=torch.float64)
+test_systems = read_systems("test.xyz")
 test_target_config = {
     "energy": {
         "quantity": "energy",
         "read_from": "test.xyz",
-        "file_format": ".xyz",
+        "reader": "ase",
         "key": "energy",
         "unit": "kcal/mol",
         "forces": {
             "read_from": "test.xyz",
-            "file_format": ".xyz",
+            "reader": "ase",
             "key": "forces",
         },
         "stress": {
             "read_from": "test.xyz",
-            "file_format": ".xyz",
+            "reader": "ase",
             "key": "stress",
         },
         "virial": False,
     },
 }
-test_targets, target_info = read_targets(test_target_config, dtype=torch.float64)
+test_targets, target_info = read_targets(test_target_config)
 
 requested_neighbor_lists = model.requested_neighbor_lists()
 train_systems = [
