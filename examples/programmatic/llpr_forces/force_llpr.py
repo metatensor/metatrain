@@ -23,16 +23,19 @@ train_target_config = {
     "energy": {
         "quantity": "energy",
         "read_from": "train.xyz",
+        "file_format": ".xyz",
         "reader": "ase",
         "key": "energy",
         "unit": "kcal/mol",
         "forces": {
             "read_from": "train.xyz",
+            "file_format": ".xyz",
             "reader": "ase",
             "key": "forces",
         },
         "stress": {
             "read_from": "train.xyz",
+            "file_format": ".xyz",
             "reader": "ase",
             "key": "stress",
         },
@@ -46,16 +49,19 @@ valid_target_config = {
     "energy": {
         "quantity": "energy",
         "read_from": "valid.xyz",
+        "file_format": ".xyz",
         "reader": "ase",
         "key": "energy",
         "unit": "kcal/mol",
         "forces": {
             "read_from": "valid.xyz",
+            "file_format": ".xyz",
             "reader": "ase",
             "key": "forces",
         },
         "stress": {
             "read_from": "valid.xyz",
+            "file_format": ".xyz",
             "reader": "ase",
             "key": "stress",
         },
@@ -69,16 +75,19 @@ test_target_config = {
     "energy": {
         "quantity": "energy",
         "read_from": "test.xyz",
+        "file_format": ".xyz",
         "reader": "ase",
         "key": "energy",
         "unit": "kcal/mol",
         "forces": {
             "read_from": "test.xyz",
+            "file_format": ".xyz",
             "reader": "ase",
             "key": "forces",
         },
         "stress": {
             "read_from": "test.xyz",
+            "file_format": ".xyz",
             "reader": "ase",
             "key": "stress",
         },
@@ -167,10 +176,10 @@ force_uncertainties = []
 
 for batch in test_dataloader:
     systems, targets = batch
-    systems = [system.to("cuda") for system in systems]
+    systems = [system.to("cuda", torch.float64) for system in systems]
     for system in systems:
         system.positions.requires_grad = True
-    targets = {name: tmap.to("cuda") for name, tmap in targets.items()}
+    targets = {name: tmap.to("cuda", torch.float64) for name, tmap in targets.items()}
 
     outputs = exported_model(systems, evaluation_options, check_consistency=True)
     energy = outputs["energy"].block().values
