@@ -15,19 +15,12 @@ from omegaconf import DictConfig, OmegaConf
 
 from .. import PACKAGE_ROOT
 from ..utils.architectures import check_architecture_options, get_default_hypers
-from ..utils.data import (
-    Dataset,
-    DatasetInfo,
-    TargetInfoDict,
-    get_atomic_types,
-    read_systems,
-    read_targets,
-)
+from ..utils.data import DatasetInfo, TargetInfoDict, get_atomic_types, get_dataset
 from ..utils.data.dataset import _train_test_random_split
 from ..utils.devices import pick_devices
 from ..utils.distributed.logging import is_main_process
 from ..utils.errors import ArchitectureError
-from ..utils.io import check_suffix
+from ..utils.io import check_file_extension
 from ..utils.jsonschema import validate
 from ..utils.omegaconf import BASE_OPTIONS, check_units, expand_dataset_config
 from .eval import _eval_targets
@@ -183,9 +176,9 @@ def train_model(
         torch.cuda.manual_seed(options["seed"])
         torch.cuda.manual_seed_all(options["seed"])
 
-    ###########################
-    # SETUP TRAINING SET ######
-    ###########################
+    ############################
+    # SET UP TRAINING SET ######
+    ############################
 
     logger.info("Setting up training set")
     options["training_set"] = expand_dataset_config(options["training_set"])
@@ -193,23 +186,53 @@ def train_model(
     train_datasets = []
     target_infos = TargetInfoDict()
     for train_options in options["training_set"]:
-        train_systems = read_systems(
-            filename=train_options["systems"]["read_from"],
-            fileformat=train_options["systems"]["file_format"],
-            dtype=dtype,
-        )
-        train_targets, target_info_dictionary = read_targets(
-            conf=train_options["targets"], dtype=dtype
-        )
-
-        target_infos.update(target_info_dictionary)
-        train_datasets.append(Dataset({"system": train_systems, **train_targets}))
+        dataset, target_info_dict = get_dataset(train_options)
+        train_datasets.append(dataset)
+        target_infos.update(target_info_dict)
 
     train_size = 1.0
 
-    ###########################
-    # SETUP TEST SET ##########
-    ###########################
+    ############################
+    # SET UP VALIDATION SET ####
+    ############################
+
+    logger.info("Setting up validation set")
+    val_datasets = []
+    if isinstance(options["validation_set"], float):
+        val_size = options["validation_set"]
+        train_size -= val_size
+
+        for i_dataset, train_dataset in enumerate(train_datasets):
+            train_dataset_new, val_dataset = _train_test_random_split(
+                train_dataset=train_dataset,
+                train_size=train_size,
+                test_size=val_size,
+            )
+
+            train_datasets[i_dataset] = train_dataset_new
+            val_datasets.append(val_dataset)
+    else:
+        options["validation_set"] = expand_dataset_config(options["validation_set"])
+
+        if len(options["validation_set"]) != len(options["training_set"]):
+            raise ValueError(
+                f"Validation dataset with length {len(options['validation_set'])} has "
+                "a different size than the training datatset with length "
+                f"{len(options['training_set'])}."
+            )
+
+        check_units(
+            actual_options=options["validation_set"],
+            desired_options=options["training_set"],
+        )
+
+        for valid_options in options["validation_set"]:
+            dataset, _ = get_dataset(valid_options)
+            val_datasets.append(dataset)
+
+    ############################
+    # SET UP TEST SET ##########
+    ############################
 
     logger.info("Setting up test set")
     test_datasets = []
@@ -217,16 +240,11 @@ def train_model(
         test_size = options["test_set"]
         train_size -= test_size
 
-        generator = torch.Generator()
-        if options["seed"] is not None:
-            generator.manual_seed(options["seed"])
-
         for i_dataset, train_dataset in enumerate(train_datasets):
             train_dataset_new, test_dataset = _train_test_random_split(
                 train_dataset=train_dataset,
                 train_size=train_size,
                 test_size=test_size,
-                generator=generator,
             )
 
             train_datasets[i_dataset] = train_dataset_new
@@ -247,63 +265,8 @@ def train_model(
         )
 
         for test_options in options["test_set"]:
-            test_systems = read_systems(
-                filename=test_options["systems"]["read_from"],
-                fileformat=test_options["systems"]["file_format"],
-                dtype=dtype,
-            )
-            test_targets, _ = read_targets(conf=test_options["targets"], dtype=dtype)
-            test_dataset = Dataset({"system": test_systems, **test_targets})
-            test_datasets.append(test_dataset)
-
-    ###########################
-    # SETUP VALIDATION SET ####
-    ###########################
-
-    logger.info("Setting up validation set")
-    val_datasets = []
-    if isinstance(options["validation_set"], float):
-        val_size = options["validation_set"]
-        train_size -= val_size
-
-        generator = torch.Generator()
-        if options["seed"] is not None:
-            generator.manual_seed(options["seed"])
-
-        for i_dataset, train_dataset in enumerate(train_datasets):
-            train_dataset_new, val_dataset = _train_test_random_split(
-                train_dataset=train_dataset,
-                train_size=train_size,
-                test_size=val_size,
-                generator=generator,
-            )
-
-            train_datasets[i_dataset] = train_dataset_new
-            val_datasets.append(val_dataset)
-    else:
-        options["validation_set"] = expand_dataset_config(options["validation_set"])
-
-        if len(options["validation_set"]) != len(options["training_set"]):
-            raise ValueError(
-                f"Validation dataset with length {len(options['validation_set'])} has "
-                "a different size than the training datatset with length "
-                f"{len(options['training_set'])}."
-            )
-
-        check_units(
-            actual_options=options["validation_set"],
-            desired_options=options["training_set"],
-        )
-
-        for val_options in options["validation_set"]:
-            val_systems = read_systems(
-                filename=val_options["systems"]["read_from"],
-                fileformat=val_options["systems"]["file_format"],
-                dtype=dtype,
-            )
-            val_targets, _ = read_targets(conf=val_options["targets"], dtype=dtype)
-            val_dataset = Dataset({"system": val_systems, **val_targets})
-            val_datasets.append(val_dataset)
+            dataset, _ = get_dataset(test_options)
+            test_datasets.append(dataset)
 
     ###########################
     # CREATE DATASET_INFO #####
@@ -379,6 +342,7 @@ def train_model(
     try:
         trainer.train(
             model=model,
+            dtype=dtype,
             devices=devices,
             train_datasets=train_datasets,
             val_datasets=val_datasets,
@@ -394,7 +358,7 @@ def train_model(
     # SAVE FINAL MODEL ########
     ###########################
 
-    output_checked = check_suffix(filename=output, suffix=".pt")
+    output_checked = check_file_extension(filename=output, extension=".pt")
     logger.info(
         "Training finished, saving final checkpoint "
         f"to `{str(Path(output_checked).stem)}.ckpt`"

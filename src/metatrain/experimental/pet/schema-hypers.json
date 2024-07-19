@@ -113,10 +113,19 @@
         "INITIAL_LR": {
           "type": "number"
         },
+        "EPOCH_NUM": {
+          "type": "integer"
+        },
         "EPOCH_NUM_ATOMIC": {
           "type": "integer"
         },
+        "SCHEDULER_STEP_SIZE": {
+          "type": "integer"
+        },
         "SCHEDULER_STEP_SIZE_ATOMIC": {
+          "type": "integer"
+        },
+        "EPOCHS_WARMUP": {
           "type": "integer"
         },
         "EPOCHS_WARMUP_ATOMIC": {
@@ -127,6 +136,9 @@
         },
         "SLIDING_FACTOR": {
           "type": "number"
+        },
+        "STRUCTURAL_BATCH_SIZE": {
+          "type": "integer"
         },
         "ATOMIC_BATCH_SIZE": {
           "type": "integer"
@@ -189,7 +201,29 @@
           "type": "boolean"
         }
       },
-      "additionalProperties": false
+      "additionalProperties": false,
+      "allOf": [
+        {
+          "not": {
+            "required": ["SCHEDULER_STEP_SIZE", "SCHEDULER_STEP_SIZE_ATOMIC"]
+          }
+        },
+        {
+          "not": {
+            "required": ["EPOCH_NUM", "EPOCH_NUM_ATOMIC"]
+          }
+        },
+        {
+          "not": {
+            "required": ["STRUCTURAL_BATCH_SIZE", "ATOMIC_BATCH_SIZE"]
+          }
+        },
+        {
+          "not": {
+            "required": ["EPOCHS_WARMUP", "EPOCHS_WARMUP_ATOMIC"]
+          }
+        }
+      ]
     }
   },
   "additionalProperties": false

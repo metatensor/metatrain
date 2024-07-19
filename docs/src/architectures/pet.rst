@@ -152,8 +152,8 @@ training dataset. All default values are given by atomic versions for better
 transferability across various datasets.
 
 To increase the step size of the learning rate scheduler by, for example, 2 times, take
-the default value for ``SCHEDULER_STEP_SIZE_ATOMIC`` from the default_hypers and specify
-a value that's twice as large.
+the default value for ``SCHEDULER_STEP_SIZE_ATOMIC`` from the default hypers and
+specify a value that's twice as large.
 
 It is worth noting that the stopping criterion of PET is either exceeding the maximum
 number of epochs (specified by ``EPOCH_NUM`` or ``EPOCH_NUM_ATOMIC``) or exceeding the
@@ -168,12 +168,51 @@ probability of achieving the best accuracy on a typical moderate-sized dataset. 
 result, some default hyperparameters might be excessive, meaning they could be adjusted
 to significantly increase the model's speed with minimal impact on accuracy. For
 practical use, especially when conducting massive calculations where model speed is
-crucial, it may be beneficial to set ``N_TRANS_LAYERS`` to `2` instead of the default
-value of `3`. The ``N_TRANS_LAYERS`` hyperparameter controls the number of transformer
+crucial, it may be beneficial to set ``N_TRANS_LAYERS`` to ``2`` instead of the default
+value of ``3``. The ``N_TRANS_LAYERS`` hyperparameter controls the number of transformer
 layers in each message-passing block (see more details in the `PET paper
 <https://arxiv.org/abs/2305.19302>`_). This adjustment would result in a model that is
-about `1.5` times more lightweight and faster, with an expected minimal deterioration in
+about *1.5 times* more lightweight and faster, with an expected minimal deterioration in
 accuracy.
+
+
+Description of the Architecture
+-------------------------------
+This section contains a simplified description of the architecture covering
+most important macro-organization without all the details and nuances.
+
+PET is a graph neural network (GNN) architecture featuring
+``N_GNN_LAYERS`` message-passing layers. At each layer, messages are exchanged
+between all atoms within a distance ``R_CUT`` from each other. The functional
+form of each layer is an arbitrarily deep transformer applied individually to
+each atom. Atomic environments are constructed around each atom, defined by all
+neighbors within ``R_CUT``. Each neighbor sends a message to the central atom,
+with each message being a token of fixed size ``TRANSFORMER_D_MODEL``.
+
+These tokens are processed by a transformer, which performs a permutationally
+equivariant sequence-to-sequence transformation. The output sequence is then
+treated as outbound messages from the central atom to all neighbors. Consequently,
+for a model with ``N_GNN_LAYERS`` layers and a system with ``N`` atoms, there are
+``N_GNN_LAYERS`` individual transformers with distinct weights, each independently
+invoked ``N`` times, resulting in ``N_GNN_LAYERS * N`` transformer runs. The
+number of input tokens for each transformer run is determined by the number of
+neighbors of the central atom.
+
+In addition to an input message from a neighboring atom, geometric information
+about the displacement vector ``r_ij`` from the central atom to the corresponding
+neighbor is incorporated into the token. After each message-passing layer, all
+output messages are fed into a head (individual for each message-passing layer),
+implemented as a shallow MLP, to produce a contribution to the total prediction.
+The total prediction is computed
+as the sum of all head outputs over all message-passing layers and all messages.
+
+This architecture is rigorously invariant with respect to translations because it
+uses displacement vectors that do not change if both the central atom and a neighbor
+are rigidly shifted. It is invariant with respect to permutations of identical atoms
+because the transformer defines a permutationally covariant sequence-to-sequence
+transformation, and the sum over the contributions from all edges yields an overall
+invariant energy prediction. However, it is not rotationally invariant since it
+operates with the raw Cartesian components of displacement vectors.
 
 Architecture Hyperparameters
 ----------------------------

@@ -4,13 +4,14 @@ Adding a new architecture
 =========================
 
 This page describes the required classes and files necessary for adding a new
-architecture to `metatrain` as experimental or stable architecture as described on the
+architecture to ``metatrain`` as experimental or stable architecture as described on the
 :ref:`architecture-life-cycle` page. For **examples** refer to the already existing
 architectures inside the source tree.
 
-To work with `metatrain` any architecture has to follow the same public API to be called
-correctly within the :py:func:`metatrain.cli.train` function to process the user's
-options. In brief, the core of the ``train`` function looks similar to these lines
+To work with ``metatrain`` any architecture has to follow the same public API to be
+called correctly within the :py:func:`metatrain.cli.train` function to process the
+user's options. In brief, the core of the ``train`` function looks similar to these
+lines
 
 .. code-block:: python
 
@@ -30,6 +31,7 @@ options. In brief, the core of the ``train`` function looks similar to these lin
 
     trainer.train(
         model=model,
+        dtype=dtype,
         devices=[],
         train_datasets=[],
         val_datasets=[],
@@ -75,8 +77,8 @@ requirements to be stable. The usual structure of architecture looks as
 
 .. note::
     A new architecture doesn't have to be registered somewhere in the file tree of
-    `metatrain`. Once a new architecture folder with the required files is created
-    `metatrain` will include the architecture automatically.
+    ``metatrain``. Once a new architecture folder with the required files is created
+    ``metatrain`` will include the architecture automatically.
 
 Model class (``model.py``)
 --------------------------
@@ -118,8 +120,8 @@ Note that the ``ModelInterface`` does not necessarily inherit from
 :py:class:`torch.nn.Module` since training can be performed in any way.
 ``__supported_devices__`` and ``__supported_dtypes__`` can be defined to set the
 capabilities of the model. These two lists should be sorted in order of preference since
-`metatrain` will use these to determine, based on the user request and
-machines' availability, the optimal `dtype` and `device` for training.
+``metatrain`` will use these to determine, based on the user request and
+machines' availability, the optimal ``dtype`` and ``device`` for training.
 
 The ``export()`` method is required to transform a trained model into a standalone file
 to be used in combination with molecular dynamic engines to run simulations. We provide
@@ -141,6 +143,7 @@ methods for ``train()``, ``save_checkpoint()`` and ``load_checkpoint()``.
         def train(
             self,
             model: ModelInterface,
+            dtype: torch.dtype,
             devices: List[torch.device],
             train_datasets: List[Union[Dataset, torch.utils.data.Subset]],
             val_datasets: List[Union[Dataset, torch.utils.data.Subset]],
@@ -155,7 +158,7 @@ methods for ``train()``, ``save_checkpoint()`` and ``load_checkpoint()``.
         ) -> "TrainerInterface":
             pass
 
-The format of checkpoints is not defined by `metatrain` and can be any format that
+The format of checkpoints is not defined by ``metatrain`` and can be any format that
 can be loaded by the trainer (to restart training) and by the model (to export the
 checkpoint).
 
@@ -164,15 +167,15 @@ Init file (``__init__.py``)
 The names of the ``ModelInterface`` and the ``TrainerInterface`` are free to choose but
 should be linked to constants in the ``__init__.py`` of each architecture. On top of
 these two constants the ``__init__.py`` must contain constants for the original
-`__authors__` and current `__maintainers__` of the architecture.
+``__authors__`` and current ``__maintainers__`` of the architecture.
 
 .. code-block:: python
 
-    from .model import CustomSOTAModel
-    from .trainer import Trainer
+    from .model import ModelInterface
+    from .trainer import TrainerInterface
 
-    __model__ = CustomSOTAModel
-    __trainer__ = Trainer
+    __model__ = ModelInterface
+    __trainer__ = TrainerInterface
 
     __authors__ = [
         ("Jane Roe <jane.roe@myuniversity.org>", "@janeroe"),
@@ -207,7 +210,7 @@ required to improve usability. The default hypers must follow the structure
     training:
         ...
 
-`metatrain` will parse this file and overwrite these default hypers with the
+``metatrain`` will parse this file and overwrite these default hypers with the
 user-provided parameters and pass the merged ``model`` section as a Python dictionary to
 the ``ModelInterface`` and the ``training`` section to the ``TrainerInterface``.
 

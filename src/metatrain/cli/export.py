@@ -8,7 +8,7 @@ import torch
 
 from ..utils.architectures import check_architecture_name, find_all_architectures
 from ..utils.export import is_exported
-from ..utils.io import check_suffix
+from ..utils.io import check_file_extension
 from .formatter import CustomHelpFormatter
 
 
@@ -73,7 +73,7 @@ def export_model(model: Any, output: Union[Path, str] = "exported-model.pt") -> 
     :param model: model to be exported
     :param output: path to save the exported model
     """
-    path = str(check_suffix(filename=output, suffix=".pt"))
+    path = str(check_file_extension(filename=output, extension=".pt"))
 
     if is_exported(model):
         logger.info(f"The model is already exported. Saving it to `{path}`.")
@@ -84,5 +84,5 @@ def export_model(model: Any, output: Union[Path, str] = "exported-model.pt") -> 
             f"Exporting model to '{path}' and extensions to '{extensions_path}'"
         )
         mts_atomistic_model = model.export()
-        mts_atomistic_model.export(path, collect_extensions=extensions_path)
+        mts_atomistic_model.save(path, collect_extensions=extensions_path)
         logger.info("Model exported successfully")

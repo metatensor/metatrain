@@ -4,9 +4,9 @@ Customize a Dataset Configuration
 =================================
 Overview
 --------
-The main task in setting up a training procedure with `metatrain` is to provide
+The main task in setting up a training procedure with ``metatrain`` is to provide
 files for training, validation, and testing datasets. Our system allows flexibility in
-parsing data for training. Mandatory sections in the `options.yaml` file include:
+parsing data for training. Mandatory sections in the ``options.yaml`` file include:
 
 - ``training_set``
 - ``test_set``
@@ -38,22 +38,22 @@ format, which is also valid for initial input:
     training_set:
         systems:
             read_from: dataset.xyz
-            file_format: .xyz
+            reader: ase
             length_unit: null
         targets:
             energy:
                 quantity: energy
                 read_from: dataset.xyz
-                file_format: .xyz
+                reader: ase
                 key: energy
                 unit: null
                 forces:
                     read_from: dataset.xyz
-                    file_format: .xyz
+                    reader: ase
                     key: forces
                 stress:
                     read_from: dataset.xyz
-                    file_format: .xyz
+                    reader: ase
                     key: stress
                 virial: false
     test_set: 0.1
@@ -68,8 +68,8 @@ Systems Section
 Describes the system data like positions and cell information.
 
 :param read_from: The file containing system data.
-:param file_format: The file format, guessed from the suffix if ``null`` or not
-    provided.
+:param reader: The reader library to use for parsing, guessed from the file extension if
+    ``null`` or not provided.
 :param length_unit: The unit of lengths, optional but highly recommended for running
     simulations.
 
@@ -78,7 +78,7 @@ A single string in this section automatically expands, using the string as the
 
 .. note::
 
-   `metatrain` does not convert units during training or evaluation. Units are
+   ``metatrain`` does not convert units during training or evaluation. Units are
    only required if model should be used to run MD simulations.
 
 Targets Section
@@ -86,8 +86,8 @@ Targets Section
 Allows defining multiple target sections, each with a unique name.
 
 - Commonly, a section named ``energy`` should be defined, which is essential for running
-  molecular dynamics simulations. For the ``energy`` section gradients like `forces` and
-  `stress` are enabled by default.
+  molecular dynamics simulations. For the ``energy`` section gradients like ``forces``
+  and ``stress`` are enabled by default.
 - Other target sections can also be defined, as long as they are prefixed by ``mtt::``.
   For example, ``mtt::free_energy``. In general, all targets that are not standard
   outputs of ``metatensor.torch.atomistic`` (see
@@ -100,7 +100,8 @@ Target section parameters include:
     ``energy`` is supported.
 :param read_from: The file for target data, defaults to the ``systems.read_from``
   file if not provided.
-:param file_format: The file format, guessed from the suffix if not provided.
+:param reader: The reader library to use for parsing, guessed from the file extension if
+    ``null`` or not provided.
 :param key: The key for reading from the file, defaulting to the target section's name
   if not provided.
 :param unit: The unit of the target, optional but highly recommended for running
@@ -119,8 +120,8 @@ Gradient Section
 Each gradient section (like ``forces`` or ``stress``) has similar parameters:
 
 :param read_from: The file for gradient data.
-:param file_format: The file format, guessed from the suffix if not provided.
-:param key: The key for reading from the file.
+:param reader: The reader library to use for parsing, guessed from the file extension if
+    ``null`` or not provided.:param key: The key for reading from the file.
 
 A single string in a gradient section automatically expands, using the string as the
 ``read_from`` parameter.
@@ -136,7 +137,7 @@ without them.
 Multiple Datasets
 -----------------
 For some applications, it is required to provide more than one dataset for model
-training. `metatrain` supports stacking several datasets together using the
+training. ``metatrain`` supports stacking several datasets together using the
 ``YAML`` list syntax, which consists of lines beginning at the same indentation level
 starting with a ``"- "`` (a dash and a space)
 

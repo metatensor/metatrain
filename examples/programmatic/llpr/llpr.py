@@ -51,13 +51,13 @@ from metatrain.utils.data import Dataset, read_systems, read_targets  # noqa: E4
 from metatrain.utils.neighbor_lists import get_system_with_neighbor_lists  # noqa: E402
 
 
-qm9_systems = read_systems("qm9_reduced_100.xyz", dtype=torch.float64)
+qm9_systems = read_systems("qm9_reduced_100.xyz")
 
 target_config = {
     "energy": {
         "quantity": "energy",
         "read_from": "ethanol_reduced_100.xyz",
-        "file_format": ".xyz",
+        "reader": "ase",
         "key": "energy",
         "unit": "kcal/mol",
         "forces": False,
@@ -65,7 +65,7 @@ target_config = {
         "virial": False,
     },
 }
-targets, _ = read_targets(target_config, dtype=torch.float64)
+targets, _ = read_targets(target_config)
 
 requested_neighbor_lists = model.requested_neighbor_lists()
 qm9_systems = [
@@ -77,7 +77,7 @@ dataset = Dataset({"system": qm9_systems, **targets})
 # We also load a single ethanol molecule on which we will compute properties.
 # This system is loaded without targets, as we are only interested in the LPR
 # values.
-ethanol_system = read_systems("ethanol_reduced_100.xyz", dtype=torch.float64)[0]
+ethanol_system = read_systems("ethanol_reduced_100.xyz")[0]
 ethanol_system = get_system_with_neighbor_lists(
     ethanol_system, requested_neighbor_lists
 )
@@ -150,7 +150,7 @@ evaluation_options = ModelEvaluationOptions(
     selected_atoms=None,
 )
 
-outputs = exported_model([ethanol_system], evaluation_options, check_consistency=True)
+outputs = exported_model([ethanol_system], evaluation_options, check_consistency=False)
 lpr = outputs["mtt::aux::energy_uncertainty"].block().values.detach().cpu().numpy()
 
 # %%

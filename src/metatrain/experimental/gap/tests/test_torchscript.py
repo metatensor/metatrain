@@ -17,13 +17,13 @@ def test_torchscript():
     target_info_dict["mtt::U0"] = TargetInfo(quantity="energy", unit="eV")
 
     dataset_info = DatasetInfo(
-        length_unit="Angstrom", atomic_types={1, 6, 7, 8}, targets=target_info_dict
+        length_unit="Angstrom", atomic_types=[1, 6, 7, 8], targets=target_info_dict
     )
     conf = {
         "mtt::U0": {
             "quantity": "energy",
             "read_from": DATASET_PATH,
-            "file_format": ".xyz",
+            "reader": "ase",
             "key": "U0",
             "unit": "kcal/mol",
             "forces": False,
@@ -31,8 +31,8 @@ def test_torchscript():
             "virial": False,
         }
     }
-    targets, _ = read_targets(OmegaConf.create(conf), dtype=torch.float64)
-    systems = read_systems(DATASET_PATH, dtype=torch.float64)
+    targets, _ = read_targets(OmegaConf.create(conf))
+    systems = read_systems(DATASET_PATH)
 
     # for system in systems:
     #    system.types = torch.ones(len(system.types), dtype=torch.int32)
@@ -41,7 +41,14 @@ def test_torchscript():
     hypers = DEFAULT_HYPERS.copy()
     gap = GAP(DEFAULT_HYPERS["model"], dataset_info)
     trainer = Trainer(hypers["training"])
-    trainer.train(gap, [torch.device("cpu")], [dataset], [dataset], ".")
+    trainer.train(
+        model=gap,
+        dtype=torch.float64,
+        devices=[torch.device("cpu")],
+        train_datasets=[dataset],
+        val_datasets=[dataset],
+        checkpoint_dir=".",
+    )
     scripted_gap = torch.jit.script(gap)
 
     ref_output = gap.forward(systems[:5], {"mtt::U0": gap.outputs["mtt::U0"]})
@@ -61,7 +68,7 @@ def test_torchscript_save():
     targets["mtt::U0"] = TargetInfo(quantity="energy", unit="eV")
 
     dataset_info = DatasetInfo(
-        length_unit="Angstrom", atomic_types={1, 6, 7, 8}, targets=targets
+        length_unit="Angstrom", atomic_types=[1, 6, 7, 8], targets=targets
     )
     gap = GAP(DEFAULT_HYPERS["model"], dataset_info)
     torch.jit.save(

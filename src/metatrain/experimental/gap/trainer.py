@@ -25,15 +25,15 @@ class Trainer:
     def train(
         self,
         model: GAP,
+        dtype: torch.dtype,
         devices: List[torch.device],
         train_datasets: List[Union[Dataset, torch.utils.data.Subset]],
         val_datasets: List[Union[Dataset, torch.utils.data.Subset]],
         checkpoint_dir: str,
     ):
         # checks
+        assert dtype in GAP.__supported_dtypes__
         assert devices == [torch.device("cpu")]
-        dtype = train_datasets[0][0]["system"].positions.dtype
-        assert dtype == torch.float64
         target_name = next(iter(model.dataset_info.targets.keys()))
         if len(train_datasets) != 1:
             raise ValueError("GAP only supports a single training dataset")

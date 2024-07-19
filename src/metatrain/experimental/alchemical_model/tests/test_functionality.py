@@ -14,7 +14,7 @@ def test_prediction_subset_elements():
 
     dataset_info = DatasetInfo(
         length_unit="Angstrom",
-        atomic_types={1, 6, 7, 8},
+        atomic_types=[1, 6, 7, 8],
         targets=TargetInfoDict(energy=TargetInfo(quantity="energy", unit="eV")),
     )
 
