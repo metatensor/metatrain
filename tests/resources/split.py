@@ -1,6 +1,7 @@
 import ase.io
 import numpy as np
 
+
 structures = ase.io.read("ethanol_reduced_100.xyz", ":")
 np.random.shuffle(structures)
 train = structures[:50]

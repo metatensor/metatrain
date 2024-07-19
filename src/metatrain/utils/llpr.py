@@ -1,4 +1,4 @@
-from typing import Dict, List, Optional, Callable
+from typing import Callable, Dict, List, Optional
 
 import metatensor.torch
 import numpy as np
@@ -11,10 +11,11 @@ from metatensor.torch.atomistic import (
     System,
 )
 from torch.utils.data import DataLoader
-from .per_atom import average_by_num_atoms
-from .evaluate_model import evaluate_model
-from .data import TargetInfoDict, TargetInfo, get_atomic_types, DatasetInfo
+
+from .data import DatasetInfo, TargetInfo, TargetInfoDict, get_atomic_types
 from .data.extract_targets import get_targets_dict
+from .evaluate_model import evaluate_model
+from .per_atom import average_by_num_atoms
 
 
 class LLPRUncertaintyModel(torch.nn.Module):
@@ -235,12 +236,13 @@ class LLPRUncertaintyModel(torch.nn.Module):
             class in ``metatrain``.
         """
         device = self.covariance.device
+        dtype = self.covariance.dtype
         for batch in train_loader:
             systems, _ = batch
             n_atoms = torch.tensor(
                 [len(system.positions) for system in systems], device=device
             )
-            systems = [system.to(device=device) for system in systems]
+            systems = [system.to(device=device, dtype=dtype) for system in systems]
             outputs = {
                 "mtt::aux::last_layer_features": ModelOutput(
                     quantity="",
@@ -261,12 +263,12 @@ class LLPRUncertaintyModel(torch.nn.Module):
         self.covariance_computed = True
 
     def compute_covariance_as_pseudo_hessian(
-            self,
-            train_loader: DataLoader,
-            target_info: TargetInfo,
-            loss_fn: Callable,
-            parameters: List[torch.nn.Parameter]
-        ) -> None:
+        self,
+        train_loader: DataLoader,
+        target_info: TargetInfo,
+        loss_fn: Callable,
+        parameters: List[torch.nn.Parameter],
+    ) -> None:
         """A function to compute the covariance matrix for a training set
         as the pseudo-Hessian of the loss function.
 
@@ -302,25 +304,25 @@ class LLPRUncertaintyModel(torch.nn.Module):
         )
         train_targets = get_targets_dict([train_loader.dataset], dataset_info)
         device = self.covariance.device
+        dtype = self.covariance.dtype
         for batch in train_loader:
             systems, targets = batch
-            systems = [system.to(device=device) for system in systems]
-            targets = {name: tmap.to(device=device) for name, tmap in targets.items()}
+            systems = [system.to(device=device, dtype=dtype) for system in systems]
+            targets = {
+                name: tmap.to(device=device, dtype=dtype)
+                for name, tmap in targets.items()
+            }
             predictions = evaluate_model(
                 self.model,
                 systems,
-                TargetInfoDict(
-                    **{key: train_targets[key] for key in targets.keys()}
-                ),
+                TargetInfoDict(**{key: train_targets[key] for key in targets.keys()}),
                 is_training=True,  # keep the computational graph
             )
 
             # average by the number of atoms
-            predictions = average_by_num_atoms(
-                predictions, systems, []
-            )
+            predictions = average_by_num_atoms(predictions, systems, [])
             targets = average_by_num_atoms(targets, systems, [])
-            
+
             loss = loss_fn(predictions, targets)
 
             grads = torch.autograd.grad(
@@ -398,14 +400,16 @@ class LLPRUncertaintyModel(torch.nn.Module):
         """
         # calibrate the LLPR
         device = self.covariance.device
+        dtype = self.covariance.dtype
         all_predictions = {}  # type: ignore
         all_targets = {}  # type: ignore
         all_uncertainties = {}  # type: ignore
         for batch in valid_loader:
             systems, targets = batch
-            systems = [system.to(device=device) for system in systems]
+            systems = [system.to(device=device, dtype=dtype) for system in systems]
             targets = {
-                name: target.to(device=device) for name, target in targets.items()
+                name: target.to(device=device, dtype=dtype)
+                for name, target in targets.items()
             }
             # evaluate the targets and their uncertainties, not per atom
             requested_outputs = {}
