@@ -79,6 +79,12 @@ def _add_eval_model_parser(subparser: argparse._SubParsersAction) -> None:
         default="output.xyz",
         help="filename of the predictions (default: %(default)s)",
     )
+    parser.add_argument(
+        "--check-consistency",
+        dest="check_consistency",
+        action="store_true",
+        help="whether to run consistency checks (default: %(default)s)",
+    )
 
 
 def _prepare_eval_model_args(args: argparse.Namespace) -> None:
@@ -150,6 +156,7 @@ def _eval_targets(
     dataset: Union[Dataset, torch.utils.data.Subset],
     options: TargetInfoDict,
     return_predictions: bool,
+    check_consistency: bool = False,
 ) -> Optional[Dict[str, TensorMap]]:
     """Evaluates an exported model on a dataset and prints the RMSEs for each target.
     Optionally, it also returns the predictions of the model.
@@ -195,7 +202,13 @@ def _eval_targets(
             key: value.to(dtype=dtype, device=device)
             for key, value in batch_targets.items()
         }
-        batch_predictions = evaluate_model(model, systems, options, is_training=False)
+        batch_predictions = evaluate_model(
+            model,
+            systems,
+            options,
+            is_training=False,
+            check_consistency=check_consistency,
+        )
         batch_predictions = average_by_num_atoms(
             batch_predictions, systems, per_structure_keys=[]
         )
@@ -228,6 +241,7 @@ def eval_model(
     model: Union[MetatensorAtomisticModel, torch.jit._script.RecursiveScriptModule],
     options: DictConfig,
     output: Union[Path, str] = "output.xyz",
+    check_consistency: bool = False,
 ) -> None:
     """Evaluate an exported model on a given data set.
 
@@ -237,7 +251,8 @@ def eval_model(
 
     :param model: Saved model to be evaluated.
     :param options: DictConfig to define a test dataset taken for the evaluation.
-    :param output: Path to save the predicted values
+    :param output: Path to save the predicted values.
+    :param check_consistency: Whether to run consistency checks during model evaluation.
     """
     logger.info("Setting up evaluation set.")
 
@@ -269,10 +284,10 @@ def eval_model(
             # TODO: allow the user to specify which outputs to evaluate
             eval_targets = {}
             eval_info_dict = TargetInfoDict()
-            gradients = {"positions"}
+            gradients = ["positions"]
             if all(not torch.all(system.cell == 0) for system in eval_systems):
                 # only add strain if all structures have cells
-                gradients.add("strain")
+                gradients.append("strain")
             for key in model.capabilities().outputs.keys():
                 eval_info_dict[key] = TargetInfo(
                     quantity=model.capabilities().outputs[key].quantity,
@@ -290,6 +305,7 @@ def eval_model(
                 dataset=eval_dataset,
                 options=eval_info_dict,
                 return_predictions=True,
+                check_consistency=check_consistency,
             )
         except Exception as e:
             raise ArchitectureError(e)

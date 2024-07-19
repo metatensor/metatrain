@@ -32,7 +32,7 @@ def test_regression_init():
     targets["mtt::U0"] = TargetInfo(quantity="energy", unit="eV")
 
     dataset_info = DatasetInfo(
-        length_unit="Angstrom", atomic_types={1, 6, 7, 8}, targets=targets
+        length_unit="Angstrom", atomic_types=[1, 6, 7, 8], targets=targets
     )
     model = AlchemicalModel(MODEL_HYPERS, dataset_info)
 
@@ -97,7 +97,7 @@ def test_regression_train():
     hypers = DEFAULT_HYPERS.copy()
 
     dataset_info = DatasetInfo(
-        length_unit="Angstrom", atomic_types={1, 6, 7, 8}, targets=target_info_dict
+        length_unit="Angstrom", atomic_types=[1, 6, 7, 8], targets=target_info_dict
     )
     model = AlchemicalModel(MODEL_HYPERS, dataset_info)
 

@@ -63,7 +63,7 @@ class GAP(torch.nn.Module):
             for key, value in dataset_info.targets.items()
         }
 
-        self.atomic_types = sorted(dataset_info.atomic_types)
+        self.atomic_types = dataset_info.atomic_types
         self.hypers = model_hypers
 
         # creates a composition weight tensor that can be directly indexed by species,

@@ -189,7 +189,7 @@ def read_targets(
     standard_outputs_list = ["energy"]
 
     for target_key, target in conf.items():
-        target_info_gradients = set()
+        target_info_gradients: List[str] = []
 
         if target_key not in standard_outputs_list and not target_key.startswith(
             "mtt::"
@@ -227,7 +227,7 @@ def read_targets(
                             parameter="positions", gradient=position_gradient
                         )
 
-                    target_info_gradients.add("positions")
+                    target_info_gradients.append("positions")
 
             if target["stress"] and target["virial"]:
                 raise ValueError("Cannot use stress and virial at the same time!")
@@ -252,7 +252,7 @@ def read_targets(
                     for block, strain_gradient in zip(blocks, strain_gradients):
                         block.add_gradient(parameter="strain", gradient=strain_gradient)
 
-                    target_info_gradients.add("strain")
+                    target_info_gradients.append("strain")
 
             if target["virial"]:
                 try:
@@ -274,7 +274,7 @@ def read_targets(
                     for block, strain_gradient in zip(blocks, strain_gradients):
                         block.add_gradient(parameter="strain", gradient=strain_gradient)
 
-                    target_info_gradients.add("strain")
+                    target_info_gradients.append("strain")
         else:
             raise ValueError(
                 f"Quantity: {target['quantity']!r} is not supported. Choose 'energy'."

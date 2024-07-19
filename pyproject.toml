@@ -66,6 +66,9 @@ alchemical-model = [
 pet = [
   "pet @ git+https://github.com/spozdn/pet.git@1a470c4",
 ]
+nanopet = [
+    "nanopet-neighbors @ git+https://github.com/frostedoyster/nanopet-neighbors"
+]
 gap = [
     "rascaline-torch @ git+https://github.com/luthaf/rascaline@e215461#subdirectory=python/rascaline-torch",
     "skmatter",
@@ -114,3 +117,11 @@ exclude = [
 ]
 follow_imports = 'skip'
 ignore_missing_imports = true
+
+[tool.pytest.ini_options]
+# ignore" a bunch of internal warnings with Python 3.12 and PyTorch
+filterwarnings = [
+    "ignore:ast.Str is deprecated and will be removed in Python 3.14:DeprecationWarning",
+    "ignore:Attribute s is deprecated and will be removed in Python 3.14:DeprecationWarning",
+    "ignore:ast.NameConstant is deprecated and will be removed in Python 3.14:DeprecationWarning",
+]

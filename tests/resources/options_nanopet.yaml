@@ -1,0 +1,23 @@
+seed: 42
+device: cuda
+base_precision: 32
+
+architecture:
+  name: experimental.nanopet
+  training:
+    batch_size: 8
+    num_epochs: 10000
+    log_interval: 10
+    learning_rate: 3e-4
+
+training_set:
+  systems:
+    read_from: ethanol_reduced_100.xyz
+    length_unit: angstrom
+  targets:
+    energy:
+      key: energy
+      unit: kcal/mol
+
+test_set: 0.0
+validation_set: 0.5

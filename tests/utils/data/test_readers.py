@@ -193,7 +193,7 @@ def test_read_targets(stress_dict, virial_dict, monkeypatch, tmp_path, caplog):
         assert target_info.quantity == target_section["quantity"]
         assert target_info.unit == target_section["unit"]
         assert target_info.per_atom is False
-        assert target_info.gradients == {"positions", "strain"}
+        assert target_info.gradients == ["positions", "strain"]
 
         assert type(target_list) is list
         for target in target_list:

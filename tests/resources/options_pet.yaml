@@ -1,0 +1,20 @@
+seed: 42
+device: cuda
+base_precision: 32
+
+architecture:
+  name: experimental.pet
+  training:
+    EPOCHS_WARMUP_ATOMIC: 250000
+
+training_set:
+  systems:
+    read_from: ethanol_reduced_100.xyz
+    length_unit: angstrom
+  targets:
+    energy:
+      key: energy
+      unit: kcal/mol
+
+test_set: 0.0
+validation_set: 0.5
