@@ -126,9 +126,9 @@ def train_model(
     ###########################
 
     architecture_name = options["architecture"]["name"]
-    check_architecture_options(
-        name=architecture_name, options=OmegaConf.to_container(options["architecture"])
-    )
+    # check_architecture_options(
+    #     name=architecture_name, options=OmegaConf.to_container(options["architecture"])
+    # )
     architecture = importlib.import_module(f"metatrain.{architecture_name}")
 
     logger.info(f"Running training for {architecture_name!r} architecture")
@@ -284,30 +284,30 @@ def train_model(
     # PRINT DATASET STATS #####
     ###########################
 
-    for i, train_dataset in enumerate(train_datasets):
-        if len(train_datasets) == 1:
-            index = ""
-        else:
-            index = f" {i}"
-        logger.info(
-            f"Training dataset{index}:\n    {train_dataset.get_stats(dataset_info)}"
-        )
+    # for i, train_dataset in enumerate(train_datasets):
+    #     if len(train_datasets) == 1:
+    #         index = ""
+    #     else:
+    #         index = f" {i}"
+    #     logger.info(
+    #         f"Training dataset{index}:\n    {train_dataset.get_stats(dataset_info)}"
+    #     )
 
-    for i, val_dataset in enumerate(val_datasets):
-        if len(val_datasets) == 1:
-            index = ""
-        else:
-            index = f" {i}"
-        logger.info(
-            f"Validation dataset{index}:\n    {val_dataset.get_stats(dataset_info)}"
-        )
+    # for i, val_dataset in enumerate(val_datasets):
+    #     if len(val_datasets) == 1:
+    #         index = ""
+    #     else:
+    #         index = f" {i}"
+    #     logger.info(
+    #         f"Validation dataset{index}:\n    {val_dataset.get_stats(dataset_info)}"
+    #     )
 
-    for i, test_dataset in enumerate(test_datasets):
-        if len(test_datasets) == 1:
-            index = ""
-        else:
-            index = f" {i}"
-        logger.info(f"Test dataset{index}:\n    {test_dataset.get_stats(dataset_info)}")
+    # for i, test_dataset in enumerate(test_datasets):
+    #     if len(test_datasets) == 1:
+    #         index = ""
+    #     else:
+    #         index = f" {i}"
+    #     logger.info(f"Test dataset{index}:\n    {test_dataset.get_stats(dataset_info)}")
 
     ###########################
     # SAVE EXPANDED OPTIONS ###

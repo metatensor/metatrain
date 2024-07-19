@@ -90,7 +90,7 @@ class Trainer:
             logger.info(f"Training on device {device} with dtype {dtype}")
         model.to(device=device, dtype=dtype)
         if is_distributed:
-            model = DistributedDataParallel(model, device_ids=[device])
+            model = DistributedDataParallel(model, device_ids=[device], find_unused_parameters=True)
 
         # Calculate and set the composition weights for all targets:
         logger.info("Calculating composition weights")

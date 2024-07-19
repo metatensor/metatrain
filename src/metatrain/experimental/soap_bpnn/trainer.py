@@ -88,7 +88,7 @@ class Trainer:
             logger.info(f"Training on device {device} with dtype {dtype}")
         model.to(device=device, dtype=dtype)
         if is_distributed:
-            model = DistributedDataParallel(model, device_ids=[device])
+            model = DistributedDataParallel(model, device_ids=[device], find_unused_parameters=True)
 
         # Calculate and set the composition weights for all targets:
         logger.info("Calculating composition weights")
@@ -103,15 +103,15 @@ class Trainer:
                     "user-supplied composition weights"
                 )
                 cur_weight_dict = self.hypers["fixed_composition_weights"][target_name]
-                atomic_types = set()
+                atomic_types = []
                 num_species = len(cur_weight_dict)
                 fixed_weights = torch.zeros(num_species, dtype=dtype, device=device)
 
                 for ii, (key, weight) in enumerate(cur_weight_dict.items()):
-                    atomic_types.add(key)
+                    atomic_types.append(key)
                     fixed_weights[ii] = weight
 
-                if not set(atomic_types) == model.atomic_types:
+                if not set(atomic_types) == set(model.atomic_types):
                     raise ValueError(
                         "Supplied atomic types are not present in the dataset."
                     )
