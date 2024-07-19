@@ -12,7 +12,7 @@ from metatensor.torch.atomistic import (
 )
 from torch.utils.data import DataLoader
 
-from .data import DatasetInfo, TargetInfo, TargetInfoDict, get_atomic_types
+from .data import DatasetInfo, TargetInfoDict, get_atomic_types
 from .data.extract_targets import get_targets_dict
 from .evaluate_model import evaluate_model
 from .per_atom import average_by_num_atoms
@@ -265,7 +265,7 @@ class LLPRUncertaintyModel(torch.nn.Module):
     def compute_covariance_as_pseudo_hessian(
         self,
         train_loader: DataLoader,
-        target_info: TargetInfo,
+        target_infos: TargetInfoDict,
         loss_fn: Callable,
         parameters: List[torch.nn.Parameter],
     ) -> None:
@@ -294,8 +294,6 @@ class LLPRUncertaintyModel(torch.nn.Module):
         for parameter in parameters:
             parameter.requires_grad = True
 
-        target_infos = TargetInfoDict()
-        target_infos.update(target_info)
         dataset = train_loader.dataset
         dataset_info = DatasetInfo(
             length_unit=self.capabilities.length_unit,  # TODO: check
