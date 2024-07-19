@@ -300,7 +300,6 @@ class SoapBpnn(torch.nn.Module):
 
     def export(self) -> MetatensorAtomisticModel:
         dtype = next(self.parameters()).dtype
-        print(dtype)
         if dtype not in self.__supported_dtypes__:
             raise ValueError(f"unsupported dtype {self.dtype} for SoapBpnn")
 
