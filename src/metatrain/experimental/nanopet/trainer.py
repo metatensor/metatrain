@@ -401,10 +401,10 @@ class Trainer:
     def save_checkpoint(self, model, path: Union[str, Path]):
         checkpoint = {
             "model_hypers": {
-                "model_hypers": (model.module if is_distributed else model).hypers,
-                "dataset_info": (model.module if is_distributed else model).dataset_info,
+                "model_hypers": model.hypers,
+                "dataset_info": model.dataset_info,
             },
-            "model_state_dict": (model.module if is_distributed else model).state_dict(),
+            "model_state_dict": model.state_dict(),
             "train_hypers": self.hypers,
             "epoch": self.epoch,
             "optimizer_state_dict": self.optimizer_state_dict,
