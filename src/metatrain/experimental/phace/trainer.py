@@ -23,7 +23,7 @@ from ...utils.metrics import RMSEAccumulator, MAEAccumulator
 from ...utils.neighbor_lists import get_system_with_neighbor_lists
 from ...utils.per_atom import average_by_num_atoms
 from ...utils.scaling import calculate_scaling
-from ...utils.io import check_suffix
+from ...utils.io import check_file_extension
 from .model import PhACE
 import copy
 
@@ -48,6 +48,7 @@ class Trainer:
     def train(
         self,
         model: PhACE,
+        dtype: torch.dtype,
         devices: List[torch.device],
         train_datasets: List[Union[Dataset, torch.utils.data.Subset]],
         val_datasets: List[Union[Dataset, torch.utils.data.Subset]],
@@ -226,9 +227,9 @@ class Trainer:
                 optimizer.zero_grad()
 
                 systems, targets = batch
-                systems = [system.to(device=device) for system in systems]
+                systems = [system.to(device=device, dtype=dtype) for system in systems]
                 targets = {
-                    key: value.to(device=device) for key, value in targets.items()
+                    key: value.to(device=device, dtype=dtype) for key, value in targets.items()
                 }
                 predictions = evaluate_model(
                     scripted_model,
@@ -260,9 +261,9 @@ class Trainer:
             val_loss = 0.0
             for batch in val_dataloader:
                 systems, targets = batch
-                systems = [system.to(device=device) for system in systems]
+                systems = [system.to(device=device, dtype=dtype) for system in systems]
                 targets = {
-                    key: value.to(device=device) for key, value in targets.items()
+                    key: value.to(device=device, dtype=dtype) for key, value in targets.items()
                 }
                 predictions = evaluate_model(
                     scripted_model,
@@ -359,7 +360,7 @@ class Trainer:
         }
         torch.save(
             checkpoint,
-            check_suffix(path, ".ckpt"),
+            check_file_extension(path, ".ckpt"),
         )
 
     @classmethod

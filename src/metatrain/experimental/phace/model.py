@@ -12,12 +12,13 @@ from metatensor.torch.atomistic import (
     ModelCapabilities
 )
 
+from ...utils.io import check_file_extension
+
 from ...utils.data.dataset import DatasetInfo
 
 from ...utils.composition import apply_composition_contribution_samples
 from ...utils.dtype import dtype_to_str
 from ...utils.export import export
-from ...utils.io import check_suffix
 from ...utils.scaling import apply_scaling
 from .modules.center_embedding import CenterEmbedding
 from .modules.cg import get_cg_coefficients
@@ -400,5 +401,5 @@ class PhACE(torch.nn.Module):
                 },
                 "model_state_dict": self.state_dict(),
             },
-            check_suffix(path, ".ckpt"),
+            check_file_extension(path, ".ckpt"),
         )

@@ -222,10 +222,7 @@ def _get_outputs(
     model: Union[torch.nn.Module, torch.jit._script.RecursiveScriptModule]
 ):
     if is_exported(model):
-        try:
-            return model.capabilities().outputs
-        except AttributeError:
-            return model.outputs
+        return model.capabilities().outputs
     else:
         return model.outputs
 

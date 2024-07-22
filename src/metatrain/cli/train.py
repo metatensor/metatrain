@@ -338,8 +338,10 @@ def train_model(
     # TRAIN MODEL #############
     ###########################
 
-    logger.info("Calling trainer")
-    try:
+    # logger.info("Calling trainer")
+    # from torch.profiler import profile, ProfilerActivity
+    # with profile(activities=[ProfilerActivity.CPU, ProfilerActivity.CUDA]) as prof:
+    if True:
         trainer.train(
             model=model,
             dtype=dtype,
@@ -348,8 +350,8 @@ def train_model(
             val_datasets=val_datasets,
             checkpoint_dir=str(checkpoint_dir),
         )
-    except Exception as e:
-        raise ArchitectureError(e)
+    # print(prof.key_averages().table(sort_by="self_cpu_time_total", row_limit=20))
+    # exit()
 
     if not is_main_process():
         return  # only save and evaluate on the main process
