@@ -34,18 +34,18 @@ def test_ethanol_regression_train_and_invariance():
     is bigger than the number of environments
     """
 
-    systems = read_systems(DATASET_ETHANOL_PATH, dtype=torch.float64)
+    systems = read_systems(DATASET_ETHANOL_PATH)
 
     conf = {
         "energy": {
             "quantity": "energy",
             "read_from": DATASET_ETHANOL_PATH,
-            "file_format": ".xyz",
+            "reader": "ase",
             "key": "energy",
             "unit": "kcal/mol",
             "forces": {
                 "read_from": DATASET_ETHANOL_PATH,
-                "file_format": ".xyz",
+                "reader": "ase",
                 "key": "forces",
             },
             "stress": False,
@@ -53,7 +53,7 @@ def test_ethanol_regression_train_and_invariance():
         }
     }
 
-    targets, _ = read_targets(OmegaConf.create(conf), dtype=torch.float64)
+    targets, _ = read_targets(OmegaConf.create(conf))
     dataset = Dataset({"system": systems[:2], "energy": targets["energy"][:2]})
 
     hypers = copy.deepcopy(DEFAULT_HYPERS)
@@ -64,7 +64,7 @@ def test_ethanol_regression_train_and_invariance():
     )
 
     dataset_info = DatasetInfo(
-        length_unit="Angstrom", atomic_types={1, 6, 7, 8}, targets=target_info_dict
+        length_unit="Angstrom", atomic_types=[1, 6, 7, 8], targets=target_info_dict
     )
 
     gap = GAP(hypers["model"], dataset_info)
@@ -76,4 +76,11 @@ def test_ethanol_regression_train_and_invariance():
             "should be smaller than the number of environments (18)"
         ),
     ):
-        trainer.train(gap, [torch.device("cpu")], [dataset], [dataset], ".")
+        trainer.train(
+            model=gap,
+            dtype=torch.float64,
+            devices=[torch.device("cpu")],
+            train_datasets=[dataset],
+            val_datasets=[dataset],
+            checkpoint_dir=".",
+        )

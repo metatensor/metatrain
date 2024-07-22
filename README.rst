@@ -18,7 +18,7 @@ architecture.
 
 What is metatrain?
 ##################
-``metatrain`` is a command line interface (cli) to `train` and `evaluate` atomistic
+``metatrain`` is a command line interface (cli) to ``train`` and ``evaluate`` atomistic
 models of various architectures. It features a common ``yaml`` option inputs to
 configure training and evaluation. Trained models are exported as standalone files that
 can be used directly in various molecular dynamics (MD) engines (e.g. ``LAMMPS``,
@@ -30,7 +30,7 @@ that can be connected to an MD engine. Any custom architecture compatible with
 TorchScript_ can be integrated in ``metatrain``, gaining automatic access to a training
 and evaluation interface, as well as compatibility with various MD engines.
 
-Note: ``metatrain`` does not provide mathematical functionalities `per se` but relies on
+Note: ``metatrain`` does not provide mathematical functionalities *per se* but relies on
 external models that implement the various architectures.
 
 .. _TorchScript: https://pytorch.org/docs/stable/jit.html

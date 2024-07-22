@@ -5,7 +5,7 @@ Life Cycle of an Architecture
 
 .. TODO: Maybe add a flowchart later
 
-Architectures in `metatrain` undergo different stages based on their
+Architectures in ``metatrain`` undergo different stages based on their
 development/functionality level and maintenance status. We distinguish three distinct
 stages: **experimental**, **stable**, and **deprecated**. Typically, an architecture
 starts as experimental, advances to stable, and eventually becomes deprecated before
@@ -13,7 +13,7 @@ removal if maintenance is no longer feasible.
 
 .. note::
     The development and maintenance of an architecture must be fully undertaken by the
-    architecture's authors or maintainers. The core developers of `metatrain`
+    architecture's authors or maintainers. The core developers of ``metatrain``
     provide infrastructure and implementation support but are not responsible for the
     architecture's internal functionality or any issues that may arise therein.
 
@@ -47,7 +47,7 @@ satisfied:
 2. Comprehensive architecture documentation including a schema for verifying the
    architecture's hyperparameters.
 3. If an architecture has external dependencies, all must be publicly available on PyPI.
-4. Adherence to the standard output infrastructure of `metatrain`, including
+4. Adherence to the standard output infrastructure of ``metatrain``, including
    logging and model save locations.
 
 Deprecated Architectures

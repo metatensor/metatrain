@@ -79,6 +79,12 @@ def _add_eval_model_parser(subparser: argparse._SubParsersAction) -> None:
         default="output.xyz",
         help="filename of the predictions (default: %(default)s)",
     )
+    parser.add_argument(
+        "--check-consistency",
+        dest="check_consistency",
+        action="store_true",
+        help="whether to run consistency checks (default: %(default)s)",
+    )
 
 
 def _prepare_eval_model_args(args: argparse.Namespace) -> None:
@@ -150,6 +156,7 @@ def _eval_targets(
     dataset: Union[Dataset, torch.utils.data.Subset],
     options: TargetInfoDict,
     return_predictions: bool,
+    check_consistency: bool = False,
 ) -> Optional[Dict[str, TensorMap]]:
     """Evaluates an exported model on a dataset and prints the RMSEs for each target.
     Optionally, it also returns the predictions of the model.
@@ -167,8 +174,10 @@ def _eval_targets(
         system = sample["system"]
         get_system_with_neighbor_lists(system, model.requested_neighbor_lists())
 
-    # Infer the device from the model
-    device = next(itertools.chain(model.parameters(), model.buffers())).device
+    # Infer the device and dtype from the model
+    model_tensor = next(itertools.chain(model.parameters(), model.buffers()))
+    dtype = model_tensor.dtype
+    device = model_tensor.device
 
     # Create a dataloader
     dataloader = torch.utils.data.DataLoader(
@@ -189,11 +198,18 @@ def _eval_targets(
     # Evaluate the model
     for batch in dataloader:
         systems, batch_targets = batch
-        systems = [system.to(device=device) for system in systems]
+        systems = [system.to(dtype=dtype, device=device) for system in systems]
         batch_targets = {
-            key: value.to(device=device) for key, value in batch_targets.items()
+            key: value.to(dtype=dtype, device=device)
+            for key, value in batch_targets.items()
         }
-        batch_predictions = evaluate_model(model, systems, options, is_training=False)
+        batch_predictions = evaluate_model(
+            model,
+            systems,
+            options,
+            is_training=False,
+            check_consistency=check_consistency,
+        )
         batch_predictions = average_by_num_atoms(
             batch_predictions, systems, per_structure_keys=[]
         )
@@ -230,6 +246,7 @@ def eval_model(
     model: Union[MetatensorAtomisticModel, torch.jit._script.RecursiveScriptModule],
     options: DictConfig,
     output: Union[Path, str] = "output.xyz",
+    check_consistency: bool = False,
 ) -> None:
     """Evaluate an exported model on a given data set.
 
@@ -239,13 +256,10 @@ def eval_model(
 
     :param model: Saved model to be evaluated.
     :param options: DictConfig to define a test dataset taken for the evaluation.
-    :param output: Path to save the predicted values
+    :param output: Path to save the predicted values.
+    :param check_consistency: Whether to run consistency checks during model evaluation.
     """
     logger.info("Setting up evaluation set.")
-
-    # TODO: once https://github.com/lab-cosmo/metatensor/pull/551 is merged and released
-    # use capabilities instead of this workaround
-    dtype = next(model.parameters()).dtype
 
     if isinstance(output, str):
         output = Path(output)
@@ -262,24 +276,23 @@ def eval_model(
 
         eval_systems = read_systems(
             filename=options["systems"]["read_from"],
-            fileformat=options["systems"]["file_format"],
-            dtype=dtype,
+            reader=options["systems"]["reader"],
         )
 
         if hasattr(options, "targets"):
             # in this case, we only evaluate the targets specified in the options
             # and we calculate RMSEs
-            eval_targets, eval_info_dict = read_targets(options["targets"], dtype=dtype)
+            eval_targets, eval_info_dict = read_targets(options["targets"])
         else:
             # in this case, we have no targets: we evaluate everything
             # (but we don't/can't calculate RMSEs)
             # TODO: allow the user to specify which outputs to evaluate
             eval_targets = {}
             eval_info_dict = TargetInfoDict()
-            gradients = {"positions"}
+            gradients = ["positions"]
             if all(not torch.all(system.cell == 0) for system in eval_systems):
                 # only add strain if all structures have cells
-                gradients.add("strain")
+                gradients.append("strain")
             for key in model.capabilities().outputs.keys():
                 eval_info_dict[key] = TargetInfo(
                     quantity=model.capabilities().outputs[key].quantity,
@@ -297,6 +310,7 @@ def eval_model(
                 dataset=eval_dataset,
                 options=eval_info_dict,
                 return_predictions=True,
+                check_consistency=check_consistency,
             )
         except Exception as e:
             raise ArchitectureError(e)

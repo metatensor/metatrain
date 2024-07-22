@@ -91,16 +91,15 @@ def test_predictions_compatibility(cutoff):
     are consistent with the predictions of the original PET implementation."""
 
     structure = ase.io.read(DATASET_PATH)
-    atomic_types = set(structure.numbers)
 
     dataset_info = DatasetInfo(
         length_unit="Angstrom",
-        atomic_types=atomic_types,
+        atomic_types=structure.numbers,
         targets=TargetInfoDict(energy=TargetInfo(quantity="energy", unit="eV")),
     )
     capabilities = ModelCapabilities(
         length_unit="Angstrom",
-        atomic_types=sorted(atomic_types),
+        atomic_types=dataset_info.atomic_types,
         outputs={
             "energy": ModelOutput(
                 quantity="energy",
@@ -116,7 +115,7 @@ def test_predictions_compatibility(cutoff):
     hypers["R_CUT"] = cutoff
     model = WrappedPET(DEFAULT_HYPERS["model"], dataset_info)
     ARCHITECTURAL_HYPERS = Hypers(model.hypers)
-    raw_pet = PET(ARCHITECTURAL_HYPERS, 0.0, len(model.atomic_types))
+    raw_pet = PET(ARCHITECTURAL_HYPERS, 0.0, len(dataset_info.atomic_types))
     model.set_trained_model(raw_pet)
 
     system = systems_to_torch(structure)
@@ -142,7 +141,7 @@ def test_predictions_compatibility(cutoff):
     ARCHITECTURAL_HYPERS = Hypers(DEFAULT_HYPERS["model"])
     batch = get_pyg_graphs(
         [structure],
-        sorted(atomic_types),
+        dataset_info.atomic_types,
         cutoff,
         ARCHITECTURAL_HYPERS.USE_ADDITIONAL_SCALAR_ATTRIBUTES,
         ARCHITECTURAL_HYPERS.USE_LONG_RANGE,
