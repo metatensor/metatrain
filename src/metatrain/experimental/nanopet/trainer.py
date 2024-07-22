@@ -113,7 +113,7 @@ class Trainer:
                     atomic_types.add(key)
                     fixed_weights[ii] = weight
 
-                if not set(atomic_types) == model.atomic_types:
+                if not set(atomic_types) == (model.module if is_distributed else model).atomic_types:
                     raise ValueError(
                         "Supplied atomic types are not present in the dataset."
                     )
@@ -140,7 +140,7 @@ class Trainer:
 
         # Calculating the neighbor lists for the training and validation datasets:
         logger.info("Calculating neighbor lists for the datasets")
-        requested_neighbor_lists = model.requested_neighbor_lists()
+        requested_neighbor_lists = (model.module if is_distributed else model).requested_neighbor_lists()
         for dataset in train_datasets + val_datasets:
             for i in range(len(dataset)):
                 system = dataset[i]["system"]
@@ -362,7 +362,7 @@ class Trainer:
             if epoch == start_epoch:
                 metric_logger = MetricLogger(
                     log_obj=logger,
-                    dataset_info=model.dataset_info,
+                    dataset_info=(model.module if is_distributed else model),
                     initial_metrics=[finalized_train_info, finalized_val_info],
                     names=["training", "validation"],
                 )
@@ -401,10 +401,10 @@ class Trainer:
     def save_checkpoint(self, model, path: Union[str, Path]):
         checkpoint = {
             "model_hypers": {
-                "model_hypers": model.hypers,
-                "dataset_info": model.dataset_info,
+                "model_hypers": (model.module if is_distributed else model).hypers,
+                "dataset_info": (model.module if is_distributed else model).dataset_info,
             },
-            "model_state_dict": model.state_dict(),
+            "model_state_dict": (model.module if is_distributed else model).state_dict(),
             "train_hypers": self.hypers,
             "epoch": self.epoch,
             "optimizer_state_dict": self.optimizer_state_dict,
