@@ -36,16 +36,6 @@ class NanoPET(torch.nn.Module):
         self.new_outputs = list(dataset_info.targets.keys())
         self.atomic_types = dataset_info.atomic_types
 
-        self.register_buffer(
-            "species_to_species_index",
-            torch.full(
-                (max(self.atomic_types) + 1,),
-                -1,
-            ),
-        )
-        for i, species in enumerate(self.atomic_types):
-            self.species_to_species_index[species] = i
-
         self.outputs = {
             key: ModelOutput(
                 quantity=value.quantity,
@@ -116,6 +106,16 @@ class NanoPET(torch.nn.Module):
                 if "mtt::aux::" not in output_name
             }
         )
+
+        self.register_buffer(
+            "species_to_species_index",
+            torch.full(
+                (max(self.atomic_types) + 1,),
+                -1,
+            ),
+        )
+        for i, species in enumerate(self.atomic_types):
+            self.species_to_species_index[species] = i
 
     def restart(self, dataset_info: DatasetInfo) -> "NanoPET":
         # merge old and new dataset info
