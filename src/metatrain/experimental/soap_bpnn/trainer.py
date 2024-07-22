@@ -111,7 +111,7 @@ class Trainer:
                     atomic_types.append(key)
                     fixed_weights[ii] = weight
 
-                if not set(atomic_types) == set(model.atomic_types):
+                if not set(atomic_types) == set((model.module if is_distributed else model).atomic_types):
                     raise ValueError(
                         "Supplied atomic types are not present in the dataset."
                     )
