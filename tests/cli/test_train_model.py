@@ -14,9 +14,9 @@ from omegaconf import OmegaConf
 from metatrain import RANDOM_SEED
 from metatrain.cli.train import train_model
 from metatrain.utils.errors import ArchitectureError
-from metatrain.utils.logging import setup_logging
 
 from . import (
+    DATASET_PATH_CARBON,
     DATASET_PATH_ETHANOL,
     DATASET_PATH_QM9,
     MODEL_PATH_64_BIT,
@@ -513,19 +513,41 @@ def test_train_issue_290(monkeypatch, tmp_path):
     train_model(options)
 
 
-# def test_train_log_order(caplog, monkeypatch, tmp_path, options):
-#     """Tests that the log is always printed in the same order for forces
-#     and virials."""
+def test_train_log_order(caplog, monkeypatch, tmp_path, options):
+    """Tests that the log is always printed in the same order for forces
+    and virials."""
 
-#     caplog.set_level(logging.INFO)
-#     logger = logging.getLogger()
+    monkeypatch.chdir(tmp_path)
+    shutil.copy(DATASET_PATH_CARBON, "carbon_reduced_100.xyz")
 
-#     with setup_logging(logger, level=logging.INFO):
-#         logger.info("foo")
-#         logger.debug("A debug message")
+    options["architecture"]["training"]["num_epochs"] = 5
+    options["architecture"]["training"]["log_interval"] = 1
 
-#     stdout_log = capsys.readouterr().out
+    options["training_set"]["systems"]["read_from"] = str(DATASET_PATH_CARBON)
+    options["training_set"]["targets"]["energy"]["read_from"] = str(DATASET_PATH_CARBON)
+    options["training_set"]["targets"]["energy"]["key"] = "energy"
+    options["training_set"]["targets"]["energy"]["forces"] = {
+        "key": "force",
+    }
+    options["training_set"]["targets"]["energy"]["virial"] = True
 
-#     assert "Logging to file is disabled." not in caplog.text  # DEBUG message
-#     assert_log_entry(stdout_log, loglevel="INFO", message="foo")
-#     assert "A debug message" not in stdout_log
+    caplog.set_level(logging.INFO)
+    train_model(options)
+    log_test = caplog.text
+
+    # find all the lines that have "Epoch" in them; these are the lines that
+    # contain the training metrics
+    epoch_lines = [line for line in log_test.split("\n") if "Epoch" in line]
+
+    # check that "training forces RMSE" comes before "training virial RMSE"
+    # in every line
+    for line in epoch_lines:
+        force_index = line.index("training forces RMSE")
+        virial_index = line.index("training virial RMSE")
+        assert force_index < virial_index
+
+    # same for validation
+    for line in epoch_lines:
+        force_index = line.index("validation forces RMSE")
+        virial_index = line.index("validation virial RMSE")
+        assert force_index < virial_index

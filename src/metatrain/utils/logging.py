@@ -110,7 +110,8 @@ class MetricLogger:
             logging_string = f"Epoch {epoch:4}"
 
         for name, metrics_dict in zip(self.names, metrics):
-            for key, value in metrics_dict.items():
+            for key in sorted(metrics_dict.keys()):
+                value = metrics_dict[key]
 
                 new_key = key
                 if key != "loss":  # special case: not a metric associated with a target
