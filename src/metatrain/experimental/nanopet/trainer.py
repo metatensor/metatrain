@@ -90,7 +90,9 @@ class Trainer:
             logger.info(f"Training on device {device} with dtype {dtype}")
         model.to(device=device, dtype=dtype)
         if is_distributed:
-            model = DistributedDataParallel(model, device_ids=[device], find_unused_parameters=False)
+            model = DistributedDataParallel(
+                model, device_ids=[device], find_unused_parameters=False
+            )
 
         # Calculate and set the composition weights for all targets:
         logger.info("Calculating composition weights")
@@ -367,7 +369,9 @@ class Trainer:
             if epoch == start_epoch:
                 metric_logger = MetricLogger(
                     log_obj=logger,
-                    dataset_info=(model.module if is_distributed else model).dataset_info,
+                    dataset_info=(
+                        model.module if is_distributed else model
+                    ).dataset_info,
                     initial_metrics=[finalized_train_info, finalized_val_info],
                     names=["training", "validation"],
                 )

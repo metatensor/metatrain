@@ -157,10 +157,21 @@ class NanoPET(torch.nn.Module):
         # Checks on systems (species) and outputs are done in the
         # MetatensorAtomisticModel wrapper
 
-        positions, centers, neighbors, species, segment_indices, edge_vectors = (
-            concatenate_structures(systems)
-        )
-        max_edges_per_node = int(torch.max(torch.bincount(centers)))
+        (
+            positions,
+            centers,
+            neighbors,
+            species,
+            segment_indices,
+            edge_vectors,
+            cell_shifts,
+        ) = concatenate_structures(systems)
+
+        bincount = torch.bincount(centers)
+        if bincount.numel() == 0:  # no edges
+            max_edges_per_node = 0
+        else:
+            max_edges_per_node = int(torch.max(bincount))
 
         # Convert to NEF:
         nef_indices, nef_to_edges_neighbor, nef_mask = get_nef_indices(
@@ -203,7 +214,10 @@ class NanoPET(torch.nn.Module):
         # GNN
         if self.num_mp_layers > 0:
             corresponding_edges = get_corresponding_edges(
-                torch.stack([centers, neighbors], dim=-1)
+                torch.concatenate(
+                    [centers.unsqueeze(-1), neighbors.unsqueeze(-1), cell_shifts],
+                    dim=-1,
+                )
             )
             for contraction, transformer in zip(
                 self.gnn_contractions, self.gnn_transformers
