@@ -109,6 +109,9 @@ def train_model(
         like the fully expanded training options for a later restart.
     :param continue_from: File to continue training from.
     """
+
+    print(torch.cuda.is_available())
+
     ###########################
     # VALIDATE BASE OPTIONS ###
     ###########################

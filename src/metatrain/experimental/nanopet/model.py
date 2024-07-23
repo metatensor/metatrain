@@ -166,7 +166,12 @@ class NanoPET(torch.nn.Module):
             edge_vectors,
             cell_shifts,
         ) = concatenate_structures(systems)
-        max_edges_per_node = int(torch.max(torch.bincount(centers)))
+
+        bincount = torch.bincount(centers)
+        if bincount.numel() == 0:  # no edges
+            max_edges_per_node = 0
+        else:
+            max_edges_per_node = int(torch.max(bincount))
 
         # Convert to NEF:
         nef_indices, nef_to_edges_neighbor, nef_mask = get_nef_indices(
