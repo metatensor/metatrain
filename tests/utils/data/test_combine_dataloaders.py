@@ -40,14 +40,14 @@ def test_without_shuffling():
     dataloader_qm9 = DataLoader(dataset, batch_size=10, collate_fn=collate_fn)
     # will yield 10 batches of 10
 
-    systems = read_systems(RESOURCES_PATH / "alchemical_reduced_10.xyz")
+    systems = read_systems(RESOURCES_PATH / "carbon_reduced_100.xyz")[:10]
 
     conf = {
         "mtt::free_energy": {
             "quantity": "energy",
-            "read_from": RESOURCES_PATH / "alchemical_reduced_10.xyz",
+            "read_from": RESOURCES_PATH / "carbon_reduced_100.xyz",
             "reader": "ase",
-            "key": "free_energy",
+            "key": "energy",
             "unit": "eV",
             "forces": False,
             "stress": False,
@@ -55,6 +55,7 @@ def test_without_shuffling():
         }
     }
     targets, _ = read_targets(OmegaConf.create(conf))
+    targets = {"mtt::free_energy": targets["mtt::free_energy"][:10]}
     dataset = Dataset(
         {"system": systems, "mtt::free_energy": targets["mtt::free_energy"]}
     )
@@ -99,14 +100,14 @@ def test_with_shuffling():
     )
     # will yield 10 batches of 10
 
-    systems = read_systems(RESOURCES_PATH / "alchemical_reduced_10.xyz")
+    systems = read_systems(RESOURCES_PATH / "carbon_reduced_100.xyz")[:10]
 
     conf = {
         "mtt::free_energy": {
             "quantity": "energy",
-            "read_from": RESOURCES_PATH / "alchemical_reduced_10.xyz",
+            "read_from": RESOURCES_PATH / "carbon_reduced_100.xyz",
             "reader": "ase",
-            "key": "free_energy",
+            "key": "energy",
             "unit": "eV",
             "forces": False,
             "stress": False,
@@ -114,6 +115,7 @@ def test_with_shuffling():
         }
     }
     targets, _ = read_targets(OmegaConf.create(conf))
+    targets = {"mtt::free_energy": targets["mtt::free_energy"][:10]}
     dataset = Dataset(
         {"system": systems, "mtt::free_energy": targets["mtt::free_energy"]}
     )
