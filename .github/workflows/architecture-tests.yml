@@ -1,4 +1,4 @@
-name: GAP tests
+name: Architecture tests
 
 on:
   push:
@@ -8,25 +8,27 @@ on:
 
 jobs:
   tests:
-    runs-on: ${{ matrix.os }}
     strategy:
       matrix:
         include:
-          - os: ubuntu-22.04
-            python-version: "3.11"
+          - architecture-name: alchemical-model
+          - architecture-name: gap
+          - architecture-name: soap-bpnn
+          - architecture-name: pet
+
+    runs-on: ubuntu-22.04
 
     steps:
     - uses: actions/checkout@v4
 
-    - name: Set up Python ${{ matrix.python-version }}
+    - name: Set up Python
       uses: actions/setup-python@v5
       with:
-        python-version: ${{ matrix.python-version }}
+        python-version: "3.12"
     - run: pip install tox
 
-    - name: run SparseGAP tests
-      run: tox -e gap-tests
+    - name: run architecture tests
+      run: tox -e ${{ matrix.architecture-name }}-tests
       env:
         # Use the CPU only version of torch when building/running the code
         PIP_EXTRA_INDEX_URL: https://download.pytorch.org/whl/cpu
-

@@ -8,7 +8,6 @@ on:
 
 jobs:
   tests:
-    runs-on: ${{ matrix.os }}
     strategy:
       matrix:
         include:
@@ -21,6 +20,8 @@ jobs:
           # To be restored once we figure out the issue with the windows build
           # - os: windows-2019
           #   python-version: "3.12"
+
+    runs-on: ${{ matrix.os }}
 
     steps:
     - uses: actions/checkout@v4
