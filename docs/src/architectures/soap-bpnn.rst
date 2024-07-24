@@ -148,10 +148,10 @@ The parameters for training are
 :param log_interval: number of epochs that elapse between reporting new training results
 :param checkpoint_interval: Interval to save a checkpoint to disk.
 :param fixed_composition_weights: allows to set fixed isolated atom energies from
-    outside. These are per element and per atom type. For example,
-    ``fixed_composition_weights: {"energy": {1: -396.0, 8: -500.0},
-    "mtt::U0": {1: 0.0, 8: 0.0}}`` sets the isolated atom energies for H and O to
-    different values for the two distinct targets.
+    outside. These are per target name and per (integer) atom type. For example,
+    ``fixed_composition_weights: {"energy": {1: -396.0, 6: -500.0}, "mtt::U0": {1: 0.0,
+    6: 0.0}}`` sets the isolated atom energies for H (``1``) and O (``6``) to different
+    values for the two distinct targets.
 :param per_atom_targets: specifies whether the model should be trained on a per-atom
     loss. In that case, the logger will also output per-atom metrics for that target. In
     any case, the final summary will be per-structure.

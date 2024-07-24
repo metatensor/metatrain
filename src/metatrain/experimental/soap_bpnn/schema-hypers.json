@@ -122,12 +122,12 @@
           "patternProperties": {
             "^.*$": {
               "type": "object",
-              "patternProperties": {
-                "^[0-9]+$": {
-                  "type": "number"
-                }
+              "propertyNames": {
+                "pattern": "^[0-9]+$"
               },
-              "additionalProperties": false
+              "additionalProperties": {
+                "type": "number"
+              }
             }
           },
           "additionalProperties": false
