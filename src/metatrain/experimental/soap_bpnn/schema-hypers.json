@@ -120,8 +120,14 @@
         "fixed_composition_weights": {
           "type": "object",
           "patternProperties": {
-            "^[0-9]+$": {
-              "type": "number"
+            "^.*$": {
+              "type": "object",
+              "patternProperties": {
+                "^[0-9]+$": {
+                  "type": "number"
+                }
+              },
+              "additionalProperties": false
             }
           },
           "additionalProperties": false

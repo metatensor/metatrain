@@ -195,3 +195,7 @@ def test_output_per_atom():
 
     assert outputs["energy"].block().samples.names == ["system", "atom"]
     assert outputs["energy"].block().values.shape == (4, 1)
+
+
+def test_fixed_composition_weights():
+    pass

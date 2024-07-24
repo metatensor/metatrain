@@ -147,6 +147,7 @@ The parameters for training are
 :param learning_rate: learning rate
 :param log_interval: number of epochs that elapse between reporting new training results
 :param checkpoint_interval: Interval to save a checkpoint to disk.
+:param fixed_composition_weights: TODO including an example.
 :param per_atom_targets: Specifies whether the model should be trained on a per-atom
     loss. In that case, the logger will also output per-atom metrics for that target. In
     any case, the final summary will be per-structure.
