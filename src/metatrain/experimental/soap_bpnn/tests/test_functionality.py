@@ -216,3 +216,13 @@ def test_fixed_composition_weights():
     check_architecture_options(
         name="experimental.soap_bpnn", options=OmegaConf.to_container(hypers)
     )
+
+
+def test_fixed_composition_weights_error():
+    """Test that only inputd of type Dict[str, Dict[int, float]] are allowed."""
+    hypers = DEFAULT_HYPERS.copy()
+    hypers["training"]["fixed_composition_weights"] = {"energy": {"H": 300.0}}
+    hypers = OmegaConf.create(hypers)
+    check_architecture_options(
+        name="experimental.soap_bpnn", options=OmegaConf.to_container(hypers)
+    )
