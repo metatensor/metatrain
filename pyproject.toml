@@ -16,7 +16,7 @@ dependencies = [
     "jsonschema",
     "omegaconf",
     "python-hostlist",
-    "torch==2.3.1",
+    "torch",
     "vesin",
 ]
 
