@@ -16,6 +16,7 @@ from metatrain.cli.train import train_model
 from metatrain.utils.errors import ArchitectureError
 
 from . import (
+    DATASET_PATH_CARBON,
     DATASET_PATH_ETHANOL,
     DATASET_PATH_QM9,
     MODEL_PATH_64_BIT,
@@ -510,3 +511,43 @@ def test_train_issue_290(monkeypatch, tmp_path):
     options["test_set"] = 0.85
 
     train_model(options)
+
+
+def test_train_log_order(caplog, monkeypatch, tmp_path, options):
+    """Tests that the log is always printed in the same order for forces
+    and virials."""
+
+    monkeypatch.chdir(tmp_path)
+    shutil.copy(DATASET_PATH_CARBON, "carbon_reduced_100.xyz")
+
+    options["architecture"]["training"]["num_epochs"] = 5
+    options["architecture"]["training"]["log_interval"] = 1
+
+    options["training_set"]["systems"]["read_from"] = str(DATASET_PATH_CARBON)
+    options["training_set"]["targets"]["energy"]["read_from"] = str(DATASET_PATH_CARBON)
+    options["training_set"]["targets"]["energy"]["key"] = "energy"
+    options["training_set"]["targets"]["energy"]["forces"] = {
+        "key": "force",
+    }
+    options["training_set"]["targets"]["energy"]["virial"] = True
+
+    caplog.set_level(logging.INFO)
+    train_model(options)
+    log_test = caplog.text
+
+    # find all the lines that have "Epoch" in them; these are the lines that
+    # contain the training metrics
+    epoch_lines = [line for line in log_test.split("\n") if "Epoch" in line]
+
+    # check that "training forces RMSE" comes before "training virial RMSE"
+    # in every line
+    for line in epoch_lines:
+        force_index = line.index("training forces RMSE")
+        virial_index = line.index("training virial RMSE")
+        assert force_index < virial_index
+
+    # same for validation
+    for line in epoch_lines:
+        force_index = line.index("validation forces RMSE")
+        virial_index = line.index("validation virial RMSE")
+        assert force_index < virial_index
