@@ -398,13 +398,13 @@ def get_atomic_types(datasets: Union[Dataset, List[Dataset]]) -> List[int]:
     if not isinstance(datasets, list):
         datasets = [datasets]
 
-    types = []
+    types = set()
     for dataset in datasets:
         for index in range(len(dataset)):
             system = dataset[index]["system"]
-            types += system.types.tolist()
+            types.update(set(system.types.tolist()))
 
-    return sorted(set(types))
+    return sorted(types)
 
 
 def get_all_targets(datasets: Union[Dataset, List[Dataset]]) -> List[str]:
