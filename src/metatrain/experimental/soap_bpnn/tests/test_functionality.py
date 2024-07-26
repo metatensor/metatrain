@@ -1,5 +1,7 @@
 import metatensor.torch
+import pytest
 import torch
+from jsonschema.exceptions import ValidationError
 from metatensor.torch.atomistic import ModelOutput, System
 from omegaconf import OmegaConf
 
@@ -223,6 +225,7 @@ def test_fixed_composition_weights_error():
     hypers = DEFAULT_HYPERS.copy()
     hypers["training"]["fixed_composition_weights"] = {"energy": {"H": 300.0}}
     hypers = OmegaConf.create(hypers)
-    check_architecture_options(
-        name="experimental.soap_bpnn", options=OmegaConf.to_container(hypers)
-    )
+    with pytest.raises(ValidationError, match=r"'H' does not match '\^\[0-9\]\+\$'"):
+        check_architecture_options(
+            name="experimental.soap_bpnn", options=OmegaConf.to_container(hypers)
+        )
