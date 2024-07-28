@@ -95,7 +95,7 @@ class LayerNormMap(ModuleMap):
 
 class SoapBpnn(torch.nn.Module):
 
-    __supported_devices__ = ["cuda", "cpu"]
+    __supported_devices__ = ["multi-gpu", "cuda", "cpu"]
     __supported_dtypes__ = [torch.float64, torch.float32]
 
     def __init__(self, model_hypers: Dict, dataset_info: DatasetInfo) -> None:
