@@ -22,8 +22,8 @@ def pick_devices(
     :param architecture_devices: Devices supported by the architecture. The list should
         be sorted by the preference of the architecture while the most prefferred device
         should be first and the least one last.
-    :param desired_device: desired device by the user. For example, ``"cpu"``, "``cuda``",
-        ``"multi-gpu"``, etc.
+    :param desired_device: desired device by the user. For example, ``"cpu"``,
+        "``cuda``", ``"multi-gpu"``, etc.
     """
 
     available_devices = ["cpu"]
