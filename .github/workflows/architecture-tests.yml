@@ -9,12 +9,9 @@ on:
 jobs:
   tests:
     strategy:
+      fail-fast: false
       matrix:
-        include:
-          - architecture-name: gap
-          - architecture-name: soap-bpnn
-          - architecture-name: pet
-          - architecture-name: nanopet
+        architecture-name: [gap, nanopet, soap-bpnn, pet]
 
     runs-on: ubuntu-22.04
 

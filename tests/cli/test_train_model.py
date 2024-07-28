@@ -575,6 +575,7 @@ def test_train_issue_290(monkeypatch, tmp_path):
 
     structures = ase.io.read("ethanol_reduced_100.xyz", ":")
     more_structures = structures * 15 + [structures[0]]
+
     ase.io.write("ethanol_1501.xyz", more_structures)
 
     # run training with original options
