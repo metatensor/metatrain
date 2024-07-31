@@ -62,6 +62,6 @@ class AttentionBlock(torch.nn.Module):
         outputs = self.out_proj(attention_output)
 
         # Residual connection
-        outputs = (outputs + inputs) / torch.sqrt(2.0)
+        outputs = (outputs + inputs) * 0.5 ** 0.5
 
         return outputs

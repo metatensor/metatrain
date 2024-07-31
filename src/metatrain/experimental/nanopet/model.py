@@ -232,7 +232,7 @@ class NanoPET(torch.nn.Module):
                 new_features = contraction(new_features)
                 new_features = edge_array_to_nef(new_features, nef_indices)
                 new_features = transformer(new_features, radial_mask)
-                features = (features + new_features) / torch.sqrt(2.0)
+                features = (features + new_features) * 0.5 ** 0.5
 
         edge_features = features * radial_mask[:, :, None]
         node_features = torch.sum(edge_features, dim=1)
