@@ -13,10 +13,10 @@ class FeedForwardBlock(torch.nn.Module):
         super().__init__()
 
         self.mlp = torch.nn.Linear(
-            in_features=hidden_size, out_features=intermediate_size
+            in_features=hidden_size, out_features=intermediate_size, bias=False
         )
         self.output = torch.nn.Linear(
-            in_features=intermediate_size, out_features=hidden_size
+            in_features=intermediate_size, out_features=hidden_size, bias=False
         )
 
         self.layernorm = torch.nn.LayerNorm(normalized_shape=hidden_size)

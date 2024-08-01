@@ -13,7 +13,7 @@ class Encoder(torch.nn.Module):
         super().__init__()
 
         self.cartesian_encoder = torch.nn.Linear(
-            in_features=3, out_features=hidden_size
+            in_features=3, out_features=hidden_size, bias=False
         )
         self.center_encoder = torch.nn.Embedding(
             num_embeddings=n_species, embedding_dim=hidden_size
@@ -22,7 +22,7 @@ class Encoder(torch.nn.Module):
             num_embeddings=n_species, embedding_dim=hidden_size
         )
         self.compressor = torch.nn.Linear(
-            in_features=3 * hidden_size, out_features=hidden_size
+            in_features=3 * hidden_size, out_features=hidden_size, bias=False
         )
 
     def forward(
@@ -30,7 +30,11 @@ class Encoder(torch.nn.Module):
         features: Dict[str, torch.Tensor],
     ):
         # Encode cartesian coordinates
-        cartesian_features = self.cartesian_encoder(features["cartesian"])
+        cartesian_features = features["cartesian"]
+        r = torch.sqrt(torch.sum(torch.square(cartesian_features), dim=-1, keepdim=True))
+        cartesian_features = cartesian_features * torch.exp(-r/2.5) / r
+        cartesian_features = self.cartesian_encoder(cartesian_features)
+        cartesian_features = torch.sin(10.0*cartesian_features)
 
         # Encode centers
         center_features = self.center_encoder(features["center"])

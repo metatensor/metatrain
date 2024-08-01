@@ -14,8 +14,8 @@ class AttentionBlock(torch.nn.Module):
         super().__init__()
 
         self.num_heads = num_heads
-        self.in_proj = torch.nn.Linear(hidden_size, 3 * hidden_size)
-        self.out_proj = torch.nn.Linear(hidden_size, hidden_size)
+        self.in_proj = torch.nn.Linear(hidden_size, 3 * hidden_size, bias=False)
+        self.out_proj = torch.nn.Linear(hidden_size, hidden_size, bias=False)
         self.layernorm = torch.nn.LayerNorm(normalized_shape=hidden_size)
         self.attention_dropout_rate = attention_dropout_rate
 

@@ -235,7 +235,7 @@ class NanoPET(torch.nn.Module):
                 features = (features + new_features) * 0.5 ** 0.5
 
         edge_features = features * radial_mask[:, :, None]
-        node_features = torch.sum(edge_features, dim=1)
+        node_features = torch.sum(edge_features, dim=1) * 0.5
 
         return_dict: Dict[str, TensorMap] = {}
 
