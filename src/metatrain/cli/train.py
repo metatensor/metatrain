@@ -385,9 +385,6 @@ def train_model(
             mts_atomistic_model.buffers(),
         )
     ).device
-    # always save on CPU. TODO: remove after release of
-    # https://github.com/lab-cosmo/metatensor/pull/668
-    mts_atomistic_model = mts_atomistic_model.to("cpu")
     mts_atomistic_model.save(str(output_checked), collect_extensions=extensions_path)
     # the model is first saved and then reloaded 1) for good practice and 2) because
     # MetatensorAtomisticModel only torchscripts (makes faster) during save()
