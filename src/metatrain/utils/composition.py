@@ -29,15 +29,20 @@ def calculate_composition_weights(
     )
     targets = targets.squeeze(dim=(1, 2))  # remove component and property dimensions
 
-    structure_list = [sample["system"] for dataset in datasets for sample in dataset]
-
-    dtype = structure_list[0].positions.dtype
+    total_num_structures = sum([len(dataset) for dataset in datasets])
+    dtype = datasets[0][0]["system"].positions.dtype
     composition_features = torch.empty(
-        (len(structure_list), len(atomic_types)), dtype=dtype
+        (total_num_structures, len(atomic_types)), dtype=dtype
     )
-    for i, structure in enumerate(structure_list):
-        for j, s in enumerate(atomic_types):
-            composition_features[i, j] = torch.sum(structure.types == s)
+    structure_index = 0
+    for dataset in datasets:
+        for sample in dataset:
+            structure = sample["system"]
+            for j, s in enumerate(atomic_types):
+                composition_features[structure_index, j] = torch.sum(
+                    structure.types == s
+                )
+            structure_index += 1
 
     regularizer = 1e-20
     while regularizer:

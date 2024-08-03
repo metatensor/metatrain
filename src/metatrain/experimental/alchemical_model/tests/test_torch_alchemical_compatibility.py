@@ -17,14 +17,14 @@ from metatrain.experimental.alchemical_model.utils import (
 from metatrain.utils.data import DatasetInfo, TargetInfo, TargetInfoDict, read_systems
 from metatrain.utils.neighbor_lists import get_system_with_neighbor_lists
 
-from . import ALCHEMICAL_DATASET_PATH, MODEL_HYPERS
+from . import MODEL_HYPERS, QM9_DATASET_PATH
 
 
 random.seed(0)
 np.random.seed(0)
 torch.manual_seed(0)
 
-systems = read_systems(ALCHEMICAL_DATASET_PATH)
+systems = read_systems(QM9_DATASET_PATH)
 systems = [system.to(torch.float32) for system in systems]
 nl_options = NeighborListOptions(
     cutoff=5.0,
@@ -32,7 +32,7 @@ nl_options = NeighborListOptions(
 )
 systems = [get_system_with_neighbor_lists(system, [nl_options]) for system in systems]
 
-frames = read(ALCHEMICAL_DATASET_PATH, ":")
+frames = read(QM9_DATASET_PATH, ":")
 dataset = AtomisticDataset(
     frames,
     target_properties=["energies", "forces"],

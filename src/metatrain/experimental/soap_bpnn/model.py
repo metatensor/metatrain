@@ -144,7 +144,7 @@ class SoapBpnn(torch.nn.Module):
             * (self.hypers["soap"]["max_angular"] + 1)
         )
 
-        hypers_bpnn = self.hypers["bpnn"]
+        hypers_bpnn = {**self.hypers["bpnn"]}
         hypers_bpnn["input_size"] = soap_size
 
         if hypers_bpnn["layernorm"]:
