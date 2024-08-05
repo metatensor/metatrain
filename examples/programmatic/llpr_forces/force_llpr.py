@@ -188,7 +188,7 @@ for batch in test_dataloader:
     predicted_forces = -torch.concatenate(
         [system.positions.grad.flatten() for system in systems]
     )
-    true_forces = targets["energy"].block().gradient("positions").values.flatten()
+    true_forces = -targets["energy"].block().gradient("positions").values.flatten()
 
     force_error = (predicted_forces - true_forces) ** 2
     force_errors.append(force_error.detach().clone().cpu().numpy())
