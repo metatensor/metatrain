@@ -148,7 +148,6 @@ for name, param in llpr_model.named_parameters():
         parameters.append(param)
         print(name)
 
-# llpr_model.compute_covariance(train_dataloader)
 llpr_model.compute_covariance_as_pseudo_hessian(
     train_dataloader, target_info, loss_fn, parameters
 )
