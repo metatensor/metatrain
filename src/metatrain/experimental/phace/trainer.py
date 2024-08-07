@@ -312,8 +312,9 @@ class Trainer:
                 logger.info("Training has converged, stopping")
                 break
 
-            if val_loss < best_val_metric:
-                best_val_metric = finalized_val_info["energy MAE"]*finalized_val_info["energy_positions_gradients MAE"]
+            val_metric = finalized_val_info["energy MAE"]*finalized_val_info["energy_positions_gradients MAE"]
+            if val_metric < best_val_metric:
+                best_val_metric = val_metric
                 n_epochs_without_improvement = 0
                 best_state_dict = copy.deepcopy(scripted_model.state_dict())
                 best_optimizer_state_dict = copy.deepcopy(optimizer.state_dict())
