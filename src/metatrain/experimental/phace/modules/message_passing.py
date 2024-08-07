@@ -4,94 +4,31 @@ import torch
 from metatensor.torch import Labels, TensorBlock, TensorMap
 
 from .cg import cg_combine_l1l2L
-from .normalize import Linear, Normalizer
+from .layers import Linear
 from .radial_basis import RadialBasis
 
-
-class MessagePasser(torch.nn.Module):
-
-    def __init__(
-        self,
-        hypers: Dict,
-        all_species: List[int],
-        irreps_in_features: List[List[Tuple[int, int]]],
-        cgs=None,
-    ) -> None:
-        super().__init__()
-
-        if len(irreps_in_features) < 1:
-            raise ValueError("nu_max must be at least 1")
-
-        message_passers = [InvariantMessagePasser(hypers, all_species)]
-        for index, irreps_in in enumerate(irreps_in_features[1:]):
-            nu = index + 1
-            message_passers.append(
-                EquivariantMessagePasser(
-                    hypers, all_species, irreps_in, [1, nu, nu + 1], cgs
-                )
-            )
-
-        self.message_passers = torch.nn.ModuleList(message_passers)
-
-    def forward(
-        self,
-        r: TensorBlock,
-        sh: TensorMap,
-        structures: Dict[str, torch.Tensor],
-        n_atoms: int,
-        features: List[TensorMap],
-        samples: Labels,
-    ) -> List[TensorMap]:
-
-        mp_features = [  # NU = 0
-            TensorMap(
-                keys=Labels(
-                    names=["dummy"],
-                    values=torch.tensor([[0]]),
-                ),
-                blocks=[
-                    TensorBlock(
-                        values=torch.empty((1, 1)),
-                        samples=Labels(names=["dummy"], values=torch.tensor([[0]])),
-                        components=[],
-                        properties=Labels(names=["dummy"], values=torch.tensor([[0]])),
-                    )
-                ],
-            )
-        ]
-        for nu, message_passer in enumerate(self.message_passers):
-            # nu runs from 0 to nu_max-1
-            mp_features.append(
-                message_passer(
-                    r,
-                    sh,
-                    structures["structure_offsets"][structures["structure_pairs"]]
-                    + structures["pairs"][:, 0],
-                    structures["structure_offsets"][structures["structure_pairs"]]
-                    + structures["pairs"][:, 1],
-                    n_atoms,
-                    features[nu],
-                    samples,
-                )
-            )
-
-        return mp_features
+from .tensor_sum import EquivariantTensorAdd
+import metatensor.torch
 
 
 class InvariantMessagePasser(torch.nn.Module):
 
-    def __init__(self, hypers: Dict, all_species: List[int]) -> None:
+    def __init__(self, hypers: Dict, all_species: List[int], mp_scaling) -> None:
         super().__init__()
 
         self.all_species = all_species
         hypers["radial_basis"]["r_cut"] = hypers["cutoff"]
-        hypers["radial_basis"]["normalize"] = hypers["normalize"]
         hypers["radial_basis"]["n_element_channels"] = hypers["n_element_channels"]
         self.radial_basis_calculator = RadialBasis(hypers["radial_basis"], all_species)
         self.n_max_l = self.radial_basis_calculator.n_max_l
         self.k_max_l = [hypers["n_element_channels"] * n_max for n_max in self.n_max_l]
         self.l_max = len(self.n_max_l) - 1
         self.irreps_out = [(l, 1) for l in range(self.l_max + 1)]
+
+        self.mp_scaling = mp_scaling
+
+        self.adder = EquivariantTensorAdd([(0, 1)], self.k_max_l)
+        # self.adder = EquivariantTensorAdd()
 
     def forward(
         self,
@@ -144,13 +81,17 @@ class InvariantMessagePasser(torch.nn.Module):
                 )
             )
 
-        return TensorMap(
+        pooled_result = TensorMap(
             keys=Labels(
                 names=["nu", "o3_lambda", "o3_sigma"],
                 values=torch.tensor(labels, dtype=torch.int32),
             ).to(device=initial_center_embedding.device),
             blocks=blocks,
         )
+
+        pooled_result = metatensor.torch.multiply(pooled_result, self.mp_scaling)
+        pooled_result = self.adder(pooled_result, initial_center_embedding)
+        return pooled_result
 
 
 class EquivariantMessagePasser(torch.nn.Module):
@@ -162,6 +103,7 @@ class EquivariantMessagePasser(torch.nn.Module):
         irreps_in_features: List[Tuple[int, int]],
         nu_triplet: Tuple[int, int, int],
         cgs,
+        mp_scaling,
     ) -> None:
         super().__init__()
 
@@ -170,7 +112,6 @@ class EquivariantMessagePasser(torch.nn.Module):
 
         self.all_species = all_species
         hypers["radial_basis"]["r_cut"] = hypers["cutoff"]
-        hypers["radial_basis"]["normalize"] = hypers["normalize"]
         hypers["radial_basis"]["n_element_channels"] = hypers["n_element_channels"]
         self.radial_basis_calculator = RadialBasis(hypers["radial_basis"], all_species)
         self.n_max_l = self.radial_basis_calculator.n_max_l
@@ -187,6 +128,8 @@ class EquivariantMessagePasser(torch.nn.Module):
             for l2, s2 in self.irreps_in_features:
                 for L in range(abs(l1 - l2), min(l1 + l2, self.l_max) + 1):
                     S = s1 * s2 * (-1) ** (l1 + l2 + L)
+                    if S == -1:
+                        continue
                     if (L, S) not in self.irreps_out:
                         self.irreps_out.append((L, S))
                     larger_l = max(l1, l2)
@@ -200,16 +143,21 @@ class EquivariantMessagePasser(torch.nn.Module):
         self.linear_contractions = torch.nn.ModuleDict(
             {
                 LS_string: torch.nn.Sequential(
-                    Normalizer(
-                        [0, 1]
-                    ),  # within one LS block, some features will come from "squares", others not
                     Linear(size_LS, self.k_max_l[int(LS_string.split("_")[0])]),
-                    Normalizer([0, 1, 2]),
                 )
                 for LS_string, size_LS in self.sizes_by_lam_sig.items()
             }
         )
         self.nu_out = nu_triplet[2]
+
+        common_irreps = [irrep for irrep in self.irreps_out if irrep in irreps_in_features]
+        self.adder = EquivariantTensorAdd(common_irreps, self.k_max_l)
+        # self.adder = EquivariantTensorAdd()
+
+        self.mp_scaling = mp_scaling
+
+        self.irreps_out = list(set(self.irreps_out + self.irreps_in_features))
+        
 
     def forward(
         self,
@@ -266,6 +214,7 @@ class EquivariantMessagePasser(torch.nn.Module):
                         index=centers,
                         source=result,
                     )
+                    pooled_result = pooled_result
                     if (str(L) + "_" + str(S)) not in results_by_lam_sig:
                         results_by_lam_sig[(str(L) + "_" + str(S))] = [pooled_result]
                     else:
@@ -317,10 +266,13 @@ class EquivariantMessagePasser(torch.nn.Module):
             )
             keys.append([self.nu_out, L, S])
 
-        return TensorMap(
+        pooled_result = TensorMap(
             keys=Labels(
                 names=["nu", "o3_lambda", "o3_sigma"],
                 values=torch.tensor(keys, device=blocks[0].values.device),
             ),
             blocks=blocks,
         )
+        pooled_result = metatensor.torch.multiply(pooled_result, self.mp_scaling)
+        pooled_result = self.adder(pooled_result, features)
+        return pooled_result

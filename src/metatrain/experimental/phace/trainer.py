@@ -54,8 +54,6 @@ class Trainer:
         val_datasets: List[Union[Dataset, torch.utils.data.Subset]],
         checkpoint_dir: str,
     ):
-        dtype = train_datasets[0][0]["system"].positions.dtype
-
         # only one device, as we don't support multi-gpu for now
         assert len(devices) == 1
         device = devices[0]
@@ -140,7 +138,7 @@ class Trainer:
         # scaling:
         # TODO: this will work sub-optimally if the model is restarting with
         # new targets (but it will still work)
-        calculate_scaling(scripted_model, train_dataloader, model.dataset_info, device)
+        # calculate_scaling(scripted_model, train_dataloader, model.dataset_info, device)
 
         # Create dataloader for the validation datasets:
         val_dataloaders = []
@@ -191,19 +189,6 @@ class Trainer:
         if self.optimizer_state_dict is not None:
             optimizer.load_state_dict(self.optimizer_state_dict)
 
-        # Create a scheduler:
-        lr_scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
-            optimizer,
-            mode="min",
-            factor=self.hypers["scheduler_factor"],
-            patience=self.hypers["scheduler_patience"],
-        )
-        if self.scheduler_state_dict is not None:
-            lr_scheduler.load_state_dict(self.scheduler_state_dict)
-
-        # per-atom targets:
-        per_structure_targets = self.hypers["per_structure_targets"]
-
         # Create an optimizer and a scheduler:
         optimizer = torch.optim.AdamW(scripted_model.parameters(), lr=self.hypers["learning_rate"], amsgrad=True, weight_decay=5e-5)
         scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, factor=self.hypers["scheduler_factor"], patience=self.hypers["scheduler_patience"])
@@ -214,7 +199,7 @@ class Trainer:
         # Train the model:
         logger.info("Starting training")
 
-        best_val_loss = float("inf")
+        best_val_metric = float("inf")
         n_epochs_without_improvement = 0
         for epoch in range(self.hypers["num_epochs"]):
             train_rmse_calculator = RMSEAccumulator()
@@ -290,8 +275,6 @@ class Trainer:
                 **val_mae_calculator.finalize(),
             }
 
-            lr_scheduler.step(val_loss)
-
             # Now we log the information:
             finalized_train_info = {"loss": train_loss, **finalized_train_info}
             finalized_val_info = {
@@ -329,8 +312,8 @@ class Trainer:
                 logger.info("Training has converged, stopping")
                 break
 
-            if val_loss < best_val_loss:
-                best_val_loss = val_loss
+            if val_loss < best_val_metric:
+                best_val_metric = finalized_val_info["energy MAE"]*finalized_val_info["energy_positions_gradients MAE"]
                 n_epochs_without_improvement = 0
                 best_state_dict = copy.deepcopy(scripted_model.state_dict())
                 best_optimizer_state_dict = copy.deepcopy(optimizer.state_dict())

@@ -9,6 +9,9 @@ model:
     mlp: true
     type: physical
     E_max: 70.0
+  nu_scaling: 1.0
+  mp_scaling: 1.0
+  overall_scaling: 1.0
 
 training:
   batch_size: 8

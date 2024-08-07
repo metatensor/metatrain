@@ -2,8 +2,7 @@ import metatensor.torch
 import torch
 from metatensor.torch import Labels
 
-from .LE import get_le_spliner
-from .normalize import Linear, Normalizer
+from .layers import Linear
 from .physical_LE import get_physical_le_spliner
 
 
@@ -14,10 +13,11 @@ class RadialBasis(torch.nn.Module):
 
         lengthscales = torch.zeros((max(all_species) + 1))
         for species in all_species:
-            lengthscales[species] = 0.0
+            lengthscales[species] = -1.0
         self.n_max_l, self.spliner = get_physical_le_spliner(
-            hypers["E_max"], hypers["r_cut"], hypers["normalize"]
+            hypers["E_max"], hypers["r_cut"], normalize=True
         )
+        # self.register_buffer("lengthscales", lengthscales)
         self.lengthscales = torch.nn.Parameter(lengthscales)
 
         self.all_species = all_species
@@ -31,14 +31,13 @@ class RadialBasis(torch.nn.Module):
             self.radial_mlps = torch.nn.ModuleDict(
                 {
                     str(l): torch.nn.Sequential(
-                        Normalizer([0]),
-                        Linear(self.n_max_l[l], 64),
-                        Normalizer([0, 1]),
+                        Linear(self.n_max_l[l], 4 * self.n_max_l[l] * self.n_channels),
                         torch.nn.SiLU(),
-                        Normalizer([0, 1]),
-                        Linear(64, self.n_max_l[l] * self.n_channels),
-                        Normalizer([0, 1]),
-                        # Linear(self.n_max_l[l], self.n_max_l[l]*self.n_channels),
+                        Linear(4 * self.n_max_l[l] * self.n_channels, 4 * self.n_max_l[l] * self.n_channels),
+                        torch.nn.SiLU(),
+                        Linear(4 * self.n_max_l[l] * self.n_channels, 4 * self.n_max_l[l] * self.n_channels),
+                        torch.nn.SiLU(),
+                        Linear(4 * self.n_max_l[l] * self.n_channels, self.n_max_l[l] * self.n_channels),
                     )
                     for l in range(self.l_max + 1)
                 }
@@ -49,6 +48,7 @@ class RadialBasis(torch.nn.Module):
         self.k_max_l = [
             self.n_max_l[l] * self.n_channels for l in range(self.l_max + 1)
         ]
+        self.r_cut = hypers["r_cut"]
 
     def forward(self, r, samples_metadata: Labels):
 
@@ -63,6 +63,9 @@ class RadialBasis(torch.nn.Module):
             x.unsqueeze(1) < 10.0, self.spliner.compute(capped_x), 0.0
         )
 
+        cutoff_multiplier = cutoff_fn(r, self.r_cut)
+        radial_functions = radial_functions * cutoff_multiplier.unsqueeze(1)
+
         radial_basis = torch.split(radial_functions, self.n_max_l, dim=1)
 
         if self.apply_mlp:
@@ -72,7 +75,14 @@ class RadialBasis(torch.nn.Module):
                 radial_basis_after_mlp.append(radial_mlp_l(radial_basis[l]))
             radial_basis = radial_basis_after_mlp
         else:
-            radial_basis = radial_basis  # here you would repeat it n_channels times  # AND normalize maybe??
+            radial_basis = radial_basis
 
         return radial_basis
-        # no normalization is formally needed in this last step
+
+
+def cutoff_fn(r, r_cut: float):  # TODO: make 1.0 a parameter?
+    return torch.where(
+        r < r_cut - 1.0,
+        1.0,
+        1.0 + 1.0 * torch.cos((r-(r_cut-1.0))*torch.pi/1.0)
+    )

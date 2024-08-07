@@ -3,17 +3,13 @@ import torch
 import wigners
 
 
-def move_cgs_to_device(cg_object, device):
-    for key in cg_object._cgs:
-        cg_object._cgs[key] = cg_object._cgs[key].to(device)
-    return cg_object
-
-
 def cg_combine_l1l2L(tensor12, cg_tensor):
+    # print(tensor12.shape)
+    # print(cg_tensor.shape)
     out_tensor = tensor12 @ cg_tensor.reshape(
         cg_tensor.shape[0] * cg_tensor.shape[1], cg_tensor.shape[2]
     )
-    return out_tensor.swapaxes(1, 2)
+    return out_tensor.swapaxes(1, 2) #/ (cg_tensor.shape[0]*cg_tensor.shape[1]*cg_tensor.shape[2])
 
 
 def get_cg_coefficients(l_max):

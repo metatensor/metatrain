@@ -4,10 +4,9 @@ from metatensor.torch import Labels, TensorBlock, TensorMap
 
 
 class Precomputer(torch.nn.Module):
-    def __init__(self, l_max, normalize=True):
+    def __init__(self, l_max):
         super().__init__()
         self.spherical_harmonics_split_list = [(2 * l + 1) for l in range(l_max + 1)]
-        self.normalize = normalize
         self.spherical_harmonics_calculator = sphericart.torch.SphericalHarmonics(
             l_max, normalized=True
         )
@@ -38,10 +37,9 @@ class Precomputer(torch.nn.Module):
         spherical_harmonics = self.spherical_harmonics_calculator.compute(
             bare_cartesian_vectors
         )  # Get the spherical harmonics
-        if self.normalize:
-            spherical_harmonics = spherical_harmonics * (4.0 * torch.pi) ** (
-                0.5
-            )  # normalize them
+        spherical_harmonics = spherical_harmonics * (4.0 * torch.pi) ** (
+            0.5
+        )  # normalize them
         spherical_harmonics = torch.split(
             spherical_harmonics, self.spherical_harmonics_split_list, dim=1
         )  # Split them into l chunks
@@ -103,8 +101,8 @@ def get_cartesian_vectors(
     shifted_pairs_i = shifted_pairs[:, 0]
     shifted_pairs_j = shifted_pairs[:, 1]
     direction_vectors = (
-        positions[shifted_pairs_j]
-        - positions[shifted_pairs_i]
+        positions[shifted_pairs_i]
+        - positions[shifted_pairs_j] 
         + torch.einsum(
             "ab, abc -> ac", cell_shifts.to(cells.dtype), cells[structure_pairs]
         )

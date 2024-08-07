@@ -338,20 +338,20 @@ def train_model(
     # TRAIN MODEL #############
     ###########################
 
-    logger.info("Calling trainer")
-    from torch.profiler import profile, ProfilerActivity
-    with profile(activities=[ProfilerActivity.CPU, ProfilerActivity.CUDA]) as prof:
+    # logger.info("Calling trainer")
+    # from torch.profiler import profile, ProfilerActivity
+    # with profile(activities=[ProfilerActivity.CPU, ProfilerActivity.CUDA]) as prof:
     # if True:
-        trainer.train(
-            model=model,
-            dtype=dtype,
-            devices=devices,
-            train_datasets=train_datasets,
-            val_datasets=val_datasets,
-            checkpoint_dir=str(checkpoint_dir),
-        )
-    print(prof.key_averages().table(sort_by="self_cpu_time_total", row_limit=20))
-    exit()
+    trainer.train(
+        model=model,
+        dtype=dtype,
+        devices=devices,
+        train_datasets=train_datasets,
+        val_datasets=val_datasets,
+        checkpoint_dir=str(checkpoint_dir),
+    )
+    # print(prof.key_averages().table(sort_by="self_cpu_time_total", row_limit=20))
+    # exit()
 
     if not is_main_process():
         return  # only save and evaluate on the main process

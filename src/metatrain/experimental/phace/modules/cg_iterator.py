@@ -4,7 +4,7 @@ import torch
 from metatensor.torch import Labels, TensorBlock, TensorMap
 
 from .cg import cg_combine_l1l2L
-from .normalize import Linear, Normalizer
+from .layers import Linear, EquivariantLinear
 from .tensor_sum import EquivariantTensorAdd
 
 
@@ -47,30 +47,33 @@ class CGIterator(torch.nn.Module):
             irreps_in_1 = irreps_out
         self.cg_iterations = torch.nn.ModuleList(cg_iterations)
 
+        # equivariant linear mixers
+        mixers = []
+        for _ in range(self.number_of_iterations + 1):
+            mixers.append(EquivariantLinear(irreps_in, k_max_l))
+        self.mixers = torch.nn.ModuleList(mixers)
+
+
         # store the irreps_out for each output (nu = 1, 2, 3, ...)
         irreps_final = {1: irreps_in}
         for i_iter, cg_iteration in enumerate(self.cg_iterations):
             irreps_final[i_iter + 2] = cg_iteration.irreps_out
 
         self.irreps_out = irreps_final
-        self.adder = EquivariantTensorAdd()
 
-    def forward(self, features: List[TensorMap]) -> List[TensorMap]:
-        if len(features) != 2:
-            raise ValueError("CGIterator takes two inputs: nu=0 and nu=1.")
+    def forward(self, features: TensorMap) -> TensorMap:
 
-        nu0 = features[0]
-        nu1 = features[1]
-        density = self.adder(nu0, nu1)
+        density = features
+        mixed_densities = [mixer(density) for mixer in self.mixers]
 
-        output = [nu0, density]
-        starting_density = density
+        starting_density = mixed_densities[0]
+        density_index = 1
         current_density = density
         for iterator in self.cg_iterations:
-            current_density = iterator(current_density, starting_density)
-            output.append(current_density)
+            current_density = iterator(current_density, mixed_densities[density_index])
+            density_index += 1
 
-        return output
+        return current_density
 
 
 class CGIterationAdd(torch.nn.Module):
@@ -89,7 +92,10 @@ class CGIterationAdd(torch.nn.Module):
             k_max_l, irreps_in_1, irreps_in_2, nu_triplet, cgs, requested_LS_string
         )
         self.irreps_out = self.cg_iteration.irreps_out
-        self.adder = EquivariantTensorAdd()
+
+        common_irreps = [irrep for irrep in irreps_in_1 if irrep in self.irreps_out]
+        self.adder = EquivariantTensorAdd(common_irreps, k_max_l)
+        # self.adder = EquivariantTensorAdd()
 
     def forward(self, features_1: TensorMap, features_2: TensorMap):
         features_out = self.cg_iteration(features_1, features_2)
@@ -120,6 +126,8 @@ class CGIteration(torch.nn.Module):
             for l2, s2 in irreps_in_2:
                 for L in range(abs(l1 - l2), min(l1 + l2, self.l_max) + 1):
                     S = s1 * s2 * (-1) ** (l1 + l2 + L)
+                    if S == -1:
+                        continue
                     if self.requested_LS_string is not None:
                         if str(L) + "_" + str(S) != self.requested_LS_string:
                             continue
@@ -136,11 +144,7 @@ class CGIteration(torch.nn.Module):
         self.linear_contractions = torch.nn.ModuleDict(
             {
                 LS_string: torch.nn.Sequential(
-                    Normalizer(
-                        [0, 1]
-                    ),  # within one LS block, some features will come from "squares", others not
                     Linear(size_LS, k_max_l[int(LS_string.split("_")[0])]),
-                    Normalizer([0, 1, 2]),
                 )
                 for LS_string, size_LS in self.sizes_by_lam_sig.items()
             }
@@ -199,6 +203,7 @@ class CGIteration(torch.nn.Module):
             )
             compressed_tensor = linear_LS(concatenated_tensor)
             compressed_results_by_lam_sig[(str(L) + "_" + str(S))] = compressed_tensor
+            # print(L, S, torch.mean(compressed_tensor).item(), torch.std(compressed_tensor).item())
 
         keys: List[List[int]] = []
         blocks: List[TensorBlock] = []

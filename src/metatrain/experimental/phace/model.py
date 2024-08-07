@@ -20,15 +20,13 @@ from ...utils.composition import apply_composition_contribution_samples
 from ...utils.dtype import dtype_to_str
 from ...utils.export import export
 from ...utils.scaling import apply_scaling
-from .modules.center_embedding import CenterEmbedding
+from .modules.center_embedding import embed_centers
 from .modules.cg import get_cg_coefficients
 from .modules.cg_iterator import CGIterator
-from .modules.generalized_cg_iterator import GeneralizedCGIterator
-from .modules.initial_features import InitialFeatures
-from .modules.linear_map import LinearMap
-from .modules.message_passing import MessagePasser
+from .modules.initial_features import get_initial_features
+from .modules.layers import InvariantLinear, InvariantMLP
+from .modules.message_passing import InvariantMessagePasser, EquivariantMessagePasser
 from .modules.precomputations import Precomputer
-from .modules.tensor_sum import TensorAdd
 from .utils import systems_to_batch
 
 
@@ -63,6 +61,10 @@ class PhACE(torch.nn.Module):
         self.dataset_info = dataset_info
         self.model_hypers = model_hypers
 
+        self.nu_scaling = model_hypers["nu_scaling"]
+        self.mp_scaling = model_hypers["mp_scaling"]
+        self.overall_scaling = model_hypers["overall_scaling"]
+
         n_channels = model_hypers["n_element_channels"]
 
         species_to_species_index = torch.zeros(
@@ -80,17 +82,15 @@ class PhACE(torch.nn.Module):
         if self.n_message_passing_layers < 1:
             raise ValueError("Number of message-passing layers must be at least 1")
 
-        self.invariant_message_passer = MessagePasser(
-            model_hypers, self.all_species, [[(0, 1)]]
+        self.invariant_message_passer = InvariantMessagePasser(
+            model_hypers, self.all_species, self.mp_scaling
         )
 
         self.all_species = self.all_species
-        n_max = self.invariant_message_passer.message_passers[0].n_max_l
+        n_max = self.invariant_message_passer.n_max_l
         self.l_max = len(n_max) - 1
         self.k_max_l = [n_channels * n_max[l] for l in range(self.l_max + 1)]
 
-        print()
-        print("BASELINE")
         print()
         print("l_max", self.l_max)
         print("n_max_l", n_max)
@@ -104,42 +104,30 @@ class PhACE(torch.nn.Module):
             for (l1, l2, L), tensor in cgs._cgs.items()
         }
 
-        self.adder = TensorAdd()
-
-        self.element_embedding = CenterEmbedding(n_channels)
-        self.initial_features = InitialFeatures(self.k_max_l[0])
-        self.precomputer = Precomputer(self.l_max, normalize=True)
+        self.precomputer = Precomputer(self.l_max)
         self.cg_iterator = CGIterator(
             self.k_max_l,
             self.nu_max - 1,
             cgs,
             irreps_in=[(l, 1) for l in range(self.l_max + 1)],
-            requested_LS_string="0_1",
+            # requested_LS_string="0_1",  # For ACE
         )
 
         equivariant_message_passers = []
         generalized_cg_iterators = []
         for idx in range(self.n_message_passing_layers - 1):
-            irreps_equiv_mp = (
-                [[(0, 1)]] + list(self.cg_iterator.irreps_out.values())[:-1]
-                if idx == 0
-                else [[(0, 1)]]
-                + list(generalized_cg_iterators[-1].irreps_out.values())[:-1]
-            )
-            equivariant_message_passer = MessagePasser(
-                model_hypers, self.all_species, irreps_equiv_mp, cgs
+            irreps_equiv_mp = list(self.cg_iterator.irreps_out.values())[-1]
+            # irreps_equiv_mp = [(0, 1), (1, 1), (2, 1)]
+            equivariant_message_passer = EquivariantMessagePasser(
+                model_hypers, self.all_species, irreps_equiv_mp, [1, self.nu_max, self.nu_max + 1], cgs, self.mp_scaling
             )
             equivariant_message_passers.append(equivariant_message_passer)
-            generalized_cg_iterator = GeneralizedCGIterator(
+            generalized_cg_iterator = CGIterator(
                 self.k_max_l,
-                self.nu_max,
+                self.nu_max - 1,
                 cgs,
-                {
-                    idx + 1: mp.irreps_out
-                    for idx, mp in enumerate(
-                        equivariant_message_passers[-1].message_passers
-                    )
-                },
+                irreps_in=equivariant_message_passer.irreps_out,
+                requested_LS_string="0_1",
             )
             generalized_cg_iterators.append(generalized_cg_iterator)
 
@@ -148,9 +136,11 @@ class PhACE(torch.nn.Module):
         )
         self.generalized_cg_iterators = torch.nn.ModuleList(generalized_cg_iterators)
 
+        self.last_mlp = InvariantMLP(self.k_max_l[0])
+
         self.last_layers = torch.nn.ModuleDict(
             {
-                output_name: LinearMap(self.k_max_l[0])
+                output_name: InvariantLinear(self.k_max_l[0])
                 for output_name in self.outputs.keys()
             }
         )
@@ -225,6 +215,7 @@ class PhACE(torch.nn.Module):
             structure_pairs=structures["structure_pairs"],
             structure_offsets=structures["structure_offsets"],
         )
+        sh = metatensor.torch.multiply(sh, self.nu_scaling)
 
         samples_values = torch.stack(
             (
@@ -241,52 +232,58 @@ class PhACE(torch.nn.Module):
         center_species_indices = self.species_to_species_index[structures["species"]]
         center_embeddings = self.embeddings(center_species_indices)
 
-        initial_features = self.initial_features(
+        initial_features = get_initial_features(
             structures["structure_centers"],
             structures["centers"],
             structures["species"],
             structures["positions"].dtype,
+            self.k_max_l[0]
         )
-        initial_element_embedding = self.element_embedding(
+        initial_element_embedding = embed_centers(
             initial_features, center_embeddings
         )
 
         spherical_expansion = self.invariant_message_passer(
-            r, sh, structures, n_atoms, [initial_element_embedding], samples
+            r,
+            sh, 
+            structures["structure_offsets"][structures["structure_pairs"]]
+            + structures["pairs"][:, 0],
+            structures["structure_offsets"][structures["structure_pairs"]]
+            + structures["pairs"][:, 1],
+            n_atoms,
+            initial_element_embedding,
+            samples
         )
-        spherical_expansion = self.adder(spherical_expansion, [initial_features])
 
         features = self.cg_iterator(spherical_expansion)
-        features = self.adder(features, spherical_expansion)
 
         # message passing
         for message_passer, generalized_cg_iterator in zip(
             self.equivariant_message_passers, self.generalized_cg_iterators
         ):
-            embedded_features: List[metatensor.torch.TensorMap] = []
-            for nu in range(self.nu_max):
-                embedded_features.append(
-                    self.element_embedding(features[nu], center_embeddings)
-                )
+            embedded_features = embed_centers(features, center_embeddings)
             mp_features = message_passer(
-                r, sh, structures, n_atoms, embedded_features, samples
+                r,
+                sh,
+                structures["structure_offsets"][structures["structure_pairs"]]
+                + structures["pairs"][:, 0],
+                structures["structure_offsets"][structures["structure_pairs"]]
+                + structures["pairs"][:, 1],
+                n_atoms,
+                embedded_features,
+                samples
             )
-            features = self.adder(mp_features, features)
+            iterated_features = generalized_cg_iterator(mp_features)
+            features = iterated_features
 
-            iterated_features = generalized_cg_iterator(features)
-            features = self.adder(iterated_features, features)
-
-        # center embedding before readout
-        for nu in range(self.nu_max + 1):
-            features[nu] = self.element_embedding(features[nu], center_embeddings)
-
-        hidden_features = features[self.nu_max]
+        embed_centers(features, center_embeddings)
+        features = self.last_mlp(features)
 
         return_dict: Dict[str, TensorMap] = {}
         # output the hidden features, if requested:
         if "mtt::aux::last_layer_features" in outputs:
             last_layer_features_options = outputs["mtt::aux::last_layer_features"]
-            out_features = hidden_features
+            out_features = features
             if not last_layer_features_options.per_atom:
                 out_features = metatensor.torch.sum_over_samples(out_features, ["atom"])
             return_dict["mtt::aux::last_layer_features"] = out_features
@@ -295,10 +292,11 @@ class PhACE(torch.nn.Module):
         for output_name, output_layer in self.last_layers.items():
             if output_name in outputs:
                 atomic_energies[output_name] = apply_composition_contribution_samples(
-                    apply_scaling(
-                        output_layer(hidden_features),
-                        self.scalings[self.output_to_index[output_name]].item(),
-                    ),
+                    metatensor.torch.multiply(output_layer(features), self.overall_scaling),
+                    # apply_scaling(
+                    #     output_layer(hidden_features),
+                    #     self.scalings[self.output_to_index[output_name]].item(),
+                    # ),
                     self.composition_weights[  # type: ignore
                         self.output_to_index[output_name]
                     ],
@@ -380,7 +378,7 @@ class PhACE(torch.nn.Module):
             n_inputs_last_layer = model_hypers_bpnn["input_size"]
         else:
             n_inputs_last_layer = model_hypers_bpnn["num_neurons_per_layer"]
-        self.last_layers[output_name] = LinearMap(self.all_species, n_inputs_last_layer)
+        self.last_layers[output_name] = InvariantLinear(self.all_species, n_inputs_last_layer)
 
     def requested_neighbor_lists(
         self,
