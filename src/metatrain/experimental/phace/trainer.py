@@ -4,7 +4,7 @@ from pathlib import Path
 from typing import List, Union
 
 import torch
-from metatensor.learn.data import DataLoader
+from torch.utils.data import DataLoader, DistributedSampler
 
 from ...utils.composition import calculate_composition_weights
 from ...utils.data import (
@@ -14,6 +14,9 @@ from ...utils.data import (
     collate_fn,
     get_all_targets,
 )
+import torch.distributed
+from ...utils.distributed.distributed_data_parallel import DistributedDataParallel
+from ...utils.distributed.slurm import DistributedEnvironment
 from ...utils.data.extract_targets import get_targets_dict
 from ...utils.evaluate_model import evaluate_model
 from ...utils.external_naming import to_external_name
@@ -54,11 +57,36 @@ class Trainer:
         val_datasets: List[Union[Dataset, torch.utils.data.Subset]],
         checkpoint_dir: str,
     ):
-        # only one device, as we don't support multi-gpu for now
-        assert len(devices) == 1
-        device = devices[0]
+        is_distributed = self.hypers["distributed"]
 
-        logger.info(f"training on device {device} with dtype {dtype}")
+        if is_distributed:
+            distr_env = DistributedEnvironment(self.hypers["distributed_port"])
+            torch.distributed.init_process_group(backend="nccl")
+            world_size = torch.distributed.get_world_size()
+            rank = torch.distributed.get_rank()
+        else:
+            rank = 0
+
+        if is_distributed:
+            if len(devices) > 1:
+                raise ValueError(
+                    "Requested distributed training with the `multi-gpu` device. "
+                    " If you want to run distributed training with SOAP-BPNN, please "
+                    "set `device` to cuda."
+                )
+            # the calculation of the device number works both when GPUs on different
+            # processes are not visible to each other and when they are
+            device_number = distr_env.local_rank % torch.cuda.device_count()
+            device = torch.device("cuda", device_number)
+        else:
+            device = devices[
+                0
+            ]  # only one device, as we don't support multi-gpu for now
+
+        if is_distributed:
+            logger.info(f"Training on {world_size} devices with dtype {dtype}")
+        else:
+            logger.info(f"Training on device {device} with dtype {dtype}")
         model.to(device=device, dtype=dtype)
 
         # Calculate and set the composition weights for all targets:
@@ -74,20 +102,20 @@ class Trainer:
                     "user-supplied composition weights"
                 )
                 cur_weight_dict = self.hypers["fixed_composition_weights"][target_name]
-                atomic_types = set()
+                atomic_types = []
                 num_species = len(cur_weight_dict)
                 fixed_weights = torch.zeros(num_species, dtype=dtype, device=device)
 
                 for ii, (key, weight) in enumerate(cur_weight_dict.items()):
-                    atomic_types.add(key)
+                    atomic_types.append(key)
                     fixed_weights[ii] = weight
 
-                if not set(atomic_types) == model.atomic_types:
+                if not set(atomic_types) == set(model.atomic_types):
                     raise ValueError(
                         "Supplied atomic types are not present in the dataset."
                     )
                 model.set_composition_weights(
-                    target_name, fixed_weights, list(atomic_types)
+                    target_name, fixed_weights, atomic_types
                 )
 
             else:
@@ -117,43 +145,66 @@ class Trainer:
                 # and doesn't require to reassign the system to the dataset:
                 _ = get_system_with_neighbor_lists(system, requested_neighbor_lists)
 
-            logger.info("Setting up data loaders")
+        logger.info("Setting up data loaders")
+
+        if is_distributed:
+            train_samplers = [
+                DistributedSampler(
+                    train_dataset,
+                    num_replicas=world_size,
+                    rank=rank,
+                    shuffle=True,
+                    drop_last=True,
+                )
+                for train_dataset in train_datasets
+            ]
+            val_samplers = [
+                DistributedSampler(
+                    val_dataset,
+                    num_replicas=world_size,
+                    rank=rank,
+                    shuffle=False,
+                    drop_last=False,
+                )
+                for val_dataset in val_datasets
+            ]
+        else:
+            train_samplers = [None] * len(train_datasets)
+            val_samplers = [None] * len(val_datasets)
 
         # Create dataloader for the training datasets:
         train_dataloaders = []
-        for dataset in train_datasets:
+        for dataset, sampler in zip(train_datasets, train_samplers):
             train_dataloaders.append(
                 DataLoader(
                     dataset=dataset,
                     batch_size=self.hypers["batch_size"],
-                    shuffle=True,
+                    sampler=sampler,
+                    shuffle=(
+                        sampler is None
+                    ),  # the sampler takes care of this (if present)
+                    drop_last=(
+                        sampler is None
+                    ),  # the sampler takes care of this (if present)
                     collate_fn=collate_fn,
                 )
             )
         train_dataloader = CombinedDataLoader(train_dataloaders, shuffle=True)
 
-        torch.jit.set_fusion_strategy([("DYNAMIC", 0)])
-        scripted_model = torch.jit.script(model)
-
-        # scaling:
-        # TODO: this will work sub-optimally if the model is restarting with
-        # new targets (but it will still work)
-        # calculate_scaling(scripted_model, train_dataloader, model.dataset_info, device)
-
         # Create dataloader for the validation datasets:
         val_dataloaders = []
-        for dataset in val_datasets:
+        for dataset, sampler in zip(val_datasets, val_samplers):
             val_dataloaders.append(
                 DataLoader(
                     dataset=dataset,
                     batch_size=self.hypers["batch_size"],
+                    sampler=sampler,
                     shuffle=False,
+                    drop_last=False,
                     collate_fn=collate_fn,
                 )
             )
-        val_dataloader = CombinedDataLoader(
-            val_dataloaders, shuffle=False
-        )
+        val_dataloader = CombinedDataLoader(val_dataloaders, shuffle=False)
 
         # Extract all the possible outputs and their gradients:
         training_targets = get_targets_dict(train_datasets, model.dataset_info)
@@ -182,9 +233,14 @@ class Trainer:
         # Create a loss function:
         loss_fn = TensorMapDictLoss(loss_weights_dict)
 
+        torch.jit.set_fusion_strategy([("DYNAMIC", 0)])
+        scripted_model = torch.jit.script(model)
+        if is_distributed:
+            scripted_model = DistributedDataParallel(scripted_model, device_ids=[device], find_unused_parameters=False)
+
         # Create an optimizer:
         optimizer = torch.optim.Adam(
-            scripted_model.parameters(), lr=self.hypers["learning_rate"]
+            model.parameters(), lr=self.hypers["learning_rate"]
         )
         if self.optimizer_state_dict is not None:
             optimizer.load_state_dict(self.optimizer_state_dict)
@@ -240,7 +296,7 @@ class Trainer:
 
             finalized_train_info = {
                 **train_rmse_calculator.finalize(not_per_atom=["positions_gradients"] + per_structure_targets),
-                **train_mae_calculator.finalize(),
+                **train_mae_calculator.finalize(not_per_atom=["positions_gradients"] + per_structure_targets),
             }
 
             val_loss = 0.0
@@ -272,7 +328,7 @@ class Trainer:
 
             finalized_val_info = {
                 **val_rmse_calculator.finalize(not_per_atom=["positions_gradients"] + per_structure_targets),
-                **val_mae_calculator.finalize(),
+                **val_mae_calculator.finalize(not_per_atom=["positions_gradients"] + per_structure_targets),
             }
 
             # Now we log the information:
@@ -304,7 +360,7 @@ class Trainer:
             lr_after = optimizer.param_groups[0]["lr"]
             if lr_before != lr_after:
                 logger.info(f"Learning rate changed from {lr_before} to {lr_after}")
-                model.load_state_dict(best_state_dict)
+                scripted_model.load_state_dict(best_state_dict)
                 optimizer.load_state_dict(best_optimizer_state_dict)
                 for param_group in optimizer.param_groups:
                     param_group["lr"] = lr_after
@@ -312,7 +368,11 @@ class Trainer:
                 logger.info("Training has converged, stopping")
                 break
 
-            val_metric = finalized_val_info["energy MAE"]*finalized_val_info["energy_positions_gradients MAE"]
+            val_metric = (
+                finalized_val_info["energy MAE (per atom)"]*finalized_val_info["energy_positions_gradients MAE"] if "energy_positions_gradients MAE" in finalized_train_info else (
+                    finalized_val_info["energy MAE"] if "energy MAE" in finalized_val_info else finalized_val_info["energy MAE (per atom)"]
+                )
+            )
             if val_metric < best_val_metric:
                 best_val_metric = val_metric
                 n_epochs_without_improvement = 0
@@ -327,10 +387,16 @@ class Trainer:
                     )
                     break
 
-        model.load_state_dict(best_state_dict)
+        if is_distributed:
+            model.load_state_dict(
+                {name.replace("module.", ""): tensor for name, tensor in best_state_dict.items()}
+            )
+        else:
+            model.load_state_dict(best_state_dict)
 
 
     def save_checkpoint(self, model, path: Union[str, Path]):
+        # ???????????????
         checkpoint = {
             "model_hypers": {
                 "model_hypers": model.hypers,

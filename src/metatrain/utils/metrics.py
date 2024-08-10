@@ -133,11 +133,28 @@ class MAEAccumulator:
                     + prediction_gradient.values.numel(),
                 )
 
-    def finalize(self) -> Dict[str, float]:
-        """Finalizes the accumulator and return the MAE for each key."""
+    def finalize(
+        self,
+        not_per_atom: List[str],
+        is_distributed: bool = False,
+        device: torch.device = None,
+    ) -> Dict[str, float]:
+        """Finalizes the accumulator and returns the MAE for each key."""
+
+        if is_distributed:
+            for key, value in self.information.items():
+                sae = torch.tensor(value[0]).to(device)
+                n_elems = torch.tensor(value[1]).to(device)
+                torch.distributed.all_reduce(sae)
+                torch.distributed.all_reduce(n_elems)
+                self.information[key] = (sae.item(), n_elems.item())  # type: ignore
 
         finalized_info = {}
         for key, value in self.information.items():
-            finalized_info[f"{key} MAE"] = value[0] / value[1]
+            if any([s in key for s in not_per_atom]):
+                out_key = f"{key} MAE"
+            else:
+                out_key = f"{key} MAE (per atom)"
+            finalized_info[out_key] = value[0] / value[1]
 
         return finalized_info

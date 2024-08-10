@@ -40,7 +40,7 @@ class PhACE(torch.nn.Module):
         self.hypers = model_hypers
         self.dataset_info = dataset_info
         self.new_outputs = list(dataset_info.targets.keys())
-        self.all_species = sorted(dataset_info.atomic_types)
+        self.atomic_types = sorted(dataset_info.atomic_types)
 
         self.outputs = {
             key: ModelOutput(
@@ -68,14 +68,14 @@ class PhACE(torch.nn.Module):
         n_channels = model_hypers["n_element_channels"]
 
         species_to_species_index = torch.zeros(
-            (max(self.all_species) + 1,), dtype=torch.int
+            (max(self.atomic_types) + 1,), dtype=torch.int
         )
-        species_to_species_index[self.all_species] = torch.arange(
-            len(self.all_species), dtype=torch.int
+        species_to_species_index[self.atomic_types] = torch.arange(
+            len(self.atomic_types), dtype=torch.int
         )
         self.register_buffer("species_to_species_index", species_to_species_index)
         print("species_to_species_index", self.species_to_species_index)
-        self.embeddings = torch.nn.Embedding(len(self.all_species), n_channels)
+        self.embeddings = torch.nn.Embedding(len(self.atomic_types), n_channels)
 
         self.nu_max = model_hypers["nu_max"]
         self.n_message_passing_layers = model_hypers["n_message_passing_layers"]
@@ -83,10 +83,10 @@ class PhACE(torch.nn.Module):
             raise ValueError("Number of message-passing layers must be at least 1")
 
         self.invariant_message_passer = InvariantMessagePasser(
-            model_hypers, self.all_species, self.mp_scaling
+            model_hypers, self.atomic_types, self.mp_scaling, model_hypers["disable_nu_0"]
         )
 
-        self.all_species = self.all_species
+        self.atomic_types = self.atomic_types
         n_max = self.invariant_message_passer.n_max_l
         self.l_max = len(n_max) - 1
         self.k_max_l = [n_channels * n_max[l] for l in range(self.l_max + 1)]
@@ -116,10 +116,12 @@ class PhACE(torch.nn.Module):
         equivariant_message_passers = []
         generalized_cg_iterators = []
         for idx in range(self.n_message_passing_layers - 1):
-            irreps_equiv_mp = list(self.cg_iterator.irreps_out.values())[-1]
-            # irreps_equiv_mp = [(0, 1), (1, 1), (2, 1)]
+            if idx == 0:
+                irreps_equiv_mp = self.cg_iterator.irreps_out
+            else:
+                irreps_equiv_mp = generalized_cg_iterators[-1].irreps_out
             equivariant_message_passer = EquivariantMessagePasser(
-                model_hypers, self.all_species, irreps_equiv_mp, [1, self.nu_max, self.nu_max + 1], cgs, self.mp_scaling
+                model_hypers, self.atomic_types, irreps_equiv_mp, [1, self.nu_max, self.nu_max + 1], cgs, self.mp_scaling
             )
             equivariant_message_passers.append(equivariant_message_passer)
             generalized_cg_iterator = CGIterator(
@@ -127,7 +129,7 @@ class PhACE(torch.nn.Module):
                 self.nu_max - 1,
                 cgs,
                 irreps_in=equivariant_message_passer.irreps_out,
-                requested_LS_string="0_1",
+                requested_LS_string=("0_1" if idx == self.n_message_passing_layers-2 else None),
             )
             generalized_cg_iterators.append(generalized_cg_iterator)
 
@@ -141,7 +143,7 @@ class PhACE(torch.nn.Module):
         self.last_layers = torch.nn.ModuleDict(
             {
                 output_name: InvariantLinear(self.k_max_l[0])
-                for output_name in self.outputs.keys()
+                for output_name in self.outputs.keys() if not output_name.startswith("mtt::aux::")
             }
         )
 
@@ -150,7 +152,7 @@ class PhACE(torch.nn.Module):
         # set_composition_weights (recommended for better accuracy)
         n_outputs = len(self.outputs)
         self.register_buffer(
-            "composition_weights", torch.zeros((n_outputs, max(self.all_species) + 1))
+            "composition_weights", torch.zeros((n_outputs, max(self.atomic_types) + 1))
         )
         # buffers cannot be indexed by strings (torchscript), so we create a single
         # tensor for all output. Due to this, we need to slice the tensor when we use
@@ -166,12 +168,12 @@ class PhACE(torch.nn.Module):
     def restart(self, dataset_info: DatasetInfo) -> "PhACE":
         # merge old and new dataset info
         merged_info = self.dataset_info.union(dataset_info)
-        new_all_species = merged_info.all_species - self.all_species
+        new_atomic_types = merged_info.atomic_types - self.atomic_types
         new_targets = merged_info.targets - self.dataset_info.targets
 
-        if len(new_all_species) > 0:
+        if len(new_atomic_types) > 0:
             raise ValueError(
-                f"New atomic types found in the dataset: {new_all_species}. "
+                f"New atomic types found in the dataset: {new_atomic_types}. "
                 "The SOAP-BPNN model does not support adding new atomic types."
             )
 
@@ -180,7 +182,7 @@ class PhACE(torch.nn.Module):
             self.add_output(output_name)
 
         self.dataset_info = merged_info
-        self.all_species = sorted(self.all_species)
+        self.atomic_types = sorted(self.atomic_types)
 
         for target_name, target in new_targets.items():
             self.outputs[target_name] = ModelOutput(
@@ -332,7 +334,7 @@ class PhACE(torch.nn.Module):
 
         capabilities = ModelCapabilities(
             outputs=self.outputs,
-            atomic_types=self.all_species,
+            atomic_types=self.atomic_types,
             interaction_range=self.model_hypers["cutoff"],
             length_unit=self.dataset_info.length_unit,
             supported_devices=self.__supported_devices__,
@@ -378,7 +380,7 @@ class PhACE(torch.nn.Module):
             n_inputs_last_layer = model_hypers_bpnn["input_size"]
         else:
             n_inputs_last_layer = model_hypers_bpnn["num_neurons_per_layer"]
-        self.last_layers[output_name] = InvariantLinear(self.all_species, n_inputs_last_layer)
+        self.last_layers[output_name] = InvariantLinear(self.atomic_types, n_inputs_last_layer)
 
     def requested_neighbor_lists(
         self,

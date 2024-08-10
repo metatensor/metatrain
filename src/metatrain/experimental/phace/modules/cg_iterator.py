@@ -53,13 +53,7 @@ class CGIterator(torch.nn.Module):
             mixers.append(EquivariantLinear(irreps_in, k_max_l))
         self.mixers = torch.nn.ModuleList(mixers)
 
-
-        # store the irreps_out for each output (nu = 1, 2, 3, ...)
-        irreps_final = {1: irreps_in}
-        for i_iter, cg_iteration in enumerate(self.cg_iterations):
-            irreps_final[i_iter + 2] = cg_iteration.irreps_out
-
-        self.irreps_out = irreps_final
+        self.irreps_out = self.cg_iterations[-1].irreps_out
 
     def forward(self, features: TensorMap) -> TensorMap:
 
@@ -68,7 +62,7 @@ class CGIterator(torch.nn.Module):
 
         starting_density = mixed_densities[0]
         density_index = 1
-        current_density = density
+        current_density = starting_density
         for iterator in self.cg_iterations:
             current_density = iterator(current_density, mixed_densities[density_index])
             density_index += 1

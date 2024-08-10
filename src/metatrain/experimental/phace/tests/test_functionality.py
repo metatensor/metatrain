@@ -26,7 +26,7 @@ def test_batched_prediction():
     )
 
     model = PhACE(DEFAULT_HYPERS["model"], dataset_info)
-    # model = torch.jit.script(model)
+    model = torch.jit.script(model)
 
     systems = read_systems(DATASET_PATH)[:8]
     systems = [system.to(torch.float32) for system in systems]
@@ -40,10 +40,8 @@ def test_batched_prediction():
 
     energies_per_mode = []
     for system_mode in [systems_1, systems_2, systems_4, systems_8]:
-        print("executing")
         all_energies = []
         for systems in system_mode:
-            print("executing 1")
             energies = model(
                 systems,
                 {"energy": model.outputs["energy"]},
@@ -55,3 +53,47 @@ def test_batched_prediction():
     assert torch.allclose(energies_per_mode[0], energies_per_mode[1])
     assert torch.allclose(energies_per_mode[0], energies_per_mode[2])
     assert torch.allclose(energies_per_mode[0], energies_per_mode[3])
+
+
+@pytest.mark.parametrize("disable_nu_0", [True, False])
+def test_isolated_atoms(disable_nu_0):
+    """Test that predictions are correct for isolated atoms."""
+
+    dataset_info = DatasetInfo(
+        length_unit="Angstrom",
+        atomic_types=[1, 6, 7, 8],
+        targets=TargetInfoDict(energy=TargetInfo(quantity="energy", unit="eV")),
+    )
+
+    DEFAULT_HYPERS["model"]["disable_nu_0"] = disable_nu_0
+    model = PhACE(DEFAULT_HYPERS["model"], dataset_info)
+    model.set_composition_weights(
+        "energy",
+        torch.tensor([123.0, 42.0, -42.0, 123.0]),
+        [1, 6, 7, 8],
+    )
+    model = torch.jit.script(model)
+
+    systems = [
+        System(positions=torch.zeros((1, 3), dtype=torch.float32), cell=torch.zeros((3, 3), dtype=torch.float32), types=torch.tensor([1])),
+        System(positions=torch.zeros((1, 3), dtype=torch.float32), cell=torch.zeros((3, 3), dtype=torch.float32), types=torch.tensor([6])),
+        System(positions=torch.zeros((1, 3), dtype=torch.float32), cell=torch.zeros((3, 3), dtype=torch.float32), types=torch.tensor([7])),
+        System(positions=torch.zeros((1, 3), dtype=torch.float32), cell=torch.zeros((3, 3), dtype=torch.float32), types=torch.tensor([8])),
+    ]
+    systems = [system.to(torch.float32) for system in systems]
+    nl_options = NeighborListOptions(cutoff=5.0, full_list=True)
+    systems = [get_system_with_neighbor_lists(system, [nl_options]) for system in systems]
+
+    energies = model(
+        systems,
+        {"energy": model.outputs["energy"]},
+    )["energy"].block().values
+
+    allclose = torch.allclose(
+        energies.squeeze(1),
+        torch.tensor([123.0, 42.0, -42.0, 123.0]),
+    )
+    if disable_nu_0:
+        assert allclose
+    else:
+        assert not allclose

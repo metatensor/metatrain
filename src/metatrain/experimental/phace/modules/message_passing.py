@@ -13,7 +13,7 @@ import metatensor.torch
 
 class InvariantMessagePasser(torch.nn.Module):
 
-    def __init__(self, hypers: Dict, all_species: List[int], mp_scaling) -> None:
+    def __init__(self, hypers: Dict, all_species: List[int], mp_scaling, disable_nu_0) -> None:
         super().__init__()
 
         self.all_species = all_species
@@ -28,7 +28,7 @@ class InvariantMessagePasser(torch.nn.Module):
         self.mp_scaling = mp_scaling
 
         self.adder = EquivariantTensorAdd([(0, 1)], self.k_max_l)
-        # self.adder = EquivariantTensorAdd()
+        self.disable_nu_0 = disable_nu_0
 
     def forward(
         self,
@@ -90,7 +90,8 @@ class InvariantMessagePasser(torch.nn.Module):
         )
 
         pooled_result = metatensor.torch.multiply(pooled_result, self.mp_scaling)
-        pooled_result = self.adder(pooled_result, initial_center_embedding)
+        if not self.disable_nu_0:
+            pooled_result = self.adder(pooled_result, initial_center_embedding)
         return pooled_result
 
 
@@ -198,7 +199,7 @@ class EquivariantMessagePasser(torch.nn.Module):
                 tensor12 = tensor1.swapaxes(1, 2).unsqueeze(3) * tensor2.swapaxes(
                     1, 2
                 ).unsqueeze(2)
-                tensor12 = tensor12.reshape(tensor12.shape[0], tensor12.shape[1], -1)
+                tensor12 = tensor12.reshape(tensor12.shape[0], tensor12.shape[1], tensor12.shape[2]*tensor12.shape[3])
                 for L in range(abs(l1 - l2), min(l1 + l2, self.l_max) + 1):
                     S = int(s1 * s2 * (-1) ** (l1 + l2 + L))
                     result = cg_combine_l1l2L(

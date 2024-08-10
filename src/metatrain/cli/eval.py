@@ -223,7 +223,7 @@ def _eval_targets(
 
     # Finalize the RMSEs and MAEs
     rmse_values = rmse_accumulator.finalize(not_per_atom=["positions_gradients"])
-    mae_values = mae_accumulator.finalize()
+    mae_values = mae_accumulator.finalize(not_per_atom=["positions_gradients"])
     
     metrics = {**rmse_values, **mae_values}
     # print the RMSEs with MetricLogger

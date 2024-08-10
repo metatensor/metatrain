@@ -25,14 +25,14 @@ def test_rotational_invariance():
     original_system = copy.deepcopy(system)
     system.rotate(48, "y")
 
-    original_system = systems_to_torch(original_system)
-    system = systems_to_torch(system)
+    original_system = systems_to_torch(original_system).to(torch.float64)
+    system = systems_to_torch(system).to(torch.float64)
 
     nls = model.requested_neighbor_lists()
     original_system = get_system_with_neighbor_lists(original_system, nls)
     system = get_system_with_neighbor_lists(system, nls)
 
-    model = torch.jit.script(model)
+    model = torch.jit.script(model).to(torch.float64)
 
     original_output = model(
         [original_system, system],
@@ -42,9 +42,6 @@ def test_rotational_invariance():
         [system, original_system],
         {"energy": model.outputs["energy"]},
     )
-
-    print(original_output["energy"].block().values)
-    print(rotated_output["energy"].block().values)
 
     torch.testing.assert_close(
         original_output["energy"].block().values,
