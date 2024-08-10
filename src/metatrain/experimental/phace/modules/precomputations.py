@@ -100,9 +100,9 @@ def get_cartesian_vectors(
     shifted_pairs = pairs_offsets[:, None] + pairs
     shifted_pairs_i = shifted_pairs[:, 0]
     shifted_pairs_j = shifted_pairs[:, 1]
-    direction_vectors = (
-        positions[shifted_pairs_i]
-        - positions[shifted_pairs_j] 
+    direction_vectors = - (
+        positions[shifted_pairs_j]
+        - positions[shifted_pairs_i] 
         + torch.einsum(
             "ab, abc -> ac", cell_shifts.to(cells.dtype), cells[structure_pairs]
         )
