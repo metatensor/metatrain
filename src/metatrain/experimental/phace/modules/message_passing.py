@@ -11,6 +11,19 @@ from .tensor_sum import EquivariantTensorAdd
 import metatensor.torch
 
 
+class DummyAdder(torch.nn.Module):
+    def __init__(self):
+        super().__init__()
+    def forward(self, tmap_1: metatensor.torch.TensorMap, tmap_2: metatensor.torch.TensorMap) -> metatensor.torch.TensorMap:
+        return metatensor.torch.TensorMap(
+            keys=Labels(
+                names=["dummy"],
+                values=torch.empty(1, 1)
+            ),
+            blocks=[]
+        )
+
+
 class InvariantMessagePasser(torch.nn.Module):
 
     def __init__(self, hypers: Dict, all_species: List[int], mp_scaling, disable_nu_0) -> None:
@@ -27,7 +40,10 @@ class InvariantMessagePasser(torch.nn.Module):
 
         self.mp_scaling = mp_scaling
 
-        self.adder = EquivariantTensorAdd([(0, 1)], self.k_max_l)
+        if not disable_nu_0:
+            self.adder = EquivariantTensorAdd([(0, 1)], self.k_max_l)
+        else:
+            self.adder = DummyAdder()
         self.disable_nu_0 = disable_nu_0
 
     def forward(
