@@ -1,82 +1,11 @@
 import numpy as np
 import torch
 import wigners
-try:
-    import mops.torch
-except ImportError:
-    pass
-from typing import Dict
-
-
-def cg_combine_l1l2(tensor_A, tensor_B, tensor_C, indices_A, indices_B, indices_output, split_sizes):
-    
-    assert tensor_A.shape[0] == tensor_B.shape[0]
-    shape_0 = tensor_A.shape[0]
-
-    assert tensor_A.shape[2] == tensor_B.shape[2]
-    shape_2 = tensor_A.shape[2]
-
-    tensor_A = tensor_A.swapaxes(1, 2).reshape(shape_0*shape_2, tensor_A.shape[1])
-    tensor_B = tensor_B.swapaxes(1, 2).reshape(shape_0*shape_2, tensor_B.shape[1])
-
-    output_size = int(split_sizes.sum().item())
-    mops_result = mops.torch.sparse_accumulation_of_products(
-        tensor_A, tensor_B, tensor_C, indices_A, indices_B, indices_output, output_size
-    )
-
-    split_sizes_list: List[int] = split_sizes.tolist()
-    L_splits = torch.split(mops_result, split_sizes_list, dim=1)
-    result = []
-    for L_split, split_size in zip(L_splits, split_sizes_list):
-        result.append(L_split.reshape(shape_0, shape_2, split_size).swapaxes(1, 2))
-    return result
-
-
-def cgs_to_sparse(cgs, l_max):
-    sparse_cgs = {}
-    for l1 in range(l_max + 1):
-        for l2 in range(l_max + 1):
-            base_M_index = 0
-            split_sizes = []
-            i1 = []
-            i2 = []
-            I = []
-            C = []
-            for L in range(abs(l1 - l2), min(l1 + l2, l_max) + 1):
-                dense_cg_matrix = cgs[f"{l1}_{l2}_{L}"]
-                where_nonzero = torch.nonzero(dense_cg_matrix, as_tuple=True)
-                m1, m2, M = where_nonzero
-                nonzero_coeffs = dense_cg_matrix[where_nonzero]
-                i1.append(m1)
-                i2.append(m2)
-                I.append(M+base_M_index)
-                C.append(nonzero_coeffs)
-                split_sizes.append(2*L+1)
-                base_M_index += 2*L+1
-            sparse_cgs[f"{l1}_{l2}"] = {}
-            sparse_cgs[f"{l1}_{l2}"]["i1"] = torch.concatenate(i1).to(torch.int32)
-            sparse_cgs[f"{l1}_{l2}"]["i2"] = torch.concatenate(i2).to(torch.int32)
-            sparse_cgs[f"{l1}_{l2}"]["I"] = torch.concatenate(I).to(torch.int32)
-            sparse_cgs[f"{l1}_{l2}"]["C"] = torch.concatenate(C)
-            sparse_cgs[f"{l1}_{l2}"]["split_sizes"] = torch.tensor(split_sizes)
-    return sparse_cgs
-            
-
-def cgs_to_device_dtype(cgs: Dict[str, Dict[str, torch.Tensor]], device: torch.device, dtype: torch.dtype):
-    cgs_device: Dict[str, Dict[str, torch.Tensor]] = {}
-    for key, value in cgs.items():
-        cgs_device[key] = {}
-        for k, v in value.items():
-            if k == "split_sizes":
-                cgs_device[key][k] = v
-            elif k == "C":
-                cgs_device[key][k] = v.to(device, dtype)
-            else:
-                cgs_device[key][k] = v.to(device)
-    return cgs_device
 
 
 def cg_combine_l1l2L(tensor12, cg_tensor):
+    # print(tensor12.shape)
+    # print(cg_tensor.shape)
     out_tensor = tensor12 @ cg_tensor.reshape(
         cg_tensor.shape[0] * cg_tensor.shape[1], cg_tensor.shape[2]
     )

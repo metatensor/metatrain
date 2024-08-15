@@ -16,7 +16,9 @@ from metatrain.utils.neighbor_lists import get_system_with_neighbor_lists
 from . import DEFAULT_HYPERS, DATASET_PATH
 
 
-def test_batched_prediction():
+@pytest.mark.parametrize("use_sphericart", [True, False])
+@pytest.mark.parametrize("use_mops", [True, False])
+def test_batched_prediction(use_sphericart, use_mops):
     """Test that predictions are the same no matter the batch size."""
 
     dataset_info = DatasetInfo(
@@ -25,6 +27,8 @@ def test_batched_prediction():
         targets=TargetInfoDict(energy=TargetInfo(quantity="energy", unit="eV")),
     )
 
+    DEFAULT_HYPERS["model"]["use_sphericart"] = use_sphericart
+    DEFAULT_HYPERS["model"]["use_mops"] = use_mops
     model = PhACE(DEFAULT_HYPERS["model"], dataset_info)
     model = torch.jit.script(model)
 
@@ -55,8 +59,10 @@ def test_batched_prediction():
     assert torch.allclose(energies_per_mode[0], energies_per_mode[3])
 
 
+@pytest.mark.parametrize("use_sphericart", [True, False])
+@pytest.mark.parametrize("use_mops", [True, False])
 @pytest.mark.parametrize("disable_nu_0", [True, False])
-def test_isolated_atoms(disable_nu_0):
+def test_isolated_atoms(disable_nu_0, use_sphericart, use_mops):
     """Test that predictions are correct for isolated atoms."""
 
     dataset_info = DatasetInfo(
@@ -66,6 +72,8 @@ def test_isolated_atoms(disable_nu_0):
     )
 
     DEFAULT_HYPERS["model"]["disable_nu_0"] = disable_nu_0
+    DEFAULT_HYPERS["model"]["use_sphericart"] = use_sphericart
+    DEFAULT_HYPERS["model"]["use_mops"] = use_mops
     model = PhACE(DEFAULT_HYPERS["model"], dataset_info)
     model.set_composition_weights(
         "energy",

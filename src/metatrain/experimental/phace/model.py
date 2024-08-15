@@ -21,11 +21,10 @@ from ...utils.dtype import dtype_to_str
 from ...utils.export import export
 from ...utils.scaling import apply_scaling
 from .modules.center_embedding import embed_centers
-from .modules.cg import get_cg_coefficients
-from .modules.cg_iterator import CGIterator
+from .modules.cg import get_cg_coefficients, cgs_to_sparse
 from .modules.initial_features import get_initial_features
 from .modules.layers import InvariantLinear, InvariantMLP
-from .modules.message_passing import InvariantMessagePasser, EquivariantMessagePasser
+from .modules.message_passing import InvariantMessagePasser
 from .modules.precomputations import Precomputer
 from .utils import systems_to_batch
 
@@ -103,8 +102,18 @@ class PhACE(torch.nn.Module):
             str(l1) + "_" + str(l2) + "_" + str(L): tensor
             for (l1, l2, L), tensor in cgs._cgs.items()
         }
+        if model_hypers["use_mops"]:
+            cgs = cgs_to_sparse(cgs, self.l_max)
 
-        self.precomputer = Precomputer(self.l_max)
+        self.precomputer = Precomputer(self.l_max, use_sphericart=model_hypers["use_sphericart"])
+
+        if model_hypers["use_mops"]:
+            from .modules.cg_iterator_mops import CGIterator
+            from .modules.message_passing_mops import EquivariantMessagePasser
+        else:
+            from .modules.cg_iterator import CGIterator
+            from .modules.message_passing import EquivariantMessagePasser
+
         self.cg_iterator = CGIterator(
             self.k_max_l,
             self.nu_max - 1,

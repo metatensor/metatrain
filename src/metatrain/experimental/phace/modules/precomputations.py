@@ -1,15 +1,75 @@
 import sphericart.torch
 import torch
 from metatensor.torch import Labels, TensorBlock, TensorMap
+import numpy as np
+from math import factorial
 
 
-class Precomputer(torch.nn.Module):
+class SphericalHarmonicsNoSphericart(torch.nn.Module):
     def __init__(self, l_max):
-        super().__init__()
-        self.spherical_harmonics_split_list = [(2 * l + 1) for l in range(l_max + 1)]
+        super(SphericalHarmonicsNoSphericart, self).__init__()
+        self.l_max = l_max
+
+        self.register_buffer("F", torch.empty(((self.l_max+1)*(self.l_max+2)//2,)))
+        for l in range(l_max+1):
+            for m in range(0, l+1):
+                self.F[l*(l+1)//2+m] = (-1)**m * np.sqrt((2*l+1)/(2*np.pi)*factorial(l-m)/factorial(l+m))
+
+    def forward(self, xyz):
+        device = xyz.device
+        dtype = xyz.dtype
+
+        rsq = torch.sum(xyz**2, dim=1)
+        xyz = xyz / torch.sqrt(rsq).unsqueeze(1)
+
+        x, y, z = xyz[:, 0], xyz[:, 1], xyz[:, 2]
+        Q = torch.empty((xyz.shape[0], (self.l_max+1)*(self.l_max+2)//2), device=device, dtype=dtype)
+        Q[:, 0] = 1.0
+        for l in range(1, self.l_max+1):
+            Q[:, (l+1)*(l+2)//2-1] = - (2*l-1) * Q[:, l*(l+1)//2-1].clone()
+            Q[:, (l+1)*(l+2)//2-2] = - z * Q[:, (l+1)*(l+2)//2-1].clone()
+            for m in range(0, l-1):
+                Q[:, l*(l+1)//2+m] = ((2*l-1) * z * Q[:, (l-1)*l//2+m].clone() - (l+m-1) * Q[:, (l-2)*(l-1)//2+m].clone())/(l-m)
+
+        s = torch.empty((xyz.shape[0], self.l_max+1), device=device, dtype=dtype)
+        c = torch.empty((xyz.shape[0], self.l_max+1), device=device, dtype=dtype)
+
+        s[:, 0] = 0.0
+        c[:, 0] = 1.0
+        for m in range(1, self.l_max+1):
+            s[:, m] = x * s[:, m-1].clone() + y * c[:, m-1].clone()
+            c[:, m] = x * c[:, m-1].clone() - y * s[:, m-1].clone()
+
+        Y = torch.empty((xyz.shape[0], (self.l_max+1)*(self.l_max+1)), device=device, dtype=dtype)
+        for l in range(self.l_max+1):
+            for m in range(-l, 0):
+                Y[:, l*l + l + m] = self.F[l*(l+1)//2-m] * Q[:, l*(l+1)//2 - m] * s[:, -m]
+            Y[:, l*l + l] = self.F[l*(l+1)//2] * Q[:, l*(l+1)//2] / torch.sqrt(torch.tensor(2.0, device=device, dtype=dtype))
+            for m in range(1, l+1):
+                Y[:, l*l + l + m] = self.F[l*(l+1)//2+m] * Q[:, l*(l+1)//2 + m] * c[:, m]
+
+        return Y
+
+
+class SphericalHarmonicsSphericart(torch.nn.Module):
+    def __init__(self, l_max):
+        super(SphericalHarmonicsSphericart, self).__init__()
         self.spherical_harmonics_calculator = sphericart.torch.SphericalHarmonics(
             l_max, normalized=True
         )
+
+    def forward(self, xyz):
+        return self.spherical_harmonics_calculator.compute(xyz)
+
+
+class Precomputer(torch.nn.Module):
+    def __init__(self, l_max, use_sphericart):
+        super().__init__()
+        self.spherical_harmonics_split_list = [(2 * l + 1) for l in range(l_max + 1)]
+        if use_sphericart:
+            self.spherical_harmonics = SphericalHarmonicsSphericart(l_max)
+        else:
+            self.spherical_harmonics = SphericalHarmonicsNoSphericart(l_max)
 
     def forward(
         self,
@@ -34,9 +94,7 @@ class Precomputer(torch.nn.Module):
         bare_cartesian_vectors = cartesian_vectors.values.squeeze(dim=-1)
         r = torch.sqrt((bare_cartesian_vectors**2).sum(dim=-1))
 
-        spherical_harmonics = self.spherical_harmonics_calculator.compute(
-            bare_cartesian_vectors
-        )  # Get the spherical harmonics
+        spherical_harmonics = self.spherical_harmonics(bare_cartesian_vectors)  # Get the spherical harmonics
         spherical_harmonics = spherical_harmonics * (4.0 * torch.pi) ** (
             0.5
         )  # normalize them
