@@ -6,10 +6,6 @@ import numpy as np
 from ..splines import generate_splines
 
 
-# All these periodic functions are zeroed for the (unlikely) case where r > 10*r_0
-# which is outside the domain where the eigenvalue equation was solved
-
-
 def s(n, x):
     return np.sin(np.pi * (n + 1.0) * x / 10.0)
 
@@ -57,7 +53,7 @@ def get_physical_le_spliner(E_max, r_cut, normalize):
         for m in range(n_max_big):
             ret += (
                 eigenvectors[l][m, n] * c(m, x)
-                if l % 2 == 0
+                if l == 0
                 else eigenvectors[l][m, n] * s(m, x)
             )
         if normalize:
@@ -70,7 +66,7 @@ def get_physical_le_spliner(E_max, r_cut, normalize):
         for m in range(n_max_big):
             ret += (
                 eigenvectors[l][m, n] * dc(m, x)
-                if l % 2 == 0
+                if l == 0
                 else eigenvectors[l][m, n] * ds(m, x)
             )
         if normalize:
@@ -113,7 +109,7 @@ def get_physical_le_spliner(E_max, r_cut, normalize):
         np.sum(n_max_l),
         a,
     )
-    # print("Number of spline points:", len(spliner.spline_positions))
+    print("Number of spline points:", len(spliner.spline_positions))
 
     n_max_l = [int(n_max) for n_max in n_max_l]
     return n_max_l, spliner
