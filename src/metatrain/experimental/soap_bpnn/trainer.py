@@ -7,6 +7,7 @@ import torch
 import torch.distributed
 from torch.utils.data import DataLoader, DistributedSampler
 
+from ...utils.composition import remove_composition
 from ...utils.data import CombinedDataLoader, Dataset, TargetInfoDict, collate_fn
 from ...utils.data.extract_targets import get_targets_dict
 from ...utils.distributed.distributed_data_parallel import DistributedDataParallel
@@ -79,7 +80,13 @@ class Trainer:
             logger.info(f"Training on {world_size} devices with dtype {dtype}")
         else:
             logger.info(f"Training on device {device} with dtype {dtype}")
+
+        # Move the model to the device and dtype:
         model.to(device=device, dtype=dtype)
+        # The composition model of the SOAP-BPNN is always on CPU (to avoid OOM
+        # errors during the linear algebra training) and in float64 (to avoid
+        # numerical errors in the composition weights, which can be very large).
+        model.composition_model.to(device=torch.device("cpu"), dtype=torch.float64)
 
         logger.info("Calculating composition weights")
         model.composition_model.train_model(
@@ -219,6 +226,7 @@ class Trainer:
                 optimizer.zero_grad()
 
                 systems, targets = batch
+                remove_composition(systems, targets, model.composition_model)
                 systems = [system.to(dtype=dtype, device=device) for system in systems]
                 targets = {
                     key: value.to(dtype=dtype, device=device)
@@ -257,6 +265,7 @@ class Trainer:
             val_loss = 0.0
             for batch in val_dataloader:
                 systems, targets = batch
+                remove_composition(systems, targets, model.composition_model)
                 systems = [system.to(dtype=dtype, device=device) for system in systems]
                 targets = {
                     key: value.to(dtype=dtype, device=device)

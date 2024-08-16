@@ -281,12 +281,14 @@ class SoapBpnn(torch.nn.Module):
                     atomic_energy, ["atom", "center_type"]
                 )
 
-        composition_contributions = self.composition_model(systems, outputs)
-        for name in return_dict:
-            return_dict[name] = metatensor.torch.add(
-                return_dict[name],
-                composition_contributions[name],
-            )
+        if not self.training:
+            # at evaluation, we also add the composition contributions
+            composition_contributions = self.composition_model(systems, outputs)
+            for name in return_dict:
+                return_dict[name] = metatensor.torch.add(
+                    return_dict[name],
+                    composition_contributions[name],
+                )
 
         return return_dict
 
@@ -309,6 +311,11 @@ class SoapBpnn(torch.nn.Module):
         dtype = next(self.parameters()).dtype
         if dtype not in self.__supported_dtypes__:
             raise ValueError(f"unsupported dtype {self.dtype} for SoapBpnn")
+
+        # Make sure the model is all in the same dtype
+        # For example, at this point, the composition model within the SOAP-BPNN is
+        # still float64
+        self.to(dtype)
 
         capabilities = ModelCapabilities(
             outputs=self.outputs,

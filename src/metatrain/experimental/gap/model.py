@@ -21,6 +21,7 @@ from skmatter._selection import _FPS
 
 from metatrain.utils.data.dataset import DatasetInfo
 
+from ...utils.composition import CompositionModel
 from ...utils.export import export
 
 
@@ -127,6 +128,11 @@ class GAP(torch.nn.Module):
         )
         self._species_labels: TorchLabels = TorchLabels.empty("_")
 
+        self.composition_model = CompositionModel(
+            model_hypers={},
+            dataset_info=dataset_info,
+        )
+
     def restart(self, dataset_info: DatasetInfo) -> "GAP":
         raise ValueError("GAP does not allow restarting training")
 
@@ -201,8 +207,25 @@ class GAP(torch.nn.Module):
         soap_features = TorchTensorMap(self._keys, soap_features.blocks())
         output_key = list(outputs.keys())[0]
         energies = self._subset_of_regressors_torch(soap_features)
-        out_tensor = self.apply_composition_weights(systems, energies)
-        return {output_key: out_tensor}
+        return_dict = {output_key: energies}
+
+        # apply composition model
+        composition_energies = self.composition_model(
+            systems, {output_key: ModelOutput("energy", per_atom=True)}
+        )
+        # apply selected_atoms to the composition energies if needed
+        if selected_atoms is not None:
+            composition_energies[output_key] = metatensor.torch.slice(
+                composition_energies[output_key], "samples", selected_atoms
+            )
+        composition_energies[output_key] = metatensor.torch.sum_over_samples(
+            composition_energies[output_key], "atom"
+        )
+        return_dict[output_key] = metatensor.torch.add(
+            return_dict[output_key], composition_energies[output_key]
+        )
+
+        return return_dict
 
     def export(self) -> MetatensorAtomisticModel:
         capabilities = ModelCapabilities(

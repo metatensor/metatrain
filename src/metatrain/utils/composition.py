@@ -73,7 +73,7 @@ class CompositionModel(torch.nn.Module):
         if fixed_weights is None:
             fixed_weights = {}
 
-        missing_types = sorted(get_atomic_types(datasets) - set(self.atomic_types))
+        missing_types = sorted(set(get_atomic_types(datasets)) - set(self.atomic_types))
         if missing_types:
             raise ValueError(
                 f"Provided `datasets` contains unknown atomic types {missing_types}. "
@@ -245,3 +245,28 @@ class CompositionModel(torch.nn.Module):
             )
 
         return targets_out
+
+
+def remove_composition(
+    systems: List[System],
+    targets: Dict[str, TensorMap],
+    composition_model: torch.nn.Module,
+):
+    """Remove the composition contribution from the training targets.
+
+    The targets are changed in place.
+
+    :param systems: List of systems.
+    :param targets: Dictionary containing the targets corresponding to the systems.
+    :param composition_model: The composition model used to calculate the composition
+        contribution.
+    """
+    output_options = {}
+    for target_key in targets:
+        output_options[target_key] = ModelOutput(per_atom=False)
+
+    composition_targets = composition_model(systems, output_options)
+    for target_key in targets:
+        targets[target_key].block().values[:] -= (
+            composition_targets[target_key].block().values
+        )
