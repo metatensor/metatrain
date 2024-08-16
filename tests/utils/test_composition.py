@@ -2,16 +2,18 @@ from pathlib import Path
 
 import torch
 from metatensor.torch import Labels, TensorBlock, TensorMap
-from metatensor.torch.atomistic import System
+from metatensor.torch.atomistic import ModelOutput, System
+from omegaconf import OmegaConf
 
-from metatrain.utils.composition import calculate_composition_weights
-from metatrain.utils.data import Dataset
+from metatrain.utils.composition import CompositionModel
+from metatrain.utils.data import Dataset, DatasetInfo, TargetInfo, TargetInfoDict
+from metatrain.utils.data.readers import read_systems, read_targets
 
 
 RESOURCES_PATH = Path(__file__).parents[1] / "resources"
 
 
-def test_calculate_composition_weights():
+def test_composition_model_train():
     """Test the calculation of composition weights."""
 
     # Here we use three synthetic structures:
@@ -22,14 +24,16 @@ def test_calculate_composition_weights():
 
     systems = [
         System(
-            positions=torch.tensor([[0.0, 0.0, 0.0]]),
+            positions=torch.tensor([[0.0, 0.0, 0.0]], dtype=torch.float64),
             types=torch.tensor([8]),
-            cell=torch.eye(3),
+            cell=torch.eye(3, dtype=torch.float64),
         ),
         System(
-            positions=torch.tensor([[0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [0.0, 1.0, 0.0]]),
+            positions=torch.tensor(
+                [[0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [0.0, 1.0, 0.0]], dtype=torch.float64
+            ),
             types=torch.tensor([1, 1, 8]),
-            cell=torch.eye(3),
+            cell=torch.eye(3, dtype=torch.float64),
         ),
         System(
             positions=torch.tensor(
@@ -40,10 +44,11 @@ def test_calculate_composition_weights():
                     [0.0, 0.0, 1.0],
                     [1.0, 0.0, 1.0],
                     [0.0, 1.0, 1.0],
-                ]
+                ],
+                dtype=torch.float64,
             ),
             types=torch.tensor([1, 1, 8, 1, 1, 8]),
-            cell=torch.eye(3),
+            cell=torch.eye(3, dtype=torch.float64),
         ),
     ]
     energies = [1.0, 5.0, 10.0]
@@ -52,7 +57,7 @@ def test_calculate_composition_weights():
             keys=Labels(names=["_"], values=torch.tensor([[0]])),
             blocks=[
                 TensorBlock(
-                    values=torch.tensor([[e]]),
+                    values=torch.tensor([[e]], dtype=torch.float64),
                     samples=Labels(names=["system"], values=torch.tensor([[i]])),
                     components=[],
                     properties=Labels(names=["energy"], values=torch.tensor([[0]])),
@@ -63,9 +68,128 @@ def test_calculate_composition_weights():
     ]
     dataset = Dataset({"system": systems, "energy": energies})
 
-    weights, atomic_types = calculate_composition_weights(dataset, "energy")
+    composition_model = CompositionModel(
+        model_hypers={},
+        dataset_info=DatasetInfo(
+            length_unit="angstrom",
+            atomic_types=[1, 8],
+            targets=TargetInfoDict(
+                {
+                    "energy": TargetInfo(
+                        quantity="energy",
+                        per_atom=False,
+                    )
+                }
+            ),
+        ),
+    )
 
-    assert len(weights) == len(atomic_types)
-    assert len(weights) == 2
-    assert atomic_types == [1, 8]
-    torch.testing.assert_close(weights, torch.tensor([2.0, 1.0]))
+    composition_model.train(dataset)
+    assert composition_model.weights.shape[0] == 1
+    assert composition_model.weights.shape[1] == 2
+    assert composition_model.output_to_output_index == {"energy": 0}
+    assert composition_model.atomic_types == [1, 8]
+    torch.testing.assert_close(
+        composition_model.weights, torch.tensor([[2.0, 1.0]], dtype=torch.float64)
+    )
+
+    composition_model.train([dataset])
+    assert composition_model.weights.shape[0] == 1
+    assert composition_model.weights.shape[1] == 2
+    assert composition_model.output_to_output_index == {"energy": 0}
+    assert composition_model.atomic_types == [1, 8]
+    torch.testing.assert_close(
+        composition_model.weights, torch.tensor([[2.0, 1.0]], dtype=torch.float64)
+    )
+
+    composition_model.train([dataset, dataset, dataset])
+    assert composition_model.weights.shape[0] == 1
+    assert composition_model.weights.shape[1] == 2
+    assert composition_model.output_to_output_index == {"energy": 0}
+    assert composition_model.atomic_types == [1, 8]
+    torch.testing.assert_close(
+        composition_model.weights, torch.tensor([[2.0, 1.0]], dtype=torch.float64)
+    )
+
+
+def test_composition_model_predict():
+    """Test the prediction of composition energies."""
+
+    dataset_path = RESOURCES_PATH / "qm9_reduced_100.xyz"
+    systems = read_systems(dataset_path, dtype=torch.float64)
+
+    conf = {
+        "mtt::U0": {
+            "quantity": "energy",
+            "read_from": dataset_path,
+            "file_format": ".xyz",
+            "key": "U0",
+            "unit": "eV",
+            "forces": False,
+            "stress": False,
+            "virial": False,
+        }
+    }
+    targets, target_info = read_targets(OmegaConf.create(conf), dtype=torch.float64)
+    dataset = Dataset({"system": systems, "mtt::U0": targets["mtt::U0"]})
+
+    composition_model = CompositionModel(
+        model_hypers={},
+        dataset_info=DatasetInfo(
+            length_unit="angstrom",
+            atomic_types=[1, 6, 7, 8],
+            targets=target_info,
+        ),
+    )
+
+    composition_model.train(dataset)
+
+    output = composition_model(
+        systems[:5],
+        {"mtt::U0": ModelOutput(quantity="energy", unit="", per_atom=False)},
+    )
+    assert "mtt::U0" in output
+    assert output["mtt::U0"].block().samples.names == ["system"]
+    assert output["mtt::U0"].block().values.shape == (5, 1)
+
+    output = composition_model(
+        systems[:5],
+        {"mtt::U0": ModelOutput(quantity="energy", unit="", per_atom=True)},
+    )
+    assert "mtt::U0" in output
+    assert output["mtt::U0"].block().samples.names == ["system", "atom"]
+    assert output["mtt::U0"].block().values.shape != (5, 1)
+
+
+def test_composition_model_torchscript(tmpdir):
+    """Test the torchscripting, saving and loading of the composition model."""
+    system = System(
+        positions=torch.tensor([[0.0, 0.0, 0.0]], dtype=torch.float64),
+        types=torch.tensor([8]),
+        cell=torch.eye(3, dtype=torch.float64),
+    )
+
+    composition_model = CompositionModel(
+        model_hypers={},
+        dataset_info=DatasetInfo(
+            length_unit="angstrom",
+            atomic_types=[1, 8],
+            targets=TargetInfoDict(
+                {
+                    "energy": TargetInfo(
+                        quantity="energy",
+                        per_atom=False,
+                    )
+                }
+            ),
+        ),
+    )
+    composition_model = torch.jit.script(composition_model)
+    composition_model(
+        [system], {"energy": ModelOutput(quantity="energy", unit="", per_atom=False)}
+    )
+    torch.jit.save(composition_model, tmpdir / "composition_model.pt")
+    composition_model = torch.jit.load(tmpdir / "composition_model.pt")
+    composition_model(
+        [system], {"energy": ModelOutput(quantity="energy", unit="", per_atom=False)}
+    )
