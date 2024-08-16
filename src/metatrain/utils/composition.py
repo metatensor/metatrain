@@ -123,7 +123,7 @@ class CompositionModel(torch.nn.Module):
                 dtype = datasets[0][0]["system"].positions.dtype
                 if dtype != torch.float64:
                     raise ValueError(
-                        "The composition model only supports float64 during training."
+                        "The composition model only supports float64 during training. "
                         f"Got dtype: {dtype}."
                     )
 
@@ -194,6 +194,8 @@ class CompositionModel(torch.nn.Module):
         device = systems[0].positions.device
 
         for output_name in outputs:
+            if output_name.startswith("mtt::aux::"):
+                continue
             if output_name not in self.output_to_output_index:
                 raise ValueError(
                     f"output key {output_name} is not supported by this composition "
@@ -210,6 +212,8 @@ class CompositionModel(torch.nn.Module):
         # number of atoms per atomic type.
         targets_out: Dict[str, TensorMap] = {}
         for target_key, target in outputs.items():
+            if target_key.startswith("mtt::aux::"):
+                continue
             weights = self.weights[self.output_to_output_index[target_key]]
             targets_list = []
             sample_values: List[List[int]] = []

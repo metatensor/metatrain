@@ -285,6 +285,8 @@ class SoapBpnn(torch.nn.Module):
             # at evaluation, we also add the composition contributions
             composition_contributions = self.composition_model(systems, outputs)
             for name in return_dict:
+                if name.startswith("mtt::aux::"):
+                    continue
                 return_dict[name] = metatensor.torch.add(
                     return_dict[name],
                     composition_contributions[name],
