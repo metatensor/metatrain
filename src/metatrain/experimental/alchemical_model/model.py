@@ -27,7 +27,7 @@ class AlchemicalModel(torch.nn.Module):
         super().__init__()
         self.hypers = model_hypers
         self.dataset_info = dataset_info
-        self.atomic_types = sorted(dataset_info.atomic_types)
+        self.atomic_types = dataset_info.atomic_types
 
         if len(dataset_info.targets) != 1:
             raise ValueError("The AlchemicalModel only supports a single target")
@@ -135,7 +135,8 @@ class AlchemicalModel(torch.nn.Module):
 
         # Create the model
         model = cls(**model_hypers)
-        model.load_state_dict(model_state_dict)
+        dtype = next(iter(model_state_dict.values())).dtype
+        model.to(dtype).load_state_dict(model_state_dict)
 
         return model
 

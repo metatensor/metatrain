@@ -16,6 +16,7 @@ from metatrain.cli.train import train_model
 from metatrain.utils.errors import ArchitectureError
 
 from . import (
+    DATASET_PATH_CARBON,
     DATASET_PATH_ETHANOL,
     DATASET_PATH_QM9,
     MODEL_PATH_64_BIT,
@@ -222,6 +223,11 @@ def test_train_multiple_datasets(monkeypatch, tmp_path, options):
     systems_qm9 = ase.io.read(DATASET_PATH_QM9, ":")
     systems_ethanol = ase.io.read(DATASET_PATH_ETHANOL, ":")
 
+    # delete calculator to avoid warnings during writing. Remove once updated to ase >=
+    # 3.23.0
+    for atoms in systems_ethanol:
+        atoms.calc = None
+
     ase.io.write("qm9_reduced_100.xyz", systems_qm9[:50])
     ase.io.write("ethanol_reduced_100.xyz", systems_ethanol[:50])
 
@@ -229,7 +235,9 @@ def test_train_multiple_datasets(monkeypatch, tmp_path, options):
     options["training_set"][1]["systems"]["read_from"] = "ethanol_reduced_100.xyz"
     options["training_set"][1]["targets"]["energy"]["key"] = "energy"
     options["training_set"][0]["targets"].pop("energy")
-    options["training_set"][0]["targets"]["mtt::U0"] = OmegaConf.create({"key": "U0"})
+    options["training_set"][0]["targets"]["mtt::U0"] = OmegaConf.create(
+        {"key": "U0", "unit": "eV"}
+    )
 
     train_model(options)
 
@@ -297,7 +305,9 @@ def test_empty_test_set(caplog, monkeypatch, tmp_path, options):
     options["validation_set"] = 0.4
     options["test_set"] = 0.0
 
-    train_model(options)
+    match = "Requested dataset of zero length. This dataset will be empty."
+    with pytest.warns(UserWarning, match=match):
+        train_model(options)
 
     # check if the logging is correct
     assert "This dataset is empty. No evaluation" in caplog.text
@@ -482,3 +492,62 @@ def test_architecture_error(options, monkeypatch, tmp_path):
 
     with pytest.raises(ArchitectureError, match="originates from an architecture"):
         train_model(options)
+
+
+def test_train_issue_290(monkeypatch, tmp_path):
+    """Test the potential problem from issue #290."""
+    monkeypatch.chdir(tmp_path)
+    shutil.copy(DATASET_PATH_ETHANOL, "ethanol_reduced_100.xyz")
+
+    structures = ase.io.read("ethanol_reduced_100.xyz", ":")
+    more_structures = structures * 15 + [structures[0]]
+    ase.io.write("ethanol_1501.xyz", more_structures)
+
+    # run training with original options
+    options = OmegaConf.load(OPTIONS_PATH)
+    options["training_set"]["systems"]["read_from"] = "ethanol_1501.xyz"
+    options["training_set"]["targets"]["energy"]["key"] = "energy"
+    options["validation_set"] = 0.01
+    options["test_set"] = 0.85
+
+    train_model(options)
+
+
+def test_train_log_order(caplog, monkeypatch, tmp_path, options):
+    """Tests that the log is always printed in the same order for forces
+    and virials."""
+
+    monkeypatch.chdir(tmp_path)
+    shutil.copy(DATASET_PATH_CARBON, "carbon_reduced_100.xyz")
+
+    options["architecture"]["training"]["num_epochs"] = 5
+    options["architecture"]["training"]["log_interval"] = 1
+
+    options["training_set"]["systems"]["read_from"] = str(DATASET_PATH_CARBON)
+    options["training_set"]["targets"]["energy"]["read_from"] = str(DATASET_PATH_CARBON)
+    options["training_set"]["targets"]["energy"]["key"] = "energy"
+    options["training_set"]["targets"]["energy"]["forces"] = {
+        "key": "force",
+    }
+    options["training_set"]["targets"]["energy"]["virial"] = True
+
+    caplog.set_level(logging.INFO)
+    train_model(options)
+    log_test = caplog.text
+
+    # find all the lines that have "Epoch" in them; these are the lines that
+    # contain the training metrics
+    epoch_lines = [line for line in log_test.split("\n") if "Epoch" in line]
+
+    # check that "training forces RMSE" comes before "training virial RMSE"
+    # in every line
+    for line in epoch_lines:
+        force_index = line.index("training forces RMSE")
+        virial_index = line.index("training virial RMSE")
+        assert force_index < virial_index
+
+    # same for validation
+    for line in epoch_lines:
+        force_index = line.index("validation forces RMSE")
+        virial_index = line.index("validation virial RMSE")
+        assert force_index < virial_index

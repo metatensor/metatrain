@@ -99,7 +99,7 @@ class LLPRUncertaintyModel(torch.nn.Module):
                 outputs=outputs,
                 selected_atoms=selected_atoms,
             )
-            return self.model(systems, options, check_consistency=True)
+            return self.model(systems, options, check_consistency=False)
 
         per_atom_all_targets = [output.per_atom for output in outputs.values()]
         # impose either all per atom or all not per atom
@@ -130,9 +130,7 @@ class LLPRUncertaintyModel(torch.nn.Module):
             outputs=outputs_for_model,
             selected_atoms=selected_atoms,
         )
-        return_dict = self.model(
-            systems, options, check_consistency=True
-        )  # TODO: True or False here?
+        return_dict = self.model(systems, options, check_consistency=False)
 
         ll_features = return_dict["mtt::aux::last_layer_features"]
 
@@ -180,7 +178,13 @@ class LLPRUncertaintyModel(torch.nn.Module):
                 requested_ensembles.append(name)
 
         for name in requested_ensembles:
-            ensemble_weights = getattr(self, name + "_weights")
+            # get the ensemble weights (getattr not supported by torchscript)
+            ensemble_weights = torch.tensor(0.0)
+            for buffer_name, buffer in self.named_buffers():
+                if buffer_name == name + "_weights":
+                    ensemble_weights = buffer
+            # the ensemble weights should always be found (checks are performed
+            # in the generate_ensemble method and in the metatensor wrapper)
             ensemble_values = torch.einsum(
                 "ij, jk -> ik",
                 ll_features.block().values,
@@ -242,9 +246,7 @@ class LLPRUncertaintyModel(torch.nn.Module):
                 length_unit="",
                 outputs=outputs,
             )
-            output = self.model(
-                systems, options, check_consistency=True
-            )  # TODO: True or False here?
+            output = self.model(systems, options, check_consistency=False)
             ll_feat_tmap = output["mtt::aux::last_layer_features"]
             ll_feats = ll_feat_tmap.block().values / n_atoms.unsqueeze(1)
             self.covariance += ll_feats.T @ ll_feats

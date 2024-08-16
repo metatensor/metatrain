@@ -1,11 +1,15 @@
 import metatensor.torch
+import pytest
 import torch
+from jsonschema.exceptions import ValidationError
 from metatensor.torch.atomistic import ModelOutput, System
+from omegaconf import OmegaConf
 
 from metatrain.experimental.soap_bpnn import SoapBpnn
+from metatrain.utils.architectures import check_architecture_options
 from metatrain.utils.data import DatasetInfo, TargetInfo, TargetInfoDict
 
-from . import MODEL_HYPERS
+from . import DEFAULT_HYPERS, MODEL_HYPERS
 
 
 def test_prediction_subset_elements():
@@ -14,7 +18,7 @@ def test_prediction_subset_elements():
 
     dataset_info = DatasetInfo(
         length_unit="Angstrom",
-        atomic_types={1, 6, 7, 8},
+        atomic_types=[1, 6, 7, 8],
         targets=TargetInfoDict(energy=TargetInfo(quantity="energy", unit="eV")),
     )
 
@@ -37,7 +41,7 @@ def test_prediction_subset_atoms():
 
     dataset_info = DatasetInfo(
         length_unit="Angstrom",
-        atomic_types={1, 6, 7, 8},
+        atomic_types=[1, 6, 7, 8],
         targets=TargetInfoDict(energy=TargetInfo(quantity="energy", unit="eV")),
     )
 
@@ -103,7 +107,7 @@ def test_output_last_layer_features():
     """Tests that the model can output its last layer features."""
     dataset_info = DatasetInfo(
         length_unit="Angstrom",
-        atomic_types={1, 6, 7, 8},
+        atomic_types=[1, 6, 7, 8],
         targets=TargetInfoDict(energy=TargetInfo(quantity="energy", unit="eV")),
     )
 
@@ -174,7 +178,7 @@ def test_output_per_atom():
     """Tests that the model can output per-atom quantities."""
     dataset_info = DatasetInfo(
         length_unit="Angstrom",
-        atomic_types={1, 6, 7, 8},
+        atomic_types=[1, 6, 7, 8],
         targets=TargetInfoDict(energy=TargetInfo(quantity="energy", unit="eV")),
     )
 
@@ -195,3 +199,33 @@ def test_output_per_atom():
 
     assert outputs["energy"].block().samples.names == ["system", "atom"]
     assert outputs["energy"].block().values.shape == (4, 1)
+
+
+def test_fixed_composition_weights():
+    """Tests the correctness of the json schema for fixed_composition_weights"""
+
+    hypers = DEFAULT_HYPERS.copy()
+    hypers["training"]["fixed_composition_weights"] = {
+        "energy": {
+            1: 1.0,
+            6: 0.0,
+            7: 0.0,
+            8: 0.0,
+            9: 3000.0,
+        }
+    }
+    hypers = OmegaConf.create(hypers)
+    check_architecture_options(
+        name="experimental.soap_bpnn", options=OmegaConf.to_container(hypers)
+    )
+
+
+def test_fixed_composition_weights_error():
+    """Test that only inputd of type Dict[str, Dict[int, float]] are allowed."""
+    hypers = DEFAULT_HYPERS.copy()
+    hypers["training"]["fixed_composition_weights"] = {"energy": {"H": 300.0}}
+    hypers = OmegaConf.create(hypers)
+    with pytest.raises(ValidationError, match=r"'H' does not match '\^\[0-9\]\+\$'"):
+        check_architecture_options(
+            name="experimental.soap_bpnn", options=OmegaConf.to_container(hypers)
+        )

@@ -16,14 +16,16 @@ from . import MODEL_HYPERS, RESOURCES_PATH
 def test_evaluate_model(training, exported):
     """Test that the evaluate_model function works as intended."""
 
-    systems = read_systems(RESOURCES_PATH / "alchemical_reduced_10.xyz")[:2]
+    systems = read_systems(RESOURCES_PATH / "carbon_reduced_100.xyz")[:2]
 
     atomic_types = set(
         torch.unique(torch.concatenate([system.types for system in systems]))
     )
 
     targets = {
-        "energy": TargetInfo(quantity="energy", gradients=["positions", "strain"])
+        "energy": TargetInfo(
+            quantity="energy", unit="eV", gradients=["positions", "strain"]
+        )
     }
 
     dataset_info = DatasetInfo(
@@ -48,7 +50,10 @@ def test_evaluate_model(training, exported):
             for system in systems
         ]
 
-    outputs = evaluate_model(model, systems, targets, is_training=training)
+    systems = [system.to(torch.float32) for system in systems]
+    outputs = evaluate_model(
+        model, systems, targets, is_training=training, check_consistency=True
+    )
 
     assert isinstance(outputs, dict)
     assert "energy" in outputs

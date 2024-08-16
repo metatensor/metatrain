@@ -28,11 +28,14 @@ class Trainer:
     def train(
         self,
         model: WrappedPET,
+        dtype: torch.dtype,
         devices: List[torch.device],
         train_datasets: List[Union[Dataset, torch.utils.data.Subset]],
         val_datasets: List[Union[Dataset, torch.utils.data.Subset]],
         checkpoint_dir: str,
     ):
+        assert dtype in WrappedPET.__supported_dtypes__
+
         self.pet_dir = Path(checkpoint_dir) / "pet"
 
         if len(train_datasets) != 1:
@@ -77,9 +80,6 @@ class Trainer:
 
         # set model hypers
         self.hypers["ARCHITECTURAL_HYPERS"] = model.hypers
-        dtype = train_datasets[0][0]["system"].positions.dtype
-        if dtype != torch.float32:
-            raise ValueError("PET only supports float32 as dtype")
         self.hypers["ARCHITECTURAL_HYPERS"]["DTYPE"] = "float32"
 
         # set MLIP_SETTINGS

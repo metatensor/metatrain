@@ -103,7 +103,7 @@ class SoapBpnn(torch.nn.Module):
         self.hypers = model_hypers
         self.dataset_info = dataset_info
         self.new_outputs = list(dataset_info.targets.keys())
-        self.atomic_types = sorted(dataset_info.atomic_types)
+        self.atomic_types = dataset_info.atomic_types
 
         self.soap_calculator = rascaline.torch.SoapPowerSpectrum(
             radial_basis={"Gto": {}}, **self.hypers["soap"]
@@ -144,7 +144,7 @@ class SoapBpnn(torch.nn.Module):
             * (self.hypers["soap"]["max_angular"] + 1)
         )
 
-        hypers_bpnn = self.hypers["bpnn"]
+        hypers_bpnn = {**self.hypers["bpnn"]}
         hypers_bpnn["input_size"] = soap_size
 
         if hypers_bpnn["layernorm"]:
@@ -198,7 +198,9 @@ class SoapBpnn(torch.nn.Module):
     def restart(self, dataset_info: DatasetInfo) -> "SoapBpnn":
         # merge old and new dataset info
         merged_info = self.dataset_info.union(dataset_info)
-        new_atomic_types = merged_info.atomic_types - self.dataset_info.atomic_types
+        new_atomic_types = [
+            at for at in merged_info.atomic_types if at not in self.atomic_types
+        ]
         new_targets = merged_info.targets - self.dataset_info.targets
 
         if len(new_atomic_types) > 0:
@@ -212,7 +214,7 @@ class SoapBpnn(torch.nn.Module):
             self.add_output(output_name)
 
         self.dataset_info = merged_info
-        self.atomic_types = sorted(self.dataset_info.atomic_types)
+        self.atomic_types = sorted(self.atomic_types)
 
         for target_name, target in new_targets.items():
             self.outputs[target_name] = ModelOutput(
@@ -291,7 +293,8 @@ class SoapBpnn(torch.nn.Module):
 
         # Create the model
         model = cls(**model_hypers)
-        model.load_state_dict(model_state_dict)
+        dtype = next(iter(model_state_dict.values())).dtype
+        model.to(dtype).load_state_dict(model_state_dict)
 
         return model
 

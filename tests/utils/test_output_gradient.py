@@ -24,6 +24,7 @@ def test_forces(is_training):
         },
     )
     model = __model__(model_hypers=MODEL_HYPERS, dataset_info=dataset_info)
+    model.to(dtype=torch.float64)
 
     systems = read_systems(RESOURCES_PATH / "qm9_reduced_100.xyz")[:5]
     systems = [
@@ -72,26 +73,7 @@ def test_virial(is_training):
 
     dataset_info = DatasetInfo(
         length_unit="angstrom",
-        atomic_types={
-            21,
-            23,
-            24,
-            26,
-            27,
-            29,
-            30,
-            39,
-            40,
-            41,
-            44,
-            45,
-            46,
-            47,
-            72,
-            74,
-            77,
-            78,
-        },
+        atomic_types={6},
         targets={
             "energy": TargetInfo(
                 quantity="energy", unit="eV", per_atom=False, gradients=["strain"]
@@ -99,8 +81,9 @@ def test_virial(is_training):
         },
     )
     model = __model__(model_hypers=MODEL_HYPERS, dataset_info=dataset_info)
+    model.to(dtype=torch.float64)
 
-    systems = read_systems(RESOURCES_PATH / "alchemical_reduced_10.xyz")[:2]
+    systems = read_systems(RESOURCES_PATH / "carbon_reduced_100.xyz")[:2]
 
     strains = [
         torch.eye(
@@ -159,26 +142,7 @@ def test_both(is_training):
     """Test that the forces and virial are calculated correctly together"""
     dataset_info = DatasetInfo(
         length_unit="angstrom",
-        atomic_types={
-            21,
-            23,
-            24,
-            26,
-            27,
-            29,
-            30,
-            39,
-            40,
-            41,
-            44,
-            45,
-            46,
-            47,
-            72,
-            74,
-            77,
-            78,
-        },
+        atomic_types={6},
         targets={
             "energy": TargetInfo(
                 quantity="energy",
@@ -189,7 +153,9 @@ def test_both(is_training):
         },
     )
     model = __model__(model_hypers=MODEL_HYPERS, dataset_info=dataset_info)
-    systems = read_systems(RESOURCES_PATH / "alchemical_reduced_10.xyz")[:2]
+    model.to(dtype=torch.float64)
+
+    systems = read_systems(RESOURCES_PATH / "carbon_reduced_100.xyz")[:2]
 
     # Here we re-create strains and systems, otherwise torch
     # complains that the graph has already beeen freed in the last grad call

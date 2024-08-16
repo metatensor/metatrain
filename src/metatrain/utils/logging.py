@@ -13,7 +13,7 @@ from metatensor.torch.atomistic import ModelCapabilities
 from .data import DatasetInfo
 from .distributed.logging import is_main_process
 from .external_naming import to_external_name
-from .io import check_suffix
+from .io import check_file_extension
 from .units import ev_to_mev, get_gradient_units
 
 
@@ -72,7 +72,7 @@ class MetricLogger:
         for name, metrics_dict in zip(names, initial_metrics):
             for key, value in metrics_dict.items():
                 target_name = key.split(" ", 1)[0]
-                if "loss" in key:
+                if key == "loss":
                     # losses will be printed in scientific notation
                     continue
                 unit = self._get_units(target_name)
@@ -110,7 +110,8 @@ class MetricLogger:
             logging_string = f"Epoch {epoch:4}"
 
         for name, metrics_dict in zip(self.names, metrics):
-            for key, value in metrics_dict.items():
+            for key in _sort_metric_names(metrics_dict.keys()):
+                value = metrics_dict[key]
 
                 new_key = key
                 if key != "loss":  # special case: not a metric associated with a target
@@ -122,7 +123,7 @@ class MetricLogger:
                     logging_string += f", {new_key}: "
                 else:
                     logging_string += f", {name} {new_key}: "
-                if "loss" in key:  # print losses with scientific notation
+                if key == "loss":  # print losses with scientific notation
                     logging_string += f"{value:.3e}"
                 else:
                     unit = self._get_units(target_name)
@@ -221,7 +222,7 @@ def setup_logging(
         handlers.append(stream_handler)
 
         if log_file:
-            log_file = check_suffix(filename=log_file, suffix=".log")
+            log_file = check_file_extension(filename=log_file, extension=".log")
             file_handler = logging.FileHandler(filename=str(log_file), encoding="utf-8")
             file_handler.setFormatter(formatter)
             handlers.append(file_handler)
@@ -264,3 +265,15 @@ def get_cli_input(argv: Optional[List[str]] = None) -> str:
     # Add additional quotes for connected arguments.
     arguments = [f'"{arg}"' if " " in arg else arg for arg in argv[1:]]
     return f"{program_name} {' '.join(arguments)}"
+
+
+def _sort_metric_names(name_list):
+    name_list = list(name_list)
+    sorted_name_list = []
+    if "loss" in name_list:
+        # loss goes first
+        loss_index = name_list.index("loss")
+        sorted_name_list.append(name_list.pop(loss_index))
+    # then alphabetical order
+    sorted_name_list.extend(sorted(name_list))
+    return sorted_name_list

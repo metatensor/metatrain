@@ -1,4 +1,4 @@
-name: SOAP-BPNN tests
+name: Architecture tests
 
 on:
   push:
@@ -8,6 +8,14 @@ on:
 
 jobs:
   tests:
+    strategy:
+      matrix:
+        include:
+          - architecture-name: alchemical-model
+          - architecture-name: gap
+          - architecture-name: soap-bpnn
+          - architecture-name: pet
+
     runs-on: ubuntu-22.04
 
     steps:
@@ -19,8 +27,8 @@ jobs:
         python-version: "3.12"
     - run: pip install tox
 
-    - name: run SOAP-BPNN tests
-      run: tox -e soap-bpnn-tests
+    - name: run architecture tests
+      run: tox -e ${{ matrix.architecture-name }}-tests
       env:
         # Use the CPU only version of torch when building/running the code
         PIP_EXTRA_INDEX_URL: https://download.pytorch.org/whl/cpu

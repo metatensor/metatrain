@@ -1,4 +1,9 @@
+import json
+from pathlib import Path
+
+import pytest
 import torch
+from jsonschema.exceptions import ValidationError
 from metatensor.torch import Labels
 from metatensor.torch.atomistic import (
     MetatensorAtomisticModel,
@@ -14,10 +19,41 @@ from pet.pet import PET
 from metatrain.experimental.pet import PET as WrappedPET
 from metatrain.utils.architectures import get_default_hypers
 from metatrain.utils.data import DatasetInfo, TargetInfo, TargetInfoDict
+from metatrain.utils.jsonschema import validate
 from metatrain.utils.neighbor_lists import get_system_with_neighbor_lists
 
 
 DEFAULT_HYPERS = get_default_hypers("experimental.pet")
+with open(Path(__file__).parents[1] / "schema-hypers.json", "r") as f:
+    SCHEMA_HYPERS = json.load(f)
+
+
+@pytest.mark.parametrize(
+    "new_option",
+    [
+        "ATOMIC_BATCH_SIZE",
+        "EPOCH_NUM_ATOMIC",
+        "SCHEDULER_STEP_SIZE_ATOMIC",
+        "EPOCHS_WARMUP_ATOMIC",
+    ],
+)
+def test_exclusive_hypers(new_option):
+    """Test that the `_ATOMIC` is mutually exclusive."""
+
+    options = {
+        "training": {
+            "SCHEDULER_STEP_SIZE": 1,
+            "EPOCH_NUM": 1,
+            "STRUCTURAL_BATCH_SIZE": 1,
+            "EPOCHS_WARMUP": 1,
+        }
+    }
+
+    validate(instance=options, schema=SCHEMA_HYPERS)
+
+    options["training"][new_option] = 1
+    with pytest.raises(ValidationError, match="should not be valid under"):
+        validate(instance=options, schema=SCHEMA_HYPERS)
 
 
 def test_prediction():
@@ -25,7 +61,7 @@ def test_prediction():
 
     dataset_info = DatasetInfo(
         length_unit="Angstrom",
-        atomic_types={1, 6, 7, 8},
+        atomic_types=[1, 6, 7, 8],
         targets=TargetInfoDict(energy=TargetInfo(quantity="energy", unit="eV")),
     )
     model = WrappedPET(DEFAULT_HYPERS["model"], dataset_info)
@@ -74,7 +110,7 @@ def test_per_atom_predictions_functionality():
 
     dataset_info = DatasetInfo(
         length_unit="Angstrom",
-        atomic_types={1, 6, 7, 8},
+        atomic_types=[1, 6, 7, 8],
         targets=TargetInfoDict(energy=TargetInfo(quantity="energy", unit="eV")),
     )
     model = WrappedPET(DEFAULT_HYPERS["model"], dataset_info)
@@ -124,7 +160,7 @@ def test_selected_atoms_functionality():
 
     dataset_info = DatasetInfo(
         length_unit="Angstrom",
-        atomic_types={1, 6, 7, 8},
+        atomic_types=[1, 6, 7, 8],
         targets=TargetInfoDict(energy=TargetInfo(quantity="energy", unit="eV")),
     )
     model = WrappedPET(DEFAULT_HYPERS["model"], dataset_info)

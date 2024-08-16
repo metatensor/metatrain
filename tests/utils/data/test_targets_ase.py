@@ -3,14 +3,16 @@ within `test_readers.py`"""
 
 from typing import List
 
+import ase
 import ase.io
 import pytest
 import torch
 
-from metatrain.utils.data.readers.targets import (
+from metatrain.utils.data.readers.ase import (
     read_energy_ase,
     read_forces_ase,
     read_stress_ase,
+    read_systems_ase,
     read_virial_ase,
 )
 
@@ -30,6 +32,29 @@ def ase_system() -> ase.Atoms:
     return atoms
 
 
+def test_read_ase(monkeypatch, tmp_path):
+    monkeypatch.chdir(tmp_path)
+
+    filename = "systems.xyz"
+
+    systems = ase_system()
+    ase.io.write(filename, systems)
+
+    result = read_systems_ase(filename)
+
+    assert isinstance(result, list)
+    assert len(result) == 1
+    assert isinstance(result[0], torch.ScriptObject)
+
+    positions_actual = result[0].positions
+    positions_expected = torch.tensor(systems.positions, dtype=positions_actual.dtype)
+    torch.testing.assert_close(positions_actual, positions_expected)
+
+    types_expected = result[0].types
+    types_actual = torch.tensor([1, 1], dtype=types_expected.dtype)
+    torch.testing.assert_close(types_expected, types_actual)
+
+
 def ase_systems() -> List[ase.Atoms]:
     return [ase_system(), ase_system()]
 
@@ -42,10 +67,10 @@ def test_read_energy_ase(monkeypatch, tmp_path):
     systems = ase_systems()
     ase.io.write(filename, systems)
 
-    results = read_energy_ase(filename=filename, key="true_energy", dtype=torch.float16)
+    results = read_energy_ase(filename=filename, key="true_energy")
 
     for result, atoms in zip(results, systems):
-        expected = torch.tensor([[atoms.info["true_energy"]]], dtype=torch.float16)
+        expected = torch.tensor([[atoms.info["true_energy"]]], dtype=torch.float64)
         torch.testing.assert_close(result.values, expected)
 
 
@@ -80,10 +105,10 @@ def test_read_forces_ase(monkeypatch, tmp_path):
     systems = ase_systems()
     ase.io.write(filename, systems)
 
-    results = read_forces_ase(filename=filename, key="forces", dtype=torch.float16)
+    results = read_forces_ase(filename=filename, key="forces")
 
     for result, atoms in zip(results, systems):
-        expected = -torch.tensor(atoms.get_array("forces"), dtype=torch.float16)
+        expected = -torch.tensor(atoms.get_array("forces"), dtype=torch.float64)
         expected = expected.reshape(-1, 3, 1)
         torch.testing.assert_close(result.values, expected)
 
@@ -96,11 +121,11 @@ def test_read_stress_ase(monkeypatch, tmp_path):
     systems = ase_systems()
     ase.io.write(filename, systems)
 
-    results = read_stress_ase(filename=filename, key="stress-3x3", dtype=torch.float16)
+    results = read_stress_ase(filename=filename, key="stress-3x3")
 
     for result, atoms in zip(results, systems):
         expected = atoms.cell.volume * torch.tensor(
-            atoms.info["stress-3x3"], dtype=torch.float16
+            atoms.info["stress-3x3"], dtype=torch.float64
         )
         expected = expected.reshape(-1, 3, 3, 1)
         torch.testing.assert_close(result.values, expected)
@@ -129,10 +154,10 @@ def test_read_virial_ase(monkeypatch, tmp_path):
     systems = ase_systems()
     ase.io.write(filename, systems)
 
-    results = read_virial_ase(filename=filename, key="stress-3x3", dtype=torch.float16)
+    results = read_virial_ase(filename=filename, key="stress-3x3")
 
     for result, atoms in zip(results, systems):
-        expected = -torch.tensor(atoms.info["stress-3x3"], dtype=torch.float16)
+        expected = -torch.tensor(atoms.info["stress-3x3"], dtype=torch.float64)
         expected = expected.reshape(-1, 3, 3, 1)
         torch.testing.assert_close(result.values, expected)
 
@@ -148,7 +173,7 @@ def test_read_virial_warn(monkeypatch, tmp_path):
     with pytest.warns(match="Found 9-long numerical vector"):
         results = read_virial_ase(filename=filename, key="stress-9")
 
-    expected = -torch.tensor(systems.info["stress-9"])
+    expected = -torch.tensor(systems.info["stress-9"], dtype=torch.float64)
     expected = expected.reshape(-1, 3, 3, 1)
     torch.testing.assert_close(results[0].values, expected)
 
