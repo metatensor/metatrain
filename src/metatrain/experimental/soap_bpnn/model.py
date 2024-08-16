@@ -16,7 +16,7 @@ from metatensor.torch.learn.nn import ModuleMap
 
 from metatrain.utils.data.dataset import DatasetInfo
 
-from ...utils.composition import apply_composition_contribution
+from ...utils.composition import CompositionModel
 from ...utils.dtype import dtype_to_str
 from ...utils.export import export
 
@@ -195,6 +195,11 @@ class SoapBpnn(torch.nn.Module):
             }
         )
 
+        self.composition_model = CompositionModel(
+            model_hypers={},
+            dataset_info=dataset_info,
+        )
+
     def restart(self, dataset_info: DatasetInfo) -> "SoapBpnn":
         # merge old and new dataset info
         merged_info = self.dataset_info.union(dataset_info)
@@ -261,12 +266,7 @@ class SoapBpnn(torch.nn.Module):
         atomic_energies: Dict[str, TensorMap] = {}
         for output_name, output_layer in self.last_layers.items():
             if output_name in outputs:
-                atomic_energies[output_name] = apply_composition_contribution(
-                    output_layer(last_layer_features),
-                    self.composition_weights[  # type: ignore
-                        self.output_to_index[output_name]
-                    ],
-                )
+                atomic_energies[output_name] = output_layer(last_layer_features)
 
         # Sum the atomic energies coming from the BPNN to get the total energy
         for output_name, atomic_energy in atomic_energies.items():
@@ -280,6 +280,13 @@ class SoapBpnn(torch.nn.Module):
                 return_dict[output_name] = metatensor.torch.sum_over_samples(
                     atomic_energy, ["atom", "center_type"]
                 )
+
+        composition_contributions = self.composition_model(systems, outputs)
+        for name in return_dict:
+            return_dict[name] = metatensor.torch.add(
+                return_dict[name],
+                composition_contributions[name],
+            )
 
         return return_dict
 
@@ -313,21 +320,6 @@ class SoapBpnn(torch.nn.Module):
         )
 
         return export(model=self, model_capabilities=capabilities)
-
-    def set_composition_weights(
-        self,
-        output_name: str,
-        input_composition_weights: torch.Tensor,
-        atomic_types: List[int],
-    ) -> None:
-        """Set the composition weights for a given output."""
-        # all species that are not present retain their weight of zero
-        self.composition_weights[self.output_to_index[output_name]][  # type: ignore
-            atomic_types
-        ] = input_composition_weights.to(
-            dtype=self.composition_weights.dtype,  # type: ignore
-            device=self.composition_weights.device,  # type: ignore
-        )
 
     def add_output(self, output_name: str) -> None:
         """Add a new output to the self."""

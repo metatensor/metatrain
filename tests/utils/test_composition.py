@@ -84,7 +84,7 @@ def test_composition_model_train():
         ),
     )
 
-    composition_model.train(dataset)
+    composition_model.train_model(dataset)
     assert composition_model.weights.shape[0] == 1
     assert composition_model.weights.shape[1] == 2
     assert composition_model.output_to_output_index == {"energy": 0}
@@ -93,7 +93,7 @@ def test_composition_model_train():
         composition_model.weights, torch.tensor([[2.0, 1.0]], dtype=torch.float64)
     )
 
-    composition_model.train([dataset])
+    composition_model.train_model([dataset])
     assert composition_model.weights.shape[0] == 1
     assert composition_model.weights.shape[1] == 2
     assert composition_model.output_to_output_index == {"energy": 0}
@@ -102,7 +102,7 @@ def test_composition_model_train():
         composition_model.weights, torch.tensor([[2.0, 1.0]], dtype=torch.float64)
     )
 
-    composition_model.train([dataset, dataset, dataset])
+    composition_model.train_model([dataset, dataset, dataset])
     assert composition_model.weights.shape[0] == 1
     assert composition_model.weights.shape[1] == 2
     assert composition_model.output_to_output_index == {"energy": 0}
@@ -142,7 +142,7 @@ def test_composition_model_predict():
         ),
     )
 
-    composition_model.train(dataset)
+    composition_model.train_model(dataset)
 
     output = composition_model(
         systems[:5],

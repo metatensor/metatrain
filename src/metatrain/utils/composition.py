@@ -52,7 +52,7 @@ class CompositionModel(torch.nn.Module):
             "weights", torch.zeros((n_targets, n_types), dtype=torch.float64)
         )
 
-    def train(
+    def train_model(
         self,
         datasets: List[Union[Dataset, torch.utils.data.Subset]],
         fixed_weights: Optional[Dict[str, Dict[int, str]]] = None,
@@ -232,7 +232,7 @@ class CompositionModel(torch.nn.Module):
                 ),
                 components=[],
                 properties=Labels(
-                    names=["_"], values=torch.tensor([[0]], device=device)
+                    names=["energy"], values=torch.tensor([[0]], device=device)
                 ),
             )
 
