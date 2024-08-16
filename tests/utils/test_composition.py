@@ -1,11 +1,12 @@
 from pathlib import Path
 
+import metatensor.torch
 import torch
 from metatensor.torch import Labels, TensorBlock, TensorMap
 from metatensor.torch.atomistic import ModelOutput, System
 from omegaconf import OmegaConf
 
-from metatrain.utils.composition import CompositionModel
+from metatrain.utils.composition import CompositionModel, remove_composition
 from metatrain.utils.data import Dataset, DatasetInfo, TargetInfo, TargetInfoDict
 from metatrain.utils.data.readers import read_systems, read_targets
 
@@ -116,13 +117,14 @@ def test_composition_model_predict():
     """Test the prediction of composition energies."""
 
     dataset_path = RESOURCES_PATH / "qm9_reduced_100.xyz"
-    systems = read_systems(dataset_path, dtype=torch.float64)
+    systems = read_systems(dataset_path)
 
     conf = {
         "mtt::U0": {
             "quantity": "energy",
             "read_from": dataset_path,
             "file_format": ".xyz",
+            "reader": "ase",
             "key": "U0",
             "unit": "eV",
             "forces": False,
@@ -130,7 +132,7 @@ def test_composition_model_predict():
             "virial": False,
         }
     }
-    targets, target_info = read_targets(OmegaConf.create(conf), dtype=torch.float64)
+    targets, target_info = read_targets(OmegaConf.create(conf))
     dataset = Dataset({"system": systems, "mtt::U0": targets["mtt::U0"]})
 
     composition_model = CompositionModel(
@@ -193,3 +195,47 @@ def test_composition_model_torchscript(tmpdir):
     composition_model(
         [system], {"energy": ModelOutput(quantity="energy", unit="", per_atom=False)}
     )
+
+
+def test_remove_composition():
+    """Tests the remove_composition function."""
+
+    dataset_path = RESOURCES_PATH / "qm9_reduced_100.xyz"
+    systems = read_systems(dataset_path)
+
+    conf = {
+        "mtt::U0": {
+            "quantity": "energy",
+            "read_from": dataset_path,
+            "file_format": ".xyz",
+            "reader": "ase",
+            "key": "U0",
+            "unit": "eV",
+            "forces": False,
+            "stress": False,
+            "virial": False,
+        }
+    }
+    targets, target_info = read_targets(OmegaConf.create(conf))
+    dataset = Dataset({"system": systems, "mtt::U0": targets["mtt::U0"]})
+
+    composition_model = CompositionModel(
+        model_hypers={},
+        dataset_info=DatasetInfo(
+            length_unit="angstrom",
+            atomic_types=[1, 6, 7, 8],
+            targets=target_info,
+        ),
+    )
+    composition_model.train_model(dataset)
+
+    # concatenate all targets
+    targets["mtt::U0"] = metatensor.torch.join(targets["mtt::U0"], axis="samples")
+
+    std_before = targets["mtt::U0"].block().values.std().item()
+    remove_composition(systems, targets, composition_model)
+    std_after = targets["mtt::U0"].block().values.std().item()
+
+    # In QM9 the composition contribution is very large: the standard deviation
+    # of the energies is reduced by a factor of over 100 upon removing the composition
+    assert std_after < 100.0 * std_before
