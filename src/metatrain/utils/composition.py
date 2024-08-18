@@ -131,7 +131,7 @@ class CompositionModel(torch.nn.Module):
                     (total_num_structures, len(self.atomic_types)), dtype=dtype
                 )
                 structure_index = 0
-                for dataset in datasets:
+                for dataset in datasets_with_target:
                     for sample in dataset:
                         structure = sample["system"]
                         for j, t in enumerate(self.atomic_types):
