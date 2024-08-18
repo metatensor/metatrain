@@ -123,14 +123,6 @@ class SoapBpnn(torch.nn.Module):
             unit="unitless", per_atom=True
         )
 
-        # creates a composition weight tensor that can be directly indexed by species,
-        # this can be left as a tensor of zero or set from the outside using
-        # set_composition_weights (recommended for better accuracy)
-        n_outputs = len(self.outputs)
-        self.register_buffer(
-            "composition_weights",
-            torch.zeros((n_outputs, max(self.atomic_types) + 1)),
-        )
         # buffers cannot be indexed by strings (torchscript), so we create a single
         # tensor for all output. Due to this, we need to slice the tensor when we use
         # it and use the output name to select the correct slice via a dictionary
