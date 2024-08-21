@@ -33,10 +33,10 @@ class RadialBasis(torch.nn.Module):
                     str(l): torch.nn.Sequential(
                         Linear(self.n_max_l[l], 4 * self.n_max_l[l] * self.n_channels),
                         torch.nn.SiLU(),
-                        Linear(4 * self.n_max_l[l] * self.n_channels, 4 * self.n_max_l[l] * self.n_channels),
-                        torch.nn.SiLU(),
-                        Linear(4 * self.n_max_l[l] * self.n_channels, 4 * self.n_max_l[l] * self.n_channels),
-                        torch.nn.SiLU(),
+                        # Linear(4 * self.n_max_l[l] * self.n_channels, 4 * self.n_max_l[l] * self.n_channels),
+                        # torch.nn.SiLU(),
+                        # Linear(4 * self.n_max_l[l] * self.n_channels, 4 * self.n_max_l[l] * self.n_channels),
+                        # torch.nn.SiLU(),
                         Linear(4 * self.n_max_l[l] * self.n_channels, self.n_max_l[l] * self.n_channels),
                     )
                     for l in range(self.l_max + 1)
@@ -62,6 +62,8 @@ class RadialBasis(torch.nn.Module):
         radial_functions = torch.where(
             x.unsqueeze(1) < 10.0, self.spliner.compute(capped_x), 0.0
         )
+
+        # radial_functions = radial_functions * 3.0
 
         cutoff_multiplier = cutoff_fn(r, self.r_cut)
         radial_functions = radial_functions * cutoff_multiplier.unsqueeze(1)
