@@ -61,7 +61,7 @@ def test_calculate_composition_weights():
         )
         for i, e in enumerate(energies)
     ]
-    dataset = Dataset({"system": systems, "energy": energies})
+    dataset = Dataset.from_dict({"system": systems, "energy": energies})
 
     weights, atomic_types = calculate_composition_weights(dataset, "energy")
 

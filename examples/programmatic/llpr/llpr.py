@@ -72,7 +72,7 @@ qm9_systems = [
     get_system_with_neighbor_lists(system, requested_neighbor_lists)
     for system in qm9_systems
 ]
-dataset = Dataset({"system": qm9_systems, **targets})
+dataset = Dataset.from_dict({"system": qm9_systems, **targets})
 
 # We also load a single ethanol molecule on which we will compute properties.
 # This system is loaded without targets, as we are only interested in the LPR

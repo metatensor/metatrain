@@ -70,7 +70,7 @@ def test_regression_train():
         }
     }
     targets, target_info_dict = read_targets(OmegaConf.create(conf))
-    dataset = Dataset({"system": systems, "mtt::U0": targets["mtt::U0"]})
+    dataset = Dataset.from_dict({"system": systems, "mtt::U0": targets["mtt::U0"]})
 
     hypers = DEFAULT_HYPERS.copy()
     hypers["training"]["num_epochs"] = 2

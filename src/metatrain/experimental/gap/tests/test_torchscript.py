@@ -36,7 +36,7 @@ def test_torchscript():
 
     # for system in systems:
     #    system.types = torch.ones(len(system.types), dtype=torch.int32)
-    dataset = Dataset({"system": systems, "mtt::U0": targets["mtt::U0"]})
+    dataset = Dataset.from_dict({"system": systems, "mtt::U0": targets["mtt::U0"]})
 
     hypers = DEFAULT_HYPERS.copy()
     gap = GAP(DEFAULT_HYPERS["model"], dataset_info)
