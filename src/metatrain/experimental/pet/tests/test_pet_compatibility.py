@@ -159,7 +159,7 @@ def test_predictions_compatibility(cutoff):
         "neighbors_pos": batch.neighbors_pos,
     }
 
-    pet = model._module.pet
+    pet = model.module.pet
 
     pet_prediction = pet.forward(batch_dict)
 
