@@ -73,10 +73,20 @@ class CompositionModel(torch.nn.Module):
         if fixed_weights is None:
             fixed_weights = {}
 
-        missing_types = sorted(set(get_atomic_types(datasets)) - set(self.atomic_types))
+        additional_types = sorted(
+            set(get_atomic_types(datasets)) - set(self.atomic_types)
+        )
+        if additional_types:
+            raise ValueError(
+                "Provided `datasets` contains unknown "
+                f"atomic types {additional_types}. "
+                f"Known types from initilaization are {self.atomic_types}."
+            )
+
+        missing_types = sorted(set(self.atomic_types) - set(get_atomic_types(datasets)))
         if missing_types:
             raise ValueError(
-                f"Provided `datasets` contains unknown atomic types {missing_types}. "
+                f"Provided `datasets` do not contain atomic types {missing_types}. "
                 f"Known types from initilaization are {self.atomic_types}."
             )
 
