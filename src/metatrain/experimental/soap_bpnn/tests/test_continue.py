@@ -47,7 +47,7 @@ def test_continue(monkeypatch, tmp_path):
 
     # systems in float64 are required for training
     systems = [system.to(torch.float64) for system in systems]
-    dataset = Dataset({"system": systems, "mtt::U0": targets["mtt::U0"]})
+    dataset = Dataset.from_dict({"system": systems, "mtt::U0": targets["mtt::U0"]})
 
     hypers = DEFAULT_HYPERS.copy()
     hypers["training"]["num_epochs"] = 0

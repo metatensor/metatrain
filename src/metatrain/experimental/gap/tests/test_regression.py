@@ -55,7 +55,7 @@ def test_regression_train_and_invariance():
         }
     }
     targets, _ = read_targets(OmegaConf.create(conf))
-    dataset = Dataset({"system": systems, "mtt::U0": targets["mtt::U0"]})
+    dataset = Dataset.from_dict({"system": systems, "mtt::U0": targets["mtt::U0"]})
 
     target_info_dict = TargetInfoDict()
     target_info_dict["mtt::U0"] = TargetInfo(quantity="energy", unit="eV")
@@ -132,7 +132,7 @@ def test_ethanol_regression_train_and_invariance():
     }
 
     targets, _ = read_targets(OmegaConf.create(conf))
-    dataset = Dataset({"system": systems, "energy": targets["energy"]})
+    dataset = Dataset.from_dict({"system": systems, "energy": targets["energy"]})
 
     hypers = copy.deepcopy(DEFAULT_HYPERS)
     hypers["model"]["krr"]["num_sparse_points"] = 900

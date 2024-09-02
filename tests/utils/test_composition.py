@@ -68,7 +68,7 @@ def test_composition_model_train():
         )
         for i, e in enumerate(energies)
     ]
-    dataset = Dataset({"system": systems, "energy": energies})
+    dataset = Dataset.from_dict({"system": systems, "energy": energies})
 
     composition_model = CompositionModel(
         model_hypers={},

@@ -28,6 +28,7 @@ def get_targets_dict(
     targets_dict = {}
     for dataset in datasets:
         targets = next(iter(dataset))
+        targets = targets._asdict()
         targets.pop("system")  # system not needed
 
         # targets is now a dictionary of TensorMaps
