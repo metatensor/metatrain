@@ -134,7 +134,7 @@ def test_composition_model_predict():
         }
     }
     targets, target_info = read_targets(OmegaConf.create(conf))
-    dataset = Dataset({"system": systems, "mtt::U0": targets["mtt::U0"]})
+    dataset = Dataset.from_dict({"system": systems, "mtt::U0": targets["mtt::U0"]})
 
     composition_model = CompositionModel(
         model_hypers={},
@@ -218,7 +218,7 @@ def test_remove_composition():
         }
     }
     targets, target_info = read_targets(OmegaConf.create(conf))
-    dataset = Dataset({"system": systems, "mtt::U0": targets["mtt::U0"]})
+    dataset = Dataset.from_dict({"system": systems, "mtt::U0": targets["mtt::U0"]})
 
     composition_model = CompositionModel(
         model_hypers={},
@@ -298,7 +298,7 @@ def test_composition_model_missing_types():
         )
         for i, e in enumerate(energies)
     ]
-    dataset = Dataset({"system": systems, "energy": energies})
+    dataset = Dataset.from_dict({"system": systems, "energy": energies})
 
     composition_model = CompositionModel(
         model_hypers={},
