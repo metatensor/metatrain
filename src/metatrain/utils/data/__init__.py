@@ -7,7 +7,7 @@ from .dataset import (  # noqa: F401
     get_all_targets,
     collate_fn,
     check_datasets,
-    group_and_join,
+    get_stats,
 )
 from .readers import (  # noqa: F401
     read_energy,

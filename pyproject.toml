@@ -10,9 +10,9 @@ authors = [{name = "metatrain developers"}]
 
 dependencies = [
     "ase < 3.23.0",
-    "metatensor-learn==0.2.2",
-    "metatensor-operations==0.2.1",
-    "metatensor-torch==0.5.3",
+    "metatensor-learn==0.2.3",
+    "metatensor-operations==0.2.3",
+    "metatensor-torch==0.5.4",
     "jsonschema",
     "omegaconf",
     "python-hostlist",
