@@ -336,8 +336,8 @@ def test_composition_model_missing_types():
             ),
         ),
     )
-    with pytest.raises(
-        ValueError,
+    with pytest.warns(
+        UserWarning,
         match="do not contain atomic types",
     ):
         composition_model.train_model(dataset)

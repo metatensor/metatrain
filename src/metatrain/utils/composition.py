@@ -1,3 +1,4 @@
+import warnings
 from typing import Dict, List, Optional, Union
 
 import torch
@@ -85,9 +86,10 @@ class CompositionModel(torch.nn.Module):
 
         missing_types = sorted(set(self.atomic_types) - set(get_atomic_types(datasets)))
         if missing_types:
-            raise ValueError(
+            warnings.warn(
                 f"Provided `datasets` do not contain atomic types {missing_types}. "
-                f"Known types from initilaization are {self.atomic_types}."
+                f"Known types from initilaization are {self.atomic_types}.",
+                stacklevel=2,
             )
 
         # Fill the weights for each target in the dataset info
