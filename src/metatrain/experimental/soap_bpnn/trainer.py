@@ -31,13 +31,6 @@ from .model import SoapBpnn
 logger = logging.getLogger(__name__)
 
 
-# Filter out the second derivative and device warnings from rascaline-torch
-warnings.filterwarnings("ignore", category=UserWarning, message="second derivative")
-warnings.filterwarnings(
-    "ignore", category=UserWarning, message="Systems data is on device"
-)
-
-
 class Trainer:
     def __init__(self, train_hypers):
         self.hypers = train_hypers
@@ -54,6 +47,17 @@ class Trainer:
         val_datasets: List[Union[Dataset, torch.utils.data.Subset]],
         checkpoint_dir: str,
     ):
+        # Filter out the second derivative and device warnings from rascaline
+        warnings.filterwarnings(action="ignore", message="Systems data is on device")
+        warnings.filterwarnings(
+            action="ignore",
+            message="second derivatives with respect to positions are not implemented",
+        )
+        warnings.filterwarnings(
+            action="ignore",
+            message="second derivatives with respect to cell matrix",
+        )
+
         assert dtype in SoapBpnn.__supported_dtypes__
 
         is_distributed = self.hypers["distributed"]
@@ -290,6 +294,7 @@ class Trainer:
                 targets = average_by_num_atoms(targets, systems, per_structure_targets)
 
                 train_loss_batch = loss_fn(predictions, targets)
+
                 train_loss_batch.backward()
                 optimizer.step()
 
@@ -409,7 +414,7 @@ class Trainer:
     def load_checkpoint(cls, path: Union[str, Path], train_hypers) -> "Trainer":
 
         # Load the checkpoint
-        checkpoint = torch.load(path)
+        checkpoint = torch.load(path, weights_only=False)
         model_hypers = checkpoint["model_hypers"]
         model_state_dict = checkpoint["model_state_dict"]
         epoch = checkpoint["epoch"]
