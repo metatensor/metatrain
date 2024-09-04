@@ -449,8 +449,8 @@ def test_model_consistency_with_seed(options, monkeypatch, tmp_path, seed):
 
     train_model(options, output="model2.pt")
 
-    m1 = torch.load("model1.ckpt")
-    m2 = torch.load("model2.ckpt")
+    m1 = torch.load("model1.ckpt", weights_only=False)
+    m2 = torch.load("model2.ckpt", weights_only=False)
 
     for i in m1["model_state_dict"]:
         tensor1 = m1["model_state_dict"][i]
