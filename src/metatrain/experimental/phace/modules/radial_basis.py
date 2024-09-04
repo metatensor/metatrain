@@ -3,7 +3,7 @@ import torch
 from metatensor.torch import Labels
 
 from .layers import Linear
-from .physical_LE import get_physical_le_spliner
+from .physical_basis import get_physical_basis_spliner
 
 
 class RadialBasis(torch.nn.Module):
@@ -14,7 +14,7 @@ class RadialBasis(torch.nn.Module):
         lengthscales = torch.zeros((max(all_species) + 1))
         for species in all_species:
             lengthscales[species] = hypers["scale"]
-        self.n_max_l, self.spliner = get_physical_le_spliner(
+        self.n_max_l, self.spliner = get_physical_basis_spliner(
             hypers["E_max"], hypers["r_cut"], normalize=True
         )
         # self.register_buffer("lengthscales", lengthscales)
