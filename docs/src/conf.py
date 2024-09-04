@@ -5,13 +5,14 @@ from datetime import datetime
 
 import tomli  # Replace by tomllib from std library once docs are build with Python 3.11
 
-import metatrain
-
 
 # When importing metatensor-torch, this will change the definition of the classes
 # to include the documentation
 os.environ["METATENSOR_IMPORT_FOR_SPHINX"] = "1"
 os.environ["RASCALINE_IMPORT_FOR_SPHINX"] = "1"
+
+import metatrain  # noqa: E402
+
 
 ROOT = os.path.abspath(os.path.join("..", ".."))
 

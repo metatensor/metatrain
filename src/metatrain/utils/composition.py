@@ -1,10 +1,10 @@
 import warnings
 from typing import Dict, List, Optional, Union
 
+import metatensor.torch
 import torch
 from metatensor.torch import Labels, TensorBlock, TensorMap
 from metatensor.torch.atomistic import ModelOutput, System
-from metatensor.torch.operations import sum_over_samples_block
 
 from .data import Dataset, DatasetInfo, get_all_targets, get_atomic_types
 from .jsonschema import validate
@@ -253,7 +253,9 @@ class CompositionModel(torch.nn.Module):
             )
 
             if not target.per_atom:
-                block = sum_over_samples_block(block, sample_names="atom")
+                block = metatensor.torch.sum_over_samples_block(
+                    block, sample_names="atom"
+                )
 
             targets_out[target_key] = TensorMap(
                 keys=Labels(names=["_"], values=torch.tensor([[0]], device=device)),
