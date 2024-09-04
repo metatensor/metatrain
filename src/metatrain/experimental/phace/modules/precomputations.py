@@ -1,4 +1,7 @@
-import sphericart.torch
+try:
+    import sphericart.torch
+except:
+    pass
 import torch
 from metatensor.torch import Labels, TensorBlock, TensorMap
 import numpy as np

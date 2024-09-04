@@ -5,6 +5,9 @@ from metatensor.torch import Labels
 from .layers import Linear
 from .physical_basis import get_physical_basis_spliner
 
+from ase.data import covalent_radii
+import numpy as np
+
 
 class RadialBasis(torch.nn.Module):
 
@@ -13,12 +16,12 @@ class RadialBasis(torch.nn.Module):
 
         lengthscales = torch.zeros((max(all_species) + 1))
         for species in all_species:
-            lengthscales[species] = hypers["scale"]
+            lengthscales[species] = np.log(hypers["scale"] * covalent_radii[species])
         self.n_max_l, self.spliner = get_physical_basis_spliner(
             hypers["E_max"], hypers["r_cut"], normalize=True
         )
-        # self.register_buffer("lengthscales", lengthscales)
-        self.lengthscales = torch.nn.Parameter(lengthscales)
+        self.register_buffer("lengthscales", lengthscales)
+        # self.lengthscales = torch.nn.Parameter(lengthscales)
 
         self.all_species = all_species
         self.n_max_l = list(self.n_max_l)
@@ -33,10 +36,10 @@ class RadialBasis(torch.nn.Module):
                     str(l): torch.nn.Sequential(
                         Linear(self.n_max_l[l], 4 * self.n_max_l[l] * self.n_channels),
                         torch.nn.SiLU(),
-                        # Linear(4 * self.n_max_l[l] * self.n_channels, 4 * self.n_max_l[l] * self.n_channels),
-                        # torch.nn.SiLU(),
-                        # Linear(4 * self.n_max_l[l] * self.n_channels, 4 * self.n_max_l[l] * self.n_channels),
-                        # torch.nn.SiLU(),
+                        Linear(4 * self.n_max_l[l] * self.n_channels, 4 * self.n_max_l[l] * self.n_channels),
+                        torch.nn.SiLU(),
+                        Linear(4 * self.n_max_l[l] * self.n_channels, 4 * self.n_max_l[l] * self.n_channels),
+                        torch.nn.SiLU(),
                         Linear(4 * self.n_max_l[l] * self.n_channels, self.n_max_l[l] * self.n_channels),
                     )
                     for l in range(self.l_max + 1)

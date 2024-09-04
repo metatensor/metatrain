@@ -59,7 +59,7 @@ def is_exported(model: Any) -> bool:
     if isinstance(model, MetatensorAtomisticModel):
         return True
     try:
-        model._module
+        model.module
         model._capabilities
         model._metadata
         return True
