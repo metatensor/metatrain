@@ -246,11 +246,6 @@ class CompositionModel(torch.nn.Module):
                 ),
             )
 
-            if not target.per_atom:
-                block = metatensor.torch.sum_over_samples_block(
-                    block, sample_names="atom"
-                )
-
             targets_out[target_key] = TensorMap(
                 keys=Labels(names=["_"], values=torch.tensor([[0]], device=device)),
                 blocks=[block],
@@ -260,6 +255,11 @@ class CompositionModel(torch.nn.Module):
             if selected_atoms is not None:
                 targets_out[target_key] = metatensor.torch.slice(
                     targets_out[target_key], "samples", selected_atoms
+                )
+
+            if not target.per_atom:
+                targets_out[target_key] = metatensor.torch.sum_over_samples(
+                    targets_out[target_key], sample_names="atom"
                 )
 
         return targets_out

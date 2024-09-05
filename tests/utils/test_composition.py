@@ -147,6 +147,7 @@ def test_composition_model_predict():
 
     composition_model.train_model(dataset)
 
+    # per_atom = False
     output = composition_model(
         systems[:5],
         {"mtt::U0": ModelOutput(quantity="energy", unit="", per_atom=False)},
@@ -155,6 +156,7 @@ def test_composition_model_predict():
     assert output["mtt::U0"].block().samples.names == ["system"]
     assert output["mtt::U0"].block().values.shape == (5, 1)
 
+    # per_atom = True
     output = composition_model(
         systems[:5],
         {"mtt::U0": ModelOutput(quantity="energy", unit="", per_atom=True)},
@@ -162,6 +164,30 @@ def test_composition_model_predict():
     assert "mtt::U0" in output
     assert output["mtt::U0"].block().samples.names == ["system", "atom"]
     assert output["mtt::U0"].block().values.shape != (5, 1)
+
+    # with selected_atoms
+    selected_atoms = metatensor.torch.Labels(
+        names=["system", "atom"],
+        values=torch.tensor([[0, 0]]),
+    )
+
+    output = composition_model(
+        systems[:5],
+        {"mtt::U0": ModelOutput(quantity="energy", unit="", per_atom=True)},
+        selected_atoms=selected_atoms,
+    )
+    assert "mtt::U0" in output
+    assert output["mtt::U0"].block().samples.names == ["system", "atom"]
+    assert output["mtt::U0"].block().values.shape == (1, 1)
+
+    output = composition_model(
+        systems[:5],
+        {"mtt::U0": ModelOutput(quantity="energy", unit="", per_atom=False)},
+        selected_atoms=selected_atoms,
+    )
+    assert "mtt::U0" in output
+    assert output["mtt::U0"].block().samples.names == ["system"]
+    assert output["mtt::U0"].block().values.shape == (1, 1)
 
 
 def test_composition_model_torchscript(tmpdir):
