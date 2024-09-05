@@ -211,13 +211,8 @@ class GAP(torch.nn.Module):
 
         # apply composition model
         composition_energies = self.composition_model(
-            systems, {output_key: ModelOutput("energy", per_atom=True)}
+            systems, {output_key: ModelOutput("energy", per_atom=True)}, selected_atoms
         )
-        # apply selected_atoms to the composition energies if needed
-        if selected_atoms is not None:
-            composition_energies[output_key] = metatensor.torch.slice(
-                composition_energies[output_key], "samples", selected_atoms
-            )
         composition_energies[output_key] = metatensor.torch.sum_over_samples(
             composition_energies[output_key], "atom"
         )

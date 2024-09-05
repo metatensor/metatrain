@@ -1,6 +1,7 @@
 import warnings
 from typing import Dict, List, Optional, Union
 
+import metatensor.torch
 import torch
 from metatensor.torch import Labels, TensorBlock, TensorMap
 from metatensor.torch.atomistic import ModelOutput, System
@@ -214,12 +215,6 @@ class CompositionModel(torch.nn.Module):
                     "model."
                 )
 
-        # TODO: implement selected_atoms. This is not a big deal because the composition
-        # model won't be a bottleneck, so the unwanted atoms can be filtered later by
-        # the model that includes the composition model.
-        if selected_atoms is not None:
-            raise NotImplementedError("`selected_atoms` is not implemented.")
-
         # Compute the targets for each system by adding the composition weights times
         # number of atoms per atomic type.
         targets_out: Dict[str, TensorMap] = {}
@@ -259,6 +254,12 @@ class CompositionModel(torch.nn.Module):
                 keys=Labels(names=["_"], values=torch.tensor([[0]], device=device)),
                 blocks=[block],
             )
+
+            # apply selected_atoms to the composition if needed
+            if selected_atoms is not None:
+                targets_out[target_key] = metatensor.torch.slice(
+                    targets_out[target_key], "samples", selected_atoms
+                )
 
         return targets_out
 

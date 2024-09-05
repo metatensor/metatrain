@@ -275,10 +275,12 @@ class SoapBpnn(torch.nn.Module):
 
         if not self.training:
             # at evaluation, we also add the composition contributions
-            composition_contributions = self.composition_model(systems, outputs)
+            composition_contributions = self.composition_model(
+                systems, outputs, selected_atoms
+            )
             for name in return_dict:
                 if name.startswith("mtt::aux::"):
-                    continue
+                    continue  # skip auxiliary outputs (not targets)
                 return_dict[name] = metatensor.torch.add(
                     return_dict[name],
                     composition_contributions[name],
