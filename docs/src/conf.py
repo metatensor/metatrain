@@ -96,7 +96,7 @@ intersphinx_mapping = {
     "ase": ("https://wiki.fysik.dtu.dk/ase/", None),
     "python": ("https://docs.python.org/3", None),
     "torch": ("https://pytorch.org/docs/stable/", None),
-    "metatensor": ("https://lab-cosmo.github.io/metatensor/latest/", None),
+    "metatensor": ("https://docs.metatensor.org/latest/", None),
     "omegaconf": ("https://omegaconf.readthedocs.io/en/latest/", None),
     "rascaline": ("https://luthaf.fr/rascaline/latest/", None),
 }
