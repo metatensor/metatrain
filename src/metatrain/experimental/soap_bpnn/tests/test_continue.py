@@ -44,6 +44,9 @@ def test_continue(monkeypatch, tmp_path):
         }
     }
     targets, _ = read_targets(OmegaConf.create(conf))
+
+    # systems in float64 are required for training
+    systems = [system.to(torch.float64) for system in systems]
     dataset = Dataset.from_dict({"system": systems, "mtt::U0": targets["mtt::U0"]})
 
     hypers = DEFAULT_HYPERS.copy()
@@ -62,6 +65,9 @@ def test_continue(monkeypatch, tmp_path):
         val_datasets=[dataset],
         checkpoint_dir=".",
     )
+
+    # evaluation
+    systems = [system.to(torch.float32) for system in systems]
 
     # Predict on the first five systems
     output_before = model_before(

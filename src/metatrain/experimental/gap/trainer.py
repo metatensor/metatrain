@@ -9,7 +9,7 @@ from metatensor.torch import TensorMap
 
 from metatrain.utils.data import Dataset
 
-from ...utils.composition import calculate_composition_weights
+from ...utils.composition import remove_composition
 from ...utils.data import check_datasets
 from . import GAP
 from .model import torch_tensor_map_to_core
@@ -52,10 +52,7 @@ class Trainer:
 
         # Calculate and set the composition weights:
         logger.info("Calculating composition weights")
-        composition_weights, species = calculate_composition_weights(
-            train_datasets, target_name
-        )
-        model.set_composition_weights(target_name, composition_weights, species)
+        model.composition_model.train_model(train_datasets)
 
         logger.info("Setting up data loaders")
         if len(train_datasets[0][0][output_name].keys) > 1:
@@ -72,26 +69,10 @@ class Trainer:
         model._keys = train_y.keys
         train_structures = [sample["system"] for sample in train_dataset]
 
-        logger.info("Fitting composition energies")
-        composition_energies = torch.zeros(len(train_y.block().values), dtype=dtype)
-        for i, structure in enumerate(train_structures):
-            for j, s in enumerate(species):
-                composition_energies[i] += (
-                    torch.sum(structure.types == s) * composition_weights[j]
-                )
-        train_y_values = train_y.block().values
-        train_y_values = train_y_values - composition_energies.reshape(-1, 1)
-        train_block = metatensor.torch.TensorBlock(
-            values=train_y_values,
-            samples=train_y.block().samples,
-            components=train_y.block().components,
-            properties=train_y.block().properties,
-        )
-        if len(train_y[0].gradients_list()) > 0:
-            train_block.add_gradient("positions", train_y[0].gradient("positions"))
-        train_y = metatensor.torch.TensorMap(
-            train_y.keys,
-            [train_block],
+        logger.info("Subtracting composition energies")
+        # this acts in-place on train_y
+        remove_composition(
+            train_structures, {target_name: train_y}, model.composition_model
         )
 
         logger.info("Calculating SOAP features")

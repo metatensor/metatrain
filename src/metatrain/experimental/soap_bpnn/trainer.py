@@ -7,14 +7,8 @@ import torch
 import torch.distributed
 from torch.utils.data import DataLoader, DistributedSampler
 
-from ...utils.composition import calculate_composition_weights
-from ...utils.data import (
-    CombinedDataLoader,
-    Dataset,
-    TargetInfoDict,
-    collate_fn,
-    get_all_targets,
-)
+from ...utils.composition import remove_composition
+from ...utils.data import CombinedDataLoader, Dataset, TargetInfoDict, collate_fn
 from ...utils.data.extract_targets import get_targets_dict
 from ...utils.distributed.distributed_data_parallel import DistributedDataParallel
 from ...utils.distributed.slurm import DistributedEnvironment
@@ -90,58 +84,21 @@ class Trainer:
             logger.info(f"Training on {world_size} devices with dtype {dtype}")
         else:
             logger.info(f"Training on device {device} with dtype {dtype}")
+
+        # Move the model to the device and dtype:
         model.to(device=device, dtype=dtype)
+        # The composition model of the SOAP-BPNN is always on CPU (to avoid OOM
+        # errors during the linear algebra training) and in float64 (to avoid
+        # numerical errors in the composition weights, which can be very large).
+        model.composition_model.to(device=torch.device("cpu"), dtype=torch.float64)
+
+        logger.info("Calculating composition weights")
+        model.composition_model.train_model(
+            train_datasets, self.hypers["fixed_composition_weights"]
+        )
+
         if is_distributed:
             model = DistributedDataParallel(model, device_ids=[device])
-
-        # Calculate and set the composition weights for all targets:
-        logger.info("Calculating composition weights")
-        for target_name in (model.module if is_distributed else model).new_outputs:
-            if "mtt::aux::" in target_name:
-                continue
-            # TODO: document transfer learning and say that outputs that are already
-            # present in the model will keep their composition weights
-            if target_name in self.hypers["fixed_composition_weights"].keys():
-                logger.info(
-                    f"For {target_name}, model will use "
-                    "user-supplied composition weights"
-                )
-                cur_weight_dict = self.hypers["fixed_composition_weights"][target_name]
-                atomic_types = []
-                num_species = len(cur_weight_dict)
-                fixed_weights = torch.zeros(num_species, dtype=dtype, device=device)
-
-                for ii, (key, weight) in enumerate(cur_weight_dict.items()):
-                    atomic_types.append(key)
-                    fixed_weights[ii] = weight
-
-                if (
-                    not set(atomic_types)
-                    == (model.module if is_distributed else model).atomic_types
-                ):
-                    raise ValueError(
-                        "Supplied atomic types are not present in the dataset."
-                    )
-                (model.module if is_distributed else model).set_composition_weights(
-                    target_name, fixed_weights, atomic_types
-                )
-
-            else:
-                train_datasets_with_target = []
-                for dataset in train_datasets:
-                    if target_name in get_all_targets(dataset):
-                        train_datasets_with_target.append(dataset)
-                if len(train_datasets_with_target) == 0:
-                    raise ValueError(
-                        f"Target {target_name} in the model's new capabilities is not "
-                        "present in any of the training datasets."
-                    )
-                composition_weights, composition_types = calculate_composition_weights(
-                    train_datasets_with_target, target_name
-                )
-                (model.module if is_distributed else model).set_composition_weights(
-                    target_name, composition_weights, composition_types
-                )
 
         logger.info("Setting up data loaders")
 
@@ -273,6 +230,7 @@ class Trainer:
                 optimizer.zero_grad()
 
                 systems, targets = batch
+                remove_composition(systems, targets, model.composition_model)
                 systems = [system.to(dtype=dtype, device=device) for system in systems]
                 targets = {
                     key: value.to(dtype=dtype, device=device)
@@ -312,6 +270,7 @@ class Trainer:
             val_loss = 0.0
             for batch in val_dataloader:
                 systems, targets = batch
+                remove_composition(systems, targets, model.composition_model)
                 systems = [system.to(dtype=dtype, device=device) for system in systems]
                 targets = {
                     key: value.to(dtype=dtype, device=device)
