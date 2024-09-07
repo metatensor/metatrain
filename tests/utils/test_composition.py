@@ -367,3 +367,29 @@ def test_composition_model_missing_types():
         match="do not contain atomic types",
     ):
         composition_model.train_model(dataset)
+
+
+def test_composition_model_wrong_target():
+    """
+    Test the error when a non-energy is fed to the composition model.
+    """
+
+    with pytest.raises(
+        ValueError,
+        match="only supports energy-like outputs",
+    ):
+        CompositionModel(
+            model_hypers={},
+            dataset_info=DatasetInfo(
+                length_unit="angstrom",
+                atomic_types=[1],
+                targets=TargetInfoDict(
+                    {
+                        "energy": TargetInfo(
+                            quantity="FOO",
+                            per_atom=False,
+                        )
+                    }
+                ),
+            ),
+        )
