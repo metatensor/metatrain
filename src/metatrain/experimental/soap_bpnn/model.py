@@ -16,7 +16,7 @@ from metatensor.torch.learn.nn import ModuleMap
 
 from metatrain.utils.data.dataset import DatasetInfo
 
-from ...utils.composition import CompositionModel
+from ...utils.additive import CompositionModel
 from ...utils.dtype import dtype_to_str
 from ...utils.export import export
 

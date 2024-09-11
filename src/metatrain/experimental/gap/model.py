@@ -21,7 +21,7 @@ from skmatter._selection import _FPS
 
 from metatrain.utils.data.dataset import DatasetInfo
 
-from ...utils.composition import CompositionModel
+from ...utils.additive import CompositionModel
 from ...utils.export import export
 
 

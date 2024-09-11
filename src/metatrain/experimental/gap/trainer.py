@@ -9,7 +9,7 @@ from metatensor.torch import TensorMap
 
 from metatrain.utils.data import Dataset
 
-from ...utils.composition import remove_composition
+from ...utils.additive import remove_additive
 from ...utils.data import check_datasets
 from . import GAP
 from .model import torch_tensor_map_to_core
@@ -71,7 +71,7 @@ class Trainer:
 
         logger.info("Subtracting composition energies")
         # this acts in-place on train_y
-        remove_composition(
+        remove_additive(
             train_structures, {target_name: train_y}, model.composition_model
         )
 

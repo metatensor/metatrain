@@ -7,7 +7,7 @@ import torch
 import torch.distributed
 from torch.utils.data import DataLoader, DistributedSampler
 
-from ...utils.composition import remove_composition
+from ...utils.additive import remove_additive
 from ...utils.data import CombinedDataLoader, Dataset, TargetInfoDict, collate_fn
 from ...utils.data.extract_targets import get_targets_dict
 from ...utils.distributed.distributed_data_parallel import DistributedDataParallel
@@ -230,7 +230,7 @@ class Trainer:
                 optimizer.zero_grad()
 
                 systems, targets = batch
-                remove_composition(systems, targets, model.composition_model)
+                remove_additive(systems, targets, model.composition_model)
                 systems = [system.to(dtype=dtype, device=device) for system in systems]
                 targets = {
                     key: value.to(dtype=dtype, device=device)
@@ -270,7 +270,7 @@ class Trainer:
             val_loss = 0.0
             for batch in val_dataloader:
                 systems, targets = batch
-                remove_composition(systems, targets, model.composition_model)
+                remove_additive(systems, targets, model.composition_model)
                 systems = [system.to(dtype=dtype, device=device) for system in systems]
                 targets = {
                     key: value.to(dtype=dtype, device=device)
