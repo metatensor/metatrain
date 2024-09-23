@@ -191,13 +191,13 @@ def read_targets(
     for target_key, target in conf.items():
         target_info_gradients: List[str] = []
 
-        if target_key not in standard_outputs_list and not target_key.startswith(
-            "mtt::"
-        ):
+        is_standard_target = target_key in standard_outputs_list
+        if not is_standard_target and not target_key.startswith("mtt::"):
             raise ValueError(
-                f"Target names must either be one of {standard_outputs_list} "
-                "or start with `mtt::`."
+                f"Target name ({target_key}) must either be one of "
+                f"{standard_outputs_list} or start with `mtt::`."
             )
+
         if target["quantity"] == "energy":
             blocks = read_energy(
                 filename=target["read_from"],
