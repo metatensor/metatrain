@@ -101,6 +101,12 @@
             }
           ]
         },
+        "N_TARGETS": {
+          "type": "integer"
+        },
+        "TARGET_INDEX_KEY": {
+          "type": "string"
+        },
         "RESIDUAL_FACTOR": {
           "type": "number"
         }
