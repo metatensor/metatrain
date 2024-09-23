@@ -79,7 +79,8 @@ class PET(torch.nn.Module):
             systems, options, self.atomic_types, selected_atoms
         )
 
-        predictions = self.pet(batch)  # type: ignore
+        output = self.pet(batch)  # type: ignore
+        predictions = output["prediction"]
         output_quantities: Dict[str, TensorMap] = {}
         for output_name in outputs:
             energy_labels = Labels(
