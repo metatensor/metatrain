@@ -246,7 +246,7 @@ def get_stats(dataset: Union[Dataset, Subset], dataset_info: DatasetInfo) -> str
     """Returns the statistics of a dataset or subset as a string."""
 
     dataset_len = len(dataset)
-    stats = f"Dataset of size {dataset_len}"
+    stats = f"Dataset containing {dataset_len} structures"
     if dataset_len == 0:
         return stats
 

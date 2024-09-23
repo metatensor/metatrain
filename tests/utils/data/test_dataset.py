@@ -652,7 +652,7 @@ def test_get_stats():
     stats = get_stats(dataset, dataset_info)
     stats_2 = get_stats(dataset_2, dataset_info)
 
-    assert "size 100" in stats
+    assert "100 structures" in stats
     assert "mtt::U0" in stats
     assert "energy" in stats_2
     assert "mean " in stats
