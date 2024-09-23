@@ -7,13 +7,20 @@ from metatensor.torch import Labels, TensorBlock
 from metatensor.torch.atomistic import System, systems_to_torch
 
 
+def _wrapped_ase_io_read(filename):
+    try:
+        return ase.io.read(filename, ":")
+    except Exception as e:
+        raise ValueError(f"Failed to read '{filename}' with ASE: {e}") from e
+
+
 def read_systems_ase(filename: str) -> List[System]:
     """Store system informations using ase.
 
     :param filename: name of the file to read
     :returns: A list of systems
     """
-    return systems_to_torch(ase.io.read(filename, ":"), dtype=torch.float64)
+    return systems_to_torch(_wrapped_ase_io_read(filename), dtype=torch.float64)
 
 
 def read_energy_ase(filename: str, key: str) -> List[TensorBlock]:
@@ -23,7 +30,7 @@ def read_energy_ase(filename: str, key: str) -> List[TensorBlock]:
     :param key: target value key name to be parsed from the file.
     :returns: TensorMap containing the energies
     """
-    frames = ase.io.read(filename, ":")
+    frames = _wrapped_ase_io_read(filename)
 
     properties = Labels("energy", torch.tensor([[0]]))
 
@@ -57,7 +64,7 @@ def read_forces_ase(filename: str, key: str = "energy") -> List[TensorBlock]:
     :param key: target value key name to be parsed from the file.
     :returns: TensorMap containing the forces
     """
-    frames = ase.io.read(filename, ":")
+    frames = _wrapped_ase_io_read(filename)
 
     components = [Labels(["xyz"], torch.arange(3).reshape(-1, 1))]
     properties = Labels("energy", torch.tensor([[0]]))
@@ -117,7 +124,7 @@ def read_stress_ase(filename: str, key: str = "stress") -> List[TensorBlock]:
 def _read_virial_stress_ase(
     filename: str, key: str, is_virial: bool = True
 ) -> List[TensorBlock]:
-    frames = ase.io.read(filename, ":")
+    frames = _wrapped_ase_io_read(filename)
 
     samples = Labels(["sample"], torch.tensor([[0]]))
     components = [
