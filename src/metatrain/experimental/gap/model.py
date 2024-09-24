@@ -21,7 +21,7 @@ from skmatter._selection import _FPS
 
 from metatrain.utils.data.dataset import DatasetInfo
 
-from ...utils.additive import CompositionModel
+from ...utils.additive import ZBL, CompositionModel
 from ...utils.export import export
 
 
@@ -128,10 +128,16 @@ class GAP(torch.nn.Module):
         )
         self._species_labels: TorchLabels = TorchLabels.empty("_")
 
-        self.composition_model = CompositionModel(
+        # additive models: these are handled by the trainer at training
+        # time, and they are added to the output at evaluation time
+        composition_model = CompositionModel(
             model_hypers={},
             dataset_info=dataset_info,
         )
+        additive_models = [composition_model]
+        if self.hypers["zbl"]:
+            additive_models.append(ZBL(model_hypers, dataset_info))
+        self.additive_models = torch.nn.ModuleList(additive_models)
 
     def restart(self, dataset_info: DatasetInfo) -> "GAP":
         raise ValueError("GAP does not allow restarting training")
@@ -219,6 +225,20 @@ class GAP(torch.nn.Module):
         return_dict[output_key] = metatensor.torch.add(
             return_dict[output_key], composition_energies[output_key]
         )
+
+        if not self.training:
+            # at evaluation, we also add the additive contributions
+            for additive_model in self.additive_models:
+                additive_contributions = additive_model(
+                    systems, outputs, selected_atoms
+                )
+                for name in return_dict:
+                    if name.startswith("mtt::aux::"):
+                        continue  # skip auxiliary outputs (not targets)
+                    return_dict[name] = metatensor.torch.add(
+                        return_dict[name],
+                        additive_contributions[name],
+                    )
 
         return return_dict
 

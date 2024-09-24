@@ -1,6 +1,7 @@
 from pathlib import Path
 from typing import Dict, List, Optional, Union
 
+import metatensor.torch
 import torch
 from metatensor.torch import Labels, TensorBlock, TensorMap
 from metatensor.torch.atomistic import (
@@ -12,6 +13,7 @@ from metatensor.torch.atomistic import (
 )
 from torch_alchemical.models import AlchemicalModel as AlchemicalModelUpstream
 
+from ...utils.additive import ZBL
 from ...utils.data.dataset import DatasetInfo
 from ...utils.dtype import dtype_to_str
 from ...utils.export import export
@@ -53,6 +55,11 @@ class AlchemicalModel(torch.nn.Module):
             **self.hypers["soap"],
             **self.hypers["bpnn"],
         )
+
+        additive_models = []
+        if self.hypers["zbl"]:
+            additive_models.append(ZBL(model_hypers, dataset_info))
+        self.additive_models = torch.nn.ModuleList(additive_models)
 
         self.cutoff = self.hypers["soap"]["cutoff"]
         self.is_restarted = False
@@ -123,6 +130,18 @@ class AlchemicalModel(torch.nn.Module):
             keys=keys,
             blocks=[block],
         )
+
+        if not self.training:
+            # at evaluation, we also add the additive contributions
+            for additive_model in self.additive_models:
+                additive_contributions = additive_model(
+                    systems, outputs, selected_atoms
+                )
+                total_energies[output_name] = metatensor.torch.add(
+                    total_energies[output_name],
+                    additive_contributions[output_name],
+                )
+
         return total_energies
 
     @classmethod

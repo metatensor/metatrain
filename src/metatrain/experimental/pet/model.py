@@ -18,6 +18,7 @@ from pet.pet import SelfContributionsWrapper
 
 from metatrain.utils.data import DatasetInfo
 
+from ...utils.additive import ZBL
 from ...utils.dtype import dtype_to_str
 from ...utils.export import export
 from .utils import systems_to_batch_dict
@@ -47,6 +48,13 @@ class PET(torch.nn.Module):
         self.dataset_info = dataset_info
         self.pet = None
         self.checkpoint_path: Optional[str] = None
+
+        # additive models: these are handled by the trainer at training
+        # time, and they are added to the output at evaluation time
+        additive_models = []
+        if self.hypers["zbl"]:
+            additive_models.append(ZBL(model_hypers, dataset_info))
+        self.additive_models = torch.nn.ModuleList(additive_models)
 
     def restart(self, dataset_info: DatasetInfo) -> "PET":
         if dataset_info != self.dataset_info:
@@ -109,6 +117,21 @@ class PET(torch.nn.Module):
             if not outputs[output_name].per_atom:
                 output_tmap = metatensor.torch.sum_over_samples(output_tmap, "atom")
             output_quantities[output_name] = output_tmap
+
+        if not self.training:
+            # at evaluation, we also add the additive contributions
+            for additive_model in self.additive_models:
+                additive_contributions = additive_model(
+                    systems, outputs, selected_atoms
+                )
+                for output_name in output_quantities:
+                    if output_name.startswith("mtt::aux::"):
+                        continue  # skip auxiliary outputs (not targets)
+                    output_quantities[output_name] = metatensor.torch.add(
+                        output_quantities[output_name],
+                        additive_contributions[output_name],
+                    )
+
         return output_quantities
 
     @classmethod

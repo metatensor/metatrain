@@ -103,6 +103,9 @@
         },
         "RESIDUAL_FACTOR": {
           "type": "number"
+        },
+        "USE_ZBL": {
+          "type": "boolean"
         }
       },
       "additionalProperties": false
