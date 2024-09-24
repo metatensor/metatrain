@@ -37,9 +37,7 @@ training:
   INITIAL_LR: 1e-4
   EPOCH_NUM: 1000
   EPOCHS_WARMUP: 50
-  EPOCH_NUM_ATOMIC: 1000000000000000000 # structural version is called "EPOCH_NUM"
   SCHEDULER_STEP_SIZE_ATOMIC: 500000000 # structural version is called "SCHEDULER_STEP_SIZE"
-  EPOCHS_WARMUP_ATOMIC: 250000000 # structural version is called "EPOCHS_WARMUP"
   GLOBAL_AUG: True
   SLIDING_FACTOR: 0.7
   ATOMIC_BATCH_SIZE: 850 # structural version is called "STRUCTURAL_BATCH_SIZE"
