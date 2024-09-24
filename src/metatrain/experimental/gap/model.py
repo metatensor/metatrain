@@ -95,7 +95,6 @@ class GAP(torch.nn.Module):
         self._soap_torch_calculator = rascaline.torch.SoapPowerSpectrum(
             **model_hypers["soap"]
         )
-        self._soap_calculator = rascaline.SoapPowerSpectrum(**model_hypers["soap"])
 
         kernel_kwargs = {
             "degree": model_hypers["krr"]["degree"],
@@ -214,17 +213,6 @@ class GAP(torch.nn.Module):
         output_key = list(outputs.keys())[0]
         energies = self._subset_of_regressors_torch(soap_features)
         return_dict = {output_key: energies}
-
-        # apply composition model
-        composition_energies = self.composition_model(
-            systems, {output_key: ModelOutput("energy", per_atom=True)}, selected_atoms
-        )
-        composition_energies[output_key] = metatensor.torch.sum_over_samples(
-            composition_energies[output_key], "atom"
-        )
-        return_dict[output_key] = metatensor.torch.add(
-            return_dict[output_key], composition_energies[output_key]
-        )
 
         if not self.training:
             # at evaluation, we also add the additive contributions

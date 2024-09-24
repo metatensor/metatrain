@@ -1,3 +1,4 @@
+import warnings
 from typing import Dict, List, Union
 
 import metatensor.torch
@@ -23,6 +24,11 @@ def remove_additive(
         contribution to be removed.
     :param targets_dict: Dictionary containing information about the targets.
     """
+    warnings.filterwarnings(
+        "ignore",
+        category=RuntimeWarning,
+        message="GRADIENT WARNING: element 0 of tensors does not require grad and does not have a grad_fn",
+    )
     additive_contribution = evaluate_model(
         additive_model,
         systems,
@@ -32,17 +38,31 @@ def remove_additive(
 
     for target_key in targets:
         # make the samples the same so we can use metatensor.torch.subtract
+        block = metatensor.torch.TensorBlock(
+            values=additive_contribution[target_key].block().values,
+            samples=targets[target_key].block().samples,
+            components=additive_contribution[target_key].block().components,
+            properties=additive_contribution[target_key].block().properties,
+        )
+        for gradient_name, gradient in (
+            additive_contribution[target_key].block().gradients()
+        ):
+            block.add_gradient(
+                gradient_name,
+                metatensor.torch.TensorBlock(
+                    values=gradient.values,
+                    samples=targets[target_key].block().gradient(gradient_name).samples,
+                    components=gradient.components,
+                    properties=gradient.properties,
+                ),
+            )
         additive_contribution[target_key] = TensorMap(
             keys=targets[target_key].keys,
             blocks=[
-                metatensor.torch.TensorBlock(
-                    values=additive_contribution[target_key].block().values,
-                    samples=targets[target_key].block().samples,
-                    components=additive_contribution[target_key].block().components,
-                    properties=additive_contribution[target_key].block().properties,
-                )
+                block,
             ],
         )
+        # subtract the additive contribution from the target
         targets[target_key] = metatensor.torch.subtract(
             targets[target_key], additive_contribution[target_key]
         )
