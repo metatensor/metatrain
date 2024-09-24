@@ -147,7 +147,7 @@ class Trainer:
             "pet",
             device,
             checkpoint_dir,
-            checkpoint_path
+            checkpoint_path,
         )
 
         if self.pet_checkpoint is not None:
