@@ -5,7 +5,7 @@ import torch
 from metatensor.torch import TensorMap
 from metatensor.torch.atomistic import System
 
-from ..data import TargetInfoDict
+from ..data import TargetInfo, TargetInfoDict
 from ..evaluate_model import evaluate_model
 
 
@@ -13,7 +13,7 @@ def remove_additive(
     systems: List[System],
     targets: Dict[str, TensorMap],
     additive_model: torch.nn.Module,
-    target_info_dict: TargetInfoDict,
+    target_info_dict: Dict[str, TargetInfo],
 ):
     """Remove an additive contribution from the training targets.
 
@@ -31,6 +31,18 @@ def remove_additive(
     )
 
     for target_key in targets:
+        # make the samples the same so we can use metatensor.torch.subtract
+        additive_contribution[target_key] = TensorMap(
+            keys=targets[target_key].keys,
+            blocks=[
+                metatensor.torch.TensorBlock(
+                    values=additive_contribution[target_key].block().values,
+                    samples=targets[target_key].block().samples,
+                    components=additive_contribution[target_key].block().components,
+                    properties=additive_contribution[target_key].block().properties,
+                )
+            ],
+        )
         targets[target_key] = metatensor.torch.subtract(
             targets[target_key], additive_contribution[target_key]
         )

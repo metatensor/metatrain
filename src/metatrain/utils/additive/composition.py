@@ -42,6 +42,15 @@ class CompositionModel(torch.nn.Module):
         self.dataset_info = dataset_info
         self.atomic_types = sorted(dataset_info.atomic_types)
 
+        self.outputs = {
+            key: ModelOutput(
+                quantity=value.quantity,
+                unit=value.unit,
+                per_atom=True,
+            )
+            for key, value in dataset_info.targets.items()
+        }
+
         n_types = len(self.atomic_types)
         n_targets = len(dataset_info.targets)
 

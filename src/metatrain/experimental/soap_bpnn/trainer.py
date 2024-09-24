@@ -18,6 +18,7 @@ from ...utils.io import check_file_extension
 from ...utils.logging import MetricLogger
 from ...utils.loss import TensorMapDictLoss
 from ...utils.metrics import RMSEAccumulator
+from ...utils.neighbor_lists import get_system_with_neighbor_lists
 from ...utils.per_atom import average_by_num_atoms
 from .model import SoapBpnn
 
@@ -85,15 +86,28 @@ class Trainer:
         else:
             logger.info(f"Training on device {device} with dtype {dtype}")
 
+        # Calculate the neighbor lists in advance (in particular, this
+        # needs to happen before the additive models are trained, as they
+        # might need them):
+        logger.info("Calculating neighbor lists for the datasets")
+        requested_neighbor_lists = model.soap_calculator.requested_neighbor_lists()
+        for dataset in train_datasets + val_datasets:
+            for i in range(len(dataset)):
+                system = dataset[i]["system"]
+                # The following line attaches the neighbors lists to the system,
+                # and doesn't require to reassign the system to the dataset:
+                _ = get_system_with_neighbor_lists(system, requested_neighbor_lists)
+
         # Move the model to the device and dtype:
         model.to(device=device, dtype=dtype)
-        # The composition model of the SOAP-BPNN is always on CPU (to avoid OOM
+        # The additive models of the SOAP-BPNN are always on CPU (to avoid OOM
         # errors during the linear algebra training) and in float64 (to avoid
         # numerical errors in the composition weights, which can be very large).
-        model.composition_model.to(device=torch.device("cpu"), dtype=torch.float64)
+        for additive_model in model.additive_models:
+            additive_model.to(device=torch.device("cpu"), dtype=torch.float64)
 
         logger.info("Calculating composition weights")
-        model.composition_model.train_model(
+        model.additive_models[0].train_model(  # this is the composition model
             train_datasets, self.hypers["fixed_composition_weights"]
         )
 
@@ -230,7 +244,10 @@ class Trainer:
                 optimizer.zero_grad()
 
                 systems, targets = batch
-                remove_additive(systems, targets, model.composition_model)
+                for additive_model in model.additive_models:
+                    targets = remove_additive(
+                        systems, targets, additive_model, train_targets
+                    )
                 systems = [system.to(dtype=dtype, device=device) for system in systems]
                 targets = {
                     key: value.to(dtype=dtype, device=device)
@@ -270,7 +287,10 @@ class Trainer:
             val_loss = 0.0
             for batch in val_dataloader:
                 systems, targets = batch
-                remove_additive(systems, targets, model.composition_model)
+                for additive_model in model.additive_models:
+                    targets = remove_additive(
+                        systems, targets, additive_model, train_targets
+                    )
                 systems = [system.to(dtype=dtype, device=device) for system in systems]
                 targets = {
                     key: value.to(dtype=dtype, device=device)

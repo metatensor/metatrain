@@ -7,7 +7,6 @@ from metatensor.torch import Labels, TensorBlock, TensorMap
 from metatensor.torch.atomistic import ModelOutput, System
 
 from ..data import DatasetInfo
-from ..jsonschema import validate
 
 
 class ZBL(torch.nn.Module):
@@ -22,21 +21,6 @@ class ZBL(torch.nn.Module):
 
     def __init__(self, model_hypers: Dict, dataset_info: DatasetInfo):
         super().__init__()
-
-        # `model_hypers` should contain an "inner_cutoff" key
-        # and an "outer_cutoff" key
-        validate(
-            instance=model_hypers,
-            schema={
-                "type": "object",
-                "properties": {
-                    "inner_cutoff": {"type": "number"},
-                    "outer_cutoff": {"type": "number"},
-                },
-                "required": ["inner_cutoff", "outer_cutoff"],
-                "additionalProperties": False,
-            },
-        )
 
         # Check capabilities
         if dataset_info.length_unit != "angstrom":
@@ -58,6 +42,15 @@ class ZBL(torch.nn.Module):
 
         self.dataset_info = dataset_info
         self.atomic_types = sorted(dataset_info.atomic_types)
+
+        self.outputs = {
+            key: ModelOutput(
+                quantity=value.quantity,
+                unit=value.unit,
+                per_atom=True,
+            )
+            for key, value in dataset_info.targets.items()
+        }
 
         n_types = len(self.atomic_types)
 
