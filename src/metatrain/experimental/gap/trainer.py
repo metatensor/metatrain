@@ -69,11 +69,16 @@ class Trainer:
         model._keys = train_y.keys
         train_structures = [sample["system"] for sample in train_dataset]
 
-        logger.info("Subtracting composition energies")
-        # this acts in-place on train_y
-        remove_additive(
-            train_structures, {target_name: train_y}, model.composition_model
-        )
+        logger.info("Subtracting composition energies")  # and potentially ZBL
+        train_targets = {target_name: train_y}
+        for additive_model in model.additive_models:
+            train_targets = remove_additive(
+                train_structures,
+                train_targets,
+                additive_model,
+                model.dataset_info.targets,
+            )
+        train_y = train_targets[target_name]
 
         logger.info("Calculating SOAP features")
         if len(train_y[0].gradients_list()) > 0:

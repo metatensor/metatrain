@@ -1,4 +1,4 @@
-from typing import Dict, List
+from typing import Dict, List, Union
 
 import metatensor.torch
 import torch
@@ -13,7 +13,7 @@ def remove_additive(
     systems: List[System],
     targets: Dict[str, TensorMap],
     additive_model: torch.nn.Module,
-    target_info_dict: Dict[str, TargetInfo],
+    target_info_dict: Union[Dict[str, TargetInfo], TargetInfoDict],
 ):
     """Remove an additive contribution from the training targets.
 

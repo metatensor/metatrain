@@ -5,6 +5,7 @@ from typing import List, Union
 import torch
 from metatensor.learn.data import DataLoader
 
+from ...utils.additive import remove_additive
 from ...utils.data import (
     CombinedDataLoader,
     Dataset,
@@ -223,6 +224,10 @@ class Trainer:
                     key: value.to(dtype=dtype, device=device)
                     for key, value in targets.items()
                 }
+                for additive_model in model.additive_models:
+                    targets = remove_additive(
+                        systems, targets, additive_model, model.dataset_info.targets
+                    )
                 predictions = evaluate_model(
                     model,
                     systems,
@@ -259,6 +264,10 @@ class Trainer:
                     key: value.to(dtype=dtype, device=device)
                     for key, value in targets.items()
                 }
+                for additive_model in model.additive_models:
+                    targets = remove_additive(
+                        systems, targets, additive_model, model.dataset_info.targets
+                    )
                 predictions = evaluate_model(
                     model,
                     systems,
