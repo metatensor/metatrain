@@ -49,9 +49,6 @@ class Trainer:
                 stacklevel=1,
             )
 
-        if model.checkpoint_path is not None:
-            self.hypers["FITTING_SCHEME"]["MODEL_TO_START_WITH"] = model.checkpoint_path
-
         logger.info("Checking datasets for consistency")
         check_datasets(train_datasets, val_datasets)
 
@@ -135,15 +132,13 @@ class Trainer:
 
         if self.pet_checkpoint is not None:
             # save the checkpoint to a temporary file, so that fit_pet can load it
+            checkpoint_path = Path(checkpoint_dir) / "checkpoint.temp"
             torch.save(
-                self.pet_checkpoint["model_state_dict"],
-                Path(checkpoint_dir) / "checkpoint.temp",
-            )
-            self.hypers["FITTING_SCHEME"]["MODEL_TO_START_WITH"] = (
-                Path(checkpoint_dir) / "checkpoint.temp"
+                self.pet_checkpoint,
+                checkpoint_path,
             )
         else:
-            self.hypers["FITTING_SCHEME"]["MODEL_TO_START_WITH"] = None
+            checkpoint_path = None
 
         fit_pet(
             ase_train_dataset,
@@ -152,6 +147,7 @@ class Trainer:
             "pet",
             device,
             checkpoint_dir,
+            checkpoint_path,
         )
 
         if self.pet_checkpoint is not None:
