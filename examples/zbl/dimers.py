@@ -112,3 +112,10 @@ plt.ylabel("Energy (eV)")
 plt.legend()
 plt.tight_layout()
 plt.show()
+
+# %%
+#
+# It can be seen that all the dimer curves include a strong repulsion
+# at short distances, which is due to the ZBL contribution. Even the H-H dimer,
+# whose ZBL correction is very weak, would show a strong repulsion closer to
+# the origin (here, we only plotted starting from a distance of 0.5 Å).
