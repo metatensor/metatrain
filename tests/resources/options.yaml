@@ -2,19 +2,17 @@ seed: 42
 
 architecture:
   name: experimental.soap_bpnn
-  model:
-    zbl: true
   training:
     batch_size: 2
     num_epochs: 1
 
 training_set:
   systems:
-    read_from: ethanol_reduced_100.xyz
+    read_from: qm9_reduced_100.xyz
     length_unit: angstrom
   targets:
     energy:
-      key: energy
+      key: U0
       unit: eV
 
 test_set: 0.5

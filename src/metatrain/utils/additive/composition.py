@@ -90,14 +90,14 @@ class CompositionModel(torch.nn.Module):
             raise ValueError(
                 "Provided `datasets` contains unknown "
                 f"atomic types {additional_types}. "
-                f"Known types from initilaization are {self.atomic_types}."
+                f"Known types from initialization are {self.atomic_types}."
             )
 
         missing_types = sorted(set(self.atomic_types) - set(get_atomic_types(datasets)))
         if missing_types:
             warnings.warn(
                 f"Provided `datasets` do not contain atomic types {missing_types}. "
-                f"Known types from initilaization are {self.atomic_types}.",
+                f"Known types from initialization are {self.atomic_types}.",
                 stacklevel=2,
             )
 

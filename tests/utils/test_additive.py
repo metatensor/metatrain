@@ -261,7 +261,7 @@ def test_remove_additive():
     targets["mtt::U0"] = metatensor.torch.join(targets["mtt::U0"], axis="samples")
 
     std_before = targets["mtt::U0"].block().values.std().item()
-    remove_additive(systems, targets, composition_model)
+    remove_additive(systems, targets, composition_model, target_info)
     std_after = targets["mtt::U0"].block().values.std().item()
 
     # In QM9 the composition contribution is very large: the standard deviation
