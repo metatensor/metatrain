@@ -193,10 +193,16 @@ def read_targets(
 
         is_standard_target = target_key in standard_outputs_list
         if not is_standard_target and not target_key.startswith("mtt::"):
-            raise ValueError(
-                f"Target name ({target_key}) must either be one of "
-                f"{standard_outputs_list} or start with `mtt::`."
-            )
+            if target_key.lower() in ["force", "forces", "virial", "stress"]:
+                raise ValueError(
+                    f"{target_key!r} should not be it's own top-level target, "
+                    "but rather a sub-section of the 'energy' target"
+                )
+            else:
+                raise ValueError(
+                    f"Target name ({target_key}) must either be one of "
+                    f"{standard_outputs_list} or start with `mtt::`."
+                )
 
         if target["quantity"] == "energy":
             blocks = read_energy(
