@@ -52,7 +52,7 @@ class PET(torch.nn.Module):
         # additive models: these are handled by the trainer at training
         # time, and they are added to the output at evaluation time
         additive_models = []
-        if self.hypers["zbl"]:
+        if self.hypers["USE_ZBL"]:
             additive_models.append(ZBL(model_hypers, dataset_info))
         self.additive_models = torch.nn.ModuleList(additive_models)
 
