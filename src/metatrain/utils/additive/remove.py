@@ -27,19 +27,24 @@ def remove_additive(
     warnings.filterwarnings(
         "ignore",
         category=RuntimeWarning,
-        message="GRADIENT WARNING: element 0 of tensors does not require grad and does not have a grad_fn",
+        message=(
+            "GRADIENT WARNING: element 0 of tensors does not "
+            "require grad and does not have a grad_fn"
+        ),
     )
     additive_contribution = evaluate_model(
         additive_model,
         systems,
         TargetInfoDict(**{key: target_info_dict[key] for key in targets.keys()}),
-        is_training=False,
+        is_training=False,  # we don't need any gradients w.r.t. any parameters
     )
 
     for target_key in targets:
         # make the samples the same so we can use metatensor.torch.subtract
+        # we also need to detach the values to avoid backpropagating through the
+        # subtraction
         block = metatensor.torch.TensorBlock(
-            values=additive_contribution[target_key].block().values,
+            values=additive_contribution[target_key].block().values.detach(),
             samples=targets[target_key].block().samples,
             components=additive_contribution[target_key].block().components,
             properties=additive_contribution[target_key].block().properties,
@@ -50,7 +55,7 @@ def remove_additive(
             block.add_gradient(
                 gradient_name,
                 metatensor.torch.TensorBlock(
-                    values=gradient.values,
+                    values=gradient.values.detach(),
                     samples=targets[target_key].block().gradient(gradient_name).samples,
                     components=gradient.components,
                     properties=gradient.properties,

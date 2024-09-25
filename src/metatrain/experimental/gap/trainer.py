@@ -11,9 +11,9 @@ from metatrain.utils.data import Dataset
 
 from ...utils.additive import remove_additive
 from ...utils.data import check_datasets
+from ...utils.neighbor_lists import get_system_with_neighbor_lists
 from . import GAP
 from .model import torch_tensor_map_to_core
-from ...utils.neighbor_lists import get_system_with_neighbor_lists
 
 
 logger = logging.getLogger(__name__)
@@ -72,7 +72,9 @@ class Trainer:
         train_structures = [sample["system"] for sample in train_dataset]
 
         logger.info("Calculating neighbor lists for the datasets")
-        requested_neighbor_lists = model._soap_torch_calculator.requested_neighbor_lists()
+        requested_neighbor_lists = (
+            model._soap_torch_calculator.requested_neighbor_lists()
+        )
         for dataset in train_datasets + val_datasets:
             for i in range(len(dataset)):
                 system = dataset[i]["system"]

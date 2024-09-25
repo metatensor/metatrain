@@ -262,7 +262,12 @@ class ZBL(torch.nn.Module):
         C = -ec + (rc - r1) * dec / 2 - (rc - r1) * (rc - r1) * d2ec / 12
 
         e += A / 3 * ((rij - r1) ** 3) + B / 4 * ((rij - r1) ** 4) + C
-        return e / 2.0  # divide by 2 to fix double counting of edges
+        e = e / 2.0  # divide by 2 to fix double counting of edges
+
+        # set all contributions past the cutoff to zero
+        e[rij > rc] = 0.0
+
+        return e
 
 
 def _phi(r, c, da):
