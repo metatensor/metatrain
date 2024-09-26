@@ -4,7 +4,7 @@ Training a model with ZBL corrections
 
 This tutorial demonstrates how to train a model with ZBL corrections.
 
-The models are trained on a
+The training set for this example consists of a
 subset of the ethanol moleculs from the `rMD17 dataset
 <https://iopscience.iop.org/article/10.1088/2632-2153/abba6f/meta>`_.
 
@@ -16,6 +16,8 @@ The models are trained using the following training options, respectively:
 .. literalinclude:: options_zbl.yaml
     :language: yaml
 
+As you can see, they are identical, except for the ``zbl`` key in the
+``model`` section.
 You can train the same models yourself with
 
 .. literalinclude:: train.sh
@@ -117,5 +119,30 @@ plt.show()
 #
 # It can be seen that all the dimer curves include a strong repulsion
 # at short distances, which is due to the ZBL contribution. Even the H-H dimer,
-# whose ZBL correction is very weak, would show a strong repulsion closer to
-# the origin (here, we only plotted starting from a distance of 0.5 Å).
+# whose ZBL correction is very weak due to the small covalent radii of hydrogen,
+# would show a strong repulsion closer to the origin (here, we only plotted
+# starting from a distance of 0.5 Å). Let's zoom in on the H-H dimer to see
+# this effect more clearly.
+
+new_distances = np.linspace(0.1, 2.0, 200)
+
+structures = []
+for distance in new_distances:
+    atoms = ase.Atoms(
+        symbols=["H", "H"],
+        positions=[[0, 0, 0], [0, 0, distance]],
+    )
+    structures.append(atoms)
+
+for atoms in structures:
+    atoms.set_calculator(calc_zbl)
+with torch.jit.optimized_execution(False):
+    energies = [atoms.get_potential_energy() for atoms in structures]
+energies = np.array(energies) - energies[-1]
+plt.plot(new_distances, energies, label="H-H")
+plt.title("Dimer curve - H-H with ZBL")
+plt.xlabel("Distance (Å)")
+plt.ylabel("Energy (eV)")
+plt.legend()
+plt.tight_layout()
+plt.show()
