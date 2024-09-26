@@ -246,7 +246,7 @@ def get_stats(dataset: Union[Dataset, Subset], dataset_info: DatasetInfo) -> str
     """Returns the statistics of a dataset or subset as a string."""
 
     dataset_len = len(dataset)
-    stats = f"Dataset of size {dataset_len}"
+    stats = f"Dataset containing {dataset_len} structures"
     if dataset_len == 0:
         return stats
 
@@ -389,17 +389,35 @@ def check_datasets(train_datasets: List[Dataset], val_datasets: List[Dataset]):
         or targets that are not present in the training set
     """
     # Check that system `dtypes` are consistent within datasets
-    desired_dtype = train_datasets[0][0].system.positions.dtype
-    msg = f"`dtype` between datasets is inconsistent, found {desired_dtype} and "
+    desired_dtype = None
     for train_dataset in train_datasets:
+        if len(train_dataset) == 0:
+            continue
+
         actual_dtype = train_dataset[0].system.positions.dtype
+        if desired_dtype is None:
+            desired_dtype = actual_dtype
+
         if actual_dtype != desired_dtype:
-            raise TypeError(f"{msg}{actual_dtype} found in `train_datasets`")
+            raise TypeError(
+                "`dtype` between datasets is inconsistent, "
+                f"found {desired_dtype} and {actual_dtype} in training datasets"
+            )
 
     for val_dataset in val_datasets:
+        if len(val_dataset) == 0:
+            continue
+
         actual_dtype = val_dataset[0].system.positions.dtype
+
+        if desired_dtype is None:
+            desired_dtype = actual_dtype
+
         if actual_dtype != desired_dtype:
-            raise TypeError(f"{msg}{actual_dtype} found in `val_datasets`")
+            raise TypeError(
+                "`dtype` between datasets is inconsistent, "
+                f"found {desired_dtype} and {actual_dtype} in validation datasets"
+            )
 
     # Get all targets in the training and validation sets:
     train_targets = get_all_targets(train_datasets)
