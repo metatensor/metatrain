@@ -289,3 +289,4 @@ dataset)``.
 - ``USE_ADDITIONAL_SCALAR_ATTRIBUTES``: if using additional scalar attributes
   such as collinear spins
 - ``SCALAR_ATTRIBUTES_SIZE``: dimensionality of additional scalar attributes
+- ``CHECKPOINT_INTERVAL``: interval between saving checkpoints
