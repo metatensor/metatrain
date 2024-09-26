@@ -217,6 +217,9 @@
           "type": "string",
           "enum": ["per_structure", "per_atom"]
         },
+        "CHECKPOINT_INTERVAL": {
+          "type": "integer"
+        },
         "BALANCED_DATA_LOADER": {
           "type": "boolean"
         }
