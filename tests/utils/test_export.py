@@ -2,13 +2,13 @@ import os
 
 import pytest
 import torch
-from metatensor.torch.atomistic import ModelCapabilities, load_atomistic_model
+from metatensor.torch.atomistic import ModelCapabilities, is_atomistic_model
 
 from metatrain.experimental.soap_bpnn import __model__
 from metatrain.utils.data import DatasetInfo, TargetInfo
-from metatrain.utils.export import export, is_exported
+from metatrain.utils.export import export
 
-from . import MODEL_HYPERS, RESOURCES_PATH
+from . import MODEL_HYPERS
 
 
 def test_export(tmp_path):
@@ -36,9 +36,9 @@ def test_export(tmp_path):
     exported_model.save("model.pt")
 
     # test `is_export()`
-    assert not is_exported(model)
-    assert is_exported(exported_model)
-    assert is_exported(torch.jit.load("model.pt"))
+    assert not is_atomistic_model(model)
+    assert is_atomistic_model(exported_model)
+    assert is_atomistic_model(torch.jit.load("model.pt"))
 
 
 def test_reexport(monkeypatch, tmp_path):
@@ -63,16 +63,6 @@ def test_reexport(monkeypatch, tmp_path):
 
     exported_model = export(model, capabilities)
     export(exported_model, capabilities)
-
-
-def test_is_exported():
-    """Tests the is_exported function"""
-
-    checkpoint = __model__.load_checkpoint(RESOURCES_PATH / "model-32-bit.ckpt")
-    assert not is_exported(checkpoint)
-
-    exported_model = load_atomistic_model(str(RESOURCES_PATH / "model-32-bit.pt"))
-    assert is_exported(exported_model)
 
 
 def test_length_units_warning():

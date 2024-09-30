@@ -1,11 +1,11 @@
 import warnings
-from typing import Any
 
 import torch
 from metatensor.torch.atomistic import (
     MetatensorAtomisticModel,
     ModelCapabilities,
     ModelMetadata,
+    is_atomistic_model,
 )
 
 
@@ -27,7 +27,7 @@ def export(
     :returns: exprted model
     """
 
-    if is_exported(model):
+    if is_atomistic_model(model):
         return model
 
     if model_capabilities.length_unit == "":
@@ -46,20 +46,3 @@ def export(
             )
 
     return MetatensorAtomisticModel(model.eval(), ModelMetadata(), model_capabilities)
-
-
-def is_exported(model: Any) -> bool:
-    """Check if a model has been exported to a MetatensorAtomisticModel.
-
-    :param model: The model to check
-    :return: :py:obj:`True` if the ``model`` has been exported, :py:obj:`False`
-        otherwise.
-    """
-    # If the model is saved and loaded again, its type is RecursiveScriptModule
-    if type(model) in [
-        MetatensorAtomisticModel,
-        torch.jit._script.RecursiveScriptModule,
-    ]:
-        return True
-    else:
-        return False
