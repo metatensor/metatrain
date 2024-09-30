@@ -9,11 +9,11 @@ from metatensor.torch.atomistic import (
     ModelEvaluationOptions,
     ModelOutput,
     System,
+    is_atomistic_model,
     register_autograd_neighbors,
 )
 
 from .data import TargetInfoDict
-from .export import is_exported
 from .output_gradient import compute_gradient
 
 
@@ -221,7 +221,7 @@ def _strain_gradients_to_block(gradients_list):
 def _get_outputs(
     model: Union[torch.nn.Module, torch.jit._script.RecursiveScriptModule]
 ):
-    if is_exported(model):
+    if is_atomistic_model(model):
         return model.capabilities().outputs
     else:
         return model.outputs
@@ -237,7 +237,7 @@ def _get_model_outputs(
     targets: TargetInfoDict,
     check_consistency: bool,
 ) -> Dict[str, TensorMap]:
-    if is_exported(model):
+    if is_atomistic_model(model):
         # put together an EvaluationOptions object
         options = ModelEvaluationOptions(
             length_unit="",  # this is only needed for unit conversions in MD engines

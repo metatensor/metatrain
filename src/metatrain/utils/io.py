@@ -1,6 +1,12 @@
 import warnings
 from pathlib import Path
-from typing import Union
+from typing import Any, Optional, Union
+from urllib.parse import urlparse
+from urllib.request import urlretrieve
+
+from metatensor.torch.atomistic import check_atomistic_model, load_atomistic_model
+
+from .architectures import import_architecture
 
 
 def check_file_extension(
@@ -30,3 +36,81 @@ def check_file_extension(
         return str(path_filename)
     else:
         return path_filename
+
+
+def is_exported_file(path: str) -> bool:
+    """Check if a saved model file has been exported to a MetatensorAtomisticModel.
+
+    :param path: model path
+    :return: :py:obj:`True` if the ``model`` has been exported, :py:obj:`False`
+        otherwise.
+
+    .. seealso::
+
+        :py:func:`metatensor.torch.atomistic.is_atomistic_model` to verify if an already
+        loaded model is exported.
+    """
+    try:
+        check_atomistic_model(str(path))
+        return True
+    except ValueError:
+        return False
+
+
+def load_model(
+    path: Union[str, Path],
+    extensions_directory: Optional[Union[str, Path]] = None,
+    architecture_name: Optional[str] = None,
+) -> Any:
+    """Loads a module from an URL or a local file.
+
+    The function can load model checkpoint as well as already exported models.
+
+    :param path: local or remote path to a model. For supported URL schemes see
+        :py:class`urllib.request`
+    :param extensions_directory: path to a directory containing all extensions required
+        by an *exported* model
+    :param architecture_name: name of the architecture required for loading from a
+        *checkpoint*.
+
+    :raises ValueError: if both an ``extensions_directory`` and ``architecture_name``
+        are given
+    :raises ValueError: if ``path`` is a YAML option file and no model
+    :raises ValueError: if no ``archietcture_name`` is given for loading a checkpoint
+    :raises ValueError: if the checkpoint saved in ``path`` does not math the given
+        ``architecture_name``
+    """
+    if extensions_directory is not None and architecture_name is not None:
+        raise ValueError(
+            f"Both ``extensions_directory`` ('{str(extensions_directory)}') and "
+            f"``architecture_name`` ('{architecture_name}') are given which are "
+            "mutually exclusive. An ``extensions_directory`` is only required for "
+            "*exported* models while an ``architecture_name`` is only needed for model "
+            "*checkpoints*."
+        )
+
+    if Path(path).suffix in [".yaml", ".yml"]:
+        raise ValueError(f"path '{path}' seems to be a YAML option file and no model")
+
+    if urlparse(str(path)).scheme:
+        path, _ = urlretrieve(str(path))
+
+    if is_exported_file(str(path)):
+        return load_atomistic_model(
+            str(path), extensions_directory=extensions_directory
+        )
+    else:  # model is a checkpoint
+        if architecture_name is None:
+            raise ValueError(
+                f"path '{path}' seems to be a checkpointed model but no "
+                "`architecture_name` was given"
+            )
+        architecture = import_architecture(architecture_name)
+
+        try:
+            return architecture.__model__.load_checkpoint(str(path))
+        except Exception as err:
+            raise ValueError(
+                f"path '{path}' is not a valid model file for the {architecture_name} "
+                "architecture"
+            ) from err
