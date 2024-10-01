@@ -1,3 +1,4 @@
+import warnings
 from typing import Dict, List, Optional
 
 import metatensor.torch
@@ -69,7 +70,15 @@ class ZBL(torch.nn.Module):
             "covalent_radii", torch.empty((n_types,), dtype=torch.float64)
         )
         for i, t in enumerate(self.atomic_types):
-            self.covalent_radii[i] = covalent_radii[t]
+            ase_covalent_radius = covalent_radii[t]
+            if ase_covalent_radius == 0.2:
+                # 0.2 seems to be the default value when the covalent radius
+                # is not known/available
+                warnings.warn(
+                    f"Covalent radius for element {t} is not available in ASE. "
+                    "Using a default value of 0.2 Å."
+                )
+            self.covalent_radii[i] = ase_covalent_radius
 
         self.largest_covalent_radius = float(torch.max(self.covalent_radii))
 
