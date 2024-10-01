@@ -23,7 +23,10 @@ from ..utils.errors import ArchitectureError
 from ..utils.evaluate_model import evaluate_model
 from ..utils.logging import MetricLogger
 from ..utils.metrics import RMSEAccumulator
-from ..utils.neighbor_lists import get_system_with_neighbor_lists
+from ..utils.neighbor_lists import (
+    get_requested_neighbor_lists,
+    get_system_with_neighbor_lists,
+)
 from ..utils.omegaconf import expand_dataset_config
 from ..utils.per_atom import average_by_num_atoms
 from .formatter import CustomHelpFormatter
@@ -172,7 +175,7 @@ def _eval_targets(
     # if already present (e.g. if this function is called after training)
     for sample in dataset:
         system = sample["system"]
-        get_system_with_neighbor_lists(system, model.requested_neighbor_lists())
+        get_system_with_neighbor_lists(system, get_requested_neighbor_lists(model))
 
     # Infer the device and dtype from the model
     model_tensor = next(itertools.chain(model.parameters(), model.buffers()))

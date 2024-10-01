@@ -20,7 +20,10 @@ from ...utils.io import check_file_extension
 from ...utils.logging import MetricLogger
 from ...utils.loss import TensorMapDictLoss
 from ...utils.metrics import RMSEAccumulator
-from ...utils.neighbor_lists import get_system_with_neighbor_lists
+from ...utils.neighbor_lists import (
+    get_requested_neighbor_lists,
+    get_system_with_neighbor_lists,
+)
 from ...utils.per_atom import average_by_num_atoms
 from . import AlchemicalModel
 from .utils.composition import calculate_composition_weights
@@ -68,7 +71,7 @@ class Trainer:
 
         # Calculating the neighbor lists for the training and validation datasets:
         logger.info("Calculating neighbor lists for the datasets")
-        requested_neighbor_lists = model.requested_neighbor_lists()
+        requested_neighbor_lists = get_requested_neighbor_lists(model)
         for dataset in train_datasets + val_datasets:
             for i in range(len(dataset)):
                 system = dataset[i]["system"]

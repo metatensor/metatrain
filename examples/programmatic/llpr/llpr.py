@@ -48,7 +48,10 @@ model = load_atomistic_model("model.pt", extensions_directory="extensions/")
 # how to create a Dataset object from them.
 
 from metatrain.utils.data import Dataset, read_systems, read_targets  # noqa: E402
-from metatrain.utils.neighbor_lists import get_system_with_neighbor_lists  # noqa: E402
+from metatrain.utils.neighbor_lists import (  # noqa: E402
+    get_requested_neighbor_lists,
+    get_system_with_neighbor_lists,
+)
 
 
 qm9_systems = read_systems("qm9_reduced_100.xyz")
@@ -67,7 +70,7 @@ target_config = {
 }
 targets, _ = read_targets(target_config)
 
-requested_neighbor_lists = model.requested_neighbor_lists()
+requested_neighbor_lists = get_requested_neighbor_lists(model)
 qm9_systems = [
     get_system_with_neighbor_lists(system, requested_neighbor_lists)
     for system in qm9_systems
