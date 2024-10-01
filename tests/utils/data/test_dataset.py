@@ -557,7 +557,8 @@ def test_check_datasets():
     # wrong dtype
     systems_qm9_32bit = [system.to(dtype=torch.float32) for system in systems_qm9]
     targets_qm9_32bit = {
-        k: [v.to(dtype=torch.float32) for v in l] for k, l in targets_qm9.items()
+        name: [tensor.to(dtype=torch.float32) for tensor in values]
+        for name, values in targets_qm9.items()
     }
     train_set_32_bit = Dataset.from_dict(
         {"system": systems_qm9_32bit, **targets_qm9_32bit}
@@ -565,17 +566,17 @@ def test_check_datasets():
 
     match = (
         "`dtype` between datasets is inconsistent, found torch.float64 and "
-        "torch.float32 found in `val_datasets`"
+        "torch.float32 in validation datasets"
     )
     with pytest.raises(TypeError, match=match):
         check_datasets([train_set], [train_set_32_bit])
 
     match = (
         "`dtype` between datasets is inconsistent, found torch.float64 and "
-        "torch.float32 found in `train_datasets`"
+        "torch.float32 in training datasets"
     )
     with pytest.raises(TypeError, match=match):
-        check_datasets([train_set, train_set_32_bit], [val_set])
+        check_datasets([train_set, train_set_32_bit], [])
 
 
 def test_collate_fn():
@@ -651,7 +652,7 @@ def test_get_stats():
     stats = get_stats(dataset, dataset_info)
     stats_2 = get_stats(dataset_2, dataset_info)
 
-    assert "size 100" in stats
+    assert "100 structures" in stats
     assert "mtt::U0" in stats
     assert "energy" in stats_2
     assert "mean " in stats
