@@ -76,7 +76,8 @@ class ZBL(torch.nn.Module):
                 # is not known/available
                 warnings.warn(
                     f"Covalent radius for element {t} is not available in ASE. "
-                    "Using a default value of 0.2 Å."
+                    "Using a default value of 0.2 Å.",
+                    stacklevel=2,
                 )
             self.covalent_radii[i] = ase_covalent_radius
 

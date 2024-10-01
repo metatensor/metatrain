@@ -4,13 +4,16 @@ import metatensor.torch
 import pytest
 import torch
 from metatensor.torch import Labels, TensorBlock, TensorMap
-from metatensor.torch.atomistic import ModelOutput, NeighborListOptions, System
+from metatensor.torch.atomistic import ModelOutput, System
 from omegaconf import OmegaConf
 
 from metatrain.utils.additive import ZBL, CompositionModel, remove_additive
 from metatrain.utils.data import Dataset, DatasetInfo, TargetInfo, TargetInfoDict
 from metatrain.utils.data.readers import read_systems, read_targets
-from metatrain.utils.neighbor_lists import get_system_with_neighbor_lists
+from metatrain.utils.neighbor_lists import (
+    get_requested_neighbor_lists,
+    get_system_with_neighbor_lists,
+)
 
 
 RESOURCES_PATH = Path(__file__).parents[1] / "resources"
@@ -402,16 +405,6 @@ def test_zbl():
     dataset_path = RESOURCES_PATH / "qm9_reduced_100.xyz"
 
     systems = read_systems(dataset_path)[:5]
-    for system in systems:
-        get_system_with_neighbor_lists(
-            system, [NeighborListOptions(cutoff=3.0, full_list=True)]
-        )
-
-    systems_half = read_systems(dataset_path)[:5]
-    for system in systems_half:
-        get_system_with_neighbor_lists(
-            system, [NeighborListOptions(cutoff=3.0, full_list=False)]
-        )
 
     conf = {
         "mtt::U0": {
@@ -429,7 +422,7 @@ def test_zbl():
     _, target_info = read_targets(OmegaConf.create(conf))
 
     zbl = ZBL(
-        model_hypers={"inner_cutoff": 1.0, "outer_cutoff": 2.0},
+        model_hypers={},
         dataset_info=DatasetInfo(
             length_unit="angstrom",
             atomic_types=[1, 6, 7, 8],
@@ -437,26 +430,9 @@ def test_zbl():
         ),
     )
 
-    # per_atom = False
-    output = zbl(
-        systems,
-        {"mtt::U0": ModelOutput(quantity="energy", unit="", per_atom=False)},
-    )
-    assert "mtt::U0" in output
-    assert output["mtt::U0"].block().samples.names == ["system"]
-    assert output["mtt::U0"].block().values.shape == (5, 1)
-
-    output_half = zbl(
-        systems_half,
-        {"mtt::U0": ModelOutput(quantity="energy", unit="", per_atom=False)},
-    )
-    assert "mtt::U0" in output_half
-    assert output_half["mtt::U0"].block().samples.names == ["system"]
-    assert output_half["mtt::U0"].block().values.shape == (5, 1)
-
-    assert torch.allclose(
-        output["mtt::U0"].block().values, output_half["mtt::U0"].block().values
-    )
+    requested_neighbor_lists = get_requested_neighbor_lists(zbl)
+    for system in systems:
+        get_system_with_neighbor_lists(system, requested_neighbor_lists)
 
     # per_atom = True
     output = zbl(
@@ -466,17 +442,6 @@ def test_zbl():
     assert "mtt::U0" in output
     assert output["mtt::U0"].block().samples.names == ["system", "atom"]
     assert output["mtt::U0"].block().values.shape != (5, 1)
-
-    output_half = zbl(
-        systems_half,
-        {"mtt::U0": ModelOutput(quantity="energy", unit="", per_atom=True)},
-    )
-    assert "mtt::U0" in output_half
-    assert output_half["mtt::U0"].block().samples.names == ["system", "atom"]
-    assert output_half["mtt::U0"].block().values.shape != (5, 1)
-    assert torch.allclose(
-        output["mtt::U0"].block().values, output_half["mtt::U0"].block().values
-    )
 
     # with selected_atoms
     selected_atoms = metatensor.torch.Labels(
