@@ -11,8 +11,13 @@ from pet.hypers import Hypers
 from pet.pet import PET, SelfContributionsWrapper
 from pet.train_model import fit_pet
 
+from ...utils.additive import remove_additive
 from ...utils.data import Dataset, check_datasets, collate_fn
 from ...utils.data.system_to_ase import system_to_ase
+from ...utils.neighbor_lists import (
+    get_requested_neighbor_lists,
+    get_system_with_neighbor_lists,
+)
 from . import PET as WrappedPET
 
 
@@ -94,6 +99,12 @@ class Trainer:
 
         ase_train_dataset = []
         for (system,), targets in train_dataloader:
+            requested_neighbor_lists = get_requested_neighbor_lists(model)
+            system = get_system_with_neighbor_lists(system, requested_neighbor_lists)
+            for additive_model in model.additive_models:
+                targets = remove_additive(
+                    [system], targets, additive_model, model.dataset_info.targets
+                )
             ase_atoms = system_to_ase(system)
             ase_atoms.info["energy"] = float(
                 targets[target_name].block().values.squeeze(-1).detach().cpu().numpy()
