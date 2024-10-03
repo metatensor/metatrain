@@ -281,7 +281,16 @@ class LLPRUncertaintyModel(torch.nn.Module):
         :param loss_fn: A loss function that takes the model outputs and the
             targets and returns a scalar loss.
         :param parameters: A list of model parameters for which the pseudo-Hessian
-            should be computed.
+            should be computed. This is often necessary as models can have very
+            large numbers of parameters, and the pseudo-Hessian's number of
+            elements grows quadratically with the number of parameters. For this
+            reason, only a subset of the parameters of the model is usually used
+            in the calculation. This list allows the user to feed the parameters
+            of interest directly to the function. In order to function correctly,
+            the model's parameters should be those corresponding to the last
+            layer(s) of the model, such that their concatenation corresponds to the
+            last-layer features, in the same order as those are returned by the
+            base model.
         """
         self.model = self.model.train()  # we need gradients w.r.t. parameters
         # disable gradients for all parameters that are not in the list
