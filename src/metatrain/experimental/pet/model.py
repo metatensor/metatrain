@@ -79,7 +79,8 @@ class PET(torch.nn.Module):
             systems, options, self.atomic_types, selected_atoms
         )
 
-        predictions = self.pet(batch)  # type: ignore
+        output = self.pet(batch)  # type: ignore
+        predictions = output["prediction"]
         output_quantities: Dict[str, TensorMap] = {}
         for output_name in outputs:
             energy_labels = Labels(
@@ -114,14 +115,14 @@ class PET(torch.nn.Module):
     @classmethod
     def load_checkpoint(cls, path: Union[str, Path]) -> "PET":
 
-        checkpoint = torch.load(path)
+        checkpoint = torch.load(path, weights_only=False)
         hypers = checkpoint["hypers"]
         dataset_info = checkpoint["dataset_info"]
         model = cls(
             model_hypers=hypers["ARCHITECTURAL_HYPERS"], dataset_info=dataset_info
         )
 
-        checkpoint = torch.load(path)
+        checkpoint = torch.load(path, weights_only=False)
         state_dict = checkpoint["checkpoint"]["model_state_dict"]
 
         ARCHITECTURAL_HYPERS = Hypers(model.hypers)

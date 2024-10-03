@@ -36,7 +36,7 @@ class LLPRUncertaintyModel(torch.nn.Module):
         super().__init__()
 
         self.model = model
-        self.ll_feat_size = self.model._module.last_layer_feature_size
+        self.ll_feat_size = self.model.module.last_layer_feature_size
 
         # update capabilities: now we have additional outputs for the uncertainty
         old_capabilities = self.model.capabilities()

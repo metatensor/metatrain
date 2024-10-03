@@ -16,7 +16,7 @@ from metatensor.torch.learn.nn import ModuleMap
 
 from metatrain.utils.data.dataset import DatasetInfo
 
-from ...utils.composition import apply_composition_contribution
+from ...utils.composition import CompositionModel
 from ...utils.dtype import dtype_to_str
 from ...utils.export import export
 
@@ -123,14 +123,6 @@ class SoapBpnn(torch.nn.Module):
             unit="unitless", per_atom=True
         )
 
-        # creates a composition weight tensor that can be directly indexed by species,
-        # this can be left as a tensor of zero or set from the outside using
-        # set_composition_weights (recommended for better accuracy)
-        n_outputs = len(self.outputs)
-        self.register_buffer(
-            "composition_weights",
-            torch.zeros((n_outputs, max(self.atomic_types) + 1)),
-        )
         # buffers cannot be indexed by strings (torchscript), so we create a single
         # tensor for all output. Due to this, we need to slice the tensor when we use
         # it and use the output name to select the correct slice via a dictionary
@@ -144,7 +136,7 @@ class SoapBpnn(torch.nn.Module):
             * (self.hypers["soap"]["max_angular"] + 1)
         )
 
-        hypers_bpnn = self.hypers["bpnn"]
+        hypers_bpnn = {**self.hypers["bpnn"]}
         hypers_bpnn["input_size"] = soap_size
 
         if hypers_bpnn["layernorm"]:
@@ -193,6 +185,11 @@ class SoapBpnn(torch.nn.Module):
                 for output_name in self.outputs.keys()
                 if "mtt::aux::" not in output_name
             }
+        )
+
+        self.composition_model = CompositionModel(
+            model_hypers={},
+            dataset_info=dataset_info,
         )
 
     def restart(self, dataset_info: DatasetInfo) -> "SoapBpnn":
@@ -261,12 +258,7 @@ class SoapBpnn(torch.nn.Module):
         atomic_energies: Dict[str, TensorMap] = {}
         for output_name, output_layer in self.last_layers.items():
             if output_name in outputs:
-                atomic_energies[output_name] = apply_composition_contribution(
-                    output_layer(last_layer_features),
-                    self.composition_weights[  # type: ignore
-                        self.output_to_index[output_name]
-                    ],
-                )
+                atomic_energies[output_name] = output_layer(last_layer_features)
 
         # Sum the atomic energies coming from the BPNN to get the total energy
         for output_name, atomic_energy in atomic_energies.items():
@@ -281,13 +273,26 @@ class SoapBpnn(torch.nn.Module):
                     atomic_energy, ["atom", "center_type"]
                 )
 
+        if not self.training:
+            # at evaluation, we also add the composition contributions
+            composition_contributions = self.composition_model(
+                systems, outputs, selected_atoms
+            )
+            for name in return_dict:
+                if name.startswith("mtt::aux::"):
+                    continue  # skip auxiliary outputs (not targets)
+                return_dict[name] = metatensor.torch.add(
+                    return_dict[name],
+                    composition_contributions[name],
+                )
+
         return return_dict
 
     @classmethod
     def load_checkpoint(cls, path: Union[str, Path]) -> "SoapBpnn":
 
         # Load the checkpoint
-        checkpoint = torch.load(path)
+        checkpoint = torch.load(path, weights_only=False)
         model_hypers = checkpoint["model_hypers"]
         model_state_dict = checkpoint["model_state_dict"]
 
@@ -303,6 +308,11 @@ class SoapBpnn(torch.nn.Module):
         if dtype not in self.__supported_dtypes__:
             raise ValueError(f"unsupported dtype {self.dtype} for SoapBpnn")
 
+        # Make sure the model is all in the same dtype
+        # For example, at this point, the composition model within the SOAP-BPNN is
+        # still float64
+        self.to(dtype)
+
         capabilities = ModelCapabilities(
             outputs=self.outputs,
             atomic_types=self.atomic_types,
@@ -313,21 +323,6 @@ class SoapBpnn(torch.nn.Module):
         )
 
         return export(model=self, model_capabilities=capabilities)
-
-    def set_composition_weights(
-        self,
-        output_name: str,
-        input_composition_weights: torch.Tensor,
-        atomic_types: List[int],
-    ) -> None:
-        """Set the composition weights for a given output."""
-        # all species that are not present retain their weight of zero
-        self.composition_weights[self.output_to_index[output_name]][  # type: ignore
-            atomic_types
-        ] = input_composition_weights.to(
-            dtype=self.composition_weights.dtype,  # type: ignore
-            device=self.composition_weights.device,  # type: ignore
-        )
 
     def add_output(self, output_name: str) -> None:
         """Add a new output to the self."""

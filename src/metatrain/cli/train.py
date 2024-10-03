@@ -15,7 +15,13 @@ from omegaconf import DictConfig, OmegaConf
 
 from .. import PACKAGE_ROOT
 from ..utils.architectures import check_architecture_options, get_default_hypers
-from ..utils.data import DatasetInfo, TargetInfoDict, get_atomic_types, get_dataset
+from ..utils.data import (
+    DatasetInfo,
+    TargetInfoDict,
+    get_atomic_types,
+    get_dataset,
+    get_stats,
+)
 from ..utils.data.dataset import _train_test_random_split
 from ..utils.devices import pick_devices
 from ..utils.distributed.logging import is_main_process
@@ -290,7 +296,7 @@ def train_model(
         else:
             index = f" {i}"
         logger.info(
-            f"Training dataset{index}:\n    {train_dataset.get_stats(dataset_info)}"
+            f"Training dataset{index}:\n    {get_stats(train_dataset, dataset_info)}"
         )
 
     for i, val_dataset in enumerate(val_datasets):
@@ -299,7 +305,7 @@ def train_model(
         else:
             index = f" {i}"
         logger.info(
-            f"Validation dataset{index}:\n    {val_dataset.get_stats(dataset_info)}"
+            f"Validation dataset{index}:\n    {get_stats(val_dataset, dataset_info)}"
         )
 
     for i, test_dataset in enumerate(test_datasets):
@@ -307,7 +313,9 @@ def train_model(
             index = ""
         else:
             index = f" {i}"
-        logger.info(f"Test dataset{index}:\n    {test_dataset.get_stats(dataset_info)}")
+        logger.info(
+            f"Test dataset{index}:\n    {get_stats(test_dataset, dataset_info)}"
+        )
 
     ###########################
     # SAVE EXPANDED OPTIONS ###
@@ -382,9 +390,6 @@ def train_model(
             mts_atomistic_model.buffers(),
         )
     ).device
-    # always save on CPU. TODO: remove after release of
-    # https://github.com/lab-cosmo/metatensor/pull/668
-    mts_atomistic_model = mts_atomistic_model.to("cpu")
     mts_atomistic_model.save(str(output_checked), collect_extensions=extensions_path)
     # the model is first saved and then reloaded 1) for good practice and 2) because
     # MetatensorAtomisticModel only torchscripts (makes faster) during save()

@@ -3,10 +3,10 @@ import warnings
 from collections import UserDict
 from typing import Any, Dict, List, Optional, Tuple, Union
 
-import metatensor.learn
 import numpy as np
-import torch
+from metatensor.learn.data import Dataset, group_and_join
 from metatensor.torch import TensorMap
+from torch.utils.data import Subset
 
 from ..external_naming import to_external_name
 from ..units import get_gradient_units
@@ -242,71 +242,18 @@ class DatasetInfo:
         return new
 
 
-class Dataset:
-    """A version of the `metatensor.learn.Dataset` class that allows for
-    the use of `mtt::` prefixes in the keys of the dictionary. See
-    https://github.com/lab-cosmo/metatensor/issues/621.
-
-    It is important to note that, instead of named tuples, this class
-    accepts and returns dictionaries.
-
-    :param dict: A dictionary with the data to be stored in the dataset.
-    """
-
-    def __init__(self, dict: Dict):
-
-        new_dict = {}
-        for key, value in dict.items():
-            key = key.replace("mtt::", "mtt_")
-            new_dict[key] = value
-
-        self.mts_learn_dataset = metatensor.learn.Dataset(**new_dict)
-
-    def __getitem__(self, idx: int) -> Dict:
-
-        mts_dataset_item = self.mts_learn_dataset[idx]._asdict()
-        new_dict = {}
-        for key, value in mts_dataset_item.items():
-            key = key.replace("mtt_", "mtt::")
-            new_dict[key] = value
-
-        return new_dict
-
-    def __len__(self) -> int:
-        return len(self.mts_learn_dataset)
-
-    def __iter__(self):
-        for i in range(len(self)):
-            yield self[i]
-
-    def get_stats(self, dataset_info: DatasetInfo) -> str:
-        return _get_dataset_stats(self, dataset_info)
-
-
-class Subset(torch.utils.data.Subset):
-    """
-    A version of `torch.utils.data.Subset` containing a `get_stats` method
-    allowing us to print information about atomistic datasets.
-    """
-
-    def get_stats(self, dataset_info: DatasetInfo) -> str:
-        return _get_dataset_stats(self, dataset_info)
-
-
-def _get_dataset_stats(
-    dataset: Union[Dataset, Subset], dataset_info: DatasetInfo
-) -> str:
+def get_stats(dataset: Union[Dataset, Subset], dataset_info: DatasetInfo) -> str:
     """Returns the statistics of a dataset or subset as a string."""
 
     dataset_len = len(dataset)
-    stats = f"Dataset of size {dataset_len}"
+    stats = f"Dataset containing {dataset_len} structures"
     if dataset_len == 0:
         return stats
 
     # target_names will be used to store names of the targets,
     # along with their gradients
     target_names = []
-    for key, tensor_map in dataset[0].items():
+    for key, tensor_map in dataset[0]._asdict().items():
         if key == "system":
             continue
         target_names.append(key)
@@ -381,13 +328,13 @@ def get_atomic_types(datasets: Union[Dataset, List[Dataset]]) -> List[int]:
     if not isinstance(datasets, list):
         datasets = [datasets]
 
-    types = []
+    types = set()
     for dataset in datasets:
         for index in range(len(dataset)):
             system = dataset[index]["system"]
-            types += system.types.tolist()
+            types.update(set(system.types.tolist()))
 
-    return sorted(set(types))
+    return sorted(types)
 
 
 def get_all_targets(datasets: Union[Dataset, List[Dataset]]) -> List[str]:
@@ -408,8 +355,8 @@ def get_all_targets(datasets: Union[Dataset, List[Dataset]]) -> List[str]:
     target_names = []
     for dataset in datasets:
         for sample in dataset:
-            sample.pop("system")  # system not needed
-            target_names += list(sample.keys())
+            # system not needed
+            target_names += [key for key in sample._asdict().keys() if key != "system"]
 
     return sorted(set(target_names))
 
@@ -422,6 +369,7 @@ def collate_fn(batch: List[Dict[str, Any]]) -> Tuple[List, Dict[str, TensorMap]]
     """
 
     collated_targets = group_and_join(batch)
+    collated_targets = collated_targets._asdict()
     systems = collated_targets.pop("system")
     return systems, collated_targets
 
@@ -441,17 +389,35 @@ def check_datasets(train_datasets: List[Dataset], val_datasets: List[Dataset]):
         or targets that are not present in the training set
     """
     # Check that system `dtypes` are consistent within datasets
-    desired_dtype = train_datasets[0][0]["system"].positions.dtype
-    msg = f"`dtype` between datasets is inconsistent, found {desired_dtype} and "
+    desired_dtype = None
     for train_dataset in train_datasets:
-        actual_dtype = train_dataset[0]["system"].positions.dtype
+        if len(train_dataset) == 0:
+            continue
+
+        actual_dtype = train_dataset[0].system.positions.dtype
+        if desired_dtype is None:
+            desired_dtype = actual_dtype
+
         if actual_dtype != desired_dtype:
-            raise TypeError(f"{msg}{actual_dtype} found in `train_datasets`")
+            raise TypeError(
+                "`dtype` between datasets is inconsistent, "
+                f"found {desired_dtype} and {actual_dtype} in training datasets"
+            )
 
     for val_dataset in val_datasets:
-        actual_dtype = val_dataset[0]["system"].positions.dtype
+        if len(val_dataset) == 0:
+            continue
+
+        actual_dtype = val_dataset[0].system.positions.dtype
+
+        if desired_dtype is None:
+            desired_dtype = actual_dtype
+
         if actual_dtype != desired_dtype:
-            raise TypeError(f"{msg}{actual_dtype} found in `val_datasets`")
+            raise TypeError(
+                "`dtype` between datasets is inconsistent, "
+                f"found {desired_dtype} and {actual_dtype} in validation datasets"
+            )
 
     # Get all targets in the training and validation sets:
     train_targets = get_all_targets(train_datasets)
@@ -515,33 +481,3 @@ def _train_test_random_split(
         Subset(train_dataset, train_indices),
         Subset(train_dataset, test_indices),
     ]
-
-
-def group_and_join(
-    batch: List[Dict[str, Any]],
-) -> Dict[str, Any]:
-    """
-    Same as metatenor.learn.data.group_and_join, but joins dicts and not named tuples.
-
-    :param batch: A list of dictionaries, each containing the data for a single sample.
-
-    :returns: A single dictionary with the data fields joined together among all
-        samples.
-    """
-    data: List[Union[TensorMap, torch.Tensor]] = []
-    names = batch[0].keys()
-    for name, f in zip(names, zip(*(item.values() for item in batch))):
-        if name == "sample_id":  # special case, keep as is
-            data.append(f)
-            continue
-
-        if isinstance(f[0], torch.ScriptObject) and f[0]._has_method(
-            "keys_to_properties"
-        ):  # inferred metatensor.torch.TensorMap type
-            data.append(metatensor.torch.join(f, axis="samples"))
-        elif isinstance(f[0], torch.Tensor):  # torch.Tensor type
-            data.append(torch.vstack(f))
-        else:  # otherwise just keep as a list
-            data.append(f)
-
-    return {name: value for name, value in zip(names, data)}

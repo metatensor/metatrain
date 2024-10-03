@@ -296,7 +296,7 @@ def eval_model(
                     gradients=gradients,
                 )
 
-        eval_dataset = Dataset({"system": eval_systems, **eval_targets})
+        eval_dataset = Dataset.from_dict({"system": eval_systems, **eval_targets})
 
         # Evaluate the model
         try:

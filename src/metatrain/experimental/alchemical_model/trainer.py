@@ -5,7 +5,6 @@ from typing import List, Union
 import torch
 from metatensor.learn.data import DataLoader
 
-from ...utils.composition import calculate_composition_weights
 from ...utils.data import (
     CombinedDataLoader,
     Dataset,
@@ -23,6 +22,7 @@ from ...utils.metrics import RMSEAccumulator
 from ...utils.neighbor_lists import get_system_with_neighbor_lists
 from ...utils.per_atom import average_by_num_atoms
 from . import AlchemicalModel
+from .utils.composition import calculate_composition_weights
 from .utils.normalize import (
     get_average_number_of_atoms,
     get_average_number_of_neighbors,
@@ -349,7 +349,7 @@ class Trainer:
     def load_checkpoint(cls, path: Union[str, Path], train_hypers) -> "Trainer":
 
         # Load the checkpoint
-        checkpoint = torch.load(path)
+        checkpoint = torch.load(path, weights_only=False)
         model_hypers = checkpoint["model_hypers"]
         model_state_dict = checkpoint["model_state_dict"]
         epoch = checkpoint["epoch"]

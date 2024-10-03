@@ -3,16 +3,16 @@ name = "metatrain"
 dynamic = ["version"]
 requires-python = ">=3.9"
 
-readme = "README.md"
+readme = "README.rst"
 license = {text = "BSD-3-Clause"}
 description = "Training and evaluating machine learning models for atomistic systems."
 authors = [{name = "metatrain developers"}]
 
 dependencies = [
     "ase < 3.23.0",
-    "metatensor-learn==0.2.2",
-    "metatensor-operations==0.2.1",
-    "metatensor-torch==0.5.2",
+    "metatensor-learn==0.2.3",
+    "metatensor-operations==0.2.3",
+    "metatensor-torch==0.5.5",
     "jsonschema",
     "omegaconf",
     "python-hostlist",
@@ -58,16 +58,16 @@ build-backend = "setuptools.build_meta"
 
 [project.optional-dependencies]
 soap-bpnn = [
-    "rascaline-torch @ git+https://github.com/luthaf/rascaline@e215461#subdirectory=python/rascaline-torch",
+    "rascaline-torch @ git+https://github.com/luthaf/rascaline@d181b28#subdirectory=python/rascaline-torch",
 ]
 alchemical-model = [
   "torch_alchemical @ git+https://github.com/abmazitov/torch_alchemical.git@51ff519",
 ]
 pet = [
-  "pet @ git+https://github.com/spozdn/pet.git@1a470c4",
+  "pet @ git+https://github.com/lab-cosmo/pet@8841021",
 ]
 gap = [
-    "rascaline-torch @ git+https://github.com/luthaf/rascaline@e215461#subdirectory=python/rascaline-torch",
+    "rascaline-torch @ git+https://github.com/luthaf/rascaline@d181b28#subdirectory=python/rascaline-torch",
     "skmatter",
     "metatensor-learn",
     "scipy",
