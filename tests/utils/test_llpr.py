@@ -165,7 +165,7 @@ def test_llpr_covariance_as_pseudo_hessian(tmpdir):
         get_system_with_neighbor_lists(system, requested_neighbor_lists)
         for system in qm9_systems
     ]
-    dataset = Dataset({"system": qm9_systems, **targets})
+    dataset = Dataset.from_dict({"system": qm9_systems, **targets})
     dataloader = torch.utils.data.DataLoader(
         dataset,
         batch_size=10,
