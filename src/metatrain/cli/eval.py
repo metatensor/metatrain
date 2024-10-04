@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import Dict, List, Optional, Union
 
 import metatensor.torch
+import numpy as np
 import torch
 from metatensor.torch import Labels, TensorBlock, TensorMap
 from metatensor.torch.atomistic import MetatensorAtomisticModel
@@ -250,10 +251,13 @@ def _eval_targets(
     metric_logger.log(rmse_values)
 
     # Log timings
-    mean_time_per_atom = sum(timings_per_atom) / len(timings_per_atom)
+    timings_per_atom = np.array(timings_per_atom)
+    mean_per_atom = np.mean(timings_per_atom)
+    std_per_atom = np.std(timings_per_atom)
     logger.info(
         f"evaluation time: {total_time:.2f} s "
-        f"[{1000.0*mean_time_per_atom:.2f} ms per atom]"
+        f"[{1000.0*mean_per_atom:.2f} ± "
+        f"{1000.0*std_per_atom:.2f} ms per atom]"
     )
 
     if return_predictions:
