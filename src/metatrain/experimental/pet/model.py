@@ -171,6 +171,17 @@ class PET(torch.nn.Module):
         if dtype not in self.__supported_dtypes__:
             raise ValueError(f"Unsupported dtype {self.dtype} for PET")
 
+        # Make sure the model is all in the same dtype
+        # For example, after training, the additive models could still be in
+        # float64
+        self.to(dtype)
+
+        interaction_ranges = [self.hypers["N_GNN_LAYERS"] * self.cutoff]
+        for additive_model in self.additive_models:
+            if hasattr(additive_model, "cutoff_radius"):
+                interaction_ranges.append(additive_model.cutoff_radius)
+        interaction_range = max(interaction_ranges)
+
         capabilities = ModelCapabilities(
             outputs={
                 self.target_name: ModelOutput(
@@ -180,7 +191,7 @@ class PET(torch.nn.Module):
                 )
             },
             atomic_types=self.atomic_types,
-            interaction_range=self.cutoff,
+            interaction_range=interaction_range,
             length_unit=self.dataset_info.length_unit,
             supported_devices=["cpu", "cuda"],  # and not __supported_devices__
             dtype=dtype_to_str(dtype),

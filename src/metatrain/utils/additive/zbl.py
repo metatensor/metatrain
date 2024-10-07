@@ -11,7 +11,14 @@ from ..data import DatasetInfo
 
 
 class ZBL(torch.nn.Module):
-    """A simple model for short-range repulsive interactions.
+    """
+    A simple model for short-range repulsive interactions.
+
+    The implementation here is equivalent to its
+    `LAMMPS counterpart <https://docs.lammps.org/pair_zbl.html>`_, where we set the
+    inner cutoff to 0 and the outer cutoff to the sum of the covalent radii of the
+    two atoms as tabulated in ASE. Covalent radii that are not available in ASE are
+    set to 0.2 Å (and a warning is issued).
 
     :param model_hypers: A dictionary of model hyperparameters. This contains the
         "inner_cutoff" and "outer_cutoff" keys, which are the inner and outer cutoffs
@@ -81,7 +88,8 @@ class ZBL(torch.nn.Module):
                 )
             self.covalent_radii[i] = ase_covalent_radius
 
-        self.largest_covalent_radius = float(torch.max(self.covalent_radii))
+        largest_covalent_radius = float(torch.max(self.covalent_radii))
+        self.cutoff_radius = 2.0 * largest_covalent_radius
 
     def restart(self, dataset_info: DatasetInfo) -> "ZBL":
         """Restart the model with a new dataset info.
@@ -241,7 +249,7 @@ class ZBL(torch.nn.Module):
     def requested_neighbor_lists(self) -> List[NeighborListOptions]:
         return [
             NeighborListOptions(
-                cutoff=2.0 * self.largest_covalent_radius,
+                cutoff=self.cutoff_radius,
                 full_list=True,
             )
         ]

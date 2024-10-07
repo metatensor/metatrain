@@ -316,14 +316,20 @@ class SoapBpnn(torch.nn.Module):
             raise ValueError(f"unsupported dtype {self.dtype} for SoapBpnn")
 
         # Make sure the model is all in the same dtype
-        # For example, at this point, the composition model within the SOAP-BPNN is
-        # still float64
+        # For example, after training, the additive models could still be in
+        # float64
         self.to(dtype)
+
+        interaction_ranges = [self.hypers["soap"]["cutoff"]]
+        for additive_model in self.additive_models:
+            if hasattr(additive_model, "cutoff_radius"):
+                interaction_ranges.append(additive_model.cutoff_radius)
+        interaction_range = max(interaction_ranges)
 
         capabilities = ModelCapabilities(
             outputs=self.outputs,
             atomic_types=self.atomic_types,
-            interaction_range=self.hypers["soap"]["cutoff"],
+            interaction_range=interaction_range,
             length_unit=self.dataset_info.length_unit,
             supported_devices=self.__supported_devices__,
             dtype=dtype_to_str(dtype),

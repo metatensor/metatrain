@@ -231,10 +231,17 @@ class GAP(torch.nn.Module):
         return return_dict
 
     def export(self) -> MetatensorAtomisticModel:
+
+        interaction_ranges = [self.hypers["soap"]["cutoff"]]
+        for additive_model in self.additive_models:
+            if hasattr(additive_model, "cutoff_radius"):
+                interaction_ranges.append(additive_model.cutoff_radius)
+        interaction_range = max(interaction_ranges)
+
         capabilities = ModelCapabilities(
             outputs=self.outputs,
             atomic_types=sorted(self.dataset_info.atomic_types),
-            interaction_range=self.hypers["soap"]["cutoff"],
+            interaction_range=interaction_range,
             length_unit=self.dataset_info.length_unit,
             supported_devices=["cuda", "cpu"],
             dtype="float64",

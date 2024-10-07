@@ -455,3 +455,23 @@ def test_zbl():
         selected_atoms=selected_atoms,
     )
     assert "mtt::U0" in output
+    assert output["mtt::U0"].block().samples.names == ["system", "atom"]
+    assert output["mtt::U0"].block().values.shape == (1, 1)
+
+    # per_atom = False
+    output = zbl(
+        systems,
+        {"mtt::U0": ModelOutput(quantity="energy", unit="", per_atom=False)},
+    )
+    assert "mtt::U0" in output
+    assert output["mtt::U0"].block().samples.names == ["system"]
+    assert output["mtt::U0"].block().values.shape == (5, 1)
+
+    # check that the result is the same without batching
+    expected = output["mtt::U0"].block().values[3]
+    system = systems[3]
+    output = zbl(
+        [system],
+        {"mtt::U0": ModelOutput(quantity="energy", unit="", per_atom=False)},
+    )
+    assert torch.allclose(output["mtt::U0"].block().values[0], expected)
