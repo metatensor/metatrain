@@ -219,6 +219,9 @@
         },
         "BALANCED_DATA_LOADER": {
           "type": "boolean"
+        },
+        "CHECKPOINT_INTERVAL": {
+          "type": "integer"
         }
       },
       "additionalProperties": false,
