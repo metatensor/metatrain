@@ -32,6 +32,7 @@ model:
   N_TARGETS: 1
   TARGET_INDEX_KEY: target_index
   RESIDUAL_FACTOR: 0.5
+  USE_ZBL: False
 
 training:
   INITIAL_LR: 1e-4

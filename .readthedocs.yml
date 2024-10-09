@@ -15,6 +15,7 @@ build:
     pre_build:
       - set -e && cd examples/ase && bash train.sh
       - set -e && cd examples/programmatic/llpr && bash train.sh
+      - set -e && cd examples/zbl && bash train.sh
 
 # Build documentation in the docs/ directory with Sphinx
 sphinx:

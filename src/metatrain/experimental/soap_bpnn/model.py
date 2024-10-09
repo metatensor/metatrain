@@ -16,7 +16,7 @@ from metatensor.torch.learn.nn import ModuleMap
 
 from metatrain.utils.data.dataset import DatasetInfo
 
-from ...utils.composition import CompositionModel
+from ...utils.additive import ZBL, CompositionModel
 from ...utils.dtype import dtype_to_str
 from ...utils.export import export
 
@@ -187,10 +187,16 @@ class SoapBpnn(torch.nn.Module):
             }
         )
 
-        self.composition_model = CompositionModel(
+        # additive models: these are handled by the trainer at training
+        # time, and they are added to the output at evaluation time
+        composition_model = CompositionModel(
             model_hypers={},
             dataset_info=dataset_info,
         )
+        additive_models = [composition_model]
+        if self.hypers["zbl"]:
+            additive_models.append(ZBL(model_hypers, dataset_info))
+        self.additive_models = torch.nn.ModuleList(additive_models)
 
     def restart(self, dataset_info: DatasetInfo) -> "SoapBpnn":
         # merge old and new dataset info
@@ -274,17 +280,18 @@ class SoapBpnn(torch.nn.Module):
                 )
 
         if not self.training:
-            # at evaluation, we also add the composition contributions
-            composition_contributions = self.composition_model(
-                systems, outputs, selected_atoms
-            )
-            for name in return_dict:
-                if name.startswith("mtt::aux::"):
-                    continue  # skip auxiliary outputs (not targets)
-                return_dict[name] = metatensor.torch.add(
-                    return_dict[name],
-                    composition_contributions[name],
+            # at evaluation, we also add the additive contributions
+            for additive_model in self.additive_models:
+                additive_contributions = additive_model(
+                    systems, outputs, selected_atoms
                 )
+                for name in return_dict:
+                    if name.startswith("mtt::aux::"):
+                        continue  # skip auxiliary outputs (not targets)
+                    return_dict[name] = metatensor.torch.add(
+                        return_dict[name],
+                        additive_contributions[name],
+                    )
 
         return return_dict
 
@@ -309,14 +316,20 @@ class SoapBpnn(torch.nn.Module):
             raise ValueError(f"unsupported dtype {self.dtype} for SoapBpnn")
 
         # Make sure the model is all in the same dtype
-        # For example, at this point, the composition model within the SOAP-BPNN is
-        # still float64
+        # For example, after training, the additive models could still be in
+        # float64
         self.to(dtype)
+
+        interaction_ranges = [self.hypers["soap"]["cutoff"]]
+        for additive_model in self.additive_models:
+            if hasattr(additive_model, "cutoff_radius"):
+                interaction_ranges.append(additive_model.cutoff_radius)
+        interaction_range = max(interaction_ranges)
 
         capabilities = ModelCapabilities(
             outputs=self.outputs,
             atomic_types=self.atomic_types,
-            interaction_range=self.hypers["soap"]["cutoff"],
+            interaction_range=interaction_range,
             length_unit=self.dataset_info.length_unit,
             supported_devices=self.__supported_devices__,
             dtype=dtype_to_str(dtype),

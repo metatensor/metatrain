@@ -74,6 +74,7 @@ def test_regression_train_and_invariance():
         val_datasets=[dataset],
         checkpoint_dir=".",
     )
+    gap.eval()
 
     # Predict on the first five systems
     output = gap(systems[:5], {"mtt::U0": gap.outputs["mtt::U0"]})
@@ -138,7 +139,7 @@ def test_ethanol_regression_train_and_invariance():
     hypers["model"]["krr"]["num_sparse_points"] = 900
 
     target_info_dict = TargetInfoDict(
-        energy=TargetInfo(quantity="energy", unit="kcal/mol")
+        energy=TargetInfo(quantity="energy", unit="kcal/mol", gradients=["positions"])
     )
 
     dataset_info = DatasetInfo(
@@ -155,6 +156,7 @@ def test_ethanol_regression_train_and_invariance():
         val_datasets=[dataset],
         checkpoint_dir=".",
     )
+    gap.eval()
 
     # Predict on the first five systems
     output = gap(systems[:5], {"energy": gap.outputs["energy"]})

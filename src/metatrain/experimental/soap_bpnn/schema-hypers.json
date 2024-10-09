@@ -80,6 +80,9 @@
             }
           },
           "additionalProperties": false
+        },
+        "zbl": {
+          "type": "boolean"
         }
       },
       "additionalProperties": false

@@ -4,7 +4,10 @@ from metatensor.torch.atomistic import ModelEvaluationOptions, System
 
 from metatrain.experimental.soap_bpnn import SoapBpnn
 from metatrain.utils.data import DatasetInfo, TargetInfo, TargetInfoDict
-from metatrain.utils.neighbor_lists import get_system_with_neighbor_lists
+from metatrain.utils.neighbor_lists import (
+    get_requested_neighbor_lists,
+    get_system_with_neighbor_lists,
+)
 
 from . import MODEL_HYPERS
 
@@ -31,7 +34,8 @@ def test_to(device, dtype):
         positions=torch.tensor([[0.0, 0.0, 0.0], [0.0, 0.0, 1.0]]),
         cell=torch.zeros(3, 3),
     )
-    system = get_system_with_neighbor_lists(system, exported.requested_neighbor_lists())
+    requested_neighbor_lists = get_requested_neighbor_lists(exported)
+    system = get_system_with_neighbor_lists(system, requested_neighbor_lists)
     system = system.to(device=device, dtype=dtype)
 
     evaluation_options = ModelEvaluationOptions(

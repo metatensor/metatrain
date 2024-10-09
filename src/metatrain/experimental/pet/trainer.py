@@ -95,10 +95,10 @@ class Trainer:
         )
 
         ase_train_dataset = dataset_to_ase(
-            train_dataset, do_forces=do_forces, target_name=target_name
+            train_dataset, model, do_forces=do_forces, target_name=target_name
         )
         ase_val_dataset = dataset_to_ase(
-            val_dataset, do_forces=do_forces, target_name=target_name
+            val_dataset, model, do_forces=do_forces, target_name=target_name
         )
 
         self.hypers = update_hypers(self.hypers, model.hypers, do_forces)
