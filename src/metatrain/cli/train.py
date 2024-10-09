@@ -1,5 +1,4 @@
 import argparse
-import importlib
 import itertools
 import json
 import logging
@@ -14,7 +13,11 @@ from metatensor.torch.atomistic import load_atomistic_model
 from omegaconf import DictConfig, OmegaConf
 
 from .. import PACKAGE_ROOT
-from ..utils.architectures import check_architecture_options, get_default_hypers
+from ..utils.architectures import (
+    check_architecture_options,
+    get_default_hypers,
+    import_architecture,
+)
 from ..utils.data import (
     DatasetInfo,
     TargetInfoDict,
@@ -135,7 +138,7 @@ def train_model(
     check_architecture_options(
         name=architecture_name, options=OmegaConf.to_container(options["architecture"])
     )
-    architecture = importlib.import_module(f"metatrain.{architecture_name}")
+    architecture = import_architecture(architecture_name)
 
     logger.info(f"Running training for {architecture_name!r} architecture")
 

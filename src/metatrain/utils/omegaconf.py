@@ -1,4 +1,3 @@
-import importlib
 import json
 from typing import Any, Union
 
@@ -7,13 +6,13 @@ from omegaconf import DictConfig, ListConfig, OmegaConf
 from omegaconf.basecontainer import BaseContainer
 
 from .. import PACKAGE_ROOT, RANDOM_SEED
+from .architectures import import_architecture
 from .devices import pick_devices
 from .jsonschema import validate
 
 
 def _get_architecture_model(conf: BaseContainer) -> Any:
-    architecture_name = conf["architecture"]["name"]
-    architecture = importlib.import_module(f"metatrain.{architecture_name}")
+    architecture = import_architecture(conf["architecture"]["name"])
     return architecture.__model__
 
 
