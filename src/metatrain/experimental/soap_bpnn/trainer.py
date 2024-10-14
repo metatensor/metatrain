@@ -23,6 +23,7 @@ from ...utils.neighbor_lists import (
     get_system_with_neighbor_lists,
 )
 from ...utils.per_atom import average_by_num_atoms
+from ...utils.transfer import systems_and_targets_to_dtype_and_device
 from .model import SoapBpnn
 
 
@@ -251,11 +252,9 @@ class Trainer:
                     targets = remove_additive(
                         systems, targets, additive_model, train_targets
                     )
-                systems = [system.to(dtype=dtype, device=device) for system in systems]
-                targets = {
-                    key: value.to(dtype=dtype, device=device)
-                    for key, value in targets.items()
-                }
+                systems, targets = systems_and_targets_to_dtype_and_device(
+                    systems, targets, dtype, device
+                )
                 predictions = evaluate_model(
                     model,
                     systems,
@@ -294,11 +293,9 @@ class Trainer:
                     targets = remove_additive(
                         systems, targets, additive_model, train_targets
                     )
-                systems = [system.to(dtype=dtype, device=device) for system in systems]
-                targets = {
-                    key: value.to(dtype=dtype, device=device)
-                    for key, value in targets.items()
-                }
+                systems, targets = systems_and_targets_to_dtype_and_device(
+                    systems, targets, dtype, device
+                )
                 predictions = evaluate_model(
                     model,
                     systems,
