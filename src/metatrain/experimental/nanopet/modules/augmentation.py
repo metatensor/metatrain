@@ -38,6 +38,7 @@ def _apply_random_augmentations(
             positions=system.positions @ transformation.T,
             types=system.types,
             cell=system.cell @ transformation.T,
+            pbc=system.pbc,
         )
         for nl_options in system.known_neighbor_lists():
             old_nl = system.get_neighbor_list(nl_options)

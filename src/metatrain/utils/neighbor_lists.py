@@ -15,6 +15,55 @@ from metatensor.torch.atomistic import (
 from .data.system_to_ase import system_to_ase
 
 
+def get_requested_neighbor_lists(
+    module: torch.nn.Module,
+) -> List[NeighborListOptions]:
+    """Get the neighbor lists requested by a module and its children.
+
+    :param module: The module for which to get the requested neighbor lists.
+
+    :return: A list of `NeighborListOptions` objects requested by the module.
+    """
+    requested: List[NeighborListOptions] = []
+    _get_requested_neighbor_lists_in_place(
+        module=module,
+        module_name="",
+        requested=requested,
+    )
+    return requested
+
+
+def _get_requested_neighbor_lists_in_place(
+    module: torch.nn.Module,
+    module_name: str,
+    requested: List[NeighborListOptions],
+):
+    # copied from
+    # metatensor/python/metatensor-torch/metatensor/torch/atomistic/model.py
+    # and just removed the length units
+
+    if hasattr(module, "requested_neighbor_lists"):
+        for new_options in module.requested_neighbor_lists():
+            new_options.add_requestor(module_name)
+
+            already_requested = False
+            for existing in requested:
+                if existing == new_options:
+                    already_requested = True
+                    for requestor in new_options.requestors():
+                        existing.add_requestor(requestor)
+
+            if not already_requested:
+                requested.append(new_options)
+
+    for child_name, child in module.named_children():
+        _get_requested_neighbor_lists_in_place(
+            module=child,
+            module_name=module_name + "." + child_name,
+            requested=requested,
+        )
+
+
 def get_system_with_neighbor_lists(
     system: System, neighbor_lists: List[NeighborListOptions]
 ) -> System:

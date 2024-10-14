@@ -54,13 +54,15 @@ def test_ethanol_regression_train_and_invariance():
     }
 
     targets, _ = read_targets(OmegaConf.create(conf))
-    dataset = Dataset({"system": systems[:2], "energy": targets["energy"][:2]})
+    dataset = Dataset.from_dict(
+        {"system": systems[:2], "energy": targets["energy"][:2]}
+    )
 
     hypers = copy.deepcopy(DEFAULT_HYPERS)
     hypers["model"]["krr"]["num_sparse_points"] = 30
 
     target_info_dict = TargetInfoDict(
-        energy=TargetInfo(quantity="energy", unit="kcal/mol")
+        energy=TargetInfo(quantity="energy", unit="kcal/mol", gradients=["positions"])
     )
 
     dataset_info = DatasetInfo(

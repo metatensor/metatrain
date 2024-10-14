@@ -7,23 +7,22 @@ import torch
 import torch.distributed
 from torch.utils.data import DataLoader, DistributedSampler
 
-from ...utils.composition import calculate_composition_weights
-from ...utils.data import (
-    CombinedDataLoader,
-    Dataset,
-    TargetInfoDict,
-    collate_fn,
-    get_all_targets,
-)
+from ...utils.additive import remove_additive
+from ...utils.data import CombinedDataLoader, Dataset, TargetInfoDict, collate_fn
 from ...utils.data.extract_targets import get_targets_dict
 from ...utils.distributed.distributed_data_parallel import DistributedDataParallel
 from ...utils.distributed.slurm import DistributedEnvironment
+from ...utils.distributed.logging import is_main_process
 from ...utils.evaluate_model import evaluate_model
 from ...utils.external_naming import to_external_name
 from ...utils.io import check_file_extension
 from ...utils.logging import MetricLogger
 from ...utils.loss import TensorMapDictLoss
 from ...utils.metrics import RMSEAccumulator
+from ...utils.neighbor_lists import (
+    get_requested_neighbor_lists,
+    get_system_with_neighbor_lists,
+)
 from ...utils.neighbor_lists import get_system_with_neighbor_lists
 from ...utils.per_atom import average_by_num_atoms
 from .model import NanoPET
@@ -31,13 +30,6 @@ from .modules.augmentation import apply_random_augmentations
 
 
 logger = logging.getLogger(__name__)
-
-
-# Filter out the second derivative and device warnings from rascaline-torch
-warnings.filterwarnings("ignore", category=UserWarning, message="second derivative")
-warnings.filterwarnings(
-    "ignore", category=UserWarning, message="Systems data is on device"
-)
 
 
 class Trainer:
@@ -88,71 +80,32 @@ class Trainer:
             logger.info(f"Training on {world_size} devices with dtype {dtype}")
         else:
             logger.info(f"Training on device {device} with dtype {dtype}")
-        model.to(device=device, dtype=dtype)
-        if is_distributed:
-            model = DistributedDataParallel(
-                model, device_ids=[device], find_unused_parameters=False
-            )
 
-        # Calculate and set the composition weights for all targets:
-        logger.info("Calculating composition weights")
-        for target_name in (model.module if is_distributed else model).new_outputs:
-            if "mtt::aux::" in target_name:
-                continue
-            # TODO: document transfer learning and say that outputs that are already
-            # present in the model will keep their composition weights
-            if target_name in self.hypers["fixed_composition_weights"].keys():
-                logger.info(
-                    f"For {target_name}, model will use "
-                    "user-supplied composition weights"
-                )
-                cur_weight_dict = self.hypers["fixed_composition_weights"][target_name]
-                atomic_types = []
-                num_species = len(cur_weight_dict)
-                fixed_weights = torch.zeros(num_species, dtype=dtype, device=device)
-
-                for ii, (key, weight) in enumerate(cur_weight_dict.items()):
-                    atomic_types.append(key)
-                    fixed_weights[ii] = weight
-
-                print(set(atomic_types))
-                print(set((model.module if is_distributed else model).atomic_types))
-                if not set(atomic_types) == set((model.module if is_distributed else model).atomic_types):
-                    raise ValueError(
-                        "Supplied atomic types are not present in the dataset."
-                    )
-                (model.module if is_distributed else model).set_composition_weights(
-                    target_name, fixed_weights, atomic_types
-                )
-
-            else:
-                train_datasets_with_target = []
-                for dataset in train_datasets:
-                    if target_name in get_all_targets(dataset):
-                        train_datasets_with_target.append(dataset)
-                if len(train_datasets_with_target) == 0:
-                    raise ValueError(
-                        f"Target {target_name} in the model's new capabilities is not "
-                        "present in any of the training datasets."
-                    )
-                composition_weights, composition_types = calculate_composition_weights(
-                    train_datasets_with_target, target_name
-                )
-                (model.module if is_distributed else model).set_composition_weights(
-                    target_name, composition_weights, composition_types
-                )
-
-        # Calculating the neighbor lists for the training and validation datasets:
+        # Calculate the neighbor lists in advance (in particular, this
+        # needs to happen before the additive models are trained, as they
+        # might need them):
         logger.info("Calculating neighbor lists for the datasets")
-        requested_neighbor_lists = (
-            model.module if is_distributed else model
-        ).requested_neighbor_lists()
+        requested_neighbor_lists = get_requested_neighbor_lists(model)
         for dataset in train_datasets + val_datasets:
             for i in range(len(dataset)):
                 system = dataset[i]["system"]
                 # The following line attaches the neighbors lists to the system,
                 # and doesn't require to reassign the system to the dataset:
                 _ = get_system_with_neighbor_lists(system, requested_neighbor_lists)
+
+        # Move the model to the device and dtype:
+        model.to(device=device, dtype=dtype)
+
+        model = torch.jit.script(model)
+
+        if is_distributed:
+            model = DistributedDataParallel(model, device_ids=[device])
+
+        # The additive models of the SOAP-BPNN are always on CPU (to avoid OOM
+        # errors during the linear algebra training) and in float64 (to avoid
+        # numerical errors in the composition weights, which can be very large).
+        for additive_model in (model.module if is_distributed else model).additive_models:
+            additive_model.to(dtype=torch.float64)
 
         logger.info("Setting up data loaders")
 
@@ -280,40 +233,103 @@ class Trainer:
             val_rmse_calculator = RMSEAccumulator()
 
             train_loss = 0.0
+            count = 0
             for batch in train_dataloader:
-                optimizer.zero_grad()
+                print(count)
+                if count == 20:
+                    with torch.profiler.profile() as prof:
+                        optimizer.zero_grad()
 
-                systems, targets = batch
-                systems, targets = apply_random_augmentations(systems, targets)
-                systems = [system.to(dtype=dtype, device=device) for system in systems]
-                targets = {
-                    key: value.to(dtype=dtype, device=device)
-                    for key, value in targets.items()
-                }
-                predictions = evaluate_model(
-                    model,
-                    systems,
-                    TargetInfoDict(
-                        **{key: train_targets[key] for key in targets.keys()}
-                    ),
-                    is_training=True,
-                )
+                        systems, targets = batch
+                        systems, targets = apply_random_augmentations(systems, targets)
+                        systems = [system.to(device=device) for system in systems]
+                        targets = {
+                            key: value.to(device=device)
+                            for key, value in targets.items()
+                        }
+                        for additive_model in (model.module if is_distributed else model).additive_models:
+                            targets = remove_additive(
+                                systems, targets, additive_model, train_targets
+                            )
+                        systems = [system.to(dtype=dtype) for system in systems]
+                        targets = {
+                            key: value.to(dtype=dtype)
+                            for key, value in targets.items()
+                        }
+                        predictions = evaluate_model(
+                            model,
+                            systems,
+                            TargetInfoDict(
+                                **{key: train_targets[key] for key in targets.keys()}
+                            ),
+                            is_training=True,
+                        )
 
-                # average by the number of atoms
-                predictions = average_by_num_atoms(
-                    predictions, systems, per_structure_targets
-                )
-                targets = average_by_num_atoms(targets, systems, per_structure_targets)
+                        # average by the number of atoms
+                        predictions = average_by_num_atoms(
+                            predictions, systems, per_structure_targets
+                        )
+                        targets = average_by_num_atoms(targets, systems, per_structure_targets)
 
-                train_loss_batch = loss_fn(predictions, targets)
-                train_loss_batch.backward()
-                optimizer.step()
+                        train_loss_batch = loss_fn(predictions, targets)
+                        train_loss_batch.backward()
+                        optimizer.step()
 
-                if is_distributed:
-                    # sum the loss over all processes
-                    torch.distributed.all_reduce(train_loss_batch)
-                train_loss += train_loss_batch.item()
-                train_rmse_calculator.update(predictions, targets)
+                        if is_distributed:
+                            # sum the loss over all processes
+                            torch.distributed.all_reduce(train_loss_batch)
+                        train_loss += train_loss_batch.item()
+                        train_rmse_calculator.update(predictions, targets)
+
+                    if is_main_process():
+                        prof.export_chrome_trace("trace.json")
+                    exit()
+                else:
+                    optimizer.zero_grad()
+
+                    systems, targets = batch
+                    systems, targets = apply_random_augmentations(systems, targets)
+                    systems = [system.to(device=device) for system in systems]
+                    targets = {
+                        key: value.to(device=device)
+                        for key, value in targets.items()
+                    }
+                    for additive_model in (model.module if is_distributed else model).additive_models:
+                        targets = remove_additive(
+                            systems, targets, additive_model, train_targets
+                        )
+                    systems = [system.to(dtype=dtype) for system in systems]
+                    targets = {
+                        key: value.to(dtype=dtype)
+                        for key, value in targets.items()
+                    }
+                    predictions = evaluate_model(
+                        model,
+                        systems,
+                        TargetInfoDict(
+                            **{key: train_targets[key] for key in targets.keys()}
+                        ),
+                        is_training=True,
+                    )
+
+                    # average by the number of atoms
+                    predictions = average_by_num_atoms(
+                        predictions, systems, per_structure_targets
+                    )
+                    targets = average_by_num_atoms(targets, systems, per_structure_targets)
+
+                    train_loss_batch = loss_fn(predictions, targets)
+                    train_loss_batch.backward()
+                    optimizer.step()
+
+                    if is_distributed:
+                        # sum the loss over all processes
+                        torch.distributed.all_reduce(train_loss_batch)
+                    train_loss += train_loss_batch.item()
+                    train_rmse_calculator.update(predictions, targets)
+
+                    count += 1
+
             finalized_train_info = train_rmse_calculator.finalize(
                 not_per_atom=["positions_gradients"] + per_structure_targets,
                 is_distributed=is_distributed,
@@ -323,9 +339,18 @@ class Trainer:
             val_loss = 0.0
             for batch in val_dataloader:
                 systems, targets = batch
-                systems = [system.to(dtype=dtype, device=device) for system in systems]
+                systems = [system.to(device=device) for system in systems]
                 targets = {
-                    key: value.to(dtype=dtype, device=device)
+                    key: value.to(device=device)
+                    for key, value in targets.items()
+                }
+                for additive_model in (model.module if is_distributed else model).additive_models:
+                    targets = remove_additive(
+                        systems, targets, additive_model, train_targets
+                    )
+                systems = [system.to(dtype=dtype) for system in systems]
+                targets = {
+                    key: value.to(dtype=dtype)
                     for key, value in targets.items()
                 }
                 predictions = evaluate_model(
@@ -427,7 +452,7 @@ class Trainer:
     def load_checkpoint(cls, path: Union[str, Path], train_hypers) -> "Trainer":
 
         # Load the checkpoint
-        checkpoint = torch.load(path)
+        checkpoint = torch.load(path, weights_only=False)
         model_hypers = checkpoint["model_hypers"]
         model_state_dict = checkpoint["model_state_dict"]
         epoch = checkpoint["epoch"]

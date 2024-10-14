@@ -39,12 +39,18 @@ def test_regression_init():
     )
 
     expected_output = torch.tensor(
-        [[-0.03860], [0.11137], [0.09112], [-0.05634], [-0.02549]]
+        [
+            [-0.038599025458],
+            [0.111374437809],
+            [0.091115802526],
+            [-0.056339077652],
+            [-0.025491207838],
+        ]
     )
 
     # if you need to change the hardcoded values:
-    # torch.set_printoptions(precision=12)
-    # print(output["mtt::U0"].block().values)
+    torch.set_printoptions(precision=12)
+    print(output["mtt::U0"].block().values)
 
     torch.testing.assert_close(
         output["mtt::U0"].block().values, expected_output, rtol=1e-5, atol=1e-5
@@ -70,7 +76,7 @@ def test_regression_train():
         }
     }
     targets, target_info_dict = read_targets(OmegaConf.create(conf))
-    dataset = Dataset({"system": systems, "mtt::U0": targets["mtt::U0"]})
+    dataset = Dataset.from_dict({"system": systems, "mtt::U0": targets["mtt::U0"]})
 
     hypers = DEFAULT_HYPERS.copy()
     hypers["training"]["num_epochs"] = 2
@@ -100,17 +106,17 @@ def test_regression_train():
 
     expected_output = torch.tensor(
         [
-            [-40.592571258545],
-            [-56.522350311279],
-            [-76.571365356445],
-            [-77.384849548340],
-            [-93.445365905762],
+            [-0.106249026954],
+            [0.039981484413],
+            [-0.142682999372],
+            [-0.031701669097],
+            [-0.016210660338],
         ]
     )
 
     # if you need to change the hardcoded values:
-    # torch.set_printoptions(precision=12)
-    # print(output["mtt::U0"].block().values)
+    torch.set_printoptions(precision=12)
+    print(output["mtt::U0"].block().values)
 
     torch.testing.assert_close(
         output["mtt::U0"].block().values, expected_output, rtol=1e-5, atol=1e-5

@@ -1,12 +1,11 @@
 import argparse
-import importlib
 import logging
 from pathlib import Path
 from typing import Any, Union
 
 import torch
 
-from ..utils.architectures import check_architecture_name, find_all_architectures
+from ..utils.architectures import find_all_architectures, import_architecture
 from ..utils.export import is_exported
 from ..utils.io import check_file_extension
 from .formatter import CustomHelpFormatter
@@ -57,8 +56,7 @@ def _add_export_model_parser(subparser: argparse._SubParsersAction) -> None:
 def _prepare_export_model_args(args: argparse.Namespace) -> None:
     """Prepare arguments for export_model."""
     architecture_name = args.__dict__.pop("architecture_name")
-    check_architecture_name(architecture_name)
-    architecture = importlib.import_module(f"metatrain.{architecture_name}")
+    architecture = import_architecture(architecture_name)
 
     args.model = architecture.__model__.load_checkpoint(args.__dict__.pop("path"))
 

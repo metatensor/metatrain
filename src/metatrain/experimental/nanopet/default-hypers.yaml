@@ -8,6 +8,7 @@ model:
   num_gnn_layers: 2
   mlp_dropout_rate: 0.0
   attention_dropout_rate: 0.0
+  zbl: False
 
 training:
   distributed: False

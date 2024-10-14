@@ -13,6 +13,7 @@ from metatrain.utils.data import (
     collate_fn,
     get_all_targets,
     get_atomic_types,
+    get_stats,
     read_systems,
     read_targets,
 )
@@ -418,7 +419,7 @@ def test_dataset():
         }
     }
     targets, _ = read_targets(OmegaConf.create(conf))
-    dataset = Dataset({"system": systems, "energy": targets["energy"]})
+    dataset = Dataset.from_dict({"system": systems, "energy": targets["energy"]})
     dataloader = torch.utils.data.DataLoader(
         dataset, batch_size=10, collate_fn=collate_fn
     )
@@ -458,8 +459,8 @@ def test_get_atomic_types():
     }
     targets, _ = read_targets(OmegaConf.create(conf))
     targets_2, _ = read_targets(OmegaConf.create(conf_2))
-    dataset = Dataset({"system": systems, **targets})
-    dataset_2 = Dataset({"system": systems_2, **targets_2})
+    dataset = Dataset.from_dict({"system": systems, **targets})
+    dataset_2 = Dataset.from_dict({"system": systems_2, **targets_2})
 
     assert get_atomic_types(dataset) == [1, 6, 7, 8]
     assert get_atomic_types(dataset_2) == [1, 6, 8]
@@ -497,8 +498,8 @@ def test_get_all_targets():
     }
     targets, _ = read_targets(OmegaConf.create(conf))
     targets_2, _ = read_targets(OmegaConf.create(conf_2))
-    dataset = Dataset({"system": systems, **targets})
-    dataset_2 = Dataset({"system": systems_2, **targets_2})
+    dataset = Dataset.from_dict({"system": systems, **targets})
+    dataset_2 = Dataset.from_dict({"system": systems_2, **targets_2})
     assert get_all_targets(dataset) == ["mtt::U0"]
     assert get_all_targets(dataset_2) == ["energy"]
     assert get_all_targets([dataset, dataset_2]) == ["energy", "mtt::U0"]
@@ -537,42 +538,45 @@ def test_check_datasets():
     targets_ethanol, _ = read_targets(OmegaConf.create(conf_ethanol))
 
     # everything ok
-    train_set = Dataset({"system": systems_qm9, **targets_qm9})
-    val_set = Dataset({"system": systems_qm9, **targets_qm9})
+    train_set = Dataset.from_dict({"system": systems_qm9, **targets_qm9})
+    val_set = Dataset.from_dict({"system": systems_qm9, **targets_qm9})
     check_datasets([train_set], [val_set])
 
     # extra species in validation dataset
-    train_set = Dataset({"system": systems_ethanol, **targets_qm9})
-    val_set = Dataset({"system": systems_qm9, **targets_qm9})
+    train_set = Dataset.from_dict({"system": systems_ethanol, **targets_qm9})
+    val_set = Dataset.from_dict({"system": systems_qm9, **targets_qm9})
     with pytest.raises(ValueError, match="The validation dataset has a species"):
         check_datasets([train_set], [val_set])
 
     # extra targets in validation dataset
-    train_set = Dataset({"system": systems_qm9, **targets_qm9})
-    val_set = Dataset({"system": systems_qm9, **targets_ethanol})
+    train_set = Dataset.from_dict({"system": systems_qm9, **targets_qm9})
+    val_set = Dataset.from_dict({"system": systems_qm9, **targets_ethanol})
     with pytest.raises(ValueError, match="The validation dataset has a target"):
         check_datasets([train_set], [val_set])
 
     # wrong dtype
     systems_qm9_32bit = [system.to(dtype=torch.float32) for system in systems_qm9]
     targets_qm9_32bit = {
-        k: [v.to(dtype=torch.float32) for v in l] for k, l in targets_qm9.items()
+        name: [tensor.to(dtype=torch.float32) for tensor in values]
+        for name, values in targets_qm9.items()
     }
-    train_set_32_bit = Dataset({"system": systems_qm9_32bit, **targets_qm9_32bit})
+    train_set_32_bit = Dataset.from_dict(
+        {"system": systems_qm9_32bit, **targets_qm9_32bit}
+    )
 
     match = (
         "`dtype` between datasets is inconsistent, found torch.float64 and "
-        "torch.float32 found in `val_datasets`"
+        "torch.float32 in validation datasets"
     )
     with pytest.raises(TypeError, match=match):
         check_datasets([train_set], [train_set_32_bit])
 
     match = (
         "`dtype` between datasets is inconsistent, found torch.float64 and "
-        "torch.float32 found in `train_datasets`"
+        "torch.float32 in training datasets"
     )
     with pytest.raises(TypeError, match=match):
-        check_datasets([train_set, train_set_32_bit], [val_set])
+        check_datasets([train_set, train_set_32_bit], [])
 
 
 def test_collate_fn():
@@ -592,7 +596,7 @@ def test_collate_fn():
         }
     }
     targets, _ = read_targets(OmegaConf.create(conf))
-    dataset = Dataset({"system": systems, "mtt::U0": targets["mtt::U0"]})
+    dataset = Dataset.from_dict({"system": systems, "mtt::U0": targets["mtt::U0"]})
 
     batch = collate_fn([dataset[0], dataset[1], dataset[2]])
 
@@ -633,8 +637,8 @@ def test_get_stats():
     }
     targets, _ = read_targets(OmegaConf.create(conf))
     targets_2, _ = read_targets(OmegaConf.create(conf_2))
-    dataset = Dataset({"system": systems, **targets})
-    dataset_2 = Dataset({"system": systems_2, **targets_2})
+    dataset = Dataset.from_dict({"system": systems, **targets})
+    dataset_2 = Dataset.from_dict({"system": systems_2, **targets_2})
 
     dataset_info = DatasetInfo(
         length_unit="angstrom",
@@ -645,10 +649,10 @@ def test_get_stats():
         },
     )
 
-    stats = dataset.get_stats(dataset_info)
-    stats_2 = dataset_2.get_stats(dataset_info)
+    stats = get_stats(dataset, dataset_info)
+    stats_2 = get_stats(dataset_2, dataset_info)
 
-    assert "size 100" in stats
+    assert "100 structures" in stats
     assert "mtt::U0" in stats
     assert "energy" in stats_2
     assert "mean " in stats

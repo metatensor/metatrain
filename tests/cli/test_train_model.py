@@ -77,7 +77,7 @@ def test_train(capfd, monkeypatch, tmp_path, output):
     assert "Training dataset:" in stdout_log
     assert "Validation dataset:" in stdout_log
     assert "Test dataset:" in stdout_log
-    assert "size 50" in stdout_log
+    assert "50 structures" in stdout_log
     assert "mean " in stdout_log
     assert "std " in stdout_log
     assert "[INFO]" in stdout_log
@@ -449,8 +449,8 @@ def test_model_consistency_with_seed(options, monkeypatch, tmp_path, seed):
 
     train_model(options, output="model2.pt")
 
-    m1 = torch.load("model1.ckpt")
-    m2 = torch.load("model2.ckpt")
+    m1 = torch.load("model1.ckpt", weights_only=False)
+    m2 = torch.load("model2.ckpt", weights_only=False)
 
     for i in m1["model_state_dict"]:
         tensor1 = m1["model_state_dict"][i]
