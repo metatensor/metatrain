@@ -62,7 +62,7 @@ def test_ethanol_regression_train_and_invariance():
     hypers["model"]["krr"]["num_sparse_points"] = 30
 
     target_info_dict = TargetInfoDict(
-        energy=TargetInfo(quantity="energy", unit="kcal/mol")
+        energy=TargetInfo(quantity="energy", unit="kcal/mol", gradients=["positions"])
     )
 
     dataset_info = DatasetInfo(

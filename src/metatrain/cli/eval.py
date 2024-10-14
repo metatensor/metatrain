@@ -1,10 +1,12 @@
 import argparse
 import itertools
 import logging
+import time
 from pathlib import Path
 from typing import Dict, List, Optional, Union
 
 import metatensor.torch
+import numpy as np
 import torch
 from metatensor.torch import Labels, TensorBlock, TensorMap
 from metatensor.torch.atomistic import MetatensorAtomisticModel
@@ -23,7 +25,10 @@ from ..utils.errors import ArchitectureError
 from ..utils.evaluate_model import evaluate_model
 from ..utils.logging import MetricLogger
 from ..utils.metrics import RMSEAccumulator
-from ..utils.neighbor_lists import get_system_with_neighbor_lists
+from ..utils.neighbor_lists import (
+    get_requested_neighbor_lists,
+    get_system_with_neighbor_lists,
+)
 from ..utils.omegaconf import expand_dataset_config
 from ..utils.per_atom import average_by_num_atoms
 from .formatter import CustomHelpFormatter
@@ -161,18 +166,21 @@ def _eval_targets(
     """Evaluates an exported model on a dataset and prints the RMSEs for each target.
     Optionally, it also returns the predictions of the model.
 
+    The total and per-atom timings for the evaluation are also printed.
+
     Wraps around metatrain.cli.evaluate_model.
     """
 
     if len(dataset) == 0:
         logger.info("This dataset is empty. No evaluation will be performed.")
+        return None
 
     # Attach neighbor lists to the systems:
     # TODO: these might already be present... find a way to avoid recomputing
     # if already present (e.g. if this function is called after training)
     for sample in dataset:
         system = sample["system"]
-        get_system_with_neighbor_lists(system, model.requested_neighbor_lists())
+        get_system_with_neighbor_lists(system, get_requested_neighbor_lists(model))
 
     # Infer the device and dtype from the model
     model_tensor = next(itertools.chain(model.parameters(), model.buffers()))
@@ -194,6 +202,10 @@ def _eval_targets(
     if return_predictions:
         all_predictions = []
 
+    # Set up timings:
+    total_time = 0.0
+    timings_per_atom = []
+
     # Evaluate the model
     for batch in dataloader:
         systems, batch_targets = batch
@@ -202,6 +214,9 @@ def _eval_targets(
             key: value.to(dtype=dtype, device=device)
             for key, value in batch_targets.items()
         }
+
+        start_time = time.time()
+
         batch_predictions = evaluate_model(
             model,
             systems,
@@ -209,6 +224,11 @@ def _eval_targets(
             is_training=False,
             check_consistency=check_consistency,
         )
+
+        if torch.cuda.is_available():
+            torch.cuda.synchronize()
+        end_time = time.time()
+
         batch_predictions = average_by_num_atoms(
             batch_predictions, systems, per_structure_keys=[]
         )
@@ -219,6 +239,10 @@ def _eval_targets(
         if return_predictions:
             all_predictions.append(batch_predictions)
 
+        time_taken = end_time - start_time
+        total_time += time_taken
+        timings_per_atom.append(time_taken / sum(len(system) for system in systems))
+
     # Finalize the RMSEs
     rmse_values = rmse_accumulator.finalize(not_per_atom=["positions_gradients"])
     # print the RMSEs with MetricLogger
@@ -228,6 +252,16 @@ def _eval_targets(
         initial_metrics=rmse_values,
     )
     metric_logger.log(rmse_values)
+
+    # Log timings
+    timings_per_atom = np.array(timings_per_atom)
+    mean_per_atom = np.mean(timings_per_atom)
+    std_per_atom = np.std(timings_per_atom)
+    logger.info(
+        f"evaluation time: {total_time:.2f} s "
+        f"[{1000.0*mean_per_atom:.2f} ± "
+        f"{1000.0*std_per_atom:.2f} ms per atom]"
+    )
 
     if return_predictions:
         # concatenate the TensorMaps

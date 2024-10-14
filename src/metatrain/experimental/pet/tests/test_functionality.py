@@ -20,7 +20,10 @@ from metatrain.experimental.pet import PET as WrappedPET
 from metatrain.utils.architectures import get_default_hypers
 from metatrain.utils.data import DatasetInfo, TargetInfo, TargetInfoDict
 from metatrain.utils.jsonschema import validate
-from metatrain.utils.neighbor_lists import get_system_with_neighbor_lists
+from metatrain.utils.neighbor_lists import (
+    get_requested_neighbor_lists,
+    get_system_with_neighbor_lists,
+)
 
 
 DEFAULT_HYPERS = get_default_hypers("experimental.pet")
@@ -74,7 +77,8 @@ def test_prediction():
         positions=torch.tensor([[0.0, 0.0, 0.0], [0.0, 0.0, 1.0]]),
         cell=torch.zeros(3, 3),
     )
-    system = get_system_with_neighbor_lists(system, model.requested_neighbor_lists())
+    requested_neighbor_lists = get_requested_neighbor_lists(model)
+    system = get_system_with_neighbor_lists(system, requested_neighbor_lists)
 
     evaluation_options = ModelEvaluationOptions(
         length_unit=dataset_info.length_unit,
@@ -123,7 +127,8 @@ def test_per_atom_predictions_functionality():
         positions=torch.tensor([[0.0, 0.0, 0.0], [0.0, 0.0, 1.0]]),
         cell=torch.zeros(3, 3),
     )
-    system = get_system_with_neighbor_lists(system, model.requested_neighbor_lists())
+    requested_neighbor_lists = get_requested_neighbor_lists(model)
+    system = get_system_with_neighbor_lists(system, requested_neighbor_lists)
 
     evaluation_options = ModelEvaluationOptions(
         length_unit=dataset_info.length_unit,
@@ -173,7 +178,8 @@ def test_selected_atoms_functionality():
         positions=torch.tensor([[0.0, 0.0, 0.0], [0.0, 0.0, 1.0]]),
         cell=torch.zeros(3, 3),
     )
-    system = get_system_with_neighbor_lists(system, model.requested_neighbor_lists())
+    requested_neighbor_lists = get_requested_neighbor_lists(model)
+    system = get_system_with_neighbor_lists(system, requested_neighbor_lists)
 
     evaluation_options = ModelEvaluationOptions(
         length_unit=dataset_info.length_unit,

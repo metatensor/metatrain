@@ -123,6 +123,9 @@
         },
         "RESIDUAL_FACTOR": {
           "type": "number"
+        },
+        "USE_ZBL": {
+          "type": "boolean"
         }
       },
       "additionalProperties": false
@@ -219,6 +222,9 @@
         },
         "BALANCED_DATA_LOADER": {
           "type": "boolean"
+        },
+        "CHECKPOINT_INTERVAL": {
+          "type": "integer"
         }
       },
       "additionalProperties": false,

@@ -6,8 +6,8 @@ import torch
 from metatensor.torch import Labels, TensorBlock, TensorMap
 from metatensor.torch.atomistic import ModelOutput, System
 
-from .data import Dataset, DatasetInfo, get_all_targets, get_atomic_types
-from .jsonschema import validate
+from ..data import Dataset, DatasetInfo, get_all_targets, get_atomic_types
+from ..jsonschema import validate
 
 
 class CompositionModel(torch.nn.Module):
@@ -41,6 +41,15 @@ class CompositionModel(torch.nn.Module):
 
         self.dataset_info = dataset_info
         self.atomic_types = sorted(dataset_info.atomic_types)
+
+        self.outputs = {
+            key: ModelOutput(
+                quantity=value.quantity,
+                unit=value.unit,
+                per_atom=True,
+            )
+            for key, value in dataset_info.targets.items()
+        }
 
         n_types = len(self.atomic_types)
         n_targets = len(dataset_info.targets)
@@ -81,14 +90,14 @@ class CompositionModel(torch.nn.Module):
             raise ValueError(
                 "Provided `datasets` contains unknown "
                 f"atomic types {additional_types}. "
-                f"Known types from initilaization are {self.atomic_types}."
+                f"Known types from initialization are {self.atomic_types}."
             )
 
         missing_types = sorted(set(self.atomic_types) - set(get_atomic_types(datasets)))
         if missing_types:
             warnings.warn(
                 f"Provided `datasets` do not contain atomic types {missing_types}. "
-                f"Known types from initilaization are {self.atomic_types}.",
+                f"Known types from initialization are {self.atomic_types}.",
                 stacklevel=2,
             )
 
@@ -192,15 +201,14 @@ class CompositionModel(torch.nn.Module):
     ) -> Dict[str, TensorMap]:
         """Compute the targets for each system based on the composition weights.
 
-        :param systems: List of systems to calculate the energy per atom.
+        :param systems: List of systems to calculate the energy.
         :param outputs: Dictionary containing the model outputs.
         :param selected_atoms: Optional selection of atoms for which to compute the
-            targets.
-        :returns: A dictionary with the computed targets for each system.
+            predictions.
+        :returns: A dictionary with the computed predictions for each system.
 
         :raises ValueError: If no weights have been computed or if `outputs` keys
             contain unsupported keys.
-        :raises NotImplementedError: If `selected_atoms` is provided (not implemented).
         """
         dtype = systems[0].positions.dtype
         device = systems[0].positions.device
@@ -263,28 +271,3 @@ class CompositionModel(torch.nn.Module):
                 )
 
         return targets_out
-
-
-def remove_composition(
-    systems: List[System],
-    targets: Dict[str, TensorMap],
-    composition_model: torch.nn.Module,
-):
-    """Remove the composition contribution from the training targets.
-
-    The targets are changed in place.
-
-    :param systems: List of systems.
-    :param targets: Dictionary containing the targets corresponding to the systems.
-    :param composition_model: The composition model used to calculate the composition
-        contribution.
-    """
-    output_options = {}
-    for target_key in targets:
-        output_options[target_key] = ModelOutput(per_atom=False)
-
-    composition_targets = composition_model(systems, output_options)
-    for target_key in targets:
-        targets[target_key].block().values[:] -= (
-            composition_targets[target_key].block().values
-        )

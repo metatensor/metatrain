@@ -5,6 +5,7 @@ from typing import List, Union
 import torch
 from metatensor.learn.data import DataLoader
 
+from ...utils.additive import remove_additive
 from ...utils.data import (
     CombinedDataLoader,
     Dataset,
@@ -19,8 +20,12 @@ from ...utils.io import check_file_extension
 from ...utils.logging import MetricLogger
 from ...utils.loss import TensorMapDictLoss
 from ...utils.metrics import RMSEAccumulator
-from ...utils.neighbor_lists import get_system_with_neighbor_lists
+from ...utils.neighbor_lists import (
+    get_requested_neighbor_lists,
+    get_system_with_neighbor_lists,
+)
 from ...utils.per_atom import average_by_num_atoms
+from ...utils.transfer import systems_and_targets_to_dtype_and_device
 from . import AlchemicalModel
 from .utils.composition import calculate_composition_weights
 from .utils.normalize import (
@@ -67,7 +72,7 @@ class Trainer:
 
         # Calculating the neighbor lists for the training and validation datasets:
         logger.info("Calculating neighbor lists for the datasets")
-        requested_neighbor_lists = model.requested_neighbor_lists()
+        requested_neighbor_lists = get_requested_neighbor_lists(model)
         for dataset in train_datasets + val_datasets:
             for i in range(len(dataset)):
                 system = dataset[i]["system"]
@@ -218,11 +223,13 @@ class Trainer:
 
                 systems, targets = batch
                 assert len(systems[0].known_neighbor_lists()) > 0
-                systems = [system.to(dtype=dtype, device=device) for system in systems]
-                targets = {
-                    key: value.to(dtype=dtype, device=device)
-                    for key, value in targets.items()
-                }
+                systems, targets = systems_and_targets_to_dtype_and_device(
+                    systems, targets, dtype, device
+                )
+                for additive_model in model.additive_models:
+                    targets = remove_additive(
+                        systems, targets, additive_model, model.dataset_info.targets
+                    )
                 predictions = evaluate_model(
                     model,
                     systems,
@@ -254,11 +261,13 @@ class Trainer:
             for batch in val_dataloader:
                 systems, targets = batch
                 assert len(systems[0].known_neighbor_lists()) > 0
-                systems = [system.to(dtype=dtype, device=device) for system in systems]
-                targets = {
-                    key: value.to(dtype=dtype, device=device)
-                    for key, value in targets.items()
-                }
+                systems, targets = systems_and_targets_to_dtype_and_device(
+                    systems, targets, dtype, device
+                )
+                for additive_model in model.additive_models:
+                    targets = remove_additive(
+                        systems, targets, additive_model, model.dataset_info.targets
+                    )
                 predictions = evaluate_model(
                     model,
                     systems,

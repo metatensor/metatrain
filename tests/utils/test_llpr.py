@@ -10,7 +10,10 @@ from metatensor.torch.atomistic import (
 from metatrain.utils.data import Dataset, collate_fn, read_systems, read_targets
 from metatrain.utils.llpr import LLPRUncertaintyModel
 from metatrain.utils.loss import TensorMapDictLoss
-from metatrain.utils.neighbor_lists import get_system_with_neighbor_lists
+from metatrain.utils.neighbor_lists import (
+    get_requested_neighbor_lists,
+    get_system_with_neighbor_lists,
+)
 
 from . import RESOURCES_PATH
 
@@ -38,7 +41,7 @@ def test_llpr(tmpdir):
         },
     }
     targets, _ = read_targets(target_config)
-    requested_neighbor_lists = model.requested_neighbor_lists()
+    requested_neighbor_lists = get_requested_neighbor_lists(model)
     qm9_systems = [
         get_system_with_neighbor_lists(system, requested_neighbor_lists)
         for system in qm9_systems

@@ -9,8 +9,12 @@ from metatensor.torch import TensorMap
 
 from metatrain.utils.data import Dataset
 
-from ...utils.composition import remove_composition
+from ...utils.additive import remove_additive
 from ...utils.data import check_datasets
+from ...utils.neighbor_lists import (
+    get_requested_neighbor_lists,
+    get_system_with_neighbor_lists,
+)
 from . import GAP
 from .model import torch_tensor_map_to_core
 
@@ -52,7 +56,8 @@ class Trainer:
 
         # Calculate and set the composition weights:
         logger.info("Calculating composition weights")
-        model.composition_model.train_model(train_datasets)
+        # model.additive_models[0] is the composition model
+        model.additive_models[0].train_model(train_datasets)
 
         logger.info("Setting up data loaders")
         if len(train_datasets[0][0][output_name].keys) > 1:
@@ -69,11 +74,25 @@ class Trainer:
         model._keys = train_y.keys
         train_structures = [sample["system"] for sample in train_dataset]
 
-        logger.info("Subtracting composition energies")
-        # this acts in-place on train_y
-        remove_composition(
-            train_structures, {target_name: train_y}, model.composition_model
-        )
+        logger.info("Calculating neighbor lists for the datasets")
+        requested_neighbor_lists = get_requested_neighbor_lists(model)
+        for dataset in train_datasets + val_datasets:
+            for i in range(len(dataset)):
+                system = dataset[i]["system"]
+                # The following line attaches the neighbors lists to the system,
+                # and doesn't require to reassign the system to the dataset:
+                _ = get_system_with_neighbor_lists(system, requested_neighbor_lists)
+
+        logger.info("Subtracting composition energies")  # and potentially ZBL
+        train_targets = {target_name: train_y}
+        for additive_model in model.additive_models:
+            train_targets = remove_additive(
+                train_structures,
+                train_targets,
+                additive_model,
+                model.dataset_info.targets,
+            )
+        train_y = train_targets[target_name]
 
         logger.info("Calculating SOAP features")
         if len(train_y[0].gradients_list()) > 0:
