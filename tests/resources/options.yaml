@@ -1,19 +1,19 @@
 seed: 42
 
 architecture:
-  name: experimental.soap_bpnn
+  name: experimental.nanopet
   training:
-    batch_size: 16
+    batch_size: 32
     num_epochs: 100
 
 training_set:
   systems:
-    read_from: qm9_reduced_100.xyz
+    read_from: ethanol_train_1.xyz
     length_unit: angstrom
   targets:
     energy:
-      key: U0
+      key: energy
       unit: eV
 
-test_set: 0.5
+test_set: 0.1
 validation_set: 0.1

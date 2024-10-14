@@ -1,7 +1,10 @@
 import logging
-import warnings
 from pathlib import Path
 from typing import List, Union
+
+from metatensor.torch.atomistic import System
+from metatensor.torch import TensorMap
+from typing import Dict, List, Tuple
 
 import torch
 import torch.distributed
@@ -95,8 +98,6 @@ class Trainer:
 
         # Move the model to the device and dtype:
         model.to(device=device, dtype=dtype)
-
-        model = torch.jit.script(model)
 
         if is_distributed:
             model = DistributedDataParallel(model, device_ids=[device])
@@ -223,6 +224,30 @@ class Trainer:
 
         start_epoch = 0 if self.epoch is None else self.epoch + 1
 
+        @torch.jit.script
+        def systems_and_targets_to_device(
+            systems: List[System], targets: Dict[str, TensorMap], device: torch.device
+        ) -> Tuple[List[System], Dict[str, TensorMap]]:
+            return (
+                [system.to(device=device) for system in systems],
+                {
+                    key: value.to(device=device)
+                    for key, value in targets.items()
+                },
+            )
+        
+        @torch.jit.script
+        def systems_and_targets_to_dtype(
+            systems: List[System], targets: Dict[str, TensorMap], dtype: torch.dtype
+        ) -> Tuple[List[System], Dict[str, TensorMap]]:
+            return (
+                [system.to(dtype=dtype) for system in systems],
+                {
+                    key: value.to(dtype=dtype)
+                    for key, value in targets.items()
+                },
+        )
+
         # Train the model:
         logger.info("Starting training")
         for epoch in range(start_epoch, start_epoch + self.hypers["num_epochs"]):
@@ -242,28 +267,22 @@ class Trainer:
 
                         systems, targets = batch
                         systems, targets = apply_random_augmentations(systems, targets)
-                        systems = [system.to(device=device) for system in systems]
-                        targets = {
-                            key: value.to(device=device)
-                            for key, value in targets.items()
-                        }
-                        for additive_model in (model.module if is_distributed else model).additive_models:
-                            targets = remove_additive(
-                                systems, targets, additive_model, train_targets
+                        systems, targets = systems_and_targets_to_device(systems, targets, device)
+                        with torch.profiler.record_function("additive_models"):
+                            for additive_model in (model.module if is_distributed else model).additive_models:
+                                targets = remove_additive(
+                                    systems, targets, additive_model, train_targets
+                                )
+                        systems, targets = systems_and_targets_to_dtype(systems, targets, dtype)
+                        with torch.profiler.record_function("evaluate_model"):
+                            predictions = evaluate_model(
+                                model,
+                                systems,
+                                TargetInfoDict(
+                                    **{key: train_targets[key] for key in targets.keys()}
+                                ),
+                                is_training=True,
                             )
-                        systems = [system.to(dtype=dtype) for system in systems]
-                        targets = {
-                            key: value.to(dtype=dtype)
-                            for key, value in targets.items()
-                        }
-                        predictions = evaluate_model(
-                            model,
-                            systems,
-                            TargetInfoDict(
-                                **{key: train_targets[key] for key in targets.keys()}
-                            ),
-                            is_training=True,
-                        )
 
                         # average by the number of atoms
                         predictions = average_by_num_atoms(
@@ -289,20 +308,12 @@ class Trainer:
 
                     systems, targets = batch
                     systems, targets = apply_random_augmentations(systems, targets)
-                    systems = [system.to(device=device) for system in systems]
-                    targets = {
-                        key: value.to(device=device)
-                        for key, value in targets.items()
-                    }
+                    systems, targets = systems_and_targets_to_device(systems, targets, device)
                     for additive_model in (model.module if is_distributed else model).additive_models:
                         targets = remove_additive(
                             systems, targets, additive_model, train_targets
                         )
-                    systems = [system.to(dtype=dtype) for system in systems]
-                    targets = {
-                        key: value.to(dtype=dtype)
-                        for key, value in targets.items()
-                    }
+                    systems, targets = systems_and_targets_to_dtype(systems, targets, dtype)
                     predictions = evaluate_model(
                         model,
                         systems,

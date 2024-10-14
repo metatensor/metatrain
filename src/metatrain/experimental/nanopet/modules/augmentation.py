@@ -15,7 +15,7 @@ def apply_random_augmentations(
     """
 
     transformations = [
-        torch.tensor(get_random_augmentation(), dtype=systems[0].positions.dtype)
+        torch.from_numpy(get_random_augmentation())
         for _ in range(len(systems))
     ]
 
