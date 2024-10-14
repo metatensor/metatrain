@@ -10,6 +10,7 @@ import tomli  # Replace by tomllib from std library once docs are build with Pyt
 # to include the documentation
 os.environ["METATENSOR_IMPORT_FOR_SPHINX"] = "1"
 os.environ["RASCALINE_IMPORT_FOR_SPHINX"] = "1"
+os.environ["PYTORCH_JIT"] = "0"
 
 import metatrain  # noqa: E402
 
@@ -53,9 +54,11 @@ def generate_examples():
     # METATENSOR_IMPORT_FOR_SPHINX=1). So instead we run it inside a small script, and
     # include the corresponding output later.
     del os.environ["METATENSOR_IMPORT_FOR_SPHINX"]
+    del os.environ["PYTORCH_JIT"]
     script = os.path.join(ROOT, "docs", "generate_examples", "generate-examples.py")
     subprocess.run([sys.executable, script])
     os.environ["METATENSOR_IMPORT_FOR_SPHINX"] = "1"
+    os.environ["PYTORCH_JIT"] = "0"
 
 
 def setup(app):

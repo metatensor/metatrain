@@ -24,4 +24,5 @@ This is the API for the ``utils`` module of ``metatrain``.
    omegaconf
    output_gradient
    per_atom
+   transfer
    units
