@@ -206,6 +206,19 @@ def _eval_targets(
     total_time = 0.0
     timings_per_atom = []
 
+    # Warm up with a single batch 5 times (to get accurate timings later)
+    batch = next(iter(dataloader))
+    systems = batch[0]
+    systems = [system.to(dtype=dtype, device=device) for system in systems]
+    for _ in range(5):
+        evaluate_model(
+            model,
+            systems,
+            options,
+            is_training=False,
+            check_consistency=check_consistency,
+        )
+
     # Evaluate the model
     for batch in dataloader:
         systems, batch_targets = batch
