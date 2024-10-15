@@ -6,23 +6,38 @@ from metatensor.torch.atomistic import System
 
 
 @torch.jit.script
-def systems_and_targets_to_dtype_and_device(
+def systems_and_targets_to_device(
     systems: List[System],
     targets: Dict[str, TensorMap],
-    dtype: torch.dtype,
     device: torch.device,
 ):
     """
-    Transfers the systems and targets to the specified dtype and device.
+    Transfers the systems and targets to the specified device.
 
     :param systems: List of systems.
     :param targets: Dictionary of targets.
-    :param dtype: Desired data type.
     :param device: Device to transfer to.
     """
 
-    systems = [system.to(dtype=dtype, device=device) for system in systems]
-    targets = {
-        key: value.to(dtype=dtype, device=device) for key, value in targets.items()
-    }
+    systems = [system.to(device=device) for system in systems]
+    targets = {key: value.to(device=device) for key, value in targets.items()}
+    return systems, targets
+
+
+@torch.jit.script
+def systems_and_targets_to_dtype(
+    systems: List[System],
+    targets: Dict[str, TensorMap],
+    dtype: torch.dtype,
+):
+    """
+    Changes the systems and targets to the specified floating point data type.
+
+    :param systems: List of systems.
+    :param targets: Dictionary of targets.
+    :param dtype: Desired floating point data type.
+    """
+
+    systems = [system.to(dtype=dtype) for system in systems]
+    targets = {key: value.to(dtype=dtype) for key, value in targets.items()}
     return systems, targets
