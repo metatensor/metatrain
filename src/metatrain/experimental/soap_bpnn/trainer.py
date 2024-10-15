@@ -23,6 +23,10 @@ from ...utils.neighbor_lists import (
     get_system_with_neighbor_lists,
 )
 from ...utils.per_atom import average_by_num_atoms
+from ...utils.transfer import (
+    systems_and_targets_to_device,
+    systems_and_targets_to_dtype,
+)
 from .model import SoapBpnn
 
 
@@ -103,11 +107,10 @@ class Trainer:
 
         # Move the model to the device and dtype:
         model.to(device=device, dtype=dtype)
-        # The additive models of the SOAP-BPNN are always on CPU (to avoid OOM
-        # errors during the linear algebra training) and in float64 (to avoid
+        # The additive models of the SOAP-BPNN are always in float64 (to avoid
         # numerical errors in the composition weights, which can be very large).
         for additive_model in model.additive_models:
-            additive_model.to(device=torch.device("cpu"), dtype=torch.float64)
+            additive_model.to(dtype=torch.float64)
 
         logger.info("Calculating composition weights")
         model.additive_models[0].train_model(  # this is the composition model
@@ -247,15 +250,16 @@ class Trainer:
                 optimizer.zero_grad()
 
                 systems, targets = batch
-                for additive_model in model.additive_models:
+                systems, targets = systems_and_targets_to_device(
+                    systems, targets, device
+                )
+                for additive_model in (
+                    model.module if is_distributed else model
+                ).additive_models:
                     targets = remove_additive(
                         systems, targets, additive_model, train_targets
                     )
-                systems = [system.to(dtype=dtype, device=device) for system in systems]
-                targets = {
-                    key: value.to(dtype=dtype, device=device)
-                    for key, value in targets.items()
-                }
+                systems, targets = systems_and_targets_to_dtype(systems, targets, dtype)
                 predictions = evaluate_model(
                     model,
                     systems,
@@ -290,15 +294,16 @@ class Trainer:
             val_loss = 0.0
             for batch in val_dataloader:
                 systems, targets = batch
-                for additive_model in model.additive_models:
+                systems, targets = systems_and_targets_to_device(
+                    systems, targets, device
+                )
+                for additive_model in (
+                    model.module if is_distributed else model
+                ).additive_models:
                     targets = remove_additive(
                         systems, targets, additive_model, train_targets
                     )
-                systems = [system.to(dtype=dtype, device=device) for system in systems]
-                targets = {
-                    key: value.to(dtype=dtype, device=device)
-                    for key, value in targets.items()
-                }
+                systems, targets = systems_and_targets_to_dtype(systems, targets, dtype)
                 predictions = evaluate_model(
                     model,
                     systems,
