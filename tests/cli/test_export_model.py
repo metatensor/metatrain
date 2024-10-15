@@ -4,6 +4,7 @@ Actual unit tests for the function are performed in `tests/utils/test_export`.
 """
 
 import glob
+import logging
 import subprocess
 from pathlib import Path
 
@@ -20,9 +21,10 @@ from . import MODEL_HYPERS, RESOURCES_PATH
 
 
 @pytest.mark.parametrize("path", [Path("exported.pt"), "exported.pt"])
-def test_export(monkeypatch, tmp_path, path):
+def test_export(monkeypatch, tmp_path, path, caplog):
     """Tests the export_model function."""
     monkeypatch.chdir(tmp_path)
+    caplog.set_level(logging.INFO)
 
     dataset_info = DatasetInfo(
         length_unit="angstrom",
@@ -41,6 +43,9 @@ def test_export(monkeypatch, tmp_path, path):
     assert len(extensions_glob) == 1
 
     assert Path(path).is_file()
+
+    # Test log message
+    assert "Model exported to" in caplog.text
 
 
 @pytest.mark.parametrize("output", [None, "exported.pt"])
