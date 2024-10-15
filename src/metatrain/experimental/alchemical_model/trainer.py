@@ -25,7 +25,10 @@ from ...utils.neighbor_lists import (
     get_system_with_neighbor_lists,
 )
 from ...utils.per_atom import average_by_num_atoms
-from ...utils.transfer import systems_and_targets_to_dtype_and_device
+from ...utils.transfer import (
+    systems_and_targets_to_device,
+    systems_and_targets_to_dtype,
+)
 from . import AlchemicalModel
 from .utils.composition import calculate_composition_weights
 from .utils.normalize import (
@@ -94,6 +97,10 @@ class Trainer:
 
         logger.info(f"Training on device {device} with dtype {dtype}")
         model.to(device=device, dtype=dtype)
+        # The additive models of the Alchemical Model are always in float64 (to avoid
+        # numerical errors in the composition weights, which can be very large).
+        for additive_model in model.additive_models:
+            additive_model.to(dtype=torch.float64)
 
         # Calculate and set the composition weights, but only if
         # this is the first training run:
@@ -222,14 +229,14 @@ class Trainer:
                 optimizer.zero_grad()
 
                 systems, targets = batch
-                assert len(systems[0].known_neighbor_lists()) > 0
-                systems, targets = systems_and_targets_to_dtype_and_device(
-                    systems, targets, dtype, device
+                systems, targets = systems_and_targets_to_device(
+                    systems, targets, device
                 )
                 for additive_model in model.additive_models:
                     targets = remove_additive(
                         systems, targets, additive_model, model.dataset_info.targets
                     )
+                systems, targets = systems_and_targets_to_dtype(systems, targets, dtype)
                 predictions = evaluate_model(
                     model,
                     systems,
@@ -261,13 +268,14 @@ class Trainer:
             for batch in val_dataloader:
                 systems, targets = batch
                 assert len(systems[0].known_neighbor_lists()) > 0
-                systems, targets = systems_and_targets_to_dtype_and_device(
-                    systems, targets, dtype, device
+                systems, targets = systems_and_targets_to_device(
+                    systems, targets, device
                 )
                 for additive_model in model.additive_models:
                     targets = remove_additive(
                         systems, targets, additive_model, model.dataset_info.targets
                     )
+                systems, targets = systems_and_targets_to_dtype(systems, targets, dtype)
                 predictions = evaluate_model(
                     model,
                     systems,
