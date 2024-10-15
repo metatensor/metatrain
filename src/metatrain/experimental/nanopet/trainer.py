@@ -258,88 +258,88 @@ class Trainer:
             val_rmse_calculator = RMSEAccumulator()
 
             train_loss = 0.0
-            count = 0
+            # count = 0
             for batch in train_dataloader:
-                print(count)
-                if count == 20:
-                    with torch.profiler.profile() as prof:
-                        optimizer.zero_grad()
+                # print(count)
+                # if count == 20:
+                #     with torch.profiler.profile() as prof:
+                #         optimizer.zero_grad()
 
-                        systems, targets = batch
-                        systems, targets = apply_random_augmentations(systems, targets)
-                        systems, targets = systems_and_targets_to_device(systems, targets, device)
-                        with torch.profiler.record_function("additive_models"):
-                            for additive_model in (model.module if is_distributed else model).additive_models:
-                                targets = remove_additive(
-                                    systems, targets, additive_model, train_targets
-                                )
-                        systems, targets = systems_and_targets_to_dtype(systems, targets, dtype)
-                        with torch.profiler.record_function("evaluate_model"):
-                            predictions = evaluate_model(
-                                model,
-                                systems,
-                                TargetInfoDict(
-                                    **{key: train_targets[key] for key in targets.keys()}
-                                ),
-                                is_training=True,
-                            )
+                #         systems, targets = batch
+                #         systems, targets = apply_random_augmentations(systems, targets)
+                #         systems, targets = systems_and_targets_to_device(systems, targets, device)
+                #         with torch.profiler.record_function("additive_models"):
+                #             for additive_model in (model.module if is_distributed else model).additive_models:
+                #                 targets = remove_additive(
+                #                     systems, targets, additive_model, train_targets
+                #                 )
+                #         systems, targets = systems_and_targets_to_dtype(systems, targets, dtype)
+                #         with torch.profiler.record_function("evaluate_model"):
+                #             predictions = evaluate_model(
+                #                 model,
+                #                 systems,
+                #                 TargetInfoDict(
+                #                     **{key: train_targets[key] for key in targets.keys()}
+                #                 ),
+                #                 is_training=True,
+                #             )
 
-                        # average by the number of atoms
-                        predictions = average_by_num_atoms(
-                            predictions, systems, per_structure_targets
-                        )
-                        targets = average_by_num_atoms(targets, systems, per_structure_targets)
+                #         # average by the number of atoms
+                #         predictions = average_by_num_atoms(
+                #             predictions, systems, per_structure_targets
+                #         )
+                #         targets = average_by_num_atoms(targets, systems, per_structure_targets)
 
-                        train_loss_batch = loss_fn(predictions, targets)
-                        train_loss_batch.backward()
-                        optimizer.step()
+                #         train_loss_batch = loss_fn(predictions, targets)
+                #         train_loss_batch.backward()
+                #         optimizer.step()
 
-                        if is_distributed:
-                            # sum the loss over all processes
-                            torch.distributed.all_reduce(train_loss_batch)
-                        train_loss += train_loss_batch.item()
-                        train_rmse_calculator.update(predictions, targets)
+                #         if is_distributed:
+                #             # sum the loss over all processes
+                #             torch.distributed.all_reduce(train_loss_batch)
+                #         train_loss += train_loss_batch.item()
+                #         train_rmse_calculator.update(predictions, targets)
 
-                    if is_main_process():
-                        prof.export_chrome_trace("trace.json")
-                    exit()
-                else:
-                    optimizer.zero_grad()
+                #     if is_main_process():
+                #         prof.export_chrome_trace("trace.json")
+                #     exit()
+                # else:
+                optimizer.zero_grad()
 
-                    systems, targets = batch
-                    systems, targets = apply_random_augmentations(systems, targets)
-                    systems, targets = systems_and_targets_to_device(systems, targets, device)
-                    for additive_model in (model.module if is_distributed else model).additive_models:
-                        targets = remove_additive(
-                            systems, targets, additive_model, train_targets
-                        )
-                    systems, targets = systems_and_targets_to_dtype(systems, targets, dtype)
-                    predictions = evaluate_model(
-                        model,
-                        systems,
-                        TargetInfoDict(
-                            **{key: train_targets[key] for key in targets.keys()}
-                        ),
-                        is_training=True,
+                systems, targets = batch
+                systems, targets = apply_random_augmentations(systems, targets)
+                systems, targets = systems_and_targets_to_device(systems, targets, device)
+                for additive_model in (model.module if is_distributed else model).additive_models:
+                    targets = remove_additive(
+                        systems, targets, additive_model, train_targets
                     )
+                systems, targets = systems_and_targets_to_dtype(systems, targets, dtype)
+                predictions = evaluate_model(
+                    model,
+                    systems,
+                    TargetInfoDict(
+                        **{key: train_targets[key] for key in targets.keys()}
+                    ),
+                    is_training=True,
+                )
 
-                    # average by the number of atoms
-                    predictions = average_by_num_atoms(
-                        predictions, systems, per_structure_targets
-                    )
-                    targets = average_by_num_atoms(targets, systems, per_structure_targets)
+                # average by the number of atoms
+                predictions = average_by_num_atoms(
+                    predictions, systems, per_structure_targets
+                )
+                targets = average_by_num_atoms(targets, systems, per_structure_targets)
 
-                    train_loss_batch = loss_fn(predictions, targets)
-                    train_loss_batch.backward()
-                    optimizer.step()
+                train_loss_batch = loss_fn(predictions, targets)
+                train_loss_batch.backward()
+                optimizer.step()
 
-                    if is_distributed:
-                        # sum the loss over all processes
-                        torch.distributed.all_reduce(train_loss_batch)
-                    train_loss += train_loss_batch.item()
-                    train_rmse_calculator.update(predictions, targets)
+                if is_distributed:
+                    # sum the loss over all processes
+                    torch.distributed.all_reduce(train_loss_batch)
+                train_loss += train_loss_batch.item()
+                train_rmse_calculator.update(predictions, targets)
 
-                    count += 1
+                # count += 1
 
             finalized_train_info = train_rmse_calculator.finalize(
                 not_per_atom=["positions_gradients"] + per_structure_targets,

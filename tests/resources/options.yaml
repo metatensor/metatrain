@@ -1,10 +1,12 @@
 seed: 42
+base_precision: 32
 
 architecture:
   name: experimental.nanopet
   training:
     batch_size: 32
-    num_epochs: 100
+    num_epochs: 3
+    log_interval: 1
 
 training_set:
   systems:
