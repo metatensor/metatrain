@@ -13,7 +13,7 @@ from metatensor.torch.atomistic import (
 )
 from nanopet_neighbors import get_corresponding_edges, get_nef_indices
 
-from ...utils.additive import CompositionModel
+from ...utils.additive import ZBL, CompositionModel
 from ...utils.data import DatasetInfo
 from ...utils.dtype import dtype_to_str
 from ...utils.export import export
@@ -120,6 +120,13 @@ class NanoPET(torch.nn.Module):
             additive_models.append(ZBL(model_hypers, dataset_info))
         self.additive_models = torch.nn.ModuleList(additive_models)
 
+        # cache
+        self.single_label = Labels.single()
+        self.property_label = Labels(
+            names=["energy"],
+            values=torch.tensor([[0]]),
+        )
+
     def restart(self, dataset_info: DatasetInfo) -> "NanoPET":
         # merge old and new dataset info
         merged_info = self.dataset_info.union(dataset_info)
@@ -160,15 +167,63 @@ class NanoPET(torch.nn.Module):
         # Checks on systems (species) and outputs are done in the
         # MetatensorAtomisticModel wrapper
 
+        device = systems[0].device
+
+        if self.single_label.values.device != device:
+            self.single_label = self.single_label.to(device)
+
+        if self.property_label.values.device != device:
+            self.property_label = self.property_label.to(device)
+
+        segment_indices = torch.concatenate(
+            [
+                torch.full(
+                    (len(system),),
+                    i_system,
+                    device=device,
+                )
+                for i_system, system in enumerate(systems)
+            ],
+        )
+
+        sample_values = torch.stack(
+            [
+                segment_indices,
+                torch.concatenate(
+                    [
+                        torch.arange(
+                            len(system),
+                            device=device,
+                        )
+                        for system in systems
+                    ],
+                ),
+            ],
+            dim=1,
+        )
+        sample_labels = Labels(
+            names=["system", "atom"],
+            values=sample_values,
+        )
+
         (
             positions,
             centers,
             neighbors,
             species,
-            segment_indices,
-            edge_vectors,
+            cells,
             cell_shifts,
         ) = concatenate_structures(systems)
+
+        edge_vectors = (
+            positions[neighbors]
+            - positions[centers]
+            + torch.einsum(
+                "ab, abc -> ac",
+                cell_shifts.to(cells.dtype),
+                cells[segment_indices[centers]],
+            )
+        )
 
         bincount = torch.bincount(centers)
         if bincount.numel() == 0:  # no edges
@@ -235,7 +290,7 @@ class NanoPET(torch.nn.Module):
                 new_features = contraction(new_features)
                 new_features = edge_array_to_nef(new_features, nef_indices)
                 new_features = transformer(new_features, radial_mask)
-                features = (features + new_features) * 0.5 ** 0.5
+                features = (features + new_features) * 0.5**0.5
 
         edge_features = features * radial_mask[:, :, None]
         node_features = torch.sum(edge_features, dim=1) * 0.1
@@ -245,31 +300,11 @@ class NanoPET(torch.nn.Module):
         # output the hidden features, if requested:
         if "mtt::aux::last_layer_features" in outputs:
             last_layer_feature_tmap = TensorMap(
-                keys=Labels(
-                    names=["_"],
-                    values=torch.tensor([[0]], device=node_features.device),
-                ),
+                keys=self.single_label,
                 blocks=[
                     TensorBlock(
                         values=node_features,
-                        samples=Labels(
-                            names=["system", "atom"],
-                            values=torch.stack(
-                                [
-                                    segment_indices,
-                                    torch.concatenate(
-                                        [
-                                            torch.arange(
-                                                len(system),
-                                                device=node_features.device,
-                                            )
-                                            for system in systems
-                                        ],
-                                    ),
-                                ],
-                                dim=1,
-                            ),
-                        ),
+                        samples=sample_labels,
                         components=[],
                         properties=Labels(
                             names=["property"],
@@ -292,41 +327,16 @@ class NanoPET(torch.nn.Module):
         for output_name, last_layer in self.last_layers.items():
             if output_name in outputs:
                 atomic_energies = last_layer(node_features)
+                block = TensorBlock(
+                    values=atomic_energies,
+                    samples=sample_labels,
+                    components=[],
+                    properties=self.property_label,
+                )
                 atomic_energies_tmap_dict[output_name] = TensorMap(
-                    keys=Labels(
-                        names=["_"],
-                        values=torch.tensor([[0]], device=node_features.device),
-                    ),
+                    keys=self.single_label,
                     blocks=[
-                        TensorBlock(
-                            values=atomic_energies,
-                            samples=Labels(
-                                names=["system", "atom", "center_type"],
-                                values=torch.stack(
-                                    [
-                                        segment_indices,
-                                        torch.concatenate(
-                                            [
-                                                torch.arange(
-                                                    len(system),
-                                                    device=atomic_energies.device,
-                                                )
-                                                for system in systems
-                                            ],
-                                        ),
-                                        species,
-                                    ],
-                                    dim=1,
-                                ),
-                            ),
-                            components=[],
-                            properties=Labels(
-                                names=["energy"],
-                                values=torch.tensor(
-                                    [[0]], device=atomic_energies.device
-                                ),
-                            ),
-                        )
+                        block,
                     ],
                 )
 
@@ -338,13 +348,10 @@ class NanoPET(torch.nn.Module):
 
         for output_name, atomic_energy in atomic_energies_tmap_dict.items():
             if outputs[output_name].per_atom:
-                # this operation should just remove the center_type label
-                return_dict[output_name] = metatensor.torch.remove_dimension(
-                    atomic_energy, axis="samples", name="center_type"
-                )
+                return_dict[output_name] = atomic_energy
             else:
                 return_dict[output_name] = metatensor.torch.sum_over_samples(
-                    atomic_energy, ["atom", "center_type"]
+                    atomic_energy, ["atom"]
                 )
 
         if not self.training:
@@ -398,7 +405,7 @@ class NanoPET(torch.nn.Module):
         # float64
         self.to(dtype)
 
-        interaction_ranges = [self.hypers["num_gnn_layers"]*self.hypers["cutoff"]]
+        interaction_ranges = [self.hypers["num_gnn_layers"] * self.hypers["cutoff"]]
         for additive_model in self.additive_models:
             if hasattr(additive_model, "cutoff_radius"):
                 interaction_ranges.append(additive_model.cutoff_radius)

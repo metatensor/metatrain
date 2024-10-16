@@ -1,21 +1,19 @@
 import logging
 from pathlib import Path
-from typing import List, Union
-
-from metatensor.torch.atomistic import System
-from metatensor.torch import TensorMap
-from typing import Dict, List, Tuple
+from typing import Dict, List, Tuple, Union
 
 import torch
 import torch.distributed
+from metatensor.torch import TensorMap
+from metatensor.torch.atomistic import System
 from torch.utils.data import DataLoader, DistributedSampler
 
 from ...utils.additive import remove_additive
 from ...utils.data import CombinedDataLoader, Dataset, TargetInfoDict, collate_fn
 from ...utils.data.extract_targets import get_targets_dict
 from ...utils.distributed.distributed_data_parallel import DistributedDataParallel
-from ...utils.distributed.slurm import DistributedEnvironment
 from ...utils.distributed.logging import is_main_process
+from ...utils.distributed.slurm import DistributedEnvironment
 from ...utils.evaluate_model import evaluate_model
 from ...utils.external_naming import to_external_name
 from ...utils.io import check_file_extension
@@ -26,7 +24,6 @@ from ...utils.neighbor_lists import (
     get_requested_neighbor_lists,
     get_system_with_neighbor_lists,
 )
-from ...utils.neighbor_lists import get_system_with_neighbor_lists
 from ...utils.per_atom import average_by_num_atoms
 from .model import NanoPET
 from .modules.augmentation import apply_random_augmentations
@@ -105,7 +102,9 @@ class Trainer:
         # The additive models of the SOAP-BPNN are always on CPU (to avoid OOM
         # errors during the linear algebra training) and in float64 (to avoid
         # numerical errors in the composition weights, which can be very large).
-        for additive_model in (model.module if is_distributed else model).additive_models:
+        for additive_model in (
+            model.module if is_distributed else model
+        ).additive_models:
             additive_model.to(dtype=torch.float64)
 
         logger.info("Setting up data loaders")
@@ -230,23 +229,17 @@ class Trainer:
         ) -> Tuple[List[System], Dict[str, TensorMap]]:
             return (
                 [system.to(device=device) for system in systems],
-                {
-                    key: value.to(device=device)
-                    for key, value in targets.items()
-                },
+                {key: value.to(device=device) for key, value in targets.items()},
             )
-        
+
         @torch.jit.script
         def systems_and_targets_to_dtype(
             systems: List[System], targets: Dict[str, TensorMap], dtype: torch.dtype
         ) -> Tuple[List[System], Dict[str, TensorMap]]:
             return (
                 [system.to(dtype=dtype) for system in systems],
-                {
-                    key: value.to(dtype=dtype)
-                    for key, value in targets.items()
-                },
-        )
+                {key: value.to(dtype=dtype) for key, value in targets.items()},
+            )
 
         # Train the model:
         logger.info("Starting training")
@@ -308,8 +301,12 @@ class Trainer:
 
                 systems, targets = batch
                 systems, targets = apply_random_augmentations(systems, targets)
-                systems, targets = systems_and_targets_to_device(systems, targets, device)
-                for additive_model in (model.module if is_distributed else model).additive_models:
+                systems, targets = systems_and_targets_to_device(
+                    systems, targets, device
+                )
+                for additive_model in (
+                    model.module if is_distributed else model
+                ).additive_models:
                     targets = remove_additive(
                         systems, targets, additive_model, train_targets
                     )
@@ -352,18 +349,16 @@ class Trainer:
                 systems, targets = batch
                 systems = [system.to(device=device) for system in systems]
                 targets = {
-                    key: value.to(device=device)
-                    for key, value in targets.items()
+                    key: value.to(device=device) for key, value in targets.items()
                 }
-                for additive_model in (model.module if is_distributed else model).additive_models:
+                for additive_model in (
+                    model.module if is_distributed else model
+                ).additive_models:
                     targets = remove_additive(
                         systems, targets, additive_model, train_targets
                     )
                 systems = [system.to(dtype=dtype) for system in systems]
-                targets = {
-                    key: value.to(dtype=dtype)
-                    for key, value in targets.items()
-                }
+                targets = {key: value.to(dtype=dtype) for key, value in targets.items()}
                 predictions = evaluate_model(
                     model,
                     systems,

@@ -15,8 +15,7 @@ def apply_random_augmentations(
     """
 
     transformations = [
-        torch.from_numpy(get_random_augmentation())
-        for _ in range(len(systems))
+        torch.from_numpy(get_random_augmentation()) for _ in range(len(systems))
     ]
 
     return _apply_random_augmentations(systems, targets, transformations)
