@@ -26,3 +26,4 @@ training:
   checkpoint_interval: 25
   per_structure_targets: []
   loss_weights: {}
+  log_mae: False

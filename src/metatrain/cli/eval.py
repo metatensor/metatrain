@@ -24,7 +24,7 @@ from ..utils.data import (
 from ..utils.errors import ArchitectureError
 from ..utils.evaluate_model import evaluate_model
 from ..utils.logging import MetricLogger
-from ..utils.metrics import RMSEAccumulator
+from ..utils.metrics import MAEAccumulator, RMSEAccumulator
 from ..utils.neighbor_lists import (
     get_requested_neighbor_lists,
     get_system_with_neighbor_lists,
@@ -197,6 +197,7 @@ def _eval_targets(
 
     # Initialize RMSE accumulator:
     rmse_accumulator = RMSEAccumulator()
+    mae_accumulator = MAEAccumulator()
 
     # If we're returning the predictions, we need to store them:
     if return_predictions:
@@ -249,6 +250,7 @@ def _eval_targets(
             batch_targets, systems, per_structure_keys=[]
         )
         rmse_accumulator.update(batch_predictions, batch_targets)
+        mae_accumulator.update(batch_predictions, batch_targets)
         if return_predictions:
             all_predictions.append(batch_predictions)
 
@@ -256,15 +258,18 @@ def _eval_targets(
         total_time += time_taken
         timings_per_atom.append(time_taken / sum(len(system) for system in systems))
 
-    # Finalize the RMSEs
+    # Finalize the metrics
     rmse_values = rmse_accumulator.finalize(not_per_atom=["positions_gradients"])
+    mae_values = mae_accumulator.finalize(not_per_atom=["positions_gradients"])
+    metrics = {**rmse_values, **mae_values}
+
     # print the RMSEs with MetricLogger
     metric_logger = MetricLogger(
         log_obj=logger,
         dataset_info=model.capabilities(),
-        initial_metrics=rmse_values,
+        initial_metrics=metrics,
     )
-    metric_logger.log(rmse_values)
+    metric_logger.log(metrics)
 
     # Log timings
     timings_per_atom = np.array(timings_per_atom)

@@ -35,3 +35,4 @@ training:
   fixed_composition_weights: {}
   per_structure_targets: []
   loss_weights: {}
+  log_mae: False

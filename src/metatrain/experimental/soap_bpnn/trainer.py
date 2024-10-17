@@ -17,7 +17,7 @@ from ...utils.external_naming import to_external_name
 from ...utils.io import check_file_extension
 from ...utils.logging import MetricLogger
 from ...utils.loss import TensorMapDictLoss
-from ...utils.metrics import RMSEAccumulator
+from ...utils.metrics import MAEAccumulator, RMSEAccumulator
 from ...utils.neighbor_lists import (
     get_requested_neighbor_lists,
     get_system_with_neighbor_lists,
@@ -244,6 +244,9 @@ class Trainer:
 
             train_rmse_calculator = RMSEAccumulator()
             val_rmse_calculator = RMSEAccumulator()
+            if self.hypers["log_mae"]:
+                train_mae_calculator = MAEAccumulator()
+                val_mae_calculator = MAEAccumulator()
 
             train_loss = 0.0
             for batch in train_dataloader:
@@ -285,11 +288,22 @@ class Trainer:
                     torch.distributed.all_reduce(train_loss_batch)
                 train_loss += train_loss_batch.item()
                 train_rmse_calculator.update(predictions, targets)
+                if self.hypers["log_mae"]:
+                    train_mae_calculator.update(predictions, targets)
+
             finalized_train_info = train_rmse_calculator.finalize(
                 not_per_atom=["positions_gradients"] + per_structure_targets,
                 is_distributed=is_distributed,
                 device=device,
             )
+            if self.hypers["log_mae"]:
+                finalized_train_info.update(
+                    train_mae_calculator.finalize(
+                        not_per_atom=["positions_gradients"] + per_structure_targets,
+                        is_distributed=is_distributed,
+                        device=device,
+                    )
+                )
 
             val_loss = 0.0
             for batch in val_dataloader:
@@ -326,20 +340,28 @@ class Trainer:
                     torch.distributed.all_reduce(val_loss_batch)
                 val_loss += val_loss_batch.item()
                 val_rmse_calculator.update(predictions, targets)
+                if self.hypers["log_mae"]:
+                    val_mae_calculator.update(predictions, targets)
+
             finalized_val_info = val_rmse_calculator.finalize(
                 not_per_atom=["positions_gradients"] + per_structure_targets,
                 is_distributed=is_distributed,
                 device=device,
             )
+            if self.hypers["log_mae"]:
+                finalized_val_info.update(
+                    val_mae_calculator.finalize(
+                        not_per_atom=["positions_gradients"] + per_structure_targets,
+                        is_distributed=is_distributed,
+                        device=device,
+                    )
+                )
 
             lr_scheduler.step(val_loss)
 
             # Now we log the information:
             finalized_train_info = {"loss": train_loss, **finalized_train_info}
-            finalized_val_info = {
-                "loss": val_loss,
-                **finalized_val_info,
-            }
+            finalized_val_info = {"loss": val_loss, **finalized_val_info}
 
             if epoch == start_epoch:
                 metric_logger = MetricLogger(
