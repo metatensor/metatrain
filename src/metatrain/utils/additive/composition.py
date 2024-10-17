@@ -62,6 +62,10 @@ class CompositionModel(torch.nn.Module):
             "weights", torch.zeros((n_targets, n_types), dtype=torch.float64)
         )
 
+        # cache some labels
+        self.keys_label = Labels.single()
+        self.properties_label = Labels(names=["energy"], values=torch.tensor([[0]]))
+
     def train_model(
         self,
         datasets: List[Union[Dataset, torch.utils.data.Subset]],
@@ -213,6 +217,12 @@ class CompositionModel(torch.nn.Module):
         dtype = systems[0].positions.dtype
         device = systems[0].positions.device
 
+        # move labels to device (Labels can't be treated as buffers for now)
+        if self.keys_label.device != device:
+            self.keys_label = self.keys_label.to(device)
+        if self.properties_label.values.device != device:
+            self.properties_label = self.properties_label.to(device)
+
         for output_name in outputs:
             if output_name.startswith("mtt::aux::"):
                 continue
@@ -222,6 +232,10 @@ class CompositionModel(torch.nn.Module):
                     "model."
                 )
 
+        # Note: atomic types are not checked. At training time, the composition model
+        # is initialized with the correct types. At inference time, the checks are
+        # performed by MetatensorAtomisticModel.
+
         # Compute the targets for each system by adding the composition weights times
         # number of atoms per atomic type.
         targets_out: Dict[str, TensorMap] = {}
@@ -229,33 +243,34 @@ class CompositionModel(torch.nn.Module):
             if target_key.startswith("mtt::aux::"):
                 continue
             weights = self.weights[self.output_to_output_index[target_key]]
-            targets_list = []
-            sample_values: List[List[int]] = []
 
+            concatenated_types = torch.concatenate([system.types for system in systems])
+            targets = torch.empty(len(concatenated_types), dtype=dtype, device=device)
+            for i_type, atomic_type in enumerate(self.atomic_types):
+                targets[concatenated_types == atomic_type] = weights[i_type]
+
+            # create sample labels
+            sample_values_list = []
             for i_system, system in enumerate(systems):
-                targets_single = torch.zeros(len(system), dtype=dtype, device=device)
-
-                for i_type, atomic_type in enumerate(self.atomic_types):
-                    targets_single[atomic_type == system.types] = weights[i_type]
-
-                targets_list.append(targets_single)
-                sample_values += [[i_system, i_atom] for i_atom in range(len(system))]
-
-            targets = torch.concatenate(targets_list)
+                system_column = torch.full(
+                    (len(system),), i_system, dtype=torch.int, device=device
+                )
+                atom_column = torch.arange(len(system), device=device)
+                samples_values_single_system = torch.stack(
+                    [system_column, atom_column], dim=1
+                )
+                sample_values_list.append(samples_values_single_system)
+            sample_values = torch.concatenate(sample_values_list)
 
             block = TensorBlock(
                 values=targets.reshape(-1, 1),
-                samples=Labels(
-                    ["system", "atom"], torch.tensor(sample_values, device=device)
-                ),
+                samples=Labels(["system", "atom"], sample_values),
                 components=[],
-                properties=Labels(
-                    names=["energy"], values=torch.tensor([[0]], device=device)
-                ),
+                properties=self.properties_label,
             )
 
             targets_out[target_key] = TensorMap(
-                keys=Labels(names=["_"], values=torch.tensor([[0]], device=device)),
+                keys=self.keys_label,
                 blocks=[block],
             )
 
