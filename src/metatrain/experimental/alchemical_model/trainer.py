@@ -19,7 +19,7 @@ from ...utils.external_naming import to_external_name
 from ...utils.io import check_file_extension
 from ...utils.logging import MetricLogger
 from ...utils.loss import TensorMapDictLoss
-from ...utils.metrics import RMSEAccumulator
+from ...utils.metrics import MAEAccumulator, RMSEAccumulator
 from ...utils.neighbor_lists import (
     get_requested_neighbor_lists,
     get_system_with_neighbor_lists,
@@ -223,6 +223,9 @@ class Trainer:
         for epoch in range(start_epoch, start_epoch + self.hypers["num_epochs"]):
             train_rmse_calculator = RMSEAccumulator()
             val_rmse_calculator = RMSEAccumulator()
+            if self.hypers["log_mae"]:
+                train_mae_calculator = MAEAccumulator()
+                val_mae_calculator = MAEAccumulator()
 
             train_loss = 0.0
             for batch in train_dataloader:
@@ -260,9 +263,18 @@ class Trainer:
                 train_loss_batch.backward()
                 optimizer.step()
                 train_rmse_calculator.update(predictions, targets)
+                if self.hypers["log_mae"]:
+                    train_mae_calculator.update(predictions, targets)
+
             finalized_train_info = train_rmse_calculator.finalize(
                 not_per_atom=["positions_gradients"] + per_structure_targets
             )
+            if self.hypers["log_mae"]:
+                finalized_train_info.update(
+                    train_mae_calculator.finalize(
+                        not_per_atom=["positions_gradients"] + per_structure_targets
+                    )
+                )
 
             val_loss = 0.0
             for batch in val_dataloader:
@@ -297,9 +309,18 @@ class Trainer:
                 val_loss_batch = loss_fn(predictions, targets)
                 val_loss += val_loss_batch.item()
                 val_rmse_calculator.update(predictions, targets)
+                if self.hypers["log_mae"]:
+                    val_mae_calculator.update(predictions, targets)
+
             finalized_val_info = val_rmse_calculator.finalize(
                 not_per_atom=["positions_gradients"] + per_structure_targets
             )
+            if self.hypers["log_mae"]:
+                finalized_val_info.update(
+                    val_mae_calculator.finalize(
+                        not_per_atom=["positions_gradients"] + per_structure_targets
+                    )
+                )
 
             lr_scheduler.step(val_loss)
 

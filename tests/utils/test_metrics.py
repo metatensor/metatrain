@@ -2,7 +2,7 @@ import pytest
 import torch
 from metatensor.torch import Labels, TensorBlock, TensorMap
 
-from metatrain.utils.metrics import RMSEAccumulator
+from metatrain.utils.metrics import MAEAccumulator, RMSEAccumulator
 
 
 @pytest.fixture
@@ -63,3 +63,21 @@ def test_rmse_accumulator(tensor_map_with_grad_1, tensor_map_with_grad_2):
 
     assert "energy RMSE (per atom)" in rmses
     assert "energy_gradient_gradients RMSE" in rmses
+
+
+def test_mae_accumulator(tensor_map_with_grad_1, tensor_map_with_grad_2):
+    """Tests the MAEAccumulator class."""
+
+    mae_accumulator = MAEAccumulator()
+    for _ in range(10):
+        mae_accumulator.update(
+            {"energy": tensor_map_with_grad_1}, {"energy": tensor_map_with_grad_2}
+        )
+
+    assert mae_accumulator.information["energy"][1] == 30
+    assert mae_accumulator.information["energy_gradient_gradients"][1] == 30
+
+    maes = mae_accumulator.finalize(not_per_atom=["gradient_gradients"])
+
+    assert "energy MAE (per atom)" in maes
+    assert "energy_gradient_gradients MAE" in maes
