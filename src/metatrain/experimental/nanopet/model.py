@@ -390,7 +390,8 @@ class NanoPET(torch.nn.Module):
 
         # Create the model
         model = cls(**model_hypers)
-        dtype = next(iter(model_state_dict.values())).dtype
+        # dtype = next(iter(model_state_dict.values())).dtype
+        dtype = torch.float32  # HACK: firts state_dict value is somehow an integer ????
         model.to(dtype).load_state_dict(model_state_dict)
 
         return model
