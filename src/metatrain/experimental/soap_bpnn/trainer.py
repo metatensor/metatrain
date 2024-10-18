@@ -234,6 +234,10 @@ class Trainer:
         # per-atom targets:
         per_structure_targets = self.hypers["per_structure_targets"]
 
+        # Log the initial learning rate:
+        old_lr = optimizer.param_groups[0]["lr"]
+        logger.info(f"Initial learning rate: {old_lr}")
+
         start_epoch = 0 if self.epoch is None else self.epoch + 1
 
         # Train the model:
@@ -332,8 +336,6 @@ class Trainer:
                 device=device,
             )
 
-            lr_scheduler.step(val_loss)
-
             # Now we log the information:
             finalized_train_info = {"loss": train_loss, **finalized_train_info}
             finalized_val_info = {
@@ -355,16 +357,23 @@ class Trainer:
                     rank=rank,
                 )
 
+            lr_scheduler.step(val_loss)
+            new_lr = lr_scheduler.get_last_lr()[0]
+            if new_lr != old_lr:
+                logger.info(f"Changing learning rate from {old_lr} to {new_lr}")
+                old_lr = new_lr
+
             if epoch % self.hypers["checkpoint_interval"] == 0:
                 if is_distributed:
                     torch.distributed.barrier()
                 self.optimizer_state_dict = optimizer.state_dict()
                 self.scheduler_state_dict = lr_scheduler.state_dict()
                 self.epoch = epoch
-                self.save_checkpoint(
-                    (model.module if is_distributed else model),
-                    Path(checkpoint_dir) / f"model_{epoch}.ckpt",
-                )
+                if rank == 0:
+                    self.save_checkpoint(
+                        (model.module if is_distributed else model),
+                        Path(checkpoint_dir) / f"model_{epoch}.ckpt",
+                    )
 
             # early stopping criterion:
             if val_loss < best_val_loss:
