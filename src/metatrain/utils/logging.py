@@ -221,7 +221,7 @@ def setup_logging(
         stream_handler.setFormatter(formatter)
         handlers.append(stream_handler)
 
-        if log_file:
+        if log_file and is_main_process():
             log_file = check_file_extension(filename=log_file, extension=".log")
             file_handler = logging.FileHandler(filename=str(log_file), encoding="utf-8")
             file_handler.setFormatter(formatter)

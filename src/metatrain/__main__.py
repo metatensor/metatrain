@@ -16,6 +16,7 @@ from .cli.export import (
     export_model,
 )
 from .cli.train import _add_train_model_parser, _prepare_train_model_args, train_model
+from .utils.distributed.logging import is_main_process
 from .utils.logging import get_cli_input, setup_logging
 
 
@@ -81,7 +82,8 @@ def main():
     if callable == "train_model":
         # define and create `checkpoint_dir` based on current directory, date and time
         checkpoint_dir = _datetime_output_path(now=datetime.now())
-        os.makedirs(checkpoint_dir, exist_ok=True)  # exist_ok=True for distributed
+        if is_main_process():
+            os.makedirs(checkpoint_dir)
         args.checkpoint_dir = checkpoint_dir
 
         log_file = checkpoint_dir / "train.log"
