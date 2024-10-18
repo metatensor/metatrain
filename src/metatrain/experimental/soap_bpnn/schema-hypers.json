@@ -149,6 +149,9 @@
             }
           },
           "additionalProperties": false
+        },
+        "log_mae": {
+          "type": "boolean"
         }
       },
       "additionalProperties": false
