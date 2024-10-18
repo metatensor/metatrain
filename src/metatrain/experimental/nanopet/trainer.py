@@ -441,10 +441,11 @@ class Trainer:
                 self.optimizer_state_dict = optimizer.state_dict()
                 self.scheduler_state_dict = lr_scheduler.state_dict()
                 self.epoch = epoch
-                self.save_checkpoint(
-                    (model.module if is_distributed else model),
-                    Path(checkpoint_dir) / f"model_{epoch}.ckpt",
-                )
+                if rank == 0:
+                    self.save_checkpoint(
+                        (model.module if is_distributed else model),
+                        Path(checkpoint_dir) / f"model_{epoch}.ckpt",
+                    )
 
             # early stopping criterion:
             if val_loss < best_val_loss:
