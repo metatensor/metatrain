@@ -11,14 +11,18 @@ from metatensor.torch.atomistic import (
     NeighborListOptions,
     System,
 )
-from nanopet_neighbors import get_corresponding_edges, get_nef_indices
 
 from ...utils.additive import ZBL, CompositionModel
 from ...utils.data import DatasetInfo
 from ...utils.dtype import dtype_to_str
 from ...utils.export import export
 from .modules.encoder import Encoder
-from .modules.nef import edge_array_to_nef, nef_array_to_edges
+from .modules.nef import (
+    edge_array_to_nef,
+    get_corresponding_edges,
+    get_nef_indices,
+    nef_array_to_edges,
+)
 from .modules.radial_mask import get_radial_mask
 from .modules.structures import concatenate_structures
 from .modules.transformer import Transformer
