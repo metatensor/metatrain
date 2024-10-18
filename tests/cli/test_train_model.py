@@ -12,7 +12,7 @@ from jsonschema.exceptions import ValidationError
 from omegaconf import OmegaConf
 
 from metatrain import RANDOM_SEED
-from metatrain.cli.train import train_model
+from metatrain.cli.train import _process_continue_from, train_model
 from metatrain.utils.errors import ArchitectureError
 
 from . import (
@@ -446,7 +446,7 @@ def test_continue_auto(options, caplog, monkeypatch, tmp_path):
         for fake_checkpoint_dir in fake_checkpoints_dirs:
             shutil.copy(MODEL_PATH_64_BIT, fake_checkpoint_dir / f"model_{i}.ckpt")
 
-    train_model(options, continue_from="auto")
+    train_model(options, continue_from=_process_continue_from("auto"))
 
     assert "Loading checkpoint from" in caplog.text
     assert str(true_checkpoint_dir) in caplog.text
@@ -460,7 +460,7 @@ def test_continue_auto_no_outputs(options, caplog, monkeypatch, tmp_path):
     shutil.copy(DATASET_PATH_QM9, "qm9_reduced_100.xyz")
     caplog.set_level(logging.INFO)
 
-    train_model(options, continue_from="auto")
+    train_model(options, continue_from=_process_continue_from("auto"))
 
     assert "Loading checkpoint from" not in caplog.text
 
