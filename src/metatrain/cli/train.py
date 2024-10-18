@@ -112,9 +112,12 @@ def _process_continue_from(continue_from: str) -> Optional[str]:
             # `sorted` because some checkpoint files are named with
             # the epoch number (e.g. `epoch_10.ckpt` would be before
             # `epoch_8.ckpt`). We therefore sort by file creation time.
-            new_continue_from = str(
-                sorted(dir.glob("*.ckpt"), key=lambda f: f.stat().st_ctime)[-1]
-            )
+            try:
+                new_continue_from = str(
+                    sorted(dir.glob("*.ckpt"), key=lambda f: f.stat().st_ctime)[-1]
+                )
+            except IndexError:
+                new_continue_from = None
         else:
             new_continue_from = None
 

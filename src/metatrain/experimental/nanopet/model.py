@@ -219,14 +219,22 @@ class NanoPET(torch.nn.Module):
             cell_shifts,
         ) = concatenate_structures(systems)
 
-        edge_vectors = (
-            positions[neighbors]
-            - positions[centers]
-            + torch.einsum(
+        # somehow the backward of this operation is very slow at evaluation,
+        # where there is only one cell, therefore we simplify the calculation
+        # for that case
+        if len(cells) == 1:
+            cell_contributions = cell_shifts.to(cells.dtype) @ cells[0]
+        else:
+            cell_contributions = torch.einsum(
                 "ab, abc -> ac",
                 cell_shifts.to(cells.dtype),
                 cells[segment_indices[centers]],
             )
+
+        edge_vectors = (
+            positions[neighbors]
+            - positions[centers]
+            + cell_contributions
         )
 
         bincount = torch.bincount(centers)
