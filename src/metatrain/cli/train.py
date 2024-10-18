@@ -74,7 +74,7 @@ def _add_train_model_parser(subparser: argparse._SubParsersAction) -> None:
         "-c",
         "--continue",
         dest="continue_from",
-        type=str,
+        type=_process_continue_from,
         required=False,
         help="File to continue training from.",
     )
@@ -96,6 +96,29 @@ def _prepare_train_model_args(args: argparse.Namespace) -> None:
         override_options = {}
 
     args.options = OmegaConf.merge(args.options, override_options)
+
+
+def _process_continue_from(continue_from: str) -> Optional[str]:
+    # covers the case where `continue_from` is `auto`
+    if continue_from == "auto":
+        # try to find the `outputs` directory; if it doesn't exist
+        # then we are not continuing from a previous run
+        if Path("outputs/").exists():
+            # take the latest day directory
+            dir = sorted(Path("outputs/").iterdir())[-1]
+            # take the latest second directory
+            dir = sorted(dir.iterdir())[-1]
+            # take the latest checkpoint. This cannot be done with
+            # `sorted` because some checkpoint files are named with
+            # the epoch number (e.g. `epoch_10.ckpt` would be before
+            # `epoch_8.ckpt`). We therefore sort by file creation time.
+            new_continue_from = str(
+                sorted(dir.glob("*.ckpt"), key=lambda f: f.stat().st_ctime)[-1]
+            )
+        else:
+            new_continue_from = None
+
+    return new_continue_from
 
 
 def train_model(
