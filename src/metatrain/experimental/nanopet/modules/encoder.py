@@ -12,8 +12,12 @@ class Encoder(torch.nn.Module):
     ):
         super().__init__()
 
-        self.cartesian_encoder = torch.nn.Linear(
-            in_features=3, out_features=hidden_size, bias=False
+        self.cartesian_encoder = torch.nn.Sequential(
+            torch.nn.Linear(in_features=3, out_features=4 * hidden_dim, bias=False),
+            torch.nn.SiLU(),
+            torch.nn.Linear(in_features=4 * hidden_dim, out_features=4 * hidden_dim, bias=False),
+            torch.nn.SiLU(),
+            torch.nn.Linear(in_features=4 * hidden_dim, out_features=hidden_dim, bias=False)
         )
         self.center_encoder = torch.nn.Embedding(
             num_embeddings=n_species, embedding_dim=hidden_size
@@ -31,10 +35,10 @@ class Encoder(torch.nn.Module):
     ):
         # Encode cartesian coordinates
         cartesian_features = features["cartesian"]
-        r = torch.sqrt(torch.sum(torch.square(cartesian_features), dim=-1, keepdim=True))
-        cartesian_features = cartesian_features * torch.exp(-r/2.5) / r
+        # r = torch.sqrt(torch.sum(torch.square(cartesian_features), dim=-1, keepdim=True))
+        # cartesian_features = cartesian_features * torch.exp(-r/2.5) / r
         cartesian_features = self.cartesian_encoder(cartesian_features)
-        cartesian_features = torch.sin(10.0*cartesian_features)
+        # cartesian_features = torch.sin(10.0*cartesian_features)
 
         # Encode centers
         center_features = self.center_encoder(features["center"])
