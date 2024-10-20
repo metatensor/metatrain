@@ -67,7 +67,10 @@ def test_eval(monkeypatch, tmp_path, caplog, model_name, options):
     # Test target predictions
     log = "".join([rec.message for rec in caplog.records])
     assert "energy RMSE (per atom)" in log
+    assert "energy MAE (per atom)" in log
     assert "dataset with index" not in log
+    assert "evaluation time" in log
+    assert "ms per atom" in log
 
     # Test file is written predictions
     frames = ase.io.read("foo.xyz", ":")

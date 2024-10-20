@@ -1,5 +1,4 @@
 import argparse
-import importlib
 import itertools
 import json
 import logging
@@ -14,8 +13,18 @@ from metatensor.torch.atomistic import load_atomistic_model
 from omegaconf import DictConfig, OmegaConf
 
 from .. import PACKAGE_ROOT
-from ..utils.architectures import check_architecture_options, get_default_hypers
-from ..utils.data import DatasetInfo, TargetInfoDict, get_atomic_types, get_dataset
+from ..utils.architectures import (
+    check_architecture_options,
+    get_default_hypers,
+    import_architecture,
+)
+from ..utils.data import (
+    DatasetInfo,
+    TargetInfoDict,
+    get_atomic_types,
+    get_dataset,
+    get_stats,
+)
 from ..utils.data.dataset import _train_test_random_split
 from ..utils.devices import pick_devices
 from ..utils.distributed.logging import is_main_process
@@ -65,7 +74,7 @@ def _add_train_model_parser(subparser: argparse._SubParsersAction) -> None:
         "-c",
         "--continue",
         dest="continue_from",
-        type=str,
+        type=_process_continue_from,
         required=False,
         help="File to continue training from.",
     )
@@ -89,6 +98,34 @@ def _prepare_train_model_args(args: argparse.Namespace) -> None:
     args.options = OmegaConf.merge(args.options, override_options)
 
 
+def _process_continue_from(continue_from: str) -> Optional[str]:
+    # covers the case where `continue_from` is `auto`
+    if continue_from == "auto":
+        # try to find the `outputs` directory; if it doesn't exist
+        # then we are not continuing from a previous run
+        if Path("outputs/").exists():
+            # take the latest day directory
+            dir = sorted(Path("outputs/").iterdir())[-1]
+            # take the latest second directory
+            dir = sorted(dir.iterdir())[-1]
+            # take the latest checkpoint. This cannot be done with
+            # `sorted` because some checkpoint files are named with
+            # the epoch number (e.g. `epoch_10.ckpt` would be before
+            # `epoch_8.ckpt`). We therefore sort by file creation time.
+            new_continue_from = str(
+                sorted(dir.glob("*.ckpt"), key=lambda f: f.stat().st_ctime)[-1]
+            )
+        else:
+            new_continue_from = None
+
+        # the main thread will proceed to create a new outputs/ folder
+        # or a new folder within outputs/
+        import time
+        time.sleep(5)
+
+    return new_continue_from
+
+
 def train_model(
     options: Union[DictConfig, Dict],
     output: str = "model.pt",
@@ -110,8 +147,6 @@ def train_model(
     :param continue_from: File to continue training from.
     """
 
-    print(torch.cuda.is_available())
-
     ###########################
     # VALIDATE BASE OPTIONS ###
     ###########################
@@ -132,7 +167,7 @@ def train_model(
     check_architecture_options(
         name=architecture_name, options=OmegaConf.to_container(options["architecture"])
     )
-    architecture = importlib.import_module(f"metatrain.{architecture_name}")
+    architecture = import_architecture(architecture_name)
 
     logger.info(f"Running training for {architecture_name!r} architecture")
 
@@ -293,7 +328,7 @@ def train_model(
         else:
             index = f" {i}"
         logger.info(
-            f"Training dataset{index}:\n    {train_dataset.get_stats(dataset_info)}"
+            f"Training dataset{index}:\n    {get_stats(train_dataset, dataset_info)}"
         )
 
     for i, val_dataset in enumerate(val_datasets):
@@ -302,7 +337,7 @@ def train_model(
         else:
             index = f" {i}"
         logger.info(
-            f"Validation dataset{index}:\n    {val_dataset.get_stats(dataset_info)}"
+            f"Validation dataset{index}:\n    {get_stats(val_dataset, dataset_info)}"
         )
 
     for i, test_dataset in enumerate(test_datasets):
@@ -310,7 +345,9 @@ def train_model(
             index = ""
         else:
             index = f" {i}"
-        logger.info(f"Test dataset{index}:\n    {test_dataset.get_stats(dataset_info)}")
+        logger.info(
+            f"Test dataset{index}:\n    {get_stats(test_dataset, dataset_info)}"
+        )
 
     ###########################
     # SAVE EXPANDED OPTIONS ###

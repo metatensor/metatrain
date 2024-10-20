@@ -5,7 +5,7 @@ from typing import List, Union
 import torch
 from metatensor.learn.data import DataLoader
 
-from ...utils.composition import calculate_composition_weights
+from ...utils.additive import remove_additive
 from ...utils.data import (
     CombinedDataLoader,
     Dataset,
@@ -19,10 +19,18 @@ from ...utils.external_naming import to_external_name
 from ...utils.io import check_file_extension
 from ...utils.logging import MetricLogger
 from ...utils.loss import TensorMapDictLoss
-from ...utils.metrics import RMSEAccumulator
-from ...utils.neighbor_lists import get_system_with_neighbor_lists
+from ...utils.metrics import MAEAccumulator, RMSEAccumulator
+from ...utils.neighbor_lists import (
+    get_requested_neighbor_lists,
+    get_system_with_neighbor_lists,
+)
 from ...utils.per_atom import average_by_num_atoms
+from ...utils.transfer import (
+    systems_and_targets_to_device,
+    systems_and_targets_to_dtype,
+)
 from . import AlchemicalModel
+from .utils.composition import calculate_composition_weights
 from .utils.normalize import (
     get_average_number_of_atoms,
     get_average_number_of_neighbors,
@@ -67,7 +75,7 @@ class Trainer:
 
         # Calculating the neighbor lists for the training and validation datasets:
         logger.info("Calculating neighbor lists for the datasets")
-        requested_neighbor_lists = model.requested_neighbor_lists()
+        requested_neighbor_lists = get_requested_neighbor_lists(model)
         for dataset in train_datasets + val_datasets:
             for i in range(len(dataset)):
                 system = dataset[i]["system"]
@@ -89,6 +97,10 @@ class Trainer:
 
         logger.info(f"Training on device {device} with dtype {dtype}")
         model.to(device=device, dtype=dtype)
+        # The additive models of the Alchemical Model are always in float64 (to avoid
+        # numerical errors in the composition weights, which can be very large).
+        for additive_model in model.additive_models:
+            additive_model.to(dtype=torch.float64)
 
         # Calculate and set the composition weights, but only if
         # this is the first training run:
@@ -204,6 +216,10 @@ class Trainer:
         # per-atom targets:
         per_structure_targets = self.hypers["per_structure_targets"]
 
+        # Log the initial learning rate:
+        old_lr = optimizer.param_groups[0]["lr"]
+        logger.info(f"Initial learning rate: {old_lr}")
+
         start_epoch = 0 if self.epoch is None else self.epoch + 1
 
         # Train the model:
@@ -211,18 +227,23 @@ class Trainer:
         for epoch in range(start_epoch, start_epoch + self.hypers["num_epochs"]):
             train_rmse_calculator = RMSEAccumulator()
             val_rmse_calculator = RMSEAccumulator()
+            if self.hypers["log_mae"]:
+                train_mae_calculator = MAEAccumulator()
+                val_mae_calculator = MAEAccumulator()
 
             train_loss = 0.0
             for batch in train_dataloader:
                 optimizer.zero_grad()
 
                 systems, targets = batch
-                assert len(systems[0].known_neighbor_lists()) > 0
-                systems = [system.to(dtype=dtype, device=device) for system in systems]
-                targets = {
-                    key: value.to(dtype=dtype, device=device)
-                    for key, value in targets.items()
-                }
+                systems, targets = systems_and_targets_to_device(
+                    systems, targets, device
+                )
+                for additive_model in model.additive_models:
+                    targets = remove_additive(
+                        systems, targets, additive_model, model.dataset_info.targets
+                    )
+                systems, targets = systems_and_targets_to_dtype(systems, targets, dtype)
                 predictions = evaluate_model(
                     model,
                     systems,
@@ -246,19 +267,31 @@ class Trainer:
                 train_loss_batch.backward()
                 optimizer.step()
                 train_rmse_calculator.update(predictions, targets)
+                if self.hypers["log_mae"]:
+                    train_mae_calculator.update(predictions, targets)
+
             finalized_train_info = train_rmse_calculator.finalize(
                 not_per_atom=["positions_gradients"] + per_structure_targets
             )
+            if self.hypers["log_mae"]:
+                finalized_train_info.update(
+                    train_mae_calculator.finalize(
+                        not_per_atom=["positions_gradients"] + per_structure_targets
+                    )
+                )
 
             val_loss = 0.0
             for batch in val_dataloader:
                 systems, targets = batch
                 assert len(systems[0].known_neighbor_lists()) > 0
-                systems = [system.to(dtype=dtype, device=device) for system in systems]
-                targets = {
-                    key: value.to(dtype=dtype, device=device)
-                    for key, value in targets.items()
-                }
+                systems, targets = systems_and_targets_to_device(
+                    systems, targets, device
+                )
+                for additive_model in model.additive_models:
+                    targets = remove_additive(
+                        systems, targets, additive_model, model.dataset_info.targets
+                    )
+                systems, targets = systems_and_targets_to_dtype(systems, targets, dtype)
                 predictions = evaluate_model(
                     model,
                     systems,
@@ -280,11 +313,18 @@ class Trainer:
                 val_loss_batch = loss_fn(predictions, targets)
                 val_loss += val_loss_batch.item()
                 val_rmse_calculator.update(predictions, targets)
+                if self.hypers["log_mae"]:
+                    val_mae_calculator.update(predictions, targets)
+
             finalized_val_info = val_rmse_calculator.finalize(
                 not_per_atom=["positions_gradients"] + per_structure_targets
             )
-
-            lr_scheduler.step(val_loss)
+            if self.hypers["log_mae"]:
+                finalized_val_info.update(
+                    val_mae_calculator.finalize(
+                        not_per_atom=["positions_gradients"] + per_structure_targets
+                    )
+                )
 
             # Now we log the information:
             finalized_train_info = {"loss": train_loss, **finalized_train_info}
@@ -305,6 +345,12 @@ class Trainer:
                     metrics=[finalized_train_info, finalized_val_info],
                     epoch=epoch,
                 )
+
+            lr_scheduler.step(val_loss)
+            new_lr = lr_scheduler.get_last_lr()[0]
+            if new_lr != old_lr:
+                logger.info(f"Changing learning rate from {old_lr} to {new_lr}")
+                old_lr = new_lr
 
             if epoch % self.hypers["checkpoint_interval"] == 0:
                 self.optimizer_state_dict = optimizer.state_dict()
@@ -349,7 +395,7 @@ class Trainer:
     def load_checkpoint(cls, path: Union[str, Path], train_hypers) -> "Trainer":
 
         # Load the checkpoint
-        checkpoint = torch.load(path)
+        checkpoint = torch.load(path, weights_only=False)
         model_hypers = checkpoint["model_hypers"]
         model_state_dict = checkpoint["model_state_dict"]
         epoch = checkpoint["epoch"]

@@ -55,13 +55,15 @@ class AttentionBlock(torch.nn.Module):
         attention_output = torch.matmul(attention_weights, v)
         attention_output = attention_output.transpose(1, 2)
         attention_output = attention_output.reshape(
-            attention_output.size(0), attention_output.size(1), attention_output.size(2)*attention_output.size(3)
+            attention_output.size(0),
+            attention_output.size(1),
+            attention_output.size(2) * attention_output.size(3),
         )
 
         # Output projection
         outputs = self.out_proj(attention_output)
 
         # Residual connection
-        outputs = (outputs + inputs) * 0.5 ** 0.5
+        outputs = (outputs + inputs) * 0.5**0.5
 
         return outputs

@@ -53,6 +53,9 @@
             }
           },
           "additionalProperties": false
+        },
+        "zbl": {
+          "type": "boolean"
         }
       },
       "additionalProperties": false
@@ -98,6 +101,9 @@
             }
           },
           "additionalProperties": false
+        },
+        "log_mae": {
+          "type": "boolean"
         }
       },
       "additionalProperties": false

@@ -70,6 +70,8 @@ def test_batch_dicts_compatibility(cutoff):
         ARCHITECTURAL_HYPERS.USE_ADDITIONAL_SCALAR_ATTRIBUTES,
         ARCHITECTURAL_HYPERS.USE_LONG_RANGE,
         ARCHITECTURAL_HYPERS.K_CUT,
+        ARCHITECTURAL_HYPERS.N_TARGETS > 1,
+        ARCHITECTURAL_HYPERS.TARGET_INDEX_KEY,
     )[0]
     ref_batch_dict = {
         "x": batch.x,
@@ -146,6 +148,8 @@ def test_predictions_compatibility(cutoff):
         ARCHITECTURAL_HYPERS.USE_ADDITIONAL_SCALAR_ATTRIBUTES,
         ARCHITECTURAL_HYPERS.USE_LONG_RANGE,
         ARCHITECTURAL_HYPERS.K_CUT,
+        ARCHITECTURAL_HYPERS.N_TARGETS > 1,
+        ARCHITECTURAL_HYPERS.TARGET_INDEX_KEY,
     )[0]
 
     batch_dict = {
@@ -159,9 +163,9 @@ def test_predictions_compatibility(cutoff):
         "neighbors_pos": batch.neighbors_pos,
     }
 
-    pet = model._module.pet
+    pet = model.module.pet
 
-    pet_prediction = pet.forward(batch_dict)
+    pet_prediction = pet.forward(batch_dict)["prediction"]
 
     torch.testing.assert_close(
         mtm_pet_prediction, pet_prediction.sum(dim=0, keepdim=True)

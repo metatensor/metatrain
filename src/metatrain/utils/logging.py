@@ -221,7 +221,7 @@ def setup_logging(
         stream_handler.setFormatter(formatter)
         handlers.append(stream_handler)
 
-        if log_file:
+        if log_file and is_main_process():
             log_file = check_file_extension(filename=log_file, extension=".log")
             file_handler = logging.FileHandler(filename=str(log_file), encoding="utf-8")
             file_handler.setFormatter(formatter)
@@ -274,6 +274,12 @@ def _sort_metric_names(name_list):
         # loss goes first
         loss_index = name_list.index("loss")
         sorted_name_list.append(name_list.pop(loss_index))
-    # then alphabetical order
-    sorted_name_list.extend(sorted(name_list))
+    # then alphabetical order, except for the MAEs, which should come
+    # after the corresponding RMSEs
+    sorted_remaining_name_list = sorted(
+        name_list,
+        key=lambda x: x.replace("RMSE", "AAA").replace("MAE", "ZZZ"),
+    )
+    # add the rest
+    sorted_name_list.extend(sorted_remaining_name_list)
     return sorted_name_list

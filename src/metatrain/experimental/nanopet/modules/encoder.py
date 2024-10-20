@@ -34,11 +34,7 @@ class Encoder(torch.nn.Module):
         features: Dict[str, torch.Tensor],
     ):
         # Encode cartesian coordinates
-        cartesian_features = features["cartesian"]
-        # r = torch.sqrt(torch.sum(torch.square(cartesian_features), dim=-1, keepdim=True))
-        # cartesian_features = cartesian_features * torch.exp(-r/2.5) / r
-        cartesian_features = self.cartesian_encoder(cartesian_features)
-        # cartesian_features = torch.sin(10.0*cartesian_features)
+        cartesian_features = self.cartesian_encoder(features["cartesian"])
 
         # Encode centers
         center_features = self.center_encoder(features["center"])

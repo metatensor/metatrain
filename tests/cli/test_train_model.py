@@ -77,7 +77,7 @@ def test_train(capfd, monkeypatch, tmp_path, output):
     assert "Training dataset:" in stdout_log
     assert "Validation dataset:" in stdout_log
     assert "Test dataset:" in stdout_log
-    assert "size 50" in stdout_log
+    assert "50 structures" in stdout_log
     assert "mean " in stdout_log
     assert "std " in stdout_log
     assert "[INFO]" in stdout_log
@@ -421,6 +421,50 @@ def test_continue(options, monkeypatch, tmp_path):
     train_model(options, continue_from=MODEL_PATH_64_BIT)
 
 
+def test_continue_auto(options, caplog, monkeypatch, tmp_path):
+    """Test that continuing with the `auto` keyword results in
+    a continuation from the most recent checkpoint."""
+    monkeypatch.chdir(tmp_path)
+    shutil.copy(DATASET_PATH_QM9, "qm9_reduced_100.xyz")
+    caplog.set_level(logging.INFO)
+
+    # Make up an output directory with some checkpoints
+    true_checkpoint_dir = Path("outputs/2021-09-02/00-10-05")
+    true_checkpoint_dir.mkdir(parents=True, exist_ok=True)
+    # as well as some lower-priority checkpoints
+    fake_checkpoints_dirs = [
+        Path("outputs/2021-08-01/00-00-00"),
+        Path("outputs/2021-09-01/00-00-00"),
+        Path("outputs/2021-09-02/00-00-00"),
+        Path("outputs/2021-09-02/00-10-00"),
+    ]
+    for fake_checkpoint_dir in fake_checkpoints_dirs:
+        fake_checkpoint_dir.mkdir(parents=True, exist_ok=True)
+
+    for i in range(1, 4):
+        shutil.copy(MODEL_PATH_64_BIT, true_checkpoint_dir / f"model_{i}.ckpt")
+        for fake_checkpoint_dir in fake_checkpoints_dirs:
+            shutil.copy(MODEL_PATH_64_BIT, fake_checkpoint_dir / f"model_{i}.ckpt")
+
+    train_model(options, continue_from="auto")
+
+    assert "Loading checkpoint from" in caplog.text
+    assert str(true_checkpoint_dir) in caplog.text
+    assert "model_3.ckpt" in caplog.text
+
+
+def test_continue_auto_no_outputs(options, caplog, monkeypatch, tmp_path):
+    """Test that continuing with the `auto` keyword results in
+    training from scratch if `outputs/` is not present."""
+    monkeypatch.chdir(tmp_path)
+    shutil.copy(DATASET_PATH_QM9, "qm9_reduced_100.xyz")
+    caplog.set_level(logging.INFO)
+
+    train_model(options, continue_from="auto")
+
+    assert "Loading checkpoint from" not in caplog.text
+
+
 def test_continue_different_dataset(options, monkeypatch, tmp_path):
     """Test that continuing training from a checkpoint runs without an error raise
     with a different dataset than the original."""
@@ -449,8 +493,8 @@ def test_model_consistency_with_seed(options, monkeypatch, tmp_path, seed):
 
     train_model(options, output="model2.pt")
 
-    m1 = torch.load("model1.ckpt")
-    m2 = torch.load("model2.ckpt")
+    m1 = torch.load("model1.ckpt", weights_only=False)
+    m2 = torch.load("model2.ckpt", weights_only=False)
 
     for i in m1["model_state_dict"]:
         tensor1 = m1["model_state_dict"][i]

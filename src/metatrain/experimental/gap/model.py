@@ -21,6 +21,7 @@ from skmatter._selection import _FPS
 
 from metatrain.utils.data.dataset import DatasetInfo
 
+from ...utils.additive import ZBL, CompositionModel
 from ...utils.export import export
 
 
@@ -94,7 +95,6 @@ class GAP(torch.nn.Module):
         self._soap_torch_calculator = rascaline.torch.SoapPowerSpectrum(
             **model_hypers["soap"]
         )
-        self._soap_calculator = rascaline.SoapPowerSpectrum(**model_hypers["soap"])
 
         kernel_kwargs = {
             "degree": model_hypers["krr"]["degree"],
@@ -126,6 +126,17 @@ class GAP(torch.nn.Module):
             },
         )
         self._species_labels: TorchLabels = TorchLabels.empty("_")
+
+        # additive models: these are handled by the trainer at training
+        # time, and they are added to the output at evaluation time
+        composition_model = CompositionModel(
+            model_hypers={},
+            dataset_info=dataset_info,
+        )
+        additive_models = [composition_model]
+        if self.hypers["zbl"]:
+            additive_models.append(ZBL(model_hypers, dataset_info))
+        self.additive_models = torch.nn.ModuleList(additive_models)
 
     def restart(self, dataset_info: DatasetInfo) -> "GAP":
         raise ValueError("GAP does not allow restarting training")
@@ -201,14 +212,36 @@ class GAP(torch.nn.Module):
         soap_features = TorchTensorMap(self._keys, soap_features.blocks())
         output_key = list(outputs.keys())[0]
         energies = self._subset_of_regressors_torch(soap_features)
-        out_tensor = self.apply_composition_weights(systems, energies)
-        return {output_key: out_tensor}
+        return_dict = {output_key: energies}
+
+        if not self.training:
+            # at evaluation, we also add the additive contributions
+            for additive_model in self.additive_models:
+                additive_contributions = additive_model(
+                    systems, outputs, selected_atoms
+                )
+                for name in return_dict:
+                    if name.startswith("mtt::aux::"):
+                        continue  # skip auxiliary outputs (not targets)
+                    return_dict[name] = metatensor.torch.add(
+                        return_dict[name],
+                        additive_contributions[name],
+                    )
+
+        return return_dict
 
     def export(self) -> MetatensorAtomisticModel:
+
+        interaction_ranges = [self.hypers["soap"]["cutoff"]]
+        for additive_model in self.additive_models:
+            if hasattr(additive_model, "cutoff_radius"):
+                interaction_ranges.append(additive_model.cutoff_radius)
+        interaction_range = max(interaction_ranges)
+
         capabilities = ModelCapabilities(
             outputs=self.outputs,
             atomic_types=sorted(self.dataset_info.atomic_types),
-            interaction_range=self.hypers["soap"]["cutoff"],
+            interaction_range=interaction_range,
             length_unit=self.dataset_info.length_unit,
             supported_devices=["cuda", "cpu"],
             dtype="float64",

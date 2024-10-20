@@ -41,6 +41,6 @@ class FeedForwardBlock(torch.nn.Module):
         outputs = self.dropout(outputs)
 
         # Residual connection
-        outputs = (outputs + inputs) * 0.5 ** 0.5
+        outputs = (outputs + inputs) * 0.5**0.5
 
         return outputs

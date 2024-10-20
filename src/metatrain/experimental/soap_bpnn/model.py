@@ -16,7 +16,7 @@ from metatensor.torch.learn.nn import ModuleMap
 
 from metatrain.utils.data.dataset import DatasetInfo
 
-from ...utils.composition import apply_composition_contribution
+from ...utils.additive import ZBL, CompositionModel
 from ...utils.dtype import dtype_to_str
 from ...utils.export import export
 
@@ -123,14 +123,6 @@ class SoapBpnn(torch.nn.Module):
             unit="unitless", per_atom=True
         )
 
-        # creates a composition weight tensor that can be directly indexed by species,
-        # this can be left as a tensor of zero or set from the outside using
-        # set_composition_weights (recommended for better accuracy)
-        n_outputs = len(self.outputs)
-        self.register_buffer(
-            "composition_weights",
-            torch.zeros((n_outputs, max(self.atomic_types) + 1)),
-        )
         # buffers cannot be indexed by strings (torchscript), so we create a single
         # tensor for all output. Due to this, we need to slice the tensor when we use
         # it and use the output name to select the correct slice via a dictionary
@@ -194,6 +186,17 @@ class SoapBpnn(torch.nn.Module):
                 if "mtt::aux::" not in output_name
             }
         )
+
+        # additive models: these are handled by the trainer at training
+        # time, and they are added to the output at evaluation time
+        composition_model = CompositionModel(
+            model_hypers={},
+            dataset_info=dataset_info,
+        )
+        additive_models = [composition_model]
+        if self.hypers["zbl"]:
+            additive_models.append(ZBL(model_hypers, dataset_info))
+        self.additive_models = torch.nn.ModuleList(additive_models)
 
     def restart(self, dataset_info: DatasetInfo) -> "SoapBpnn":
         # merge old and new dataset info
@@ -261,12 +264,7 @@ class SoapBpnn(torch.nn.Module):
         atomic_energies: Dict[str, TensorMap] = {}
         for output_name, output_layer in self.last_layers.items():
             if output_name in outputs:
-                atomic_energies[output_name] = apply_composition_contribution(
-                    output_layer(last_layer_features),
-                    self.composition_weights[  # type: ignore
-                        self.output_to_index[output_name]
-                    ],
-                )
+                atomic_energies[output_name] = output_layer(last_layer_features)
 
         # Sum the atomic energies coming from the BPNN to get the total energy
         for output_name, atomic_energy in atomic_energies.items():
@@ -281,13 +279,27 @@ class SoapBpnn(torch.nn.Module):
                     atomic_energy, ["atom", "center_type"]
                 )
 
+        if not self.training:
+            # at evaluation, we also add the additive contributions
+            for additive_model in self.additive_models:
+                additive_contributions = additive_model(
+                    systems, outputs, selected_atoms
+                )
+                for name in return_dict:
+                    if name.startswith("mtt::aux::"):
+                        continue  # skip auxiliary outputs (not targets)
+                    return_dict[name] = metatensor.torch.add(
+                        return_dict[name],
+                        additive_contributions[name],
+                    )
+
         return return_dict
 
     @classmethod
     def load_checkpoint(cls, path: Union[str, Path]) -> "SoapBpnn":
 
         # Load the checkpoint
-        checkpoint = torch.load(path)
+        checkpoint = torch.load(path, weights_only=False)
         model_hypers = checkpoint["model_hypers"]
         model_state_dict = checkpoint["model_state_dict"]
 
@@ -303,31 +315,27 @@ class SoapBpnn(torch.nn.Module):
         if dtype not in self.__supported_dtypes__:
             raise ValueError(f"unsupported dtype {self.dtype} for SoapBpnn")
 
+        # Make sure the model is all in the same dtype
+        # For example, after training, the additive models could still be in
+        # float64
+        self.to(dtype)
+
+        interaction_ranges = [self.hypers["soap"]["cutoff"]]
+        for additive_model in self.additive_models:
+            if hasattr(additive_model, "cutoff_radius"):
+                interaction_ranges.append(additive_model.cutoff_radius)
+        interaction_range = max(interaction_ranges)
+
         capabilities = ModelCapabilities(
             outputs=self.outputs,
             atomic_types=self.atomic_types,
-            interaction_range=self.hypers["soap"]["cutoff"],
+            interaction_range=interaction_range,
             length_unit=self.dataset_info.length_unit,
             supported_devices=self.__supported_devices__,
             dtype=dtype_to_str(dtype),
         )
 
         return export(model=self, model_capabilities=capabilities)
-
-    def set_composition_weights(
-        self,
-        output_name: str,
-        input_composition_weights: torch.Tensor,
-        atomic_types: List[int],
-    ) -> None:
-        """Set the composition weights for a given output."""
-        # all species that are not present retain their weight of zero
-        self.composition_weights[self.output_to_index[output_name]][  # type: ignore
-            atomic_types
-        ] = input_composition_weights.to(
-            dtype=self.composition_weights.dtype,  # type: ignore
-            device=self.composition_weights.device,  # type: ignore
-        )
 
     def add_output(self, output_name: str) -> None:
         """Add a new output to the self."""
