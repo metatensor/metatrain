@@ -2,6 +2,7 @@ name: experimental.nanopet
 
 model:
   cutoff: 5.0
+  cutoff_width: 0.2
   d_pet: 128
   num_heads: 4
   num_attention_layers: 2
@@ -14,7 +15,6 @@ training:
   distributed: False
   distributed_port: 39591
   batch_size: 16
-  num_warmup_steps: 1000
   num_epochs: 10000
   learning_rate: 3e-4
   early_stopping_patience: 1000

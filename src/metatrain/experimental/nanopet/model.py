@@ -40,6 +40,9 @@ class NanoPET(torch.nn.Module):
         self.new_outputs = list(dataset_info.targets.keys())
         self.atomic_types = dataset_info.atomic_types
 
+        self.cutoff = self.hypers["cutoff"]
+        self.cutoff_width = self.hypers["cutoff_width"]
+
         self.outputs = {
             key: ModelOutput(
                 quantity=value.quantity,
@@ -250,7 +253,7 @@ class NanoPET(torch.nn.Module):
 
         # Get radial mask
         r = torch.sqrt(torch.sum(edge_vectors**2, dim=-1))
-        radial_mask = get_radial_mask(r, 5.0, 3.0)
+        radial_mask = get_radial_mask(r, self.cutoff, self.cutoff-self.cutoff_width)
 
         # Element indices
         element_indices_nodes = self.species_to_species_index[species]
