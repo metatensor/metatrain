@@ -18,6 +18,7 @@ dependencies = [
     "python-hostlist",
     "torch",
     "vesin",
+    "numpy < 2.0.0"
 ]
 
 keywords = ["machine learning", "molecular modeling"]
