@@ -7,6 +7,7 @@ from metatensor.torch import Labels, TensorBlock, TensorMap
 from metatensor.torch.atomistic import (
     MetatensorAtomisticModel,
     ModelCapabilities,
+    ModelMetadata,
     ModelOutput,
     NeighborListOptions,
     System,
@@ -16,7 +17,6 @@ from torch_alchemical.models import AlchemicalModel as AlchemicalModelUpstream
 from ...utils.additive import ZBL
 from ...utils.data.dataset import DatasetInfo
 from ...utils.dtype import dtype_to_str
-from ...utils.export import export
 from .utils import systems_to_torch_alchemical_batch
 
 
@@ -185,7 +185,7 @@ class AlchemicalModel(torch.nn.Module):
             dtype=dtype_to_str(dtype),
         )
 
-        return export(model=self, model_capabilities=capabilities)
+        return MetatensorAtomisticModel(self.eval(), ModelMetadata(), capabilities)
 
     def set_composition_weights(
         self,
