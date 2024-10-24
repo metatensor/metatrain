@@ -105,9 +105,9 @@ def _process_continue_from(continue_from: str) -> Optional[str]:
         # try to find the `outputs` directory; if it doesn't exist
         # then we are not continuing from a previous run
         if Path("outputs/").exists():
-            # take the latest day directory
+            # take the latest year-month-day directory
             dir = sorted(Path("outputs/").iterdir())[-1]
-            # take the latest second directory
+            # take the latest hour-minute-second directory
             dir = sorted(dir.iterdir())[-1]
             # take the latest checkpoint. This cannot be done with
             # `sorted` because some checkpoint files are named with
