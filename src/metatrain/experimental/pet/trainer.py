@@ -256,9 +256,12 @@ class Trainer:
         optim = get_optimizer(pet_model, FITTING_SCHEME)
         scheduler = get_scheduler(optim, FITTING_SCHEME)
 
+        history = []
         if checkpoint_path is not None:
             logging.info(f"Loading model and checkpoint from: {checkpoint_path}\n")
             load_checkpoint(pet_model, optim, scheduler, checkpoint_path)
+
+
         elif name_to_load is not None:
             path = f"{checkpoint_dir}/{name_to_load}/checkpoint"
             logging.info(f"Loading model and checkpoint from: {path}\n")
@@ -269,7 +272,7 @@ class Trainer:
                 f"{checkpoint_dir}/{name_to_load}/checkpoint",
             )
 
-        history = []
+
         if MLIP_SETTINGS.USE_ENERGIES:
             energies_logger = FullLogger(
                 FITTING_SCHEME.SUPPORT_MISSING_VALUES,
@@ -551,6 +554,8 @@ class Trainer:
                     },
                     f"{checkpoint_dir}/model.ckpt_{epoch}",
                 )
+                with open(f"{checkpoint_dir}/{NAME_OF_CALCULATION}/history_{epoch}.pickle", "wb") as f:
+                    pickle.dump(history, f)
 
             if FITTING_SCHEME.MAX_TIME is not None:
                 if elapsed > FITTING_SCHEME.MAX_TIME:
