@@ -4,6 +4,7 @@ import json
 import logging
 import os
 import random
+import time
 from pathlib import Path
 from typing import Dict, Optional, Union
 
@@ -115,8 +116,18 @@ def _process_continue_from(continue_from: str) -> Optional[str]:
             new_continue_from = str(
                 sorted(dir.glob("*.ckpt"), key=lambda f: f.stat().st_ctime)[-1]
             )
+            logger.info(f"Auto-continuing from `{new_continue_from}`")
         else:
             new_continue_from = None
+            logger.info(
+                "Auto-continuation did not find any previous runs, "
+                "training from scratch"
+            )
+        # sleep for a few seconds to allow all processes to catch up. This is
+        # necessary because the `outputs` directory is created by the main
+        # process and the other processes might detect it by mistake if they're
+        # still executing this function
+        time.sleep(3)
 
     return new_continue_from
 
