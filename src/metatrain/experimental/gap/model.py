@@ -14,6 +14,7 @@ from metatensor.torch import TensorMap as TorchTensorMap
 from metatensor.torch.atomistic import (
     MetatensorAtomisticModel,
     ModelCapabilities,
+    ModelMetadata,
     ModelOutput,
     System,
 )
@@ -22,7 +23,6 @@ from skmatter._selection import _FPS
 from metatrain.utils.data.dataset import DatasetInfo
 
 from ...utils.additive import ZBL, CompositionModel
-from ...utils.export import export
 
 
 class GAP(torch.nn.Module):
@@ -253,7 +253,7 @@ class GAP(torch.nn.Module):
             self._subset_of_regressors.export_torch_script_model()
         )
 
-        return export(model=self, model_capabilities=capabilities)
+        return MetatensorAtomisticModel(self.eval(), ModelMetadata(), capabilities)
 
     def set_composition_weights(
         self,
