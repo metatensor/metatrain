@@ -12,7 +12,7 @@ from jsonschema.exceptions import ValidationError
 from omegaconf import OmegaConf
 
 from metatrain import RANDOM_SEED
-from metatrain.cli.train import train_model
+from metatrain.cli.train import _process_continue_from, train_model
 from metatrain.utils.errors import ArchitectureError
 
 from . import (
@@ -433,6 +433,50 @@ def test_continue(options, monkeypatch, tmp_path):
     shutil.copy(DATASET_PATH_QM9, "qm9_reduced_100.xyz")
 
     train_model(options, continue_from=MODEL_PATH_64_BIT)
+
+
+def test_continue_auto(options, caplog, monkeypatch, tmp_path):
+    """Test that continuing with the `auto` keyword results in
+    a continuation from the most recent checkpoint."""
+    monkeypatch.chdir(tmp_path)
+    shutil.copy(DATASET_PATH_QM9, "qm9_reduced_100.xyz")
+    caplog.set_level(logging.INFO)
+
+    # Make up an output directory with some checkpoints
+    true_checkpoint_dir = Path("outputs/2021-09-02/00-10-05")
+    true_checkpoint_dir.mkdir(parents=True, exist_ok=True)
+    # as well as some lower-priority checkpoints
+    fake_checkpoints_dirs = [
+        Path("outputs/2021-08-01/00-00-00"),
+        Path("outputs/2021-09-01/00-00-00"),
+        Path("outputs/2021-09-02/00-00-00"),
+        Path("outputs/2021-09-02/00-10-00"),
+    ]
+    for fake_checkpoint_dir in fake_checkpoints_dirs:
+        fake_checkpoint_dir.mkdir(parents=True, exist_ok=True)
+
+    for i in range(1, 4):
+        shutil.copy(MODEL_PATH_64_BIT, true_checkpoint_dir / f"model_{i}.ckpt")
+        for fake_checkpoint_dir in fake_checkpoints_dirs:
+            shutil.copy(MODEL_PATH_64_BIT, fake_checkpoint_dir / f"model_{i}.ckpt")
+
+    train_model(options, continue_from=_process_continue_from("auto"))
+
+    assert "Loading checkpoint from" in caplog.text
+    assert str(true_checkpoint_dir) in caplog.text
+    assert "model_3.ckpt" in caplog.text
+
+
+def test_continue_auto_no_outputs(options, caplog, monkeypatch, tmp_path):
+    """Test that continuing with the `auto` keyword results in
+    training from scratch if `outputs/` is not present."""
+    monkeypatch.chdir(tmp_path)
+    shutil.copy(DATASET_PATH_QM9, "qm9_reduced_100.xyz")
+    caplog.set_level(logging.INFO)
+
+    train_model(options, continue_from=_process_continue_from("auto"))
+
+    assert "Loading checkpoint from" not in caplog.text
 
 
 def test_continue_different_dataset(options, monkeypatch, tmp_path):

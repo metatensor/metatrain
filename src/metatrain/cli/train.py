@@ -5,6 +5,7 @@ import logging
 import os
 import random
 import shutil
+import time
 from pathlib import Path
 from typing import Dict, Optional, Union
 
@@ -75,7 +76,7 @@ def _add_train_model_parser(subparser: argparse._SubParsersAction) -> None:
         "-c",
         "--continue",
         dest="continue_from",
-        type=str,
+        type=_process_continue_from,
         required=False,
         help="File to continue training from.",
     )
@@ -97,6 +98,39 @@ def _prepare_train_model_args(args: argparse.Namespace) -> None:
         override_options = {}
 
     args.options = OmegaConf.merge(args.options, override_options)
+
+
+def _process_continue_from(continue_from: str) -> Optional[str]:
+    # covers the case where `continue_from` is `auto`
+    if continue_from == "auto":
+        # try to find the `outputs` directory; if it doesn't exist
+        # then we are not continuing from a previous run
+        if Path("outputs/").exists():
+            # take the latest year-month-day directory
+            dir = sorted(Path("outputs/").iterdir())[-1]
+            # take the latest hour-minute-second directory
+            dir = sorted(dir.iterdir())[-1]
+            # take the latest checkpoint. This cannot be done with
+            # `sorted` because some checkpoint files are named with
+            # the epoch number (e.g. `epoch_10.ckpt` would be before
+            # `epoch_8.ckpt`). We therefore sort by file creation time.
+            new_continue_from = str(
+                sorted(dir.glob("*.ckpt"), key=lambda f: f.stat().st_ctime)[-1]
+            )
+            logger.info(f"Auto-continuing from `{new_continue_from}`")
+        else:
+            new_continue_from = None
+            logger.info(
+                "Auto-continuation did not find any previous runs, "
+                "training from scratch"
+            )
+        # sleep for a few seconds to allow all processes to catch up. This is
+        # necessary because the `outputs` directory is created by the main
+        # process and the other processes might detect it by mistake if they're
+        # still executing this function
+        time.sleep(3)
+
+    return new_continue_from
 
 
 def train_model(
