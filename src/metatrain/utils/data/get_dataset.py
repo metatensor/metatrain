@@ -1,12 +1,12 @@
-from typing import Tuple
+from typing import Dict, Tuple
 
 from omegaconf import DictConfig
 
-from .dataset import Dataset, TargetInfoDict
+from .dataset import Dataset, TargetInfo
 from .readers import read_systems, read_targets
 
 
-def get_dataset(options: DictConfig) -> Tuple[Dataset, TargetInfoDict]:
+def get_dataset(options: DictConfig) -> Tuple[Dataset, Dict[str, TargetInfo]]:
     """
     Gets a dataset given a configuration dictionary.
 
@@ -18,7 +18,7 @@ def get_dataset(options: DictConfig) -> Tuple[Dataset, TargetInfoDict]:
         systems and targets in the dataset.
 
     :returns: A tuple containing a ``Dataset`` object and a
-        ``TargetInfoDict`` containing additional information (units,
+        ``Dict[str, TargetInfo]`` containing additional information (units,
         physical quantities, ...) on the targets in the dataset
     """
 

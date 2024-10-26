@@ -4,7 +4,8 @@ import torch
 from metatensor.torch.atomistic import System
 
 from metatrain.experimental.soap_bpnn import SoapBpnn
-from metatrain.utils.data import DatasetInfo, TargetInfo, TargetInfoDict
+from metatrain.utils.data import DatasetInfo, TargetInfo
+from metatrain.utils.testing import energy_layout
 
 from . import MODEL_HYPERS
 
@@ -15,7 +16,9 @@ def test_torchscript():
     dataset_info = DatasetInfo(
         length_unit="Angstrom",
         atomic_types=[1, 6, 7, 8],
-        targets=TargetInfoDict(energy=TargetInfo(quantity="energy", unit="eV")),
+        targets={
+            "energy": TargetInfo(quantity="energy", unit="eV", layout=energy_layout)
+        },
     )
     model = SoapBpnn(MODEL_HYPERS, dataset_info)
     model = torch.jit.script(model)
@@ -39,7 +42,9 @@ def test_torchscript_with_identity():
     dataset_info = DatasetInfo(
         length_unit="Angstrom",
         atomic_types=[1, 6, 7, 8],
-        targets=TargetInfoDict(energy=TargetInfo(quantity="energy", unit="eV")),
+        targets={
+            "energy": TargetInfo(quantity="energy", unit="eV", layout=energy_layout)
+        },
     )
     hypers = copy.deepcopy(MODEL_HYPERS)
     hypers["bpnn"]["layernorm"] = False
@@ -65,7 +70,9 @@ def test_torchscript_save_load():
     dataset_info = DatasetInfo(
         length_unit="Angstrom",
         atomic_types=[1, 6, 7, 8],
-        targets=TargetInfoDict(energy=TargetInfo(quantity="energy", unit="eV")),
+        targets={
+            "energy": TargetInfo(quantity="energy", unit="eV", layout=energy_layout)
+        },
     )
     model = SoapBpnn(MODEL_HYPERS, dataset_info)
     torch.jit.save(
