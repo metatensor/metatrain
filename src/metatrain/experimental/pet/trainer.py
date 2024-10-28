@@ -45,7 +45,7 @@ from torch_geometric.nn import DataParallel
 
 from ...utils.data import Dataset, check_datasets
 from . import PET as WrappedPET
-from .utils import dataset_to_ase, update_hypers
+from .utils import dataset_to_ase, get_fine_tuning_weights_l2_loss, update_hypers
 
 
 logger = logging.getLogger(__name__)
@@ -252,6 +252,9 @@ class Trainer:
             logging.info(f"Loading model from: {FITTING_SCHEME.MODEL_TO_START_WITH}")
             pet_model.load_state_dict(torch.load(FITTING_SCHEME.MODEL_TO_START_WITH))
             pet_model = pet_model.to(dtype=dtype)
+            pretrained_weights = {
+                name: param.clone() for name, param in pet_model.named_parameters()
+            }
 
         optim = get_optimizer(pet_model, FITTING_SCHEME)
         scheduler = get_scheduler(optim, FITTING_SCHEME)
@@ -387,11 +390,19 @@ class Trainer:
                         FITTING_SCHEME.SUPPORT_MISSING_VALUES,
                         FITTING_SCHEME.USE_SHIFT_AGNOSTIC_LOSS,
                     )
+                if FITTING_SCHEME.MODEL_TO_START_WITH is not None:
+                    fine_tuning_reg_loss = get_fine_tuning_weights_l2_loss(
+                        pet_model,
+                        pretrained_weights,
+                        FITTING_SCHEME.FINE_TUNING_LOSS_WEIGHT,
+                    )
 
                 if MLIP_SETTINGS.USE_ENERGIES and MLIP_SETTINGS.USE_FORCES:
                     loss = FITTING_SCHEME.ENERGY_WEIGHT * loss_energies / (
                         sliding_energies_rmse**2
                     ) + loss_forces / (sliding_forces_rmse**2)
+                    if FITTING_SCHEME.MODEL_TO_START_WITH is not None:
+                        loss += fine_tuning_reg_loss
                     loss.backward()
 
                 if MLIP_SETTINGS.USE_ENERGIES and (not MLIP_SETTINGS.USE_FORCES):
