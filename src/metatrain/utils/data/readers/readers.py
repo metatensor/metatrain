@@ -306,7 +306,7 @@ def _empty_tensor_block_like(tensor_block: TensorBlock) -> TensorBlock:
     new_block = TensorBlock(
         values=torch.empty(
             (0,) + tensor_block.values.shape[1:],
-            dtype=tensor_block.values.dtype,
+            dtype=torch.float64,  # metatensor can't serialize otherwise
             device=tensor_block.values.device,
         ),
         samples=Labels(

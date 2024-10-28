@@ -371,7 +371,8 @@ def eval_model(
 
 def _get_energy_layout(strain_gradient: bool) -> TensorMap:
     block = TensorBlock(
-        values=torch.empty(0, 1),
+        # float64: otherwise metatensor can't serialize
+        values=torch.empty(0, 1, dtype=torch.float64),
         samples=Labels(
             names=["system"],
             values=torch.empty((0, 1), dtype=torch.int32),
@@ -380,7 +381,8 @@ def _get_energy_layout(strain_gradient: bool) -> TensorMap:
         properties=Labels.range("energy", 1),
     )
     position_gradient_block = TensorBlock(
-        values=torch.empty(0, 3, 1),
+        # float64: otherwise metatensor can't serialize
+        values=torch.empty(0, 3, 1, dtype=torch.float64),
         samples=Labels(
             names=["sample", "atom"],
             values=torch.empty((0, 2), dtype=torch.int32),
@@ -397,7 +399,8 @@ def _get_energy_layout(strain_gradient: bool) -> TensorMap:
 
     if strain_gradient:
         strain_gradient_block = TensorBlock(
-            values=torch.empty(0, 3, 3, 1),
+            # float64: otherwise metatensor can't serialize
+            values=torch.empty(0, 3, 3, 1, dtype=torch.float64),
             samples=Labels(
                 names=["sample", "atom"],
                 values=torch.empty((0, 2), dtype=torch.int32),

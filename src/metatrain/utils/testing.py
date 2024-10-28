@@ -6,7 +6,8 @@ from metatensor.torch import Labels, TensorBlock, TensorMap
 
 
 block = TensorBlock(
-    values=torch.empty(0, 1),
+    # float64: otherwise metatensor can't serialize
+    values=torch.empty(0, 1, dtype=torch.float64),
     samples=Labels(
         names=["system"],
         values=torch.empty((0, 1), dtype=torch.int32),
@@ -21,7 +22,8 @@ energy_layout = TensorMap(
 
 block_with_position_gradients = block.copy()
 position_gradient_block = TensorBlock(
-    values=torch.empty(0, 3, 1),
+    # float64: otherwise metatensor can't serialize
+    values=torch.empty(0, 3, 1, dtype=torch.float64),
     samples=Labels(
         names=["sample", "atom"],
         values=torch.empty((0, 2), dtype=torch.int32),
@@ -42,7 +44,8 @@ energy_force_layout = TensorMap(
 
 block_with_position_and_strain_gradients = block_with_position_gradients.copy()
 strain_gradient_block = TensorBlock(
-    values=torch.empty(0, 3, 3, 1),
+    # float64: otherwise metatensor can't serialize
+    values=torch.empty(0, 3, 3, 1, dtype=torch.float64),
     samples=Labels(
         names=["sample", "atom"],
         values=torch.empty((0, 2), dtype=torch.int32),
