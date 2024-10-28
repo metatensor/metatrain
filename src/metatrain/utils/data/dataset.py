@@ -17,9 +17,11 @@ class TargetInfo:
 
     :param quantity: The physical quantity of the target (e.g., "energy").
     :param layout: The layout of the target, as a ``TensorMap`` with 0 samples.
-        This ``TensorMap`` will contain important information such as the names of
+        This ``TensorMap`` will be used to retrieve the names of
         the ``samples``, as well as the ``components`` and ``properties`` of the
-        target and their gradients.
+        target and their gradients. For example, this allows to infer the type of
+        the target (scalar, Cartesian tensor, spherical tensor), whether it is per
+        atom, the names of its gradients, etc.
     :param unit: The unit of the target. If :py:obj:`None` the ``unit`` will be set to
         an empty string ``""``.
     """
@@ -37,7 +39,7 @@ class TargetInfo:
 
         self._check_layout(layout)
 
-        self.quantity = quantity
+        self.quantity = quantity  # float64: otherwise metatensor can't serialize
         self.layout = layout
         self.unit = unit if unit is not None else ""
 
