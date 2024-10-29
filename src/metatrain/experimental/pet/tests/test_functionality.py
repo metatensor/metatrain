@@ -76,6 +76,7 @@ def test_prediction():
         types=torch.tensor([6, 6]),
         positions=torch.tensor([[0.0, 0.0, 0.0], [0.0, 0.0, 1.0]]),
         cell=torch.zeros(3, 3),
+        pbcs=torch.tensor([False, False, False]),
     )
     requested_neighbor_lists = get_requested_neighbor_lists(model)
     system = get_system_with_neighbor_lists(system, requested_neighbor_lists)
@@ -126,6 +127,7 @@ def test_per_atom_predictions_functionality():
         types=torch.tensor([6, 6]),
         positions=torch.tensor([[0.0, 0.0, 0.0], [0.0, 0.0, 1.0]]),
         cell=torch.zeros(3, 3),
+        pbcs=torch.tensor([False, False, False]),
     )
     requested_neighbor_lists = get_requested_neighbor_lists(model)
     system = get_system_with_neighbor_lists(system, requested_neighbor_lists)
@@ -177,6 +179,7 @@ def test_selected_atoms_functionality():
         types=torch.tensor([6, 6]),
         positions=torch.tensor([[0.0, 0.0, 0.0], [0.0, 0.0, 1.0]]),
         cell=torch.zeros(3, 3),
+        pbcs=torch.tensor([False, False, False]),
     )
     requested_neighbor_lists = get_requested_neighbor_lists(model)
     system = get_system_with_neighbor_lists(system, requested_neighbor_lists)
