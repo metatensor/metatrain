@@ -214,8 +214,9 @@ class Trainer:
         logging.info("Pre-processing training data...")
         if MLIP_SETTINGS.USE_ENERGIES:
             if FITTING_SCHEME.SELF_CONTRIBUTIONS_PATH is not None:
+                self_contributions_path = FITTING_SCHEME.SELF_CONTRIBUTIONS_PATH
                 logging.info(
-                    f"Loading self contributions from: {FITTING_SCHEME.SELF_CONTRIBUTIONS_PATH}"
+                    f"Loading self contributions from: {self_contributions_path}"
                 )
                 self_contributions = np.load(FITTING_SCHEME.SELF_CONTRIBUTIONS_PATH)
             else:
