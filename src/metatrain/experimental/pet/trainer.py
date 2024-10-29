@@ -45,7 +45,12 @@ from torch_geometric.nn import DataParallel
 
 from ...utils.data import Dataset, check_datasets
 from . import PET as WrappedPET
-from .utils import dataset_to_ase, get_fine_tuning_weights_l2_loss, update_hypers
+from .utils import (
+    dataset_to_ase,
+    get_fine_tuning_weights_l2_loss,
+    update_hypers,
+    update_state_dict,
+)
 
 
 logger = logging.getLogger(__name__)
@@ -679,10 +684,7 @@ class Trainer:
         ARCHITECTURAL_HYPERS = Hypers(model.hypers)
         raw_pet = PET(ARCHITECTURAL_HYPERS, 0.0, len(all_species))
 
-        new_state_dict = {}
-        for name, value in state_dict.items():
-            name = name.replace("model.pet_model.", "")
-            new_state_dict[name] = value
+        new_state_dict = update_state_dict(state_dict)
 
         raw_pet.load_state_dict(new_state_dict)
 

@@ -21,7 +21,7 @@ from metatrain.utils.data import DatasetInfo
 from ...utils.additive import ZBL
 from ...utils.dtype import dtype_to_str
 from ...utils.export import export
-from .utils import systems_to_batch_dict
+from .utils import systems_to_batch_dict, update_state_dict
 
 
 logger = logging.getLogger(__name__)
@@ -151,10 +151,7 @@ class PET(torch.nn.Module):
         ARCHITECTURAL_HYPERS = Hypers(model.hypers)
         raw_pet = RawPET(ARCHITECTURAL_HYPERS, 0.0, len(model.atomic_types))
 
-        new_state_dict = {}
-        for name, value in state_dict.items():
-            name = name.replace("model.pet_model.", "")
-            new_state_dict[name] = value
+        new_state_dict = update_state_dict(state_dict)
 
         dtype = next(iter(new_state_dict.values())).dtype
         raw_pet.to(dtype).load_state_dict(new_state_dict)
