@@ -262,6 +262,16 @@ class Trainer:
 
         logging.info("Initializing the model...")
         pet_model = PET(ARCHITECTURAL_HYPERS, 0.0, len(all_species)).to(device)
+
+        if FITTING_SCHEME.MODEL_TO_START_WITH is not None:
+            logging.info(f"Loading model from: {FITTING_SCHEME.MODEL_TO_START_WITH}")
+            state_dict = torch.load(
+                FITTING_SCHEME.MODEL_TO_START_WITH, weights_only=True
+            )
+            new_state_dict = update_state_dict(state_dict)
+            pet_model.load_state_dict(new_state_dict)
+            pet_model = pet_model.to(dtype=dtype)
+
         pet_model = PETUtilityWrapper(pet_model, FITTING_SCHEME.GLOBAL_AUG)
 
         pet_model = PETMLIPWrapper(
@@ -275,11 +285,6 @@ class Trainer:
             pet_model = pet_model.to(torch.device("cuda:0"))
 
         if FITTING_SCHEME.MODEL_TO_START_WITH is not None:
-            logging.info(f"Loading model from: {FITTING_SCHEME.MODEL_TO_START_WITH}")
-            pet_model.load_state_dict(
-                torch.load(FITTING_SCHEME.MODEL_TO_START_WITH, weights_only=True)
-            )
-            pet_model = pet_model.to(dtype=dtype)
             pretrained_weights = {}
             for name, param in pet_model.named_parameters():
                 pretrained_param = param.clone().detach()
