@@ -274,9 +274,10 @@ class Trainer:
                 torch.load(FITTING_SCHEME.MODEL_TO_START_WITH, weights_only=True)
             )
             pet_model = pet_model.to(dtype=dtype)
-            pretrained_weights = {
-                name: param.clone() for name, param in pet_model.named_parameters()
-            }
+            pretrained_weights = {}
+            for name, param in pet_model.named_parameters():
+                pretrained_param = param.clone().detach()
+                pretrained_weights[name] = pretrained_param
 
         optim = get_optimizer(pet_model, FITTING_SCHEME)
         scheduler = get_scheduler(optim, FITTING_SCHEME)
@@ -418,7 +419,6 @@ class Trainer:
                         pretrained_weights,
                         FITTING_SCHEME.FINE_TUNING_LOSS_WEIGHT,
                     )
-                    print("Fine tuning loss: ", fine_tuning_reg_loss)
 
                 if MLIP_SETTINGS.USE_ENERGIES and MLIP_SETTINGS.USE_FORCES:
                     loss = FITTING_SCHEME.ENERGY_WEIGHT * loss_energies / (
