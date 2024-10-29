@@ -163,7 +163,21 @@ class Trainer:
 
         adapt_hypers(FITTING_SCHEME, ase_train_dataset)
         dataset = ase_train_dataset + ase_val_dataset
-        all_species = get_all_species(dataset)
+
+        all_dataset_species = get_all_species(dataset)
+
+        if FITTING_SCHEME.ALL_SPECIES_PATH is not None:
+            logging.info(f"Loading all species from: {FITTING_SCHEME.ALL_SPECIES_PATH}")
+            all_species = np.load(FITTING_SCHEME.ALL_SPECIES_PATH)
+            if not np.all(np.isin(all_dataset_species, all_species)):
+                raise ValueError(
+                    "For the model fine-tuning, the set of species in the dataset "
+                    "must be a subset of the set of species in the pre-trained model. "
+                    "Please check, if the ALL_SPECIES_PATH is file contains all the "
+                    "elements from the fine-tuning dataset."
+                )
+        else:
+            all_species = all_dataset_species
 
         name_to_load, NAME_OF_CALCULATION = get_calc_names(
             os.listdir(checkpoint_dir), name_of_calculation
@@ -199,9 +213,15 @@ class Trainer:
 
         logging.info("Pre-processing training data...")
         if MLIP_SETTINGS.USE_ENERGIES:
-            self_contributions = get_self_contributions(
-                MLIP_SETTINGS.ENERGY_KEY, ase_train_dataset, all_species
-            )
+            if FITTING_SCHEME.SELF_CONTRIBUTIONS_PATH is not None:
+                logging.info(
+                    f"Loading self contributions from: {FITTING_SCHEME.SELF_CONTRIBUTIONS_PATH}"
+                )
+                self_contributions = np.load(FITTING_SCHEME.SELF_CONTRIBUTIONS_PATH)
+            else:
+                self_contributions = get_self_contributions(
+                    MLIP_SETTINGS.ENERGY_KEY, ase_train_dataset, all_species
+                )
             np.save(
                 f"{checkpoint_dir}/{NAME_OF_CALCULATION}/self_contributions.npy",
                 self_contributions,
@@ -250,7 +270,9 @@ class Trainer:
 
         if FITTING_SCHEME.MODEL_TO_START_WITH is not None:
             logging.info(f"Loading model from: {FITTING_SCHEME.MODEL_TO_START_WITH}")
-            pet_model.load_state_dict(torch.load(FITTING_SCHEME.MODEL_TO_START_WITH))
+            pet_model.load_state_dict(
+                torch.load(FITTING_SCHEME.MODEL_TO_START_WITH, weights_only=True)
+            )
             pet_model = pet_model.to(dtype=dtype)
             pretrained_weights = {
                 name: param.clone() for name, param in pet_model.named_parameters()
@@ -396,6 +418,7 @@ class Trainer:
                         pretrained_weights,
                         FITTING_SCHEME.FINE_TUNING_LOSS_WEIGHT,
                     )
+                    print("Fine tuning loss: ", fine_tuning_reg_loss)
 
                 if MLIP_SETTINGS.USE_ENERGIES and MLIP_SETTINGS.USE_FORCES:
                     loss = FITTING_SCHEME.ENERGY_WEIGHT * loss_energies / (
@@ -646,14 +669,14 @@ class Trainer:
             os.remove(Path(checkpoint_dir) / "checkpoint.temp")
 
         if do_forces:
-            load_path = self.pet_dir / "best_val_rmse_forces_model_state_dict"
+            load_path = self.pet_dir / "best_val_mae_forces_model_state_dict"
         else:
-            load_path = self.pet_dir / "best_val_rmse_energies_model_state_dict"
+            load_path = self.pet_dir / "best_val_mae_both_model_state_dict"
 
-        state_dict = torch.load(load_path, weights_only=False)
+        state_dict = torch.load(load_path, weights_only=True)
 
         ARCHITECTURAL_HYPERS = Hypers(model.hypers)
-        raw_pet = PET(ARCHITECTURAL_HYPERS, 0.0, len(model.atomic_types))
+        raw_pet = PET(ARCHITECTURAL_HYPERS, 0.0, len(all_species))
 
         new_state_dict = {}
         for name, value in state_dict.items():

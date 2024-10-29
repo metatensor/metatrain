@@ -191,6 +191,26 @@
             }
           ]
         },
+        "ALL_SPECIES_PATH": {
+          "oneOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "SELF_CONTRIBUTIONS_PATH": {
+          "oneOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
         "FINE_TUNING_LOSS_WEIGHT": {
           "type": "number"
         },
