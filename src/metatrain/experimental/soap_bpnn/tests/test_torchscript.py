@@ -26,7 +26,7 @@ def test_torchscript():
             [[0.0, 0.0, 0.0], [0.0, 0.0, 1.0], [0.0, 0.0, 2.0], [0.0, 0.0, 3.0]]
         ),
         cell=torch.zeros(3, 3),
-        pbcs=torch.tensor([False, False, False]),
+        pbc=torch.tensor([False, False, False]),
     )
     model(
         [system],
@@ -53,7 +53,7 @@ def test_torchscript_with_identity():
             [[0.0, 0.0, 0.0], [0.0, 0.0, 1.0], [0.0, 0.0, 2.0], [0.0, 0.0, 3.0]]
         ),
         cell=torch.zeros(3, 3),
-        pbcs=torch.tensor([False, False, False]),
+        pbc=torch.tensor([False, False, False]),
     )
     model(
         [system],

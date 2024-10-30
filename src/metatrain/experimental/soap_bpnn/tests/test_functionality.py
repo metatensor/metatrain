@@ -28,7 +28,7 @@ def test_prediction_subset_elements():
         types=torch.tensor([6, 6]),
         positions=torch.tensor([[0.0, 0.0, 0.0], [0.0, 0.0, 1.0]]),
         cell=torch.zeros(3, 3),
-        pbcs=torch.tensor([False, False, False]),
+        pbc=torch.tensor([False, False, False]),
     )
     model(
         [system],
@@ -57,7 +57,7 @@ def test_prediction_subset_atoms():
             [[0.0, 0.0, 0.0], [0.0, 0.0, 1.0], [0.0, 0.0, 2.0]],
         ),
         cell=torch.zeros(3, 3),
-        pbcs=torch.tensor([False, False, False]),
+        pbc=torch.tensor([False, False, False]),
     )
 
     energy_monomer = model(
@@ -78,7 +78,7 @@ def test_prediction_subset_atoms():
             ],
         ),
         cell=torch.zeros(3, 3),
-        pbcs=torch.tensor([False, False, False]),
+        pbc=torch.tensor([False, False, False]),
     )
 
     selection_labels = metatensor.torch.Labels(
@@ -122,7 +122,7 @@ def test_output_last_layer_features():
             [[0.0, 0.0, 0.0], [0.0, 0.0, 1.0], [0.0, 0.0, 2.0], [0.0, 0.0, 3.0]],
         ),
         cell=torch.zeros(3, 3),
-        pbcs=torch.tensor([False, False, False]),
+        pbc=torch.tensor([False, False, False]),
     )
 
     # last-layer features per atom:
@@ -194,7 +194,7 @@ def test_output_per_atom():
             [[0.0, 0.0, 0.0], [0.0, 0.0, 1.0], [0.0, 0.0, 2.0], [0.0, 0.0, 3.0]],
         ),
         cell=torch.zeros(3, 3),
-        pbcs=torch.tensor([False, False, False]),
+        pbc=torch.tensor([False, False, False]),
     )
 
     outputs = model(
