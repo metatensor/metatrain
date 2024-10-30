@@ -78,6 +78,7 @@ class AlchemicalModel(torch.nn.Module):
             NeighborListOptions(
                 cutoff=self.cutoff,
                 full_list=True,
+                strict=True,
             )
         ]
 
