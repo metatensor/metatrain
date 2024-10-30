@@ -181,6 +181,8 @@ class Trainer:
                     "Please check, if the ALL_SPECIES_PATH is file contains all the "
                     "elements from the fine-tuning dataset."
                 )
+            model.atomic_types = all_species.tolist()
+            model.dataset_info.atomic_types = all_species.tolist()
         else:
             all_species = all_dataset_species
 
