@@ -298,11 +298,11 @@ class Trainer:
                     param.requires_grad = False
                 lora_rank = ARCHITECTURAL_HYPERS.LORA_RANK
                 lora_alpha = ARCHITECTURAL_HYPERS.LORA_ALPHA
-                pet_model = LoRAWrapper(pet_model, lora_rank, lora_alpha)
+                pet_model = LoRAWrapper(pet_model, lora_rank, lora_alpha).to(device)
                 num_trainable_params = sum(
                     [p.numel() for p in pet_model.parameters() if p.requires_grad]
                 )
-                fraction = num_trainable_params / num_params
+                fraction = num_trainable_params / num_params * 100
                 logging.info(
                     f"Using LoRA PEFT with rank {lora_rank} and alpha {lora_alpha}"
                 )
@@ -386,7 +386,7 @@ class Trainer:
             remaining_lr_scheduler_steps = (
                 FITTING_SCHEME.EPOCHS_WARMUP - scheduler.last_epoch
             )
-            lr_sheduler_msg = f" with {remaining_lr_scheduler_steps} of LR warmup"
+            lr_sheduler_msg = f" with {remaining_lr_scheduler_steps} steps of LR warmup"
         else:
             lr_sheduler_msg = ""
         logging.info(
