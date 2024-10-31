@@ -22,6 +22,7 @@ from ...utils.additive import ZBL
 from ...utils.dtype import dtype_to_str
 from ...utils.export import export
 from .utils import systems_to_batch_dict, update_state_dict
+from .utils.fine_tuning import LoRAWrapper
 
 
 logger = logging.getLogger(__name__)
@@ -150,6 +151,10 @@ class PET(torch.nn.Module):
 
         ARCHITECTURAL_HYPERS = Hypers(model.hypers)
         raw_pet = RawPET(ARCHITECTURAL_HYPERS, 0.0, len(model.atomic_types))
+        if ARCHITECTURAL_HYPERS.USE_LORA_PEFT:
+            lora_rank = ARCHITECTURAL_HYPERS.LORA_RANK
+            lora_alpha = ARCHITECTURAL_HYPERS.LORA_ALPHA
+            raw_pet = LoRAWrapper(raw_pet, lora_rank, lora_alpha)
 
         new_state_dict = update_state_dict(state_dict)
 

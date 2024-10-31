@@ -126,6 +126,15 @@
         },
         "USE_ZBL": {
           "type": "boolean"
+        },
+        "USE_LORA_PEFT": {
+          "type": "boolean"
+        },
+        "LORA_RANK": {
+          "type": "integer"
+        },
+        "LORA_ALPHA": {
+          "type": "number"
         }
       },
       "additionalProperties": false

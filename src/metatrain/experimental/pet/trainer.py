@@ -47,13 +47,14 @@ from ...utils.data import Dataset, check_datasets
 from . import PET as WrappedPET
 from .utils import (
     dataset_to_ase,
-    get_fine_tuning_weights_l2_loss,
     update_hypers,
     update_state_dict,
 )
+from .utils.fine_tuning import LoRAWrapper
 
 
 logger = logging.getLogger(__name__)
+torch.autograd.set_detect_anomaly(True)
 
 
 class Trainer:
@@ -129,10 +130,9 @@ class Trainer:
         TIME_SCRIPT_STARTED = time.time()
         value = datetime.datetime.fromtimestamp(TIME_SCRIPT_STARTED)
         logging.info(f"Starting training at: {value.strftime('%Y-%m-%d %H:%M:%S')}")
-        logging.info("Training configuration:")
-
-        print(f"Output directory: {checkpoint_dir}")
-        print(f"Training using device: {device}")
+        training_configuration_log = "Training configuration:\n"
+        training_configuration_log += f"Output directory: {checkpoint_dir}\n"
+        training_configuration_log += f"Training using device: {device}\n"
 
         if not os.path.exists(checkpoint_dir):
             os.mkdir(checkpoint_dir)
@@ -155,16 +155,26 @@ class Trainer:
         ARCHITECTURAL_HYPERS.TARGET_AGGREGATION = (
             "sum"  # energy is a sum of atomic energies
         )
-        print(f"Output dimensionality: {ARCHITECTURAL_HYPERS.D_OUTPUT}")
-        print(f"Target type: {ARCHITECTURAL_HYPERS.TARGET_TYPE}")
-        print(f"Target aggregation: {ARCHITECTURAL_HYPERS.TARGET_AGGREGATION}")
+
+        training_configuration_log += (
+            f"Output dimensionality: {ARCHITECTURAL_HYPERS.D_OUTPUT}\n"
+        )
+        training_configuration_log += (
+            f"Target type: {ARCHITECTURAL_HYPERS.TARGET_TYPE}\n"
+        )
+        training_configuration_log += (
+            f"Target aggregation: {ARCHITECTURAL_HYPERS.TARGET_AGGREGATION}\n"
+        )
+        training_configuration_log += f"Random seed: {FITTING_SCHEME.RANDOM_SEED}\n"
+        training_configuration_log += (
+            f"CUDA is deterministic: {FITTING_SCHEME.CUDA_DETERMINISTIC}\n"
+        )
+
+        logging.info(training_configuration_log)
 
         set_reproducibility(
             FITTING_SCHEME.RANDOM_SEED, FITTING_SCHEME.CUDA_DETERMINISTIC
         )
-
-        print(f"Random seed: {FITTING_SCHEME.RANDOM_SEED}")
-        print(f"CUDA is deterministic: {FITTING_SCHEME.CUDA_DETERMINISTIC}")
 
         adapt_hypers(FITTING_SCHEME, ase_train_dataset)
         dataset = ase_train_dataset + ase_val_dataset
@@ -264,6 +274,8 @@ class Trainer:
 
         logging.info("Initializing the model...")
         pet_model = PET(ARCHITECTURAL_HYPERS, 0.0, len(all_species)).to(device)
+        num_params = sum([p.numel() for p in pet_model.parameters()])
+        logging.info(f"Number of parameters: {num_params}")
 
         if FITTING_SCHEME.MODEL_TO_START_WITH is not None:
             logging.info(f"Loading model from: {FITTING_SCHEME.MODEL_TO_START_WITH}")
@@ -271,8 +283,32 @@ class Trainer:
                 FITTING_SCHEME.MODEL_TO_START_WITH, weights_only=True
             )
             new_state_dict = update_state_dict(state_dict)
+            loaded_keys = set(new_state_dict.keys())
+            current_keys = set(pet_model.state_dict().keys())
+            if not loaded_keys == current_keys:
+                raise ValueError(
+                    "The keys of the loaded model do not match the keys of the "
+                    "current model. Please check, if the current model hypers are "
+                    "compatible with the loaded model."
+                )
             pet_model.load_state_dict(new_state_dict)
             pet_model = pet_model.to(dtype=dtype)
+            if ARCHITECTURAL_HYPERS.USE_LORA_PEFT:
+                for param in pet_model.parameters():
+                    param.requires_grad = False
+                lora_rank = ARCHITECTURAL_HYPERS.LORA_RANK
+                lora_alpha = ARCHITECTURAL_HYPERS.LORA_ALPHA
+                pet_model = LoRAWrapper(pet_model, lora_rank, lora_alpha)
+                num_trainable_params = sum(
+                    [p.numel() for p in pet_model.parameters() if p.requires_grad]
+                )
+                fraction = num_trainable_params / num_params
+                logging.info(
+                    f"Using LoRA PEFT with rank {lora_rank} and alpha {lora_alpha}"
+                )
+                logging.info(
+                    f"Number of trainable parameters: {num_trainable_params} [{fraction:.2f}%]"
+                )
 
         pet_model = PETUtilityWrapper(pet_model, FITTING_SCHEME.GLOBAL_AUG)
 
@@ -285,12 +321,6 @@ class Trainer:
             )
             pet_model = DataParallel(FlagsWrapper(pet_model))
             pet_model = pet_model.to(torch.device("cuda:0"))
-
-        if FITTING_SCHEME.MODEL_TO_START_WITH is not None:
-            pretrained_weights = {}
-            for name, param in pet_model.named_parameters():
-                pretrained_param = param.clone().detach()
-                pretrained_weights[name] = pretrained_param
 
         optim = get_optimizer(pet_model, FITTING_SCHEME)
         scheduler = get_scheduler(optim, FITTING_SCHEME)
@@ -352,14 +382,16 @@ class Trainer:
             multiplication_rmse_model_keeper = ModelKeeper()
             multiplication_mae_model_keeper = ModelKeeper()
 
-        logging.info(f"Starting training for {FITTING_SCHEME.EPOCH_NUM} epochs")
         if FITTING_SCHEME.EPOCHS_WARMUP > 0:
             remaining_lr_scheduler_steps = (
                 FITTING_SCHEME.EPOCHS_WARMUP - scheduler.last_epoch
             )
-            logging.info(
-                f"Performing {remaining_lr_scheduler_steps} epochs of LR warmup"
-            )
+            lr_sheduler_msg = f" with {remaining_lr_scheduler_steps} of LR warmup"
+        else:
+            lr_sheduler_msg = ""
+        logging.info(
+            f"Starting training for {FITTING_SCHEME.EPOCH_NUM} epochs" + lr_sheduler_msg
+        )
         TIME_TRAINING_STARTED = time.time()
         last_elapsed_time = 0
         print("=" * 50)
@@ -426,19 +458,10 @@ class Trainer:
                         FITTING_SCHEME.SUPPORT_MISSING_VALUES,
                         FITTING_SCHEME.USE_SHIFT_AGNOSTIC_LOSS,
                     )
-                if FITTING_SCHEME.MODEL_TO_START_WITH is not None:
-                    fine_tuning_reg_loss = get_fine_tuning_weights_l2_loss(
-                        pet_model,
-                        pretrained_weights,
-                        FITTING_SCHEME.FINE_TUNING_LOSS_WEIGHT,
-                    )
-
                 if MLIP_SETTINGS.USE_ENERGIES and MLIP_SETTINGS.USE_FORCES:
                     loss = FITTING_SCHEME.ENERGY_WEIGHT * loss_energies / (
                         sliding_energies_rmse**2
                     ) + loss_forces / (sliding_forces_rmse**2)
-                    if FITTING_SCHEME.MODEL_TO_START_WITH is not None:
-                        loss += fine_tuning_reg_loss
                     loss.backward()
 
                 if MLIP_SETTINGS.USE_ENERGIES and (not MLIP_SETTINGS.USE_FORCES):
@@ -687,12 +710,14 @@ class Trainer:
             load_path = self.pet_dir / "best_val_mae_both_model_state_dict"
 
         state_dict = torch.load(load_path, weights_only=True)
-
         ARCHITECTURAL_HYPERS = Hypers(model.hypers)
         raw_pet = PET(ARCHITECTURAL_HYPERS, 0.0, len(all_species))
+        if ARCHITECTURAL_HYPERS.USE_LORA_PEFT:
+            lora_rank = ARCHITECTURAL_HYPERS.LORA_RANK
+            lora_alpha = ARCHITECTURAL_HYPERS.LORA_ALPHA
+            raw_pet = LoRAWrapper(raw_pet, lora_rank, lora_alpha)
 
         new_state_dict = update_state_dict(state_dict)
-
         raw_pet.load_state_dict(new_state_dict)
 
         self_contributions_path = self.pet_dir / "self_contributions.npy"
