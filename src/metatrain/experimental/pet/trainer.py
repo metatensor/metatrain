@@ -394,7 +394,6 @@ class Trainer:
         )
         TIME_TRAINING_STARTED = time.time()
         last_elapsed_time = 0
-        print("=" * 50)
         for epoch in range(1, FITTING_SCHEME.EPOCH_NUM + 1):
             pet_model.train(True)
             for batch in train_loader:
