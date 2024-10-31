@@ -167,7 +167,7 @@ class Trainer:
         )
         training_configuration_log += f"Random seed: {FITTING_SCHEME.RANDOM_SEED}\n"
         training_configuration_log += (
-            f"CUDA is deterministic: {FITTING_SCHEME.CUDA_DETERMINISTIC}\n"
+            f"CUDA is deterministic: {FITTING_SCHEME.CUDA_DETERMINISTIC}"
         )
 
         logging.info(training_configuration_log)
