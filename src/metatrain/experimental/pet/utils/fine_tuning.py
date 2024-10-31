@@ -9,6 +9,7 @@ class LoRALayer(torch.nn.Module):
         self.rank = rank
         self.A = torch.nn.Parameter(torch.randn(hidden_dim, rank))
         self.B = torch.nn.Parameter(torch.randn(rank, hidden_dim))
+        self.reset_parameters()
 
     def reset_parameters(self):
         torch.nn.init.zeros_(self.A)
