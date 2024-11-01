@@ -31,8 +31,7 @@ class AttentionBlockWithLoRA(torch.nn.Module):
     def forward(
         self, x: torch.Tensor, multipliers: Optional[torch.Tensor] = None
     ) -> torch.Tensor:
-        x = self.original_module(x, multipliers)
-        return x + self.alpha * self.lora(x)
+        return self.original_module(x, multipliers) + self.alpha * self.lora(x)
 
 
 class LoRAWrapper(torch.nn.Module):
