@@ -96,6 +96,9 @@ CONF_TARGET_FIELDS = OmegaConf.create(
         "reader": None,
         "key": None,
         "unit": None,
+        "per_atom": False,
+        "type": "scalar",
+        "num_properties": 1,
     }
 )
 
@@ -108,7 +111,7 @@ CONF_GRADIENT = OmegaConf.create(
     }
 )
 
-KNWON_GRADIENTS = list(CONF_GRADIENTS.keys())
+KNOWN_GRADIENTS = list(CONF_GRADIENTS.keys())
 
 # Merge configs to get default configs for energies and other targets
 CONF_TARGET = OmegaConf.merge(CONF_TARGET_FIELDS, CONF_GRADIENTS)
@@ -242,6 +245,9 @@ def expand_dataset_config(conf: Union[str, DictConfig, ListConfig]) -> ListConfi
                 else:
                     target = OmegaConf.merge(CONF_TARGET, target)
 
+                if target["type"] != "scalar":
+                    _check_non_scalar_target_type(target["type"])
+
                 if target["key"] is None:
                     target["key"] = target_key
 
@@ -253,7 +259,7 @@ def expand_dataset_config(conf: Union[str, DictConfig, ListConfig]) -> ListConfi
                 for gradient_key, gradient_conf in conf_element["targets"][
                     target_key
                 ].items():
-                    if gradient_key in KNWON_GRADIENTS:
+                    if gradient_key in KNOWN_GRADIENTS:
                         if gradient_conf is True:
                             gradient_conf = CONF_GRADIENT.copy()
                         elif type(gradient_conf) is str:
@@ -351,4 +357,46 @@ def check_units(
                 raise ValueError(
                     f"Target {target!r} is not present in one of the given dataset "
                     "options."
+                )
+
+
+def _check_non_scalar_target_type(target_type: Any) -> None:
+    if not isinstance(target_type, dict):
+        raise ValueError("Non-scalar target type must be a dictionary.")
+    if len(target_type) != 1:
+        raise ValueError("Non-scalar target type must have exactly one key.")
+    dict_key = next(iter(target_type.keys()))
+    if dict_key.lower() not in ["cartesian", "spherical"]:
+        raise ValueError(
+            "Non-scalar target `type` must be either `cartesian` or `spherical`."
+        )
+    if dict_key.lower() == "cartesian":
+        if not isinstance(target_type[dict_key], dict):
+            raise ValueError(
+                "Cartesian target `type` must be a dictionary of the type "
+                "`{'rank': integer}`."
+            )
+        if "rank" not in target_type[dict_key]:
+            raise ValueError(
+                "Cartesian target `type` must have a `rank` key, corresponding "
+                "to an integer value."
+            )
+    if dict_key.lower() == "spherical":
+        if not isinstance(target_type[dict_key], list):
+            raise ValueError(
+                "Spherical target `type` must be a list where each element is a "
+                "dictionary of the type `{`o3_lambda`: integer, `o3_sigma`: integer}`."
+            )
+        for element in target_type[dict_key]:
+            if not isinstance(element, dict):
+                raise ValueError(
+                    "Spherical target `type` must be a list where each element is a "
+                    "dictionary of the type "
+                    "`{`o3_lambda`: integer, `o3_sigma`: integer}`."
+                )
+            if "o3_lambda" not in element or "o3_sigma" not in element:
+                raise ValueError(
+                    "Spherical target `type` must be a list where each element is a "
+                    "dictionary of the type "
+                    "`{`o3_lambda`: integer, `o3_sigma`: integer}`."
                 )

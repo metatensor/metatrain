@@ -8,16 +8,14 @@ architecture:
 
 training_set:
   systems:
-    read_from: carbon_reduced_100.xyz
+    read_from: ethanol_reduced_100.xyz
     length_unit: angstrom
   targets:
-    energy:
-      key: energy
-      unit: eV
-      forces:
-        key: force
-      virial:
-        key: virial
+    forces:
+      quantity: force
+      key: forces
+      per_atom: true
+      num_properties: 3
 
 test_set: 0.5
 validation_set: 0.1
