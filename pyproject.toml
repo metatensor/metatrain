@@ -59,7 +59,7 @@ build-backend = "setuptools.build_meta"
 
 [project.optional-dependencies]
 soap-bpnn = [
-    "rascaline-torch @ git+https://github.com/luthaf/rascaline@b70b19e#subdirectory=python/rascaline-torch",
+    "rascaline-torch @ git+https://github.com/luthaf/rascaline@5326b6e#subdirectory=python/rascaline-torch",
 ]
 alchemical-model = [
   "torch_alchemical @ git+https://github.com/abmazitov/torch_alchemical.git@51ff519",
@@ -68,7 +68,7 @@ pet = [
   "pet @ git+https://github.com/lab-cosmo/pet@7eddb2e",
 ]
 gap = [
-    "rascaline-torch @ git+https://github.com/luthaf/rascaline@b70b19e#subdirectory=python/rascaline-torch",
+    "rascaline-torch @ git+https://github.com/luthaf/rascaline@5326b6e#subdirectory=python/rascaline-torch",
     "skmatter",
     "metatensor-learn",
     "scipy",
