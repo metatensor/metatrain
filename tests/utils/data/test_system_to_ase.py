@@ -11,6 +11,7 @@ def test_system_to_ase():
         positions=torch.tensor([[0.0, 0.0, 0.0], [1.0, 1.0, 1.0]]),
         types=torch.tensor([1, 8]),
         cell=torch.tensor([[10.0, 0.0, 0.0], [0.0, 10.0, 0.0], [0.0, 0.0, 10.0]]),
+        pbc=torch.tensor([True, True, True]),
     )
 
     # Convert the system to an ASE atoms object
