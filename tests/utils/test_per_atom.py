@@ -13,16 +13,19 @@ def test_average_by_num_atoms():
             positions=torch.tensor([[0.0, 0.0, 0.0]]),
             cell=torch.eye(3),
             types=torch.tensor([0]),
+            pbc=torch.tensor([True, True, True]),
         ),
         System(
             positions=torch.tensor([[0.0, 0.0, 0.0], [0.0, 0.0, 0.0]]),
             cell=torch.eye(3),
             types=torch.tensor([0, 0]),
+            pbc=torch.tensor([True, True, True]),
         ),
         System(
             positions=torch.tensor([[0.0, 0.0, 0.0], [0.0, 0.0, 0.0], [0.0, 0.0, 0.0]]),
             cell=torch.eye(3),
             types=torch.tensor([0, 0, 0]),
+            pbc=torch.tensor([True, True, True]),
         ),
     ]
 

@@ -60,7 +60,7 @@ def test_batch_dicts_compatibility(cutoff):
     structure = ase.io.read(DATASET_PATH)
     atomic_types = sorted(set(structure.numbers))
     system = systems_to_torch(structure)
-    options = NeighborListOptions(cutoff=cutoff, full_list=True)
+    options = NeighborListOptions(cutoff=cutoff, full_list=True, strict=True)
     system = get_system_with_neighbor_lists(system, [options])
 
     ARCHITECTURAL_HYPERS = Hypers(DEFAULT_HYPERS["model"])
@@ -124,7 +124,7 @@ def test_predictions_compatibility(cutoff):
     model.set_trained_model(raw_pet)
 
     system = systems_to_torch(structure)
-    options = NeighborListOptions(cutoff=cutoff, full_list=True)
+    options = NeighborListOptions(cutoff=cutoff, full_list=True, strict=True)
     system = get_system_with_neighbor_lists(system, [options])
 
     evaluation_options = ModelEvaluationOptions(
