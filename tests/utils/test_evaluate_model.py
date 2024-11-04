@@ -1,11 +1,9 @@
 import pytest
 import torch
-from metatensor.torch.atomistic import ModelCapabilities
 
 from metatrain.experimental.soap_bpnn import __model__
 from metatrain.utils.data import DatasetInfo, TargetInfo, read_systems
 from metatrain.utils.evaluate_model import evaluate_model
-from metatrain.utils.export import export
 from metatrain.utils.neighbor_lists import (
     get_requested_neighbor_lists,
     get_system_with_neighbor_lists,
@@ -37,17 +35,7 @@ def test_evaluate_model(training, exported):
     model = __model__(model_hypers=MODEL_HYPERS, dataset_info=dataset_info)
 
     if exported:
-
-        capabilities = ModelCapabilities(
-            length_unit=model.dataset_info.length_unit,
-            outputs=model.outputs,
-            atomic_types=list(model.dataset_info.atomic_types),
-            supported_devices=model.__supported_devices__,
-            interaction_range=model.hypers["soap"]["cutoff"],
-            dtype="float32",
-        )
-
-        model = export(model, capabilities)
+        model = model.export()
         requested_neighbor_lists = get_requested_neighbor_lists(model)
         systems = [
             get_system_with_neighbor_lists(system, requested_neighbor_lists)

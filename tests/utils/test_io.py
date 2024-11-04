@@ -86,11 +86,10 @@ def test_load_model_unknown_model():
 
 def test_extensions_directory_and_architecture_name():
     match = (
-        r"Both ``extensions_directory`` \('.'\) and ``architecture_name`` ('foo') are "
-        r"given which are mutually exclusive. An ``extensions_directory`` is only "
-        r"required for *exported* models while an ``architecture_name`` is only needed "
-        r"for model *checkpoints*."
+        r"Both ``extensions_directory`` \('.'\) and ``architecture_name`` \('foo'\) "
+        r"are given which are mutually exclusive. An ``extensions_directory`` is only "
+        r"required for \*exported\* models while an ``architecture_name`` is only "
+        r"needed for model \*checkpoints\*."
     )
     with pytest.raises(ValueError, match=match):
-        load_model("model.pt", extensions_directory=".", architecture_name="foo"
-)
+        load_model("model.pt", extensions_directory=".", architecture_name="foo")

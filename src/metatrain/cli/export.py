@@ -81,11 +81,12 @@ def export_model(model: Any, output: Union[Path, str] = "exported-model.pt") -> 
     extensions_path = str(Path("extensions/").absolute().resolve())
 
     if is_atomistic_model(model):
-        # recreate a valid AtomisticModel for export including extensions
-        model = MetatensorAtomisticModel(
-            model.module, model.metadata(), model.capabilities()
+        # recreate a valid AtomisticModel including extensions for export
+        atomistic_model = MetatensorAtomisticModel(
+            model, model.metadata(), model.capabilities()
         )
+    else:
+        atomistic_model = model.export()
 
-    model = model.export()
-    model.save(path, collect_extensions=extensions_path)
+    atomistic_model.save(path, collect_extensions=extensions_path)
     logger.info(f"Model exported to '{path}' and extensions to '{extensions_path}'")
