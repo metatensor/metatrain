@@ -26,7 +26,7 @@ from metatrain.utils.neighbor_lists import (
 )
 
 
-DEFAULT_HYPERS = get_default_hypers("experimental.pet")
+DEFAULT_HYPERS = get_default_hypers("experimental.pet")["architecture"]
 with open(Path(__file__).parents[1] / "schema-hypers.json", "r") as f:
     SCHEMA_HYPERS = json.load(f)
 
