@@ -361,7 +361,7 @@ class Trainer:
             if epoch == start_epoch:
                 metric_logger = MetricLogger(
                     log_obj=logger,
-                    dataset_info=model.dataset_info,
+                    dataset_info=(model.module if is_distributed else model).dataset_info,
                     initial_metrics=[finalized_train_info, finalized_val_info],
                     names=["training", "validation"],
                 )

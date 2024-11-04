@@ -172,8 +172,7 @@
                                   "o3_sigma":
                                   {
                                     "type": "number"
-                                  },
-                                  "additionalProperties": false
+                                  }
                                 }
                               }
                           },

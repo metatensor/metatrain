@@ -93,17 +93,18 @@ class Trainer:
 
         # Move the model to the device and dtype:
         model.to(device=device, dtype=dtype)
+        # The additive models of the SOAP-BPNN are always in float64 (to avoid
+        # numerical errors in the composition weights, which can be very large).
+        for additive_model in model.additive_models:
+            additive_model.to(dtype=torch.float64)
+
+        logger.info("Calculating composition weights")
+        model.additive_models[0].train_model(  # this is the composition model
+            train_datasets, self.hypers["fixed_composition_weights"]
+        )
 
         if is_distributed:
             model = DistributedDataParallel(model, device_ids=[device])
-
-        # The additive models of the SOAP-BPNN are always on CPU (to avoid OOM
-        # errors during the linear algebra training) and in float64 (to avoid
-        # numerical errors in the composition weights, which can be very large).
-        for additive_model in (
-            model.module if is_distributed else model
-        ).additive_models:
-            additive_model.to(dtype=torch.float64)
 
         logger.info("Setting up data loaders")
 
