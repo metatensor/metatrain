@@ -1,12 +1,12 @@
-import torch
 import numpy as np
+import torch
 from metatensor.torch.atomistic import ModelOutput, System
 
 from metatrain.experimental.nanopet.model import NanoPET
+from metatrain.utils.architectures import get_default_hypers
 from metatrain.utils.data import DatasetInfo, TargetInfo, TargetInfoDict
 from metatrain.utils.neighbor_lists import get_system_with_neighbor_lists
 
-from metatrain.utils.architectures import get_default_hypers
 
 DEFAULT_HYPERS = get_default_hypers("experimental.nanopet")
 MODEL_HYPERS = DEFAULT_HYPERS["model"]
@@ -26,10 +26,14 @@ systems = [
         types=torch.tensor([6, 6]),
         positions=torch.tensor([[0.0, 0.0, 0.0], [0.0, 0.0, float(a)]]),
         cell=torch.zeros(3, 3),
-        pbc=torch.tensor([False, False, False])
-    ) for a in np.arange(4.5, 5.5, 0.001)
+        pbc=torch.tensor([False, False, False]),
+    )
+    for a in np.arange(4.5, 5.5, 0.001)
 ]
-systems = [get_system_with_neighbor_lists(system, model.requested_neighbor_lists()) for system in systems]
+systems = [
+    get_system_with_neighbor_lists(system, model.requested_neighbor_lists())
+    for system in systems
+]
 outputs = {"energy": ModelOutput(per_atom=False)}
 
 outputs = model(systems, outputs)

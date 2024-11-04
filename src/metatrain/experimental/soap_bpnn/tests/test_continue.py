@@ -6,8 +6,9 @@ import torch
 from omegaconf import OmegaConf
 
 from metatrain.experimental.soap_bpnn import SoapBpnn, Trainer
-from metatrain.utils.data import Dataset, DatasetInfo, TargetInfo, TargetInfoDict
+from metatrain.utils.data import Dataset, DatasetInfo, TargetInfo
 from metatrain.utils.data.readers import read_systems, read_targets
+from metatrain.utils.testing import energy_layout
 
 from . import DATASET_PATH, DEFAULT_HYPERS, MODEL_HYPERS
 
@@ -22,8 +23,10 @@ def test_continue(monkeypatch, tmp_path):
     systems = read_systems(DATASET_PATH)
     systems = [system.to(torch.float32) for system in systems]
 
-    target_info_dict = TargetInfoDict()
-    target_info_dict["mtt::U0"] = TargetInfo(quantity="energy", unit="eV")
+    target_info_dict = {}
+    target_info_dict["mtt::U0"] = TargetInfo(
+        quantity="energy", unit="eV", layout=energy_layout
+    )
 
     dataset_info = DatasetInfo(
         length_unit="Angstrom", atomic_types=[1, 6, 7, 8], targets=target_info_dict

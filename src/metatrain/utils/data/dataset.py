@@ -1,7 +1,6 @@
 import math
 import warnings
-from collections import UserDict
-from typing import Any, Dict, List, Optional, Tuple, Union
+from typing import Any, Dict, List, Tuple, Union
 
 import numpy as np
 from metatensor.learn.data import Dataset, group_and_join
@@ -10,159 +9,7 @@ from torch.utils.data import Subset
 
 from ..external_naming import to_external_name
 from ..units import get_gradient_units
-
-
-class TargetInfo:
-    """A class that contains information about a target.
-
-    :param quantity: The quantity of the target.
-    :param unit: The unit of the target. If :py:obj:`None` the ``unit`` will be set to
-        an empty string ``""``.
-    :param per_atom: Whether the target is a per-atom quantity.
-    :param gradients: List containing the gradient names of the target that are present
-        in the target. Examples are ``"positions"`` or ``"strain"``. ``gradients`` will
-        be stored as a sorted list of **unique** gradients.
-    """
-
-    def __init__(
-        self,
-        quantity: str,
-        unit: Union[None, str] = "",
-        per_atom: bool = False,
-        gradients: Optional[List[str]] = None,
-    ):
-        self.quantity = quantity
-        self.unit = unit if unit is not None else ""
-        self.per_atom = per_atom
-        self._gradients = set(gradients) if gradients is not None else set()
-
-    @property
-    def gradients(self) -> List[str]:
-        """Sorted and unique list of gradient names."""
-        return sorted(self._gradients)
-
-    @gradients.setter
-    def gradients(self, value: List[str]):
-        self._gradients = set(value)
-
-    def __repr__(self):
-        return (
-            f"TargetInfo(quantity={self.quantity!r}, unit={self.unit!r}, "
-            f"per_atom={self.per_atom!r}, gradients={self.gradients!r})"
-        )
-
-    def __eq__(self, other):
-        if not isinstance(other, TargetInfo):
-            raise NotImplementedError(
-                "Comparison between a TargetInfo instance and a "
-                f"{type(other).__name__} instance is not implemented."
-            )
-        return (
-            self.quantity == other.quantity
-            and self.unit == other.unit
-            and self.per_atom == other.per_atom
-            and self._gradients == other._gradients
-        )
-
-    def copy(self) -> "TargetInfo":
-        """Return a shallow copy of the TargetInfo."""
-        return TargetInfo(
-            quantity=self.quantity,
-            unit=self.unit,
-            per_atom=self.per_atom,
-            gradients=self.gradients.copy(),
-        )
-
-    def update(self, other: "TargetInfo") -> None:
-        """Update this instance with the union of itself and ``other``.
-
-        :raises ValueError: If ``quantity``, ``unit`` or ``per_atom`` do not match.
-        """
-        if self.quantity != other.quantity:
-            raise ValueError(
-                f"Can't update TargetInfo with a different `quantity`: "
-                f"({self.quantity} != {other.quantity})"
-            )
-
-        if self.unit != other.unit:
-            raise ValueError(
-                f"Can't update TargetInfo with a different `unit`: "
-                f"({self.unit} != {other.unit})"
-            )
-
-        if self.per_atom != other.per_atom:
-            raise ValueError(
-                f"Can't update TargetInfo with a different `per_atom` property: "
-                f"({self.per_atom} != {other.per_atom})"
-            )
-
-        self.gradients = self.gradients + other.gradients
-
-    def union(self, other: "TargetInfo") -> "TargetInfo":
-        """Return the union of this instance with ``other``."""
-        new = self.copy()
-        new.update(other)
-        return new
-
-
-class TargetInfoDict(UserDict):
-    """
-    A custom dictionary class for storing and managing ``TargetInfo`` instances.
-
-    The subclass handles the update of :py:class:`TargetInfo` if a ``key`` is already
-    present.
-    """
-
-    # We use a `UserDict` with special methods because a normal dict does not support
-    # the update of nested instances.
-    def __setitem__(self, key, value):
-        if not isinstance(value, TargetInfo):
-            raise ValueError("value to set is not a `TargetInfo` instance")
-        if key in self:
-            self[key].update(value)
-        else:
-            super().__setitem__(key, value)
-
-    def __and__(self, other: "TargetInfoDict") -> "TargetInfoDict":
-        return self.intersection(other)
-
-    def __sub__(self, other: "TargetInfoDict") -> "TargetInfoDict":
-        return self.difference(other)
-
-    def union(self, other: "TargetInfoDict") -> "TargetInfoDict":
-        """Union of this instance with ``other``."""
-        new = self.copy()
-        new.update(other)
-        return new
-
-    def intersection(self, other: "TargetInfoDict") -> "TargetInfoDict":
-        """Intersection of the the two instances as a new ``TargetInfoDict``.
-
-        (i.e. all elements that are in both sets.)
-
-        :raises ValueError: If intersected items with the same key are not the same.
-        """
-        new_keys = self.keys() & other.keys()
-
-        self_intersect = TargetInfoDict(**{key: self[key] for key in new_keys})
-        other_intersect = TargetInfoDict(**{key: other[key] for key in new_keys})
-
-        if self_intersect == other_intersect:
-            return self_intersect
-        else:
-            raise ValueError(
-                "Intersected items with the same key are not the same. Intersected "
-                f"keys are {','.join(new_keys)}"
-            )
-
-    def difference(self, other: "TargetInfoDict") -> "TargetInfoDict":
-        """Difference of two instances as a new ``TargetInfoDict``.
-
-        (i.e. all elements that are in this set but not in the other.)
-        """
-
-        new_keys = self.keys() - other.keys()
-        return TargetInfoDict(**{key: self[key] for key in new_keys})
+from .target_info import TargetInfo
 
 
 class DatasetInfo:
@@ -180,7 +27,7 @@ class DatasetInfo:
     """
 
     def __init__(
-        self, length_unit: str, atomic_types: List[int], targets: TargetInfoDict
+        self, length_unit: str, atomic_types: List[int], targets: Dict[str, TargetInfo]
     ):
         self.length_unit = length_unit if length_unit is not None else ""
         self._atomic_types = set(atomic_types)
@@ -233,6 +80,14 @@ class DatasetInfo:
             )
 
         self.atomic_types = self.atomic_types + other.atomic_types
+
+        intersecting_target_keys = self.targets.keys() & other.targets.keys()
+        for key in intersecting_target_keys:
+            if self.targets[key] != other.targets[key]:
+                raise ValueError(
+                    f"Can't update DatasetInfo with different target information for "
+                    f"target '{key}': {self.targets[key]} != {other.targets[key]}"
+                )
         self.targets.update(other.targets)
 
     def union(self, other: "DatasetInfo") -> "DatasetInfo":

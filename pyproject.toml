@@ -10,11 +10,15 @@ authors = [{name = "metatrain developers"}]
 
 dependencies = [
     "ase < 3.23.0",
+    "metatensor-learn==0.3.0",
+    "metatensor-operations==0.3.0",
+    "metatensor-torch==0.6.0",
     "jsonschema",
     "omegaconf",
     "python-hostlist",
     "torch",
     "vesin",
+    "numpy < 2.0.0"
 ]
 
 keywords = ["machine learning", "molecular modeling"]
@@ -55,17 +59,17 @@ build-backend = "setuptools.build_meta"
 
 [project.optional-dependencies]
 soap-bpnn = [
-    "rascaline-torch @ git+https://github.com/luthaf/rascaline@d181b28#subdirectory=python/rascaline-torch",
+    "rascaline-torch @ git+https://github.com/luthaf/rascaline@5326b6e#subdirectory=python/rascaline-torch",
 ]
 alchemical-model = [
   "torch_alchemical @ git+https://github.com/abmazitov/torch_alchemical.git@51ff519",
 ]
 pet = [
-  "pet @ git+https://github.com/lab-cosmo/pet@8841021",
+  "pet @ git+https://github.com/lab-cosmo/pet@7eddb2e",
 ]
 nanopet = []
 gap = [
-    "rascaline-torch @ git+https://github.com/luthaf/rascaline@d181b28#subdirectory=python/rascaline-torch",
+    "rascaline-torch @ git+https://github.com/luthaf/rascaline@5326b6e#subdirectory=python/rascaline-torch",
     "skmatter",
     "metatensor-learn",
     "scipy",

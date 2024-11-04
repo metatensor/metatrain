@@ -24,7 +24,7 @@ def test_nanopet_padding():
         types=torch.tensor([6, 6]),
         positions=torch.tensor([[0.0, 0.0, 0.0], [0.0, 0.0, 1.0]]),
         cell=torch.zeros(3, 3),
-        pbc=torch.tensor([False, False, False])
+        pbc=torch.tensor([False, False, False]),
     )
     system = get_system_with_neighbor_lists(system, model.requested_neighbor_lists())
     outputs = {"energy": ModelOutput(per_atom=False)}
@@ -44,7 +44,7 @@ def test_nanopet_padding():
             ]
         ),
         cell=torch.zeros(3, 3),
-        pbc=torch.tensor([False, False, False])
+        pbc=torch.tensor([False, False, False]),
     )
     system_2 = get_system_with_neighbor_lists(
         system_2, model.requested_neighbor_lists()

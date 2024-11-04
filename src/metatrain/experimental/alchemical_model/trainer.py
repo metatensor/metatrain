@@ -9,7 +9,6 @@ from ...utils.additive import remove_additive
 from ...utils.data import (
     CombinedDataLoader,
     Dataset,
-    TargetInfoDict,
     check_datasets,
     collate_fn,
     get_all_targets,
@@ -247,12 +246,7 @@ class Trainer:
                 predictions = evaluate_model(
                     model,
                     systems,
-                    TargetInfoDict(
-                        **{
-                            key: model.dataset_info.targets[key]
-                            for key in targets.keys()
-                        }
-                    ),
+                    {key: model.dataset_info.targets[key] for key in targets.keys()},
                     is_training=True,
                 )
 
@@ -295,12 +289,7 @@ class Trainer:
                 predictions = evaluate_model(
                     model,
                     systems,
-                    TargetInfoDict(
-                        **{
-                            key: model.dataset_info.targets[key]
-                            for key in targets.keys()
-                        }
-                    ),
+                    {key: model.dataset_info.targets[key] for key in targets.keys()},
                     is_training=False,
                 )
 

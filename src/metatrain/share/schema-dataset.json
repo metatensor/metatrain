@@ -132,6 +132,59 @@
                     }
                   ]
                 },
+                "per_atom": {
+                  "type": "boolean"
+                },
+                "num_properties": {
+                  "type": "integer"
+                },
+                "type": {
+                  "oneOf": [
+                    { "enum": ["scalar"] },
+                    {
+                      "properties": {
+                        "cartesian": {
+                          "type": "object",
+                          "properties": {
+                            "rank": {
+                              "type": "integer"
+                            },
+                            "additionalProperties": false
+                          },
+                          "additionalProperties": false
+                        },
+                        "additionalProperties": false
+                      },
+                      "additionalProperties": false
+                    },
+                    {
+                      "properties": {
+                        "spherical": {
+                          "type": "object",
+                          "properties": {
+                            "irreps": {
+                              "type": "array",
+                              "items": {
+                                "o3_lambda":
+                                  {
+                                    "type": "integer"
+                                  },
+                                  "o3_sigma":
+                                  {
+                                    "type": "number"
+                                  },
+                                  "additionalProperties": false
+                                }
+                              }
+                          },
+                          "additionalProperties": false
+                        },
+                        "additionalProperties": false
+                      },
+                      "additionalProperties": false
+                    }
+                  ]
+                },
                 "forces": {
                   "$ref": "#/$defs/gradient_section"
                 },

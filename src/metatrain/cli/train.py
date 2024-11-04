@@ -4,6 +4,7 @@ import json
 import logging
 import os
 import random
+import time
 from pathlib import Path
 from typing import Dict, Optional, Union
 
@@ -20,7 +21,7 @@ from ..utils.architectures import (
 )
 from ..utils.data import (
     DatasetInfo,
-    TargetInfoDict,
+    TargetInfo,
     get_atomic_types,
     get_dataset,
     get_stats,
@@ -104,9 +105,9 @@ def _process_continue_from(continue_from: str) -> Optional[str]:
         # try to find the `outputs` directory; if it doesn't exist
         # then we are not continuing from a previous run
         if Path("outputs/").exists():
-            # take the latest day directory
+            # take the latest year-month-day directory
             dir = sorted(Path("outputs/").iterdir())[-1]
-            # take the latest second directory
+            # take the latest hour-minute-second directory
             dir = sorted(dir.iterdir())[-1]
             # take the latest checkpoint. This cannot be done with
             # `sorted` because some checkpoint files are named with
@@ -115,13 +116,18 @@ def _process_continue_from(continue_from: str) -> Optional[str]:
             new_continue_from = str(
                 sorted(dir.glob("*.ckpt"), key=lambda f: f.stat().st_ctime)[-1]
             )
+            logger.info(f"Auto-continuing from `{new_continue_from}`")
         else:
             new_continue_from = None
-
-        # the main thread will proceed to create a new outputs/ folder
-        # or a new folder within outputs/
-        import time
-        time.sleep(5)
+            logger.info(
+                "Auto-continuation did not find any previous runs, "
+                "training from scratch"
+            )
+        # sleep for a few seconds to allow all processes to catch up. This is
+        # necessary because the `outputs` directory is created by the main
+        # process and the other processes might detect it by mistake if they're
+        # still executing this function
+        time.sleep(3)
 
     return new_continue_from
 
@@ -222,11 +228,17 @@ def train_model(
     options["training_set"] = expand_dataset_config(options["training_set"])
 
     train_datasets = []
-    target_infos = TargetInfoDict()
-    for train_options in options["training_set"]:
-        dataset, target_info_dict = get_dataset(train_options)
+    target_info_dict: Dict[str, TargetInfo] = {}
+    for train_options in options["training_set"]:  # loop over training sets
+        dataset, target_info_dict_single = get_dataset(train_options)
         train_datasets.append(dataset)
-        target_infos.update(target_info_dict)
+        intersecting_keys = target_info_dict.keys() & target_info_dict_single.keys()
+        for key in intersecting_keys:
+            if target_info_dict[key] != target_info_dict_single[key]:
+                raise ValueError(
+                    f"Target information for key {key} differs between training sets."
+                )
+        target_info_dict.update(target_info_dict_single)
 
     train_size = 1.0
 
@@ -315,7 +327,7 @@ def train_model(
     dataset_info = DatasetInfo(
         length_unit=options["training_set"][0]["systems"]["length_unit"],
         atomic_types=atomic_types,
-        targets=target_infos,
+        targets=target_info_dict,
     )
 
     ###########################

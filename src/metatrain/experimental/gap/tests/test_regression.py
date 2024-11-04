@@ -8,8 +8,9 @@ import torch
 from omegaconf import OmegaConf
 
 from metatrain.experimental.gap import GAP, Trainer
-from metatrain.utils.data import Dataset, DatasetInfo, TargetInfo, TargetInfoDict
+from metatrain.utils.data import Dataset, DatasetInfo, TargetInfo
 from metatrain.utils.data.readers import read_systems, read_targets
+from metatrain.utils.testing import energy_force_layout, energy_layout
 
 from . import DATASET_ETHANOL_PATH, DATASET_PATH, DEFAULT_HYPERS
 
@@ -25,8 +26,8 @@ torch.manual_seed(0)
 
 def test_regression_init():
     """Perform a regression test on the model at initialization"""
-    targets = TargetInfoDict()
-    targets["mtt::U0"] = TargetInfo(quantity="energy", unit="eV")
+    targets = {}
+    targets["mtt::U0"] = TargetInfo(quantity="energy", unit="eV", layout=energy_layout)
 
     dataset_info = DatasetInfo(
         length_unit="Angstrom", atomic_types=[1, 6, 7, 8], targets=targets
@@ -57,8 +58,10 @@ def test_regression_train_and_invariance():
     targets, _ = read_targets(OmegaConf.create(conf))
     dataset = Dataset.from_dict({"system": systems, "mtt::U0": targets["mtt::U0"]})
 
-    target_info_dict = TargetInfoDict()
-    target_info_dict["mtt::U0"] = TargetInfo(quantity="energy", unit="eV")
+    target_info_dict = {}
+    target_info_dict["mtt::U0"] = TargetInfo(
+        quantity="energy", unit="eV", layout=energy_layout
+    )
 
     dataset_info = DatasetInfo(
         length_unit="Angstrom", atomic_types=[1, 6, 7, 8], targets=target_info_dict
@@ -138,9 +141,11 @@ def test_ethanol_regression_train_and_invariance():
     hypers = copy.deepcopy(DEFAULT_HYPERS)
     hypers["model"]["krr"]["num_sparse_points"] = 900
 
-    target_info_dict = TargetInfoDict(
-        energy=TargetInfo(quantity="energy", unit="kcal/mol", gradients=["positions"])
-    )
+    target_info_dict = {
+        "energy": TargetInfo(
+            quantity="energy", unit="kcal/mol", layout=energy_force_layout
+        )
+    }
 
     dataset_info = DatasetInfo(
         length_unit="Angstrom", atomic_types=[1, 6, 7, 8], targets=target_info_dict

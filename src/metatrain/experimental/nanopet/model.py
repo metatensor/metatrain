@@ -1,3 +1,5 @@
+import copy
+from math import prod
 from pathlib import Path
 from typing import Dict, List, Optional, Union
 
@@ -35,6 +37,14 @@ class NanoPET(torch.nn.Module):
 
     def __init__(self, model_hypers: Dict, dataset_info: DatasetInfo) -> None:
         super().__init__()
+
+        for target in dataset_info.targets.values():
+            if target.is_spherical:
+                raise ValueError(
+                    "The NanoPET model does not support spherical tensor targets. "
+                    "Only scalar and Cartesian tensor targets are supported."
+                )
+
         self.hypers = model_hypers
         self.dataset_info = dataset_info
         self.new_outputs = list(dataset_info.targets.keys())
@@ -51,11 +61,6 @@ class NanoPET(torch.nn.Module):
             )
             for key, value in dataset_info.targets.items()
         }
-
-        # the model is always capable of outputting the last layer features
-        self.outputs["mtt::aux::last_layer_features"] = ModelOutput(
-            unit="unitless", per_atom=True
-        )
 
         # buffers cannot be indexed by strings (torchscript), so we create a single
         # tensor for all outputs. Due to this, we need to slice the tensor when we use
@@ -97,10 +102,33 @@ class NanoPET(torch.nn.Module):
         self.gnn_contractions = torch.nn.ModuleList(gnn_contractions)
         self.gnn_transformers = torch.nn.ModuleList(gnn_transformers)
 
+        self.output_shapes = {
+            output_name: (
+                tuple(
+                    len(comp.values)
+                    for comp in dataset_info.targets[output_name]
+                    .layout.block()
+                    .components
+                )
+                + (
+                    len(
+                        dataset_info.targets[output_name]
+                        .layout.block()
+                        .properties.values
+                    ),
+                )
+            )
+            for output_name in self.outputs.keys()
+        }
+
         self.last_layer_feature_size = self.hypers["d_pet"]
         self.last_layers = torch.nn.ModuleDict(
             {
-                output_name: torch.nn.Linear(self.hypers["d_pet"], 1, bias=False)
+                output_name: torch.nn.Linear(
+                    self.hypers["d_pet"],
+                    prod(self.output_shapes[output_name]),
+                    bias=False,
+                )
                 for output_name in self.outputs.keys()
                 if "mtt::aux::" not in output_name
             }
@@ -127,11 +155,28 @@ class NanoPET(torch.nn.Module):
             additive_models.append(ZBL(model_hypers, dataset_info))
         self.additive_models = torch.nn.ModuleList(additive_models)
 
-        # cache
+        # cache keys, components, properties labels
         self.single_label = Labels.single()
-        self.property_label = Labels(
-            names=["energy"],
-            values=torch.tensor([[0]]),
+        self.key_labels = {
+            output_name: copy.deepcopy(dataset_info.targets[output_name].layout.keys)
+            for output_name in self.outputs.keys()
+        }
+        self.component_labels = {
+            output_name: copy.deepcopy(
+                dataset_info.targets[output_name].layout.block().components
+            )
+            for output_name in self.outputs.keys()
+        }
+        self.property_labels = {
+            output_name: copy.deepcopy(
+                dataset_info.targets[output_name].layout.block().properties
+            )
+            for output_name in self.outputs.keys()
+        }
+
+        # the model is always capable of outputting the last layer features
+        self.outputs["mtt::aux::last_layer_features"] = ModelOutput(
+            unit="unitless", per_atom=True
         )
 
     def restart(self, dataset_info: DatasetInfo) -> "NanoPET":
@@ -178,9 +223,18 @@ class NanoPET(torch.nn.Module):
 
         if self.single_label.values.device != device:
             self.single_label = self.single_label.to(device)
-
-        if self.property_label.values.device != device:
-            self.property_label = self.property_label.to(device)
+            self.key_labels = {
+                output_name: label.to(device)
+                for output_name, label in self.key_labels.items()
+            }
+            self.component_labels = {
+                output_name: [label.to(device) for label in labels]
+                for output_name, labels in self.component_labels.items()
+            }
+            self.property_labels = {
+                output_name: label.to(device)
+                for output_name, label in self.property_labels.items()
+            }
 
         segment_indices = torch.concatenate(
             [
@@ -234,11 +288,7 @@ class NanoPET(torch.nn.Module):
                 cells[segment_indices[centers]],
             )
 
-        edge_vectors = (
-            positions[neighbors]
-            - positions[centers]
-            + cell_contributions
-        )
+        edge_vectors = positions[neighbors] - positions[centers] + cell_contributions
 
         bincount = torch.bincount(centers)
         if bincount.numel() == 0:  # no edges
@@ -253,7 +303,7 @@ class NanoPET(torch.nn.Module):
 
         # Get radial mask
         r = torch.sqrt(torch.sum(edge_vectors**2, dim=-1))
-        radial_mask = get_radial_mask(r, self.cutoff, self.cutoff-self.cutoff_width)
+        radial_mask = get_radial_mask(r, self.cutoff, self.cutoff - self.cutoff_width)
 
         # Element indices
         element_indices_nodes = self.species_to_species_index[species]
@@ -338,44 +388,50 @@ class NanoPET(torch.nn.Module):
                     metatensor.torch.sum_over_samples(last_layer_feature_tmap, ["atom"])
                 )
 
-        atomic_energies_tmap_dict: Dict[str, TensorMap] = {}
+        atomic_properties_tmap_dict: Dict[str, TensorMap] = {}
         for output_name, last_layer in self.last_layers.items():
             if output_name in outputs:
-                atomic_energies = last_layer(node_features)
+                atomic_properties = last_layer(node_features)
                 block = TensorBlock(
-                    values=atomic_energies,
+                    values=atomic_properties.reshape(
+                        (-1,) + self.output_shapes[output_name]
+                    ),
                     samples=sample_labels,
-                    components=[],
-                    properties=self.property_label,
+                    components=self.component_labels[output_name],
+                    properties=self.property_labels[output_name],
                 )
-                atomic_energies_tmap_dict[output_name] = TensorMap(
-                    keys=self.single_label,
-                    blocks=[
-                        block,
-                    ],
+                atomic_properties_tmap_dict[output_name] = TensorMap(
+                    keys=self.key_labels[output_name],
+                    blocks=[block],
                 )
 
         if selected_atoms is not None:
-            for output_name, tmap in atomic_energies_tmap_dict.items():
-                atomic_energies_tmap_dict[output_name] = metatensor.torch.slice(
-                    tmap, axis="samples", labels=selected_atoms
+            for output_name, tmap in atomic_properties_tmap_dict.items():
+                atomic_properties_tmap_dict[output_name] = metatensor.torch.slice(
+                    tmap, axis="samples", selection=selected_atoms
                 )
 
-        for output_name, atomic_energy in atomic_energies_tmap_dict.items():
+        for output_name, atomic_property in atomic_properties_tmap_dict.items():
             if outputs[output_name].per_atom:
-                return_dict[output_name] = atomic_energy
+                return_dict[output_name] = atomic_property
             else:
                 return_dict[output_name] = metatensor.torch.sum_over_samples(
-                    atomic_energy, ["atom"]
+                    atomic_property, ["atom"]
                 )
 
         if not self.training:
             # at evaluation, we also add the additive contributions
             for additive_model in self.additive_models:
+                # some of the outputs might not be present in the additive model
+                # (e.g. the composition model only provides outputs for scalar targets)
+                outputs_for_additive_model: Dict[str, ModelOutput] = {}
+                for output_name in outputs:
+                    if output_name in additive_model.outputs:
+                        outputs_for_additive_model[output_name] = outputs[output_name]
                 additive_contributions = additive_model(
-                    systems, outputs, selected_atoms
+                    systems, outputs_for_additive_model, selected_atoms
                 )
-                for name in return_dict:
+                for name in additive_contributions:
                     if name.startswith("mtt::aux::"):
                         continue  # skip auxiliary outputs (not targets)
                     return_dict[name] = metatensor.torch.add(
@@ -392,6 +448,7 @@ class NanoPET(torch.nn.Module):
             NeighborListOptions(
                 cutoff=self.hypers["cutoff"],
                 full_list=True,
+                strict=True,
             )
         ]
 

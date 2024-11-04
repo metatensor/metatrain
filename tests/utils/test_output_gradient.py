@@ -6,6 +6,11 @@ from metatensor.torch.atomistic import System
 from metatrain.experimental.soap_bpnn import __model__
 from metatrain.utils.data import DatasetInfo, TargetInfo, read_systems
 from metatrain.utils.output_gradient import compute_gradient
+from metatrain.utils.testing import (
+    energy_force_layout,
+    energy_force_stress_layout,
+    energy_stress_layout,
+)
 
 from . import MODEL_HYPERS, RESOURCES_PATH
 
@@ -19,7 +24,7 @@ def test_forces(is_training):
         atomic_types={1, 6, 7, 8},
         targets={
             "energy": TargetInfo(
-                quantity="energy", unit="eV", per_atom=False, gradients=["positions"]
+                quantity="energy", unit="eV", layout=energy_force_layout
             )
         },
     )
@@ -32,6 +37,7 @@ def test_forces(is_training):
             positions=system.positions.requires_grad_(True),
             cell=system.cell,
             types=system.types,
+            pbc=system.pbc,
         )
         for system in systems
     ]
@@ -50,6 +56,7 @@ def test_forces(is_training):
             positions=system.positions.requires_grad_(True),
             cell=system.cell,
             types=system.types,
+            pbc=system.pbc,
         )
         for system in systems
     ]
@@ -76,7 +83,7 @@ def test_virial(is_training):
         atomic_types={6},
         targets={
             "energy": TargetInfo(
-                quantity="energy", unit="eV", per_atom=False, gradients=["strain"]
+                quantity="energy", unit="eV", layout=energy_stress_layout
             )
         },
     )
@@ -96,6 +103,7 @@ def test_virial(is_training):
             positions=system.positions @ strain,
             cell=system.cell @ strain,
             types=system.types,
+            pbc=system.pbc,
         )
         for system, strain in zip(systems, strains)
     ]
@@ -121,6 +129,7 @@ def test_virial(is_training):
             positions=system.positions @ strain,
             cell=system.cell @ strain,
             types=system.types,
+            pbc=system.pbc,
         )
         for system, strain in zip(systems, strains)
     ]
@@ -147,8 +156,7 @@ def test_both(is_training):
             "energy": TargetInfo(
                 quantity="energy",
                 unit="eV",
-                per_atom=False,
-                gradients=["positions", "strain"],
+                layout=energy_force_stress_layout,
             )
         },
     )
@@ -170,6 +178,7 @@ def test_both(is_training):
             positions=system.positions @ strain,
             cell=system.cell @ strain,
             types=system.types,
+            pbc=system.pbc,
         )
         for system, strain in zip(systems, strains)
     ]
@@ -193,6 +202,7 @@ def test_both(is_training):
             positions=system.positions @ strain,
             cell=system.cell @ strain,
             types=system.types,
+            pbc=system.pbc,
         )
         for system, strain in zip(systems, strains)
     ]

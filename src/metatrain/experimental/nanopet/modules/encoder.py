@@ -15,9 +15,13 @@ class Encoder(torch.nn.Module):
         self.cartesian_encoder = torch.nn.Sequential(
             torch.nn.Linear(in_features=3, out_features=4 * hidden_size, bias=False),
             torch.nn.SiLU(),
-            torch.nn.Linear(in_features=4 * hidden_size, out_features=4 * hidden_size, bias=False),
+            torch.nn.Linear(
+                in_features=4 * hidden_size, out_features=4 * hidden_size, bias=False
+            ),
             torch.nn.SiLU(),
-            torch.nn.Linear(in_features=4 * hidden_size, out_features=hidden_size, bias=False)
+            torch.nn.Linear(
+                in_features=4 * hidden_size, out_features=hidden_size, bias=False
+            ),
         )
         self.center_encoder = torch.nn.Embedding(
             num_embeddings=n_species, embedding_dim=hidden_size
