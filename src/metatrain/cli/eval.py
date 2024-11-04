@@ -185,7 +185,9 @@ def _eval_targets(
     # Infer the device and dtype from the model
     model_tensor = next(itertools.chain(model.parameters(), model.buffers()))
     dtype = model_tensor.dtype
-    device = model_tensor.device
+    device = "cuda" if "cuda" in model.capabilities().supported_devices else "cpu"
+    logger.info(f"Running on device {device} with dtype {dtype}")
+    model.to(dtype=dtype, device=device)
 
     # Create a dataloader
     dataloader = torch.utils.data.DataLoader(
