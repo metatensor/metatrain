@@ -383,10 +383,15 @@ class Trainer:
             multiplication_mae_model_keeper = ModelKeeper()
 
         if FITTING_SCHEME.EPOCHS_WARMUP > 0:
-            remaining_lr_scheduler_steps = (
-                FITTING_SCHEME.EPOCHS_WARMUP - scheduler.last_epoch
+            remaining_lr_scheduler_steps = max(
+                FITTING_SCHEME.EPOCHS_WARMUP - scheduler.last_epoch, 0
             )
-            lr_sheduler_msg = f" with {remaining_lr_scheduler_steps} steps of LR warmup"
+            if remaining_lr_scheduler_steps > 0:
+                lr_sheduler_msg = (
+                    f" with {remaining_lr_scheduler_steps} steps of LR warmup"
+                )
+            else:
+                lr_sheduler_msg = ""
         else:
             lr_sheduler_msg = ""
         logging.info(
