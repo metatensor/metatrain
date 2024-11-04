@@ -1,6 +1,7 @@
 from typing import List, Optional
-from metatensor.torch.atomistic import System
+
 from metatensor.torch import Labels
+from metatensor.torch.atomistic import System
 
 
 def extract_selected_atoms(

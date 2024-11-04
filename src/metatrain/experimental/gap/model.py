@@ -26,37 +26,6 @@ from ...utils.export import export
 from .utils import extract_selected_atoms
 
 
-def write_system_data(system: System, selected_atoms: torch.Tensor, filename: str):
-    positions = system.positions
-    types = system.types
-    cell = system.cell
-    options = system.known_neighbor_lists()[0]
-    nl = system.get_neighbor_list(options)
-    i_list = nl.samples.column("first_atom")
-    j_list = nl.samples.column("second_atom")
-    S_list = torch.cat(
-        (
-            nl.samples.column("cell_shift_a")[None],
-            nl.samples.column("cell_shift_b")[None],
-            nl.samples.column("cell_shift_c")[None],
-        )
-    ).transpose(0, 1)
-    D_list = nl.values[:, :, 0]
-    torch.save(
-        {
-            "positions": positions,
-            "types": types,
-            "cell": cell,
-            "i_list": i_list,
-            "j_list": j_list,
-            "S_list": S_list,
-            "D_list": D_list,
-            "selected_atoms": selected_atoms,
-        },
-        filename,
-    )
-
-
 class GAP(torch.nn.Module):
     __supported_devices__ = ["cpu"]
     __supported_dtypes__ = [torch.float64]
@@ -179,19 +148,6 @@ class GAP(torch.nn.Module):
         outputs: Dict[str, ModelOutput],
         selected_atoms: Optional[TorchLabels] = None,
     ) -> Dict[str, TorchTensorMap]:
-        print(selected_atoms)
-        if selected_atoms is not None:
-            selected_atoms.save("selected_atoms.npy")
-        for i, system in enumerate(systems):
-            if selected_atoms is not None:
-                selected_atoms_index = selected_atoms.values[:, 1][
-                    selected_atoms.values[:, 0] == i
-                ]
-            else:
-                selected_atoms_index = torch.arange(len(system))
-            write_system_data(
-                system, selected_atoms_index, filename=f"system_{i}_data.pt"
-            )
         systems = extract_selected_atoms(systems, selected_atoms)
         soap_features = self._soap_torch_calculator(
             systems, selected_samples=selected_atoms
@@ -259,17 +215,11 @@ class GAP(torch.nn.Module):
         output_key = list(outputs.keys())[0]
         energies = self._subset_of_regressors_torch(soap_features)
         return_dict = {output_key: energies}
-        print("SOAP ENERGIES", energies.block().values)
-
         if not self.training:
             # at evaluation, we also add the additive contributions
             for additive_model in self.additive_models:
                 additive_contributions = additive_model(
                     systems, outputs, selected_atoms
-                )
-                print(
-                    "ADDITIVE CONTRIBUTIONS",
-                    additive_contributions[output_key].block().values,
                 )
                 for name in return_dict:
                     if name.startswith("mtt::aux::"):
