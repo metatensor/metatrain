@@ -32,6 +32,7 @@ def test_forces(is_training):
             positions=system.positions.requires_grad_(True),
             cell=system.cell,
             types=system.types,
+            pbc=system.pbc,
         )
         for system in systems
     ]
@@ -50,6 +51,7 @@ def test_forces(is_training):
             positions=system.positions.requires_grad_(True),
             cell=system.cell,
             types=system.types,
+            pbc=system.pbc,
         )
         for system in systems
     ]
@@ -96,6 +98,7 @@ def test_virial(is_training):
             positions=system.positions @ strain,
             cell=system.cell @ strain,
             types=system.types,
+            pbc=system.pbc,
         )
         for system, strain in zip(systems, strains)
     ]
@@ -121,6 +124,7 @@ def test_virial(is_training):
             positions=system.positions @ strain,
             cell=system.cell @ strain,
             types=system.types,
+            pbc=system.pbc,
         )
         for system, strain in zip(systems, strains)
     ]
@@ -170,6 +174,7 @@ def test_both(is_training):
             positions=system.positions @ strain,
             cell=system.cell @ strain,
             types=system.types,
+            pbc=system.pbc,
         )
         for system, strain in zip(systems, strains)
     ]
@@ -193,6 +198,7 @@ def test_both(is_training):
             positions=system.positions @ strain,
             cell=system.cell @ strain,
             types=system.types,
+            pbc=system.pbc,
         )
         for system, strain in zip(systems, strains)
     ]

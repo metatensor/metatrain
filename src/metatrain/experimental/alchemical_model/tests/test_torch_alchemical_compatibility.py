@@ -29,6 +29,7 @@ systems = [system.to(torch.float32) for system in systems]
 nl_options = NeighborListOptions(
     cutoff=5.0,
     full_list=True,
+    strict=True,
 )
 systems = [get_system_with_neighbor_lists(system, [nl_options]) for system in systems]
 

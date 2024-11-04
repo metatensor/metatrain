@@ -33,6 +33,7 @@ def test_composition_model_train():
             positions=torch.tensor([[0.0, 0.0, 0.0]], dtype=torch.float64),
             types=torch.tensor([8]),
             cell=torch.eye(3, dtype=torch.float64),
+            pbc=torch.tensor([True, True, True]),
         ),
         System(
             positions=torch.tensor(
@@ -40,6 +41,7 @@ def test_composition_model_train():
             ),
             types=torch.tensor([1, 1, 8]),
             cell=torch.eye(3, dtype=torch.float64),
+            pbc=torch.tensor([True, True, True]),
         ),
         System(
             positions=torch.tensor(
@@ -55,6 +57,7 @@ def test_composition_model_train():
             ),
             types=torch.tensor([1, 1, 8, 1, 1, 8]),
             cell=torch.eye(3, dtype=torch.float64),
+            pbc=torch.tensor([True, True, True]),
         ),
     ]
     energies = [1.0, 5.0, 10.0]
@@ -200,6 +203,7 @@ def test_composition_model_torchscript(tmpdir):
         positions=torch.tensor([[0.0, 0.0, 0.0]], dtype=torch.float64),
         types=torch.tensor([8]),
         cell=torch.eye(3, dtype=torch.float64),
+        pbc=torch.tensor([True, True, True]),
     )
 
     composition_model = CompositionModel(
@@ -289,6 +293,7 @@ def test_composition_model_missing_types():
             positions=torch.tensor([[0.0, 0.0, 0.0]], dtype=torch.float64),
             types=torch.tensor([8]),
             cell=torch.eye(3, dtype=torch.float64),
+            pbc=torch.tensor([True, True, True]),
         ),
         System(
             positions=torch.tensor(
@@ -296,6 +301,7 @@ def test_composition_model_missing_types():
             ),
             types=torch.tensor([1, 1, 8]),
             cell=torch.eye(3, dtype=torch.float64),
+            pbc=torch.tensor([True, True, True]),
         ),
         System(
             positions=torch.tensor(
@@ -311,6 +317,7 @@ def test_composition_model_missing_types():
             ),
             types=torch.tensor([1, 1, 8, 1, 1, 8]),
             cell=torch.eye(3, dtype=torch.float64),
+            pbc=torch.tensor([True, True, True]),
         ),
     ]
     energies = [1.0, 5.0, 10.0]

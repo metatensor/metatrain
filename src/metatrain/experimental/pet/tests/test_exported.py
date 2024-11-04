@@ -61,6 +61,7 @@ def test_to(device):
         types=torch.tensor([6, 6]),
         positions=torch.tensor([[0.0, 0.0, 0.0], [0.0, 0.0, 1.0]]),
         cell=torch.zeros(3, 3),
+        pbc=torch.tensor([False, False, False]),
     )
     requested_neighbor_lists = get_requested_neighbor_lists(exported)
     system = get_system_with_neighbor_lists(system, requested_neighbor_lists)
