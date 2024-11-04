@@ -19,7 +19,7 @@ from metatrain.utils.neighbor_lists import (
 )
 
 
-DEFAULT_HYPERS = get_default_hypers("experimental.pet")["architecture"]
+DEFAULT_HYPERS = get_default_hypers("experimental.pet")
 
 
 @pytest.mark.parametrize("device", ["cpu", "cuda"])
