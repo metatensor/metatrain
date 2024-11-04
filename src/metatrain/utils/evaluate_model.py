@@ -278,6 +278,7 @@ def _prepare_system(
             positions=system.positions @ strain,
             cell=system.cell @ strain,
             types=system.types,
+            pbc=system.pbc,
         )
     else:
         if positions_grad:
@@ -285,6 +286,7 @@ def _prepare_system(
                 positions=system.positions.detach().clone().requires_grad_(True),
                 cell=system.cell,
                 types=system.types,
+                pbc=system.pbc,
             )
             strain = None
         else:
@@ -292,6 +294,7 @@ def _prepare_system(
                 positions=system.positions,
                 cell=system.cell,
                 types=system.types,
+                pbc=system.pbc,
             )
             strain = None
 

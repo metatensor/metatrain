@@ -74,6 +74,7 @@ class PET(torch.nn.Module):
             NeighborListOptions(
                 cutoff=self.cutoff,
                 full_list=True,
+                strict=True,
             )
         ]
 
@@ -112,9 +113,7 @@ class PET(torch.nn.Module):
                 values=predictions,
             )
             if selected_atoms is not None:
-                block = metatensor.torch.slice_block(
-                    block, axis="samples", labels=selected_atoms
-                )
+                block = metatensor.torch.slice_block(block, "samples", selected_atoms)
             output_tmap = TensorMap(keys=empty_labels, blocks=[block])
             if not outputs[output_name].per_atom:
                 output_tmap = metatensor.torch.sum_over_samples(output_tmap, "atom")

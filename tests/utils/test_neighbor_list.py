@@ -14,9 +14,9 @@ def test_attach_neighbor_lists():
     systems = read_systems_ase(filename)
 
     requested_neighbor_lists = [
-        NeighborListOptions(cutoff=4.0, full_list=True),
-        NeighborListOptions(cutoff=5.0, full_list=False),
-        NeighborListOptions(cutoff=6.0, full_list=True),
+        NeighborListOptions(cutoff=4.0, full_list=True, strict=True),
+        NeighborListOptions(cutoff=5.0, full_list=False, strict=True),
+        NeighborListOptions(cutoff=6.0, full_list=True, strict=True),
     ]
 
     new_system = get_system_with_neighbor_lists(systems[0], requested_neighbor_lists)
@@ -25,7 +25,7 @@ def test_attach_neighbor_lists():
     assert requested_neighbor_lists[1] in new_system.known_neighbor_lists()
     assert requested_neighbor_lists[2] in new_system.known_neighbor_lists()
 
-    extraneous_nl = NeighborListOptions(cutoff=5.0, full_list=True)
+    extraneous_nl = NeighborListOptions(cutoff=5.0, full_list=True, strict=True)
     assert extraneous_nl not in new_system.known_neighbor_lists()
 
     for nl_options in new_system.known_neighbor_lists():

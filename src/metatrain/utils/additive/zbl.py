@@ -251,6 +251,7 @@ class ZBL(torch.nn.Module):
             NeighborListOptions(
                 cutoff=self.cutoff_radius,
                 full_list=True,
+                strict=True,
             )
         ]
 
