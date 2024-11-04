@@ -59,6 +59,20 @@ def test_train(capfd, monkeypatch, tmp_path, output):
     log_glob = glob.glob("outputs/*/*/train.log")
     assert len(log_glob) == 1
 
+    model_name = "mymodel" if output == "mymodel.pt" else "model"
+
+    # Test if the model is saved (both .pt and .ckpt)
+    pt_glob = glob.glob(f"{model_name}.pt")
+    assert len(pt_glob) == 1
+    ckpt_glob = glob.glob(f"{model_name}.ckpt")
+    assert len(ckpt_glob) == 1
+
+    # Test if they are also saved to the outputs/ directory
+    pt_glob = glob.glob(f"outputs/*/*/{model_name}.pt")
+    assert len(pt_glob) == 1
+    ckpt_glob = glob.glob(f"outputs/*/*/{model_name}.ckpt")
+    assert len(ckpt_glob) == 1
+
     # Test if extensions are saved
     extensions_glob = glob.glob("extensions/")
     assert len(extensions_glob) == 1
