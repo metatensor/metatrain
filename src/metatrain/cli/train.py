@@ -4,6 +4,7 @@ import json
 import logging
 import os
 import random
+import shutil
 import time
 from pathlib import Path
 from typing import Dict, Optional, Union
@@ -436,6 +437,17 @@ def train_model(
     mts_atomistic_model.save(str(output_checked), collect_extensions=extensions_path)
     # the model is first saved and then reloaded 1) for good practice and 2) because
     # MetatensorAtomisticModel only torchscripts (makes faster) during save()
+
+    # Copy the exported model and the checkpoint also to the checkpoint directory
+    checkpoint_path = Path(checkpoint_dir)
+    if checkpoint_path != Path("."):
+        shutil.copy(output_checked, Path(checkpoint_dir) / output_checked)
+        if Path(f"{Path(output_checked).stem}.ckpt").exists():
+            # inside the if because some models don't have a checkpoint (e.g., GAP)
+            shutil.copy(
+                f"{Path(output_checked).stem}.ckpt",
+                Path(checkpoint_dir) / f"{Path(output_checked).stem}.ckpt",
+            )
 
     ###########################
     # EVALUATE FINAL MODEL ####
