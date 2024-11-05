@@ -176,4 +176,6 @@ def get_default_hypers(name: str) -> Dict:
     """
     check_architecture_name(name)
     default_hypers = OmegaConf.load(get_architecture_path(name) / "default-hypers.yaml")
+    # for a better UX we store the default-hypers.yaml
+    # of each architecture indented by one level (architecture:).
     return OmegaConf.to_container(default_hypers)["architecture"]
