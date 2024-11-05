@@ -13,7 +13,7 @@ from .jsonschema import validate
 
 
 def check_architecture_name(name: str) -> None:
-    """Check if the requested architecture is avalible.
+    """Check if the requested architecture is available.
 
     If the architecture is not found an :func:`ValueError` is raised. If an architecture
     with the same name as an experimental or deprecated architecture exist, this
@@ -136,7 +136,7 @@ def import_architecture(name: str):
 
 
 def get_architecture_path(name: str) -> Path:
-    """Return the relative path to the architeture directory.
+    """Return the relative path to the architecture directory.
 
     Path based on the ``name`` within the metatrain project directory.
 
@@ -152,10 +152,10 @@ def get_architecture_path(name: str) -> Path:
 
 
 def find_all_architectures() -> List[str]:
-    """Find all currentlty available architectures.
+    """Find all currently available architectures.
 
     To find the architectures the function searches for the mandatory
-    ``default-hypers.yaml`` file in each architectire directory.
+    ``default-hypers.yaml`` file in each architecture directory.
 
     :returns: List of architectures names
     """
@@ -172,8 +172,11 @@ def get_default_hypers(name: str) -> Dict:
     """Dictionary of the default architecture hyperparameters.
 
     :param: name of the architecture
-    :returns: default hyper paremeters of the architectures
+    :returns: default hyper parameters of the architectures
     """
     check_architecture_name(name)
     default_hypers = OmegaConf.load(get_architecture_path(name) / "default-hypers.yaml")
-    return OmegaConf.to_container(default_hypers)
+    # We present the `default-hypers.yaml` file inside the documentation. For a better
+    # user experience we store these yaml files with an additional level of indentation
+    # (`"architecture"`), which we have to remove here to get the raw default hypers.
+    return OmegaConf.to_container(default_hypers)["architecture"]
