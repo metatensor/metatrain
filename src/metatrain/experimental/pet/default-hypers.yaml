@@ -58,4 +58,3 @@ architecture:
     USE_SHIFT_AGNOSTIC_LOSS: False # only used when fitting general target. Primary use case: EDOS
     ENERGIES_LOSS: per_structure # per_structure or per_atom
     CHECKPOINT_INTERVAL: 100
-    

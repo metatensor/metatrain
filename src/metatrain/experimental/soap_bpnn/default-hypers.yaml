@@ -37,4 +37,3 @@ architecture:
     per_structure_targets: []
     loss_weights: {}
     log_mae: False
-    
