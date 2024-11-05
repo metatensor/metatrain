@@ -33,9 +33,9 @@ class TargetInfo:
         unit: Union[None, str] = "",
     ):
         # one of these will be set to True inside the _check_layout method
-        self.is_scalar = False
-        self.is_cartesian = False
-        self.is_spherical = False
+        self._is_scalar = False
+        self._is_cartesian = False
+        self._is_spherical = False
 
         self._check_layout(layout)
 
@@ -44,9 +44,24 @@ class TargetInfo:
         self.unit = unit if unit is not None else ""
 
     @property
+    def is_scalar(self) -> bool:
+        """Whether the target is a scalar."""
+        return self._is_scalar
+
+    @property
+    def is_cartesian(self) -> bool:
+        """Whether the target is a Cartesian tensor."""
+        return self._is_cartesian
+
+    @property
+    def is_spherical(self) -> bool:
+        """Whether the target is a spherical tensor."""
+        return self._is_spherical
+
+    @property
     def gradients(self) -> List[str]:
         """Sorted and unique list of gradient names."""
-        if self.is_scalar:
+        if self._is_scalar:
             return sorted(self.layout.block().gradients_list())
         else:
             return []
@@ -102,14 +117,14 @@ class TargetInfo:
             )
         components_first_block = layout.block(0).components
         if len(components_first_block) == 0:
-            self.is_scalar = True
+            self._is_scalar = True
         elif components_first_block[0].names[0].startswith("xyz"):
-            self.is_cartesian = True
+            self._is_cartesian = True
         elif (
             len(components_first_block) == 1
             and components_first_block[0].names[0] == "o3_mu"
         ):
-            self.is_spherical = True
+            self._is_spherical = True
         else:
             raise ValueError(
                 "The layout ``TensorMap`` of a target should be "
@@ -117,7 +132,7 @@ class TargetInfo:
                 "the target could not be determined."
             )
 
-        if self.is_scalar:
+        if self._is_scalar:
             if layout.keys.names != ["_"]:
                 raise ValueError(
                     "The layout ``TensorMap`` of a scalar target should have "
@@ -136,7 +151,7 @@ class TargetInfo:
                         "scalar targets. "
                         f"Found '{gradient_name}' instead."
                     )
-        if self.is_cartesian:
+        if self._is_cartesian:
             if layout.keys.names != ["_"]:
                 raise ValueError(
                     "The layout ``TensorMap`` of a Cartesian tensor target should have "
@@ -152,7 +167,7 @@ class TargetInfo:
                     "Gradients of Cartesian tensor targets are not supported."
                 )
 
-        if self.is_spherical:
+        if self._is_spherical:
             if layout.keys.names != ["o3_lambda", "o3_sigma"]:
                 raise ValueError(
                     "The layout ``TensorMap`` of a spherical tensor target "
