@@ -1,6 +1,8 @@
 Data
 ====
 
+.. _data:
+
 API for handling data in ``metatrain``.
 
 .. toctree::
