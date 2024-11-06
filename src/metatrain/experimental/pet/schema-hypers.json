@@ -220,9 +220,6 @@
             }
           ]
         },
-        "FINE_TUNING_LOSS_WEIGHT": {
-          "type": "number"
-        },
         "SUPPORT_MISSING_VALUES": {
           "type": "boolean"
         },
