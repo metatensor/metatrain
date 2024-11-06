@@ -14,8 +14,9 @@ from metatrain.experimental.alchemical_model import AlchemicalModel
 from metatrain.experimental.alchemical_model.utils import (
     systems_to_torch_alchemical_batch,
 )
-from metatrain.utils.data import DatasetInfo, TargetInfo, TargetInfoDict, read_systems
+from metatrain.utils.data import DatasetInfo, TargetInfo, read_systems
 from metatrain.utils.neighbor_lists import get_system_with_neighbor_lists
+from metatrain.utils.testing import energy_layout
 
 from . import MODEL_HYPERS, QM9_DATASET_PATH
 
@@ -71,7 +72,9 @@ def test_alchemical_model_inference():
     dataset_info = DatasetInfo(
         length_unit="Angstrom",
         atomic_types=unique_numbers,
-        targets=TargetInfoDict(energy=TargetInfo(quantity="energy", unit="eV")),
+        targets={
+            "energy": TargetInfo(quantity="energy", unit="eV", layout=energy_layout)
+        },
     )
 
     alchemical_model = AlchemicalModel(MODEL_HYPERS, dataset_info)

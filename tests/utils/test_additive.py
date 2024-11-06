@@ -8,12 +8,13 @@ from metatensor.torch.atomistic import ModelOutput, System
 from omegaconf import OmegaConf
 
 from metatrain.utils.additive import ZBL, CompositionModel, remove_additive
-from metatrain.utils.data import Dataset, DatasetInfo, TargetInfo, TargetInfoDict
+from metatrain.utils.data import Dataset, DatasetInfo, TargetInfo
 from metatrain.utils.data.readers import read_systems, read_targets
 from metatrain.utils.neighbor_lists import (
     get_requested_neighbor_lists,
     get_system_with_neighbor_lists,
 )
+from metatrain.utils.testing import energy_layout
 
 
 RESOURCES_PATH = Path(__file__).parents[1] / "resources"
@@ -82,14 +83,12 @@ def test_composition_model_train():
         dataset_info=DatasetInfo(
             length_unit="angstrom",
             atomic_types=[1, 8],
-            targets=TargetInfoDict(
-                {
-                    "energy": TargetInfo(
-                        quantity="energy",
-                        per_atom=False,
-                    )
-                }
-            ),
+            targets={
+                "energy": TargetInfo(
+                    quantity="energy",
+                    layout=energy_layout,
+                )
+            },
         ),
     )
 
@@ -211,14 +210,12 @@ def test_composition_model_torchscript(tmpdir):
         dataset_info=DatasetInfo(
             length_unit="angstrom",
             atomic_types=[1, 8],
-            targets=TargetInfoDict(
-                {
-                    "energy": TargetInfo(
-                        quantity="energy",
-                        per_atom=False,
-                    )
-                }
-            ),
+            targets={
+                "energy": TargetInfo(
+                    quantity="energy",
+                    layout=energy_layout,
+                )
+            },
         ),
     )
     composition_model = torch.jit.script(composition_model)
@@ -342,14 +339,12 @@ def test_composition_model_missing_types():
         dataset_info=DatasetInfo(
             length_unit="angstrom",
             atomic_types=[1],
-            targets=TargetInfoDict(
-                {
-                    "energy": TargetInfo(
-                        quantity="energy",
-                        per_atom=False,
-                    )
-                }
-            ),
+            targets={
+                "energy": TargetInfo(
+                    quantity="energy",
+                    layout=energy_layout,
+                )
+            },
         ),
     )
     with pytest.raises(
@@ -363,14 +358,12 @@ def test_composition_model_missing_types():
         dataset_info=DatasetInfo(
             length_unit="angstrom",
             atomic_types=[1, 8, 100],
-            targets=TargetInfoDict(
-                {
-                    "energy": TargetInfo(
-                        quantity="energy",
-                        per_atom=False,
-                    )
-                }
-            ),
+            targets={
+                "energy": TargetInfo(
+                    quantity="energy",
+                    layout=energy_layout,
+                )
+            },
         ),
     )
     with pytest.warns(
@@ -394,14 +387,12 @@ def test_composition_model_wrong_target():
             dataset_info=DatasetInfo(
                 length_unit="angstrom",
                 atomic_types=[1],
-                targets=TargetInfoDict(
-                    {
-                        "energy": TargetInfo(
-                            quantity="FOO",
-                            per_atom=False,
-                        )
-                    }
-                ),
+                targets={
+                    "energy": TargetInfo(
+                        quantity="FOO",
+                        layout=energy_layout,
+                    )
+                },
             ),
         )
 

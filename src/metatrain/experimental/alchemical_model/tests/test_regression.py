@@ -13,11 +13,11 @@ from metatrain.utils.data import (
     read_systems,
     read_targets,
 )
-from metatrain.utils.data.dataset import TargetInfoDict
 from metatrain.utils.neighbor_lists import (
     get_requested_neighbor_lists,
     get_system_with_neighbor_lists,
 )
+from metatrain.utils.testing import energy_layout
 
 from . import DATASET_PATH, DEFAULT_HYPERS, MODEL_HYPERS
 
@@ -31,8 +31,8 @@ torch.manual_seed(0)
 def test_regression_init():
     """Perform a regression test on the model at initialization"""
 
-    targets = TargetInfoDict()
-    targets["mtt::U0"] = TargetInfo(quantity="energy", unit="eV")
+    targets = {}
+    targets["mtt::U0"] = TargetInfo(quantity="energy", unit="eV", layout=energy_layout)
 
     dataset_info = DatasetInfo(
         length_unit="Angstrom", atomic_types=[1, 6, 7, 8], targets=targets
