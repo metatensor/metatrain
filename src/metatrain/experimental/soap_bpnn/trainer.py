@@ -8,8 +8,7 @@ import torch.distributed
 from torch.utils.data import DataLoader, DistributedSampler
 
 from ...utils.additive import remove_additive
-from ...utils.data import CombinedDataLoader, Dataset, TargetInfoDict, collate_fn
-from ...utils.data.extract_targets import get_targets_dict
+from ...utils.data import CombinedDataLoader, Dataset, collate_fn
 from ...utils.distributed.distributed_data_parallel import DistributedDataParallel
 from ...utils.distributed.slurm import DistributedEnvironment
 from ...utils.evaluate_model import evaluate_model
@@ -182,9 +181,7 @@ class Trainer:
         val_dataloader = CombinedDataLoader(val_dataloaders, shuffle=False)
 
         # Extract all the possible outputs and their gradients:
-        train_targets = get_targets_dict(
-            train_datasets, (model.module if is_distributed else model).dataset_info
-        )
+        train_targets = (model.module if is_distributed else model).dataset_info.targets
         outputs_list = []
         for target_name, target_info in train_targets.items():
             outputs_list.append(target_name)
@@ -270,9 +267,7 @@ class Trainer:
                 predictions = evaluate_model(
                     model,
                     systems,
-                    TargetInfoDict(
-                        **{key: train_targets[key] for key in targets.keys()}
-                    ),
+                    {key: train_targets[key] for key in targets.keys()},
                     is_training=True,
                 )
 
@@ -325,9 +320,7 @@ class Trainer:
                 predictions = evaluate_model(
                     model,
                     systems,
-                    TargetInfoDict(
-                        **{key: train_targets[key] for key in targets.keys()}
-                    ),
+                    {key: train_targets[key] for key in targets.keys()},
                     is_training=False,
                 )
 
