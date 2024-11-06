@@ -45,11 +45,7 @@ from torch_geometric.nn import DataParallel
 
 from ...utils.data import Dataset, check_datasets
 from . import PET as WrappedPET
-from .utils import (
-    dataset_to_ase,
-    update_hypers,
-    update_state_dict,
-)
+from .utils import dataset_to_ase, update_hypers, update_state_dict
 from .utils.fine_tuning import LoRAWrapper
 
 
