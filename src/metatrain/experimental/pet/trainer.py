@@ -303,7 +303,8 @@ class Trainer:
                     f"Using LoRA PEFT with rank {lora_rank} and alpha {lora_alpha}"
                 )
                 logging.info(
-                    f"Number of trainable parameters: {num_trainable_params} [{fraction:.2f}%]"
+                    "Number of trainable parameters: "
+                    + f"{num_trainable_params} [{fraction:.2f}%]"
                 )
 
         pet_model = PETUtilityWrapper(pet_model, FITTING_SCHEME.GLOBAL_AUG)
