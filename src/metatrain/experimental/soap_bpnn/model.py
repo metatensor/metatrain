@@ -108,6 +108,7 @@ class VectorFeaturizer(torch.nn.Module):
         self.atomic_types = atomic_types
         soap_vector_hypers = copy.deepcopy(soap_hypers)
         soap_vector_hypers["max_angular"] = 1
+        soap_vector_hypers["max_radial"] = 20
         self.soap_calculator = rascaline.torch.SphericalExpansion(
             radial_basis={"Gto": {}}, **soap_vector_hypers
         )

@@ -35,6 +35,8 @@ class NanoPET(torch.nn.Module):
     __supported_devices__ = ["cuda", "cpu"]
     __supported_dtypes__ = [torch.float64, torch.float32]
 
+    component_labels: Dict[str, List[Labels]]
+
     def __init__(self, model_hypers: Dict, dataset_info: DatasetInfo) -> None:
         super().__init__()
 
@@ -456,7 +458,7 @@ class NanoPET(torch.nn.Module):
     def load_checkpoint(cls, path: Union[str, Path]) -> "NanoPET":
 
         # Load the checkpoint
-        checkpoint = torch.load(path, weights_only=False)
+        checkpoint = torch.load(path, weights_only=False, map_location=torch.device("cpu"))
         model_hypers = checkpoint["model_hypers"]
         model_state_dict = checkpoint["model_state_dict"]
 
