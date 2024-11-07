@@ -30,9 +30,18 @@ fine-tuning process more efficient and less resource-intensive. LoRA is
 particularly useful in scenarios where computational resources are limited
 or when quick adaptation to new tasks is required.
 
-By following the steps outlined above, you can effectively fine-tune your
-PET model using LoRA, leveraging its benefits for improved performance and
-efficiency.
+Given a pre-trained model with the weights matrix :math:`W_0`, LoRA introduces
+low-rank matrices :math:`A` and :math:`B` of a rank :math:`r` such that the
+new weights matrix :math:`W` is computed as:
+
+.. math::
+
+  W = W_0 + \frac{\alpha}{r} A B
+
+where :math:`\alpha` is a regularization factor that controls the influence
+of the low-rank matrices on the model's weights. By adjusting the rank :math:`r`
+and the regularization factor :math:`\alpha`, you can fine-tune the model
+to achieve better performance on specific tasks.
 
 Prerequisites
 ^^^^^^^^^^^^^
@@ -52,15 +61,26 @@ section of the ``options.yaml`` file:
     ALL_SPECIES_PATH: <path_to_all_species.npy>
     SELF_CONTRIBUTIONS_PATH: <path_to_self_contributions.npy>
 
+These parameters are relevant for the outputs of the PET model. If you are
+not familiar with their meaning, please refer to the :ref:`architecture-pet`
+model documentation.
+
+
 3. Set the LoRA parameters in the ``architecture.model``
 section of the ``options.yaml``:
 
 .. code-block:: yaml
+
   architecture:
     model:
       LORA_RANK: <desired_rank>
       LORA_ALPHA: <desired_alpha>
       USE_LORA_PEFT: True
+
+These parameters control whether to use LoRA for pre-trained model fine-tuning
+(``USE_LORA_PEFT``), the rank of the low-rank matrices introduced by LoRA
+(``LORA_RANK``), and the regularization factor for the low-rank matrices
+(``LORA_ALPHA``).
 
 4. Run ``mtt train options.yaml`` to fine-tune the model.
 
