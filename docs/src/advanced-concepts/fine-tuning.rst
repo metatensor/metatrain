@@ -51,17 +51,17 @@ efficiency.
 3. **Set LoRA Parameters**:
     Set the following parameters in the ``architecture.model``
     section of the ``options.yaml``:
-      ```yaml
-      LORA_RANK: <desired_rank>
-      LORA_ALPHA: <desired_alpha>
-      USE_LORA_PEFT: True
-      ```
+    ```yaml
+    LORA_RANK: <desired_rank>
+    LORA_ALPHA: <desired_alpha>
+    USE_LORA_PEFT: True
+    ```
 
 4. **Fine-Tune the Model**:
     Run the following command to fine-tune the model:
-      ```
-      mtt train options.yaml
-      ```
+    ```
+    mtt train options.yaml
+    ```
 
 # Fine-Tuning Options
 
