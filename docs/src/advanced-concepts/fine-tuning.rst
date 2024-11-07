@@ -56,10 +56,11 @@ section of the ``options.yaml`` file:
 section of the ``options.yaml``:
 
 .. code-block:: yaml
-
-  LORA_RANK: <desired_rank>
-  LORA_ALPHA: <desired_alpha>
-  USE_LORA_PEFT: True
+  architecture:
+    model:
+      LORA_RANK: <desired_rank>
+      LORA_ALPHA: <desired_alpha>
+      USE_LORA_PEFT: True
 
 4. Run ``mtt train options.yaml`` to fine-tune the model.
 
