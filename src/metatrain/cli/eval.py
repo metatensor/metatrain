@@ -219,10 +219,8 @@ def _eval_targets(
             check_consistency=check_consistency,
         )
 
-    import tqdm
-
     # Evaluate the model
-    for batch in tqdm.tqdm(dataloader):
+    for batch in dataloader:
         systems, batch_targets = batch
         systems = [system.to(dtype=dtype, device=device) for system in systems]
         batch_targets = {
