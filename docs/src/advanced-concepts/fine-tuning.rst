@@ -41,7 +41,7 @@ efficiency.
 2. **Define Paths in ``options.yaml``**:
     Specify the paths to ``model_state_dict``, ``all_species.npy``, and
     ``self_contributions.npy`` in the ``training`` section of the ``options.yaml``
-    file.
+    file:
     ```yaml
     MODEL_TO_START_WITH: <path_to_model_state_dict>
     ALL_SPECIES_PATH: <path_to_all_species.npy>
@@ -49,7 +49,7 @@ efficiency.
     ```
 
 3. **Set LoRA Parameters**:
-    - Set the following parameters in the ``architecture.model``
+    Set the following parameters in the ``architecture.model``
     section of the ``options.yaml``:
       ```yaml
       LORA_RANK: <desired_rank>
@@ -58,7 +58,7 @@ efficiency.
       ```
 
 4. **Fine-Tune the Model**:
-    - Run the following command to fine-tune the model:
+    Run the following command to fine-tune the model:
       ```
       mtt train options.yaml
       ```
