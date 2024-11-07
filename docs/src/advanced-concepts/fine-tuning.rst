@@ -12,8 +12,8 @@ So far the fine-tuning capabilities are only available for PET model.
 
 Fine-tuning a PET model using LoRA (Low-Rank Adaptation) can significantly
 enhance the model's performance on specific tasks while reducing the
-computational cost. Below are the steps to fine-tune a PET model from 
-`metatrain.experimental.pet` using LoRA.
+computational cost. Below are the steps to fine-tune a PET model from
+``metatrain.experimental.pet`` using LoRA.
 
 # What is LoRA?
 
@@ -30,17 +30,17 @@ efficiency.
 
 # Prerequisites
 
-1. **Train the Base Model**: 
+1. **Train the Base Model**:
     - You can either train the base model using the command:
       ```
       mtt train options.yaml
       ```
     - Alternatively, you can use a pre-trained foundational model,
-      if you have access to its state dict. 
+      if you have access to its state dict.
 
-2. **Define Paths in `options.yaml`**:
-    Specify the paths to `model_state_dict`, `all_species.npy`, and
-    `self_contributions.npy` in the `training` section of the `options.yaml`
+2. **Define Paths in ``options.yaml``**:
+    Specify the paths to ``model_state_dict``, ``all_species.npy``, and
+    ``self_contributions.npy`` in the ``training`` section of the ``options.yaml``
     file.
     ```yaml
     MODEL_TO_START_WITH: <path_to_model_state_dict>
@@ -49,8 +49,8 @@ efficiency.
     ```
 
 3. **Set LoRA Parameters**:
-    - Set the following parameters in the `architecture.model` 
-    section of the `options.yaml`:
+    - Set the following parameters in the ``architecture.model``
+    section of the ``options.yaml``:
       ```yaml
       LORA_RANK: <desired_rank>
       LORA_ALPHA: <desired_alpha>
@@ -65,10 +65,11 @@ efficiency.
 
 # Fine-Tuning Options
 
-When `USE_LORA_PEFT` is set to `True`, the original model's weights will be frozen, and
-only the adapter layers introduced by LoRA will be trained. This allows for efficient fine-tuning
-with fewer parameters. If `USE_LORA_PEFT` is set to `False`, all the weights of the model will be
-trained. This can lead to better performance on the specific task but may require more computational
-resources, and the model may be prone to overfitting (i.e. loosing accuracy on the original training
-set).
+When ``USE_LORA_PEFT`` is set to ``True``, the original model's weights will be
+frozen, and only the adapter layers introduced by LoRA will be trained. This
+allows for efficient fine-tuning with fewer parameters. If ``USE_LORA_PEFT`` is
+set to ``False``, all the weights of the model will be trained. This can lead to
+better performance on the specific task but may require more computational
+resources, and the model may be prone to overfitting (i.e. loosing accuracy on
+the original training set).
 
