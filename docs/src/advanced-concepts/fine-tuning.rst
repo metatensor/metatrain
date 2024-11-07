@@ -40,16 +40,17 @@ efficiency.
 
 2. **Define Paths in `options.yaml`**:
     Specify the paths to `model_state_dict`, `all_species.npy`, and
-    `self_contributions.npy` in the `options.yaml` file.
+    `self_contributions.npy` in the `training` section of the `options.yaml`
+    file.
     ```yaml
-    training:
     MODEL_TO_START_WITH: <path_to_model_state_dict>
     ALL_SPECIES_PATH: <path_to_all_species.npy>
     SELF_CONTRIBUTIONS_PATH: <path_to_self_contributions.npy>
     ```
 
 3. **Set LoRA Parameters**:
-    - Set the following parameters in `options.yaml`:
+    - Set the following parameters in the `architecture.model` 
+    section of the `options.yaml`:
       ```yaml
       LORA_RANK: <desired_rank>
       LORA_ALPHA: <desired_alpha>
