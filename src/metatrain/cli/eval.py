@@ -95,7 +95,7 @@ def _add_eval_model_parser(subparser: argparse._SubParsersAction) -> None:
 def _prepare_eval_model_args(args: argparse.Namespace) -> None:
     """Prepare arguments for eval_model."""
     args.options = OmegaConf.load(args.options)
-    # models for evaluation are already exported and don't need a name
+    # models for evaluation are already exported. Don't have to pass the `name` argument
     args.model = load_model(
         path=args.__dict__.pop("path"),
         extensions_directory=args.__dict__.pop("extensions_directory"),

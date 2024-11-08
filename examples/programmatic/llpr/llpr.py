@@ -34,7 +34,7 @@ from metatrain.utils.io import load_model
 
 # %%
 #
-# Models can be loaded using the :func:`metatensor.utils.io.load_model` function from
+# Models can be loaded using the :func:`metatrain.utils.io.load_model` function from
 # the. For already exported models The function requires the path to the exported model
 # and, for many models, also the path to the respective extensions directory. Both are
 # produced during the training process.
