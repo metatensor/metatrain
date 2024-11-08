@@ -128,6 +128,8 @@ def _process_continue_from(continue_from: str) -> Optional[str]:
         # process and the other processes might detect it by mistake if they're
         # still executing this function
         time.sleep(3)
+    else:
+        new_continue_from = continue_from
 
     return new_continue_from
 
