@@ -50,7 +50,6 @@ from .utils.fine_tuning import LoRAWrapper
 
 
 logger = logging.getLogger(__name__)
-torch.autograd.set_detect_anomaly(True)
 
 
 class Trainer:
