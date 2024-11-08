@@ -23,12 +23,12 @@ computational cost. Below are the steps to fine-tune a PET model from
 What is LoRA?
 ^^^^^^^^^^^^^
 
-LoRA (Low-Rank Adaptation) is a technique used to adapt pre-trained models
-to new tasks by introducing low-rank matrices into the model's architecture.
-This approach reduces the number of trainable parameters, making the
-fine-tuning process more efficient and less resource-intensive. LoRA is
-particularly useful in scenarios where computational resources are limited
-or when quick adaptation to new tasks is required.
+LoRA (Low-Rank Adaptation) stands for a Parameter-Efficient Fine-Tuning (PEFT)
+technique used to adapt pre-trained models to new tasks by introducing low-rank
+matrices into the model's architecture. This approach reduces the number of
+trainable parameters, making the fine-tuning process more efficient and less
+resource-intensive. LoRA is particularly useful in scenarios where computational
+resources are limited or when quick adaptation to new tasks is required.
 
 Given a pre-trained model with the weights matrix :math:`W_0`, LoRA introduces
 low-rank matrices :math:`A` and :math:`B` of a rank :math:`r` such that the
