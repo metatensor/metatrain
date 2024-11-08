@@ -8,6 +8,7 @@ from metatrain.utils.neighbor_lists import (
     get_requested_neighbor_lists,
     get_system_with_neighbor_lists,
 )
+from metatrain.utils.testing import energy_force_stress_layout
 
 from . import MODEL_HYPERS, RESOURCES_PATH
 
@@ -25,7 +26,7 @@ def test_evaluate_model(training, exported):
 
     targets = {
         "energy": TargetInfo(
-            quantity="energy", unit="eV", gradients=["positions", "strain"]
+            quantity="energy", unit="eV", layout=energy_force_stress_layout
         )
     }
 

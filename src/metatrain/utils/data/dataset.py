@@ -1,8 +1,8 @@
 import math
 import warnings
-from collections import UserDict
-from typing import Any, Dict, List, Optional, Tuple, Union
+from typing import Any, Dict, List, Tuple, Union
 
+import metatensor.torch
 import numpy as np
 from metatensor.learn.data import Dataset, group_and_join
 from metatensor.torch import TensorMap
@@ -15,40 +15,66 @@ from ..units import get_gradient_units
 class TargetInfo:
     """A class that contains information about a target.
 
-    :param quantity: The quantity of the target.
+    :param quantity: The physical quantity of the target (e.g., "energy").
+    :param layout: The layout of the target, as a ``TensorMap`` with 0 samples.
+        This ``TensorMap`` will be used to retrieve the names of
+        the ``samples``, as well as the ``components`` and ``properties`` of the
+        target and their gradients. For example, this allows to infer the type of
+        the target (scalar, Cartesian tensor, spherical tensor), whether it is per
+        atom, the names of its gradients, etc.
     :param unit: The unit of the target. If :py:obj:`None` the ``unit`` will be set to
         an empty string ``""``.
-    :param per_atom: Whether the target is a per-atom quantity.
-    :param gradients: List containing the gradient names of the target that are present
-        in the target. Examples are ``"positions"`` or ``"strain"``. ``gradients`` will
-        be stored as a sorted list of **unique** gradients.
     """
 
     def __init__(
         self,
         quantity: str,
+        layout: TensorMap,
         unit: Union[None, str] = "",
-        per_atom: bool = False,
-        gradients: Optional[List[str]] = None,
     ):
-        self.quantity = quantity
+        # one of these will be set to True inside the _check_layout method
+        self._is_scalar = False
+        self._is_cartesian = False
+        self._is_spherical = False
+
+        self._check_layout(layout)
+
+        self.quantity = quantity  # float64: otherwise metatensor can't serialize
+        self.layout = layout
         self.unit = unit if unit is not None else ""
-        self.per_atom = per_atom
-        self._gradients = set(gradients) if gradients is not None else set()
+
+    @property
+    def is_scalar(self) -> bool:
+        """Whether the target is a scalar."""
+        return self._is_scalar
+
+    @property
+    def is_cartesian(self) -> bool:
+        """Whether the target is a Cartesian tensor."""
+        return self._is_cartesian
+
+    @property
+    def is_spherical(self) -> bool:
+        """Whether the target is a spherical tensor."""
+        return self._is_spherical
 
     @property
     def gradients(self) -> List[str]:
         """Sorted and unique list of gradient names."""
-        return sorted(self._gradients)
+        if self._is_scalar:
+            return sorted(self.layout.block().gradients_list())
+        else:
+            return []
 
-    @gradients.setter
-    def gradients(self, value: List[str]):
-        self._gradients = set(value)
+    @property
+    def per_atom(self) -> bool:
+        """Whether the target is per atom."""
+        return "atom" in self.layout.block(0).samples.names
 
     def __repr__(self):
         return (
             f"TargetInfo(quantity={self.quantity!r}, unit={self.unit!r}, "
-            f"per_atom={self.per_atom!r}, gradients={self.gradients!r})"
+            f"layout={self.layout!r})"
         )
 
     def __eq__(self, other):
@@ -60,109 +86,126 @@ class TargetInfo:
         return (
             self.quantity == other.quantity
             and self.unit == other.unit
-            and self.per_atom == other.per_atom
-            and self._gradients == other._gradients
+            and metatensor.torch.equal(self.layout, other.layout)
         )
 
-    def copy(self) -> "TargetInfo":
-        """Return a shallow copy of the TargetInfo."""
-        return TargetInfo(
-            quantity=self.quantity,
-            unit=self.unit,
-            per_atom=self.per_atom,
-            gradients=self.gradients.copy(),
-        )
+    def _check_layout(self, layout: TensorMap) -> None:
+        """Check that the layout is a valid layout."""
 
-    def update(self, other: "TargetInfo") -> None:
-        """Update this instance with the union of itself and ``other``.
+        # examine basic properties of all blocks
+        for block in layout.blocks():
+            for sample_name in block.samples.names:
+                if sample_name not in ["system", "atom"]:
+                    raise ValueError(
+                        "The layout ``TensorMap`` of a target should only have samples "
+                        "named 'system' or 'atom', but found "
+                        f"'{sample_name}' instead."
+                    )
+            if len(block.values) != 0:
+                raise ValueError(
+                    "The layout ``TensorMap`` of a target should have 0 "
+                    f"samples, but found {len(block.values)} samples."
+                )
 
-        :raises ValueError: If ``quantity``, ``unit`` or ``per_atom`` do not match.
-        """
-        if self.quantity != other.quantity:
+        # examine the components of the first block to decide whether this is
+        # a scalar, a Cartesian tensor or a spherical tensor
+
+        if len(layout) == 0:
             raise ValueError(
-                f"Can't update TargetInfo with a different `quantity`: "
-                f"({self.quantity} != {other.quantity})"
+                "The layout ``TensorMap`` of a target should have at least one "
+                "block, but found 0 blocks."
             )
-
-        if self.unit != other.unit:
-            raise ValueError(
-                f"Can't update TargetInfo with a different `unit`: "
-                f"({self.unit} != {other.unit})"
-            )
-
-        if self.per_atom != other.per_atom:
-            raise ValueError(
-                f"Can't update TargetInfo with a different `per_atom` property: "
-                f"({self.per_atom} != {other.per_atom})"
-            )
-
-        self.gradients = self.gradients + other.gradients
-
-    def union(self, other: "TargetInfo") -> "TargetInfo":
-        """Return the union of this instance with ``other``."""
-        new = self.copy()
-        new.update(other)
-        return new
-
-
-class TargetInfoDict(UserDict):
-    """
-    A custom dictionary class for storing and managing ``TargetInfo`` instances.
-
-    The subclass handles the update of :py:class:`TargetInfo` if a ``key`` is already
-    present.
-    """
-
-    # We use a `UserDict` with special methods because a normal dict does not support
-    # the update of nested instances.
-    def __setitem__(self, key, value):
-        if not isinstance(value, TargetInfo):
-            raise ValueError("value to set is not a `TargetInfo` instance")
-        if key in self:
-            self[key].update(value)
-        else:
-            super().__setitem__(key, value)
-
-    def __and__(self, other: "TargetInfoDict") -> "TargetInfoDict":
-        return self.intersection(other)
-
-    def __sub__(self, other: "TargetInfoDict") -> "TargetInfoDict":
-        return self.difference(other)
-
-    def union(self, other: "TargetInfoDict") -> "TargetInfoDict":
-        """Union of this instance with ``other``."""
-        new = self.copy()
-        new.update(other)
-        return new
-
-    def intersection(self, other: "TargetInfoDict") -> "TargetInfoDict":
-        """Intersection of the the two instances as a new ``TargetInfoDict``.
-
-        (i.e. all elements that are in both sets.)
-
-        :raises ValueError: If intersected items with the same key are not the same.
-        """
-        new_keys = self.keys() & other.keys()
-
-        self_intersect = TargetInfoDict(**{key: self[key] for key in new_keys})
-        other_intersect = TargetInfoDict(**{key: other[key] for key in new_keys})
-
-        if self_intersect == other_intersect:
-            return self_intersect
+        components_first_block = layout.block(0).components
+        if len(components_first_block) == 0:
+            self._is_scalar = True
+        elif components_first_block[0].names[0].startswith("xyz"):
+            self._is_cartesian = True
+        elif (
+            len(components_first_block) == 1
+            and components_first_block[0].names[0] == "o3_mu"
+        ):
+            self._is_spherical = True
         else:
             raise ValueError(
-                "Intersected items with the same key are not the same. Intersected "
-                f"keys are {','.join(new_keys)}"
+                "The layout ``TensorMap`` of a target should be "
+                "either scalars, Cartesian tensors or spherical tensors. The type of "
+                "the target could not be determined."
             )
 
-    def difference(self, other: "TargetInfoDict") -> "TargetInfoDict":
-        """Difference of two instances as a new ``TargetInfoDict``.
+        if self._is_scalar:
+            if layout.keys.names != ["_"]:
+                raise ValueError(
+                    "The layout ``TensorMap`` of a scalar target should have "
+                    "a single key sample named '_'."
+                )
+            if len(layout.blocks()) != 1:
+                raise ValueError(
+                    "The layout ``TensorMap`` of a scalar target should have "
+                    "a single block."
+                )
+            gradients_names = layout.block(0).gradients_list()
+            for gradient_name in gradients_names:
+                if gradient_name not in ["positions", "strain"]:
+                    raise ValueError(
+                        "Only `positions` and `strain` gradients are supported for "
+                        "scalar targets. "
+                        f"Found '{gradient_name}' instead."
+                    )
+        if self._is_cartesian:
+            if layout.keys.names != ["_"]:
+                raise ValueError(
+                    "The layout ``TensorMap`` of a Cartesian tensor target should have "
+                    "a single key sample named '_'."
+                )
+            if len(layout.blocks()) != 1:
+                raise ValueError(
+                    "The layout ``TensorMap`` of a Cartesian tensor target should have "
+                    "a single block."
+                )
+            if len(layout.block(0).gradients_list()) > 0:
+                raise ValueError(
+                    "Gradients of Cartesian tensor targets are not supported."
+                )
 
-        (i.e. all elements that are in this set but not in the other.)
-        """
-
-        new_keys = self.keys() - other.keys()
-        return TargetInfoDict(**{key: self[key] for key in new_keys})
+        if self._is_spherical:
+            if layout.keys.names != ["o3_lambda", "o3_sigma"]:
+                raise ValueError(
+                    "The layout ``TensorMap`` of a spherical tensor target "
+                    "should have  two keys named 'o3_lambda' and 'o3_sigma'."
+                    f"Found '{layout.keys.names}' instead."
+                )
+            for key, block in layout.items():
+                o3_lambda, o3_sigma = int(key.values[0].item()), int(
+                    key.values[1].item()
+                )
+                if o3_sigma not in [-1, 1]:
+                    raise ValueError(
+                        "The layout ``TensorMap`` of a spherical tensor target should "
+                        "have a key sample 'o3_sigma' that is either -1 or 1."
+                        f"Found '{o3_sigma}' instead."
+                    )
+                if o3_lambda < 0:
+                    raise ValueError(
+                        "The layout ``TensorMap`` of a spherical tensor target should "
+                        "have a key sample 'o3_lambda' that is non-negative."
+                        f"Found '{o3_lambda}' instead."
+                    )
+                components = block.components
+                if len(components) != 1:
+                    raise ValueError(
+                        "The layout ``TensorMap`` of a spherical tensor target should "
+                        "have a single component."
+                    )
+                if len(components[0]) != 2 * o3_lambda + 1:
+                    raise ValueError(
+                        "Each ``TensorBlock`` of a spherical tensor target should have "
+                        "a component with 2*o3_lambda + 1 elements."
+                        f"Found '{len(components[0])}' elements instead."
+                    )
+                if len(block.gradients_list()) > 0:
+                    raise ValueError(
+                        "Gradients of spherical tensor targets are not supported."
+                    )
 
 
 class DatasetInfo:
@@ -180,7 +223,7 @@ class DatasetInfo:
     """
 
     def __init__(
-        self, length_unit: str, atomic_types: List[int], targets: TargetInfoDict
+        self, length_unit: str, atomic_types: List[int], targets: Dict[str, TargetInfo]
     ):
         self.length_unit = length_unit if length_unit is not None else ""
         self._atomic_types = set(atomic_types)
@@ -233,6 +276,14 @@ class DatasetInfo:
             )
 
         self.atomic_types = self.atomic_types + other.atomic_types
+
+        intersecting_target_keys = self.targets.keys() & other.targets.keys()
+        for key in intersecting_target_keys:
+            if self.targets[key] != other.targets[key]:
+                raise ValueError(
+                    f"Can't update DatasetInfo with different target information for "
+                    f"target '{key}': {self.targets[key]} != {other.targets[key]}"
+                )
         self.targets.update(other.targets)
 
     def union(self, other: "DatasetInfo") -> "DatasetInfo":

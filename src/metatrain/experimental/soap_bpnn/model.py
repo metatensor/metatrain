@@ -204,7 +204,11 @@ class SoapBpnn(torch.nn.Module):
         new_atomic_types = [
             at for at in merged_info.atomic_types if at not in self.atomic_types
         ]
-        new_targets = merged_info.targets - self.dataset_info.targets
+        new_targets = {
+            key: value
+            for key, value in merged_info.targets.items()
+            if key not in self.dataset_info.targets
+        }
 
         if len(new_atomic_types) > 0:
             raise ValueError(
