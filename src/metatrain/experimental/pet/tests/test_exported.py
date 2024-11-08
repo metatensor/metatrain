@@ -12,7 +12,6 @@ from pet.pet import PET
 from metatrain.experimental.pet import PET as WrappedPET
 from metatrain.utils.architectures import get_default_hypers
 from metatrain.utils.data import DatasetInfo, TargetInfo
-from metatrain.utils.export import export
 from metatrain.utils.neighbor_lists import (
     get_requested_neighbor_lists,
     get_system_with_neighbor_lists,
@@ -57,7 +56,7 @@ def test_to(device):
         supported_devices=["cpu", "cuda"],
     )
 
-    exported = export(model, capabilities)
+    exported = model.export()
     exported.to(device=device, dtype=dtype)
 
     system = System(

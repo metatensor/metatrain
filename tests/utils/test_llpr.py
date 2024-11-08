@@ -4,10 +4,10 @@ from metatensor.torch.atomistic import (
     ModelEvaluationOptions,
     ModelMetadata,
     ModelOutput,
-    load_atomistic_model,
 )
 
 from metatrain.utils.data import Dataset, collate_fn, read_systems, read_targets
+from metatrain.utils.io import load_model
 from metatrain.utils.llpr import LLPRUncertaintyModel
 from metatrain.utils.loss import TensorMapDictLoss
 from metatrain.utils.neighbor_lists import (
@@ -23,7 +23,7 @@ torch.manual_seed(42)
 
 def test_llpr(tmpdir):
 
-    model = load_atomistic_model(
+    model = load_model(
         str(RESOURCES_PATH / "model-64-bit.pt"),
         extensions_directory=str(RESOURCES_PATH / "extensions/"),
     )
@@ -114,7 +114,7 @@ def test_llpr(tmpdir):
         file=str(tmpdir / "llpr_model.pt"),
         collect_extensions=str(tmpdir / "extensions"),
     )
-    llpr_model = load_atomistic_model(
+    llpr_model = load_model(
         str(tmpdir / "llpr_model.pt"), extensions_directory=str(tmpdir / "extensions")
     )
 
@@ -145,7 +145,7 @@ def test_llpr(tmpdir):
 
 def test_llpr_covariance_as_pseudo_hessian(tmpdir):
 
-    model = load_atomistic_model(
+    model = load_model(
         str(RESOURCES_PATH / "model-64-bit.pt"),
         extensions_directory=str(RESOURCES_PATH / "extensions/"),
     )
@@ -251,7 +251,7 @@ def test_llpr_covariance_as_pseudo_hessian(tmpdir):
         file=str(tmpdir / "llpr_model.pt"),
         collect_extensions=str(tmpdir / "extensions"),
     )
-    llpr_model = load_atomistic_model(
+    llpr_model = load_model(
         str(tmpdir / "llpr_model.pt"), extensions_directory=str(tmpdir / "extensions")
     )
 

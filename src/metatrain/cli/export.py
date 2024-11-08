@@ -3,11 +3,10 @@ import logging
 from pathlib import Path
 from typing import Any, Union
 
-import torch
+from metatensor.torch.atomistic import is_atomistic_model
 
-from ..utils.architectures import find_all_architectures, import_architecture
-from ..utils.export import is_exported
-from ..utils.io import check_file_extension
+from ..utils.architectures import find_all_architectures
+from ..utils.io import check_file_extension, load_model
 from .formatter import CustomHelpFormatter
 
 
@@ -40,7 +39,10 @@ def _add_export_model_parser(subparser: argparse._SubParsersAction) -> None:
     parser.add_argument(
         "path",
         type=str,
-        help="Saved model which should be exported",
+        help=(
+            "Saved model which should be exported. Path can be either a URL or a "
+            "local file."
+        ),
     )
     parser.add_argument(
         "-o",
@@ -55,32 +57,31 @@ def _add_export_model_parser(subparser: argparse._SubParsersAction) -> None:
 
 def _prepare_export_model_args(args: argparse.Namespace) -> None:
     """Prepare arguments for export_model."""
-    architecture_name = args.__dict__.pop("architecture_name")
-    architecture = import_architecture(architecture_name)
-
-    args.model = architecture.__model__.load_checkpoint(args.__dict__.pop("path"))
+    args.model = load_model(
+        path=args.__dict__.pop("path"),
+        architecture_name=args.__dict__.pop("architecture_name"),
+    )
 
 
 def export_model(model: Any, output: Union[Path, str] = "exported-model.pt") -> None:
-    """Export a trained model to allow it to make predictions.
+    """Export a trained model allowing it to make predictions.
 
     This includes predictions within molecular simulation engines. Exported models will
     be saved with a ``.pt`` file ending. If ``path`` does not end with this file
     extensions ``.pt`` will be added and a warning emitted.
 
     :param model: model to be exported
-    :param output: path to save the exported model
+    :param output: path to save the model
     """
-    path = str(check_file_extension(filename=output, extension=".pt"))
+    path = str(
+        Path(check_file_extension(filename=output, extension=".pt"))
+        .absolute()
+        .resolve()
+    )
+    extensions_path = str(Path("extensions/").absolute().resolve())
 
-    if is_exported(model):
-        logger.info(f"The model is already exported. Saving it to `{path}`.")
-        torch.jit.save(model, path)
-    else:
-        extensions_path = "extensions/"
-        logger.info(
-            f"Exporting model to '{path}' and extensions to '{extensions_path}'"
-        )
-        mts_atomistic_model = model.export()
-        mts_atomistic_model.save(path, collect_extensions=extensions_path)
-        logger.info("Model exported successfully")
+    if not is_atomistic_model(model):
+        model = model.export()
+
+    model.save(path, collect_extensions=extensions_path)
+    logger.info(f"Model exported to '{path}' and extensions to '{extensions_path}'")

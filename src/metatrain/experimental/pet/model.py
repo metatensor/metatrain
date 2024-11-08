@@ -8,6 +8,7 @@ from metatensor.torch import Labels, TensorBlock, TensorMap
 from metatensor.torch.atomistic import (
     MetatensorAtomisticModel,
     ModelCapabilities,
+    ModelMetadata,
     ModelOutput,
     NeighborListOptions,
     System,
@@ -20,7 +21,6 @@ from metatrain.utils.data import DatasetInfo
 
 from ...utils.additive import ZBL
 from ...utils.dtype import dtype_to_str
-from ...utils.export import export
 from .utils import systems_to_batch_dict, update_state_dict
 from .utils.fine_tuning import LoRAWrapper
 
@@ -197,4 +197,4 @@ class PET(torch.nn.Module):
             supported_devices=["cpu", "cuda"],  # and not __supported_devices__
             dtype=dtype_to_str(dtype),
         )
-        return export(model=self, model_capabilities=capabilities)
+        return MetatensorAtomisticModel(self.eval(), ModelMetadata(), capabilities)

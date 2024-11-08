@@ -22,6 +22,7 @@ from ..utils.data import (
 )
 from ..utils.errors import ArchitectureError
 from ..utils.evaluate_model import evaluate_model
+from ..utils.io import load_model
 from ..utils.logging import MetricLogger
 from ..utils.metrics import MAEAccumulator, RMSEAccumulator
 from ..utils.neighbor_lists import (
@@ -94,7 +95,8 @@ def _add_eval_model_parser(subparser: argparse._SubParsersAction) -> None:
 def _prepare_eval_model_args(args: argparse.Namespace) -> None:
     """Prepare arguments for eval_model."""
     args.options = OmegaConf.load(args.options)
-    args.model = metatensor.torch.atomistic.load_atomistic_model(
+    # models for evaluation are already exported. Don't have to pass the `name` argument
+    args.model = load_model(
         path=args.__dict__.pop("path"),
         extensions_directory=args.__dict__.pop("extensions_directory"),
     )
