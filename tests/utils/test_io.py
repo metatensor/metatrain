@@ -1,7 +1,7 @@
 from pathlib import Path
 
 import pytest
-from torch.jit._script import RecursiveScriptModule
+from metatensor.torch.atomistic import MetatensorAtomisticModel
 
 from metatrain.experimental.soap_bpnn.model import SoapBpnn
 from metatrain.utils.io import check_file_extension, is_exported_file, load_model
@@ -59,7 +59,7 @@ def test_load_model_checkpoint(path):
 )
 def test_load_model_exported(path):
     model = load_model(path, architecture_name="experimental.soap_bpnn")
-    assert type(model) is RecursiveScriptModule
+    assert type(model) is MetatensorAtomisticModel
 
 
 @pytest.mark.parametrize("suffix", [".yml", ".yaml"])

@@ -39,7 +39,11 @@ def check_file_extension(
 
 
 def is_exported_file(path: str) -> bool:
-    """Check if a saved model file has been exported to a MetatensorAtomisticModel.
+    """
+    Check if a saved model file has been exported to a ``MetatensorAtomisticModel``.
+
+    The functions uses :py:func:`metatensor.torch.atomistic.check_atomistic_model` to
+    verify.
 
     :param path: model path
     :return: :py:obj:`True` if the ``model`` has been exported, :py:obj:`False`

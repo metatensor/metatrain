@@ -3,7 +3,7 @@ import logging
 from pathlib import Path
 from typing import Any, Union
 
-from metatensor.torch.atomistic import MetatensorAtomisticModel, is_atomistic_model
+from metatensor.torch.atomistic import is_atomistic_model
 
 from ..utils.architectures import find_all_architectures
 from ..utils.io import check_file_extension, load_model
@@ -71,7 +71,7 @@ def export_model(model: Any, output: Union[Path, str] = "exported-model.pt") -> 
     extensions ``.pt`` will be added and a warning emitted.
 
     :param model: model to be exported
-    :param output: path to save the exported model
+    :param output: path to save the model
     """
     path = str(
         Path(check_file_extension(filename=output, extension=".pt"))
@@ -80,13 +80,8 @@ def export_model(model: Any, output: Union[Path, str] = "exported-model.pt") -> 
     )
     extensions_path = str(Path("extensions/").absolute().resolve())
 
-    if is_atomistic_model(model):
-        # recreate a valid AtomisticModel including extensions for export
-        atomistic_model = MetatensorAtomisticModel(
-            model, model.metadata(), model.capabilities()
-        )
-    else:
-        atomistic_model = model.export()
+    if not is_atomistic_model(model):
+        model = model.export()
 
-    atomistic_model.save(path, collect_extensions=extensions_path)
+    model.save(path, collect_extensions=extensions_path)
     logger.info(f"Model exported to '{path}' and extensions to '{extensions_path}'")
