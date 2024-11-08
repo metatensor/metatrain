@@ -1,4 +1,4 @@
-from typing import Dict, Optional, Tuple
+from typing import Dict, Optional, Tuple, Union
 
 import torch
 from metatensor.torch import TensorMap
@@ -30,8 +30,14 @@ class TensorMapLoss:
         reduction: str = "sum",
         weight: float = 1.0,
         gradient_weights: Optional[Dict[str, float]] = None,
+        type: Union[str, dict] = "mse",
     ):
-        self.loss = torch.nn.MSELoss(reduction=reduction)
+        if type == "mse":
+            self.loss = torch.nn.MSELoss(reduction=reduction)
+        elif type == "mae":
+            self.loss = torch.nn.L1Loss(reduction=reduction)
+        else:
+            raise ValueError(f"Unknown loss type: {type}")
         self.weight = weight
         self.gradient_weights = {} if gradient_weights is None else gradient_weights
 
@@ -129,6 +135,7 @@ class TensorMapDictLoss:
         self,
         weights: Dict[str, float],
         reduction: str = "sum",
+        type: Union[str, dict] = "mse",
     ):
         outputs = [key for key in weights.keys() if "gradients" not in key]
         self.losses = {}
@@ -145,6 +152,7 @@ class TensorMapDictLoss:
                 reduction=reduction,
                 weight=value_weight,
                 gradient_weights=gradient_weights,
+                type=type,
             )
 
     def __call__(

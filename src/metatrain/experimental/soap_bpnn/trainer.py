@@ -205,7 +205,7 @@ class Trainer:
         logging.info(f"Training with loss weights: {loss_weights_dict_external}")
 
         # Create a loss function:
-        loss_fn = TensorMapDictLoss(loss_weights_dict)
+        loss_fn = TensorMapDictLoss(loss_weights_dict, type=self.hypers["loss_type"])
 
         # Create an optimizer:
         optimizer = torch.optim.Adam(

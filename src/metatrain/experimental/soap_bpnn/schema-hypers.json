@@ -141,6 +141,9 @@
             "type": "string"
           }
         },
+        "loss_type": {
+          "type": "string"
+        },
         "loss_weights": {
           "type": "object",
           "patternProperties": {
