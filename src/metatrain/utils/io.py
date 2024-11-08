@@ -66,9 +66,14 @@ def load_model(
     extensions_directory: Optional[Union[str, Path]] = None,
     architecture_name: Optional[str] = None,
 ) -> Any:
-    """Loads a module from an URL or a local file.
+    """Load checkpoints and exported models from an URL or a local file.
 
-    The function can load model checkpoint as well as already exported models.
+    If an exported model should be loaded and requires compiled extensions, their
+    location should be passed using the ``extensions_directory`` parameter.
+
+    Loading checkpoints requires the ``architecture_name`` parameter, which can be
+    ommited for loading an exported model. After reading a checkpoint, the returned
+    model can be exported with the model's own ``export()`` method.
 
     :param path: local or remote path to a model. For supported URL schemes see
         :py:class`urllib.request`
