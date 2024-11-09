@@ -1,4 +1,3 @@
-import importlib
 import json
 from typing import Any, Union
 
@@ -7,13 +6,13 @@ from omegaconf import DictConfig, ListConfig, OmegaConf
 from omegaconf.basecontainer import BaseContainer
 
 from .. import PACKAGE_ROOT, RANDOM_SEED
+from .architectures import import_architecture
 from .devices import pick_devices
 from .jsonschema import validate
 
 
 def _get_architecture_model(conf: BaseContainer) -> Any:
-    architecture_name = conf["architecture"]["name"]
-    architecture = importlib.import_module(f"metatrain.{architecture_name}")
+    architecture = import_architecture(conf["architecture"]["name"])
     return architecture.__model__
 
 
@@ -97,6 +96,9 @@ CONF_TARGET_FIELDS = OmegaConf.create(
         "reader": None,
         "key": None,
         "unit": None,
+        "per_atom": False,
+        "type": "scalar",
+        "num_properties": 1,
     }
 )
 
@@ -109,7 +111,7 @@ CONF_GRADIENT = OmegaConf.create(
     }
 )
 
-KNWON_GRADIENTS = list(CONF_GRADIENTS.keys())
+KNOWN_GRADIENTS = list(CONF_GRADIENTS.keys())
 
 # Merge configs to get default configs for energies and other targets
 CONF_TARGET = OmegaConf.merge(CONF_TARGET_FIELDS, CONF_GRADIENTS)
@@ -254,7 +256,7 @@ def expand_dataset_config(conf: Union[str, DictConfig, ListConfig]) -> ListConfi
                 for gradient_key, gradient_conf in conf_element["targets"][
                     target_key
                 ].items():
-                    if gradient_key in KNWON_GRADIENTS:
+                    if gradient_key in KNOWN_GRADIENTS:
                         if gradient_conf is True:
                             gradient_conf = CONF_GRADIENT.copy()
                         elif type(gradient_conf) is str:

@@ -18,10 +18,10 @@ def get_average_number_of_atoms(
     """
     average_number_of_atoms = []
     for dataset in datasets:
-        dtype = dataset[0]["system"].positions.dtype
+        dtype = dataset[0].system.positions.dtype
         num_atoms = []
         for i in range(len(dataset)):
-            system = dataset[i]["system"]
+            system = dataset[i].system
             num_atoms.append(len(system))
         average_number_of_atoms.append(torch.mean(torch.tensor(num_atoms, dtype=dtype)))
     return torch.tensor(average_number_of_atoms)
@@ -39,9 +39,9 @@ def get_average_number_of_neighbors(
     average_number_of_neighbors = []
     for dataset in datasets:
         num_neighbor = []
-        dtype = dataset[0]["system"].positions.dtype
+        dtype = dataset[0].system.positions.dtype
         for i in range(len(dataset)):
-            system = dataset[i]["system"]
+            system = dataset[i].system
             known_neighbor_lists = system.known_neighbor_lists()
             if len(known_neighbor_lists) == 0:
                 raise ValueError(f"system {system} does not have a neighbor list")
@@ -94,4 +94,4 @@ def remove_composition_from_dataset(
         new_systems.append(system)
         new_properties.append(property)
 
-    return Dataset({"system": new_systems, property_name: new_properties})
+    return Dataset.from_dict({"system": new_systems, property_name: new_properties})

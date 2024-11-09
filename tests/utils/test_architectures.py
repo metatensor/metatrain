@@ -1,3 +1,4 @@
+import importlib
 from pathlib import Path
 
 import pytest
@@ -11,7 +12,12 @@ from metatrain.utils.architectures import (
     get_architecture_name,
     get_architecture_path,
     get_default_hypers,
+    import_architecture,
 )
+
+
+def is_None(*args, **kwargs) -> None:
+    return None
 
 
 def test_find_all_architectures():
@@ -116,3 +122,27 @@ def test_check_architecture_options_error_raise():
     match = r"Unrecognized options \('num_epochxxx' was unexpected\)"
     with pytest.raises(ValidationError, match=match):
         check_architecture_options(name=name, options=options)
+
+
+def test_import_architecture():
+    name = "experimental.soap_bpnn"
+    architecture_ref = importlib.import_module(f"metatrain.{name}")
+    assert import_architecture(name) == architecture_ref
+
+
+def test_import_architecture_erro(monkeypatch):
+    # `check_architecture_name` is called inside `import_architecture` and we have to
+    # disble the check to allow passing our "unknown" fancy-model below.
+    monkeypatch.setattr(
+        "metatrain.utils.architectures.check_architecture_name", is_None
+    )
+
+    name = "experimental.fancy_model"
+    name_for_deps = "fancy-model"
+
+    match = (
+        rf"Trying to import '{name}' but architecture dependencies seem not be "
+        rf"installed. \nTry to install them with `pip install .\[{name_for_deps}\]`"
+    )
+    with pytest.raises(ImportError, match=match):
+        import_architecture(name)

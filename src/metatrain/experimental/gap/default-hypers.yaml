@@ -17,10 +17,10 @@ model:
         rate: 1.0
         scale: 2.0
         exponent: 7.0
-
   krr:
     degree: 2
     num_sparse_points: 500
+  zbl: false
 
 training:
   regularizer: 0.001

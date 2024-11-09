@@ -11,9 +11,13 @@ from pet.pet import PET
 
 from metatrain.experimental.pet import PET as WrappedPET
 from metatrain.utils.architectures import get_default_hypers
-from metatrain.utils.data import DatasetInfo, TargetInfo, TargetInfoDict
+from metatrain.utils.data import DatasetInfo, TargetInfo
 from metatrain.utils.export import export
-from metatrain.utils.neighbor_lists import get_system_with_neighbor_lists
+from metatrain.utils.neighbor_lists import (
+    get_requested_neighbor_lists,
+    get_system_with_neighbor_lists,
+)
+from metatrain.utils.testing import energy_layout
 
 
 DEFAULT_HYPERS = get_default_hypers("experimental.pet")
@@ -29,7 +33,9 @@ def test_to(device):
     dataset_info = DatasetInfo(
         length_unit="Angstrom",
         atomic_types=[1, 6, 7, 8],
-        targets=TargetInfoDict(energy=TargetInfo(quantity="energy", unit="eV")),
+        targets={
+            "energy": TargetInfo(quantity="energy", unit="eV", layout=energy_layout)
+        },
     )
     model = WrappedPET(DEFAULT_HYPERS["model"], dataset_info)
     ARCHITECTURAL_HYPERS = Hypers(model.hypers)
@@ -58,8 +64,10 @@ def test_to(device):
         types=torch.tensor([6, 6]),
         positions=torch.tensor([[0.0, 0.0, 0.0], [0.0, 0.0, 1.0]]),
         cell=torch.zeros(3, 3),
+        pbc=torch.tensor([False, False, False]),
     )
-    system = get_system_with_neighbor_lists(system, exported.requested_neighbor_lists())
+    requested_neighbor_lists = get_requested_neighbor_lists(exported)
+    system = get_system_with_neighbor_lists(system, requested_neighbor_lists)
     system = system.to(device=device, dtype=dtype)
 
     evaluation_options = ModelEvaluationOptions(

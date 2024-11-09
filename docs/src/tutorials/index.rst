@@ -11,3 +11,4 @@ This sections includes some more advanced tutorials on the usage of the
 
    ../examples/ase/run_ase
    ../examples/programmatic/llpr/llpr
+   ../examples/zbl/dimers

@@ -12,7 +12,7 @@ from metatensor.torch.atomistic import (
     register_autograd_neighbors,
 )
 
-from .data import TargetInfoDict
+from .data import TargetInfo
 from .export import is_exported
 from .output_gradient import compute_gradient
 
@@ -33,7 +33,7 @@ def evaluate_model(
         torch.jit._script.RecursiveScriptModule,
     ],
     systems: List[System],
-    targets: TargetInfoDict,
+    targets: Dict[str, TargetInfo],
     is_training: bool,
     check_consistency: bool = False,
 ) -> Dict[str, TensorMap]:
@@ -234,7 +234,7 @@ def _get_model_outputs(
         torch.jit._script.RecursiveScriptModule,
     ],
     systems: List[System],
-    targets: TargetInfoDict,
+    targets: Dict[str, TargetInfo],
     check_consistency: bool,
 ) -> Dict[str, TensorMap]:
     if is_exported(model):
@@ -278,6 +278,7 @@ def _prepare_system(
             positions=system.positions @ strain,
             cell=system.cell @ strain,
             types=system.types,
+            pbc=system.pbc,
         )
     else:
         if positions_grad:
@@ -285,6 +286,7 @@ def _prepare_system(
                 positions=system.positions.detach().clone().requires_grad_(True),
                 cell=system.cell,
                 types=system.types,
+                pbc=system.pbc,
             )
             strain = None
         else:
@@ -292,6 +294,7 @@ def _prepare_system(
                 positions=system.positions,
                 cell=system.cell,
                 types=system.types,
+                pbc=system.pbc,
             )
             strain = None
 

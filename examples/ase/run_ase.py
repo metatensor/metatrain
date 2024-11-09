@@ -42,11 +42,6 @@ from metatensor.torch.atomistic.ase_calculator import MetatensorCalculator
 
 # %%
 #
-# .. note::
-#    We have to import ``rascaline.torch`` even though it is not used explicitly in this
-#    tutorial. The SOAP-BPNN model contains compiled extensions and therefore the import
-#    is required.
-#
 # Setting up the simulation
 # -------------------------
 #

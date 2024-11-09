@@ -11,3 +11,4 @@ such as output naming, auxiliary outputs, and wrapper models.
    output-naming
    auxiliary-outputs
    multi-gpu
+   auto-restarting

@@ -4,17 +4,22 @@ base_precision: 32
 
 architecture:
   name: experimental.pet
+  model:
+    N_GNN_LAYERS: 2
+    N_TRANS_LAYERS: 2
   training:
-    EPOCHS_WARMUP_ATOMIC: 250000
+    ATOMIC_BATCH_SIZE: 288
+    EPOCH_NUM: 5
+    EPOCHS_WARMUP: 2
 
 training_set:
   systems:
-    read_from: ethanol_reduced_100.xyz
+    read_from: ethanol_train_1.xyz
     length_unit: angstrom
   targets:
     energy:
       key: energy
       unit: kcal/mol
 
-test_set: 0.0
-validation_set: 0.5
+test_set: 0.1
+validation_set: 0.1

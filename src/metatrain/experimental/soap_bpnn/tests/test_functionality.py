@@ -7,7 +7,8 @@ from omegaconf import OmegaConf
 
 from metatrain.experimental.soap_bpnn import SoapBpnn
 from metatrain.utils.architectures import check_architecture_options
-from metatrain.utils.data import DatasetInfo, TargetInfo, TargetInfoDict
+from metatrain.utils.data import DatasetInfo, TargetInfo
+from metatrain.utils.testing import energy_layout
 
 from . import DEFAULT_HYPERS, MODEL_HYPERS
 
@@ -19,7 +20,9 @@ def test_prediction_subset_elements():
     dataset_info = DatasetInfo(
         length_unit="Angstrom",
         atomic_types=[1, 6, 7, 8],
-        targets=TargetInfoDict(energy=TargetInfo(quantity="energy", unit="eV")),
+        targets={
+            "energy": TargetInfo(quantity="energy", unit="eV", layout=energy_layout)
+        },
     )
 
     model = SoapBpnn(MODEL_HYPERS, dataset_info)
@@ -28,6 +31,7 @@ def test_prediction_subset_elements():
         types=torch.tensor([6, 6]),
         positions=torch.tensor([[0.0, 0.0, 0.0], [0.0, 0.0, 1.0]]),
         cell=torch.zeros(3, 3),
+        pbc=torch.tensor([False, False, False]),
     )
     model(
         [system],
@@ -42,7 +46,9 @@ def test_prediction_subset_atoms():
     dataset_info = DatasetInfo(
         length_unit="Angstrom",
         atomic_types=[1, 6, 7, 8],
-        targets=TargetInfoDict(energy=TargetInfo(quantity="energy", unit="eV")),
+        targets={
+            "energy": TargetInfo(quantity="energy", unit="eV", layout=energy_layout)
+        },
     )
 
     model = SoapBpnn(MODEL_HYPERS, dataset_info)
@@ -56,6 +62,7 @@ def test_prediction_subset_atoms():
             [[0.0, 0.0, 0.0], [0.0, 0.0, 1.0], [0.0, 0.0, 2.0]],
         ),
         cell=torch.zeros(3, 3),
+        pbc=torch.tensor([False, False, False]),
     )
 
     energy_monomer = model(
@@ -76,6 +83,7 @@ def test_prediction_subset_atoms():
             ],
         ),
         cell=torch.zeros(3, 3),
+        pbc=torch.tensor([False, False, False]),
     )
 
     selection_labels = metatensor.torch.Labels(
@@ -108,7 +116,9 @@ def test_output_last_layer_features():
     dataset_info = DatasetInfo(
         length_unit="Angstrom",
         atomic_types=[1, 6, 7, 8],
-        targets=TargetInfoDict(energy=TargetInfo(quantity="energy", unit="eV")),
+        targets={
+            "energy": TargetInfo(quantity="energy", unit="eV", layout=energy_layout)
+        },
     )
 
     model = SoapBpnn(MODEL_HYPERS, dataset_info)
@@ -119,6 +129,7 @@ def test_output_last_layer_features():
             [[0.0, 0.0, 0.0], [0.0, 0.0, 1.0], [0.0, 0.0, 2.0], [0.0, 0.0, 3.0]],
         ),
         cell=torch.zeros(3, 3),
+        pbc=torch.tensor([False, False, False]),
     )
 
     # last-layer features per atom:
@@ -179,7 +190,9 @@ def test_output_per_atom():
     dataset_info = DatasetInfo(
         length_unit="Angstrom",
         atomic_types=[1, 6, 7, 8],
-        targets=TargetInfoDict(energy=TargetInfo(quantity="energy", unit="eV")),
+        targets={
+            "energy": TargetInfo(quantity="energy", unit="eV", layout=energy_layout)
+        },
     )
 
     model = SoapBpnn(MODEL_HYPERS, dataset_info)
@@ -190,6 +203,7 @@ def test_output_per_atom():
             [[0.0, 0.0, 0.0], [0.0, 0.0, 1.0], [0.0, 0.0, 2.0], [0.0, 0.0, 3.0]],
         ),
         cell=torch.zeros(3, 3),
+        pbc=torch.tensor([False, False, False]),
     )
 
     outputs = model(

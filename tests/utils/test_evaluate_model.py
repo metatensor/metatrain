@@ -6,7 +6,11 @@ from metatrain.experimental.soap_bpnn import __model__
 from metatrain.utils.data import DatasetInfo, TargetInfo, read_systems
 from metatrain.utils.evaluate_model import evaluate_model
 from metatrain.utils.export import export
-from metatrain.utils.neighbor_lists import get_system_with_neighbor_lists
+from metatrain.utils.neighbor_lists import (
+    get_requested_neighbor_lists,
+    get_system_with_neighbor_lists,
+)
+from metatrain.utils.testing import energy_force_stress_layout
 
 from . import MODEL_HYPERS, RESOURCES_PATH
 
@@ -24,7 +28,7 @@ def test_evaluate_model(training, exported):
 
     targets = {
         "energy": TargetInfo(
-            quantity="energy", unit="eV", gradients=["positions", "strain"]
+            quantity="energy", unit="eV", layout=energy_force_stress_layout
         )
     }
 
@@ -45,8 +49,9 @@ def test_evaluate_model(training, exported):
         )
 
         model = export(model, capabilities)
+        requested_neighbor_lists = get_requested_neighbor_lists(model)
         systems = [
-            get_system_with_neighbor_lists(system, model.requested_neighbor_lists())
+            get_system_with_neighbor_lists(system, requested_neighbor_lists)
             for system in systems
         ]
 

@@ -31,8 +31,8 @@ def test_get_dataset():
 
     dataset, target_info = get_dataset(OmegaConf.create(options))
 
-    assert "system" in dataset[0]
-    assert "energy" in dataset[0]
+    dataset[0].system
+    dataset[0].energy
     assert "energy" in target_info
     assert target_info["energy"].quantity == "energy"
     assert target_info["energy"].unit == "eV"

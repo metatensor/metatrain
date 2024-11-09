@@ -13,8 +13,11 @@ from metatrain.utils.data import (
     read_systems,
     read_targets,
 )
-from metatrain.utils.data.dataset import TargetInfoDict
-from metatrain.utils.neighbor_lists import get_system_with_neighbor_lists
+from metatrain.utils.neighbor_lists import (
+    get_requested_neighbor_lists,
+    get_system_with_neighbor_lists,
+)
+from metatrain.utils.testing import energy_layout
 
 from . import DATASET_PATH, DEFAULT_HYPERS, MODEL_HYPERS
 
@@ -28,8 +31,8 @@ torch.manual_seed(0)
 def test_regression_init():
     """Perform a regression test on the model at initialization"""
 
-    targets = TargetInfoDict()
-    targets["mtt::U0"] = TargetInfo(quantity="energy", unit="eV")
+    targets = {}
+    targets["mtt::U0"] = TargetInfo(quantity="energy", unit="eV", layout=energy_layout)
 
     dataset_info = DatasetInfo(
         length_unit="Angstrom", atomic_types=[1, 6, 7, 8], targets=targets
@@ -38,8 +41,9 @@ def test_regression_init():
 
     # Predict on the first five systems
     systems = read_systems(DATASET_PATH)[:5]
+    requested_neighbor_lists = get_requested_neighbor_lists(model)
     systems = [
-        get_system_with_neighbor_lists(system, model.requested_neighbor_lists())
+        get_system_with_neighbor_lists(system, requested_neighbor_lists)
         for system in systems
     ]
 
@@ -92,7 +96,7 @@ def test_regression_train():
         }
     }
     targets, target_info_dict = read_targets(OmegaConf.create(conf))
-    dataset = Dataset({"system": systems, "mtt::U0": targets["mtt::U0"]})
+    dataset = Dataset.from_dict({"system": systems, "mtt::U0": targets["mtt::U0"]})
 
     hypers = DEFAULT_HYPERS.copy()
 
@@ -101,8 +105,9 @@ def test_regression_train():
     )
     model = AlchemicalModel(MODEL_HYPERS, dataset_info)
 
+    requested_neighbor_lists = get_requested_neighbor_lists(model)
     systems = [
-        get_system_with_neighbor_lists(system, model.requested_neighbor_lists())
+        get_system_with_neighbor_lists(system, requested_neighbor_lists)
         for system in systems
     ]
 

@@ -10,30 +10,23 @@ def concatenate_structures(systems: List[System]):
     centers = []
     neighbors = []
     species = []
-    segment_indices = []
-    edge_vectors = []
     cell_shifts = []
+    cells = []
     node_counter = 0
 
-    for i, system in enumerate(systems):
+    for system in systems:
         positions.append(system.positions)
         species.append(system.types)
-        segment_indices.append(
-            torch.full((len(system.positions),), i, device=system.device)
-        )
 
         assert len(system.known_neighbor_lists()) == 1
         neighbor_list = system.get_neighbor_list(system.known_neighbor_lists()[0])
         nl_values = neighbor_list.samples.values
-        edge_vectors_system = neighbor_list.values.reshape(
-            neighbor_list.values.shape[0], 3
-        )
 
         centers.append(nl_values[:, 0] + node_counter)
         neighbors.append(nl_values[:, 1] + node_counter)
-        edge_vectors.append(edge_vectors_system)
-
         cell_shifts.append(nl_values[:, 2:])
+
+        cells.append(system.cell)
 
         node_counter += len(system.positions)
 
@@ -41,8 +34,7 @@ def concatenate_structures(systems: List[System]):
     centers = torch.cat(centers)
     neighbors = torch.cat(neighbors)
     species = torch.cat(species)
-    segment_indices = torch.cat(segment_indices)
-    edge_vectors = torch.cat(edge_vectors)
+    cells = torch.stack(cells)
     cell_shifts = torch.cat(cell_shifts)
 
     return (
@@ -50,7 +42,6 @@ def concatenate_structures(systems: List[System]):
         centers,
         neighbors,
         species,
-        segment_indices,
-        edge_vectors,
+        cells,
         cell_shifts,
     )

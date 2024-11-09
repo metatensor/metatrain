@@ -1,4 +1,5 @@
 import difflib
+import importlib
 import json
 import logging
 from importlib.util import find_spec
@@ -108,6 +109,30 @@ def get_architecture_name(path: Union[str, Path]) -> str:
         ) from err
 
     return name
+
+
+def import_architecture(name: str):
+    """Import an architecture.
+
+    :param name: name of the architecture
+    :raises ImportError: if the architecture dependencies are not met
+    """
+    check_architecture_name(name)
+    try:
+        return importlib.import_module(f"metatrain.{name}")
+    except ImportError as err:
+        # consistent name with pyproject.toml's `optional-dependencies` section
+        name_for_deps = name
+        if "experimental." in name or "deprecated." in name:
+            name_for_deps = ".".join(name.split(".")[1:])
+
+        name_for_deps = name_for_deps.replace("_", "-")
+
+        raise ImportError(
+            f"Trying to import '{name}' but architecture dependencies "
+            f"seem not be installed. \n"
+            f"Try to install them with `pip install .[{name_for_deps}]`"
+        ) from err
 
 
 def get_architecture_path(name: str) -> Path:

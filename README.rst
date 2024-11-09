@@ -75,7 +75,7 @@ model.
 Documentation
 -------------
 For details, tutorials, and examples, please have a look at our
-`documentation <https://lab-cosmo.github.io/metatrain/latest/>`_.
+`documentation <https://metatensor.github.io/metatrain/latest/>`_.
 
 .. marker-installation
 
@@ -117,10 +117,10 @@ exist, ``~/.profile``):
 Having problems or ideas?
 -------------------------
 Having a problem with metatrain? Please let us know by `submitting an issue
-<https://github.com/metatrain/issues>`_.
+<https://github.com/metatensor/metatrain/issues>`_.
 
 Submit new features or bug fixes through a `pull request
-<https://github.com/metatrain/pulls>`_.
+<https://github.com/metatensor/metatrain/pulls>`_.
 
 .. marker-contributing
 

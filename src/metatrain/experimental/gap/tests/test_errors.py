@@ -12,10 +12,10 @@ from metatrain.utils.data import (
     Dataset,
     DatasetInfo,
     TargetInfo,
-    TargetInfoDict,
     read_systems,
     read_targets,
 )
+from metatrain.utils.testing import energy_force_layout
 
 from . import DATASET_ETHANOL_PATH, DEFAULT_HYPERS
 
@@ -54,14 +54,18 @@ def test_ethanol_regression_train_and_invariance():
     }
 
     targets, _ = read_targets(OmegaConf.create(conf))
-    dataset = Dataset({"system": systems[:2], "energy": targets["energy"][:2]})
+    dataset = Dataset.from_dict(
+        {"system": systems[:2], "energy": targets["energy"][:2]}
+    )
 
     hypers = copy.deepcopy(DEFAULT_HYPERS)
     hypers["model"]["krr"]["num_sparse_points"] = 30
 
-    target_info_dict = TargetInfoDict(
-        energy=TargetInfo(quantity="energy", unit="kcal/mol")
-    )
+    target_info_dict = {
+        "energy": TargetInfo(
+            quantity="energy", unit="kcal/mol", layout=energy_force_layout
+        )
+    }
 
     dataset_info = DatasetInfo(
         length_unit="Angstrom", atomic_types=[1, 6, 7, 8], targets=target_info_dict

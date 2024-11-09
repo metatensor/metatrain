@@ -1,10 +1,10 @@
 import argparse
-import importlib
 import itertools
 import json
 import logging
 import os
 import random
+import time
 from pathlib import Path
 from typing import Dict, Optional, Union
 
@@ -14,8 +14,18 @@ from metatensor.torch.atomistic import load_atomistic_model
 from omegaconf import DictConfig, OmegaConf
 
 from .. import PACKAGE_ROOT
-from ..utils.architectures import check_architecture_options, get_default_hypers
-from ..utils.data import DatasetInfo, TargetInfoDict, get_atomic_types, get_dataset
+from ..utils.architectures import (
+    check_architecture_options,
+    get_default_hypers,
+    import_architecture,
+)
+from ..utils.data import (
+    DatasetInfo,
+    TargetInfo,
+    get_atomic_types,
+    get_dataset,
+    get_stats,
+)
 from ..utils.data.dataset import _train_test_random_split
 from ..utils.devices import pick_devices
 from ..utils.distributed.logging import is_main_process
@@ -68,7 +78,7 @@ def _add_train_model_parser(subparser: argparse._SubParsersAction) -> None:
         "-c",
         "--continue",
         dest="continue_from",
-        type=str,
+        type=_process_continue_from,
         required=False,
         help="File to continue training from.",
     )
@@ -90,6 +100,39 @@ def _prepare_train_model_args(args: argparse.Namespace) -> None:
         override_options = {}
 
     args.options = OmegaConf.merge(args.options, override_options)
+
+
+def _process_continue_from(continue_from: str) -> Optional[str]:
+    # covers the case where `continue_from` is `auto`
+    if continue_from == "auto":
+        # try to find the `outputs` directory; if it doesn't exist
+        # then we are not continuing from a previous run
+        if Path("outputs/").exists():
+            # take the latest year-month-day directory
+            dir = sorted(Path("outputs/").iterdir())[-1]
+            # take the latest hour-minute-second directory
+            dir = sorted(dir.iterdir())[-1]
+            # take the latest checkpoint. This cannot be done with
+            # `sorted` because some checkpoint files are named with
+            # the epoch number (e.g. `epoch_10.ckpt` would be before
+            # `epoch_8.ckpt`). We therefore sort by file creation time.
+            new_continue_from = str(
+                sorted(dir.glob("*.ckpt"), key=lambda f: f.stat().st_ctime)[-1]
+            )
+            logger.info(f"Auto-continuing from `{new_continue_from}`")
+        else:
+            new_continue_from = None
+            logger.info(
+                "Auto-continuation did not find any previous runs, "
+                "training from scratch"
+            )
+        # sleep for a few seconds to allow all processes to catch up. This is
+        # necessary because the `outputs` directory is created by the main
+        # process and the other processes might detect it by mistake if they're
+        # still executing this function
+        time.sleep(3)
+
+    return new_continue_from
 
 
 def train_model(
@@ -130,10 +173,10 @@ def train_model(
     ###########################
 
     architecture_name = options["architecture"]["name"]
-    # check_architecture_options(
-    #     name=architecture_name, options=OmegaConf.to_container(options["architecture"])
-    # )
-    architecture = importlib.import_module(f"metatrain.{architecture_name}")
+    check_architecture_options(
+        name=architecture_name, options=OmegaConf.to_container(options["architecture"])
+    )
+    architecture = import_architecture(architecture_name)
 
     logger.info(f"Running training for {architecture_name!r} architecture")
 
@@ -188,11 +231,17 @@ def train_model(
     options["training_set"] = expand_dataset_config(options["training_set"])
 
     train_datasets = []
-    target_infos = TargetInfoDict()
-    for train_options in options["training_set"]:
-        dataset, target_info_dict = get_dataset(train_options)
+    target_info_dict: Dict[str, TargetInfo] = {}
+    for train_options in options["training_set"]:  # loop over training sets
+        dataset, target_info_dict_single = get_dataset(train_options)
         train_datasets.append(dataset)
-        target_infos.update(target_info_dict)
+        intersecting_keys = target_info_dict.keys() & target_info_dict_single.keys()
+        for key in intersecting_keys:
+            if target_info_dict[key] != target_info_dict_single[key]:
+                raise ValueError(
+                    f"Target information for key {key} differs between training sets."
+                )
+        target_info_dict.update(target_info_dict_single)
 
     train_size = 1.0
 
@@ -281,7 +330,7 @@ def train_model(
     dataset_info = DatasetInfo(
         length_unit=options["training_set"][0]["systems"]["length_unit"],
         atomic_types=atomic_types,
-        targets=target_infos,
+        targets=target_info_dict,
     )
 
     ###########################
@@ -294,7 +343,7 @@ def train_model(
     #     else:
     #         index = f" {i}"
     #     logger.info(
-    #         f"Training dataset{index}:\n    {train_dataset.get_stats(dataset_info)}"
+    #         f"Training dataset{index}:\n    {get_stats(train_dataset, dataset_info)}"
     #     )
 
     # for i, val_dataset in enumerate(val_datasets):
@@ -303,7 +352,7 @@ def train_model(
     #     else:
     #         index = f" {i}"
     #     logger.info(
-    #         f"Validation dataset{index}:\n    {val_dataset.get_stats(dataset_info)}"
+    #         f"Validation dataset{index}:\n    {get_stats(val_dataset, dataset_info)}"
     #     )
 
     # for i, test_dataset in enumerate(test_datasets):
@@ -311,7 +360,9 @@ def train_model(
     #         index = ""
     #     else:
     #         index = f" {i}"
-    #     logger.info(f"Test dataset{index}:\n    {test_dataset.get_stats(dataset_info)}")
+    #     logger.info(
+    #         f"Test dataset{index}:\n    {get_stats(test_dataset, dataset_info)}"
+    #     )
 
     ###########################
     # SAVE EXPANDED OPTIONS ###
@@ -386,9 +437,6 @@ def train_model(
             mts_atomistic_model.buffers(),
         )
     ).device
-    # always save on CPU. TODO: remove after release of
-    # https://github.com/lab-cosmo/metatensor/pull/668
-    mts_atomistic_model = mts_atomistic_model.to("cpu")
     mts_atomistic_model.save(str(output_checked), collect_extensions=extensions_path)
     # the model is first saved and then reloaded 1) for good practice and 2) because
     # MetatensorAtomisticModel only torchscripts (makes faster) during save()
