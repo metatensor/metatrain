@@ -199,6 +199,7 @@ def read_ase_energy(target: DictConfig) -> Tuple[List[TensorMap], TargetInfo]:
         key=target["key"],
     )
 
+    add_position_gradients = False
     if target["forces"]:
         try:
             position_gradients = read_forces_ase(
@@ -219,6 +220,8 @@ def read_ase_energy(target: DictConfig) -> Tuple[List[TensorMap], TargetInfo]:
 
     if target["stress"] and target["virial"]:
         raise ValueError("Cannot use stress and virial at the same time")
+
+    add_strain_gradients = False
 
     if target["stress"]:
         try:
