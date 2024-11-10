@@ -8,7 +8,7 @@ from metatensor.torch import TensorMap
 from metatensor.torch.atomistic import System
 from omegaconf import DictConfig
 
-from ..dataset import TargetInfo
+from ..target_info import TargetInfo
 
 
 logger = logging.getLogger(__name__)
@@ -178,35 +178,3 @@ def read_targets(
         target_info_dictionary[target_key] = target_info
 
     return target_dictionary, target_info_dictionary
-
-
-def _empty_tensor_map_like(tensor_map: TensorMap) -> TensorMap:
-    new_keys = tensor_map.keys
-    new_blocks: List[TensorBlock] = []
-    for block in tensor_map.blocks():
-        new_block = _empty_tensor_block_like(block)
-        new_blocks.append(new_block)
-    return TensorMap(keys=new_keys, blocks=new_blocks)
-
-
-def _empty_tensor_block_like(tensor_block: TensorBlock) -> TensorBlock:
-    new_block = TensorBlock(
-        values=torch.empty(
-            (0,) + tensor_block.values.shape[1:],
-            dtype=torch.float64,  # metatensor can't serialize otherwise
-            device=tensor_block.values.device,
-        ),
-        samples=Labels(
-            names=tensor_block.samples.names,
-            values=torch.empty(
-                (0, tensor_block.samples.values.shape[1]),
-                dtype=tensor_block.samples.values.dtype,
-                device=tensor_block.samples.values.device,
-            ),
-        ),
-        components=tensor_block.components,
-        properties=tensor_block.properties,
-    )
-    for gradient_name, gradient in tensor_block.gradients():
-        new_block.add_gradient(gradient_name, _empty_tensor_block_like(gradient))
-    return new_block
