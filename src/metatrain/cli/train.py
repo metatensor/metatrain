@@ -11,7 +11,6 @@ from typing import Dict, Optional, Union
 
 import numpy as np
 import torch
-from metatensor.torch.atomistic import load_atomistic_model
 from omegaconf import DictConfig, OmegaConf
 
 from .. import PACKAGE_ROOT
@@ -31,7 +30,7 @@ from ..utils.data.dataset import _train_test_random_split
 from ..utils.devices import pick_devices
 from ..utils.distributed.logging import is_main_process
 from ..utils.errors import ArchitectureError
-from ..utils.io import check_file_extension
+from ..utils.io import check_file_extension, load_model
 from ..utils.jsonschema import validate
 from ..utils.omegaconf import BASE_OPTIONS, check_units, expand_dataset_config
 from .eval import _eval_targets
@@ -129,6 +128,8 @@ def _process_continue_from(continue_from: str) -> Optional[str]:
         # process and the other processes might detect it by mistake if they're
         # still executing this function
         time.sleep(3)
+    else:
+        new_continue_from = continue_from
 
     return new_continue_from
 
@@ -236,7 +237,8 @@ def train_model(
         for key in intersecting_keys:
             if target_info_dict[key] != target_info_dict_single[key]:
                 raise ValueError(
-                    f"Target information for key {key} differs between training sets."
+                    f"Target information for key {key} differs between training sets. "
+                    f"Got {target_info_dict[key]} and {target_info_dict_single[key]}."
                 )
         target_info_dict.update(target_info_dict_single)
 
@@ -453,8 +455,9 @@ def train_model(
     # EVALUATE FINAL MODEL ####
     ###########################
 
-    mts_atomistic_model = load_atomistic_model(
-        str(output_checked), extensions_directory=extensions_path
+    mts_atomistic_model = load_model(
+        path=output_checked,
+        extensions_directory=extensions_path,
     )
     mts_atomistic_model = mts_atomistic_model.to(final_device)
 
