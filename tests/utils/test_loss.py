@@ -246,3 +246,94 @@ def test_tmap_dict_loss_subset(tensor_map_with_grad_1, tensor_map_with_grad_3):
 
     loss_value = loss(output_dict, target_dict)
     torch.testing.assert_close(loss_value, expected_result)
+
+
+def test_tmap_loss_mae():
+    """Test that the MAE loss is computed correctly."""
+    loss = TensorMapLoss(type="mae", reduction="mean")
+
+    tensor_map_1 = TensorMap(
+        keys=Labels.single(),
+        blocks=[
+            TensorBlock(
+                values=torch.tensor([[2.0], [2.0], [3.0]]),
+                samples=Labels.range("samples", 3),
+                components=[],
+                properties=Labels("energy", torch.tensor([[0]])),
+            )
+        ],
+    )
+    tensor_map_2 = TensorMap(
+        keys=Labels.single(),
+        blocks=[
+            TensorBlock(
+                values=torch.tensor([[0.0], [3.0], [3.0]]),
+                samples=Labels.range("samples", 3),
+                components=[],
+                properties=Labels("energy", torch.tensor([[0]])),
+            )
+        ],
+    )
+
+    loss_value = loss(tensor_map_1, tensor_map_1)
+    torch.testing.assert_close(loss_value, torch.tensor(0.0))
+
+    # Expected result: 1.0
+    loss_value = loss(tensor_map_1, tensor_map_2)
+    torch.testing.assert_close(loss_value, torch.tensor(1.0))
+
+
+def test_tmap_loss_huber():
+    """Test that the Huber loss is computed correctly."""
+    loss_mse = TensorMapLoss(type="mse", reduction="mean")
+    loss_huber = TensorMapLoss(
+        type={"huber": {"deltas": {"values": 3.0}}}, reduction="mean"
+    )
+
+    tensor_map_1 = TensorMap(
+        keys=Labels.single(),
+        blocks=[
+            TensorBlock(
+                values=torch.tensor([[2.0], [2.0], [3.0]]),
+                samples=Labels.range("samples", 3),
+                components=[],
+                properties=Labels("energy", torch.tensor([[0]])),
+            )
+        ],
+    )
+    tensor_map_2 = TensorMap(
+        keys=Labels.single(),
+        blocks=[
+            TensorBlock(
+                values=torch.tensor([[0.0], [3.0], [3.0]]),
+                samples=Labels.range("samples", 3),
+                components=[],
+                properties=Labels("energy", torch.tensor([[0]])),
+            )
+        ],
+    )
+
+    loss_value = loss_huber(tensor_map_1, tensor_map_1)
+    torch.testing.assert_close(loss_value, torch.tensor(0.0))
+
+    # No outliers, should be equal to MSE (scaled by 0.5 due to torch implementation)
+    loss_value_huber = loss_huber(tensor_map_1, tensor_map_2)
+    loss_value_mse = loss_mse(tensor_map_1, tensor_map_2)
+    torch.testing.assert_close(loss_value_huber, 0.5 * loss_value_mse)
+
+    tensor_map_with_outlier = TensorMap(
+        keys=Labels.single(),
+        blocks=[
+            TensorBlock(
+                values=torch.tensor([[0.0], [100.0], [3.0]]),
+                samples=Labels.range("samples", 3),
+                components=[],
+                properties=Labels("energy", torch.tensor([[0]])),
+            )
+        ],
+    )
+
+    loss_value_huber = loss_huber(tensor_map_1, tensor_map_with_outlier)
+    loss_value_mse = loss_mse(tensor_map_1, tensor_map_with_outlier)
+    # Huber loss is lower due to the outlier
+    assert loss_value_huber < 0.5 * loss_value_mse

@@ -191,11 +191,11 @@ class Trainer:
         loss_weights_dict = {}
         for output_name in outputs_list:
             loss_weights_dict[output_name] = (
-                self.hypers["loss_weights"][
+                self.hypers["loss"]["weights"][
                     to_external_name(output_name, train_targets)
                 ]
                 if to_external_name(output_name, train_targets)
-                in self.hypers["loss_weights"]
+                in self.hypers["loss"]["weights"]
                 else 1.0
             )
         loss_weights_dict_external = {
@@ -205,7 +205,11 @@ class Trainer:
         logging.info(f"Training with loss weights: {loss_weights_dict_external}")
 
         # Create a loss function:
-        loss_fn = TensorMapDictLoss(loss_weights_dict, type=self.hypers["loss_type"])
+        loss_fn = TensorMapDictLoss(
+            loss_weights_dict,
+            reduction=self.hypers["loss"]["reduction"],
+            type=self.hypers["loss"]["type"],
+        )
 
         # Create an optimizer:
         optimizer = torch.optim.Adam(
