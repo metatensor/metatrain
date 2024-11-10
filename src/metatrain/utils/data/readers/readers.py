@@ -163,6 +163,18 @@ def read_targets(
                     f"Target name ({target_key}) must either be one of "
                     f"{standard_outputs_list} or start with `mtt::`."
                 )
+        if (
+            "force" in target_key.lower()
+            or "virial" in target_key.lower()
+            or "stress" in target_key.lower()
+        ):
+            warnings.warn(
+                f"the name of {target_key!r} resembles to a gradient of "
+                "energies; it should probably not be its own top-level target, "
+                "but rather a gradient sub-section of a target with the "
+                "`energy` quantity",
+                stacklevel=2,
+            )
 
         is_energy = (
             (target["quantity"] == "energy")
