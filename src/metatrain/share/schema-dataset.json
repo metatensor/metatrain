@@ -140,37 +140,50 @@
                 },
                 "type": {
                   "oneOf": [
-                    { "enum": ["scalar"] },
                     {
-                      "cartesian": {
-                        "type": "object",
-                        "properties": {
-                          "rank": {
-                            "type": "integer"
-                          }
-                        },
-                        "additionalProperties": false
-                      }
+                      "type": "string",
+                      "enum": ["scalar"]
                     },
                     {
-                      "spherical": {
-                        "type": "object",
-                        "properties": {
-                          "type": "array",
-                          "items": {
-                            "o3_lambda":
-                              {
-                                "type": "integer"
+                      "type": "object",
+                      "properties": {
+                        "cartesian": {
+                          "type": "object",
+                          "properties": {
+                            "rank": { "type": "integer" }
+                          },
+                          "required": ["rank"],
+                          "additionalProperties": false
+                        }
+                      },
+                      "required": ["cartesian"],
+                      "additionalProperties": false
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "spherical": {
+                          "type": "object",
+                          "properties": {
+                            "type": {
+                              "type": "array"
+                            },
+                            "items": {
+                              "type": "object",
+                              "properties": {
+                                "o3_lambda": { "type": "integer" },
+                                "o3_sigma": { "type": "number" }
                               },
-                              "o3_sigma":
-                              {
-                                "type": "number"
-                              },
+                              "required": ["o3_lambda", "o3_sigma"],
                               "additionalProperties": false
                             }
-                        },
-                        "additionalProperties": false
-                      }
+                          },
+                          "required": ["type", "items"],
+                          "additionalProperties": false
+                        }
+                      },
+                      "required": ["spherical"],
+                      "additionalProperties": false
                     }
                   ]
                 },

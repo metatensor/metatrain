@@ -10,7 +10,7 @@ def test_to_external_name():
         "mtt::free_energy": get_energy_target_info(
             {"quantity": "energy", "unit": "eV"}
         ),
-        "mtt::foo": get_energy_target_info({"quantity": "energy", "unit": "eV"}),
+        "mtt::foo": get_energy_target_info({"quantity": "bar", "unit": "eV"}),
     }
 
     assert to_external_name("energy_positions_gradients", quantities) == "forces"

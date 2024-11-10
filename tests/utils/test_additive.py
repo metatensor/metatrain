@@ -382,9 +382,7 @@ def test_composition_model_wrong_target():
                 length_unit="angstrom",
                 atomic_types=[1],
                 targets={
-                    "energy": get_energy_target_info(
-                        {"quantity": "energy", "unit": "eV"}
-                    )
+                    "energy": get_energy_target_info({"quantity": "force", "unit": ""})
                 },
             ),
         )
