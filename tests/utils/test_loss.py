@@ -94,9 +94,10 @@ def tensor_map_with_grad_4():
     return tensor_map
 
 
-def test_tmap_loss_no_gradients():
+@pytest.mark.parametrize("type", ["mse", {"huber": {"deltas": {"values": 3.0}}}])
+def test_tmap_loss_no_gradients(type):
     """Test that the loss is computed correctly when there are no gradients."""
-    loss = TensorMapLoss()
+    loss = TensorMapLoss(type=type)
 
     tensor_map_1 = TensorMap(
         keys=Labels.single(),
@@ -126,12 +127,18 @@ def test_tmap_loss_no_gradients():
 
     # Expected result: 1.0
     loss_value = loss(tensor_map_1, tensor_map_2)
-    torch.testing.assert_close(loss_value, torch.tensor(1.0))
+    # Huber loss is scaled by 0.5 due to torch implementation
+    torch.testing.assert_close(
+        loss_value, (1.0 if type == "mse" else 0.5) * torch.tensor(1.0)
+    )
 
 
-def test_tmap_loss_with_gradients(tensor_map_with_grad_1, tensor_map_with_grad_2):
+@pytest.mark.parametrize(
+    "type", ["mse", {"huber": {"deltas": {"values": 3.0, "gradient": 3.0}}}]
+)
+def test_tmap_loss_with_gradients(tensor_map_with_grad_1, tensor_map_with_grad_2, type):
     """Test that the loss is computed correctly when there are gradients."""
-    loss = TensorMapLoss(gradient_weights={"gradient": 0.5})
+    loss = TensorMapLoss(type=type, gradient_weights={"gradient": 0.5})
 
     loss_value = loss(tensor_map_with_grad_1, tensor_map_with_grad_1)
     torch.testing.assert_close(loss_value, torch.tensor(0.0))
@@ -140,7 +147,8 @@ def test_tmap_loss_with_gradients(tensor_map_with_grad_1, tensor_map_with_grad_2
     loss_value = loss(tensor_map_with_grad_1, tensor_map_with_grad_2)
     torch.testing.assert_close(
         loss_value,
-        torch.tensor(1.0 + 0.5 * 4.0),
+        # Huber loss is scaled by 0.5 due to torch implementation
+        (1.0 if type == "mse" else 0.5) * torch.tensor(1.0 + 0.5 * 4.0),
     )
 
 
