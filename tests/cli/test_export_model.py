@@ -14,9 +14,9 @@ import torch
 from metatrain.cli.export import export_model
 from metatrain.experimental.soap_bpnn import __model__
 from metatrain.utils.architectures import find_all_architectures
-from metatrain.utils.data import DatasetInfo, TargetInfo
+from metatrain.utils.data import DatasetInfo
+from metatrain.utils.data.target_info import get_energy_target_info
 from metatrain.utils.io import load_model
-from metatrain.utils.testing import energy_layout
 
 from . import MODEL_HYPERS, RESOURCES_PATH
 
@@ -31,7 +31,7 @@ def test_export(monkeypatch, tmp_path, path, caplog):
         length_unit="angstrom",
         atomic_types={1},
         targets={
-            "energy": TargetInfo(quantity="energy", unit="eV", layout=energy_layout)
+            "energy": get_energy_target_info({"quantity": "energy", "unit": "eV"})
         },
     )
     model = __model__(model_hypers=MODEL_HYPERS, dataset_info=dataset_info)
@@ -97,7 +97,7 @@ def test_reexport(monkeypatch, tmp_path):
         length_unit="angstrom",
         atomic_types={1, 6, 7, 8},
         targets={
-            "energy": TargetInfo(quantity="energy", unit="eV", layout=energy_layout)
+            "energy": get_energy_target_info({"quantity": "energy", "unit": "eV"})
         },
     )
     model = __model__(model_hypers=MODEL_HYPERS, dataset_info=dataset_info)

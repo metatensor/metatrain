@@ -230,7 +230,7 @@
 #     "stress_dict, virial_dict",
 #     [[STRESS_VIRIAL_DICT, False], [False, STRESS_VIRIAL_DICT]],
 # )
-# def test_read_targets_warnings(stress_dict, virial_dict, monkeypatch, tmp_path, caplog):
+# def test_read_targets_warnings(stress_dict, virial_dict, monkeypatch, tmp_path, caplo
 #     monkeypatch.chdir(tmp_path)
 
 #     filename = "systems.xyz"

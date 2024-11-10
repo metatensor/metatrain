@@ -17,9 +17,9 @@ from pet.pet import PET
 from metatrain.experimental.pet import PET as WrappedPET
 from metatrain.experimental.pet.utils import systems_to_batch_dict
 from metatrain.utils.architectures import get_default_hypers
-from metatrain.utils.data import DatasetInfo, TargetInfo
+from metatrain.utils.data import DatasetInfo
+from metatrain.utils.data.target_info import get_energy_target_info
 from metatrain.utils.neighbor_lists import get_system_with_neighbor_lists
-from metatrain.utils.testing import energy_layout
 
 from . import DATASET_PATH
 
@@ -99,7 +99,7 @@ def test_predictions_compatibility(cutoff):
         length_unit="Angstrom",
         atomic_types=structure.numbers,
         targets={
-            "energy": TargetInfo(quantity="energy", unit="eV", layout=energy_layout)
+            "energy": get_energy_target_info({"quantity": "energy", "unit": "eV"})
         },
     )
     capabilities = ModelCapabilities(
