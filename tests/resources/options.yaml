@@ -8,16 +8,12 @@ architecture:
 
 training_set:
   systems:
-    read_from: carbon_reduced_100.xyz
+    read_from: qm9_reduced_100.xyz
     length_unit: angstrom
   targets:
     energy:
-      key: energy
+      key: U0
       unit: eV
-      forces:
-        key: force
-      virial:
-        key: virial
 
 test_set: 0.5
 validation_set: 0.1
