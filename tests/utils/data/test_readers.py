@@ -341,12 +341,19 @@ def test_read_targets_generic_errors(monkeypatch, tmp_path):
         "reader": "ase",
         "key": "stress-3x3",
         "unit": "GPa",
-        "type": {"spherical": 0},
+        "type": {
+            "spherical": {
+                "irreps": [
+                    {"o3_lambda": 0, "o3_sigma": 1},
+                    {"o3_lambda": 2, "o3_sigma": 1},
+                ]
+            }
+        },
         "per_atom": False,
         "num_properties": 9,
     }
     conf = {"stress": stress_section}
-    with pytest.raises(ValueError):
+    with pytest.raises(ValueError, match="use the metatensor reader"):
         with pytest.warns(UserWarning, match="should not be its own top-level target"):
             with pytest.warns(UserWarning, match="resembles to a gradient of energies"):
                 read_targets(OmegaConf.create(conf))

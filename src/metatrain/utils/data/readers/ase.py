@@ -278,15 +278,15 @@ def read_generic(target: DictConfig) -> Tuple[List[TensorMap], TargetInfo]:
     # we don't allow ASE to read spherical tensors with more than one irrep,
     # otherwise it's a mess
     if (
-        isinstance(target["type"], dict)
+        isinstance(target["type"], DictConfig)
         and next(iter(target["type"].keys())) == "spherical"
     ):
-        irreps = target["type"]["spherical"]
+        irreps = target["type"]["spherical"]["irreps"]
         if len(irreps) > 1:
             raise ValueError(
                 "The metatrain ASE reader does not support reading "
                 "spherical tensors with more than one irreducible "
-                "representation."
+                "representation. Please use the metatensor reader."
             )
 
     target_info = get_generic_target_info(target)
