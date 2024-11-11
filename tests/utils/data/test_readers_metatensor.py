@@ -1,4 +1,5 @@
 import metatensor.torch
+import numpy as np
 import pytest
 import torch
 from metatensor.torch import Labels, TensorBlock, TensorMap
@@ -231,3 +232,27 @@ def test_read_generic_cartesian(monkeypatch, tmpdir, cartesian_tensor_map):
 
     for tensor_map in tensor_maps:
         assert metatensor.torch.equal(tensor_map, cartesian_tensor_map)
+
+
+def test_read_error(monkeypatch, tmpdir):
+    monkeypatch.chdir(tmpdir)
+
+    numpy_array = np.zeros((2, 2))
+    np.save("numpy_array.mts", numpy_array)
+
+    conf = {
+        "quantity": "energy",
+        "read_from": "numpy_array.mts",
+        "reader": "metatensor",
+        "key": "true_energy",
+        "unit": "eV",
+        "type": "scalar",
+        "per_atom": False,
+        "num_properties": 1,
+        "forces": False,
+        "stress": False,
+        "virial": False,
+    }
+
+    with pytest.raises(ValueError, match="Failed to read"):
+        read_energy(OmegaConf.create(conf))
