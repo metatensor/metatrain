@@ -25,7 +25,7 @@ def read_systems(filename: str) -> List[System]:
 
 def _wrapped_metatensor_read(filename) -> List[TensorMap]:
     try:
-        return torch.load(filename)
+        return torch.load(filename, weights_only=False)
     except Exception as e:
         raise ValueError(f"Failed to read '{filename}' with torch: {e}") from e
 
@@ -43,12 +43,12 @@ def read_energy(target: DictConfig) -> Tuple[List[TensorMap], TargetInfo]:
         )
         has_strain_gradients.append("strain" in tensor_map.block().gradients_list())
 
-    if not (all(has_position_gradients) or any(has_position_gradients)):
+    if (not all(has_position_gradients)) and any(has_position_gradients):
         raise ValueError(
             "Found a mix of targets with and without position gradients. "
             "Either all targets should have position gradients or none."
         )
-    if not (all(has_strain_gradients) or any(has_strain_gradients)):
+    if (not all(has_strain_gradients)) and any(has_strain_gradients):
         raise ValueError(
             "Found a mix of targets with and without strain gradients. "
             "Either all targets should have strain gradients or none."
@@ -93,11 +93,11 @@ def _check_tensor_maps_metadata(tensor_maps: List[TensorMap], layout: TensorMap)
         for key in layout.keys:
             block = tensor_map.block(key)
             block_from_layout = tensor_map.block(key)
-            if block.labels.names != block_from_layout.labels.names:
+            if block.samples.names != block_from_layout.samples.names:
                 raise ValueError(
                     f"Unexpected samples in metatensor targets at index {i}: "
-                    f"expected: {block_from_layout.labels.names} "
-                    f"actual: {block.labels.names}"
+                    f"expected: {block_from_layout.samples.names} "
+                    f"actual: {block.samples.names}"
                 )
             if block.components != block_from_layout.components:
                 raise ValueError(
