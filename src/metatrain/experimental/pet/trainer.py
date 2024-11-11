@@ -731,7 +731,7 @@ class Trainer:
         # together with the hypers inside a file that will act as a metatrain
         # checkpoint
         checkpoint_path = self.pet_dir / "checkpoint"  # type: ignore
-        checkpoint = torch.load(checkpoint_path, weights_only=False)
+        checkpoint = torch.load(checkpoint_path, weights_only=False, map_location="cpu")
         torch.save(
             {
                 "checkpoint": checkpoint,
@@ -749,7 +749,7 @@ class Trainer:
         # This function loads a metatrain PET checkpoint and returns a Trainer
         # instance with the hypers, while also saving the checkpoint in the
         # class
-        checkpoint = torch.load(path, weights_only=False)
+        checkpoint = torch.load(path, weights_only=False, map_location="cpu")
         trainer = cls(train_hypers)
         trainer.pet_checkpoint = checkpoint["checkpoint"]
         return trainer
