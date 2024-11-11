@@ -1,3 +1,4 @@
+import copy
 import logging
 from pathlib import Path
 from typing import List, Union
@@ -186,13 +187,14 @@ class Trainer:
             to_external_name(key, model.outputs): value
             for key, value in loss_weights_dict.items()
         }
+        # Update the loss weights in the hypers:
+        loss_hypers = copy.deepcopy(self.hypers["loss"])
+        loss_hypers["weights"] = loss_weights_dict
         logging.info(f"Training with loss weights: {loss_weights_dict_external}")
 
         # Create a loss function:
         loss_fn = TensorMapDictLoss(
-            loss_weights_dict,
-            reduction=self.hypers["loss"]["reduction"],
-            type=self.hypers["loss"]["type"],
+            **loss_hypers,
         )
 
         # Create an optimizer:

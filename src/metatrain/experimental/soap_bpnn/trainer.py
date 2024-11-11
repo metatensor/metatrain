@@ -1,3 +1,4 @@
+import copy
 import logging
 import warnings
 from pathlib import Path
@@ -202,13 +203,13 @@ class Trainer:
             to_external_name(key, train_targets): value
             for key, value in loss_weights_dict.items()
         }
+        loss_hypers = copy.deepcopy(self.hypers["loss"])
+        loss_hypers["weights"] = loss_weights_dict
         logging.info(f"Training with loss weights: {loss_weights_dict_external}")
 
         # Create a loss function:
         loss_fn = TensorMapDictLoss(
-            loss_weights_dict,
-            reduction=self.hypers["loss"]["reduction"],
-            type=self.hypers["loss"]["type"],
+            **loss_hypers,
         )
 
         # Create an optimizer:

@@ -37,6 +37,6 @@ architecture:
     per_structure_targets: []
     log_mae: False
     loss:
-      weights: {}
       type: mse
+      weights: {}
       reduction: sum
