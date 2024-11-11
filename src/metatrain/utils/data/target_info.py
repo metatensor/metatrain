@@ -310,7 +310,7 @@ def _get_cartesian_target_info(target: DictConfig) -> TargetInfo:
         components = [Labels(["xyz"], torch.arange(3).reshape(-1, 1))]
     else:
         components = []
-        for component in range(target["type"][cartesian_key]["rank"]):
+        for component in range(1, target["type"][cartesian_key]["rank"] + 1):
             components.append(
                 Labels(
                     names=[f"xyz_{component}"],
@@ -357,7 +357,7 @@ def _get_spherical_target_info(target: DictConfig) -> TargetInfo:
             Labels(
                 names=["o3_mu"],
                 values=torch.arange(
-                    2 * irrep["o3_lambda"] + 1, dtype=torch.int32
+                    -irrep["o3_lambda"], irrep["o3_lambda"] + 1, dtype=torch.int32
                 ).reshape(-1, 1),
             )
         ]

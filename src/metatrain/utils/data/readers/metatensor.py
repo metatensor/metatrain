@@ -54,11 +54,15 @@ def read_energy(target: DictConfig) -> Tuple[List[TensorMap], TargetInfo]:
             "Either all targets should have strain gradients or none."
         )
 
-    add_position_gradients = all(has_position_gradients)
-    add_strain_gradients = all(has_strain_gradients)
+    add_position_gradients = target["forces"]
+    add_strain_gradients = target["stress"] or target["virial"]
+    print(add_position_gradients, add_strain_gradients)
     target_info = get_energy_target_info(
         target, add_position_gradients, add_strain_gradients
     )
+
+    print(target_info.layout.block())
+    print(tensor_maps[0].block())
 
     # now check all the expected metadata (from target_info.layout) matches
     # the actual metadata in the tensor maps
@@ -92,7 +96,7 @@ def _check_tensor_maps_metadata(tensor_maps: List[TensorMap], layout: TensorMap)
             )
         for key in layout.keys:
             block = tensor_map.block(key)
-            block_from_layout = tensor_map.block(key)
+            block_from_layout = layout.block(key)
             if block.samples.names != block_from_layout.samples.names:
                 raise ValueError(
                     f"Unexpected samples in metatensor targets at index {i}: "

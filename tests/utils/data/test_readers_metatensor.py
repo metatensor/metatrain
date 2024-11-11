@@ -68,7 +68,7 @@ def spherical_tensor_map():
                         values=torch.arange(0, 1, dtype=torch.int32).reshape(-1, 1),
                     ),
                 ],
-                properties=Labels.single(),
+                properties=Labels.range("properties", 1),
             ),
             TensorBlock(
                 values=torch.rand(1, 5, 1, dtype=torch.float64),
@@ -82,7 +82,7 @@ def spherical_tensor_map():
                         values=torch.arange(-2, 3, dtype=torch.int32).reshape(-1, 1),
                     ),
                 ],
-                properties=Labels.single(),
+                properties=Labels.range("properties", 1),
             ),
         ],
     )
@@ -109,7 +109,7 @@ def cartesian_tensor_map():
                         values=torch.arange(0, 3, dtype=torch.int32).reshape(-1, 1),
                     ),
                 ],
-                properties=Labels.single(),
+                properties=Labels.range("properties", 1),
             ),
         ],
     )
@@ -234,7 +234,7 @@ def test_read_generic_cartesian(monkeypatch, tmpdir, cartesian_tensor_map):
         assert metatensor.torch.equal(tensor_map, cartesian_tensor_map)
 
 
-def test_read_error(monkeypatch, tmpdir):
+def test_read_errors(monkeypatch, tmpdir, energy_tensor_map):
     monkeypatch.chdir(tmpdir)
 
     numpy_array = np.zeros((2, 2))
@@ -249,10 +249,19 @@ def test_read_error(monkeypatch, tmpdir):
         "type": "scalar",
         "per_atom": False,
         "num_properties": 1,
-        "forces": False,
+        "forces": True,
         "stress": False,
         "virial": False,
     }
 
     with pytest.raises(ValueError, match="Failed to read"):
+        read_energy(OmegaConf.create(conf))
+
+    torch.save(
+        [energy_tensor_map, energy_tensor_map],
+        "energy.mts",
+    )
+    conf["read_from"] = "energy.mts"
+
+    with pytest.raises(ValueError, match="Unexpected gradients"):
         read_energy(OmegaConf.create(conf))
