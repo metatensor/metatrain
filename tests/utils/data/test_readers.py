@@ -325,3 +325,28 @@ def test_read_targets_generic_3(key, monkeypatch, tmp_path):
     with pytest.warns(UserWarning, match="should not be its own top-level target"):
         with pytest.warns(UserWarning, match="resembles to a gradient of energies"):
             read_targets(OmegaConf.create(conf))
+
+
+def test_read_targets_generic_errors(monkeypatch, tmp_path):
+    """Reads a 3x3 stress as a scalar with 9 properties"""
+    monkeypatch.chdir(tmp_path)
+
+    filename = "systems.xyz"
+    systems = ase_system()
+    ase.io.write(filename, systems)
+
+    stress_section = {
+        "quantity": "stress",
+        "read_from": filename,
+        "reader": "ase",
+        "key": "stress-3x3",
+        "unit": "GPa",
+        "type": {"spherical": 0},
+        "per_atom": False,
+        "num_properties": 9,
+    }
+    conf = {"stress": stress_section}
+    with pytest.raises(ValueError):
+        with pytest.warns(UserWarning, match="should not be its own top-level target"):
+            with pytest.warns(UserWarning, match="resembles to a gradient of energies"):
+                read_targets(OmegaConf.create(conf))
