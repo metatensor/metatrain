@@ -160,13 +160,31 @@ def test_tmap_dict_loss(
 ):
     """Test that the dict loss is computed correctly."""
 
-    loss = TensorMapDictLoss(
+    loss_rmse = TensorMapDictLoss(
         weights={
             "output_1": 0.6,
             "output_2": 1.0,
             "output_1_gradient_gradients": 0.5,
             "output_2_gradient_gradients": 0.5,
         }
+    )
+    loss_huber = TensorMapDictLoss(
+        weights={
+            "output_1": 0.6,
+            "output_2": 1.0,
+            "output_1_gradient_gradients": 0.5,
+            "output_2_gradient_gradients": 0.5,
+        },
+        type={
+            "huber": {
+                "deltas": {
+                    "output_1": 0.1,
+                    "output_2": 0.1,
+                    "output_1_gradient_gradients": 0.1,
+                    "output_2_gradient_gradients": 0.1,
+                }
+            }
+        },
     )
 
     output_dict = {
@@ -210,8 +228,14 @@ def test_tmap_dict_loss(
         .sum()
     )
 
-    loss_value = loss(output_dict, target_dict)
+    loss_value = loss_rmse(output_dict, target_dict)
     torch.testing.assert_close(loss_value, expected_result)
+
+    # Huber loss should be lower than RMSE
+    # (scaled by 0.5 due to torch implementation of Huber)
+    assert loss_huber(output_dict, target_dict) < 0.5 * loss_rmse(
+        output_dict, target_dict
+    )
 
 
 def test_tmap_dict_loss_subset(tensor_map_with_grad_1, tensor_map_with_grad_3):
