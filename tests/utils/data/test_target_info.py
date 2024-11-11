@@ -59,10 +59,12 @@ def spherical_target_config() -> DictConfig:
             "per_atom": False,
             "num_properties": 1,
             "type": {
-                "spherical": [
-                    {"o3_lambda": 0, "o3_sigma": 1},
-                    {"o3_lambda": 2, "o3_sigma": 1},
-                ],
+                "spherical": {
+                    "irreps": [
+                        {"o3_lambda": 0, "o3_sigma": 1},
+                        {"o3_lambda": 2, "o3_sigma": 1},
+                    ],
+                },
             },
         }
     )

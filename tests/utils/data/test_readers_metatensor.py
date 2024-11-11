@@ -30,6 +30,24 @@ def energy_tensor_map():
 
 
 @pytest.fixture
+def scalar_tensor_map():
+    return TensorMap(
+        keys=Labels.single(),
+        blocks=[
+            TensorBlock(
+                values=torch.rand(2, 10, dtype=torch.float64),
+                samples=Labels(
+                    names=["system", "atom"],
+                    values=torch.tensor([[0, 0], [0, 1]], dtype=torch.int32),
+                ),
+                components=[],
+                properties=Labels.range("properties", 10),
+            )
+        ],
+    )
+
+
+@pytest.fixture
 def spherical_tensor_map():
     return TensorMap(
         keys=Labels(
@@ -127,6 +145,31 @@ def test_read_energy(monkeypatch, tmpdir, energy_tensor_map):
 
     for tensor_map in tensor_maps:
         assert metatensor.torch.equal(tensor_map, energy_tensor_map)
+
+
+def test_read_generic_scalar(monkeypatch, tmpdir, scalar_tensor_map):
+    monkeypatch.chdir(tmpdir)
+
+    torch.save(
+        [scalar_tensor_map, scalar_tensor_map],
+        "generic.mts",
+    )
+
+    conf = {
+        "quantity": "generic",
+        "read_from": "generic.mts",
+        "reader": "metatensor",
+        "keys": ["scalar"],
+        "per_atom": True,
+        "unit": "unit",
+        "type": "scalar",
+        "num_properties": 10,
+    }
+
+    tensor_maps, target_info = read_generic(OmegaConf.create(conf))
+
+    for tensor_map in tensor_maps:
+        assert metatensor.torch.equal(tensor_map, scalar_tensor_map)
 
 
 def test_read_generic_spherical(monkeypatch, tmpdir, spherical_tensor_map):
