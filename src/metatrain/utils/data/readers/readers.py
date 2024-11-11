@@ -46,7 +46,7 @@ def _call_base_systems_reader(
         )
 
     try:
-        reader_met = getattr(reader_mod, f"read_{reader}_systems")
+        reader_met = reader_mod.read_systems
     except AttributeError:
         raise ValueError(f"Reader library {reader!r} can't read systems.")
 
@@ -105,7 +105,7 @@ def _call_base_target_reader(
         )
 
     try:
-        reader_met = getattr(reader_mod, f"read_{reader}_{target_kind}")
+        reader_met = getattr(reader_mod, f"read_{target_kind}")
     except AttributeError:
         raise ValueError(f"Reader library {reader!r} can't read {target!r}.")
 

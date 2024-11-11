@@ -2,7 +2,7 @@ from pathlib import Path
 
 from metatensor.torch.atomistic import NeighborListOptions
 
-from metatrain.utils.data.readers.ase import read_ase_systems
+from metatrain.utils.data.readers.ase import read_systems
 from metatrain.utils.neighbor_lists import get_system_with_neighbor_lists
 
 
@@ -11,7 +11,7 @@ RESOURCES_PATH = Path(__file__).parents[1] / "resources"
 
 def test_attach_neighbor_lists():
     filename = RESOURCES_PATH / "qm9_reduced_100.xyz"
-    systems = read_ase_systems(filename)
+    systems = read_systems(filename)
 
     requested_neighbor_lists = [
         NeighborListOptions(cutoff=4.0, full_list=True, strict=True),

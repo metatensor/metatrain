@@ -12,7 +12,7 @@ from ..target_info import TargetInfo, get_energy_target_info, get_generic_target
 logger = logging.getLogger(__name__)
 
 
-def read_metatensor_systems(filename: str) -> List[System]:
+def read_systems(filename: str) -> List[System]:
     """Read system information using metatensor.
 
     :param filename: name of the file to read
@@ -30,7 +30,7 @@ def _wrapped_metatensor_read(filename) -> List[TensorMap]:
         raise ValueError(f"Failed to read '{filename}' with torch: {e}") from e
 
 
-def read_metatensor_energy(target: DictConfig) -> Tuple[List[TensorMap], TargetInfo]:
+def read_energy(target: DictConfig) -> Tuple[List[TensorMap], TargetInfo]:
     tensor_maps = _wrapped_metatensor_read(target["read_from"])
 
     has_position_gradients = []
@@ -67,7 +67,7 @@ def read_metatensor_energy(target: DictConfig) -> Tuple[List[TensorMap], TargetI
     return tensor_maps, target_info
 
 
-def read_metatensor_generic(target: DictConfig) -> Tuple[List[TensorMap], TargetInfo]:
+def read_generic(target: DictConfig) -> Tuple[List[TensorMap], TargetInfo]:
     tensor_maps = _wrapped_metatensor_read(target["read_from"])
 
     for tensor_map in tensor_maps:
