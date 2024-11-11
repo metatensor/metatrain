@@ -234,34 +234,49 @@ def test_read_generic_cartesian(monkeypatch, tmpdir, cartesian_tensor_map):
         assert metatensor.torch.equal(tensor_map, cartesian_tensor_map)
 
 
-def test_read_errors(monkeypatch, tmpdir, energy_tensor_map):
+def test_read_errors(monkeypatch, tmpdir, energy_tensor_map, scalar_tensor_map):
     monkeypatch.chdir(tmpdir)
 
-    numpy_array = np.zeros((2, 2))
-    np.save("numpy_array.mts", numpy_array)
+    torch.save(
+        [energy_tensor_map, energy_tensor_map],
+        "energy.mts",
+    )
 
     conf = {
         "quantity": "energy",
-        "read_from": "numpy_array.mts",
+        "read_from": "energy.mts",
         "reader": "metatensor",
         "key": "true_energy",
         "unit": "eV",
         "type": "scalar",
         "per_atom": False,
         "num_properties": 1,
-        "forces": True,
+        "forces": False,
         "stress": False,
         "virial": False,
     }
 
+    numpy_array = np.zeros((2, 2))
+    np.save("numpy_array.mts", numpy_array)
+    conf["read_from"] = "numpy_array.mts"
     with pytest.raises(ValueError, match="Failed to read"):
         read_energy(OmegaConf.create(conf))
-
-    torch.save(
-        [energy_tensor_map, energy_tensor_map],
-        "energy.mts",
-    )
     conf["read_from"] = "energy.mts"
 
+    conf["forces"] = True
     with pytest.raises(ValueError, match="Unexpected gradients"):
         read_energy(OmegaConf.create(conf))
+    conf["forces"] = False
+
+    torch.save(
+        [scalar_tensor_map, scalar_tensor_map],
+        "scalar.mts",
+    )
+
+    conf["read_from"] = "scalar.mts"
+    with pytest.raises(ValueError, match="Unexpected samples"):
+        read_generic(OmegaConf.create(conf))
+
+    conf["per_atom"] = True
+    with pytest.raises(ValueError, match="Unexpected properties"):
+        read_generic(OmegaConf.create(conf))

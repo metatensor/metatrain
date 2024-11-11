@@ -56,13 +56,9 @@ def read_energy(target: DictConfig) -> Tuple[List[TensorMap], TargetInfo]:
 
     add_position_gradients = target["forces"]
     add_strain_gradients = target["stress"] or target["virial"]
-    print(add_position_gradients, add_strain_gradients)
     target_info = get_energy_target_info(
         target, add_position_gradients, add_strain_gradients
     )
-
-    print(target_info.layout.block())
-    print(tensor_maps[0].block())
 
     # now check all the expected metadata (from target_info.layout) matches
     # the actual metadata in the tensor maps
