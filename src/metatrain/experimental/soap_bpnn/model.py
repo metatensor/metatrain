@@ -16,6 +16,7 @@ from metatensor.torch.atomistic import (
 from metatensor.torch.learn.nn import Linear as LinearMap
 from metatensor.torch.learn.nn import ModuleMap
 
+from metatrain.utils.data import TargetInfo
 from metatrain.utils.data.dataset import DatasetInfo
 
 from ...utils.additive import ZBL, CompositionModel
@@ -197,33 +198,16 @@ class SoapBpnn(torch.nn.Module):
         super().__init__()
         self.hypers = model_hypers
         self.dataset_info = dataset_info
-        self.new_outputs = list(dataset_info.targets.keys())
         self.atomic_types = dataset_info.atomic_types
 
         self.soap_calculator = rascaline.torch.SoapPowerSpectrum(
             radial_basis={"Gto": {}}, **self.hypers["soap"]
         )
 
-        self.outputs = {
-            key: ModelOutput(
-                quantity=value.quantity,
-                unit=value.unit,
-                per_atom=True,
-            )
-            for key, value in dataset_info.targets.items()
-        }
-
-        # the model is always capable of outputting the last layer features
+        # the model is always capable of outputting the last-layer features
         self.outputs["mtt::aux::last_layer_features"] = ModelOutput(
             unit="unitless", per_atom=True
         )
-
-        # buffers cannot be indexed by strings (torchscript), so we create a single
-        # tensor for all output. Due to this, we need to slice the tensor when we use
-        # it and use the output name to select the correct slice via a dictionary
-        self.output_to_index = {
-            output_name: i for i, output_name in enumerate(self.outputs.keys())
-        }
 
         soap_size = (
             (len(self.atomic_types) * (len(self.atomic_types) + 1) // 2)
@@ -254,80 +238,16 @@ class SoapBpnn(torch.nn.Module):
         )
 
         if hypers_bpnn["num_hidden_layers"] == 0:
-            n_inputs_last_layer = hypers_bpnn["input_size"]
+            self.n_inputs_last_layer = hypers_bpnn["input_size"]
         else:
-            n_inputs_last_layer = hypers_bpnn["num_neurons_per_layer"]
+            self.n_inputs_last_layer = hypers_bpnn["num_neurons_per_layer"]
 
-        self.last_layer_feature_size = n_inputs_last_layer * len(self.atomic_types)
+        self.last_layer_feature_size = self.n_inputs_last_layer * len(self.atomic_types)
 
-        vector_featurizers = {}
+        self.vector_featurizers = torch.nn.ModuleDict({})
+        self.last_layers = torch.nn.ModuleDict({})
         for target_name, target in dataset_info.targets.items():
-            if target.is_scalar:
-                vector_featurizers[target_name] = IdentityWithExtraArg()
-            elif target.is_spherical:
-                values_list: List[List[int]] = target.layout.keys.values.tolist()
-                if values_list != [[1, 1]]:
-                    raise ValueError(
-                        "SOAP-BPNN only supports spherical targets with "
-                        "`o3_lambda=1` and `o3_sigma=1`, "
-                    )
-                vector_featurizers[target_name] = VectorFeaturizer(
-                    atomic_types=self.atomic_types,
-                    num_features=n_inputs_last_layer,
-                    soap_hypers=self.hypers["soap"],
-                )
-            else:
-                raise ValueError(
-                    "SOAP-BPNN only supports scalar and spherical targets."
-                )
-        self.vector_featurizers = torch.nn.ModuleDict(vector_featurizers)
-
-        last_layers = {}
-        for output_name in self.outputs.keys():
-            if "mtt::aux::" in output_name:
-                continue
-            if dataset_info.targets[output_name].is_scalar:
-                last_layers[output_name] = LinearMap(
-                    Labels(
-                        "central_species",
-                        values=torch.tensor(self.atomic_types).reshape(-1, 1),
-                    ),
-                    in_features=n_inputs_last_layer,
-                    out_features=1,
-                    bias=False,
-                    out_properties=[
-                        Labels(
-                            names=["energy"],
-                            values=torch.tensor([[0]]),
-                        )
-                        for _ in self.atomic_types
-                    ],
-                )
-            else:
-                last_layers[output_name] = LinearMap(
-                    Labels(
-                        names=["o3_lambda", "o3_sigma", "center_type"],
-                        values=torch.stack(
-                            [
-                                torch.tensor([1] * len(self.atomic_types)),
-                                torch.tensor([1] * len(self.atomic_types)),
-                                torch.tensor(self.atomic_types),
-                            ],
-                            dim=1,
-                        ),
-                    ),
-                    in_features=n_inputs_last_layer,
-                    out_features=1,
-                    bias=False,
-                    out_properties=[
-                        Labels(
-                            names=["properties"],
-                            values=torch.tensor([[0]]),
-                        )
-                        for _ in self.atomic_types
-                    ],
-                )
-        self.last_layers = torch.nn.ModuleDict(last_layers)
+            self._add_output(target_name, target)
 
         # additive models: these are handled by the trainer at training
         # time, and they are added to the output at evaluation time
@@ -359,19 +279,11 @@ class SoapBpnn(torch.nn.Module):
             )
 
         # register new outputs as new last layers
-        for output_name in new_targets:
-            self.add_output(output_name)
+        for target_name, target in new_targets.items():
+            self._add_output(target_name, target)
 
         self.dataset_info = merged_info
         self.atomic_types = sorted(self.atomic_types)
-
-        for target_name, target in new_targets.items():
-            self.outputs[target_name] = ModelOutput(
-                quantity=target.quantity,
-                unit=target.unit,
-                per_atom=True,
-            )
-        self.new_outputs = list(new_targets.keys())
 
         return self
 
@@ -496,43 +408,71 @@ class SoapBpnn(torch.nn.Module):
 
         return MetatensorAtomisticModel(self.eval(), ModelMetadata(), capabilities)
 
-    def add_output(self, output_name: str) -> None:
-        """Add a new output to the self."""
-        # add a new row to the composition weights tensor
-        # initialize it with zeros
-        self.composition_weights = torch.cat(
-            [
-                self.composition_weights,  # type: ignore
-                torch.zeros(
-                    1,
-                    self.composition_weights.shape[1],  # type: ignore
-                    dtype=self.composition_weights.dtype,  # type: ignore
-                    device=self.composition_weights.device,  # type: ignore
-                ),
-            ]
-        )
-        self.output_to_index[output_name] = len(self.output_to_index)
-        # add a new linear layer to the last layers
-        hypers_bpnn = self.hypers["bpnn"]
-        if hypers_bpnn["num_hidden_layers"] == 0:
-            n_inputs_last_layer = hypers_bpnn["input_size"]
-        else:
-            n_inputs_last_layer = hypers_bpnn["num_neurons_per_layer"]
-        self.last_layers[output_name] = LinearMap(
-            Labels(
-                "central_species",
-                values=torch.tensor(self.atomic_types).reshape(-1, 1),
-            ),
-            in_features=n_inputs_last_layer,
-            out_features=1,
-            bias=False,
-            out_properties=[
-                Labels(
-                    names=["energy"],
-                    values=torch.tensor([[0]]),
+    def _add_output(self, target_name: str, target: TargetInfo) -> None:
+
+        if target.is_scalar:
+            self.vector_featurizers[target_name] = IdentityWithExtraArg()
+        elif target.is_spherical:
+            values_list: List[List[int]] = target.layout.keys.values.tolist()
+            if values_list != [[1, 1]]:
+                raise ValueError(
+                    "SOAP-BPNN only supports spherical targets with "
+                    "`o3_lambda=1` and `o3_sigma=1`, "
                 )
-                for _ in self.atomic_types
-            ],
+            self.vector_featurizers[target_name] = VectorFeaturizer(
+                atomic_types=self.atomic_types,
+                num_features=self.n_inputs_last_layer,
+                soap_hypers=self.hypers["soap"],
+            )
+        else:
+            raise ValueError("SOAP-BPNN only supports scalar and spherical targets.")
+
+        if target.is_scalar:
+            self.last_layers[target_name] = LinearMap(
+                Labels(
+                    "central_species",
+                    values=torch.tensor(self.atomic_types).reshape(-1, 1),
+                ),
+                in_features=self.n_inputs_last_layer,
+                out_features=1,
+                bias=False,
+                out_properties=[
+                    Labels(
+                        names=["energy"],
+                        values=torch.tensor([[0]]),
+                    )
+                    for _ in self.atomic_types
+                ],
+            )
+        else:
+            self.last_layers[target_name] = LinearMap(
+                Labels(
+                    names=["o3_lambda", "o3_sigma", "center_type"],
+                    values=torch.stack(
+                        [
+                            torch.tensor([1] * len(self.atomic_types)),
+                            torch.tensor([1] * len(self.atomic_types)),
+                            torch.tensor(self.atomic_types),
+                        ],
+                        dim=1,
+                    ),
+                ),
+                in_features=self.n_inputs_last_layer,
+                out_features=1,
+                bias=False,
+                out_properties=[
+                    Labels(
+                        names=["properties"],
+                        values=torch.tensor([[0]]),
+                    )
+                    for _ in self.atomic_types
+                ],
+            )
+
+        self.outputs[target_name] = ModelOutput(
+            quantity=target.quantity,
+            unit=target.unit,
+            per_atom=True,
         )
 
 
