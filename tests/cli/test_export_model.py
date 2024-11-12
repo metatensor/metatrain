@@ -4,26 +4,28 @@ Actual unit tests for the function are performed in `tests/utils/test_export`.
 """
 
 import glob
+import logging
 import subprocess
 from pathlib import Path
 
 import pytest
 import torch
-from metatensor.torch.atomistic import load_atomistic_model
 
 from metatrain.cli.export import export_model
 from metatrain.experimental.soap_bpnn import __model__
 from metatrain.utils.architectures import find_all_architectures
 from metatrain.utils.data import DatasetInfo, TargetInfo
+from metatrain.utils.io import load_model
 from metatrain.utils.testing import energy_layout
 
 from . import MODEL_HYPERS, RESOURCES_PATH
 
 
 @pytest.mark.parametrize("path", [Path("exported.pt"), "exported.pt"])
-def test_export(monkeypatch, tmp_path, path):
+def test_export(monkeypatch, tmp_path, path, caplog):
     """Tests the export_model function."""
     monkeypatch.chdir(tmp_path)
+    caplog.set_level(logging.INFO)
 
     dataset_info = DatasetInfo(
         length_unit="angstrom",
@@ -40,6 +42,9 @@ def test_export(monkeypatch, tmp_path, path):
     assert len(extensions_glob) == 1
 
     assert Path(path).is_file()
+
+    # Test log message
+    assert "Model exported to" in caplog.text
 
 
 @pytest.mark.parametrize("output", [None, "exported.pt"])
@@ -69,7 +74,7 @@ def test_export_cli(monkeypatch, tmp_path, output, dtype):
     assert len(extensions_glob) == 1
 
     # Test that the model can be loaded
-    model = load_atomistic_model(output, extensions_directory="extensions/")
+    model = load_model(output, extensions_directory="extensions/")
 
     # Check that the model has the correct dtype and is on cpu
     assert next(model.parameters()).dtype == dtype
@@ -99,7 +104,7 @@ def test_reexport(monkeypatch, tmp_path):
 
     export_model(model, "exported.pt")
 
-    model_loaded = load_atomistic_model("exported.pt")
+    model_loaded = load_model("exported.pt")
     export_model(model_loaded, "exported_new.pt")
 
     assert Path("exported_new.pt").is_file()

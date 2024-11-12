@@ -2,6 +2,7 @@ import math
 import warnings
 from typing import Any, Dict, List, Tuple, Union
 
+import metatensor.torch
 import numpy as np
 from metatensor.learn.data import Dataset, group_and_join
 from metatensor.torch import TensorMap

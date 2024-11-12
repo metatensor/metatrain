@@ -28,18 +28,19 @@ the :ref:`label_basic_usage` tutorial.
 #
 
 import torch
-from metatensor.torch.atomistic import load_atomistic_model
+
+from metatrain.utils.io import load_model
 
 
 # %%
 #
-# Exported models can be loaded using the `load_atomistic_model` function from the
-# metatensor.torch.atomistic` module. The function requires the path to the exported
-# model and, for many models, also the path to the respective extensions directory.
-# Both are produced during the training process.
+# Models can be loaded using the :func:`metatrain.utils.io.load_model` function from
+# the. For already exported models The function requires the path to the exported model
+# and, for many models, also the path to the respective extensions directory. Both are
+# produced during the training process.
 
 
-model = load_atomistic_model("model.pt", extensions_directory="extensions/")
+model = load_model("model.pt", extensions_directory="extensions/")
 
 # %%
 #

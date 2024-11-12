@@ -9,6 +9,7 @@ from metatensor.torch import Labels, TensorBlock, TensorMap
 from metatensor.torch.atomistic import (
     MetatensorAtomisticModel,
     ModelCapabilities,
+    ModelMetadata,
     ModelOutput,
     System,
 )
@@ -19,7 +20,6 @@ from metatrain.utils.data.dataset import DatasetInfo
 
 from ...utils.additive import ZBL, CompositionModel
 from ...utils.dtype import dtype_to_str
-from ...utils.export import export
 
 
 class Identity(torch.nn.Module):
@@ -459,7 +459,7 @@ class SoapBpnn(torch.nn.Module):
     def load_checkpoint(cls, path: Union[str, Path]) -> "SoapBpnn":
 
         # Load the checkpoint
-        checkpoint = torch.load(path, weights_only=False)
+        checkpoint = torch.load(path, weights_only=False, map_location="cpu")
         model_hypers = checkpoint["model_hypers"]
         model_state_dict = checkpoint["model_state_dict"]
 
@@ -495,7 +495,7 @@ class SoapBpnn(torch.nn.Module):
             dtype=dtype_to_str(dtype),
         )
 
-        return export(model=self, model_capabilities=capabilities)
+        return MetatensorAtomisticModel(self.eval(), ModelMetadata(), capabilities)
 
     def add_output(self, output_name: str) -> None:
         """Add a new output to the self."""

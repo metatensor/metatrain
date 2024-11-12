@@ -45,7 +45,8 @@ from torch_geometric.nn import DataParallel
 
 from ...utils.data import Dataset, check_datasets
 from . import PET as WrappedPET
-from .utils import dataset_to_ase, update_hypers
+from .utils import dataset_to_ase, update_hypers, update_state_dict
+from .utils.fine_tuning import LoRAWrapper
 
 
 logger = logging.getLogger(__name__)
@@ -124,10 +125,9 @@ class Trainer:
         TIME_SCRIPT_STARTED = time.time()
         value = datetime.datetime.fromtimestamp(TIME_SCRIPT_STARTED)
         logging.info(f"Starting training at: {value.strftime('%Y-%m-%d %H:%M:%S')}")
-        logging.info("Training configuration:")
-
-        print(f"Output directory: {checkpoint_dir}")
-        print(f"Training using device: {device}")
+        training_configuration_log = "Training configuration:\n"
+        training_configuration_log += f"Output directory: {checkpoint_dir}\n"
+        training_configuration_log += f"Training using device: {device}\n"
 
         if not os.path.exists(checkpoint_dir):
             os.mkdir(checkpoint_dir)
@@ -150,20 +150,46 @@ class Trainer:
         ARCHITECTURAL_HYPERS.TARGET_AGGREGATION = (
             "sum"  # energy is a sum of atomic energies
         )
-        print(f"Output dimensionality: {ARCHITECTURAL_HYPERS.D_OUTPUT}")
-        print(f"Target type: {ARCHITECTURAL_HYPERS.TARGET_TYPE}")
-        print(f"Target aggregation: {ARCHITECTURAL_HYPERS.TARGET_AGGREGATION}")
+
+        training_configuration_log += (
+            f"Output dimensionality: {ARCHITECTURAL_HYPERS.D_OUTPUT}\n"
+        )
+        training_configuration_log += (
+            f"Target type: {ARCHITECTURAL_HYPERS.TARGET_TYPE}\n"
+        )
+        training_configuration_log += (
+            f"Target aggregation: {ARCHITECTURAL_HYPERS.TARGET_AGGREGATION}\n"
+        )
+        training_configuration_log += f"Random seed: {FITTING_SCHEME.RANDOM_SEED}\n"
+        training_configuration_log += (
+            f"CUDA is deterministic: {FITTING_SCHEME.CUDA_DETERMINISTIC}"
+        )
+
+        logging.info(training_configuration_log)
 
         set_reproducibility(
             FITTING_SCHEME.RANDOM_SEED, FITTING_SCHEME.CUDA_DETERMINISTIC
         )
 
-        print(f"Random seed: {FITTING_SCHEME.RANDOM_SEED}")
-        print(f"CUDA is deterministic: {FITTING_SCHEME.CUDA_DETERMINISTIC}")
-
         adapt_hypers(FITTING_SCHEME, ase_train_dataset)
         dataset = ase_train_dataset + ase_val_dataset
-        all_species = get_all_species(dataset)
+
+        all_dataset_species = get_all_species(dataset)
+
+        if FITTING_SCHEME.ALL_SPECIES_PATH is not None:
+            logging.info(f"Loading all species from: {FITTING_SCHEME.ALL_SPECIES_PATH}")
+            all_species = np.load(FITTING_SCHEME.ALL_SPECIES_PATH)
+            if not np.all(np.isin(all_dataset_species, all_species)):
+                raise ValueError(
+                    "For the model fine-tuning, the set of species in the dataset "
+                    "must be a subset of the set of species in the pre-trained model. "
+                    "Please check, if the ALL_SPECIES_PATH is file contains all the "
+                    "elements from the fine-tuning dataset."
+                )
+            model.atomic_types = all_species.tolist()
+            model.dataset_info.atomic_types = all_species.tolist()
+        else:
+            all_species = all_dataset_species
 
         name_to_load, NAME_OF_CALCULATION = get_calc_names(
             os.listdir(checkpoint_dir), name_of_calculation
@@ -199,9 +225,16 @@ class Trainer:
 
         logging.info("Pre-processing training data...")
         if MLIP_SETTINGS.USE_ENERGIES:
-            self_contributions = get_self_contributions(
-                MLIP_SETTINGS.ENERGY_KEY, ase_train_dataset, all_species
-            )
+            if FITTING_SCHEME.SELF_CONTRIBUTIONS_PATH is not None:
+                self_contributions_path = FITTING_SCHEME.SELF_CONTRIBUTIONS_PATH
+                logging.info(
+                    f"Loading self contributions from: {self_contributions_path}"
+                )
+                self_contributions = np.load(FITTING_SCHEME.SELF_CONTRIBUTIONS_PATH)
+            else:
+                self_contributions = get_self_contributions(
+                    MLIP_SETTINGS.ENERGY_KEY, ase_train_dataset, all_species
+                )
             np.save(
                 f"{checkpoint_dir}/{NAME_OF_CALCULATION}/self_contributions.npy",
                 self_contributions,
@@ -236,6 +269,43 @@ class Trainer:
 
         logging.info("Initializing the model...")
         pet_model = PET(ARCHITECTURAL_HYPERS, 0.0, len(all_species)).to(device)
+        num_params = sum([p.numel() for p in pet_model.parameters()])
+        logging.info(f"Number of parameters: {num_params}")
+
+        if FITTING_SCHEME.MODEL_TO_START_WITH is not None:
+            logging.info(f"Loading model from: {FITTING_SCHEME.MODEL_TO_START_WITH}")
+            state_dict = torch.load(
+                FITTING_SCHEME.MODEL_TO_START_WITH, weights_only=True
+            )
+            new_state_dict = update_state_dict(state_dict)
+            loaded_keys = set(new_state_dict.keys())
+            current_keys = set(pet_model.state_dict().keys())
+            if not loaded_keys == current_keys:
+                raise ValueError(
+                    "The keys of the loaded model do not match the keys of the "
+                    "current model. Please check, if the current model hypers are "
+                    "compatible with the loaded model."
+                )
+            pet_model.load_state_dict(new_state_dict)
+            pet_model = pet_model.to(dtype=dtype)
+            if ARCHITECTURAL_HYPERS.USE_LORA_PEFT:
+                for param in pet_model.parameters():
+                    param.requires_grad = False
+                lora_rank = ARCHITECTURAL_HYPERS.LORA_RANK
+                lora_alpha = ARCHITECTURAL_HYPERS.LORA_ALPHA
+                pet_model = LoRAWrapper(pet_model, lora_rank, lora_alpha).to(device)
+                num_trainable_params = sum(
+                    [p.numel() for p in pet_model.parameters() if p.requires_grad]
+                )
+                fraction = num_trainable_params / num_params * 100
+                logging.info(
+                    f"Using LoRA PEFT with rank {lora_rank} and alpha {lora_alpha}"
+                )
+                logging.info(
+                    "Number of trainable parameters: "
+                    + f"{num_trainable_params} [{fraction:.2f}%]"
+                )
+
         pet_model = PETUtilityWrapper(pet_model, FITTING_SCHEME.GLOBAL_AUG)
 
         pet_model = PETMLIPWrapper(
@@ -247,11 +317,6 @@ class Trainer:
             )
             pet_model = DataParallel(FlagsWrapper(pet_model))
             pet_model = pet_model.to(torch.device("cuda:0"))
-
-        if FITTING_SCHEME.MODEL_TO_START_WITH is not None:
-            logging.info(f"Loading model from: {FITTING_SCHEME.MODEL_TO_START_WITH}")
-            pet_model.load_state_dict(torch.load(FITTING_SCHEME.MODEL_TO_START_WITH))
-            pet_model = pet_model.to(dtype=dtype)
 
         optim = get_optimizer(pet_model, FITTING_SCHEME)
         scheduler = get_scheduler(optim, FITTING_SCHEME)
@@ -313,17 +378,23 @@ class Trainer:
             multiplication_rmse_model_keeper = ModelKeeper()
             multiplication_mae_model_keeper = ModelKeeper()
 
-        logging.info(f"Starting training for {FITTING_SCHEME.EPOCH_NUM} epochs")
         if FITTING_SCHEME.EPOCHS_WARMUP > 0:
-            remaining_lr_scheduler_steps = (
-                FITTING_SCHEME.EPOCHS_WARMUP - scheduler.last_epoch
+            remaining_lr_scheduler_steps = max(
+                FITTING_SCHEME.EPOCHS_WARMUP - scheduler.last_epoch, 0
             )
-            logging.info(
-                f"Performing {remaining_lr_scheduler_steps} epochs of LR warmup"
-            )
+            if remaining_lr_scheduler_steps > 0:
+                lr_sheduler_msg = (
+                    f" with {remaining_lr_scheduler_steps} steps of LR warmup"
+                )
+            else:
+                lr_sheduler_msg = ""
+        else:
+            lr_sheduler_msg = ""
+        logging.info(
+            f"Starting training for {FITTING_SCHEME.EPOCH_NUM} epochs" + lr_sheduler_msg
+        )
         TIME_TRAINING_STARTED = time.time()
         last_elapsed_time = 0
-        print("=" * 50)
         for epoch in range(1, FITTING_SCHEME.EPOCH_NUM + 1):
             pet_model.train(True)
             for batch in train_loader:
@@ -387,7 +458,6 @@ class Trainer:
                         FITTING_SCHEME.SUPPORT_MISSING_VALUES,
                         FITTING_SCHEME.USE_SHIFT_AGNOSTIC_LOSS,
                     )
-
                 if MLIP_SETTINGS.USE_ENERGIES and MLIP_SETTINGS.USE_FORCES:
                     loss = FITTING_SCHEME.ENERGY_WEIGHT * loss_energies / (
                         sliding_energies_rmse**2
@@ -635,20 +705,19 @@ class Trainer:
             os.remove(Path(checkpoint_dir) / "checkpoint.temp")
 
         if do_forces:
-            load_path = self.pet_dir / "best_val_rmse_forces_model_state_dict"
+            load_path = self.pet_dir / "best_val_mae_forces_model_state_dict"
         else:
-            load_path = self.pet_dir / "best_val_rmse_energies_model_state_dict"
+            load_path = self.pet_dir / "best_val_mae_both_model_state_dict"
 
-        state_dict = torch.load(load_path, weights_only=False)
-
+        state_dict = torch.load(load_path, weights_only=True)
         ARCHITECTURAL_HYPERS = Hypers(model.hypers)
-        raw_pet = PET(ARCHITECTURAL_HYPERS, 0.0, len(model.atomic_types))
+        raw_pet = PET(ARCHITECTURAL_HYPERS, 0.0, len(all_species))
+        if ARCHITECTURAL_HYPERS.USE_LORA_PEFT:
+            lora_rank = ARCHITECTURAL_HYPERS.LORA_RANK
+            lora_alpha = ARCHITECTURAL_HYPERS.LORA_ALPHA
+            raw_pet = LoRAWrapper(raw_pet, lora_rank, lora_alpha)
 
-        new_state_dict = {}
-        for name, value in state_dict.items():
-            name = name.replace("model.pet_model.", "")
-            new_state_dict[name] = value
-
+        new_state_dict = update_state_dict(state_dict)
         raw_pet.load_state_dict(new_state_dict)
 
         self_contributions_path = self.pet_dir / "self_contributions.npy"
@@ -662,7 +731,7 @@ class Trainer:
         # together with the hypers inside a file that will act as a metatrain
         # checkpoint
         checkpoint_path = self.pet_dir / "checkpoint"  # type: ignore
-        checkpoint = torch.load(checkpoint_path, weights_only=False)
+        checkpoint = torch.load(checkpoint_path, weights_only=False, map_location="cpu")
         torch.save(
             {
                 "checkpoint": checkpoint,
@@ -680,7 +749,7 @@ class Trainer:
         # This function loads a metatrain PET checkpoint and returns a Trainer
         # instance with the hypers, while also saving the checkpoint in the
         # class
-        checkpoint = torch.load(path, weights_only=False)
+        checkpoint = torch.load(path, weights_only=False, map_location="cpu")
         trainer = cls(train_hypers)
         trainer.pet_checkpoint = checkpoint["checkpoint"]
         return trainer

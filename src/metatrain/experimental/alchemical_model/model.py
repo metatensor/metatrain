@@ -7,6 +7,7 @@ from metatensor.torch import Labels, TensorBlock, TensorMap
 from metatensor.torch.atomistic import (
     MetatensorAtomisticModel,
     ModelCapabilities,
+    ModelMetadata,
     ModelOutput,
     NeighborListOptions,
     System,
@@ -16,7 +17,6 @@ from torch_alchemical.models import AlchemicalModel as AlchemicalModelUpstream
 from ...utils.additive import ZBL
 from ...utils.data.dataset import DatasetInfo
 from ...utils.dtype import dtype_to_str
-from ...utils.export import export
 from .utils import systems_to_torch_alchemical_batch
 
 
@@ -149,7 +149,7 @@ class AlchemicalModel(torch.nn.Module):
     def load_checkpoint(cls, path: Union[str, Path]) -> "AlchemicalModel":
 
         # Load the checkpoint
-        checkpoint = torch.load(path, weights_only=False)
+        checkpoint = torch.load(path, weights_only=False, map_location="cpu")
         model_hypers = checkpoint["model_hypers"]
         model_state_dict = checkpoint["model_state_dict"]
 
@@ -185,7 +185,7 @@ class AlchemicalModel(torch.nn.Module):
             dtype=dtype_to_str(dtype),
         )
 
-        return export(model=self, model_capabilities=capabilities)
+        return MetatensorAtomisticModel(self.eval(), ModelMetadata(), capabilities)
 
     def set_composition_weights(
         self,
