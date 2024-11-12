@@ -227,3 +227,12 @@ passed to the architecture model and trainer as is.
 To create such a schema start by using `online tools <https://jsonformatter.org>`_ that
 convert the ``default-hypers.yaml`` into a JSON schema. Besides online tools, we also
 had success using ChatGPT/LLM for this for conversion.
+
+Documentation
+-------------
+
+Each new architecture should be added to ``metatrain``'s documentation. A short page
+describing the architecture and its default hyperparameters will be sufficient. You
+can take inspiration from existing architectures. The various targets that the
+architecture can fit should be added to the table in the "Fitting generic targets"
+section.

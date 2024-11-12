@@ -1,11 +1,52 @@
-Preparing generic targets for reading by metatrain
-==================================================
+Fitting generic targets
+=======================
 
 Besides energy-like targets, the library also supports reading (and training on)
 more generic targets.
 
+Support for generic targets
+---------------------------
+
+Not all architectures can train on all types of target. Here you can find the
+capabilities of the architectures in metatrain.
+
+.. list-table:: Sample Table
+   :header-rows: 1
+
+   * - Target type
+     - Energy and its gradients
+     - Scalars
+     - Spherical tensors
+     - Cartesian tensors
+   * - SOAP-BPNN
+     - Energy, forces, stress/virial
+     - Yes
+     - Only with ``o3_lambda=1, o3_sigma=1``
+     - No
+   * - Alchemical Model
+     - Energy, forces, stress/virial
+     - No
+     - No
+     - No
+   * - GAP
+     - Energy, forces
+     - No
+     - No
+     - No
+   * - PET
+     - Energy, forces
+     - No
+     - No
+     - No
+
+
+Preparing generic targets for reading by metatrain
+--------------------------------------------------
+
+Only a few steps are required to fit arbitrary targets in metatrain.
+
 Input file
-----------
+##########
 
 In order to read a generic target, you will have to specify its layout in the input
 file. Suppose you want to learn a target named ``mtt::my_target``, which is a per-atom
@@ -64,7 +105,7 @@ where ``o3_lambda`` specifies the L value of the spherical tensor and ``o3_sigma
 parity with respect to inversion (1 for proper tensors, -1 for pseudo-tensors).
 
 Preparing your targets -- ASE
------------------------------
+#############################
 
 If you are using the ASE readers to read your targets, you will have to save them
 either in the ``.info`` (if the target is per structure, i.e. not per atom) or in the
@@ -79,7 +120,7 @@ Reading targets with more than one spherical tensor is not supported by the ASE 
 In that case, you should use the metatensor reader.
 
 Preparing your targets -- metatensor
-------------------------------------
+####################################
 
 If you are using the metatensor readers to read your targets, you will have to save them
 as a list of ``metatensor.torch.TensorMap`` objects with ``torch.save`` into a file with
