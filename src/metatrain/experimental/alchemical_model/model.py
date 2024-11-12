@@ -32,14 +32,20 @@ class AlchemicalModel(torch.nn.Module):
         self.atomic_types = dataset_info.atomic_types
 
         if len(dataset_info.targets) != 1:
-            raise ValueError("The AlchemicalModel only supports a single target")
+            raise ValueError("The Alchemical Model only supports a single target")
 
         target_name = next(iter(dataset_info.targets.keys()))
-        if dataset_info.targets[target_name].quantity != "energy":
-            raise ValueError("The AlchemicalModel only supports 'energies' as target")
-
-        if dataset_info.targets[target_name].per_atom:
-            raise ValueError("The AlchemicalModel does not support 'per-atom' training")
+        target = dataset_info.targets[target_name]
+        if not(
+            target.is_scalar and
+            target.quantity == "energy" and
+            "atom" not in target.layout.block(0).samples.names and
+            len(target.layout.block(0).properties) == 1
+        ):
+            raise ValueError(
+                "The Alchemical Model only supports total-energy-like outputs, "
+                f"but a {target.quantity} was provided"
+            )
 
         self.outputs = {
             key: ModelOutput(
