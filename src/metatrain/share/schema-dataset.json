@@ -165,20 +165,20 @@
                         "spherical": {
                           "type": "object",
                           "properties": {
-                            "type": {
-                              "type": "array"
-                            },
-                            "items": {
-                              "type": "object",
-                              "properties": {
-                                "o3_lambda": { "type": "integer" },
-                                "o3_sigma": { "type": "number" }
-                              },
-                              "required": ["o3_lambda", "o3_sigma"],
-                              "additionalProperties": false
+                            "irreps": {
+                              "type": "array",
+                              "items": {
+                                "type": "object",
+                                "properties": {
+                                  "o3_lambda": { "type": "integer" },
+                                  "o3_sigma": { "type": "number" }
+                                },
+                                "required": ["o3_lambda", "o3_sigma"],
+                                "additionalProperties": false
+                              }
                             }
                           },
-                          "required": ["type", "items"],
+                          "required": ["irreps"],
                           "additionalProperties": false
                         }
                       },
