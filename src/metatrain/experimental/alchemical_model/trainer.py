@@ -1,3 +1,4 @@
+import copy
 import logging
 from pathlib import Path
 from typing import List, Union
@@ -175,21 +176,26 @@ class Trainer:
         loss_weights_dict = {}
         for output_name in outputs_list:
             loss_weights_dict[output_name] = (
-                self.hypers["loss_weights"][
+                self.hypers["loss"]["weights"][
                     to_external_name(output_name, model.outputs)
                 ]
                 if to_external_name(output_name, model.outputs)
-                in self.hypers["loss_weights"]
+                in self.hypers["loss"]["weights"]
                 else 1.0
             )
         loss_weights_dict_external = {
             to_external_name(key, model.outputs): value
             for key, value in loss_weights_dict.items()
         }
+        # Update the loss weights in the hypers:
+        loss_hypers = copy.deepcopy(self.hypers["loss"])
+        loss_hypers["weights"] = loss_weights_dict
         logging.info(f"Training with loss weights: {loss_weights_dict_external}")
 
         # Create a loss function:
-        loss_fn = TensorMapDictLoss(loss_weights_dict)
+        loss_fn = TensorMapDictLoss(
+            **loss_hypers,
+        )
 
         # Create an optimizer:
         optimizer = torch.optim.Adam(
