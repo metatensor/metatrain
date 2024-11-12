@@ -38,11 +38,11 @@ class PET(torch.nn.Module):
             raise ValueError("PET only supports a single target")
         self.target_name = next(iter(dataset_info.targets.keys()))
         target = dataset_info.targets[self.target_name]
-        if not(
-            target.is_scalar and
-            target.quantity == "energy" and
-            "atom" not in target.layout.block(0).samples.names and
-            len(target.layout.block(0).properties) == 1
+        if not (
+            target.is_scalar
+            and target.quantity == "energy"
+            and "atom" not in target.layout.block(0).samples.names
+            and len(target.layout.block(0).properties) == 1
         ):
             raise ValueError(
                 "PET only supports total-energy-like outputs, "

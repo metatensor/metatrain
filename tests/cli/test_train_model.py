@@ -610,3 +610,20 @@ def test_train_log_order(caplog, monkeypatch, tmp_path, options):
         force_index = line.index("validation forces RMSE")
         virial_index = line.index("validation virial RMSE")
         assert force_index < virial_index
+
+
+def test_train_generic_target(monkeypatch, tmp_path):
+    """Test training on a spherical vector target"""
+    monkeypatch.chdir(tmp_path)
+    shutil.copy(DATASET_PATH_ETHANOL, "ethanol_reduced_100.xyz")
+
+    # run training with original options
+    options = OmegaConf.load(OPTIONS_PATH)
+    options["training_set"]["systems"]["read_from"] = "ethanol_reduced_100.xyz"
+    options["training_set"]["targets"]["energy"]["type"] = {
+        "spherical": {"irreps": [{"o3_lambda": 1, "o3_sigma": 1}]}
+    }
+    options["training_set"]["targets"]["energy"]["per_atom"] = True
+    options["training_set"]["targets"]["energy"]["key"] = "forces"
+
+    train_model(options)

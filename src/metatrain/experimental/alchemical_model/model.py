@@ -36,11 +36,11 @@ class AlchemicalModel(torch.nn.Module):
 
         target_name = next(iter(dataset_info.targets.keys()))
         target = dataset_info.targets[target_name]
-        if not(
-            target.is_scalar and
-            target.quantity == "energy" and
-            "atom" not in target.layout.block(0).samples.names and
-            len(target.layout.block(0).properties) == 1
+        if not (
+            target.is_scalar
+            and target.quantity == "energy"
+            and "atom" not in target.layout.block(0).samples.names
+            and len(target.layout.block(0).properties) == 1
         ):
             raise ValueError(
                 "The Alchemical Model only supports total-energy-like outputs, "

@@ -8,7 +8,10 @@ from omegaconf import OmegaConf
 from metatrain.experimental.soap_bpnn import SoapBpnn
 from metatrain.utils.architectures import check_architecture_options
 from metatrain.utils.data import DatasetInfo
-from metatrain.utils.data.target_info import get_energy_target_info, get_generic_target_info
+from metatrain.utils.data.target_info import (
+    get_energy_target_info,
+    get_generic_target_info,
+)
 
 from . import DEFAULT_HYPERS, MODEL_HYPERS
 
@@ -257,7 +260,9 @@ def test_vector_output(per_atom):
                 {
                     "quantity": "forces",
                     "unit": "",
-                    "type": {"spherical": {"irreps": [{"o3_lambda": 1, "o3_sigma": 1}]}},
+                    "type": {
+                        "spherical": {"irreps": [{"o3_lambda": 1, "o3_sigma": 1}]}
+                    },
                     "num_properties": 100,
                     "per_atom": per_atom,
                 }
