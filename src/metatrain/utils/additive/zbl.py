@@ -44,10 +44,11 @@ class ZBL(torch.nn.Module):
                 )
             if not target.is_scalar:
                 raise ValueError("ZBL only supports scalar outputs")
-            if len(target.layout.properties) > 1:
+            if len(target.layout.block(0).properties) > 1:
                 raise ValueError(
                     "ZBL only supports outputs with one property, but "
-                    f"{len(target.layout.properties)} properties were provided."
+                    f"{len(target.layout.block(0).properties)} "
+                    "properties were provided."
                 )
             if target.unit != "eV":
                 raise ValueError(
