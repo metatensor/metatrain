@@ -204,11 +204,6 @@ class SoapBpnn(torch.nn.Module):
             radial_basis={"Gto": {}}, **self.hypers["soap"]
         )
 
-        # the model is always capable of outputting the last-layer features
-        self.outputs["mtt::aux::last_layer_features"] = ModelOutput(
-            unit="unitless", per_atom=True
-        )
-
         soap_size = (
             (len(self.atomic_types) * (len(self.atomic_types) + 1) // 2)
             * self.hypers["soap"]["max_radial"] ** 2
@@ -244,6 +239,9 @@ class SoapBpnn(torch.nn.Module):
 
         self.last_layer_feature_size = self.n_inputs_last_layer * len(self.atomic_types)
 
+        self.outputs = {
+            "mtt::aux::last_layer_features": ModelOutput(unit="unitless", per_atom=True)
+        }  # the model is always capable of outputting the last-layer features
         self.vector_featurizers = torch.nn.ModuleDict({})
         self.last_layers = torch.nn.ModuleDict({})
         for target_name, target in dataset_info.targets.items():
