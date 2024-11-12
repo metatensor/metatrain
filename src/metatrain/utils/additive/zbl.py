@@ -42,7 +42,7 @@ class ZBL(torch.nn.Module):
                     "ZBL only supports energy-like outputs, but a "
                     f"{target.quantity} output was provided."
                 )
-            if not target.layout.is_scalar:
+            if not target.is_scalar:
                 raise ValueError("ZBL only supports scalar outputs")
             if len(target.layout.properties) > 1:
                 raise ValueError(
