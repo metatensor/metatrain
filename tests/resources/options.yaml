@@ -2,11 +2,10 @@ seed: 42
 base_precision: 32
 
 architecture:
-  name: experimental.soap_bpnn
+  name: experimental.pet
   training:
-    batch_size: 16
-    num_epochs: 5
-    log_interval: 1
+    EPOCH_NUM_ATOMIC: 100000
+    ATOMIC_BATCH_SIZE: 100
 
 training_set:
   systems:

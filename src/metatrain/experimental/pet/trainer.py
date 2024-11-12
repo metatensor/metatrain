@@ -58,6 +58,7 @@ class Trainer:
         self.pet_dir = None
         self.pet_checkpoint = None
 
+    @profile
     def train(
         self,
         model: WrappedPET,
