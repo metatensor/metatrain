@@ -4,13 +4,9 @@ import torch
 from metatensor.torch.atomistic import System
 
 from metatrain.experimental.soap_bpnn import __model__
-from metatrain.utils.data import DatasetInfo, TargetInfo, read_systems
+from metatrain.utils.data import DatasetInfo, read_systems
+from metatrain.utils.data.target_info import get_energy_target_info
 from metatrain.utils.output_gradient import compute_gradient
-from metatrain.utils.testing import (
-    energy_force_layout,
-    energy_force_stress_layout,
-    energy_stress_layout,
-)
 
 from . import MODEL_HYPERS, RESOURCES_PATH
 
@@ -23,8 +19,8 @@ def test_forces(is_training):
         length_unit="angstrom",
         atomic_types={1, 6, 7, 8},
         targets={
-            "energy": TargetInfo(
-                quantity="energy", unit="eV", layout=energy_force_layout
+            "energy": get_energy_target_info(
+                {"quantity": "energy", "unit": "eV"}, add_position_gradients=True
             )
         },
     )
@@ -82,8 +78,8 @@ def test_virial(is_training):
         length_unit="angstrom",
         atomic_types={6},
         targets={
-            "energy": TargetInfo(
-                quantity="energy", unit="eV", layout=energy_stress_layout
+            "energy": get_energy_target_info(
+                {"quantity": "energy", "unit": "eV"}, add_strain_gradients=True
             )
         },
     )
@@ -153,10 +149,10 @@ def test_both(is_training):
         length_unit="angstrom",
         atomic_types={6},
         targets={
-            "energy": TargetInfo(
-                quantity="energy",
-                unit="eV",
-                layout=energy_force_stress_layout,
+            "energy": get_energy_target_info(
+                {"quantity": "energy", "unit": "eV"},
+                add_position_gradients=True,
+                add_strain_gradients=True,
             )
         },
     )

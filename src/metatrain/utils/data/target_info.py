@@ -310,7 +310,7 @@ def _get_cartesian_target_info(target: DictConfig) -> TargetInfo:
         components = [Labels(["xyz"], torch.arange(3).reshape(-1, 1))]
     else:
         components = []
-        for component in range(target["rank"][cartesian_key]):
+        for component in range(1, target["type"][cartesian_key]["rank"] + 1):
             components.append(
                 Labels(
                     names=[f"xyz_{component}"],

@@ -21,7 +21,7 @@ def _wrapped_ase_io_read(filename):
         raise ValueError(f"Failed to read '{filename}' with ASE: {e}") from e
 
 
-def read_ase_systems(filename: str) -> List[System]:
+def read_systems(filename: str) -> List[System]:
     """Store system informations using ase.
 
     :param filename: name of the file to read
@@ -191,7 +191,7 @@ def _read_virial_stress_ase(
     return blocks
 
 
-def read_ase_energy(target: DictConfig) -> Tuple[List[TensorMap], TargetInfo]:
+def read_energy(target: DictConfig) -> Tuple[List[TensorMap], TargetInfo]:
     target_key = target["key"]
 
     blocks = read_energy_ase(
@@ -199,6 +199,7 @@ def read_ase_energy(target: DictConfig) -> Tuple[List[TensorMap], TargetInfo]:
         key=target["key"],
     )
 
+    add_position_gradients = False
     if target["forces"]:
         try:
             position_gradients = read_forces_ase(
@@ -219,6 +220,8 @@ def read_ase_energy(target: DictConfig) -> Tuple[List[TensorMap], TargetInfo]:
 
     if target["stress"] and target["virial"]:
         raise ValueError("Cannot use stress and virial at the same time")
+
+    add_strain_gradients = False
 
     if target["stress"]:
         try:
@@ -268,22 +271,22 @@ def read_ase_energy(target: DictConfig) -> Tuple[List[TensorMap], TargetInfo]:
     return tensor_map_list, target_info
 
 
-def read_ase_generic(target: DictConfig) -> Tuple[List[TensorMap], TargetInfo]:
+def read_generic(target: DictConfig) -> Tuple[List[TensorMap], TargetInfo]:
     filename = target["read_from"]
     frames = _wrapped_ase_io_read(filename)
 
     # we don't allow ASE to read spherical tensors with more than one irrep,
     # otherwise it's a mess
     if (
-        isinstance(target["type"], dict)
+        isinstance(target["type"], DictConfig)
         and next(iter(target["type"].keys())) == "spherical"
     ):
-        irreps = target["type"]["spherical"]
+        irreps = target["type"]["spherical"]["irreps"]
         if len(irreps) > 1:
             raise ValueError(
                 "The metatrain ASE reader does not support reading "
                 "spherical tensors with more than one irreducible "
-                "representation."
+                "representation. Please use the metatensor reader."
             )
 
     target_info = get_generic_target_info(target)

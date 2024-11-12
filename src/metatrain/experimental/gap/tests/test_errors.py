@@ -8,14 +8,8 @@ import torch
 from omegaconf import OmegaConf
 
 from metatrain.experimental.gap import GAP, Trainer
-from metatrain.utils.data import (
-    Dataset,
-    DatasetInfo,
-    TargetInfo,
-    read_systems,
-    read_targets,
-)
-from metatrain.utils.testing import energy_force_layout
+from metatrain.utils.data import Dataset, DatasetInfo, read_systems, read_targets
+from metatrain.utils.data.target_info import get_energy_target_info
 
 from . import DATASET_ETHANOL_PATH, DEFAULT_HYPERS
 
@@ -43,6 +37,9 @@ def test_ethanol_regression_train_and_invariance():
             "reader": "ase",
             "key": "energy",
             "unit": "kcal/mol",
+            "type": "scalar",
+            "per_atom": False,
+            "num_properties": 1,
             "forces": {
                 "read_from": DATASET_ETHANOL_PATH,
                 "reader": "ase",
@@ -62,8 +59,8 @@ def test_ethanol_regression_train_and_invariance():
     hypers["model"]["krr"]["num_sparse_points"] = 30
 
     target_info_dict = {
-        "energy": TargetInfo(
-            quantity="energy", unit="kcal/mol", layout=energy_force_layout
+        "energy": get_energy_target_info(
+            {"quantity": "energy", "unit": "kcal/mol"}, add_position_gradients=True
         )
     }
 

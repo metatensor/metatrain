@@ -11,16 +11,7 @@ from metatensor.torch import Labels
 from omegaconf import OmegaConf
 from test_targets_ase import ase_system, ase_systems
 
-from metatrain.utils.data.dataset import TargetInfo
-from metatrain.utils.data.readers import (
-    read_energy,
-    read_forces,
-    read_stress,
-    read_systems,
-    read_targets,
-    read_virial,
-)
-from metatrain.utils.data.readers.readers import _base_reader
+from metatrain.utils.data import TargetInfo, read_systems, read_targets
 
 
 @pytest.mark.parametrize("reader", (None, "ase"))
@@ -58,84 +49,18 @@ def test_read_unknonw_library():
         read_systems("foo.foo", reader="foo")
 
 
-@pytest.mark.parametrize("reader", (None, "ase"))
-def test_read_energies(reader, monkeypatch, tmp_path):
-    monkeypatch.chdir(tmp_path)
+def test_unsupported_target_name():
+    conf = {
+        "free_energy": {
+            "quantity": "energy",
+        }
+    }
 
-    filename = "systems.xyz"
-    systems = ase_systems()
-    ase.io.write(filename, systems)
-
-    results = read_energy(filename, reader=reader, target_value="true_energy")
-
-    assert type(results) is list
-    assert len(results) == len(systems)
-    for i_system, result in enumerate(results):
-        assert result.values.dtype is torch.float64
-        assert result.samples.names == ["system"]
-        assert result.samples.values == torch.tensor([[i_system]])
-        assert result.properties == Labels("energy", torch.tensor([[0]]))
-
-
-@pytest.mark.parametrize("reader", (None, "ase"))
-def test_read_forces(reader, monkeypatch, tmp_path):
-    monkeypatch.chdir(tmp_path)
-
-    filename = "systems.xyz"
-    systems = ase_systems()
-    ase.io.write(filename, systems)
-
-    results = read_forces(filename, reader=reader, target_value="forces")
-
-    assert type(results) is list
-    assert len(results) == len(systems)
-    for i_system, result in enumerate(results):
-        assert result.values.dtype is torch.float64
-        assert result.samples.names == ["sample", "system", "atom"]
-        assert torch.all(result.samples["sample"] == torch.tensor(0))
-        assert torch.all(result.samples["system"] == torch.tensor(i_system))
-        assert result.components == [Labels(["xyz"], torch.arange(3).reshape(-1, 1))]
-        assert result.properties == Labels("energy", torch.tensor([[0]]))
-
-
-@pytest.mark.parametrize("reader_func", [read_stress, read_virial])
-@pytest.mark.parametrize("reader", (None, "ase"))
-def test_read_stress_virial(reader_func, reader, monkeypatch, tmp_path):
-    monkeypatch.chdir(tmp_path)
-
-    filename = "systems.xyz"
-    systems = ase_systems()
-    ase.io.write(filename, systems)
-
-    results = reader_func(filename, reader=reader, target_value="stress-3x3")
-
-    assert type(results) is list
-    assert len(results) == len(systems)
-    components = [
-        Labels(["xyz_1"], torch.arange(3).reshape(-1, 1)),
-        Labels(["xyz_2"], torch.arange(3).reshape(-1, 1)),
-    ]
-    for result in results:
-        assert result.values.dtype is torch.float64
-        assert result.samples.names == ["sample"]
-        assert result.samples.values == torch.tensor([[0]])
-        assert result.components == components
-        assert result.properties == Labels("energy", torch.tensor([[0]]))
-
-
-@pytest.mark.parametrize(
-    "reader_func", [read_energy, read_forces, read_stress, read_virial]
-)
-def test_reader_unknown_reader(reader_func):
-    match = "File extension '.bar' is not linked to a default reader"
-    with pytest.raises(ValueError, match=match):
-        reader_func("foo.bar", target_value="baz")
-
-
-def test_reader_unknown_target():
-    match = "Reader library 'ase' can't read 'mytarget'."
-    with pytest.raises(ValueError, match=match):
-        _base_reader(target="mytarget", filename="structures.xyz", reader="ase")
+    with pytest.raises(
+        ValueError,
+        match="start with `mtt::`",
+    ):
+        read_targets(OmegaConf.create(conf))
 
 
 STRESS_VIRIAL_DICT = {
@@ -162,6 +87,9 @@ def test_read_targets(stress_dict, virial_dict, monkeypatch, tmp_path, caplog):
         "reader": "ase",
         "key": "true_energy",
         "unit": "eV",
+        "type": "scalar",
+        "per_atom": False,
+        "num_properties": 1,
         "forces": {"read_from": filename, "reader": "ase", "key": "forces"},
         "stress": stress_dict,
         "virial": virial_dict,
@@ -246,6 +174,9 @@ def test_read_targets_warnings(stress_dict, virial_dict, monkeypatch, tmp_path, 
         "reader": "ase",
         "key": "true_energy",
         "unit": "eV",
+        "type": "scalar",
+        "per_atom": False,
+        "num_properties": 1,
         "forces": {"read_from": filename, "reader": "ase", "key": "forces"},
         "stress": stress_dict,
         "virial": virial_dict,
@@ -276,6 +207,9 @@ def test_read_targets_error(monkeypatch, tmp_path):
         "read_from": filename,
         "reader": "ase",
         "key": "true_energy",
+        "type": "scalar",
+        "per_atom": False,
+        "num_properties": 1,
         "forces": {"read_from": filename, "reader": "ase", "key": "forces"},
         "stress": True,
         "virial": True,
@@ -290,29 +224,136 @@ def test_read_targets_error(monkeypatch, tmp_path):
         read_targets(OmegaConf.create(conf))
 
 
-def test_unsupported_quantity():
-    conf = {
-        "energy": {
-            "quantity": "foo",
-        }
+@pytest.mark.parametrize("key", ["stress-3x3", "stress-9"])
+def test_read_targets_generic_1(key, monkeypatch, tmp_path):
+    """Reads a 3x3 stress as a Cartesian vector with 3 properties."""
+    monkeypatch.chdir(tmp_path)
+
+    filename = "systems.xyz"
+    systems = ase_system()
+    ase.io.write(filename, systems)
+
+    stress_section = {
+        "quantity": "stress",
+        "read_from": filename,
+        "reader": "ase",
+        "key": key,
+        "unit": "GPa",
+        "type": {
+            "cartesian": {
+                "rank": 1,
+            }
+        },
+        "per_atom": False,
+        "num_properties": 3,
     }
+    conf = {"stress": stress_section}
+    with pytest.warns(UserWarning, match="should not be its own top-level target"):
+        with pytest.warns(UserWarning, match="resembles to a gradient of energies"):
+            read_targets(OmegaConf.create(conf))
 
+    # this will trigger a shape error
+    conf["stress"]["type"]["cartesian"]["rank"] = 2
     with pytest.raises(
-        ValueError,
-        match="Quantity: 'foo' is not supported. Choose 'energy'.",
+        RuntimeError,
+        match="shape",
     ):
-        read_targets(OmegaConf.create(conf))
+        with pytest.warns(UserWarning, match="should not be its own top-level target"):
+            with pytest.warns(UserWarning, match="resembles to a gradient of energies"):
+                read_targets(OmegaConf.create(conf))
 
 
-def test_unsupported_target_name():
-    conf = {
-        "free_energy": {
-            "quantity": "energy",
-        }
+@pytest.mark.parametrize("key", ["stress-3x3", "stress-9"])
+def test_read_targets_generic_2(key, monkeypatch, tmp_path):
+    """Reads a 3x3 stress as a Cartesian rank-2 tensor."""
+    monkeypatch.chdir(tmp_path)
+
+    filename = "systems.xyz"
+    systems = ase_system()
+    ase.io.write(filename, systems)
+
+    stress_section = {
+        "quantity": "stress",
+        "read_from": filename,
+        "reader": "ase",
+        "key": key,
+        "unit": "GPa",
+        "type": {
+            "cartesian": {
+                "rank": 2,
+            }
+        },
+        "per_atom": False,
+        "num_properties": 1,
     }
+    conf = {"stress": stress_section}
+    with pytest.warns(UserWarning, match="should not be its own top-level target"):
+        with pytest.warns(UserWarning, match="resembles to a gradient of energies"):
+            read_targets(OmegaConf.create(conf))
 
+    # this will trigger a shape error
+    conf["stress"]["type"]["cartesian"]["rank"] = 1
     with pytest.raises(
-        ValueError,
-        match="start with `mtt::`",
+        RuntimeError,
+        match="shape",
     ):
-        read_targets(OmegaConf.create(conf))
+        with pytest.warns(UserWarning, match="should not be its own top-level target"):
+            with pytest.warns(UserWarning, match="resembles to a gradient of energies"):
+                read_targets(OmegaConf.create(conf))
+
+
+@pytest.mark.parametrize("key", ["stress-3x3", "stress-9"])
+def test_read_targets_generic_3(key, monkeypatch, tmp_path):
+    """Reads a 3x3 stress as a scalar with 9 properties"""
+    monkeypatch.chdir(tmp_path)
+
+    filename = "systems.xyz"
+    systems = ase_system()
+    ase.io.write(filename, systems)
+
+    stress_section = {
+        "quantity": "stress",
+        "read_from": filename,
+        "reader": "ase",
+        "key": key,
+        "unit": "GPa",
+        "type": "scalar",
+        "per_atom": False,
+        "num_properties": 9,
+    }
+    conf = {"stress": stress_section}
+    with pytest.warns(UserWarning, match="should not be its own top-level target"):
+        with pytest.warns(UserWarning, match="resembles to a gradient of energies"):
+            read_targets(OmegaConf.create(conf))
+
+
+def test_read_targets_generic_errors(monkeypatch, tmp_path):
+    """Reads a 3x3 stress as a scalar with 9 properties"""
+    monkeypatch.chdir(tmp_path)
+
+    filename = "systems.xyz"
+    systems = ase_system()
+    ase.io.write(filename, systems)
+
+    stress_section = {
+        "quantity": "stress",
+        "read_from": filename,
+        "reader": "ase",
+        "key": "stress-3x3",
+        "unit": "GPa",
+        "type": {
+            "spherical": {
+                "irreps": [
+                    {"o3_lambda": 0, "o3_sigma": 1},
+                    {"o3_lambda": 2, "o3_sigma": 1},
+                ]
+            }
+        },
+        "per_atom": False,
+        "num_properties": 9,
+    }
+    conf = {"stress": stress_section}
+    with pytest.raises(ValueError, match="use the metatensor reader"):
+        with pytest.warns(UserWarning, match="should not be its own top-level target"):
+            with pytest.warns(UserWarning, match="resembles to a gradient of energies"):
+                read_targets(OmegaConf.create(conf))

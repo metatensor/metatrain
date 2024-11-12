@@ -8,7 +8,7 @@ from metatensor.torch import TensorMap
 from metatensor.torch.atomistic import System
 from omegaconf import DictConfig
 
-from ..dataset import TargetInfo
+from ..target_info import TargetInfo
 
 
 logger = logging.getLogger(__name__)
@@ -46,7 +46,7 @@ def _call_base_systems_reader(
         )
 
     try:
-        reader_met = getattr(reader_mod, f"read_{reader}_systems")
+        reader_met = reader_mod.read_systems
     except AttributeError:
         raise ValueError(f"Reader library {reader!r} can't read systems.")
 
@@ -105,7 +105,7 @@ def _call_base_target_reader(
         )
 
     try:
-        reader_met = getattr(reader_mod, f"read_{reader}_{target_kind}")
+        reader_met = getattr(reader_mod, f"read_{target_kind}")
     except AttributeError:
         raise ValueError(f"Reader library {reader!r} can't read {target!r}.")
 
@@ -163,6 +163,18 @@ def read_targets(
                     f"Target name ({target_key}) must either be one of "
                     f"{standard_outputs_list} or start with `mtt::`."
                 )
+        if (
+            "force" in target_key.lower()
+            or "virial" in target_key.lower()
+            or "stress" in target_key.lower()
+        ):
+            warnings.warn(
+                f"the name of {target_key!r} resembles to a gradient of "
+                "energies; it should probably not be its own top-level target, "
+                "but rather a gradient sub-section of a target with the "
+                "`energy` quantity",
+                stacklevel=2,
+            )
 
         is_energy = (
             (target["quantity"] == "energy")
@@ -178,35 +190,3 @@ def read_targets(
         target_info_dictionary[target_key] = target_info
 
     return target_dictionary, target_info_dictionary
-
-
-def _empty_tensor_map_like(tensor_map: TensorMap) -> TensorMap:
-    new_keys = tensor_map.keys
-    new_blocks: List[TensorBlock] = []
-    for block in tensor_map.blocks():
-        new_block = _empty_tensor_block_like(block)
-        new_blocks.append(new_block)
-    return TensorMap(keys=new_keys, blocks=new_blocks)
-
-
-def _empty_tensor_block_like(tensor_block: TensorBlock) -> TensorBlock:
-    new_block = TensorBlock(
-        values=torch.empty(
-            (0,) + tensor_block.values.shape[1:],
-            dtype=torch.float64,  # metatensor can't serialize otherwise
-            device=tensor_block.values.device,
-        ),
-        samples=Labels(
-            names=tensor_block.samples.names,
-            values=torch.empty(
-                (0, tensor_block.samples.values.shape[1]),
-                dtype=tensor_block.samples.values.dtype,
-                device=tensor_block.samples.values.device,
-            ),
-        ),
-        components=tensor_block.components,
-        properties=tensor_block.properties,
-    )
-    for gradient_name, gradient in tensor_block.gradients():
-        new_block.add_gradient(gradient_name, _empty_tensor_block_like(gradient))
-    return new_block

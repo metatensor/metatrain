@@ -13,6 +13,7 @@ from metatrain.utils.data.readers.ase import (
     read_energy_ase,
     read_forces_ase,
     read_stress_ase,
+    read_systems,
     read_virial_ase,
 )
 
@@ -40,7 +41,7 @@ def test_read_ase(monkeypatch, tmp_path):
     systems = ase_system()
     ase.io.write(filename, systems)
 
-    result = read_ase_systems(filename)
+    result = read_systems(filename)
 
     assert isinstance(result, list)
     assert len(result) == 1

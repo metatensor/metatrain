@@ -6,9 +6,9 @@ from metatensor.torch.atomistic import ModelOutput
 from omegaconf import OmegaConf
 
 from metatrain.experimental.soap_bpnn import SoapBpnn, Trainer
-from metatrain.utils.data import Dataset, DatasetInfo, TargetInfo
+from metatrain.utils.data import Dataset, DatasetInfo
 from metatrain.utils.data.readers import read_systems, read_targets
-from metatrain.utils.testing import energy_layout
+from metatrain.utils.data.target_info import get_energy_target_info
 
 from . import DATASET_PATH, DEFAULT_HYPERS, MODEL_HYPERS
 
@@ -23,7 +23,7 @@ def test_regression_init():
     """Perform a regression test on the model at initialization"""
 
     targets = {}
-    targets["mtt::U0"] = TargetInfo(quantity="energy", unit="eV", layout=energy_layout)
+    targets["mtt::U0"] = get_energy_target_info({"quantity": "energy", "unit": "eV"})
 
     dataset_info = DatasetInfo(
         length_unit="Angstrom", atomic_types=[1, 6, 7, 8], targets=targets
@@ -41,17 +41,17 @@ def test_regression_init():
 
     expected_output = torch.tensor(
         [
-            [-0.038599025458],
-            [0.111374437809],
-            [0.091115802526],
-            [-0.056339077652],
-            [-0.025491207838],
+            [0.053602740169],
+            [-0.142421141267],
+            [-0.122775360942],
+            [-0.202754884958],
+            [-0.031394608319],
         ]
     )
 
     # if you need to change the hardcoded values:
-    torch.set_printoptions(precision=12)
-    print(output["mtt::U0"].block().values)
+    # torch.set_printoptions(precision=12)
+    # print(output["mtt::U0"].block().values)
 
     torch.testing.assert_close(
         output["mtt::U0"].block().values, expected_output, rtol=1e-5, atol=1e-5
@@ -71,6 +71,9 @@ def test_regression_train():
             "reader": "ase",
             "key": "U0",
             "unit": "eV",
+            "type": "scalar",
+            "per_atom": False,
+            "num_properties": 1,
             "forces": False,
             "stress": False,
             "virial": False,
@@ -107,17 +110,17 @@ def test_regression_train():
 
     expected_output = torch.tensor(
         [
-            [-0.106249026954],
-            [0.039981484413],
-            [-0.142682999372],
-            [-0.031701669097],
-            [-0.016210660338],
+            [0.090618140996],
+            [-0.020789206028],
+            [0.020192664117],
+            [0.093057855964],
+            [0.094577327371],
         ]
     )
 
     # if you need to change the hardcoded values:
-    torch.set_printoptions(precision=12)
-    print(output["mtt::U0"].block().values)
+    # torch.set_printoptions(precision=12)
+    # print(output["mtt::U0"].block().values)
 
     torch.testing.assert_close(
         output["mtt::U0"].block().values, expected_output, rtol=1e-5, atol=1e-5

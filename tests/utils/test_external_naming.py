@@ -1,15 +1,16 @@
-from metatrain.utils.data.dataset import TargetInfo
+from metatrain.utils.data.target_info import get_energy_target_info
 from metatrain.utils.external_naming import to_external_name, to_internal_name
-from metatrain.utils.testing import energy_layout
 
 
 def test_to_external_name():
     """Tests the to_external_name function."""
 
     quantities = {
-        "energy": TargetInfo(quantity="energy", layout=energy_layout),
-        "mtt::free_energy": TargetInfo(quantity="energy", layout=energy_layout),
-        "mtt::foo": TargetInfo(quantity="bar", layout=energy_layout),
+        "energy": get_energy_target_info({"quantity": "energy", "unit": "eV"}),
+        "mtt::free_energy": get_energy_target_info(
+            {"quantity": "energy", "unit": "eV"}
+        ),
+        "mtt::foo": get_energy_target_info({"quantity": "bar", "unit": "eV"}),
     }
 
     assert to_external_name("energy_positions_gradients", quantities) == "forces"

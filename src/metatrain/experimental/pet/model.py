@@ -37,8 +37,17 @@ class PET(torch.nn.Module):
         if len(dataset_info.targets) != 1:
             raise ValueError("PET only supports a single target")
         self.target_name = next(iter(dataset_info.targets.keys()))
-        if dataset_info.targets[self.target_name].quantity != "energy":
-            raise ValueError("PET only supports energies as target")
+        target = dataset_info.targets[self.target_name]
+        if not (
+            target.is_scalar
+            and target.quantity == "energy"
+            and "atom" not in target.layout.block(0).samples.names
+            and len(target.layout.block(0).properties) == 1
+        ):
+            raise ValueError(
+                "PET only supports total-energy-like outputs, "
+                f"but a {target.quantity} was provided"
+            )
 
         model_hypers["D_OUTPUT"] = 1
         model_hypers["TARGET_TYPE"] = "atomic"

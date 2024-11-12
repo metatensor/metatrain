@@ -2,8 +2,9 @@ from typing import Dict, Tuple
 
 from omegaconf import DictConfig
 
-from .dataset import Dataset, TargetInfo
+from .dataset import Dataset
 from .readers import read_systems, read_targets
+from .target_info import TargetInfo
 
 
 def get_dataset(options: DictConfig) -> Tuple[Dataset, Dict[str, TargetInfo]]:

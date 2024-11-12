@@ -125,10 +125,13 @@ class CompositionModel(torch.nn.Module):
                     if target_key in get_all_targets(dataset):
                         datasets_with_target.append(dataset)
                 if len(datasets_with_target) == 0:
-                    raise ValueError(
+                    # this is a possibility when transfer learning
+                    warnings.warn(
                         f"Target {target_key} in the model's new capabilities is not "
-                        "present in any of the training datasets."
+                        "present in any of the training datasets.",
+                        stacklevel=2,
                     )
+                    continue
 
                 targets = torch.stack(
                     [
