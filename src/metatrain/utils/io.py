@@ -67,7 +67,6 @@ def load_model(
     architecture_name: Optional[str] = None,
     **kwargs,
 ) -> Any:
-    print(kwargs)
     """Load checkpoints and exported models from an URL or a local file.
 
     If an exported model should be loaded and requires compiled extensions, their
