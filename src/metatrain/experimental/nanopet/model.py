@@ -127,18 +127,21 @@ class NanoPET(torch.nn.Module):
         self.key_labels = {
             output_name: copy.deepcopy(dataset_info.targets[output_name].layout.keys)
             for output_name in self.outputs.keys()
+            if "mtt::aux::" not in output_name
         }
         self.component_labels = {
             output_name: copy.deepcopy(
                 dataset_info.targets[output_name].layout.block().components
             )
             for output_name in self.outputs.keys()
+            if "mtt::aux::" not in output_name
         }
         self.property_labels = {
             output_name: copy.deepcopy(
                 dataset_info.targets[output_name].layout.block().properties
             )
             for output_name in self.outputs.keys()
+            if "mtt::aux::" not in output_name
         }
 
     def restart(self, dataset_info: DatasetInfo) -> "NanoPET":
@@ -420,7 +423,9 @@ class NanoPET(torch.nn.Module):
 
         # Create the model
         model = cls(**model_hypers)
-        dtype = next(iter(model_state_dict.values())).dtype
+        state_dict_iter = iter(model_state_dict.values())
+        next(state_dict_iter)  # skip `species_to_species_index` buffer (int)
+        dtype = next(state_dict_iter).dtype
         model.to(dtype).load_state_dict(model_state_dict)
 
         return model
