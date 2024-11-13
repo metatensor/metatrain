@@ -104,9 +104,6 @@ def load_model(
             f"path '{path}' seems to be a YAML option file and not a model"
         )
 
-    if urlparse(str(path)).scheme:
-        path, _ = urlretrieve(str(path))
-
     # Download from HuggingFace with a private token
     if kwargs.get("huggingface_api_token"):
         try:
@@ -124,13 +121,23 @@ def load_model(
                 "'https://huggingface.co/'."
             )
         # get repo_id and filename
-        repo_id, filename = path.split("https://huggingface.co/")[-1].split("/")
+        split_path = path.split("/")
+        repo_id = f"{split_path[3]}/{split_path[4]}"  # org/repo
+        filename = ""
+        for i in range(5, len(split_path)):
+            filename += split_path[i] + "/"
+        filename = filename[:-1]
         path = hf_hub_download(repo_id, filename, token=kwargs["huggingface_api_token"])
 
-    if is_exported_file(str(path)):
-        return load_atomistic_model(
-            str(path), extensions_directory=extensions_directory
-        )
+    elif urlparse(str(path)).scheme:
+        path, _ = urlretrieve(str(path))
+
+    else:
+        pass
+
+    path = str(path)
+    if is_exported_file(path):
+        return load_atomistic_model(path, extensions_directory=extensions_directory)
     else:  # model is a checkpoint
         if architecture_name is None:
             raise ValueError(
@@ -140,7 +147,7 @@ def load_model(
         architecture = import_architecture(architecture_name)
 
         try:
-            return architecture.__model__.load_checkpoint(str(path))
+            return architecture.__model__.load_checkpoint(path)
         except Exception as err:
             raise ValueError(
                 f"path '{path}' is not a valid model file for the {architecture_name} "
