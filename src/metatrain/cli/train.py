@@ -154,7 +154,6 @@ def train_model(
         like the fully expanded training options for a later restart.
     :param continue_from: File to continue training from.
     """
-
     ###########################
     # VALIDATE BASE OPTIONS ###
     ###########################
