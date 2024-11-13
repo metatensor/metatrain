@@ -1,3 +1,4 @@
+import copy
 import logging
 from pathlib import Path
 from typing import Dict, List, Tuple, Union
@@ -7,7 +8,6 @@ import torch.distributed
 from metatensor.torch import TensorMap
 from metatensor.torch.atomistic import System
 from torch.utils.data import DataLoader, DistributedSampler
-import copy
 
 from ...utils.additive import remove_additive
 from ...utils.data import CombinedDataLoader, Dataset, collate_fn
@@ -262,52 +262,7 @@ class Trainer:
                 val_mae_calculator = MAEAccumulator()
 
             train_loss = 0.0
-            # count = 0
             for batch in train_dataloader:
-                # print(count)
-                # if count == 20:
-                #     with torch.profiler.profile() as prof:
-                #         optimizer.zero_grad()
-
-                #         systems, targets = batch
-                #         systems, targets = apply_random_augmentations(systems, targets)
-                #         systems, targets = systems_and_targets_to_device(systems, targets, device)
-                #         with torch.profiler.record_function("additive_models"):
-                #             for additive_model in (model.module if is_distributed else model).additive_models:
-                #                 targets = remove_additive(
-                #                     systems, targets, additive_model, train_targets
-                #                 )
-                #         systems, targets = systems_and_targets_to_dtype(systems, targets, dtype)
-                #         with torch.profiler.record_function("evaluate_model"):
-                #             predictions = evaluate_model(
-                #                 model,
-                #                 systems,
-                #                 TargetInfoDict(
-                #                     **{key: train_targets[key] for key in targets.keys()}
-                #                 ),
-                #                 is_training=True,
-                #             )
-
-                #         # average by the number of atoms
-                #         predictions = average_by_num_atoms(
-                #             predictions, systems, per_structure_targets
-                #         )
-                #         targets = average_by_num_atoms(targets, systems, per_structure_targets)
-
-                #         train_loss_batch = loss_fn(predictions, targets)
-                #         train_loss_batch.backward()
-                #         optimizer.step()
-
-                #         if is_distributed:
-                #             # sum the loss over all processes
-                #             torch.distributed.all_reduce(train_loss_batch)
-                #         train_loss += train_loss_batch.item()
-                #         train_rmse_calculator.update(predictions, targets)
-
-                #     if is_main_process():
-                #         prof.export_chrome_trace("trace.json")
-                #     exit()
-                # else:
                 optimizer.zero_grad()
 
                 systems, targets = batch

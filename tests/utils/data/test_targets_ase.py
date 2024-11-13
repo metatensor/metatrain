@@ -9,7 +9,6 @@ import pytest
 import torch
 
 from metatrain.utils.data.readers.ase import (
-    read_ase_systems,
     read_energy_ase,
     read_forces_ase,
     read_stress_ase,

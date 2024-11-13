@@ -9,6 +9,7 @@ from metatensor.torch import Labels, TensorBlock, TensorMap
 from metatensor.torch.atomistic import (
     MetatensorAtomisticModel,
     ModelCapabilities,
+    ModelMetadata,
     ModelOutput,
     NeighborListOptions,
     System,
@@ -17,7 +18,6 @@ from metatensor.torch.atomistic import (
 from ...utils.additive import ZBL, CompositionModel
 from ...utils.data import DatasetInfo
 from ...utils.dtype import dtype_to_str
-from ...utils.export import export
 from .modules.encoder import Encoder
 from .modules.nef import (
     edge_array_to_nef,
@@ -78,9 +78,10 @@ class NanoPET(torch.nn.Module):
             4 * self.hypers["d_pet"],
             self.hypers["num_heads"],
             self.hypers["num_attention_layers"],
-            self.hypers["mlp_dropout_rate"],
-            self.hypers["attention_dropout_rate"],
+            0.0,  # MLP dropout rate
+            0.0,  # attention dropout rate
         )
+        # empirically, the model seems to perform better without dropout
 
         self.num_mp_layers = self.hypers["num_gnn_layers"] - 1
         gnn_contractions = []
@@ -97,8 +98,8 @@ class NanoPET(torch.nn.Module):
                     4 * self.hypers["d_pet"],
                     self.hypers["num_heads"],
                     self.hypers["num_attention_layers"],
-                    self.hypers["mlp_dropout_rate"],
-                    self.hypers["attention_dropout_rate"],
+                    0.0,  # MLP dropout rate
+                    0.0,  # attention dropout rate
                 )
             )
         self.gnn_contractions = torch.nn.ModuleList(gnn_contractions)
@@ -378,7 +379,7 @@ class NanoPET(torch.nn.Module):
                         samples=sample_labels,
                         components=[],
                         properties=Labels(
-                            names=["property"],
+                            names=["properties"],
                             values=torch.arange(
                                 node_features.shape[-1], device=node_features.device
                             ).reshape(-1, 1),
@@ -462,7 +463,9 @@ class NanoPET(torch.nn.Module):
     def load_checkpoint(cls, path: Union[str, Path]) -> "NanoPET":
 
         # Load the checkpoint
-        checkpoint = torch.load(path, weights_only=False, map_location=torch.device("cpu"))
+        checkpoint = torch.load(
+            path, weights_only=False, map_location=torch.device("cpu")
+        )
         model_hypers = checkpoint["model_hypers"]
         model_state_dict = checkpoint["model_state_dict"]
 
@@ -499,7 +502,7 @@ class NanoPET(torch.nn.Module):
             dtype=dtype_to_str(dtype),
         )
 
-        return export(model=self, model_capabilities=capabilities)
+        return MetatensorAtomisticModel(self.eval(), ModelMetadata(), capabilities)
 
     def set_composition_weights(
         self,

@@ -9,8 +9,6 @@ architecture:
     num_heads: 4
     num_attention_layers: 2
     num_gnn_layers: 2
-    mlp_dropout_rate: 0.0
-    attention_dropout_rate: 0.0
     zbl: False
 
   training:
@@ -19,7 +17,6 @@ architecture:
     batch_size: 16
     num_epochs: 10000
     learning_rate: 3e-4
-    early_stopping_patience: 1000
     scheduler_patience: 100
     scheduler_factor: 0.8
     log_interval: 10
