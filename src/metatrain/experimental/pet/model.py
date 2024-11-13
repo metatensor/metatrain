@@ -147,7 +147,7 @@ class PET(torch.nn.Module):
     @classmethod
     def load_checkpoint(cls, path: Union[str, Path]) -> "PET":
 
-        checkpoint = torch.load(path, weights_only=False)
+        checkpoint = torch.load(path, weights_only=False, map_location="cpu")
         hypers = checkpoint["hypers"]
         dataset_info = checkpoint["dataset_info"]
         model = cls(

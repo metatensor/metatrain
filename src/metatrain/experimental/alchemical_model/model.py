@@ -155,7 +155,7 @@ class AlchemicalModel(torch.nn.Module):
     def load_checkpoint(cls, path: Union[str, Path]) -> "AlchemicalModel":
 
         # Load the checkpoint
-        checkpoint = torch.load(path, weights_only=False)
+        checkpoint = torch.load(path, weights_only=False, map_location="cpu")
         model_hypers = checkpoint["model_hypers"]
         model_state_dict = checkpoint["model_state_dict"]
 

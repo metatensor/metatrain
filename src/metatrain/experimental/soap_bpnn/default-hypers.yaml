@@ -35,5 +35,8 @@ architecture:
     checkpoint_interval: 25
     fixed_composition_weights: {}
     per_structure_targets: []
-    loss_weights: {}
     log_mae: False
+    loss:
+      type: mse
+      weights: {}
+      reduction: sum
