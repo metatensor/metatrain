@@ -65,7 +65,9 @@ def load_model(
     path: Union[str, Path],
     extensions_directory: Optional[Union[str, Path]] = None,
     architecture_name: Optional[str] = None,
+    **kwargs,
 ) -> Any:
+    print(kwargs)
     """Load checkpoints and exported models from an URL or a local file.
 
     If an exported model should be loaded and requires compiled extensions, their
@@ -99,10 +101,32 @@ def load_model(
         )
 
     if Path(path).suffix in [".yaml", ".yml"]:
-        raise ValueError(f"path '{path}' seems to be a YAML option file and no model")
+        raise ValueError(
+            f"path '{path}' seems to be a YAML option file and not a model"
+        )
 
     if urlparse(str(path)).scheme:
         path, _ = urlretrieve(str(path))
+
+    # Download from HuggingFace with a private token
+    if kwargs.get("huggingface_api_token"):
+        try:
+            from huggingface_hub import hf_hub_download
+        except ImportError:
+            raise ImportError(
+                "To download a model from HuggingFace, please install the "
+                "`huggingface_hub` package with pip (`pip install "
+                "huggingface_hub`)."
+            )
+        path = str(path)
+        if not path.startswith("https://huggingface.co/"):
+            raise ValueError(
+                f"Invalid URL '{path}'. HuggingFace models should start with "
+                "'https://huggingface.co/'."
+            )
+        # get repo_id and filename
+        repo_id, filename = path.split("https://huggingface.co/")[-1].split("/")
+        path = hf_hub_download(repo_id, filename, token=kwargs["huggingface_api_token"])
 
     if is_exported_file(str(path)):
         return load_atomistic_model(

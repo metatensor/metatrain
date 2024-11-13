@@ -64,7 +64,7 @@ def test_load_model_exported(path):
 
 @pytest.mark.parametrize("suffix", [".yml", ".yaml"])
 def test_load_model_yaml(suffix):
-    match = f"path 'foo{suffix}' seems to be a YAML option file and no model"
+    match = f"path 'foo{suffix}' seems to be a YAML option file and not a model"
     with pytest.raises(ValueError, match=match):
         load_model(
             f"foo{suffix}",
