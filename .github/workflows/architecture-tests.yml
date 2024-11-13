@@ -15,6 +15,7 @@ jobs:
           - architecture-name: gap
           - architecture-name: soap-bpnn
           - architecture-name: pet
+          - architecture-name: nanopet
 
     runs-on: ubuntu-22.04
 
