@@ -446,8 +446,6 @@ class Trainer:
 
         # Load the checkpoint
         checkpoint = torch.load(path, weights_only=False, map_location="cpu")
-        model_hypers = checkpoint["model_hypers"]
-        model_state_dict = checkpoint["model_state_dict"]
         epoch = checkpoint["epoch"]
         optimizer_state_dict = checkpoint["optimizer_state_dict"]
         scheduler_state_dict = checkpoint["scheduler_state_dict"]

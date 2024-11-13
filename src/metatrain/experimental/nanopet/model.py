@@ -16,7 +16,7 @@ from metatensor.torch.atomistic import (
 )
 
 from ...utils.additive import ZBL, CompositionModel
-from ...utils.data import DatasetInfo
+from ...utils.data import DatasetInfo, TargetInfo
 from ...utils.dtype import dtype_to_str
 from .modules.encoder import Encoder
 from .modules.nef import (
@@ -55,22 +55,6 @@ class NanoPET(torch.nn.Module):
         self.cutoff = self.hypers["cutoff"]
         self.cutoff_width = self.hypers["cutoff_width"]
 
-        self.outputs = {
-            key: ModelOutput(
-                quantity=value.quantity,
-                unit=value.unit,
-                per_atom=True,
-            )
-            for key, value in dataset_info.targets.items()
-        }
-
-        # buffers cannot be indexed by strings (torchscript), so we create a single
-        # tensor for all outputs. Due to this, we need to slice the tensor when we use
-        # it and use the output name to select the correct slice via a dictionary
-        self.output_to_index = {
-            output_name: i for i, output_name in enumerate(self.outputs.keys())
-        }
-
         self.encoder = Encoder(len(self.atomic_types), self.hypers["d_pet"])
 
         self.transformer = Transformer(
@@ -105,37 +89,17 @@ class NanoPET(torch.nn.Module):
         self.gnn_contractions = torch.nn.ModuleList(gnn_contractions)
         self.gnn_transformers = torch.nn.ModuleList(gnn_transformers)
 
-        self.output_shapes = {
-            output_name: (
-                tuple(
-                    len(comp.values)
-                    for comp in dataset_info.targets[output_name]
-                    .layout.block()
-                    .components
-                )
-                + (
-                    len(
-                        dataset_info.targets[output_name]
-                        .layout.block()
-                        .properties.values
-                    ),
-                )
-            )
-            for output_name in self.outputs.keys()
-        }
-
         self.last_layer_feature_size = self.hypers["d_pet"]
-        self.last_layers = torch.nn.ModuleDict(
-            {
-                output_name: torch.nn.Linear(
-                    self.hypers["d_pet"],
-                    prod(self.output_shapes[output_name]),
-                    bias=False,
-                )
-                for output_name in self.outputs.keys()
-                if "mtt::aux::" not in output_name
-            }
-        )
+
+        # register the outputs
+        # the model is always capable of outputting the last layer features
+        self.outputs = {
+            "mtt::aux::last_layer_features": ModelOutput(unit="unitless", per_atom=True)
+        }
+        self.last_layers = torch.nn.ModuleDict()
+        self.output_shapes: Dict[str, List[int]] = {}
+        for target_name, target_info in dataset_info.targets.items():
+            self._add_output(target_name, target_info)
 
         self.register_buffer(
             "species_to_species_index",
@@ -177,11 +141,6 @@ class NanoPET(torch.nn.Module):
             for output_name in self.outputs.keys()
         }
 
-        # the model is always capable of outputting the last layer features
-        self.outputs["mtt::aux::last_layer_features"] = ModelOutput(
-            unit="unitless", per_atom=True
-        )
-
     def restart(self, dataset_info: DatasetInfo) -> "NanoPET":
         # merge old and new dataset info
         merged_info = self.dataset_info.union(dataset_info)
@@ -201,19 +160,11 @@ class NanoPET(torch.nn.Module):
             )
 
         # register new outputs as new last layers
-        for output_name in new_targets:
-            self.add_output(output_name)
+        for target_name, target in new_targets.items():
+            self._add_output(target_name, target)
 
         self.dataset_info = merged_info
         self.atomic_types = sorted(self.atomic_types)
-
-        for target_name, target in new_targets.items():
-            self.outputs[target_name] = ModelOutput(
-                quantity=target.quantity,
-                unit=target.unit,
-                per_atom=True,
-            )
-        self.new_outputs = list(new_targets.keys())
 
         return self
 
@@ -401,7 +352,7 @@ class NanoPET(torch.nn.Module):
                 atomic_properties = last_layer(node_features)
                 block = TensorBlock(
                     values=atomic_properties.reshape(
-                        (-1,) + self.output_shapes[output_name]
+                        [-1] + self.output_shapes[output_name]
                     ),
                     samples=sample_labels,
                     components=self.component_labels[output_name],
@@ -463,16 +414,13 @@ class NanoPET(torch.nn.Module):
     def load_checkpoint(cls, path: Union[str, Path]) -> "NanoPET":
 
         # Load the checkpoint
-        checkpoint = torch.load(
-            path, weights_only=False, map_location=torch.device("cpu")
-        )
+        checkpoint = torch.load(path, weights_only=False, map_location="cpu")
         model_hypers = checkpoint["model_hypers"]
         model_state_dict = checkpoint["model_state_dict"]
 
         # Create the model
         model = cls(**model_hypers)
-        # dtype = next(iter(model_state_dict.values())).dtype
-        dtype = torch.float32  # HACK: firts state_dict value is somehow an integer ????
+        dtype = next(iter(model_state_dict.values())).dtype
         model.to(dtype).load_state_dict(model_state_dict)
 
         return model
@@ -504,17 +452,18 @@ class NanoPET(torch.nn.Module):
 
         return MetatensorAtomisticModel(self.eval(), ModelMetadata(), capabilities)
 
-    def set_composition_weights(
-        self,
-        output_name: str,
-        input_composition_weights: torch.Tensor,
-        atomic_types: List[int],
-    ) -> None:
-        """Set the composition weights for a given output."""
-        # all species that are not present retain their weight of zero
-        self.composition_weights[self.output_to_index[output_name]][  # type: ignore
-            atomic_types
-        ] = input_composition_weights.to(
-            dtype=self.composition_weights.dtype,  # type: ignore
-            device=self.composition_weights.device,  # type: ignore
+    def _add_output(self, target_name: str, target_info: TargetInfo) -> None:
+
+        self.output_shapes[target_name] = [
+            len(comp.values) for comp in target_info.layout.block().components
+        ] + [len(target_info.layout.block().properties.values)]
+        self.outputs[target_name] = ModelOutput(
+            quantity=target_info.quantity,
+            unit=target_info.unit,
+            per_atom=True,
+        )
+        self.last_layers[target_name] = torch.nn.Linear(
+            self.hypers["d_pet"],
+            prod(self.output_shapes[target_name]),
+            bias=False,
         )
