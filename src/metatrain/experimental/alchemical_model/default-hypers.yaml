@@ -26,5 +26,8 @@ architecture:
     log_interval: 5
     checkpoint_interval: 25
     per_structure_targets: []
-    loss_weights: {}
     log_mae: False
+    loss:
+      type: mse
+      weights: {}
+      reduction: sum

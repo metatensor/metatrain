@@ -1,3 +1,4 @@
+import copy
 import logging
 import warnings
 from pathlib import Path
@@ -191,21 +192,25 @@ class Trainer:
         loss_weights_dict = {}
         for output_name in outputs_list:
             loss_weights_dict[output_name] = (
-                self.hypers["loss_weights"][
+                self.hypers["loss"]["weights"][
                     to_external_name(output_name, train_targets)
                 ]
                 if to_external_name(output_name, train_targets)
-                in self.hypers["loss_weights"]
+                in self.hypers["loss"]["weights"]
                 else 1.0
             )
         loss_weights_dict_external = {
             to_external_name(key, train_targets): value
             for key, value in loss_weights_dict.items()
         }
+        loss_hypers = copy.deepcopy(self.hypers["loss"])
+        loss_hypers["weights"] = loss_weights_dict
         logging.info(f"Training with loss weights: {loss_weights_dict_external}")
 
         # Create a loss function:
-        loss_fn = TensorMapDictLoss(loss_weights_dict)
+        loss_fn = TensorMapDictLoss(
+            **loss_hypers,
+        )
 
         # Create an optimizer:
         optimizer = torch.optim.Adam(
@@ -425,7 +430,7 @@ class Trainer:
     def load_checkpoint(cls, path: Union[str, Path], train_hypers) -> "Trainer":
 
         # Load the checkpoint
-        checkpoint = torch.load(path, weights_only=False)
+        checkpoint = torch.load(path, weights_only=False, map_location="cpu")
         model_hypers = checkpoint["model_hypers"]
         model_state_dict = checkpoint["model_state_dict"]
         epoch = checkpoint["epoch"]
