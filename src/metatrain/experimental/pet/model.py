@@ -139,16 +139,24 @@ class PET(torch.nn.Module):
     def load_checkpoint(cls, path: Union[str, Path]) -> "PET":
 
         checkpoint = torch.load(path, weights_only=False, map_location="cpu")
-        hypers = checkpoint["hypers"]
+        if "checkpoint" in checkpoint:
+            # This is the case when the checkpoint was saved with the Trainer
+            state_dict = checkpoint["checkpoint"]["model_state_dict"]
+            model_hypers = checkpoint["hypers"]["ARCHITECTURAL_HYPERS"]
+            self_contributions = checkpoint["self_contributions"]
+        elif "model_state_dict" in checkpoint:
+            # This is the case when the checkpoint was saved for the
+            # HuggingFace API
+            state_dict = checkpoint["model_state_dict"]
+            model_hypers = checkpoint["model_hypers"]
+            self_contributions = state_dict.pop("pet.self_contributions").numpy()
+        else:
+            raise ValueError("Invalid checkpoint format")
         dataset_info = checkpoint["dataset_info"]
-        model = cls(
-            model_hypers=hypers["ARCHITECTURAL_HYPERS"], dataset_info=dataset_info
-        )
 
-        checkpoint = torch.load(path, weights_only=False)
-        state_dict = checkpoint["checkpoint"]["model_state_dict"]
+        model = cls(model_hypers=model_hypers, dataset_info=dataset_info)
 
-        ARCHITECTURAL_HYPERS = Hypers(model.hypers)
+        ARCHITECTURAL_HYPERS = Hypers(model_hypers)
         raw_pet = RawPET(ARCHITECTURAL_HYPERS, 0.0, len(model.atomic_types))
         if ARCHITECTURAL_HYPERS.USE_LORA_PEFT:
             lora_rank = ARCHITECTURAL_HYPERS.LORA_RANK
@@ -160,7 +168,6 @@ class PET(torch.nn.Module):
         dtype = next(iter(new_state_dict.values())).dtype
         raw_pet.to(dtype).load_state_dict(new_state_dict)
 
-        self_contributions = checkpoint["self_contributions"]
         wrapper = SelfContributionsWrapper(raw_pet, self_contributions)
 
         model.to(dtype).set_trained_model(wrapper)
