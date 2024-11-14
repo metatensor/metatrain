@@ -1,3 +1,4 @@
+import shutil
 import warnings
 from pathlib import Path
 from typing import Any, Optional, Union
@@ -128,9 +129,13 @@ def load_model(
             filename += split_path[i] + "/"
         filename = filename[:-1]
         path = hf_hub_download(repo_id, filename, token=kwargs["huggingface_api_token"])
+        # make sure to copy the checkpoint to the current directory
+        shutil.copy(path, Path.cwd() / str(path).split("/")[-1])
 
     elif urlparse(str(path)).scheme:
         path, _ = urlretrieve(str(path))
+        # make sure to copy the checkpoint to the current directory
+        shutil.copy(path, Path.cwd() / str(path).split("/")[-1])
 
     else:
         pass
