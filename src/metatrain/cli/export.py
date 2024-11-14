@@ -72,6 +72,8 @@ def _prepare_export_model_args(args: argparse.Namespace) -> None:
         architecture_name=architecture_name,
         **args.__dict__,
     )
+    if "huggingface_api_token" in args.__dict__:
+        args.__dict__.pop("huggingface_api_token")
 
 
 def export_model(model: Any, output: Union[Path, str] = "exported-model.pt") -> None:
