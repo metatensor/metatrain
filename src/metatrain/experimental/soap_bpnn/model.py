@@ -1,8 +1,8 @@
 from pathlib import Path
 from typing import Dict, List, Optional, Union
 
+import featomic.torch
 import metatensor.torch
-import rascaline.torch
 import torch
 from metatensor.torch import Labels, TensorBlock, TensorMap
 from metatensor.torch.atomistic import (
@@ -105,7 +105,7 @@ class SoapBpnn(torch.nn.Module):
         self.new_outputs = list(dataset_info.targets.keys())
         self.atomic_types = dataset_info.atomic_types
 
-        self.soap_calculator = rascaline.torch.SoapPowerSpectrum(
+        self.soap_calculator = featomic.torch.SoapPowerSpectrum(
             radial_basis={"Gto": {}}, **self.hypers["soap"]
         )
 

@@ -1,9 +1,9 @@
 from typing import Dict, List, Optional, Tuple, Type, Union
 
+import featomic
+import featomic.torch
 import metatensor.torch
 import numpy as np
-import rascaline
-import rascaline.torch
 import scipy
 import skmatter
 import torch
@@ -92,7 +92,7 @@ class GAP(torch.nn.Module):
                 dtype=torch.float64,  # we only support float64 for now
             ),
         )
-        self._soap_torch_calculator = rascaline.torch.SoapPowerSpectrum(
+        self._soap_torch_calculator = featomic.torch.SoapPowerSpectrum(
             **model_hypers["soap"]
         )
 
