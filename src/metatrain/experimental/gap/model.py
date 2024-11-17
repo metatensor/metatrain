@@ -232,7 +232,7 @@ class GAP(torch.nn.Module):
 
     def export(self) -> MetatensorAtomisticModel:
 
-        interaction_ranges = [self.hypers["soap"]["cutoff"]]
+        interaction_ranges = [self.hypers["soap"]["cutoff"]["radius"]]
         for additive_model in self.additive_models:
             if hasattr(additive_model, "cutoff_radius"):
                 interaction_ranges.append(additive_model.cutoff_radius)

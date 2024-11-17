@@ -105,9 +105,7 @@ class SoapBpnn(torch.nn.Module):
         self.new_outputs = list(dataset_info.targets.keys())
         self.atomic_types = dataset_info.atomic_types
 
-        self.soap_calculator = featomic.torch.SoapPowerSpectrum(
-            radial_basis={"Gto": {}}, **self.hypers["soap"]
-        )
+        self.soap_calculator = featomic.torch.SoapPowerSpectrum(**self.hypers["soap"])
 
         self.outputs = {
             key: ModelOutput(
@@ -132,8 +130,8 @@ class SoapBpnn(torch.nn.Module):
 
         soap_size = (
             (len(self.atomic_types) * (len(self.atomic_types) + 1) // 2)
-            * self.hypers["soap"]["max_radial"] ** 2
-            * (self.hypers["soap"]["max_angular"] + 1)
+            * (self.hypers["soap"]["basis"]["radial"]["max_radial"] + 1) ** 2
+            * (self.hypers["soap"]["basis"]["max_angular"] + 1)
         )
 
         hypers_bpnn = {**self.hypers["bpnn"]}
@@ -324,7 +322,7 @@ class SoapBpnn(torch.nn.Module):
         # float64
         self.to(dtype)
 
-        interaction_ranges = [self.hypers["soap"]["cutoff"]]
+        interaction_ranges = [self.hypers["soap"]["cutoff"]["radius"]]
         for additive_model in self.additive_models:
             if hasattr(additive_model, "cutoff_radius"):
                 interaction_ranges.append(additive_model.cutoff_radius)
