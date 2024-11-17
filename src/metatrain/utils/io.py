@@ -128,6 +128,20 @@ def load_model(
         for i in range(5, len(split_path)):
             filename += split_path[i] + "/"
         filename = filename[:-1]
+        if filename.startswith("resolve"):
+            if not filename[8:].startswith("main/"):
+                raise ValueError(
+                    f"Invalid URL '{path}'. metatrain only supports models from the "
+                    "'main' branch."
+                )
+            filename = filename[13:]
+        if filename.startswith("blob/"):
+            if not filename[5:].startswith("main/"):
+                raise ValueError(
+                    f"Invalid URL '{path}'. metatrain only supports models from the "
+                    "'main' branch."
+                )
+            filename = filename[10:]
         path = hf_hub_download(repo_id, filename, token=kwargs["huggingface_api_token"])
         # make sure to copy the checkpoint to the current directory
         shutil.copy(path, Path.cwd() / str(path).split("/")[-1])
