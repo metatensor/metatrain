@@ -5,12 +5,12 @@ GAP
 
 This is an implementation of the sparse `Gaussian Approximation Potential
 <GAP_>`_ (GAP) using `Smooth Overlap of Atomic Positions <SOAP_>`_ (SOAP)
-implemented in `featomic <RASCALINE_>`_.
+implemented in `featomic <FEATOMIC_>`_.
 
 
 .. _SOAP: https://doi.org/10.1103/PhysRevB.87.184115
 .. _GAP:  https://doi.org/10.1002/qua.24927
-.. _RASCALINE: https://github.com/Luthaf/featomic
+.. _FEATOMIC: https://github.com/Luthaf/featomic
 
 The GAP model in metatrain can only train on CPU, but evaluation
 is also supported on GPU.
