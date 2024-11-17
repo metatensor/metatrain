@@ -102,7 +102,8 @@ intersphinx_mapping = {
     "torch": ("https://pytorch.org/docs/stable/", None),
     "metatensor": ("https://docs.metatensor.org/latest/", None),
     "omegaconf": ("https://omegaconf.readthedocs.io/en/latest/", None),
-    "rascaline": ("https://luthaf.fr/rascaline/latest/", None),
+    # "rascaline": ("https://luthaf.fr/rascaline/latest/", None),
+    # # TODO: change to featomic
 }
 
 # The path to the bibtex file
