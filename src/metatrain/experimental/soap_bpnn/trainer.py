@@ -49,7 +49,7 @@ class Trainer:
         val_datasets: List[Union[Dataset, torch.utils.data.Subset]],
         checkpoint_dir: str,
     ):
-        # Filter out the second derivative and device warnings from rascaline
+        # Filter out the second derivative and device warnings from featomic
         warnings.filterwarnings(action="ignore", message="Systems data is on device")
         warnings.filterwarnings(
             action="ignore",

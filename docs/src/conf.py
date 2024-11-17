@@ -9,7 +9,7 @@ import tomli  # Replace by tomllib from std library once docs are build with Pyt
 # When importing metatensor-torch, this will change the definition of the classes
 # to include the documentation
 os.environ["METATENSOR_IMPORT_FOR_SPHINX"] = "1"
-os.environ["RASCALINE_IMPORT_FOR_SPHINX"] = "1"
+os.environ["FEATOMIC_IMPORT_FOR_SPHINX"] = "1"
 os.environ["PYTORCH_JIT"] = "0"
 
 import metatrain  # noqa: E402
@@ -102,7 +102,7 @@ intersphinx_mapping = {
     "torch": ("https://pytorch.org/docs/stable/", None),
     "metatensor": ("https://docs.metatensor.org/latest/", None),
     "omegaconf": ("https://omegaconf.readthedocs.io/en/latest/", None),
-    "rascaline": ("https://luthaf.fr/rascaline/latest/", None),
+    "featomic": ("https://luthaf.fr/featomic/latest/", None),
 }
 
 # The path to the bibtex file
