@@ -91,9 +91,6 @@ be raised.
 
 In particular:
 
-- for any target, the ``properties`` of the ``TensorMap`` should have a single name,
-  namely ``properties``, corresponding to ``num_properties`` values, from 0 to
-  ``num_properties-1``.
 - if the target is per atom, the samples should have the [``system``, ``atom``] names,
   otherwise the [``system``] name.
 - if the target is a ``scalar``, only one ``TensorBlock`` should be present, the keys

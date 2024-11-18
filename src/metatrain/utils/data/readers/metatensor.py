@@ -2,7 +2,7 @@ import logging
 from typing import List, Tuple
 
 import torch
-from metatensor.torch import TensorMap
+from metatensor.torch import Labels, TensorBlock, TensorMap
 from metatensor.torch.atomistic import System
 from omegaconf import DictConfig
 
@@ -76,8 +76,12 @@ def read_generic(target: DictConfig) -> Tuple[List[TensorMap], TargetInfo]:
                 raise ValueError("Only energy targets can have gradient blocks.")
 
     target_info = get_generic_target_info(target)
-
     _check_tensor_maps_metadata(tensor_maps, target_info.layout)
+
+    # make sure that the properties of the target_info.layout also match the
+    # actual properties of the tensor maps
+    if len(tensor_maps) != 0:  # empty dataset: do nothing
+        target_info.layout = _empty_tensor_map_like(tensor_maps[0])
 
     return tensor_maps, target_info
 
@@ -105,12 +109,8 @@ def _check_tensor_maps_metadata(tensor_maps: List[TensorMap], layout: TensorMap)
                     f"expected: {block_from_layout.components} "
                     f"actual: {block.components}"
                 )
-            if block.properties != block_from_layout.properties:
-                raise ValueError(
-                    f"Unexpected properties in metatensor targets at index {i}: "
-                    f"expected: {block_from_layout.properties} "
-                    f"actual: {block.properties}"
-                )
+            # the properties can be different from those of the default `TensorMap`
+            # given by `get_generic_target_info`, so we don't check them
             if set(block.gradients_list()) != set(block_from_layout.gradients_list()):
                 raise ValueError(
                     f"Unexpected gradients in metatensor targets at index {i}: "
@@ -137,10 +137,35 @@ def _check_tensor_maps_metadata(tensor_maps: List[TensorMap], layout: TensorMap)
                         f"expected: {gradient_block_from_layout.components} "
                         f"actual: {gradient_block.components}"
                     )
-                if gradient_block.properties != gradient_block_from_layout.properties:
-                    raise ValueError(
-                        f"Unexpected properties in metatensor targets at index {i} "
-                        f"for `{name}` gradient block: "
-                        f"expected: {gradient_block_from_layout.properties} "
-                        f"actual: {gradient_block.properties}"
-                    )
+
+
+def _empty_tensor_map_like(tensor_map: TensorMap) -> TensorMap:
+    new_keys = tensor_map.keys
+    new_blocks: List[TensorBlock] = []
+    for block in tensor_map.blocks():
+        new_block = _empty_tensor_block_like(block)
+        new_blocks.append(new_block)
+    return TensorMap(keys=new_keys, blocks=new_blocks)
+
+
+def _empty_tensor_block_like(tensor_block: TensorBlock) -> TensorBlock:
+    new_block = TensorBlock(
+        values=torch.empty(
+            (0,) + tensor_block.values.shape[1:],
+            dtype=torch.float64,  # metatensor can't serialize otherwise
+            device=tensor_block.values.device,
+        ),
+        samples=Labels(
+            names=tensor_block.samples.names,
+            values=torch.empty(
+                (0, tensor_block.samples.values.shape[1]),
+                dtype=tensor_block.samples.values.dtype,
+                device=tensor_block.samples.values.device,
+            ),
+        ),
+        components=tensor_block.components,
+        properties=tensor_block.properties,
+    )
+    for gradient_name, gradient in tensor_block.gradients():
+        new_block.add_gradient(gradient_name, _empty_tensor_block_like(gradient))
+    return new_block
