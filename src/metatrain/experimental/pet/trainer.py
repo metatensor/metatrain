@@ -173,7 +173,7 @@ Legend: LR          -> Learning Rate
         V-E-RMSE/at -> RMSE of the Energy per atom on the Validation set
         V-F-MAE     -> MAE of the Forces on the Validation set
         V-F-RMSE    -> RMSE of the Forces on the Validation set
-        T-E-MAE     -> MAE of the Energy per atom on the Training set
+        T-E-MAE/at  -> MAE of the Energy per atom on the Training set
         T-E-RMSE/at -> RMSE of the Energy per atom on the Training set
         T-F-MAE     -> MAE of the Forces on the Training set
         T-F-RMSE    -> RMSE of the Forces on the Training set
