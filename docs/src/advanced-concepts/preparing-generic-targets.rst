@@ -41,8 +41,8 @@ The crucial fields here are:
 
 A few more words should be spent on ``spherical`` targets. These should be made of a
 certain number of irreducible spherical tensors. For example, if you are learning a
-property that can be decomposed into two proper spherical tensors with L=0 and L=2, the target
-section should would look like this:
+property that can be decomposed into two proper spherical tensors with L=0 and L=2,
+the target section should would look like this:
 
 .. code-block:: yaml
 

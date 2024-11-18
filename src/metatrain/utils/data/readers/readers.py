@@ -55,7 +55,8 @@ def _call_base_systems_reader(
     # elements in data are `torch.ScriptObject`s and their `dtype` is an integer.
     # A C++ double/torch.float64 is `7` according to
     # https://github.com/pytorch/pytorch/blob/207564bab1c4fe42750931765734ee604032fb69/c10/core/ScalarType.h#L54-L93
-    assert all(s.dtype == 7 for s in systems)
+    if not all(s.dtype == 7 for s in systems):
+        raise ValueError("The loaded systems are not in double precision.")
 
     return systems
 
@@ -115,7 +116,8 @@ def _call_base_target_reader(
     # A C++ double/torch.float64 is `7` according to
     # https://github.com/pytorch/pytorch/blob/207564bab1c4fe42750931765734ee604032fb69/c10/core/ScalarType.h#L54-L93
     data = target_data_and_target_info[0]
-    assert all(d.dtype == 7 for d in data)
+    if not all(d.dtype == 7 for d in data):
+        raise ValueError("The loaded targets are not in double precision.")
 
     return target_data_and_target_info
 
