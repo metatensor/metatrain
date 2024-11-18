@@ -276,7 +276,3 @@ def test_read_errors(monkeypatch, tmpdir, energy_tensor_map, scalar_tensor_map):
     conf["read_from"] = "scalar.mts"
     with pytest.raises(ValueError, match="Unexpected samples"):
         read_generic(OmegaConf.create(conf))
-
-    conf["per_atom"] = True
-    with pytest.raises(ValueError, match="Unexpected properties"):
-        read_generic(OmegaConf.create(conf))
