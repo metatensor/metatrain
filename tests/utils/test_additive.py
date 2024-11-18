@@ -10,7 +10,10 @@ from omegaconf import OmegaConf
 from metatrain.utils.additive import ZBL, CompositionModel, remove_additive
 from metatrain.utils.data import Dataset, DatasetInfo
 from metatrain.utils.data.readers import read_systems, read_targets
-from metatrain.utils.data.target_info import get_energy_target_info
+from metatrain.utils.data.target_info import (
+    get_energy_target_info,
+    get_generic_target_info,
+)
 from metatrain.utils.neighbor_lists import (
     get_requested_neighbor_lists,
     get_system_with_neighbor_lists,
@@ -374,7 +377,19 @@ def test_composition_model_wrong_target():
                 length_unit="angstrom",
                 atomic_types=[1],
                 targets={
-                    "energy": get_energy_target_info({"quantity": "force", "unit": ""})
+                    "energy": get_generic_target_info(
+                        {
+                            "quantity": "dipole",
+                            "unit": "D",
+                            "per_atom": True,
+                            "num_properties": 5,
+                            "type": {
+                                "Cartesian": {
+                                    "rank": 1,
+                                }
+                            },
+                        }
+                    )
                 },
             ),
         )
