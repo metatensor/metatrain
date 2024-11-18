@@ -177,7 +177,7 @@ Legend: LR       -> Learning Rate
         T-E-RMSE -> RMSE of the Energy on the training set
         T-F-MAE  -> MAE of the Forces on the training set
         T-F-RMSE -> RMSE of the Forces on the training set"""
-        training_configuration_log += (st)
+        training_configuration_log += st
         logging.info(training_configuration_log)
 
         set_reproducibility(
