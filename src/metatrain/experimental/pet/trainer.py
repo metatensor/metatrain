@@ -166,17 +166,18 @@ class Trainer:
         )
 
         st = """
-Legend: LR       -> Learning Rate
-        MAE      -> Mean Square Error
-        RMSE     -> Root Mean Square Error
-        V-E-MAE  -> MAE of the Energy on the validation set
-        V-E-RMSE -> RMSE of the Energy on the validation set
-        V-F-MAE  -> MAE of the Forces on the validation set
-        V-F-RMSE -> RMSE of the Forces on the validation set
-        T-E-MAE  -> MAE of the Energy on the training set
-        T-E-RMSE -> RMSE of the Energy on the training set
-        T-F-MAE  -> MAE of the Forces on the training set
-        T-F-RMSE -> RMSE of the Forces on the training set"""
+Legend: LR          -> Learning Rate
+        MAE         -> Mean Square Error
+        RMSE        -> Root Mean Square Error
+        V-E-MAE/at  -> MAE of the Energy per atom on the Validation set
+        V-E-RMSE/at -> RMSE of the Energy per atom on the Validation set
+        V-F-MAE     -> MAE of the Forces on the Validation set
+        V-F-RMSE    -> RMSE of the Forces on the Validation set
+        T-E-MAE     -> MAE of the Energy per atom on the Training set
+        T-E-RMSE/at -> RMSE of the Energy per atom on the Training set
+        T-F-MAE     -> MAE of the Forces on the Training set
+        T-F-RMSE    -> RMSE of the Forces on the Training set
+Units of the Energy and Forces are the same units given in input"""
         training_configuration_log += st
         logging.info(training_configuration_log)
 
