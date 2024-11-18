@@ -8,17 +8,19 @@ Input file
 ----------
 
 In order to read a generic target, you will have to specify its layout in the input
-file. Suppose you want to learn a target named ``mtt::my_target``, which is a per-atom
-Cartesian vector with 10 properties. The target section in the input file should look
+file. Suppose you want to learn a target named ``mtt::my_target``, which is
+represented as a set of 10 independent per-atom 3D Cartesian vector (we need to
+learn 3x10 values for each atom). The ``target`` section in the input file
+should look
 like this:
 
 .. code-block:: yaml
 
     targets:
       mtt::my_target:
-        quantity: ""
         read_from: dataset.xyz
-        key: energy
+        key: my_target
+        quantity: ""
         unit: ""
         per_atom: True
         type:
@@ -39,7 +41,7 @@ The crucial fields here are:
 
 A few more words should be spent on ``spherical`` targets. These should be made of a
 certain number of irreducible spherical tensors. For example, if you are learning a
-property that can be decomposed into two spherical tensors with L=0 and L=2, the target
+property that can be decomposed into two proper spherical tensors with L=0 and L=2, the target
 section should would look like this:
 
 .. code-block:: yaml
@@ -54,10 +56,8 @@ section should would look like this:
         type:
           spherical:
             irreps:
-                - o3_lambda: 0
-                  o3_sigma: 1
-                - o3_lambda: 2
-                  o3_sigma: 1
+                - {o3_lambda: 0, o3_sigma: 1}
+                - {o3_lambda: 2, o3_sigma: 1}
         num_properties: 10
 
 where ``o3_lambda`` specifies the L value of the spherical tensor and ``o3_sigma`` its
