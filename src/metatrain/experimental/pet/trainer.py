@@ -117,7 +117,7 @@ class Trainer:
             checkpoint_path = None
 
         ########################################
-        # STARTNG THE PURE PET TRAINING SCRIPT #
+        # STARTING THE PURE PET TRAINING SCRIPT #
         ########################################
 
         logging.info("Initializing PET training...")
@@ -165,6 +165,19 @@ class Trainer:
             f"CUDA is deterministic: {FITTING_SCHEME.CUDA_DETERMINISTIC}"
         )
 
+        st = """
+Legend: LR       -> Learning Rate
+        MAE      -> Mean Square Error
+        RMSE     -> Root Mean Square Error
+        V-E-MAE  -> MAE of the Energy on the validation set
+        V-E-RMSE -> RMSE of the Energy on the validation set
+        V-F-MAE  -> MAE of the Forces on the validation set
+        V-F-RMSE -> RMSE of the Forces on the validation set
+        T-E-MAE  -> MAE of the Energy on the training set
+        T-E-RMSE -> RMSE of the Energy on the training set
+        T-F-MAE  -> MAE of the Forces on the training set
+        T-F-RMSE -> RMSE of the Forces on the training set"""
+        training_configuration_log += (st)
         logging.info(training_configuration_log)
 
         set_reproducibility(
