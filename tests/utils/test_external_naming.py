@@ -6,10 +6,8 @@ def test_to_external_name():
     """Tests the to_external_name function."""
 
     quantities = {
-        "energy": get_energy_target_info({"quantity": "energy", "unit": "eV"}),
-        "mtt::free_energy": get_energy_target_info(
-            {"quantity": "energy", "unit": "eV"}
-        ),
+        "energy": get_energy_target_info({"unit": "eV"}),
+        "mtt::free_energy": get_energy_target_info({"unit": "eV"}),
         "mtt::foo": get_energy_target_info({"quantity": "bar", "unit": "eV"}),
     }
 

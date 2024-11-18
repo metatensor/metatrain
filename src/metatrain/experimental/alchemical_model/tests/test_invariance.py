@@ -21,9 +21,7 @@ def test_rotational_invariance():
     dataset_info = DatasetInfo(
         length_unit="Angstrom",
         atomic_types=[1, 6, 7, 8],
-        targets={
-            "energy": get_energy_target_info({"quantity": "energy", "unit": "eV"})
-        },
+        targets={"energy": get_energy_target_info({"unit": "eV"})},
     )
     model = AlchemicalModel(MODEL_HYPERS, dataset_info)
 

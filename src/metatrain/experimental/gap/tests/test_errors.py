@@ -60,7 +60,7 @@ def test_ethanol_regression_train_and_invariance():
 
     target_info_dict = {
         "energy": get_energy_target_info(
-            {"quantity": "energy", "unit": "kcal/mol"}, add_position_gradients=True
+            {"unit": "kcal/mol"}, add_position_gradients=True
         )
     }
 

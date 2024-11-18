@@ -98,9 +98,7 @@ def test_predictions_compatibility(cutoff):
     dataset_info = DatasetInfo(
         length_unit="Angstrom",
         atomic_types=structure.numbers,
-        targets={
-            "energy": get_energy_target_info({"quantity": "energy", "unit": "eV"})
-        },
+        targets={"energy": get_energy_target_info({"unit": "eV"})},
     )
     capabilities = ModelCapabilities(
         length_unit="Angstrom",

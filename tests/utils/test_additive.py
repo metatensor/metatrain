@@ -83,9 +83,7 @@ def test_composition_model_train():
         dataset_info=DatasetInfo(
             length_unit="angstrom",
             atomic_types=[1, 8],
-            targets={
-                "energy": get_energy_target_info({"quantity": "energy", "unit": "eV"})
-            },
+            targets={"energy": get_energy_target_info({"unit": "eV"})},
         ),
     )
 
@@ -210,9 +208,7 @@ def test_composition_model_torchscript(tmpdir):
         dataset_info=DatasetInfo(
             length_unit="angstrom",
             atomic_types=[1, 8],
-            targets={
-                "energy": get_energy_target_info({"quantity": "energy", "unit": "eV"})
-            },
+            targets={"energy": get_energy_target_info({"unit": "eV"})},
         ),
     )
     composition_model = torch.jit.script(composition_model)
@@ -339,9 +335,7 @@ def test_composition_model_missing_types():
         dataset_info=DatasetInfo(
             length_unit="angstrom",
             atomic_types=[1],
-            targets={
-                "energy": get_energy_target_info({"quantity": "energy", "unit": "eV"})
-            },
+            targets={"energy": get_energy_target_info({"unit": "eV"})},
         ),
     )
     with pytest.raises(
@@ -355,9 +349,7 @@ def test_composition_model_missing_types():
         dataset_info=DatasetInfo(
             length_unit="angstrom",
             atomic_types=[1, 8, 100],
-            targets={
-                "energy": get_energy_target_info({"quantity": "energy", "unit": "eV"})
-            },
+            targets={"energy": get_energy_target_info({"unit": "eV"})},
         ),
     )
     with pytest.warns(
