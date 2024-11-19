@@ -48,14 +48,9 @@ This section describes the parsers for the ASE library.
 .. autofunction:: metatrain.utils.data.readers.ase.read_energy
 .. autofunction:: metatrain.utils.data.readers.ase.read_generic
 
-:func:`metatrain.utils.data.readers.ase.read_energy` uses sub-functions to parse the
-energy and its gradients like ``forces``, ``virial`` and ``stress``. Currently we
-support reading these properties via
-
-.. autofunction:: metatrain.utils.data.readers.ase.read_energy_ase
-.. autofunction:: metatrain.utils.data.readers.ase.read_forces_ase
-.. autofunction:: metatrain.utils.data.readers.ase.read_virial_ase
-.. autofunction:: metatrain.utils.data.readers.ase.read_stress_ase
+It should be noted that :func:`metatrain.utils.data.readers.ase.read_energy` currently
+uses sub-functions to parse the energy and its gradients like ``forces``, ``virial``
+and ``stress``.
 
 Metatensor
 ----------
