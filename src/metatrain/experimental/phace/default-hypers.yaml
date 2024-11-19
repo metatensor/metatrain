@@ -10,7 +10,7 @@ architecture:
       mlp: true
       type: physical
       E_max: 70.0
-      scale: -1.0
+      scale: 0.7
     nu_scaling: 1.0
     mp_scaling: 1.0
     overall_scaling: 1.0

@@ -13,6 +13,9 @@ architecture:
       mlp: true
       type: physical
       E_max: 30.0
+    nu_scaling: 0.1
+    mp_scaling: 0.3
+    overall_scaling: 1.0
   training:
     learning_rate: 1e-2
     batch_size: 8
@@ -23,12 +26,12 @@ architecture:
 
 training_set:
   systems:
-    read_from: aspirin.xyz
+    read_from: ethanol_train_0.xyz
     length_unit: angstrom
   targets:
     energy:
       key: energy
-      unit: meV
+      unit: eV
 
 validation_set: 0.05
 test_set: 0.9

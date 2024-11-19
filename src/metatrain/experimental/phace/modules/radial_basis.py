@@ -74,8 +74,6 @@ class RadialBasis(torch.nn.Module):
             x.unsqueeze(1) < 10.0, self.spliner.compute(capped_x), 0.0
         )
 
-        # radial_functions = radial_functions * 3.0
-
         cutoff_multiplier = cutoff_fn(r, self.r_cut)
         radial_functions = radial_functions * cutoff_multiplier.unsqueeze(1)
 
