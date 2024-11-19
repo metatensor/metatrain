@@ -721,7 +721,7 @@ Units of the Energy and Forces are the same units given in input"""
         if do_forces:
             load_path = self.pet_dir / "best_val_mae_forces_model_state_dict"
         else:
-            load_path = self.pet_dir / "best_val_mae_both_model_state_dict"
+            load_path = self.pet_dir / "best_val_mae_energies_model_state_dict"
 
         state_dict = torch.load(load_path, weights_only=True)
         ARCHITECTURAL_HYPERS = Hypers(model.hypers)
