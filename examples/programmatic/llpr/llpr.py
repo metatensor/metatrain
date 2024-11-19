@@ -28,18 +28,19 @@ the :ref:`label_basic_usage` tutorial.
 #
 
 import torch
-from metatensor.torch.atomistic import load_atomistic_model
+
+from metatrain.utils.io import load_model
 
 
 # %%
 #
-# Exported models can be loaded using the `load_atomistic_model` function from the
-# metatensor.torch.atomistic` module. The function requires the path to the exported
-# model and, for many models, also the path to the respective extensions directory.
-# Both are produced during the training process.
+# Models can be loaded using the :func:`metatrain.utils.io.load_model` function from
+# the. For already exported models The function requires the path to the exported model
+# and, for many models, also the path to the respective extensions directory. Both are
+# produced during the training process.
 
 
-model = load_atomistic_model("model.pt", extensions_directory="extensions/")
+model = load_model("model.pt", extensions_directory="extensions/")
 
 # %%
 #
@@ -48,7 +49,10 @@ model = load_atomistic_model("model.pt", extensions_directory="extensions/")
 # how to create a Dataset object from them.
 
 from metatrain.utils.data import Dataset, read_systems, read_targets  # noqa: E402
-from metatrain.utils.neighbor_lists import get_system_with_neighbor_lists  # noqa: E402
+from metatrain.utils.neighbor_lists import (  # noqa: E402
+    get_requested_neighbor_lists,
+    get_system_with_neighbor_lists,
+)
 
 
 qm9_systems = read_systems("qm9_reduced_100.xyz")
@@ -60,6 +64,9 @@ target_config = {
         "reader": "ase",
         "key": "energy",
         "unit": "kcal/mol",
+        "type": "scalar",
+        "per_atom": False,
+        "num_properties": 1,
         "forces": False,
         "stress": False,
         "virial": False,
@@ -67,12 +74,12 @@ target_config = {
 }
 targets, _ = read_targets(target_config)
 
-requested_neighbor_lists = model.requested_neighbor_lists()
+requested_neighbor_lists = get_requested_neighbor_lists(model)
 qm9_systems = [
     get_system_with_neighbor_lists(system, requested_neighbor_lists)
     for system in qm9_systems
 ]
-dataset = Dataset({"system": qm9_systems, **targets})
+dataset = Dataset.from_dict({"system": qm9_systems, **targets})
 
 # We also load a single ethanol molecule on which we will compute properties.
 # This system is loaded without targets, as we are only interested in the LPR

@@ -30,13 +30,16 @@ def test_without_shuffling():
             "reader": "ase",
             "key": "U0",
             "unit": "eV",
+            "type": "scalar",
+            "per_atom": False,
+            "num_properties": 1,
             "forces": False,
             "stress": False,
             "virial": False,
         }
     }
     targets, _ = read_targets(OmegaConf.create(conf))
-    dataset = Dataset({"system": systems, "mtt::U0": targets["mtt::U0"]})
+    dataset = Dataset.from_dict({"system": systems, "mtt::U0": targets["mtt::U0"]})
     dataloader_qm9 = DataLoader(dataset, batch_size=10, collate_fn=collate_fn)
     # will yield 10 batches of 10
 
@@ -49,6 +52,9 @@ def test_without_shuffling():
             "reader": "ase",
             "key": "energy",
             "unit": "eV",
+            "type": "scalar",
+            "per_atom": False,
+            "num_properties": 1,
             "forces": False,
             "stress": False,
             "virial": False,
@@ -56,7 +62,7 @@ def test_without_shuffling():
     }
     targets, _ = read_targets(OmegaConf.create(conf))
     targets = {"mtt::free_energy": targets["mtt::free_energy"][:10]}
-    dataset = Dataset(
+    dataset = Dataset.from_dict(
         {"system": systems, "mtt::free_energy": targets["mtt::free_energy"]}
     )
     dataloader_alchemical = DataLoader(dataset, batch_size=2, collate_fn=collate_fn)
@@ -88,13 +94,16 @@ def test_with_shuffling():
             "reader": "ase",
             "key": "U0",
             "unit": "eV",
+            "type": "scalar",
+            "per_atom": False,
+            "num_properties": 1,
             "forces": False,
             "stress": False,
             "virial": False,
         }
     }
     targets, _ = read_targets(OmegaConf.create(conf))
-    dataset = Dataset({"system": systems, "mtt::U0": targets["mtt::U0"]})
+    dataset = Dataset.from_dict({"system": systems, "mtt::U0": targets["mtt::U0"]})
     dataloader_qm9 = DataLoader(
         dataset, batch_size=10, collate_fn=collate_fn, shuffle=True
     )
@@ -109,6 +118,9 @@ def test_with_shuffling():
             "reader": "ase",
             "key": "energy",
             "unit": "eV",
+            "type": "scalar",
+            "per_atom": False,
+            "num_properties": 1,
             "forces": False,
             "stress": False,
             "virial": False,
@@ -116,7 +128,7 @@ def test_with_shuffling():
     }
     targets, _ = read_targets(OmegaConf.create(conf))
     targets = {"mtt::free_energy": targets["mtt::free_energy"][:10]}
-    dataset = Dataset(
+    dataset = Dataset.from_dict(
         {"system": systems, "mtt::free_energy": targets["mtt::free_energy"]}
     )
     dataloader_alchemical = DataLoader(

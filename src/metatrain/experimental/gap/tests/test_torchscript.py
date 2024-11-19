@@ -2,8 +2,9 @@ import torch
 from omegaconf import OmegaConf
 
 from metatrain.experimental.gap import GAP, Trainer
-from metatrain.utils.data import Dataset, DatasetInfo, TargetInfo, TargetInfoDict
+from metatrain.utils.data import Dataset, DatasetInfo
 from metatrain.utils.data.readers import read_systems, read_targets
+from metatrain.utils.data.target_info import get_energy_target_info
 
 from . import DATASET_PATH, DEFAULT_HYPERS
 
@@ -13,8 +14,10 @@ torch.set_default_dtype(torch.float64)  # GAP only supports float64
 
 def test_torchscript():
     """Tests that the model can be jitted."""
-    target_info_dict = TargetInfoDict()
-    target_info_dict["mtt::U0"] = TargetInfo(quantity="energy", unit="eV")
+    target_info_dict = {}
+    target_info_dict["mtt::U0"] = get_energy_target_info(
+        {"quantity": "energy", "unit": "eV"}
+    )
 
     dataset_info = DatasetInfo(
         length_unit="Angstrom", atomic_types=[1, 6, 7, 8], targets=target_info_dict
@@ -26,6 +29,9 @@ def test_torchscript():
             "reader": "ase",
             "key": "U0",
             "unit": "kcal/mol",
+            "type": "scalar",
+            "per_atom": False,
+            "num_properties": 1,
             "forces": False,
             "stress": False,
             "virial": False,
@@ -34,9 +40,7 @@ def test_torchscript():
     targets, _ = read_targets(OmegaConf.create(conf))
     systems = read_systems(DATASET_PATH)
 
-    # for system in systems:
-    #    system.types = torch.ones(len(system.types), dtype=torch.int32)
-    dataset = Dataset({"system": systems, "mtt::U0": targets["mtt::U0"]})
+    dataset = Dataset.from_dict({"system": systems, "mtt::U0": targets["mtt::U0"]})
 
     hypers = DEFAULT_HYPERS.copy()
     gap = GAP(DEFAULT_HYPERS["model"], dataset_info)
@@ -64,8 +68,8 @@ def test_torchscript():
 
 def test_torchscript_save():
     """Tests that the model can be jitted and saved."""
-    targets = TargetInfoDict()
-    targets["mtt::U0"] = TargetInfo(quantity="energy", unit="eV")
+    targets = {}
+    targets["mtt::U0"] = get_energy_target_info({"quantity": "energy", "unit": "eV"})
 
     dataset_info = DatasetInfo(
         length_unit="Angstrom", atomic_types=[1, 6, 7, 8], targets=targets

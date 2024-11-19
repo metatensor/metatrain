@@ -1,3 +1,4 @@
+import copy
 from pathlib import Path
 from typing import Dict, List, Optional, Union
 
@@ -8,17 +9,18 @@ from metatensor.torch import Labels, TensorBlock, TensorMap
 from metatensor.torch.atomistic import (
     MetatensorAtomisticModel,
     ModelCapabilities,
+    ModelMetadata,
     ModelOutput,
     System,
 )
 from metatensor.torch.learn.nn import Linear as LinearMap
 from metatensor.torch.learn.nn import ModuleMap
 
+from metatrain.utils.data import TargetInfo
 from metatrain.utils.data.dataset import DatasetInfo
 
-from ...utils.composition import apply_composition_contribution
+from ...utils.additive import ZBL, CompositionModel
 from ...utils.dtype import dtype_to_str
-from ...utils.export import export
 
 
 class Identity(torch.nn.Module):
@@ -26,6 +28,14 @@ class Identity(torch.nn.Module):
         super().__init__()
 
     def forward(self, x: TensorMap) -> TensorMap:
+        return x
+
+
+class IdentityWithExtraArg(torch.nn.Module):
+    def __init__(self):
+        super().__init__()
+
+    def forward(self, s: List[System], x: TensorMap) -> TensorMap:
         return x
 
 
@@ -93,6 +103,92 @@ class LayerNormMap(ModuleMap):
         super().__init__(in_keys, layernorm_per_species, out_properties)
 
 
+class VectorFeaturizer(torch.nn.Module):
+    def __init__(self, atomic_types, num_features, soap_hypers) -> None:
+        super().__init__()
+        self.atomic_types = atomic_types
+        soap_vector_hypers = copy.deepcopy(soap_hypers)
+        soap_vector_hypers["max_angular"] = 1
+        self.soap_calculator = rascaline.torch.SphericalExpansion(
+            radial_basis={"Gto": {}}, **soap_vector_hypers
+        )
+        self.neighbors_species_labels = Labels(
+            names=["neighbor_type"],
+            values=torch.tensor(self.atomic_types).reshape(-1, 1),
+        )
+        self.linear_layer = LinearMap(
+            Labels(
+                names=["o3_lambda", "o3_sigma", "center_type"],
+                values=torch.stack(
+                    [
+                        torch.tensor([1] * len(self.atomic_types)),
+                        torch.tensor([1] * len(self.atomic_types)),
+                        torch.tensor(self.atomic_types),
+                    ],
+                    dim=1,
+                ),
+            ),
+            in_features=soap_vector_hypers["max_radial"] * len(self.atomic_types),
+            out_features=num_features,
+            bias=False,
+            out_properties=[
+                Labels(
+                    names=["property"],
+                    values=torch.arange(num_features).reshape(-1, 1),
+                )
+                for _ in self.atomic_types
+            ],
+        )
+
+    def forward(self, systems: List[System], scalar_features: TensorMap) -> TensorMap:
+        device = scalar_features.block(0).values.device
+
+        spherical_expansion = self.soap_calculator(systems)
+        spherical_expansion = spherical_expansion.keys_to_properties(
+            self.neighbors_species_labels.to(device)
+        )
+
+        # drop all l=0 blocks
+        keys_to_drop_list: List[List[int]] = []
+        for key in spherical_expansion.keys.values:
+            o3_lambda = int(key[0])
+            o3_sigma = int(key[1])
+            center_species = int(key[2])
+            if o3_lambda == 0 and o3_sigma == 1:
+                keys_to_drop_list.append([o3_lambda, o3_sigma, center_species])
+        keys_to_drop = Labels(
+            names=["o3_lambda", "o3_sigma", "center_type"],
+            values=torch.tensor(keys_to_drop_list, device=device),
+        )
+        spherical_expansion = metatensor.torch.drop_blocks(
+            spherical_expansion, keys=keys_to_drop
+        )
+        vector_features = self.linear_layer(spherical_expansion)
+
+        overall_features = metatensor.torch.TensorMap(
+            keys=vector_features.keys,
+            blocks=[
+                TensorBlock(
+                    values=scalar_features.block(
+                        {"center_type": int(ct)}
+                    ).values.unsqueeze(1)
+                    * vector_features.block({"center_type": int(ct)}).values
+                    * 100.0,
+                    samples=vector_features.block({"center_type": int(ct)}).samples,
+                    components=vector_features.block(
+                        {"center_type": int(ct)}
+                    ).components,
+                    properties=vector_features.block(
+                        {"center_type": int(ct)}
+                    ).properties,
+                )
+                for ct in vector_features.keys.column("center_type")
+            ],
+        )
+
+        return overall_features
+
+
 class SoapBpnn(torch.nn.Module):
 
     __supported_devices__ = ["cuda", "cpu"]
@@ -102,41 +198,11 @@ class SoapBpnn(torch.nn.Module):
         super().__init__()
         self.hypers = model_hypers
         self.dataset_info = dataset_info
-        self.new_outputs = list(dataset_info.targets.keys())
         self.atomic_types = dataset_info.atomic_types
 
         self.soap_calculator = rascaline.torch.SoapPowerSpectrum(
             radial_basis={"Gto": {}}, **self.hypers["soap"]
         )
-
-        self.outputs = {
-            key: ModelOutput(
-                quantity=value.quantity,
-                unit=value.unit,
-                per_atom=True,
-            )
-            for key, value in dataset_info.targets.items()
-        }
-
-        # the model is always capable of outputting the last layer features
-        self.outputs["mtt::aux::last_layer_features"] = ModelOutput(
-            unit="unitless", per_atom=True
-        )
-
-        # creates a composition weight tensor that can be directly indexed by species,
-        # this can be left as a tensor of zero or set from the outside using
-        # set_composition_weights (recommended for better accuracy)
-        n_outputs = len(self.outputs)
-        self.register_buffer(
-            "composition_weights",
-            torch.zeros((n_outputs, max(self.atomic_types) + 1)),
-        )
-        # buffers cannot be indexed by strings (torchscript), so we create a single
-        # tensor for all output. Due to this, we need to slice the tensor when we use
-        # it and use the output name to select the correct slice via a dictionary
-        self.output_to_index = {
-            output_name: i for i, output_name in enumerate(self.outputs.keys())
-        }
 
         soap_size = (
             (len(self.atomic_types) * (len(self.atomic_types) + 1) // 2)
@@ -167,33 +233,30 @@ class SoapBpnn(torch.nn.Module):
         )
 
         if hypers_bpnn["num_hidden_layers"] == 0:
-            n_inputs_last_layer = hypers_bpnn["input_size"]
+            self.n_inputs_last_layer = hypers_bpnn["input_size"]
         else:
-            n_inputs_last_layer = hypers_bpnn["num_neurons_per_layer"]
+            self.n_inputs_last_layer = hypers_bpnn["num_neurons_per_layer"]
 
-        self.last_layer_feature_size = n_inputs_last_layer * len(self.atomic_types)
-        self.last_layers = torch.nn.ModuleDict(
-            {
-                output_name: LinearMap(
-                    Labels(
-                        "central_species",
-                        values=torch.tensor(self.atomic_types).reshape(-1, 1),
-                    ),
-                    in_features=n_inputs_last_layer,
-                    out_features=1,
-                    bias=False,
-                    out_properties=[
-                        Labels(
-                            names=["energy"],
-                            values=torch.tensor([[0]]),
-                        )
-                        for _ in self.atomic_types
-                    ],
-                )
-                for output_name in self.outputs.keys()
-                if "mtt::aux::" not in output_name
-            }
+        self.last_layer_feature_size = self.n_inputs_last_layer * len(self.atomic_types)
+
+        self.outputs = {
+            "mtt::aux::last_layer_features": ModelOutput(unit="unitless", per_atom=True)
+        }  # the model is always capable of outputting the last-layer features
+        self.vector_featurizers = torch.nn.ModuleDict({})
+        self.last_layers = torch.nn.ModuleDict({})
+        for target_name, target in dataset_info.targets.items():
+            self._add_output(target_name, target)
+
+        # additive models: these are handled by the trainer at training
+        # time, and they are added to the output at evaluation time
+        composition_model = CompositionModel(
+            model_hypers={},
+            dataset_info=dataset_info,
         )
+        additive_models = [composition_model]
+        if self.hypers["zbl"]:
+            additive_models.append(ZBL(model_hypers, dataset_info))
+        self.additive_models = torch.nn.ModuleList(additive_models)
 
     def restart(self, dataset_info: DatasetInfo) -> "SoapBpnn":
         # merge old and new dataset info
@@ -201,7 +264,11 @@ class SoapBpnn(torch.nn.Module):
         new_atomic_types = [
             at for at in merged_info.atomic_types if at not in self.atomic_types
         ]
-        new_targets = merged_info.targets - self.dataset_info.targets
+        new_targets = {
+            key: value
+            for key, value in merged_info.targets.items()
+            if key not in self.dataset_info.targets
+        }
 
         if len(new_atomic_types) > 0:
             raise ValueError(
@@ -210,19 +277,11 @@ class SoapBpnn(torch.nn.Module):
             )
 
         # register new outputs as new last layers
-        for output_name in new_targets:
-            self.add_output(output_name)
+        for target_name, target in new_targets.items():
+            self._add_output(target_name, target)
 
         self.dataset_info = merged_info
         self.atomic_types = sorted(self.atomic_types)
-
-        for target_name, target in new_targets.items():
-            self.outputs[target_name] = ModelOutput(
-                quantity=target.quantity,
-                unit=target.unit,
-                per_atom=True,
-            )
-        self.new_outputs = list(new_targets.keys())
 
         return self
 
@@ -243,7 +302,6 @@ class SoapBpnn(torch.nn.Module):
         )
 
         soap_features = self.layernorm(soap_features)
-
         last_layer_features = self.bpnn(soap_features)
 
         # output the hidden features, if requested:
@@ -258,28 +316,51 @@ class SoapBpnn(torch.nn.Module):
                 _remove_center_type_from_properties(out_features)
             )
 
-        atomic_energies: Dict[str, TensorMap] = {}
+        last_layer_features_by_output: Dict[str, TensorMap] = {}
+        for output_name, vector_featurizer in self.vector_featurizers.items():
+            last_layer_features_by_output[output_name] = vector_featurizer(
+                systems, last_layer_features
+            )
+
+        atomic_properties: Dict[str, TensorMap] = {}
         for output_name, output_layer in self.last_layers.items():
             if output_name in outputs:
-                atomic_energies[output_name] = apply_composition_contribution(
-                    output_layer(last_layer_features),
-                    self.composition_weights[  # type: ignore
-                        self.output_to_index[output_name]
-                    ],
+                atomic_properties[output_name] = output_layer(
+                    last_layer_features_by_output[output_name]
                 )
 
-        # Sum the atomic energies coming from the BPNN to get the total energy
-        for output_name, atomic_energy in atomic_energies.items():
-            atomic_energy = atomic_energy.keys_to_samples("center_type")
+        for output_name, atomic_property in atomic_properties.items():
+            atomic_property = atomic_property.keys_to_samples("center_type")
             if outputs[output_name].per_atom:
                 # this operation should just remove the center_type label
                 return_dict[output_name] = metatensor.torch.remove_dimension(
-                    atomic_energy, axis="samples", name="center_type"
+                    atomic_property, axis="samples", name="center_type"
                 )
             else:
+                # sum the atomic property to get the total property
                 return_dict[output_name] = metatensor.torch.sum_over_samples(
-                    atomic_energy, ["atom", "center_type"]
+                    atomic_property, ["atom", "center_type"]
                 )
+
+        if not self.training:
+            # at evaluation, we also add the additive contributions
+            for additive_model in self.additive_models:
+                # some of the outputs might not be present in the additive model
+                # (e.g. the composition model only provides outputs for scalar targets)
+                outputs_for_additive_model: Dict[str, ModelOutput] = {}
+                for output_name in outputs:
+                    if output_name in additive_model.outputs:
+                        outputs_for_additive_model[output_name] = outputs[output_name]
+                additive_contributions = additive_model(
+                    systems, outputs_for_additive_model, selected_atoms
+                )
+                for name in additive_contributions:
+                    if name.startswith("mtt::aux::"):
+                        continue  # skip auxiliary outputs (not targets)
+                    return_dict[name] = metatensor.torch.add(
+                        return_dict[name],
+                        additive_contributions[name],
+                    )
 
         return return_dict
 
@@ -287,7 +368,7 @@ class SoapBpnn(torch.nn.Module):
     def load_checkpoint(cls, path: Union[str, Path]) -> "SoapBpnn":
 
         # Load the checkpoint
-        checkpoint = torch.load(path)
+        checkpoint = torch.load(path, weights_only=False, map_location="cpu")
         model_hypers = checkpoint["model_hypers"]
         model_state_dict = checkpoint["model_state_dict"]
 
@@ -303,69 +384,93 @@ class SoapBpnn(torch.nn.Module):
         if dtype not in self.__supported_dtypes__:
             raise ValueError(f"unsupported dtype {self.dtype} for SoapBpnn")
 
+        # Make sure the model is all in the same dtype
+        # For example, after training, the additive models could still be in
+        # float64
+        self.to(dtype)
+
+        interaction_ranges = [self.hypers["soap"]["cutoff"]]
+        for additive_model in self.additive_models:
+            if hasattr(additive_model, "cutoff_radius"):
+                interaction_ranges.append(additive_model.cutoff_radius)
+        interaction_range = max(interaction_ranges)
+
         capabilities = ModelCapabilities(
             outputs=self.outputs,
             atomic_types=self.atomic_types,
-            interaction_range=self.hypers["soap"]["cutoff"],
+            interaction_range=interaction_range,
             length_unit=self.dataset_info.length_unit,
             supported_devices=self.__supported_devices__,
             dtype=dtype_to_str(dtype),
         )
 
-        return export(model=self, model_capabilities=capabilities)
+        return MetatensorAtomisticModel(self.eval(), ModelMetadata(), capabilities)
 
-    def set_composition_weights(
-        self,
-        output_name: str,
-        input_composition_weights: torch.Tensor,
-        atomic_types: List[int],
-    ) -> None:
-        """Set the composition weights for a given output."""
-        # all species that are not present retain their weight of zero
-        self.composition_weights[self.output_to_index[output_name]][  # type: ignore
-            atomic_types
-        ] = input_composition_weights.to(
-            dtype=self.composition_weights.dtype,  # type: ignore
-            device=self.composition_weights.device,  # type: ignore
-        )
+    def _add_output(self, target_name: str, target: TargetInfo) -> None:
 
-    def add_output(self, output_name: str) -> None:
-        """Add a new output to the self."""
-        # add a new row to the composition weights tensor
-        # initialize it with zeros
-        self.composition_weights = torch.cat(
-            [
-                self.composition_weights,  # type: ignore
-                torch.zeros(
-                    1,
-                    self.composition_weights.shape[1],  # type: ignore
-                    dtype=self.composition_weights.dtype,  # type: ignore
-                    device=self.composition_weights.device,  # type: ignore
-                ),
-            ]
-        )
-        self.output_to_index[output_name] = len(self.output_to_index)
-        # add a new linear layer to the last layers
-        hypers_bpnn = self.hypers["bpnn"]
-        if hypers_bpnn["num_hidden_layers"] == 0:
-            n_inputs_last_layer = hypers_bpnn["input_size"]
-        else:
-            n_inputs_last_layer = hypers_bpnn["num_neurons_per_layer"]
-        self.last_layers[output_name] = LinearMap(
-            Labels(
-                "central_species",
-                values=torch.tensor(self.atomic_types).reshape(-1, 1),
-            ),
-            in_features=n_inputs_last_layer,
-            out_features=1,
-            bias=False,
-            out_properties=[
-                Labels(
-                    names=["energy"],
-                    values=torch.tensor([[0]]),
+        if target.is_scalar:
+            self.vector_featurizers[target_name] = IdentityWithExtraArg()
+        elif target.is_spherical:
+            values_list: List[List[int]] = target.layout.keys.values.tolist()
+            if values_list != [[1, 1]]:
+                raise ValueError(
+                    "SOAP-BPNN only supports spherical targets with "
+                    "`o3_lambda=1` and `o3_sigma=1`, "
                 )
-                for _ in self.atomic_types
-            ],
+            self.vector_featurizers[target_name] = VectorFeaturizer(
+                atomic_types=self.atomic_types,
+                num_features=self.n_inputs_last_layer,
+                soap_hypers=self.hypers["soap"],
+            )
+        else:
+            raise ValueError("SOAP-BPNN only supports scalar and spherical targets.")
+
+        if target.is_scalar:
+            self.last_layers[target_name] = LinearMap(
+                Labels(
+                    "central_species",
+                    values=torch.tensor(self.atomic_types).reshape(-1, 1),
+                ),
+                in_features=self.n_inputs_last_layer,
+                out_features=1,
+                bias=False,
+                out_properties=[
+                    Labels(
+                        names=["energy"],
+                        values=torch.tensor([[0]]),
+                    )
+                    for _ in self.atomic_types
+                ],
+            )
+        else:
+            self.last_layers[target_name] = LinearMap(
+                Labels(
+                    names=["o3_lambda", "o3_sigma", "center_type"],
+                    values=torch.stack(
+                        [
+                            torch.tensor([1] * len(self.atomic_types)),
+                            torch.tensor([1] * len(self.atomic_types)),
+                            torch.tensor(self.atomic_types),
+                        ],
+                        dim=1,
+                    ),
+                ),
+                in_features=self.n_inputs_last_layer,
+                out_features=1,
+                bias=False,
+                out_properties=[
+                    Labels(
+                        names=["properties"],
+                        values=torch.tensor([[0]]),
+                    )
+                    for _ in self.atomic_types
+                ],
+            )
+
+        self.outputs[target_name] = ModelOutput(
+            quantity=target.quantity,
+            unit=target.unit,
+            per_atom=True,
         )
 
 

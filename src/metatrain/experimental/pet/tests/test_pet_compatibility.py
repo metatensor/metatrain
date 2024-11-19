@@ -17,7 +17,8 @@ from pet.pet import PET
 from metatrain.experimental.pet import PET as WrappedPET
 from metatrain.experimental.pet.utils import systems_to_batch_dict
 from metatrain.utils.architectures import get_default_hypers
-from metatrain.utils.data import DatasetInfo, TargetInfo, TargetInfoDict
+from metatrain.utils.data import DatasetInfo
+from metatrain.utils.data.target_info import get_energy_target_info
 from metatrain.utils.neighbor_lists import get_system_with_neighbor_lists
 
 from . import DATASET_PATH
@@ -59,7 +60,7 @@ def test_batch_dicts_compatibility(cutoff):
     structure = ase.io.read(DATASET_PATH)
     atomic_types = sorted(set(structure.numbers))
     system = systems_to_torch(structure)
-    options = NeighborListOptions(cutoff=cutoff, full_list=True)
+    options = NeighborListOptions(cutoff=cutoff, full_list=True, strict=True)
     system = get_system_with_neighbor_lists(system, [options])
 
     ARCHITECTURAL_HYPERS = Hypers(DEFAULT_HYPERS["model"])
@@ -70,6 +71,8 @@ def test_batch_dicts_compatibility(cutoff):
         ARCHITECTURAL_HYPERS.USE_ADDITIONAL_SCALAR_ATTRIBUTES,
         ARCHITECTURAL_HYPERS.USE_LONG_RANGE,
         ARCHITECTURAL_HYPERS.K_CUT,
+        ARCHITECTURAL_HYPERS.N_TARGETS > 1,
+        ARCHITECTURAL_HYPERS.TARGET_INDEX_KEY,
     )[0]
     ref_batch_dict = {
         "x": batch.x,
@@ -95,7 +98,9 @@ def test_predictions_compatibility(cutoff):
     dataset_info = DatasetInfo(
         length_unit="Angstrom",
         atomic_types=structure.numbers,
-        targets=TargetInfoDict(energy=TargetInfo(quantity="energy", unit="eV")),
+        targets={
+            "energy": get_energy_target_info({"quantity": "energy", "unit": "eV"})
+        },
     )
     capabilities = ModelCapabilities(
         length_unit="Angstrom",
@@ -119,7 +124,7 @@ def test_predictions_compatibility(cutoff):
     model.set_trained_model(raw_pet)
 
     system = systems_to_torch(structure)
-    options = NeighborListOptions(cutoff=cutoff, full_list=True)
+    options = NeighborListOptions(cutoff=cutoff, full_list=True, strict=True)
     system = get_system_with_neighbor_lists(system, [options])
 
     evaluation_options = ModelEvaluationOptions(
@@ -146,6 +151,8 @@ def test_predictions_compatibility(cutoff):
         ARCHITECTURAL_HYPERS.USE_ADDITIONAL_SCALAR_ATTRIBUTES,
         ARCHITECTURAL_HYPERS.USE_LONG_RANGE,
         ARCHITECTURAL_HYPERS.K_CUT,
+        ARCHITECTURAL_HYPERS.N_TARGETS > 1,
+        ARCHITECTURAL_HYPERS.TARGET_INDEX_KEY,
     )[0]
 
     batch_dict = {
@@ -159,9 +166,9 @@ def test_predictions_compatibility(cutoff):
         "neighbors_pos": batch.neighbors_pos,
     }
 
-    pet = model._module.pet
+    pet = model.module.pet
 
-    pet_prediction = pet.forward(batch_dict)
+    pet_prediction = pet.forward(batch_dict)["prediction"]
 
     torch.testing.assert_close(
         mtm_pet_prediction, pet_prediction.sum(dim=0, keepdim=True)

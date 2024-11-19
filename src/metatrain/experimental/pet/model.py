@@ -8,6 +8,7 @@ from metatensor.torch import Labels, TensorBlock, TensorMap
 from metatensor.torch.atomistic import (
     MetatensorAtomisticModel,
     ModelCapabilities,
+    ModelMetadata,
     ModelOutput,
     NeighborListOptions,
     System,
@@ -18,9 +19,10 @@ from pet.pet import SelfContributionsWrapper
 
 from metatrain.utils.data import DatasetInfo
 
+from ...utils.additive import ZBL
 from ...utils.dtype import dtype_to_str
-from ...utils.export import export
-from .utils import systems_to_batch_dict
+from .utils import systems_to_batch_dict, update_state_dict
+from .utils.fine_tuning import LoRAWrapper
 
 
 logger = logging.getLogger(__name__)
@@ -35,8 +37,17 @@ class PET(torch.nn.Module):
         if len(dataset_info.targets) != 1:
             raise ValueError("PET only supports a single target")
         self.target_name = next(iter(dataset_info.targets.keys()))
-        if dataset_info.targets[self.target_name].quantity != "energy":
-            raise ValueError("PET only supports energies as target")
+        target = dataset_info.targets[self.target_name]
+        if not (
+            target.is_scalar
+            and target.quantity == "energy"
+            and "atom" not in target.layout.block(0).samples.names
+            and len(target.layout.block(0).properties) == 1
+        ):
+            raise ValueError(
+                "PET only supports total-energy-like outputs, "
+                f"but a {target.quantity} was provided"
+            )
 
         model_hypers["D_OUTPUT"] = 1
         model_hypers["TARGET_TYPE"] = "atomic"
@@ -47,6 +58,13 @@ class PET(torch.nn.Module):
         self.dataset_info = dataset_info
         self.pet = None
         self.checkpoint_path: Optional[str] = None
+
+        # additive models: these are handled by the trainer at training
+        # time, and they are added to the output at evaluation time
+        additive_models = []
+        if self.hypers["USE_ZBL"]:
+            additive_models.append(ZBL(model_hypers, dataset_info))
+        self.additive_models = torch.nn.ModuleList(additive_models)
 
     def restart(self, dataset_info: DatasetInfo) -> "PET":
         if dataset_info != self.dataset_info:
@@ -65,6 +83,7 @@ class PET(torch.nn.Module):
             NeighborListOptions(
                 cutoff=self.cutoff,
                 full_list=True,
+                strict=True,
             )
         ]
 
@@ -79,7 +98,8 @@ class PET(torch.nn.Module):
             systems, options, self.atomic_types, selected_atoms
         )
 
-        predictions = self.pet(batch)  # type: ignore
+        output = self.pet(batch)  # type: ignore
+        predictions = output["prediction"]
         output_quantities: Dict[str, TensorMap] = {}
         for output_name in outputs:
             energy_labels = Labels(
@@ -102,35 +122,49 @@ class PET(torch.nn.Module):
                 values=predictions,
             )
             if selected_atoms is not None:
-                block = metatensor.torch.slice_block(
-                    block, axis="samples", labels=selected_atoms
-                )
+                block = metatensor.torch.slice_block(block, "samples", selected_atoms)
             output_tmap = TensorMap(keys=empty_labels, blocks=[block])
             if not outputs[output_name].per_atom:
                 output_tmap = metatensor.torch.sum_over_samples(output_tmap, "atom")
             output_quantities[output_name] = output_tmap
+
+        if not self.training:
+            # at evaluation, we also add the additive contributions
+            for additive_model in self.additive_models:
+                additive_contributions = additive_model(
+                    systems, outputs, selected_atoms
+                )
+                for output_name in output_quantities:
+                    if output_name.startswith("mtt::aux::"):
+                        continue  # skip auxiliary outputs (not targets)
+                    output_quantities[output_name] = metatensor.torch.add(
+                        output_quantities[output_name],
+                        additive_contributions[output_name],
+                    )
+
         return output_quantities
 
     @classmethod
     def load_checkpoint(cls, path: Union[str, Path]) -> "PET":
 
-        checkpoint = torch.load(path)
+        checkpoint = torch.load(path, weights_only=False, map_location="cpu")
         hypers = checkpoint["hypers"]
         dataset_info = checkpoint["dataset_info"]
         model = cls(
             model_hypers=hypers["ARCHITECTURAL_HYPERS"], dataset_info=dataset_info
         )
 
-        checkpoint = torch.load(path)
+        checkpoint = torch.load(path, weights_only=False)
         state_dict = checkpoint["checkpoint"]["model_state_dict"]
 
         ARCHITECTURAL_HYPERS = Hypers(model.hypers)
         raw_pet = RawPET(ARCHITECTURAL_HYPERS, 0.0, len(model.atomic_types))
+        if ARCHITECTURAL_HYPERS.USE_LORA_PEFT:
+            lora_rank = ARCHITECTURAL_HYPERS.LORA_RANK
+            lora_alpha = ARCHITECTURAL_HYPERS.LORA_ALPHA
+            raw_pet = LoRAWrapper(raw_pet, lora_rank, lora_alpha)
 
-        new_state_dict = {}
-        for name, value in state_dict.items():
-            name = name.replace("model.pet_model.", "")
-            new_state_dict[name] = value
+        new_state_dict = update_state_dict(state_dict)
 
         dtype = next(iter(new_state_dict.values())).dtype
         raw_pet.to(dtype).load_state_dict(new_state_dict)
@@ -147,6 +181,17 @@ class PET(torch.nn.Module):
         if dtype not in self.__supported_dtypes__:
             raise ValueError(f"Unsupported dtype {self.dtype} for PET")
 
+        # Make sure the model is all in the same dtype
+        # For example, after training, the additive models could still be in
+        # float64
+        self.to(dtype)
+
+        interaction_ranges = [self.hypers["N_GNN_LAYERS"] * self.cutoff]
+        for additive_model in self.additive_models:
+            if hasattr(additive_model, "cutoff_radius"):
+                interaction_ranges.append(additive_model.cutoff_radius)
+        interaction_range = max(interaction_ranges)
+
         capabilities = ModelCapabilities(
             outputs={
                 self.target_name: ModelOutput(
@@ -156,9 +201,9 @@ class PET(torch.nn.Module):
                 )
             },
             atomic_types=self.atomic_types,
-            interaction_range=self.cutoff,
+            interaction_range=interaction_range,
             length_unit=self.dataset_info.length_unit,
             supported_devices=["cpu", "cuda"],  # and not __supported_devices__
             dtype=dtype_to_str(dtype),
         )
-        return export(model=self, model_capabilities=capabilities)
+        return MetatensorAtomisticModel(self.eval(), ModelMetadata(), capabilities)

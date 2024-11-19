@@ -8,14 +8,8 @@ import torch
 from omegaconf import OmegaConf
 
 from metatrain.experimental.gap import GAP, Trainer
-from metatrain.utils.data import (
-    Dataset,
-    DatasetInfo,
-    TargetInfo,
-    TargetInfoDict,
-    read_systems,
-    read_targets,
-)
+from metatrain.utils.data import Dataset, DatasetInfo, read_systems, read_targets
+from metatrain.utils.data.target_info import get_energy_target_info
 
 from . import DATASET_ETHANOL_PATH, DEFAULT_HYPERS
 
@@ -43,6 +37,9 @@ def test_ethanol_regression_train_and_invariance():
             "reader": "ase",
             "key": "energy",
             "unit": "kcal/mol",
+            "type": "scalar",
+            "per_atom": False,
+            "num_properties": 1,
             "forces": {
                 "read_from": DATASET_ETHANOL_PATH,
                 "reader": "ase",
@@ -54,14 +51,18 @@ def test_ethanol_regression_train_and_invariance():
     }
 
     targets, _ = read_targets(OmegaConf.create(conf))
-    dataset = Dataset({"system": systems[:2], "energy": targets["energy"][:2]})
+    dataset = Dataset.from_dict(
+        {"system": systems[:2], "energy": targets["energy"][:2]}
+    )
 
     hypers = copy.deepcopy(DEFAULT_HYPERS)
     hypers["model"]["krr"]["num_sparse_points"] = 30
 
-    target_info_dict = TargetInfoDict(
-        energy=TargetInfo(quantity="energy", unit="kcal/mol")
-    )
+    target_info_dict = {
+        "energy": get_energy_target_info(
+            {"quantity": "energy", "unit": "kcal/mol"}, add_position_gradients=True
+        )
+    }
 
     dataset_info = DatasetInfo(
         length_unit="Angstrom", atomic_types=[1, 6, 7, 8], targets=target_info_dict

@@ -1,10 +1,12 @@
 import argparse
 import itertools
 import logging
+import time
 from pathlib import Path
 from typing import Dict, List, Optional, Union
 
 import metatensor.torch
+import numpy as np
 import torch
 from metatensor.torch import Labels, TensorBlock, TensorMap
 from metatensor.torch.atomistic import MetatensorAtomisticModel
@@ -13,7 +15,6 @@ from omegaconf import DictConfig, OmegaConf
 from ..utils.data import (
     Dataset,
     TargetInfo,
-    TargetInfoDict,
     collate_fn,
     read_systems,
     read_targets,
@@ -21,9 +22,13 @@ from ..utils.data import (
 )
 from ..utils.errors import ArchitectureError
 from ..utils.evaluate_model import evaluate_model
+from ..utils.io import load_model
 from ..utils.logging import MetricLogger
-from ..utils.metrics import RMSEAccumulator, MAEAccumulator
-from ..utils.neighbor_lists import get_system_with_neighbor_lists
+from ..utils.metrics import MAEAccumulator, RMSEAccumulator
+from ..utils.neighbor_lists import (
+    get_requested_neighbor_lists,
+    get_system_with_neighbor_lists,
+)
 from ..utils.omegaconf import expand_dataset_config
 from ..utils.per_atom import average_by_num_atoms
 from .formatter import CustomHelpFormatter
@@ -90,7 +95,8 @@ def _add_eval_model_parser(subparser: argparse._SubParsersAction) -> None:
 def _prepare_eval_model_args(args: argparse.Namespace) -> None:
     """Prepare arguments for eval_model."""
     args.options = OmegaConf.load(args.options)
-    args.model = metatensor.torch.atomistic.load_atomistic_model(
+    # models for evaluation are already exported. Don't have to pass the `name` argument
+    args.model = load_model(
         path=args.__dict__.pop("path"),
         extensions_directory=args.__dict__.pop("extensions_directory"),
     )
@@ -154,30 +160,37 @@ def _concatenate_tensormaps(
 def _eval_targets(
     model: Union[MetatensorAtomisticModel, torch.jit._script.RecursiveScriptModule],
     dataset: Union[Dataset, torch.utils.data.Subset],
-    options: TargetInfoDict,
+    options: Dict[str, TargetInfo],
     return_predictions: bool,
     check_consistency: bool = False,
 ) -> Optional[Dict[str, TensorMap]]:
     """Evaluates an exported model on a dataset and prints the RMSEs for each target.
     Optionally, it also returns the predictions of the model.
 
+    The total and per-atom timings for the evaluation are also printed.
+
     Wraps around metatrain.cli.evaluate_model.
     """
 
     if len(dataset) == 0:
         logger.info("This dataset is empty. No evaluation will be performed.")
+        return None
 
     # Attach neighbor lists to the systems:
     # TODO: these might already be present... find a way to avoid recomputing
     # if already present (e.g. if this function is called after training)
     for sample in dataset:
         system = sample["system"]
-        get_system_with_neighbor_lists(system, model.requested_neighbor_lists())
+        get_system_with_neighbor_lists(system, get_requested_neighbor_lists(model))
 
     # Infer the device and dtype from the model
     model_tensor = next(itertools.chain(model.parameters(), model.buffers()))
     dtype = model_tensor.dtype
-    device = model_tensor.device
+    device = "cpu"
+    if torch.cuda.is_available() and "cuda" in model.capabilities().supported_devices:
+        device = "cuda"
+    logger.info(f"Running on device {device} with dtype {dtype}")
+    model.to(dtype=dtype, device=device)
 
     # Create a dataloader
     dataloader = torch.utils.data.DataLoader(
@@ -195,6 +208,23 @@ def _eval_targets(
     if return_predictions:
         all_predictions = []
 
+    # Set up timings:
+    total_time = 0.0
+    timings_per_atom = []
+
+    # Warm up with a single batch 5 times (to get accurate timings later)
+    batch = next(iter(dataloader))
+    systems = batch[0]
+    systems = [system.to(dtype=dtype, device=device) for system in systems]
+    for _ in range(5):
+        evaluate_model(
+            model,
+            systems,
+            options,
+            is_training=False,
+            check_consistency=check_consistency,
+        )
+
     # Evaluate the model
     for batch in dataloader:
         systems, batch_targets = batch
@@ -203,6 +233,9 @@ def _eval_targets(
             key: value.to(dtype=dtype, device=device)
             for key, value in batch_targets.items()
         }
+
+        start_time = time.time()
+
         batch_predictions = evaluate_model(
             model,
             systems,
@@ -210,22 +243,31 @@ def _eval_targets(
             is_training=False,
             check_consistency=check_consistency,
         )
-        batch_predictions = average_by_num_atoms(
+
+        if torch.cuda.is_available():
+            torch.cuda.synchronize()
+        end_time = time.time()
+
+        batch_predictions_per_atom = average_by_num_atoms(
             batch_predictions, systems, per_structure_keys=[]
         )
-        batch_targets = average_by_num_atoms(
+        batch_targets_per_atom = average_by_num_atoms(
             batch_targets, systems, per_structure_keys=[]
         )
-        rmse_accumulator.update(batch_predictions, batch_targets)
-        mae_accumulator.update(batch_predictions, batch_targets)
+        rmse_accumulator.update(batch_predictions_per_atom, batch_targets_per_atom)
+        mae_accumulator.update(batch_predictions_per_atom, batch_targets_per_atom)
         if return_predictions:
             all_predictions.append(batch_predictions)
 
-    # Finalize the RMSEs and MAEs
+        time_taken = end_time - start_time
+        total_time += time_taken
+        timings_per_atom.append(time_taken / sum(len(system) for system in systems))
+
+    # Finalize the metrics
     rmse_values = rmse_accumulator.finalize(not_per_atom=["positions_gradients"])
     mae_values = mae_accumulator.finalize(not_per_atom=["positions_gradients"])
-    
     metrics = {**rmse_values, **mae_values}
+
     # print the RMSEs with MetricLogger
     metric_logger = MetricLogger(
         log_obj=logger,
@@ -233,6 +275,16 @@ def _eval_targets(
         initial_metrics=metrics,
     )
     metric_logger.log(metrics)
+
+    # Log timings
+    timings_per_atom = np.array(timings_per_atom)
+    mean_per_atom = np.mean(timings_per_atom)
+    std_per_atom = np.std(timings_per_atom)
+    logger.info(
+        f"evaluation time: {total_time:.2f} s "
+        f"[{1000.0*mean_per_atom:.2f} ± "
+        f"{1000.0*std_per_atom:.2f} ms per atom]"
+    )
 
     if return_predictions:
         # concatenate the TensorMaps
@@ -288,20 +340,20 @@ def eval_model(
             # (but we don't/can't calculate RMSEs)
             # TODO: allow the user to specify which outputs to evaluate
             eval_targets = {}
-            eval_info_dict = TargetInfoDict()
-            gradients = ["positions"]
-            if all(not torch.all(system.cell == 0) for system in eval_systems):
-                # only add strain if all structures have cells
-                gradients.append("strain")
+            eval_info_dict = {}
+            do_strain_grad = all(
+                not torch.all(system.cell == 0) for system in eval_systems
+            )
+            layout = _get_energy_layout(do_strain_grad)  # TODO: layout from the user
             for key in model.capabilities().outputs.keys():
                 eval_info_dict[key] = TargetInfo(
                     quantity=model.capabilities().outputs[key].quantity,
                     unit=model.capabilities().outputs[key].unit,
-                    per_atom=False,  # TODO: allow the user to specify this
-                    gradients=gradients,
+                    # TODO: allow the user to specify whether per-atom or not
+                    layout=layout,
                 )
 
-        eval_dataset = Dataset({"system": eval_systems, **eval_targets})
+        eval_dataset = Dataset.from_dict({"system": eval_systems, **eval_targets})
 
         # Evaluate the model
         try:
@@ -321,3 +373,60 @@ def eval_model(
             capabilities=model.capabilities(),
             predictions=predictions,
         )
+
+
+def _get_energy_layout(strain_gradient: bool) -> TensorMap:
+    block = TensorBlock(
+        # float64: otherwise metatensor can't serialize
+        values=torch.empty(0, 1, dtype=torch.float64),
+        samples=Labels(
+            names=["system"],
+            values=torch.empty((0, 1), dtype=torch.int32),
+        ),
+        components=[],
+        properties=Labels.range("energy", 1),
+    )
+    position_gradient_block = TensorBlock(
+        # float64: otherwise metatensor can't serialize
+        values=torch.empty(0, 3, 1, dtype=torch.float64),
+        samples=Labels(
+            names=["sample", "atom"],
+            values=torch.empty((0, 2), dtype=torch.int32),
+        ),
+        components=[
+            Labels(
+                names=["xyz"],
+                values=torch.arange(3, dtype=torch.int32).reshape(-1, 1),
+            ),
+        ],
+        properties=Labels.range("energy", 1),
+    )
+    block.add_gradient("positions", position_gradient_block)
+
+    if strain_gradient:
+        strain_gradient_block = TensorBlock(
+            # float64: otherwise metatensor can't serialize
+            values=torch.empty(0, 3, 3, 1, dtype=torch.float64),
+            samples=Labels(
+                names=["sample", "atom"],
+                values=torch.empty((0, 2), dtype=torch.int32),
+            ),
+            components=[
+                Labels(
+                    names=["xyz_1"],
+                    values=torch.arange(3, dtype=torch.int32).reshape(-1, 1),
+                ),
+                Labels(
+                    names=["xyz_2"],
+                    values=torch.arange(3, dtype=torch.int32).reshape(-1, 1),
+                ),
+            ],
+            properties=Labels.range("energy", 1),
+        )
+        block.add_gradient("strain", strain_gradient_block)
+
+    energy_layout = TensorMap(
+        keys=Labels.single(),
+        blocks=[block],
+    )
+    return energy_layout

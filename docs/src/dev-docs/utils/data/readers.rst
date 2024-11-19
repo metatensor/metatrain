@@ -13,10 +13,13 @@ Parsers for obtaining *system* and *target* information from files. Currently,
   * - ``ase``
     - system, energy, forces, stress, virials
     - ``.xyz``, ``.extxyz``
+  * - ``metatensor``
+    - system, energy, forces, stress, virials
+    - ``.mts``
 
 
-If the ``reader`` parameter is not set the library is determined from the file
-extension. Overriding this behavior is in particular useful, if a file format is not
+If the ``reader`` parameter is not set, the library is determined from the file
+extension. Overriding this behavior is in particular useful if a file format is not
 listed here but might be supported by a library.
 
 Below the synopsis of the reader functions in details.
@@ -24,19 +27,43 @@ Below the synopsis of the reader functions in details.
 System and target data readers
 ==============================
 
-The main entry point for reading system and target information are the reader functions
+The main entry point for reading system and target information are the reader functions.
 
 .. autofunction:: metatrain.utils.data.read_systems
 .. autofunction:: metatrain.utils.data.read_targets
 
-Target type specific readers
-----------------------------
+These functions dispatch the reading of the system and target information to the
+appropriate readers, based on the file extension or the user-provided library.
 
-:func:`metatrain.utils.data.read_targets` uses sub-functions to parse supported
-target properties like the ``energy`` or ``forces``. Currently we support reading the
-following target properties via
+In addition, the read_targets function uses the user-provided information about the
+targets to call the appropriate target reader function (for energy targets or generic
+targets).
 
-.. autofunction:: metatrain.utils.data.read_energy
-.. autofunction:: metatrain.utils.data.read_forces
-.. autofunction:: metatrain.utils.data.read_virial
-.. autofunction:: metatrain.utils.data.read_stress
+ASE
+---
+
+This section describes the parsers for the ASE library.
+
+.. autofunction:: metatrain.utils.data.readers.ase.read_systems
+.. autofunction:: metatrain.utils.data.readers.ase.read_energy
+.. autofunction:: metatrain.utils.data.readers.ase.read_generic
+
+:func:`metatrain.utils.data.readers.ase.read_energy` uses sub-functions to parse the
+energy and its gradients like ``forces``, ``virial`` and ``stress``. Currently we
+support reading these properties via
+
+.. autofunction:: metatrain.utils.data.readers.ase.read_energy_ase
+.. autofunction:: metatrain.utils.data.readers.ase.read_forces_ase
+.. autofunction:: metatrain.utils.data.readers.ase.read_virial_ase
+.. autofunction:: metatrain.utils.data.readers.ase.read_stress_ase
+
+Metatensor
+----------
+
+This section describes the parsers for the ``metatensor`` library. As the systems and/or
+targets are already stored in the ``metatensor`` format, these reader functions mainly
+perform checks and return the data.
+
+.. autofunction:: metatrain.utils.data.readers.metatensor.read_systems
+.. autofunction:: metatrain.utils.data.readers.metatensor.read_energy
+.. autofunction:: metatrain.utils.data.readers.metatensor.read_generic

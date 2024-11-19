@@ -1,168 +1,15 @@
 import math
 import warnings
-from collections import UserDict
-from typing import Any, Dict, List, Optional, Tuple, Union
+from typing import Any, Dict, List, Tuple, Union
 
-import metatensor.learn
 import numpy as np
-import torch
+from metatensor.learn.data import Dataset, group_and_join
 from metatensor.torch import TensorMap
+from torch.utils.data import Subset
 
 from ..external_naming import to_external_name
 from ..units import get_gradient_units
-
-
-class TargetInfo:
-    """A class that contains information about a target.
-
-    :param quantity: The quantity of the target.
-    :param unit: The unit of the target. If :py:obj:`None` the ``unit`` will be set to
-        an empty string ``""``.
-    :param per_atom: Whether the target is a per-atom quantity.
-    :param gradients: List containing the gradient names of the target that are present
-        in the target. Examples are ``"positions"`` or ``"strain"``. ``gradients`` will
-        be stored as a sorted list of **unique** gradients.
-    """
-
-    def __init__(
-        self,
-        quantity: str,
-        unit: Union[None, str] = "",
-        per_atom: bool = False,
-        gradients: Optional[List[str]] = None,
-    ):
-        self.quantity = quantity
-        self.unit = unit if unit is not None else ""
-        self.per_atom = per_atom
-        self._gradients = set(gradients) if gradients is not None else set()
-
-    @property
-    def gradients(self) -> List[str]:
-        """Sorted and unique list of gradient names."""
-        return sorted(self._gradients)
-
-    @gradients.setter
-    def gradients(self, value: List[str]):
-        self._gradients = set(value)
-
-    def __repr__(self):
-        return (
-            f"TargetInfo(quantity={self.quantity!r}, unit={self.unit!r}, "
-            f"per_atom={self.per_atom!r}, gradients={self.gradients!r})"
-        )
-
-    def __eq__(self, other):
-        if not isinstance(other, TargetInfo):
-            raise NotImplementedError(
-                "Comparison between a TargetInfo instance and a "
-                f"{type(other).__name__} instance is not implemented."
-            )
-        return (
-            self.quantity == other.quantity
-            and self.unit == other.unit
-            and self.per_atom == other.per_atom
-            and self._gradients == other._gradients
-        )
-
-    def copy(self) -> "TargetInfo":
-        """Return a shallow copy of the TargetInfo."""
-        return TargetInfo(
-            quantity=self.quantity,
-            unit=self.unit,
-            per_atom=self.per_atom,
-            gradients=self.gradients.copy(),
-        )
-
-    def update(self, other: "TargetInfo") -> None:
-        """Update this instance with the union of itself and ``other``.
-
-        :raises ValueError: If ``quantity``, ``unit`` or ``per_atom`` do not match.
-        """
-        if self.quantity != other.quantity:
-            raise ValueError(
-                f"Can't update TargetInfo with a different `quantity`: "
-                f"({self.quantity} != {other.quantity})"
-            )
-
-        if self.unit != other.unit:
-            raise ValueError(
-                f"Can't update TargetInfo with a different `unit`: "
-                f"({self.unit} != {other.unit})"
-            )
-
-        if self.per_atom != other.per_atom:
-            raise ValueError(
-                f"Can't update TargetInfo with a different `per_atom` property: "
-                f"({self.per_atom} != {other.per_atom})"
-            )
-
-        self.gradients = self.gradients + other.gradients
-
-    def union(self, other: "TargetInfo") -> "TargetInfo":
-        """Return the union of this instance with ``other``."""
-        new = self.copy()
-        new.update(other)
-        return new
-
-
-class TargetInfoDict(UserDict):
-    """
-    A custom dictionary class for storing and managing ``TargetInfo`` instances.
-
-    The subclass handles the update of :py:class:`TargetInfo` if a ``key`` is already
-    present.
-    """
-
-    # We use a `UserDict` with special methods because a normal dict does not support
-    # the update of nested instances.
-    def __setitem__(self, key, value):
-        if not isinstance(value, TargetInfo):
-            raise ValueError("value to set is not a `TargetInfo` instance")
-        if key in self:
-            self[key].update(value)
-        else:
-            super().__setitem__(key, value)
-
-    def __and__(self, other: "TargetInfoDict") -> "TargetInfoDict":
-        return self.intersection(other)
-
-    def __sub__(self, other: "TargetInfoDict") -> "TargetInfoDict":
-        return self.difference(other)
-
-    def union(self, other: "TargetInfoDict") -> "TargetInfoDict":
-        """Union of this instance with ``other``."""
-        new = self.copy()
-        new.update(other)
-        return new
-
-    def intersection(self, other: "TargetInfoDict") -> "TargetInfoDict":
-        """Intersection of the the two instances as a new ``TargetInfoDict``.
-
-        (i.e. all elements that are in both sets.)
-
-        :raises ValueError: If intersected items with the same key are not the same.
-        """
-        new_keys = self.keys() & other.keys()
-
-        self_intersect = TargetInfoDict(**{key: self[key] for key in new_keys})
-        other_intersect = TargetInfoDict(**{key: other[key] for key in new_keys})
-
-        if self_intersect == other_intersect:
-            return self_intersect
-        else:
-            raise ValueError(
-                "Intersected items with the same key are not the same. Intersected "
-                f"keys are {','.join(new_keys)}"
-            )
-
-    def difference(self, other: "TargetInfoDict") -> "TargetInfoDict":
-        """Difference of two instances as a new ``TargetInfoDict``.
-
-        (i.e. all elements that are in this set but not in the other.)
-        """
-
-        new_keys = self.keys() - other.keys()
-        return TargetInfoDict(**{key: self[key] for key in new_keys})
+from .target_info import TargetInfo
 
 
 class DatasetInfo:
@@ -180,7 +27,7 @@ class DatasetInfo:
     """
 
     def __init__(
-        self, length_unit: str, atomic_types: List[int], targets: TargetInfoDict
+        self, length_unit: str, atomic_types: List[int], targets: Dict[str, TargetInfo]
     ):
         self.length_unit = length_unit if length_unit is not None else ""
         self._atomic_types = set(atomic_types)
@@ -233,6 +80,14 @@ class DatasetInfo:
             )
 
         self.atomic_types = self.atomic_types + other.atomic_types
+
+        intersecting_target_keys = self.targets.keys() & other.targets.keys()
+        for key in intersecting_target_keys:
+            if self.targets[key] != other.targets[key]:
+                raise ValueError(
+                    f"Can't update DatasetInfo with different target information for "
+                    f"target '{key}': {self.targets[key]} != {other.targets[key]}"
+                )
         self.targets.update(other.targets)
 
     def union(self, other: "DatasetInfo") -> "DatasetInfo":
@@ -242,71 +97,18 @@ class DatasetInfo:
         return new
 
 
-class Dataset:
-    """A version of the `metatensor.learn.Dataset` class that allows for
-    the use of `mtt::` prefixes in the keys of the dictionary. See
-    https://github.com/lab-cosmo/metatensor/issues/621.
-
-    It is important to note that, instead of named tuples, this class
-    accepts and returns dictionaries.
-
-    :param dict: A dictionary with the data to be stored in the dataset.
-    """
-
-    def __init__(self, dict: Dict):
-
-        new_dict = {}
-        for key, value in dict.items():
-            key = key.replace("mtt::", "mtt_")
-            new_dict[key] = value
-
-        self.mts_learn_dataset = metatensor.learn.Dataset(**new_dict)
-
-    def __getitem__(self, idx: int) -> Dict:
-
-        mts_dataset_item = self.mts_learn_dataset[idx]._asdict()
-        new_dict = {}
-        for key, value in mts_dataset_item.items():
-            key = key.replace("mtt_", "mtt::")
-            new_dict[key] = value
-
-        return new_dict
-
-    def __len__(self) -> int:
-        return len(self.mts_learn_dataset)
-
-    def __iter__(self):
-        for i in range(len(self)):
-            yield self[i]
-
-    def get_stats(self, dataset_info: DatasetInfo) -> str:
-        return _get_dataset_stats(self, dataset_info)
-
-
-class Subset(torch.utils.data.Subset):
-    """
-    A version of `torch.utils.data.Subset` containing a `get_stats` method
-    allowing us to print information about atomistic datasets.
-    """
-
-    def get_stats(self, dataset_info: DatasetInfo) -> str:
-        return _get_dataset_stats(self, dataset_info)
-
-
-def _get_dataset_stats(
-    dataset: Union[Dataset, Subset], dataset_info: DatasetInfo
-) -> str:
+def get_stats(dataset: Union[Dataset, Subset], dataset_info: DatasetInfo) -> str:
     """Returns the statistics of a dataset or subset as a string."""
 
     dataset_len = len(dataset)
-    stats = f"Dataset of size {dataset_len}"
+    stats = f"Dataset containing {dataset_len} structures"
     if dataset_len == 0:
         return stats
 
     # target_names will be used to store names of the targets,
     # along with their gradients
     target_names = []
-    for key, tensor_map in dataset[0].items():
+    for key, tensor_map in dataset[0]._asdict().items():
         if key == "system":
             continue
         target_names.append(key)
@@ -408,8 +210,8 @@ def get_all_targets(datasets: Union[Dataset, List[Dataset]]) -> List[str]:
     target_names = []
     for dataset in datasets:
         for sample in dataset:
-            sample.pop("system")  # system not needed
-            target_names += list(sample.keys())
+            # system not needed
+            target_names += [key for key in sample._asdict().keys() if key != "system"]
 
     return sorted(set(target_names))
 
@@ -422,6 +224,7 @@ def collate_fn(batch: List[Dict[str, Any]]) -> Tuple[List, Dict[str, TensorMap]]
     """
 
     collated_targets = group_and_join(batch)
+    collated_targets = collated_targets._asdict()
     systems = collated_targets.pop("system")
     return systems, collated_targets
 
@@ -441,17 +244,35 @@ def check_datasets(train_datasets: List[Dataset], val_datasets: List[Dataset]):
         or targets that are not present in the training set
     """
     # Check that system `dtypes` are consistent within datasets
-    desired_dtype = train_datasets[0][0]["system"].positions.dtype
-    msg = f"`dtype` between datasets is inconsistent, found {desired_dtype} and "
+    desired_dtype = None
     for train_dataset in train_datasets:
-        actual_dtype = train_dataset[0]["system"].positions.dtype
+        if len(train_dataset) == 0:
+            continue
+
+        actual_dtype = train_dataset[0].system.positions.dtype
+        if desired_dtype is None:
+            desired_dtype = actual_dtype
+
         if actual_dtype != desired_dtype:
-            raise TypeError(f"{msg}{actual_dtype} found in `train_datasets`")
+            raise TypeError(
+                "`dtype` between datasets is inconsistent, "
+                f"found {desired_dtype} and {actual_dtype} in training datasets"
+            )
 
     for val_dataset in val_datasets:
-        actual_dtype = val_dataset[0]["system"].positions.dtype
+        if len(val_dataset) == 0:
+            continue
+
+        actual_dtype = val_dataset[0].system.positions.dtype
+
+        if desired_dtype is None:
+            desired_dtype = actual_dtype
+
         if actual_dtype != desired_dtype:
-            raise TypeError(f"{msg}{actual_dtype} found in `val_datasets`")
+            raise TypeError(
+                "`dtype` between datasets is inconsistent, "
+                f"found {desired_dtype} and {actual_dtype} in validation datasets"
+            )
 
     # Get all targets in the training and validation sets:
     train_targets = get_all_targets(train_datasets)
@@ -515,33 +336,3 @@ def _train_test_random_split(
         Subset(train_dataset, train_indices),
         Subset(train_dataset, test_indices),
     ]
-
-
-def group_and_join(
-    batch: List[Dict[str, Any]],
-) -> Dict[str, Any]:
-    """
-    Same as metatenor.learn.data.group_and_join, but joins dicts and not named tuples.
-
-    :param batch: A list of dictionaries, each containing the data for a single sample.
-
-    :returns: A single dictionary with the data fields joined together among all
-        samples.
-    """
-    data: List[Union[TensorMap, torch.Tensor]] = []
-    names = batch[0].keys()
-    for name, f in zip(names, zip(*(item.values() for item in batch))):
-        if name == "sample_id":  # special case, keep as is
-            data.append(f)
-            continue
-
-        if isinstance(f[0], torch.ScriptObject) and f[0]._has_method(
-            "keys_to_properties"
-        ):  # inferred metatensor.torch.TensorMap type
-            data.append(metatensor.torch.join(f, axis="samples"))
-        elif isinstance(f[0], torch.Tensor):  # torch.Tensor type
-            data.append(torch.vstack(f))
-        else:  # otherwise just keep as a list
-            data.append(f)
-
-    return {name: value for name, value in zip(names, data)}

@@ -6,8 +6,9 @@ import torch
 from omegaconf import OmegaConf
 
 from metatrain.experimental.soap_bpnn import SoapBpnn, Trainer
-from metatrain.utils.data import Dataset, DatasetInfo, TargetInfo, TargetInfoDict
+from metatrain.utils.data import Dataset, DatasetInfo
 from metatrain.utils.data.readers import read_systems, read_targets
+from metatrain.utils.data.target_info import get_energy_target_info
 
 from . import DATASET_PATH, DEFAULT_HYPERS, MODEL_HYPERS
 
@@ -22,8 +23,10 @@ def test_continue(monkeypatch, tmp_path):
     systems = read_systems(DATASET_PATH)
     systems = [system.to(torch.float32) for system in systems]
 
-    target_info_dict = TargetInfoDict()
-    target_info_dict["mtt::U0"] = TargetInfo(quantity="energy", unit="eV")
+    target_info_dict = {}
+    target_info_dict["mtt::U0"] = get_energy_target_info(
+        {"quantity": "energy", "unit": "eV"}
+    )
 
     dataset_info = DatasetInfo(
         length_unit="Angstrom", atomic_types=[1, 6, 7, 8], targets=target_info_dict
@@ -38,13 +41,19 @@ def test_continue(monkeypatch, tmp_path):
             "reader": "ase",
             "key": "U0",
             "unit": "eV",
+            "type": "scalar",
+            "per_atom": False,
+            "num_properties": 1,
             "forces": False,
             "stress": False,
             "virial": False,
         }
     }
     targets, _ = read_targets(OmegaConf.create(conf))
-    dataset = Dataset({"system": systems, "mtt::U0": targets["mtt::U0"]})
+
+    # systems in float64 are required for training
+    systems = [system.to(torch.float64) for system in systems]
+    dataset = Dataset.from_dict({"system": systems, "mtt::U0": targets["mtt::U0"]})
 
     hypers = DEFAULT_HYPERS.copy()
     hypers["training"]["num_epochs"] = 0
@@ -62,6 +71,9 @@ def test_continue(monkeypatch, tmp_path):
         val_datasets=[dataset],
         checkpoint_dir=".",
     )
+
+    # evaluation
+    systems = [system.to(torch.float32) for system in systems]
 
     # Predict on the first five systems
     output_before = model_before(

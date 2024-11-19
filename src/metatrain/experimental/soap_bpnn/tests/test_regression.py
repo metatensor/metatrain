@@ -6,8 +6,9 @@ from metatensor.torch.atomistic import ModelOutput
 from omegaconf import OmegaConf
 
 from metatrain.experimental.soap_bpnn import SoapBpnn, Trainer
-from metatrain.utils.data import Dataset, DatasetInfo, TargetInfo, TargetInfoDict
+from metatrain.utils.data import Dataset, DatasetInfo
 from metatrain.utils.data.readers import read_systems, read_targets
+from metatrain.utils.data.target_info import get_energy_target_info
 
 from . import DATASET_PATH, DEFAULT_HYPERS, MODEL_HYPERS
 
@@ -21,8 +22,8 @@ torch.manual_seed(0)
 def test_regression_init():
     """Perform a regression test on the model at initialization"""
 
-    targets = TargetInfoDict()
-    targets["mtt::U0"] = TargetInfo(quantity="energy", unit="eV")
+    targets = {}
+    targets["mtt::U0"] = get_energy_target_info({"quantity": "energy", "unit": "eV"})
 
     dataset_info = DatasetInfo(
         length_unit="Angstrom", atomic_types=[1, 6, 7, 8], targets=targets
@@ -39,7 +40,13 @@ def test_regression_init():
     )
 
     expected_output = torch.tensor(
-        [[-0.03860], [0.11137], [0.09112], [-0.05634], [-0.02549]]
+        [
+            [0.053602740169],
+            [-0.142421141267],
+            [-0.122775360942],
+            [-0.202754884958],
+            [-0.031394608319],
+        ]
     )
 
     # if you need to change the hardcoded values:
@@ -64,13 +71,16 @@ def test_regression_train():
             "reader": "ase",
             "key": "U0",
             "unit": "eV",
+            "type": "scalar",
+            "per_atom": False,
+            "num_properties": 1,
             "forces": False,
             "stress": False,
             "virial": False,
         }
     }
     targets, target_info_dict = read_targets(OmegaConf.create(conf))
-    dataset = Dataset({"system": systems, "mtt::U0": targets["mtt::U0"]})
+    dataset = Dataset.from_dict({"system": systems, "mtt::U0": targets["mtt::U0"]})
 
     hypers = DEFAULT_HYPERS.copy()
     hypers["training"]["num_epochs"] = 2
@@ -100,11 +110,11 @@ def test_regression_train():
 
     expected_output = torch.tensor(
         [
-            [-40.592571258545],
-            [-56.522350311279],
-            [-76.571365356445],
-            [-77.384849548340],
-            [-93.445365905762],
+            [0.090618140996],
+            [-0.020789206028],
+            [0.020192664117],
+            [0.093057855964],
+            [0.094577327371],
         ]
     )
 

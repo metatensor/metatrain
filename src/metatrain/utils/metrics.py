@@ -8,7 +8,7 @@ class RMSEAccumulator:
     """Accumulates the RMSE between predictions and targets for an arbitrary
     number of keys, each corresponding to one target."""
 
-    def __init__(self):
+    def __init__(self) -> None:
         """Initialize the accumulator."""
         self.information: Dict[str, Tuple[float, int]] = {}
 
@@ -54,7 +54,7 @@ class RMSEAccumulator:
         is_distributed: bool = False,
         device: torch.device = None,
     ) -> Dict[str, float]:
-        """Finalizes the accumulator and return the RMSE for each key.
+        """Finalizes the accumulator and returns the RMSE for each key.
 
         All keys will be returned as "{key} RMSE (per atom)" in the output dictionary,
         unless ``key`` contains one or more of the strings in ``not_per_atom``,
@@ -91,7 +91,7 @@ class MAEAccumulator:
     """Accumulates the MAE between predictions and targets for an arbitrary
     number of keys, each corresponding to one target."""
 
-    def __init__(self):
+    def __init__(self) -> None:
         """Initialize the accumulator."""
         self.information: Dict[str, Tuple[float, int]] = {}
 
@@ -139,7 +139,19 @@ class MAEAccumulator:
         is_distributed: bool = False,
         device: torch.device = None,
     ) -> Dict[str, float]:
-        """Finalizes the accumulator and returns the MAE for each key."""
+        """Finalizes the accumulator and returns the MAE for each key.
+
+        All keys will be returned as "{key} MAE (per atom)" in the output dictionary,
+        unless ``key`` contains one or more of the strings in ``not_per_atom``,
+        in which case "{key} MAE" will be returned.
+
+        :param not_per_atom: a list of strings. If any of these strings are present in
+            a key, the MAE key will not be labeled as "(per atom)".
+        :param is_distributed: if true, the MAE will be computed across all ranks
+            of the distributed system.
+        :param device: the local device to use for the computation. Only needed if
+            ``is_distributed`` is :obj:`python:True`.
+        """
 
         if is_distributed:
             for key, value in self.information.items():

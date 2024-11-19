@@ -8,8 +8,9 @@ import torch
 from omegaconf import OmegaConf
 
 from metatrain.experimental.gap import GAP, Trainer
-from metatrain.utils.data import Dataset, DatasetInfo, TargetInfo, TargetInfoDict
+from metatrain.utils.data import Dataset, DatasetInfo
 from metatrain.utils.data.readers import read_systems, read_targets
+from metatrain.utils.data.target_info import get_energy_target_info
 
 from . import DATASET_ETHANOL_PATH, DATASET_PATH, DEFAULT_HYPERS
 
@@ -25,8 +26,8 @@ torch.manual_seed(0)
 
 def test_regression_init():
     """Perform a regression test on the model at initialization"""
-    targets = TargetInfoDict()
-    targets["mtt::U0"] = TargetInfo(quantity="energy", unit="eV")
+    targets = {}
+    targets["mtt::U0"] = get_energy_target_info({"quantity": "energy", "unit": "eV"})
 
     dataset_info = DatasetInfo(
         length_unit="Angstrom", atomic_types=[1, 6, 7, 8], targets=targets
@@ -49,16 +50,21 @@ def test_regression_train_and_invariance():
             "reader": "ase",
             "key": "U0",
             "unit": "kcal/mol",
+            "type": "scalar",
+            "per_atom": False,
+            "num_properties": 1,
             "forces": False,
             "stress": False,
             "virial": False,
         }
     }
     targets, _ = read_targets(OmegaConf.create(conf))
-    dataset = Dataset({"system": systems, "mtt::U0": targets["mtt::U0"]})
+    dataset = Dataset.from_dict({"system": systems, "mtt::U0": targets["mtt::U0"]})
 
-    target_info_dict = TargetInfoDict()
-    target_info_dict["mtt::U0"] = TargetInfo(quantity="energy", unit="eV")
+    target_info_dict = {}
+    target_info_dict["mtt::U0"] = get_energy_target_info(
+        {"quantity": "energy", "unit": "eV"}
+    )
 
     dataset_info = DatasetInfo(
         length_unit="Angstrom", atomic_types=[1, 6, 7, 8], targets=target_info_dict
@@ -74,6 +80,7 @@ def test_regression_train_and_invariance():
         val_datasets=[dataset],
         checkpoint_dir=".",
     )
+    gap.eval()
 
     # Predict on the first five systems
     output = gap(systems[:5], {"mtt::U0": gap.outputs["mtt::U0"]})
@@ -120,6 +127,9 @@ def test_ethanol_regression_train_and_invariance():
             "read_from": DATASET_ETHANOL_PATH,
             "reader": "ase",
             "key": "energy",
+            "type": "scalar",
+            "per_atom": False,
+            "num_properties": 1,
             "forces": {
                 "read_from": DATASET_ETHANOL_PATH,
                 "reader": "ase",
@@ -132,14 +142,16 @@ def test_ethanol_regression_train_and_invariance():
     }
 
     targets, _ = read_targets(OmegaConf.create(conf))
-    dataset = Dataset({"system": systems, "energy": targets["energy"]})
+    dataset = Dataset.from_dict({"system": systems, "energy": targets["energy"]})
 
     hypers = copy.deepcopy(DEFAULT_HYPERS)
     hypers["model"]["krr"]["num_sparse_points"] = 900
 
-    target_info_dict = TargetInfoDict(
-        energy=TargetInfo(quantity="energy", unit="kcal/mol")
-    )
+    target_info_dict = {
+        "energy": get_energy_target_info(
+            {"quantity": "energy", "unit": "eV"}, add_position_gradients=True
+        )
+    }
 
     dataset_info = DatasetInfo(
         length_unit="Angstrom", atomic_types=[1, 6, 7, 8], targets=target_info_dict
@@ -155,6 +167,7 @@ def test_ethanol_regression_train_and_invariance():
         val_datasets=[dataset],
         checkpoint_dir=".",
     )
+    gap.eval()
 
     # Predict on the first five systems
     output = gap(systems[:5], {"energy": gap.outputs["energy"]})

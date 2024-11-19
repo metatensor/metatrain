@@ -36,6 +36,7 @@ def write_xyz(
     ]
     for target_name, target_tensor_map in predictions.items():
         # split this target by structure
+        target_tensor_map = target_tensor_map.to("cpu")
         split_target = metatensor.torch.split(
             target_tensor_map, "samples", split_labels
         )
@@ -56,13 +57,16 @@ def write_xyz(
             block = target_map.block()
             if "atom" in block.samples.names:
                 # save inside arrays
-                arrays[target_name] = block.values.detach().cpu().numpy()
+                values = block.values.detach().cpu().numpy()
+                arrays[target_name] = values.reshape(values.shape[0], -1)
+                # reshaping here is necessary because `arrays` only accepts 2D arrays
             else:
                 # save inside info
                 if block.values.numel() == 1:
                     info[target_name] = block.values.item()
                 else:
-                    info[target_name] = block.values.detach().cpu().numpy()
+                    info[target_name] = block.values.detach().cpu().numpy().squeeze(0)
+                    # squeeze the sample dimension, which corresponds to the system
 
             for gradient_name, gradient_block in block.gradients():
                 # here, we assume that gradients are always an array, and never a scalar

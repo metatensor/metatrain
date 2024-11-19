@@ -4,7 +4,8 @@ import torch
 from metatensor.torch.atomistic import System
 
 from metatrain.experimental.soap_bpnn import __model__
-from metatrain.utils.data import DatasetInfo, TargetInfo, read_systems
+from metatrain.utils.data import DatasetInfo, read_systems
+from metatrain.utils.data.target_info import get_energy_target_info
 from metatrain.utils.output_gradient import compute_gradient
 
 from . import MODEL_HYPERS, RESOURCES_PATH
@@ -18,8 +19,8 @@ def test_forces(is_training):
         length_unit="angstrom",
         atomic_types={1, 6, 7, 8},
         targets={
-            "energy": TargetInfo(
-                quantity="energy", unit="eV", per_atom=False, gradients=["positions"]
+            "energy": get_energy_target_info(
+                {"quantity": "energy", "unit": "eV"}, add_position_gradients=True
             )
         },
     )
@@ -32,6 +33,7 @@ def test_forces(is_training):
             positions=system.positions.requires_grad_(True),
             cell=system.cell,
             types=system.types,
+            pbc=system.pbc,
         )
         for system in systems
     ]
@@ -50,6 +52,7 @@ def test_forces(is_training):
             positions=system.positions.requires_grad_(True),
             cell=system.cell,
             types=system.types,
+            pbc=system.pbc,
         )
         for system in systems
     ]
@@ -75,8 +78,8 @@ def test_virial(is_training):
         length_unit="angstrom",
         atomic_types={6},
         targets={
-            "energy": TargetInfo(
-                quantity="energy", unit="eV", per_atom=False, gradients=["strain"]
+            "energy": get_energy_target_info(
+                {"quantity": "energy", "unit": "eV"}, add_strain_gradients=True
             )
         },
     )
@@ -96,6 +99,7 @@ def test_virial(is_training):
             positions=system.positions @ strain,
             cell=system.cell @ strain,
             types=system.types,
+            pbc=system.pbc,
         )
         for system, strain in zip(systems, strains)
     ]
@@ -121,6 +125,7 @@ def test_virial(is_training):
             positions=system.positions @ strain,
             cell=system.cell @ strain,
             types=system.types,
+            pbc=system.pbc,
         )
         for system, strain in zip(systems, strains)
     ]
@@ -144,11 +149,10 @@ def test_both(is_training):
         length_unit="angstrom",
         atomic_types={6},
         targets={
-            "energy": TargetInfo(
-                quantity="energy",
-                unit="eV",
-                per_atom=False,
-                gradients=["positions", "strain"],
+            "energy": get_energy_target_info(
+                {"quantity": "energy", "unit": "eV"},
+                add_position_gradients=True,
+                add_strain_gradients=True,
             )
         },
     )
@@ -170,6 +174,7 @@ def test_both(is_training):
             positions=system.positions @ strain,
             cell=system.cell @ strain,
             types=system.types,
+            pbc=system.pbc,
         )
         for system, strain in zip(systems, strains)
     ]
@@ -193,6 +198,7 @@ def test_both(is_training):
             positions=system.positions @ strain,
             cell=system.cell @ strain,
             types=system.types,
+            pbc=system.pbc,
         )
         for system, strain in zip(systems, strains)
     ]
