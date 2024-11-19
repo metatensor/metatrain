@@ -2,9 +2,9 @@ import copy
 import os
 
 import numpy as np
+from physical_basis import PhysicalBasis
 
 from .splines import generate_splines
-from physical_basis import PhysicalBasis
 
 
 def get_physical_basis_spliner(E_max, r_cut, normalize):

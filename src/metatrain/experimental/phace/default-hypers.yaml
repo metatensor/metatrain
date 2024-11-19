@@ -1,33 +1,39 @@
-base_precision: 32
+architecture:
+  name: experimental.phace 
+  
+  model:
+    nu_max: 3
+    n_message_passing_layers: 2
+    cutoff: 5.0
+    n_element_channels: 8
+    radial_basis:
+      mlp: true
+      type: physical
+      E_max: 70.0
+      scale: -1.0
+    nu_scaling: 1.0
+    mp_scaling: 1.0
+    overall_scaling: 1.0
+    disable_nu_0: True
+    use_sphericart: False
+    use_mops: False
+    zbl: False
 
-model:
-  nu_max: 3
-  n_message_passing_layers: 2
-  cutoff: 5.0
-  n_element_channels: 8
-  radial_basis:
-    mlp: true
-    type: physical
-    E_max: 70.0
-    scale: -1.0
-  nu_scaling: 1.0
-  mp_scaling: 1.0
-  overall_scaling: 1.0
-  disable_nu_0: True
-  use_sphericart: False
-  use_mops: False
-
-training:
-  distributed: False
-  distributed_port: 39591
-  batch_size: 8
-  num_epochs: 100
-  learning_rate: 0.001
-  early_stopping_patience: 100
-  scheduler_patience: 10
-  scheduler_factor: 0.8
-  log_interval: 10
-  checkpoint_interval: 25
-  fixed_composition_weights: {}
-  per_structure_targets: []
-  loss_weights: {}
+  training:
+    distributed: False
+    distributed_port: 39591
+    batch_size: 8
+    num_epochs: 100
+    learning_rate: 0.001
+    early_stopping_patience: 100
+    scheduler_patience: 10
+    scheduler_factor: 0.8
+    log_interval: 10
+    checkpoint_interval: 25
+    fixed_composition_weights: {}
+    per_structure_targets: []
+    log_mae: False
+    loss:
+      type: mse
+      weights: {}
+      reduction: sum

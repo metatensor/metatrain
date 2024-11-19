@@ -1,32 +1,32 @@
 from typing import Dict, List, Tuple
 
+import metatensor.torch
 import torch
 from metatensor.torch import Labels, TensorBlock, TensorMap
 
 from .cg import cg_combine_l1l2, cgs_to_device_dtype
 from .layers import Linear
 from .radial_basis import RadialBasis
-
 from .tensor_sum import EquivariantTensorAdd
-import metatensor.torch
 
 
 class DummyAdder(torch.nn.Module):
     def __init__(self):
         super().__init__()
-    def forward(self, tmap_1: metatensor.torch.TensorMap, tmap_2: metatensor.torch.TensorMap) -> metatensor.torch.TensorMap:
+
+    def forward(
+        self, tmap_1: metatensor.torch.TensorMap, tmap_2: metatensor.torch.TensorMap
+    ) -> metatensor.torch.TensorMap:
         return metatensor.torch.TensorMap(
-            keys=Labels(
-                names=["dummy"],
-                values=torch.empty(1, 1)
-            ),
-            blocks=[]
+            keys=Labels(names=["dummy"], values=torch.empty(1, 1)), blocks=[]
         )
 
 
 class InvariantMessagePasser(torch.nn.Module):
 
-    def __init__(self, hypers: Dict, all_species: List[int], mp_scaling, disable_nu_0) -> None:
+    def __init__(
+        self, hypers: Dict, all_species: List[int], mp_scaling, disable_nu_0
+    ) -> None:
         super().__init__()
 
         self.all_species = all_species
@@ -167,14 +167,15 @@ class EquivariantMessagePasser(torch.nn.Module):
         )
         self.nu_out = nu_triplet[2]
 
-        common_irreps = [irrep for irrep in self.irreps_out if irrep in irreps_in_features]
+        common_irreps = [
+            irrep for irrep in self.irreps_out if irrep in irreps_in_features
+        ]
         self.adder = EquivariantTensorAdd(common_irreps, self.k_max_l)
         # self.adder = EquivariantTensorAdd()
 
         self.mp_scaling = mp_scaling
 
         self.irreps_out = list(set(self.irreps_out + self.irreps_in_features))
-        
 
     def forward(
         self,
@@ -187,7 +188,10 @@ class EquivariantMessagePasser(torch.nn.Module):
         samples: Labels,  # TODO: can this go?
     ) -> TensorMap:
         # handle dtype and device of the cgs
-        if self.cgs["0_0"]["C"].device != features.device or self.cgs["0_0"]["C"].dtype != features.dtype:
+        if (
+            self.cgs["0_0"]["C"].device != features.device
+            or self.cgs["0_0"]["C"].dtype != features.dtype
+        ):
             self.cgs = cgs_to_device_dtype(self.cgs, features.device, features.dtype)
 
         radial_basis = self.radial_basis_calculator(r.values.squeeze(-1), r.samples)
@@ -206,7 +210,7 @@ class EquivariantMessagePasser(torch.nn.Module):
                 min_size = min(block_ls_1.shape[2], block_ls_2.values.shape[2])
                 tensor1 = block_ls_1[:, :, :min_size]
                 tensor2 = block_ls_2.values[neighbors, :, :min_size]
-                cgs = self.cgs[str(l1)+"_"+str(l2)]
+                cgs = self.cgs[str(l1) + "_" + str(l2)]
                 L_splits = cg_combine_l1l2(
                     tensor1,
                     tensor2,
@@ -216,7 +220,9 @@ class EquivariantMessagePasser(torch.nn.Module):
                     cgs["I"],
                     cgs["split_sizes"],
                 )
-                for i_L, L in enumerate(range(abs(l1 - l2), min(l1 + l2, self.l_max) + 1)):
+                for i_L, L in enumerate(
+                    range(abs(l1 - l2), min(l1 + l2, self.l_max) + 1)
+                ):
                     S = int(s1 * s2 * (-1) ** (l1 + l2 + L))
                     result = L_splits[i_L]
                     pooled_result = torch.zeros(

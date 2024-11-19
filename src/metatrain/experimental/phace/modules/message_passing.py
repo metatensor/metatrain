@@ -1,32 +1,32 @@
 from typing import Dict, List, Tuple
 
+import metatensor.torch
 import torch
 from metatensor.torch import Labels, TensorBlock, TensorMap
 
 from .cg import cg_combine_l1l2L
 from .layers import Linear
 from .radial_basis import RadialBasis
-
 from .tensor_sum import EquivariantTensorAdd
-import metatensor.torch
 
 
 class DummyAdder(torch.nn.Module):
     def __init__(self):
         super().__init__()
-    def forward(self, tmap_1: metatensor.torch.TensorMap, tmap_2: metatensor.torch.TensorMap) -> metatensor.torch.TensorMap:
+
+    def forward(
+        self, tmap_1: metatensor.torch.TensorMap, tmap_2: metatensor.torch.TensorMap
+    ) -> metatensor.torch.TensorMap:
         return metatensor.torch.TensorMap(
-            keys=Labels(
-                names=["dummy"],
-                values=torch.empty(1, 1)
-            ),
-            blocks=[]
+            keys=Labels(names=["dummy"], values=torch.empty(1, 1)), blocks=[]
         )
 
 
 class InvariantMessagePasser(torch.nn.Module):
 
-    def __init__(self, hypers: Dict, all_species: List[int], mp_scaling, disable_nu_0) -> None:
+    def __init__(
+        self, hypers: Dict, all_species: List[int], mp_scaling, disable_nu_0
+    ) -> None:
         super().__init__()
 
         self.all_species = all_species
@@ -167,14 +167,15 @@ class EquivariantMessagePasser(torch.nn.Module):
         )
         self.nu_out = nu_triplet[2]
 
-        common_irreps = [irrep for irrep in self.irreps_out if irrep in irreps_in_features]
+        common_irreps = [
+            irrep for irrep in self.irreps_out if irrep in irreps_in_features
+        ]
         self.adder = EquivariantTensorAdd(common_irreps, self.k_max_l)
         # self.adder = EquivariantTensorAdd()
 
         self.mp_scaling = mp_scaling
 
         self.irreps_out = list(set(self.irreps_out + self.irreps_in_features))
-        
 
     def forward(
         self,
@@ -215,7 +216,11 @@ class EquivariantMessagePasser(torch.nn.Module):
                 tensor12 = tensor1.swapaxes(1, 2).unsqueeze(3) * tensor2.swapaxes(
                     1, 2
                 ).unsqueeze(2)
-                tensor12 = tensor12.reshape(tensor12.shape[0], tensor12.shape[1], tensor12.shape[2]*tensor12.shape[3])
+                tensor12 = tensor12.reshape(
+                    tensor12.shape[0],
+                    tensor12.shape[1],
+                    tensor12.shape[2] * tensor12.shape[3],
+                )
                 for L in range(abs(l1 - l2), min(l1 + l2, self.l_max) + 1):
                     S = int(s1 * s2 * (-1) ** (l1 + l2 + L))
                     result = cg_combine_l1l2L(

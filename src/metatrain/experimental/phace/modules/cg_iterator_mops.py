@@ -4,7 +4,7 @@ import torch
 from metatensor.torch import Labels, TensorBlock, TensorMap
 
 from .cg import cg_combine_l1l2, cgs_to_device_dtype
-from .layers import Linear, EquivariantLinear
+from .layers import EquivariantLinear, Linear
 from .tensor_sum import EquivariantTensorAdd
 
 
@@ -147,8 +147,13 @@ class CGIteration(torch.nn.Module):
 
     def forward(self, features_1: TensorMap, features_2: TensorMap):
         # handle dtype and device of the cgs
-        if self.cgs["0_0"]["C"].device != features_1.device or self.cgs["0_0"]["C"].dtype != features_1.dtype:
-            self.cgs = cgs_to_device_dtype(self.cgs, features_1.device, features_1.dtype)
+        if (
+            self.cgs["0_0"]["C"].device != features_1.device
+            or self.cgs["0_0"]["C"].dtype != features_1.dtype
+        ):
+            self.cgs = cgs_to_device_dtype(
+                self.cgs, features_1.device, features_1.dtype
+            )
 
         # COULD DECREASE COST IF SYMMETRIC
         # Assume first and last dimension is the same for both
@@ -162,7 +167,7 @@ class CGIteration(torch.nn.Module):
                 min_size = min(block_ls_1.values.shape[2], block_ls_2.values.shape[2])
                 tensor1 = block_ls_1.values[:, :, :min_size]
                 tensor2 = block_ls_2.values[:, :, :min_size]
-                cgs = self.cgs[str(l1)+"_"+str(l2)]
+                cgs = self.cgs[str(l1) + "_" + str(l2)]
                 L_splits = cg_combine_l1l2(
                     tensor1,
                     tensor2,
@@ -172,7 +177,9 @@ class CGIteration(torch.nn.Module):
                     cgs["I"],
                     cgs["split_sizes"],
                 )
-                for i_L, L in enumerate(range(abs(l1 - l2), min(l1 + l2, self.l_max) + 1)):
+                for i_L, L in enumerate(
+                    range(abs(l1 - l2), min(l1 + l2, self.l_max) + 1)
+                ):
                     S = int(s1 * s2 * (-1) ** (l1 + l2 + L))
                     if self.requested_LS_string is not None:
                         if str(L) + "_" + str(S) != self.requested_LS_string:

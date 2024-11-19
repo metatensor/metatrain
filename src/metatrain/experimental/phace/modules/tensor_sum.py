@@ -2,7 +2,6 @@ from typing import List, Tuple
 
 import metatensor.torch
 import torch
-
 from metatensor.torch import Labels, TensorBlock, TensorMap
 
 from .layers import EquivariantLinear
@@ -13,7 +12,9 @@ class EquivariantTensorAdd(torch.nn.Module):
     def __init__(self, common_irreps: List[Tuple[int, int]], k_max_l):
         super().__init__()
 
-        self.linear_contractions = EquivariantLinear(common_irreps, k_max_l, double=True)
+        self.linear_contractions = EquivariantLinear(
+            common_irreps, k_max_l, double=True
+        )
 
     def forward(
         self, tmap_1: metatensor.torch.TensorMap, tmap_2: metatensor.torch.TensorMap
@@ -48,7 +49,9 @@ class EquivariantTensorAdd(torch.nn.Module):
                     components=block_1.components,
                     properties=Labels(
                         names=block_1.properties.names,
-                        values=torch.arange(concat.shape[-1], device=concat.device).reshape(-1, 1),
+                        values=torch.arange(
+                            concat.shape[-1], device=concat.device
+                        ).reshape(-1, 1),
                     ),
                 )
                 intersection_blocks.append(new_block)
@@ -58,7 +61,9 @@ class EquivariantTensorAdd(torch.nn.Module):
         intersection_map = metatensor.torch.TensorMap(
             keys=metatensor.torch.Labels(
                 names=["nu", "o3_lambda", "o3_sigma"],
-                values=torch.tensor(intersection_keys, device=tmap_1.keys.values.device),
+                values=torch.tensor(
+                    intersection_keys, device=tmap_1.keys.values.device
+                ),
             ),
             blocks=intersection_blocks,
         )
@@ -99,13 +104,14 @@ class EquivariantTensorAdd(torch.nn.Module):
         new_map = metatensor.torch.TensorMap(
             keys=metatensor.torch.Labels(
                 names=["nu", "o3_lambda", "o3_sigma"],
-                values=torch.concatenate([intersection_map.keys.values, union_map.keys.values])
+                values=torch.concatenate(
+                    [intersection_map.keys.values, union_map.keys.values]
+                ),
             ),
-            blocks=intersection_map.blocks()+union_map.blocks(),
+            blocks=intersection_map.blocks() + union_map.blocks(),
         )
 
         return new_map
-
 
 
 # class EquivariantTensorAdd(torch.nn.Module):

@@ -1,6 +1,8 @@
 import numpy as np
 import torch
 import wigners
+
+
 try:
     import mops.torch
 except ImportError:
@@ -8,16 +10,18 @@ except ImportError:
 from typing import Dict
 
 
-def cg_combine_l1l2(tensor_A, tensor_B, tensor_C, indices_A, indices_B, indices_output, split_sizes):
-    
+def cg_combine_l1l2(
+    tensor_A, tensor_B, tensor_C, indices_A, indices_B, indices_output, split_sizes
+):
+
     assert tensor_A.shape[0] == tensor_B.shape[0]
     shape_0 = tensor_A.shape[0]
 
     assert tensor_A.shape[2] == tensor_B.shape[2]
     shape_2 = tensor_A.shape[2]
 
-    tensor_A = tensor_A.swapaxes(1, 2).reshape(shape_0*shape_2, tensor_A.shape[1])
-    tensor_B = tensor_B.swapaxes(1, 2).reshape(shape_0*shape_2, tensor_B.shape[1])
+    tensor_A = tensor_A.swapaxes(1, 2).reshape(shape_0 * shape_2, tensor_A.shape[1])
+    tensor_B = tensor_B.swapaxes(1, 2).reshape(shape_0 * shape_2, tensor_B.shape[1])
 
     output_size = int(split_sizes.sum().item())
     mops_result = mops.torch.sparse_accumulation_of_products(
@@ -49,10 +53,10 @@ def cgs_to_sparse(cgs, l_max):
                 nonzero_coeffs = dense_cg_matrix[where_nonzero]
                 i1.append(m1)
                 i2.append(m2)
-                I.append(M+base_M_index)
+                I.append(M + base_M_index)
                 C.append(nonzero_coeffs)
-                split_sizes.append(2*L+1)
-                base_M_index += 2*L+1
+                split_sizes.append(2 * L + 1)
+                base_M_index += 2 * L + 1
             sparse_cgs[f"{l1}_{l2}"] = {}
             sparse_cgs[f"{l1}_{l2}"]["i1"] = torch.concatenate(i1).to(torch.int32)
             sparse_cgs[f"{l1}_{l2}"]["i2"] = torch.concatenate(i2).to(torch.int32)
@@ -60,9 +64,11 @@ def cgs_to_sparse(cgs, l_max):
             sparse_cgs[f"{l1}_{l2}"]["C"] = torch.concatenate(C)
             sparse_cgs[f"{l1}_{l2}"]["split_sizes"] = torch.tensor(split_sizes)
     return sparse_cgs
-            
 
-def cgs_to_device_dtype(cgs: Dict[str, Dict[str, torch.Tensor]], device: torch.device, dtype: torch.dtype):
+
+def cgs_to_device_dtype(
+    cgs: Dict[str, Dict[str, torch.Tensor]], device: torch.device, dtype: torch.dtype
+):
     cgs_device: Dict[str, Dict[str, torch.Tensor]] = {}
     for key, value in cgs.items():
         cgs_device[key] = {}
@@ -80,7 +86,9 @@ def cg_combine_l1l2L(tensor12, cg_tensor):
     out_tensor = tensor12 @ cg_tensor.reshape(
         cg_tensor.shape[0] * cg_tensor.shape[1], cg_tensor.shape[2]
     )
-    return out_tensor.swapaxes(1, 2) #/ (cg_tensor.shape[0]*cg_tensor.shape[1]*cg_tensor.shape[2])
+    return out_tensor.swapaxes(
+        1, 2
+    )  # / (cg_tensor.shape[0]*cg_tensor.shape[1]*cg_tensor.shape[2])
 
 
 def get_cg_coefficients(l_max):

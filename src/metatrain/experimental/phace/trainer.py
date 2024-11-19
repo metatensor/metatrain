@@ -1,34 +1,25 @@
+import copy
 import logging
 import warnings
 from pathlib import Path
 from typing import List, Union
 
 import torch
+import torch.distributed
 from torch.utils.data import DataLoader, DistributedSampler
 
-from ...utils.composition import calculate_composition_weights
-from ...utils.data import (
-    CombinedDataLoader,
-    Dataset,
-    TargetInfoDict,
-    collate_fn,
-    get_all_targets,
-)
-import torch.distributed
+from ...utils.data import CombinedDataLoader, Dataset, collate_fn, get_all_targets
 from ...utils.distributed.distributed_data_parallel import DistributedDataParallel
 from ...utils.distributed.slurm import DistributedEnvironment
-from ...utils.data.extract_targets import get_targets_dict
 from ...utils.evaluate_model import evaluate_model
 from ...utils.external_naming import to_external_name
+from ...utils.io import check_file_extension
 from ...utils.logging import MetricLogger
 from ...utils.loss import TensorMapDictLoss
-from ...utils.metrics import RMSEAccumulator, MAEAccumulator
+from ...utils.metrics import MAEAccumulator, RMSEAccumulator
 from ...utils.neighbor_lists import get_system_with_neighbor_lists
 from ...utils.per_atom import average_by_num_atoms
-from ...utils.scaling import calculate_scaling
-from ...utils.io import check_file_extension
 from .model import PhACE
-import copy
 
 
 logger = logging.getLogger(__name__)
@@ -87,53 +78,18 @@ class Trainer:
             logger.info(f"Training on {world_size} devices with dtype {dtype}")
         else:
             logger.info(f"Training on device {device} with dtype {dtype}")
+
+        # Move the model to the device and dtype:
         model.to(device=device, dtype=dtype)
+        # The additive models of the SOAP-BPNN are always in float64 (to avoid
+        # numerical errors in the composition weights, which can be very large).
+        for additive_model in model.additive_models:
+            additive_model.to(dtype=torch.float64)
 
-        # Calculate and set the composition weights for all targets:
         logger.info("Calculating composition weights")
-        for target_name in model.new_outputs:
-            if "mtm::aux::" in target_name:
-                continue
-            # TODO: document transfer learning and say that outputs that are already
-            # present in the model will keep their composition weights
-            if target_name in self.hypers["fixed_composition_weights"].keys():
-                logger.info(
-                    f"For {target_name}, model will use "
-                    "user-supplied composition weights"
-                )
-                cur_weight_dict = self.hypers["fixed_composition_weights"][target_name]
-                atomic_types = []
-                num_species = len(cur_weight_dict)
-                fixed_weights = torch.zeros(num_species, dtype=dtype, device=device)
-
-                for ii, (key, weight) in enumerate(cur_weight_dict.items()):
-                    atomic_types.append(key)
-                    fixed_weights[ii] = weight
-
-                if not set(atomic_types) == set(model.atomic_types):
-                    raise ValueError(
-                        "Supplied atomic types are not present in the dataset."
-                    )
-                model.set_composition_weights(
-                    target_name, fixed_weights, atomic_types
-                )
-
-            else:
-                train_datasets_with_target = []
-                for dataset in train_datasets:
-                    if target_name in get_all_targets(dataset):
-                        train_datasets_with_target.append(dataset)
-                if len(train_datasets_with_target) == 0:
-                    raise ValueError(
-                        f"Target {target_name} in the model's new capabilities is not "
-                        "present in any of the training datasets."
-                    )
-                composition_weights, composition_types = calculate_composition_weights(
-                    train_datasets_with_target, target_name
-                )
-                model.set_composition_weights(
-                    target_name, composition_weights, composition_types
-                )
+        model.additive_models[0].train_model(  # this is the composition model
+            train_datasets, self.hypers["fixed_composition_weights"]
+        )
 
         # Calculate NLs:
         logger.info("Calculating neighbors lists for the datasets")
@@ -207,9 +163,9 @@ class Trainer:
         val_dataloader = CombinedDataLoader(val_dataloaders, shuffle=False)
 
         # Extract all the possible outputs and their gradients:
-        training_targets = get_targets_dict(train_datasets, model.dataset_info)
+        train_targets = (model.module if is_distributed else model).dataset_info.targets
         outputs_list = []
-        for target_name, target_info in training_targets.items():
+        for target_name, target_info in train_targets.items():
             outputs_list.append(target_name)
             for gradient_name in target_info.gradients:
                 outputs_list.append(f"{target_name}_{gradient_name}_gradients")
@@ -217,26 +173,32 @@ class Trainer:
         loss_weights_dict = {}
         for output_name in outputs_list:
             loss_weights_dict[output_name] = (
-                self.hypers["loss_weights"][
-                    to_external_name(output_name, training_targets)
+                self.hypers["loss"]["weights"][
+                    to_external_name(output_name, train_targets)
                 ]
-                if to_external_name(output_name, training_targets)
-                in self.hypers["loss_weights"]
+                if to_external_name(output_name, train_targets)
+                in self.hypers["loss"]["weights"]
                 else 1.0
             )
         loss_weights_dict_external = {
-            to_external_name(key, training_targets): value
+            to_external_name(key, train_targets): value
             for key, value in loss_weights_dict.items()
         }
+        loss_hypers = copy.deepcopy(self.hypers["loss"])
+        loss_hypers["weights"] = loss_weights_dict
         logging.info(f"Training with loss weights: {loss_weights_dict_external}")
 
         # Create a loss function:
-        loss_fn = TensorMapDictLoss(loss_weights_dict)
+        loss_fn = TensorMapDictLoss(
+            **loss_hypers,
+        )
 
         torch.jit.set_fusion_strategy([("DYNAMIC", 0)])
         scripted_model = torch.jit.script(model)
         if is_distributed:
-            scripted_model = DistributedDataParallel(scripted_model, device_ids=[device], find_unused_parameters=False)
+            scripted_model = DistributedDataParallel(
+                scripted_model, device_ids=[device], find_unused_parameters=False
+            )
 
         # Create an optimizer:
         optimizer = torch.optim.Adam(
@@ -246,8 +208,17 @@ class Trainer:
             optimizer.load_state_dict(self.optimizer_state_dict)
 
         # Create an optimizer and a scheduler:
-        optimizer = torch.optim.AdamW(scripted_model.parameters(), lr=self.hypers["learning_rate"], amsgrad=True, weight_decay=5e-5)
-        scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, factor=self.hypers["scheduler_factor"], patience=self.hypers["scheduler_patience"])
+        optimizer = torch.optim.AdamW(
+            scripted_model.parameters(),
+            lr=self.hypers["learning_rate"],
+            amsgrad=True,
+            weight_decay=5e-5,
+        )
+        scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
+            optimizer,
+            factor=self.hypers["scheduler_factor"],
+            patience=self.hypers["scheduler_patience"],
+        )
 
         # per-atom targets:
         per_structure_targets = self.hypers["per_structure_targets"]
@@ -270,14 +241,13 @@ class Trainer:
                 systems, targets = batch
                 systems = [system.to(device=device, dtype=dtype) for system in systems]
                 targets = {
-                    key: value.to(device=device, dtype=dtype) for key, value in targets.items()
+                    key: value.to(device=device, dtype=dtype)
+                    for key, value in targets.items()
                 }
                 predictions = evaluate_model(
                     scripted_model,
                     systems,
-                    TargetInfoDict(
-                        **{key: training_targets[key] for key in targets.keys()}
-                    ),
+                    {key: train_targets[key] for key in targets.keys()},
                     is_training=True,
                 )
 
@@ -295,8 +265,12 @@ class Trainer:
                 train_mae_calculator.update(predictions, targets)
 
             finalized_train_info = {
-                **train_rmse_calculator.finalize(not_per_atom=["positions_gradients"] + per_structure_targets),
-                **train_mae_calculator.finalize(not_per_atom=["positions_gradients"] + per_structure_targets),
+                **train_rmse_calculator.finalize(
+                    not_per_atom=["positions_gradients"] + per_structure_targets
+                ),
+                **train_mae_calculator.finalize(
+                    not_per_atom=["positions_gradients"] + per_structure_targets
+                ),
             }
 
             val_loss = 0.0
@@ -304,14 +278,13 @@ class Trainer:
                 systems, targets = batch
                 systems = [system.to(device=device, dtype=dtype) for system in systems]
                 targets = {
-                    key: value.to(device=device, dtype=dtype) for key, value in targets.items()
+                    key: value.to(device=device, dtype=dtype)
+                    for key, value in targets.items()
                 }
                 predictions = evaluate_model(
                     scripted_model,
                     systems,
-                    TargetInfoDict(
-                        **{key: training_targets[key] for key in targets.keys()}
-                    ),
+                    {key: train_targets[key] for key in targets.keys()},
                     is_training=False,
                 )
 
@@ -327,8 +300,12 @@ class Trainer:
                 val_mae_calculator.update(predictions, targets)
 
             finalized_val_info = {
-                **val_rmse_calculator.finalize(not_per_atom=["positions_gradients"] + per_structure_targets),
-                **val_mae_calculator.finalize(not_per_atom=["positions_gradients"] + per_structure_targets),
+                **val_rmse_calculator.finalize(
+                    not_per_atom=["positions_gradients"] + per_structure_targets
+                ),
+                **val_mae_calculator.finalize(
+                    not_per_atom=["positions_gradients"] + per_structure_targets
+                ),
             }
 
             # Now we log the information:
@@ -369,8 +346,13 @@ class Trainer:
                 break
 
             val_metric = (
-                finalized_val_info["energy MAE (per atom)"]*finalized_val_info["energy_positions_gradients MAE"] if "energy_positions_gradients MAE" in finalized_train_info else (
-                    finalized_val_info["energy MAE"] if "energy MAE" in finalized_val_info else finalized_val_info["energy MAE (per atom)"]
+                finalized_val_info["energy MAE (per atom)"]
+                * finalized_val_info["energy_positions_gradients MAE"]
+                if "energy_positions_gradients MAE" in finalized_train_info
+                else (
+                    finalized_val_info["energy MAE"]
+                    if "energy MAE" in finalized_val_info
+                    else finalized_val_info["energy MAE (per atom)"]
                 )
             )
             if val_metric < best_val_metric:
@@ -381,7 +363,10 @@ class Trainer:
 
             else:
                 n_epochs_without_improvement += 1
-                if n_epochs_without_improvement >= self.hypers["early_stopping_patience"]:
+                if (
+                    n_epochs_without_improvement
+                    >= self.hypers["early_stopping_patience"]
+                ):
                     logger.info(
                         f"Stopping early after {n_epochs_without_improvement} epochs without improvement"
                     )
@@ -389,11 +374,13 @@ class Trainer:
 
         if is_distributed:
             model.load_state_dict(
-                {name.replace("module.", ""): tensor for name, tensor in best_state_dict.items()}
+                {
+                    name.replace("module.", ""): tensor
+                    for name, tensor in best_state_dict.items()
+                }
             )
         else:
             model.load_state_dict(best_state_dict)
-
 
     def save_checkpoint(self, model, path: Union[str, Path]):
         # ???????????????

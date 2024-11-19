@@ -6,22 +6,19 @@ import torch
 from metatensor.torch import Labels, TensorMap
 from metatensor.torch.atomistic import (
     MetatensorAtomisticModel,
+    ModelCapabilities,
+    ModelMetadata,
     ModelOutput,
     NeighborListOptions,
     System,
-    ModelCapabilities
 )
 
-from ...utils.io import check_file_extension
-
-from ...utils.data.dataset import DatasetInfo
-
-from ...utils.composition import apply_composition_contribution_samples
+from ...utils.additive import ZBL, CompositionModel
+from ...utils.data.dataset import DatasetInfo, TargetInfo
 from ...utils.dtype import dtype_to_str
-from ...utils.export import export
-from ...utils.scaling import apply_scaling
+from ...utils.io import check_file_extension
 from .modules.center_embedding import embed_centers
-from .modules.cg import get_cg_coefficients, cgs_to_sparse
+from .modules.cg import cgs_to_sparse, get_cg_coefficients
 from .modules.initial_features import get_initial_features
 from .modules.layers import InvariantLinear, InvariantMLP
 from .modules.message_passing import InvariantMessagePasser
@@ -40,19 +37,6 @@ class PhACE(torch.nn.Module):
         self.dataset_info = dataset_info
         self.new_outputs = list(dataset_info.targets.keys())
         self.atomic_types = sorted(dataset_info.atomic_types)
-
-        self.outputs = {
-            key: ModelOutput(
-                quantity=value.quantity,
-                unit=value.unit,
-                per_atom=True,
-            )
-            for key, value in dataset_info.targets.items()
-        }
-        # the model is always capable of outputting the last layer features
-        self.outputs["mtt::aux::last_layer_features"] = ModelOutput(
-            unit="unitless", per_atom=True
-        )
 
         model_hypers["normalize"] = True
 
@@ -82,7 +66,10 @@ class PhACE(torch.nn.Module):
             raise ValueError("Number of message-passing layers must be at least 1")
 
         self.invariant_message_passer = InvariantMessagePasser(
-            model_hypers, self.atomic_types, self.mp_scaling, model_hypers["disable_nu_0"]
+            model_hypers,
+            self.atomic_types,
+            self.mp_scaling,
+            model_hypers["disable_nu_0"],
         )
 
         self.atomic_types = self.atomic_types
@@ -105,7 +92,9 @@ class PhACE(torch.nn.Module):
         if model_hypers["use_mops"]:
             cgs = cgs_to_sparse(cgs, self.l_max)
 
-        self.precomputer = Precomputer(self.l_max, use_sphericart=model_hypers["use_sphericart"])
+        self.precomputer = Precomputer(
+            self.l_max, use_sphericart=model_hypers["use_sphericart"]
+        )
 
         if model_hypers["use_mops"]:
             from .modules.cg_iterator_mops import CGIterator
@@ -130,7 +119,12 @@ class PhACE(torch.nn.Module):
             else:
                 irreps_equiv_mp = generalized_cg_iterators[-1].irreps_out
             equivariant_message_passer = EquivariantMessagePasser(
-                model_hypers, self.atomic_types, irreps_equiv_mp, [1, self.nu_max, self.nu_max + 1], cgs, self.mp_scaling
+                model_hypers,
+                self.atomic_types,
+                irreps_equiv_mp,
+                [1, self.nu_max, self.nu_max + 1],
+                cgs,
+                self.mp_scaling,
             )
             equivariant_message_passers.append(equivariant_message_passer)
             generalized_cg_iterator = CGIterator(
@@ -138,7 +132,9 @@ class PhACE(torch.nn.Module):
                 self.nu_max - 1,
                 cgs,
                 irreps_in=equivariant_message_passer.irreps_out,
-                requested_LS_string=("0_1" if idx == self.n_message_passing_layers-2 else None),
+                requested_LS_string=(
+                    "0_1" if idx == self.n_message_passing_layers - 2 else None
+                ),
             )
             generalized_cg_iterators.append(generalized_cg_iterator)
 
@@ -149,36 +145,36 @@ class PhACE(torch.nn.Module):
 
         self.last_mlp = InvariantMLP(self.k_max_l[0])
 
-        self.last_layers = torch.nn.ModuleDict(
-            {
-                output_name: InvariantLinear(self.k_max_l[0])
-                for output_name in self.outputs.keys() if not output_name.startswith("mtt::aux::")
-            }
-        )
+        self.last_layers = torch.nn.ModuleDict({})
+        self.outputs = {
+            "mtt::aux::last_layer_features": ModelOutput(unit="unitless", per_atom=True)
+        }  # the model is always capable of outputting the last-layer features
+        self.last_layers = torch.nn.ModuleDict({})
+        for target_name, target in dataset_info.targets.items():
+            self._add_output(target_name, target)
 
-        # creates a composition weight tensor that can be directly indexed by species,
-        # this can be left as a tensor of zero or set from the outside using
-        # set_composition_weights (recommended for better accuracy)
-        n_outputs = len(self.outputs)
-        self.register_buffer(
-            "composition_weights", torch.zeros((n_outputs, max(self.atomic_types) + 1))
+        # additive models: these are handled by the trainer at training
+        # time, and they are added to the output at evaluation time
+        composition_model = CompositionModel(
+            model_hypers={},
+            dataset_info=dataset_info,
         )
-        # buffers cannot be indexed by strings (torchscript), so we create a single
-        # tensor for all output. Due to this, we need to slice the tensor when we use
-        # it and use the output name to select the correct slice via a dictionary
-        self.output_to_index = {
-            output_name: i for i, output_name in enumerate(self.outputs.keys())
-        }
-
-        # we also register a buffer for the shifts:
-        # these are meant to be modified from outside
-        self.register_buffer("scalings", torch.ones((n_outputs,)))
+        additive_models = [composition_model]
+        if self.hypers["zbl"]:
+            additive_models.append(ZBL(model_hypers, dataset_info))
+        self.additive_models = torch.nn.ModuleList(additive_models)
 
     def restart(self, dataset_info: DatasetInfo) -> "PhACE":
         # merge old and new dataset info
         merged_info = self.dataset_info.union(dataset_info)
-        new_atomic_types = merged_info.atomic_types - self.atomic_types
-        new_targets = merged_info.targets - self.dataset_info.targets
+        new_atomic_types = [
+            at for at in merged_info.atomic_types if at not in self.atomic_types
+        ]
+        new_targets = {
+            key: value
+            for key, value in merged_info.targets.items()
+            if key not in self.dataset_info.targets
+        }
 
         if len(new_atomic_types) > 0:
             raise ValueError(
@@ -187,19 +183,11 @@ class PhACE(torch.nn.Module):
             )
 
         # register new outputs as new last layers
-        for output_name in new_targets:
-            self.add_output(output_name)
+        for target_name, target in new_targets.items():
+            self._add_output(target_name, target)
 
         self.dataset_info = merged_info
         self.atomic_types = sorted(self.atomic_types)
-
-        for target_name, target in new_targets.items():
-            self.outputs[target_name] = ModelOutput(
-                quantity=target.quantity,
-                unit=target.unit,
-                per_atom=True,
-            )
-        self.new_outputs = list(new_targets.keys())
 
         return self
 
@@ -248,22 +236,20 @@ class PhACE(torch.nn.Module):
             structures["centers"],
             structures["species"],
             structures["positions"].dtype,
-            self.k_max_l[0]
+            self.k_max_l[0],
         )
-        initial_element_embedding = embed_centers(
-            initial_features, center_embeddings
-        )
+        initial_element_embedding = embed_centers(initial_features, center_embeddings)
 
         spherical_expansion = self.invariant_message_passer(
             r,
-            sh, 
+            sh,
             structures["structure_offsets"][structures["structure_pairs"]]
             + structures["pairs"][:, 0],
             structures["structure_offsets"][structures["structure_pairs"]]
             + structures["pairs"][:, 1],
             n_atoms,
             initial_element_embedding,
-            samples
+            samples,
         )
 
         features = self.cg_iterator(spherical_expansion)
@@ -282,7 +268,7 @@ class PhACE(torch.nn.Module):
                 + structures["pairs"][:, 1],
                 n_atoms,
                 embedded_features,
-                samples
+                samples,
             )
             iterated_features = generalized_cg_iterator(mp_features)
             features = iterated_features
@@ -302,15 +288,8 @@ class PhACE(torch.nn.Module):
         atomic_energies: Dict[str, TensorMap] = {}
         for output_name, output_layer in self.last_layers.items():
             if output_name in outputs:
-                atomic_energies[output_name] = apply_composition_contribution_samples(
-                    metatensor.torch.multiply(output_layer(features), self.overall_scaling),
-                    # apply_scaling(
-                    #     output_layer(hidden_features),
-                    #     self.scalings[self.output_to_index[output_name]].item(),
-                    # ),
-                    self.composition_weights[  # type: ignore
-                        self.output_to_index[output_name]
-                    ],
+                atomic_energies[output_name] = metatensor.torch.multiply(
+                    output_layer(features), self.overall_scaling
                 )
 
         # Sum the atomic energies to get the output
@@ -318,6 +297,26 @@ class PhACE(torch.nn.Module):
             return_dict[output_name] = metatensor.torch.sum_over_samples(
                 atomic_energy, ["atom", "center_type"]
             )
+
+        if not self.training:
+            # at evaluation, we also add the additive contributions
+            for additive_model in self.additive_models:
+                # some of the outputs might not be present in the additive model
+                # (e.g. the composition model only provides outputs for scalar targets)
+                outputs_for_additive_model: Dict[str, ModelOutput] = {}
+                for output_name in outputs:
+                    if output_name in additive_model.outputs:
+                        outputs_for_additive_model[output_name] = outputs[output_name]
+                additive_contributions = additive_model(
+                    systems, outputs_for_additive_model, selected_atoms
+                )
+                for name in additive_contributions:
+                    if name.startswith("mtt::aux::"):
+                        continue  # skip auxiliary outputs (not targets)
+                    return_dict[name] = metatensor.torch.add(
+                        return_dict[name],
+                        additive_contributions[name],
+                    )
 
         return return_dict
 
@@ -339,57 +338,44 @@ class PhACE(torch.nn.Module):
     def export(self) -> MetatensorAtomisticModel:
         dtype = next(self.parameters()).dtype
         if dtype not in self.__supported_dtypes__:
-            raise ValueError(f"unsupported dtype {self.dtype} for PhACE")
+            raise ValueError(f"unsupported dtype {self.dtype} for SoapBpnn")
+
+        # Make sure the model is all in the same dtype
+        # For example, after training, the additive models could still be in
+        # float64
+        self.to(dtype)
+
+        interaction_ranges = [
+            self.hypers["cutoff"] * self.hypers["n_message_passing_layers"]
+        ]
+        for additive_model in self.additive_models:
+            if hasattr(additive_model, "cutoff_radius"):
+                interaction_ranges.append(additive_model.cutoff_radius)
+        interaction_range = max(interaction_ranges)
 
         capabilities = ModelCapabilities(
             outputs=self.outputs,
             atomic_types=self.atomic_types,
-            interaction_range=self.model_hypers["cutoff"],
+            interaction_range=interaction_range,
             length_unit=self.dataset_info.length_unit,
             supported_devices=self.__supported_devices__,
             dtype=dtype_to_str(dtype),
         )
 
-        return export(model=self, model_capabilities=capabilities)
+        return MetatensorAtomisticModel(self.eval(), ModelMetadata(), capabilities)
 
-    @torch.jit.export
-    def set_composition_weights(
-        self,
-        output_name: str,
-        input_composition_weights: torch.Tensor,
-        species: List[int],
-    ) -> None:
-        """Set the composition weights for a given output."""
-        # all species that are not present retain their weight of zero
-        self.composition_weights[self.output_to_index[output_name]][  # type: ignore
-            species
-        ] = input_composition_weights.to(
-            dtype=self.composition_weights.dtype,  # type: ignore
-            device=self.composition_weights.device,  # type: ignore
-        )
+    def _add_output(self, target_name: str, target: TargetInfo) -> None:
 
-    def add_output(self, output_name: str) -> None:
-        """Add a new output to the model."""
-        # add a new row to the composition weights tensor
-        self.composition_weights = torch.cat(
-            [
-                self.composition_weights,  # type: ignore
-                torch.zeros(
-                    1,
-                    self.composition_weights.shape[1],  # type: ignore
-                    dtype=self.composition_weights.dtype,  # type: ignore
-                    device=self.composition_weights.device,  # type: ignore
-                ),
-            ]
-        )  # type: ignore
-        self.output_to_index[output_name] = len(self.output_to_index)
-        # add a new linear layer to the last layers
-        model_hypers_bpnn = self.model_hypers["bpnn"]
-        if model_hypers_bpnn["num_hidden_layers"] == 0:
-            n_inputs_last_layer = model_hypers_bpnn["input_size"]
+        if target.is_scalar:
+            self.last_layers[target_name] = InvariantLinear(self.k_max_l[0])
         else:
-            n_inputs_last_layer = model_hypers_bpnn["num_neurons_per_layer"]
-        self.last_layers[output_name] = InvariantLinear(self.atomic_types, n_inputs_last_layer)
+            raise NotImplementedError("PhACE does not support non-scalar targets.")
+
+        self.outputs[target_name] = ModelOutput(
+            quantity=target.quantity,
+            unit=target.unit,
+            per_atom=True,
+        )
 
     def requested_neighbor_lists(
         self,
@@ -398,6 +384,7 @@ class PhACE(torch.nn.Module):
             NeighborListOptions(
                 cutoff=self.cutoff_radius,
                 full_list=True,
+                strict=True,
             )
         ]
 

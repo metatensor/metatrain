@@ -1,13 +1,13 @@
 import copy
 
 import ase.io
+import pytest
 import torch
 from metatensor.torch.atomistic import systems_to_torch
 
 from metatrain.experimental.phace import PhACE
 from metatrain.utils.data import DatasetInfo, TargetInfo, TargetInfoDict
 from metatrain.utils.neighbor_lists import get_system_with_neighbor_lists
-import pytest
 
 from . import DATASET_PATH, MODEL_HYPERS
 

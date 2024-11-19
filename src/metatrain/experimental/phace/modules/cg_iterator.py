@@ -4,7 +4,7 @@ import torch
 from metatensor.torch import Labels, TensorBlock, TensorMap
 
 from .cg import cg_combine_l1l2L
-from .layers import Linear, EquivariantLinear
+from .layers import EquivariantLinear, Linear
 from .tensor_sum import EquivariantTensorAdd
 
 

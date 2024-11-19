@@ -13,7 +13,7 @@ class Linear(torch.nn.Module):
         self.n_feat_in = n_feat_in
 
     def forward(self, x):
-        return self.linear_layer(x) * self.n_feat_in**(-0.5)
+        return self.linear_layer(x) * self.n_feat_in ** (-0.5)
 
 
 class InvariantLinear(torch.nn.Module):
@@ -56,13 +56,13 @@ class InvariantMLP(torch.nn.Module):
     def __init__(self, n_inputs: int) -> None:
         super().__init__()
         self.mlp = torch.nn.Sequential(
-            Linear(n_inputs, 4*n_inputs),
+            Linear(n_inputs, 4 * n_inputs),
             torch.nn.SiLU(),
             # Linear(4*n_inputs, 4*n_inputs),
             # torch.nn.SiLU(),
             # Linear(4*n_inputs, 4*n_inputs),
             # torch.nn.SiLU(),
-            Linear(4*n_inputs, n_inputs),
+            Linear(4 * n_inputs, n_inputs),
         )
 
     def forward(self, features: TensorMap) -> TensorMap:
@@ -101,7 +101,7 @@ class EquivariantLinear(torch.nn.Module):
         self.linear_contractions = torch.nn.ModuleDict(
             {
                 f"{L}_{S}": torch.nn.Sequential(
-                    Linear((2*k_max_l[L] if double else k_max_l[L]), k_max_l[L]),
+                    Linear((2 * k_max_l[L] if double else k_max_l[L]), k_max_l[L]),
                 )
                 for L, S in irreps
             }
@@ -122,7 +122,9 @@ class EquivariantLinear(torch.nn.Module):
                 components=block.components,
                 properties=Labels(
                     names=block.properties.names,
-                    values=torch.arange(new_values.shape[-1], device=new_values.device).reshape(-1, 1),
+                    values=torch.arange(
+                        new_values.shape[-1], device=new_values.device
+                    ).reshape(-1, 1),
                 ),
             )
             new_blocks.append(new_block)

@@ -1,12 +1,11 @@
 import metatensor.torch
+import numpy as np
 import torch
+from ase.data import covalent_radii
 from metatensor.torch import Labels
 
 from .layers import Linear
 from .physical_basis import get_physical_basis_spliner
-
-from ase.data import covalent_radii
-import numpy as np
 
 
 class RadialBasis(torch.nn.Module):
@@ -36,11 +35,20 @@ class RadialBasis(torch.nn.Module):
                     str(l): torch.nn.Sequential(
                         Linear(self.n_max_l[l], 4 * self.n_max_l[l] * self.n_channels),
                         torch.nn.SiLU(),
-                        Linear(4 * self.n_max_l[l] * self.n_channels, 4 * self.n_max_l[l] * self.n_channels),
+                        Linear(
+                            4 * self.n_max_l[l] * self.n_channels,
+                            4 * self.n_max_l[l] * self.n_channels,
+                        ),
                         torch.nn.SiLU(),
-                        Linear(4 * self.n_max_l[l] * self.n_channels, 4 * self.n_max_l[l] * self.n_channels),
+                        Linear(
+                            4 * self.n_max_l[l] * self.n_channels,
+                            4 * self.n_max_l[l] * self.n_channels,
+                        ),
                         torch.nn.SiLU(),
-                        Linear(4 * self.n_max_l[l] * self.n_channels, self.n_max_l[l] * self.n_channels),
+                        Linear(
+                            4 * self.n_max_l[l] * self.n_channels,
+                            self.n_max_l[l] * self.n_channels,
+                        ),
                     )
                     for l in range(self.l_max + 1)
                 }
@@ -89,5 +97,5 @@ def cutoff_fn(r, r_cut: float):  # TODO: make 1.0 a parameter?
     return torch.where(
         r < r_cut - 1.0,
         1.0,
-        1.0 + 1.0 * torch.cos((r-(r_cut-1.0))*torch.pi/1.0)
+        1.0 + 1.0 * torch.cos((r - (r_cut - 1.0)) * torch.pi / 1.0),
     )

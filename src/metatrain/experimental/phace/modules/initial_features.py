@@ -2,7 +2,9 @@ import torch
 from metatensor.torch import Labels, TensorBlock, TensorMap
 
 
-def get_initial_features(structures, centers, species, dtype: torch.dtype, n_features: int):
+def get_initial_features(
+    structures, centers, species, dtype: torch.dtype, n_features: int
+):
 
     n_atoms = structures.shape[0]
     block = TensorBlock(
