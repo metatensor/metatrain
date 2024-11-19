@@ -36,8 +36,12 @@ The crucial fields here are:
     a Cartesian vector. The ``rank`` field specifies the rank of the target. For
     Cartesian vectors, the rank is 1. Other possibilities for the ``type`` are
     ``scalar`` (for a scalar target) and ``spherical`` (for a spherical tensor).
-- ``num_properties``: This field specifies the number of different properties in the
-    target that need to be learned. In this case, there are 10 properties.
+- ``num_properties``: This field specifies the number of independent properties in the
+    target that need to be learned. They are treated as entirely equivalent by models in
+    metatrain and will often be represented as outputs of the same neural network layer.
+    A common use case for this field is when you are learning a discretization of a
+    continuous target, such as the grid points of a band structure. In this case, there
+    are 10 properties.
 
 A few more words should be spent on ``spherical`` targets. These should be made of a
 certain number of irreducible spherical tensors. For example, if you are learning a
@@ -82,8 +86,8 @@ Preparing your targets -- metatensor
 ------------------------------------
 
 If you are using the metatensor readers to read your targets, you will have to save them
-as a list of ``metatensor.torch.TensorMap`` objects with ``torch.save`` into a file with
-the ``.mts`` extension.
+as a ``metatensor.torch.TensorMap`` object with ``metatensor.torch.TensorMap.save()``
+into a file with the ``.npz`` extension.
 
 The metatensor reader will verify that the target data in the input files corresponds to
 the metadata in the provided ``TensorMap`` objects. In case of a mismatch, errors will

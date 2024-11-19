@@ -16,7 +16,7 @@ logger = logging.getLogger(__name__)
 AVAILABLE_READERS = ["ase", "metatensor"]
 """:py:class:`list`: list containing all implemented reader libraries"""
 
-DEFAULT_READER = {".xyz": "ase", ".extxyz": "ase", ".mts": "metatensor"}
+DEFAULT_READER = {".xyz": "ase", ".extxyz": "ase", ".npz": "metatensor"}
 """:py:class:`dict`: dictionary mapping file extensions to a default reader"""
 
 

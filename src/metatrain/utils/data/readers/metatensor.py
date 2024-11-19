@@ -1,6 +1,7 @@
 import logging
 from typing import List, Tuple
 
+import metatensor.torch
 import torch
 from metatensor.torch import Labels, TensorBlock, TensorMap
 from metatensor.torch.atomistic import System
@@ -23,36 +24,18 @@ def read_systems(filename: str) -> List[System]:
     raise NotImplementedError("Reading metatensor systems is not yet implemented.")
 
 
-def _wrapped_metatensor_read(filename) -> List[TensorMap]:
+def _wrapped_metatensor_read(filename) -> TensorMap:
     try:
-        return torch.load(filename, weights_only=False)
+        return metatensor.torch.load(filename)
     except Exception as e:
         raise ValueError(f"Failed to read '{filename}' with torch: {e}") from e
 
 
-def read_energy(target: DictConfig) -> Tuple[List[TensorMap], TargetInfo]:
-    tensor_maps = _wrapped_metatensor_read(target["read_from"])
+def read_energy(target: DictConfig) -> Tuple[TensorMap, TargetInfo]:
+    tensor_map = _wrapped_metatensor_read(target["read_from"])
 
-    has_position_gradients = []
-    has_strain_gradients = []
-    for tensor_map in tensor_maps:
-        if len(tensor_map) != 1:
-            raise ValueError("Energy TensorMaps should have exactly one block.")
-        has_position_gradients.append(
-            "positions" in tensor_map.block().gradients_list()
-        )
-        has_strain_gradients.append("strain" in tensor_map.block().gradients_list())
-
-    if (not all(has_position_gradients)) and any(has_position_gradients):
-        raise ValueError(
-            "Found a mix of targets with and without position gradients. "
-            "Either all targets should have position gradients or none."
-        )
-    if (not all(has_strain_gradients)) and any(has_strain_gradients):
-        raise ValueError(
-            "Found a mix of targets with and without strain gradients. "
-            "Either all targets should have strain gradients or none."
-        )
+    if len(tensor_map) != 1:
+        raise ValueError("Energy TensorMaps should have exactly one block.")
 
     add_position_gradients = target["forces"]
     add_strain_gradients = target["stress"] or target["virial"]
@@ -62,81 +45,95 @@ def read_energy(target: DictConfig) -> Tuple[List[TensorMap], TargetInfo]:
 
     # now check all the expected metadata (from target_info.layout) matches
     # the actual metadata in the tensor maps
-    _check_tensor_maps_metadata(tensor_maps, target_info.layout)
+    _check_tensor_map_metadata(tensor_map, target_info.layout)
 
+    selections = [
+        Labels(
+            names=["system"],
+            values=torch.tensor([[int(i)]]),
+        )
+        for i in torch.unique(
+            torch.concatenate(
+                [block.samples.column("system") for block in tensor_map.blocks()]
+            )
+        )
+    ]
+    tensor_maps = metatensor.torch.split(tensor_map, "samples", selections)
     return tensor_maps, target_info
 
 
 def read_generic(target: DictConfig) -> Tuple[List[TensorMap], TargetInfo]:
-    tensor_maps = _wrapped_metatensor_read(target["read_from"])
+    tensor_map = _wrapped_metatensor_read(target["read_from"])
 
-    for tensor_map in tensor_maps:
-        for block in tensor_map.blocks():
-            if len(block.gradients_list()) > 0:
-                raise ValueError("Only energy targets can have gradient blocks.")
+    for block in tensor_map.blocks():
+        if len(block.gradients_list()) > 0:
+            raise ValueError("Only energy targets can have gradient blocks.")
 
     target_info = get_generic_target_info(target)
-    _check_tensor_maps_metadata(tensor_maps, target_info.layout)
+    _check_tensor_map_metadata(tensor_map, target_info.layout)
 
     # make sure that the properties of the target_info.layout also match the
     # actual properties of the tensor maps
-    if len(tensor_maps) != 0:  # empty dataset: do nothing
-        target_info.layout = _empty_tensor_map_like(tensor_maps[0])
+    target_info.layout = _empty_tensor_map_like(tensor_map)
 
+    selections = [
+        Labels(
+            names=["system"],
+            values=torch.tensor([[int(i)]]),
+        )
+        for i in torch.unique(tensor_map.block(0).samples.column("system"))
+    ]
+    tensor_maps = metatensor.torch.split(tensor_map, "samples", selections)
     return tensor_maps, target_info
 
 
-def _check_tensor_maps_metadata(tensor_maps: List[TensorMap], layout: TensorMap):
-    for i, tensor_map in enumerate(tensor_maps):
-        if tensor_map.keys != layout.keys:
+def _check_tensor_map_metadata(tensor_map: TensorMap, layout: TensorMap):
+    if tensor_map.keys != layout.keys:
+        raise ValueError(
+            f"Unexpected keys in metatensor targets: "
+            f"expected: {layout.keys} "
+            f"actual: {tensor_map.keys}"
+        )
+    for key in layout.keys:
+        block = tensor_map.block(key)
+        block_from_layout = layout.block(key)
+        if block.samples.names != block_from_layout.samples.names:
             raise ValueError(
-                f"Unexpected keys in metatensor targets at index {i}: "
-                f"expected: {layout.keys} "
-                f"actual: {tensor_map.keys}"
+                f"Unexpected samples in metatensor targets: "
+                f"expected: {block_from_layout.samples.names} "
+                f"actual: {block.samples.names}"
             )
-        for key in layout.keys:
-            block = tensor_map.block(key)
-            block_from_layout = layout.block(key)
-            if block.samples.names != block_from_layout.samples.names:
+        if block.components != block_from_layout.components:
+            raise ValueError(
+                f"Unexpected components in metatensor targets: "
+                f"expected: {block_from_layout.components} "
+                f"actual: {block.components}"
+            )
+        # the properties can be different from those of the default `TensorMap`
+        # given by `get_generic_target_info`, so we don't check them
+        if set(block.gradients_list()) != set(block_from_layout.gradients_list()):
+            raise ValueError(
+                f"Unexpected gradients in metatensor targets: "
+                f"expected: {block_from_layout.gradients_list()} "
+                f"actual: {block.gradients_list()}"
+            )
+        for name in block_from_layout.gradients_list():
+            gradient_block = block.gradient(name)
+            gradient_block_from_layout = block_from_layout.gradient(name)
+            if gradient_block.labels.names != gradient_block_from_layout.labels.names:
                 raise ValueError(
-                    f"Unexpected samples in metatensor targets at index {i}: "
-                    f"expected: {block_from_layout.samples.names} "
-                    f"actual: {block.samples.names}"
+                    f"Unexpected samples in metatensor targets "
+                    f"for `{name}` gradient block: "
+                    f"expected: {gradient_block_from_layout.labels.names} "
+                    f"actual: {gradient_block.labels.names}"
                 )
-            if block.components != block_from_layout.components:
+            if gradient_block.components != gradient_block_from_layout.components:
                 raise ValueError(
-                    f"Unexpected components in metatensor targets at index {i}: "
-                    f"expected: {block_from_layout.components} "
-                    f"actual: {block.components}"
+                    f"Unexpected components in metatensor targets "
+                    f"for `{name}` gradient block: "
+                    f"expected: {gradient_block_from_layout.components} "
+                    f"actual: {gradient_block.components}"
                 )
-            # the properties can be different from those of the default `TensorMap`
-            # given by `get_generic_target_info`, so we don't check them
-            if set(block.gradients_list()) != set(block_from_layout.gradients_list()):
-                raise ValueError(
-                    f"Unexpected gradients in metatensor targets at index {i}: "
-                    f"expected: {block_from_layout.gradients_list()} "
-                    f"actual: {block.gradients_list()}"
-                )
-            for name in block_from_layout.gradients_list():
-                gradient_block = block.gradient(name)
-                gradient_block_from_layout = block_from_layout.gradient(name)
-                if (
-                    gradient_block.labels.names
-                    != gradient_block_from_layout.labels.names
-                ):
-                    raise ValueError(
-                        f"Unexpected samples in metatensor targets at index {i} "
-                        f"for `{name}` gradient block: "
-                        f"expected: {gradient_block_from_layout.labels.names} "
-                        f"actual: {gradient_block.labels.names}"
-                    )
-                if gradient_block.components != gradient_block_from_layout.components:
-                    raise ValueError(
-                        f"Unexpected components in metatensor targets at index {i} "
-                        f"for `{name}` gradient block: "
-                        f"expected: {gradient_block_from_layout.components} "
-                        f"actual: {gradient_block.components}"
-                    )
 
 
 def _empty_tensor_map_like(tensor_map: TensorMap) -> TensorMap:
