@@ -34,7 +34,7 @@ The crucial fields here are:
     property. Otherwise, it should be set to ``False``.
 - ``type``: This field specifies the type of the target. In this case, the target is
     a Cartesian vector. The ``rank`` field specifies the rank of the target. For
-    Cartesian vectors, the rank is 1. Other possibilities are ``scalar`` and
+    Cartesian vectors, the rank is 1. Other possibilities for the `type` are ``scalar`` or
     ``spherical`` (for a spherical tensor).
 - ``num_properties``: This field specifies the number of different properties in the
     target that need to be learned. In this case, there are 10 properties.
