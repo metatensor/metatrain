@@ -432,14 +432,10 @@ class SoapBpnn(torch.nn.Module):
                     values=torch.tensor(self.atomic_types).reshape(-1, 1),
                 ),
                 in_features=self.n_inputs_last_layer,
-                out_features=1,
+                out_features=len(target.layout.block().properties.values),
                 bias=False,
                 out_properties=[
-                    Labels(
-                        names=["energy"],
-                        values=torch.tensor([[0]]),
-                    )
-                    for _ in self.atomic_types
+                    target.layout.block().properties for _ in self.atomic_types
                 ],
             )
         else:
@@ -456,14 +452,10 @@ class SoapBpnn(torch.nn.Module):
                     ),
                 ),
                 in_features=self.n_inputs_last_layer,
-                out_features=1,
+                out_features=len(target.layout.block().properties.values),
                 bias=False,
                 out_properties=[
-                    Labels(
-                        names=["properties"],
-                        values=torch.tensor([[0]]),
-                    )
-                    for _ in self.atomic_types
+                    target.layout.block().properties for _ in self.atomic_types
                 ],
             )
 

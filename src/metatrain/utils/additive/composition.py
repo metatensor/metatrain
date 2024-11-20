@@ -44,8 +44,9 @@ class CompositionModel(torch.nn.Module):
                 per_atom=True,
             )
             for key, target_info in dataset_info.targets.items()
-            if target_info.is_scalar
+            if target_info.is_scalar and len(target_info.layout.block().properties) == 1
             # important: only scalars can have composition contributions
+            # for now, we also require that only one property is present
         }
 
         n_types = len(self.atomic_types)
