@@ -97,7 +97,7 @@ class NanoPET(torch.nn.Module):
         for target_name in dataset_info.targets.keys():
             # the model can always output the last-layer features for the targets
             ll_features_name = (
-                f"mtt::aux::{target_name.replace("mtt::", "")}_last_layer_features"
+                f"mtt::aux::{target_name.replace('mtt::', '')}_last_layer_features"
             )
             self.outputs[ll_features_name] = ModelOutput(per_atom=True)
 

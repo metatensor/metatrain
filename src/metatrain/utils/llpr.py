@@ -272,7 +272,7 @@ class LLPRUncertaintyModel(torch.nn.Module):
             )
             systems = [system.to(device=device, dtype=dtype) for system in systems]
             outputs = {
-                f"mtt::aux::{name.replace("mtt::", "")}_last"
+                f"mtt::aux::{name.replace('mtt::', '')}_last"
                 "_layer_features": ModelOutput(
                     quantity="",
                     unit="",
@@ -287,11 +287,11 @@ class LLPRUncertaintyModel(torch.nn.Module):
             output = self.model(systems, options, check_consistency=False)
             for name in targets.keys():
                 ll_feat_tmap = output[
-                    f"mtt::aux::{name.replace("mtt::", "")}_last_layer_features"
+                    f"mtt::aux::{name.replace('mtt::', '')}_last_layer_features"
                 ]
                 ll_feats = ll_feat_tmap.block().values.detach() / n_atoms.unsqueeze(1)
                 self.covariances[
-                    f"mtt::aux::{name.replace("mtt::", "")}_uncertainty"
+                    f"mtt::aux::{name.replace('mtt::', '')}_uncertainty"
                 ] += (ll_feats.T @ ll_feats)
 
         self.covariance_computed = True
