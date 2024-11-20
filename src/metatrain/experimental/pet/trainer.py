@@ -74,12 +74,31 @@ from ...utils.logging import MetricLogger
 
 logger = logging.getLogger(__name__)
 
+# TODO:
+# - [ ] Check loss function
+# - [ ] Check optimizer
+# - [ ] Check scheduler
+# - [ ] Check Model init (with AUGs and Wrappers)
+# - [ ] Check Model Keepers
+# - [ ] Check slidding MAE and RMSE
+# - [ ] Check USE_ENERGIES and USE_FORCES
+# - [ ] Check checkpoint loading
+# - [ ] Check warmup
+# - [ ] Check training per atom
+# - [ ] Check Balanced Data Loader
+
 
 class Trainer:
     def __init__(self, train_hypers):
         self.hypers = {"FITTING_SCHEME": train_hypers}
         self.pet_dir = None
         self.pet_checkpoint = None
+        self.optimizer_state_dict = None
+        self.scheduler_state_dict = None
+        self.epoch = None
+        self.best_loss = None
+        self.best_model_state_dict = None
+        self.best_optimizer_state_dict = None
 
     def train(
         self,
