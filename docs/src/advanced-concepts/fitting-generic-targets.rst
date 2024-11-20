@@ -54,17 +54,19 @@ Input file
 ##########
 
 In order to read a generic target, you will have to specify its layout in the input
-file. Suppose you want to learn a target named ``mtt::my_target``, which is a per-atom
-Cartesian vector with 10 properties. The target section in the input file should look
+file. Suppose you want to learn a target named ``mtt::my_target``, which is
+represented as a set of 10 independent per-atom 3D Cartesian vector (we need to
+learn 3x10 values for each atom). The ``target`` section in the input file
+should look
 like this:
 
 .. code-block:: yaml
 
     targets:
       mtt::my_target:
-        quantity: ""
         read_from: dataset.xyz
-        key: energy
+        key: my_target
+        quantity: ""
         unit: ""
         per_atom: True
         type:
@@ -78,15 +80,19 @@ The crucial fields here are:
     property. Otherwise, it should be set to ``False``.
 - ``type``: This field specifies the type of the target. In this case, the target is
     a Cartesian vector. The ``rank`` field specifies the rank of the target. For
-    Cartesian vectors, the rank is 1. Other possibilities are ``scalar`` and
-    ``spherical`` (for a spherical tensor).
-- ``num_properties``: This field specifies the number of different properties in the
-    target that need to be learned. In this case, there are 10 properties.
+    Cartesian vectors, the rank is 1. Other possibilities for the ``type`` are
+    ``scalar`` (for a scalar target) and ``spherical`` (for a spherical tensor).
+- ``num_properties``: This field specifies the number of independent properties in the
+    target that need to be learned. They are treated as entirely equivalent by models in
+    metatrain and will often be represented as outputs of the same neural network layer.
+    A common use case for this field is when you are learning a discretization of a
+    continuous target, such as the grid points of a band structure. In this case, there
+    are 10 properties.
 
 A few more words should be spent on ``spherical`` targets. These should be made of a
 certain number of irreducible spherical tensors. For example, if you are learning a
-property that can be decomposed into two spherical tensors with L=0 and L=2, the target
-section should would look like this:
+property that can be decomposed into two proper spherical tensors with L=0 and L=2,
+the target section should would look like this:
 
 .. code-block:: yaml
 
@@ -100,10 +106,8 @@ section should would look like this:
         type:
           spherical:
             irreps:
-                - o3_lambda: 0
-                  o3_sigma: 1
-                - o3_lambda: 2
-                  o3_sigma: 1
+                - {o3_lambda: 0, o3_sigma: 1}
+                - {o3_lambda: 2, o3_sigma: 1}
         num_properties: 10
 
 where ``o3_lambda`` specifies the L value of the spherical tensor and ``o3_sigma`` its
@@ -128,8 +132,8 @@ Preparing your targets -- metatensor
 ####################################
 
 If you are using the metatensor readers to read your targets, you will have to save them
-as a list of ``metatensor.torch.TensorMap`` objects with ``torch.save`` into a file with
-the ``.mts`` extension.
+as a ``metatensor.torch.TensorMap`` object with ``metatensor.torch.TensorMap.save()``
+into a file with the ``.npz`` extension.
 
 The metatensor reader will verify that the target data in the input files corresponds to
 the metadata in the provided ``TensorMap`` objects. In case of a mismatch, errors will
@@ -137,9 +141,6 @@ be raised.
 
 In particular:
 
-- for any target, the ``properties`` of the ``TensorMap`` should have a single name,
-  namely ``properties``, corresponding to ``num_properties`` values, from 0 to
-  ``num_properties-1``.
 - if the target is per atom, the samples should have the [``system``, ``atom``] names,
   otherwise the [``system``] name.
 - if the target is a ``scalar``, only one ``TensorBlock`` should be present, the keys

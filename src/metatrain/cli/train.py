@@ -367,9 +367,12 @@ def train_model(
     # SAVE EXPANDED OPTIONS ###
     ###########################
 
-    OmegaConf.save(
-        config=options, f=Path(checkpoint_dir) / "options_restart.yaml", resolve=True
-    )
+    if is_main_process():
+        OmegaConf.save(
+            config=options,
+            f=Path(checkpoint_dir) / "options_restart.yaml",
+            resolve=True,
+        )
 
     ###########################
     # SETTING UP MODEL ########

@@ -30,7 +30,7 @@ def read_systems(filename: str) -> List[System]:
     return systems_to_torch(_wrapped_ase_io_read(filename), dtype=torch.float64)
 
 
-def read_energy_ase(filename: str, key: str) -> List[TensorBlock]:
+def _read_energy_ase(filename: str, key: str) -> List[TensorBlock]:
     """Store energy information in a List of :class:`metatensor.TensorBlock`.
 
     :param filename: name of the file to read
@@ -63,7 +63,7 @@ def read_energy_ase(filename: str, key: str) -> List[TensorBlock]:
     return blocks
 
 
-def read_forces_ase(filename: str, key: str = "energy") -> List[TensorBlock]:
+def _read_forces_ase(filename: str, key: str = "energy") -> List[TensorBlock]:
     """Store force information in a List of :class:`metatensor.TensorBlock` which can be
     used as ``position`` gradients.
 
@@ -106,7 +106,7 @@ def read_forces_ase(filename: str, key: str = "energy") -> List[TensorBlock]:
     return blocks
 
 
-def read_virial_ase(filename: str, key: str = "virial") -> List[TensorBlock]:
+def _read_virial_ase(filename: str, key: str = "virial") -> List[TensorBlock]:
     """Store virial information in a List of :class:`metatensor.TensorBlock` which can
     be used as ``strain`` gradients.
 
@@ -117,7 +117,7 @@ def read_virial_ase(filename: str, key: str = "virial") -> List[TensorBlock]:
     return _read_virial_stress_ase(filename=filename, key=key, is_virial=True)
 
 
-def read_stress_ase(filename: str, key: str = "stress") -> List[TensorBlock]:
+def _read_stress_ase(filename: str, key: str = "stress") -> List[TensorBlock]:
     """Store stress information in a List of :class:`metatensor.TensorBlock` which can
     be used as ``strain`` gradients.
 
@@ -194,7 +194,7 @@ def _read_virial_stress_ase(
 def read_energy(target: DictConfig) -> Tuple[List[TensorMap], TargetInfo]:
     target_key = target["key"]
 
-    blocks = read_energy_ase(
+    blocks = _read_energy_ase(
         filename=target["read_from"],
         key=target["key"],
     )
@@ -202,7 +202,7 @@ def read_energy(target: DictConfig) -> Tuple[List[TensorMap], TargetInfo]:
     add_position_gradients = False
     if target["forces"]:
         try:
-            position_gradients = read_forces_ase(
+            position_gradients = _read_forces_ase(
                 filename=target["forces"]["read_from"],
                 key=target["forces"]["key"],
             )
@@ -225,7 +225,7 @@ def read_energy(target: DictConfig) -> Tuple[List[TensorMap], TargetInfo]:
 
     if target["stress"]:
         try:
-            strain_gradients = read_stress_ase(
+            strain_gradients = _read_stress_ase(
                 filename=target["stress"]["read_from"],
                 key=target["stress"]["key"],
             )
@@ -243,7 +243,7 @@ def read_energy(target: DictConfig) -> Tuple[List[TensorMap], TargetInfo]:
 
     if target["virial"]:
         try:
-            strain_gradients = read_virial_ase(
+            strain_gradients = _read_virial_ase(
                 filename=target["virial"]["read_from"],
                 key=target["virial"]["key"],
             )

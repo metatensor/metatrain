@@ -250,7 +250,7 @@ def get_energy_target_info(
     )
 
     target_info = TargetInfo(
-        quantity=target["quantity"],
+        quantity="energy",
         unit=target["unit"],
         layout=layout,
     )
