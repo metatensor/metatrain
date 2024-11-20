@@ -96,6 +96,8 @@ class NanoPET(torch.nn.Module):
         self.outputs = {
             "mtt::aux::last_layer_features": ModelOutput(unit="unitless", per_atom=True)
         }
+        self.heads = torch.nn.ModuleDict()
+        self.head_types = self.hypers["heads"]
         self.last_layers = torch.nn.ModuleDict()
         self.output_shapes: Dict[str, List[int]] = {}
         for target_name, target_info in dataset_info.targets.items():
@@ -349,10 +351,15 @@ class NanoPET(torch.nn.Module):
                     metatensor.torch.sum_over_samples(last_layer_feature_tmap, ["atom"])
                 )
 
+        atomic_features_dict: Dict[str, torch.Tensor] = {}
+        for output_name, head in self.heads.items():
+            atomic_features_dict[output_name] = head(node_features)
+
         atomic_properties_tmap_dict: Dict[str, TensorMap] = {}
         for output_name, last_layer in self.last_layers.items():
             if output_name in outputs:
-                atomic_properties = last_layer(node_features)
+                atomic_features = atomic_features_dict[output_name]
+                atomic_properties = last_layer(atomic_features)
                 block = TensorBlock(
                     values=atomic_properties.reshape(
                         [-1] + self.output_shapes[output_name]
@@ -467,6 +474,28 @@ class NanoPET(torch.nn.Module):
             unit=target_info.unit,
             per_atom=True,
         )
+        if target_name not in self.head_types:  # default to MLP
+            self.heads[target_name] = torch.nn.Sequential(
+                torch.nn.Linear(self.hypers["d_pet"], 4*self.hypers["d_pet"]),
+                torch.nn.SiLU(),
+                torch.nn.Linear(4*self.hypers["d_pet"], self.hypers["d_pet"]),
+                torch.nn.SiLU(),
+            )
+        elif self.head_types[target_name] == "mlp":
+            self.heads[target_name] = torch.nn.Sequential(
+                torch.nn.Linear(self.hypers["d_pet"], 4*self.hypers["d_pet"]),
+                torch.nn.SiLU(),
+                torch.nn.Linear(4*self.hypers["d_pet"], self.hypers["d_pet"]),
+                torch.nn.SiLU(),
+            )
+        elif self.head_types[target_name] == "linear":
+            self.heads[target_name] = torch.nn.Sequential()
+        else:
+            raise ValueError(
+                f"Unsupported head type {self.head_types[target_name]} "
+                f"for target {target_name}"
+            )
+
         self.last_layers[target_name] = torch.nn.Linear(
             self.hypers["d_pet"],
             prod(self.output_shapes[target_name]),

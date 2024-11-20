@@ -1,7 +1,9 @@
 seed: 42
 
 architecture:
-  name: experimental.soap_bpnn
+  name: experimental.nanopet
+  model:
+    heads: {"energy": "linear"}
   training:
     batch_size: 2
     num_epochs: 1
