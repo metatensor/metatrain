@@ -104,7 +104,9 @@ class LayerNormMap(ModuleMap):
 
 
 class MLPHeadMap(ModuleMap):
-    def __init__(self, in_keys: Labels, num_features: int, out_properties: List[Labels]) -> None:
+    def __init__(
+        self, in_keys: Labels, num_features: int, out_properties: List[Labels]
+    ) -> None:
 
         # hardcoded for now, but could be a hyperparameter
         activation_function = torch.nn.SiLU()
@@ -118,7 +120,7 @@ class MLPHeadMap(ModuleMap):
                     activation_function,
                 )
             )
-        
+
         super().__init__(in_keys, nns_per_species, out_properties)
         self.activation_function = activation_function
 
@@ -262,6 +264,13 @@ class SoapBpnn(torch.nn.Module):
         self.outputs = {
             "features": ModelOutput(unit="", per_atom=True)
         }  # the model is always capable of outputting the internal features
+        for target_name in dataset_info.targets.keys():
+            # the model can always output the last-layer features for the targets
+            ll_features_name = (
+                f"mtt::aux::{target_name.replace("mtt::", "")}_last_layer_features"
+            )
+            self.outputs[ll_features_name] = ModelOutput(per_atom=True)
+
         self.vector_featurizers = torch.nn.ModuleDict({})
         self.heads = torch.nn.ModuleDict({})
         self.head_types = self.hypers["heads"]
@@ -334,20 +343,42 @@ class SoapBpnn(torch.nn.Module):
             )
             if not features_options.per_atom:
                 out_features = metatensor.torch.sum_over_samples(out_features, ["atom"])
-            return_dict["features"] = (
-                _remove_center_type_from_properties(out_features)
-            )
+            return_dict["features"] = _remove_center_type_from_properties(out_features)
 
         features_by_output: Dict[str, TensorMap] = {}
         for output_name, vector_featurizer in self.vector_featurizers.items():
-            features_by_output[output_name] = vector_featurizer(
-                systems, features
-            )
-
+            features_by_output[output_name] = vector_featurizer(systems, features)
         for output_name, head in self.heads.items():
-            features_by_output[output_name] = head(
-                features_by_output[output_name]
+            features_by_output[output_name] = head(features_by_output[output_name])
+
+        # output the last-layer features for the outputs, if requested:
+        for output_name in outputs.keys():
+            if not (
+                output_name.startswith("mtt::aux::")
+                and output_name.endswith("_last_layer_features")
+            ):
+                continue
+            base_name = output_name.replace("mtt::aux::", "").replace(
+                "_last_layer_features", ""
             )
+            # the corresponding output could be base_name or mtt::base_name
+            if (
+                f"mtt::{base_name}" not in features_by_output
+                and base_name not in features_by_output
+            ):
+                raise ValueError(
+                    f"Features {output_name} can only be requested, "
+                    f"if the corresponding output {base_name} is also requested."
+                )
+            if f"mtt::{base_name}" in features_by_output:
+                base_name = f"mtt::{base_name}"
+            features_options = outputs[output_name]
+            out_features = features_by_output[base_name].keys_to_properties(
+                self.center_type_labels.to(device)
+            )
+            if not features_options.per_atom:
+                out_features = metatensor.torch.sum_over_samples(out_features, ["atom"])
+            return_dict[output_name] = _remove_center_type_from_properties(out_features)
 
         atomic_properties: Dict[str, TensorMap] = {}
         for output_name, output_layer in self.last_layers.items():
@@ -470,9 +501,7 @@ class SoapBpnn(torch.nn.Module):
                 out_properties=[
                     Labels(
                         names=["property"],
-                        values=torch.arange(self.n_inputs_last_layer).reshape(
-                            -1, 1
-                        ),
+                        values=torch.arange(self.n_inputs_last_layer).reshape(-1, 1),
                     )
                     for _ in self.atomic_types
                 ],

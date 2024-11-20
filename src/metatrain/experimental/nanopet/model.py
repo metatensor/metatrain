@@ -91,11 +91,16 @@ class NanoPET(torch.nn.Module):
 
         self.last_layer_feature_size = self.hypers["d_pet"]
 
-        # register the outputs
-        # the model is always capable of outputting the last layer features
         self.outputs = {
-            "mtt::aux::last_layer_features": ModelOutput(unit="unitless", per_atom=True)
-        }
+            "features": ModelOutput(unit="", per_atom=True)
+        }  # the model is always capable of outputting the internal features
+        for target_name in dataset_info.targets.keys():
+            # the model can always output the last-layer features for the targets
+            ll_features_name = (
+                f"mtt::aux::{target_name.replace("mtt::", "")}_last_layer_features"
+            )
+            self.outputs[ll_features_name] = ModelOutput(per_atom=True)
+
         self.heads = torch.nn.ModuleDict()
         self.head_types = self.hypers["heads"]
         self.last_layers = torch.nn.ModuleDict()
@@ -128,22 +133,19 @@ class NanoPET(torch.nn.Module):
         self.single_label = Labels.single()
         self.key_labels = {
             output_name: copy.deepcopy(dataset_info.targets[output_name].layout.keys)
-            for output_name in self.outputs.keys()
-            if "mtt::aux::" not in output_name
+            for output_name in self.dataset_info.targets.keys()
         }
         self.component_labels = {
             output_name: copy.deepcopy(
                 dataset_info.targets[output_name].layout.block().components
             )
-            for output_name in self.outputs.keys()
-            if "mtt::aux::" not in output_name
+            for output_name in self.dataset_info.targets.keys()
         }
         self.property_labels = {
             output_name: copy.deepcopy(
                 dataset_info.targets[output_name].layout.block().properties
             )
-            for output_name in self.outputs.keys()
-            if "mtt::aux::" not in output_name
+            for output_name in self.dataset_info.targets.keys()
         }
 
     def restart(self, dataset_info: DatasetInfo) -> "NanoPET":
@@ -326,8 +328,8 @@ class NanoPET(torch.nn.Module):
         return_dict: Dict[str, TensorMap] = {}
 
         # output the hidden features, if requested:
-        if "mtt::aux::last_layer_features" in outputs:
-            last_layer_feature_tmap = TensorMap(
+        if "features" in outputs:
+            feature_tmap = TensorMap(
                 keys=self.single_label,
                 blocks=[
                     TensorBlock(
@@ -343,17 +345,63 @@ class NanoPET(torch.nn.Module):
                     )
                 ],
             )
-            last_layer_features_options = outputs["mtt::aux::last_layer_features"]
-            if last_layer_features_options.per_atom:
-                return_dict["mtt::aux::last_layer_features"] = last_layer_feature_tmap
+            features_options = outputs["features"]
+            if features_options.per_atom:
+                return_dict["features"] = feature_tmap
             else:
-                return_dict["mtt::aux::last_layer_features"] = (
-                    metatensor.torch.sum_over_samples(last_layer_feature_tmap, ["atom"])
+                return_dict["features"] = metatensor.torch.sum_over_samples(
+                    feature_tmap, ["atom"]
                 )
 
         atomic_features_dict: Dict[str, torch.Tensor] = {}
         for output_name, head in self.heads.items():
             atomic_features_dict[output_name] = head(node_features)
+
+        # output the last-layer features for the outputs, if requested:
+        for output_name in outputs.keys():
+            if not (
+                output_name.startswith("mtt::aux::")
+                and output_name.endswith("_last_layer_features")
+            ):
+                continue
+            base_name = output_name.replace("mtt::aux::", "").replace(
+                "_last_layer_features", ""
+            )
+            # the corresponding output could be base_name or mtt::base_name
+            if (
+                f"mtt::{base_name}" not in atomic_features_dict
+                and base_name not in atomic_features_dict
+            ):
+                raise ValueError(
+                    f"Features {output_name} can only be requested, "
+                    f"if the corresponding output {base_name} is also requested."
+                )
+            if f"mtt::{base_name}" in atomic_features_dict:
+                base_name = f"mtt::{base_name}"
+            last_layer_feature_tmap = TensorMap(
+                keys=self.single_label,
+                blocks=[
+                    TensorBlock(
+                        values=atomic_features_dict[base_name],
+                        samples=sample_labels,
+                        components=[],
+                        properties=Labels(
+                            names=["properties"],
+                            values=torch.arange(
+                                atomic_features_dict[base_name].shape[-1],
+                                device=atomic_features_dict[base_name].device,
+                            ).reshape(-1, 1),
+                        ),
+                    )
+                ],
+            )
+            last_layer_features_options = outputs[output_name]
+            if last_layer_features_options.per_atom:
+                return_dict[output_name] = last_layer_feature_tmap
+            else:
+                return_dict[output_name] = metatensor.torch.sum_over_samples(
+                    last_layer_feature_tmap, ["atom"]
+                )
 
         atomic_properties_tmap_dict: Dict[str, TensorMap] = {}
         for output_name, last_layer in self.last_layers.items():
@@ -476,16 +524,16 @@ class NanoPET(torch.nn.Module):
         )
         if target_name not in self.head_types:  # default to MLP
             self.heads[target_name] = torch.nn.Sequential(
-                torch.nn.Linear(self.hypers["d_pet"], 4*self.hypers["d_pet"]),
+                torch.nn.Linear(self.hypers["d_pet"], 4 * self.hypers["d_pet"]),
                 torch.nn.SiLU(),
-                torch.nn.Linear(4*self.hypers["d_pet"], self.hypers["d_pet"]),
+                torch.nn.Linear(4 * self.hypers["d_pet"], self.hypers["d_pet"]),
                 torch.nn.SiLU(),
             )
         elif self.head_types[target_name] == "mlp":
             self.heads[target_name] = torch.nn.Sequential(
-                torch.nn.Linear(self.hypers["d_pet"], 4*self.hypers["d_pet"]),
+                torch.nn.Linear(self.hypers["d_pet"], 4 * self.hypers["d_pet"]),
                 torch.nn.SiLU(),
-                torch.nn.Linear(4*self.hypers["d_pet"], self.hypers["d_pet"]),
+                torch.nn.Linear(4 * self.hypers["d_pet"], self.hypers["d_pet"]),
                 torch.nn.SiLU(),
             )
         elif self.head_types[target_name] == "linear":
