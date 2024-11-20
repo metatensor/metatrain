@@ -2,13 +2,13 @@ from pathlib import Path
 
 import pytest
 import torch
+from metatensor.torch import Labels, TensorBlock, TensorMap
 from omegaconf import OmegaConf
 
 from metatrain.utils.data import (
     Dataset,
     DatasetInfo,
     TargetInfo,
-    TargetInfoDict,
     check_datasets,
     collate_fn,
     get_all_targets,
@@ -22,81 +22,159 @@ from metatrain.utils.data import (
 RESOURCES_PATH = Path(__file__).parents[2] / "resources"
 
 
-def test_target_info_default():
-    target_info = TargetInfo(quantity="energy", unit="kcal/mol")
+@pytest.fixture
+def layout_scalar():
+    return TensorMap(
+        keys=Labels.single(),
+        blocks=[
+            TensorBlock(
+                values=torch.empty(0, 1),
+                samples=Labels(
+                    names=["system"],
+                    values=torch.empty((0, 1), dtype=torch.int32),
+                ),
+                components=[],
+                properties=Labels.range("energy", 1),
+            )
+        ],
+    )
+
+
+@pytest.fixture
+def layout_spherical():
+    return TensorMap(
+        keys=Labels(
+            names=["o3_lambda", "o3_sigma"],
+            values=torch.tensor([[0, 1], [2, 1]]),
+        ),
+        blocks=[
+            TensorBlock(
+                values=torch.empty(0, 1, 1),
+                samples=Labels(
+                    names=["system"],
+                    values=torch.empty((0, 1), dtype=torch.int32),
+                ),
+                components=[
+                    Labels(
+                        names=["o3_mu"],
+                        values=torch.arange(0, 1, dtype=torch.int32).reshape(-1, 1),
+                    ),
+                ],
+                properties=Labels.single(),
+            ),
+            TensorBlock(
+                values=torch.empty(0, 5, 1),
+                samples=Labels(
+                    names=["system"],
+                    values=torch.empty((0, 1), dtype=torch.int32),
+                ),
+                components=[
+                    Labels(
+                        names=["o3_mu"],
+                        values=torch.arange(-2, 3, dtype=torch.int32).reshape(-1, 1),
+                    ),
+                ],
+                properties=Labels.single(),
+            ),
+        ],
+    )
+
+
+@pytest.fixture
+def layout_cartesian():
+    return TensorMap(
+        keys=Labels.single(),
+        blocks=[
+            TensorBlock(
+                values=torch.empty(0, 3, 3, 1),
+                samples=Labels(
+                    names=["system"],
+                    values=torch.empty((0, 1), dtype=torch.int32),
+                ),
+                components=[
+                    Labels(
+                        names=["xyz_1"],
+                        values=torch.arange(0, 3, dtype=torch.int32).reshape(-1, 1),
+                    ),
+                    Labels(
+                        names=["xyz_2"],
+                        values=torch.arange(0, 3, dtype=torch.int32).reshape(-1, 1),
+                    ),
+                ],
+                properties=Labels.single(),
+            ),
+        ],
+    )
+
+
+def test_target_info_scalar(layout_scalar):
+    target_info = TargetInfo(quantity="energy", unit="kcal/mol", layout=layout_scalar)
 
     assert target_info.quantity == "energy"
     assert target_info.unit == "kcal/mol"
-    assert target_info.per_atom is False
     assert target_info.gradients == []
+    assert not target_info.per_atom
 
-    expected = (
-        "TargetInfo(quantity='energy', unit='kcal/mol', per_atom=False, gradients=[])"
-    )
-    assert target_info.__repr__() == expected
+    expected_start = "TargetInfo(quantity='energy', unit='kcal/mol'"
+    assert target_info.__repr__()[: len(expected_start)] == expected_start
 
 
-def test_target_info_gradients():
+def test_target_info_spherical(layout_spherical):
     target_info = TargetInfo(
-        quantity="energy",
-        unit="kcal/mol",
-        per_atom=True,
-        gradients=["positions", "positions"],
+        quantity="mtt::spherical", unit="kcal/mol", layout=layout_spherical
     )
 
-    assert target_info.quantity == "energy"
+    assert target_info.quantity == "mtt::spherical"
     assert target_info.unit == "kcal/mol"
-    assert target_info.per_atom is True
-    assert target_info.gradients == ["positions"]
+    assert target_info.gradients == []
+    assert not target_info.per_atom
 
-    expected = (
-        "TargetInfo(quantity='energy', unit='kcal/mol', per_atom=True, "
-        "gradients=['positions'])"
+    expected_start = "TargetInfo(quantity='mtt::spherical', unit='kcal/mol'"
+    assert target_info.__repr__()[: len(expected_start)] == expected_start
+
+
+def test_target_info_cartesian(layout_cartesian):
+    target_info = TargetInfo(
+        quantity="mtt::cartesian", unit="kcal/mol", layout=layout_cartesian
     )
-    assert target_info.__repr__() == expected
+
+    assert target_info.quantity == "mtt::cartesian"
+    assert target_info.unit == "kcal/mol"
+    assert target_info.gradients == []
+    assert not target_info.per_atom
+
+    expected_start = "TargetInfo(quantity='mtt::cartesian', unit='kcal/mol'"
+    assert target_info.__repr__()[: len(expected_start)] == expected_start
 
 
-def test_list_gradients():
-    info1 = TargetInfo(quantity="energy", unit="eV")
-
-    info1.gradients = ["positions"]
-    assert info1.gradients == ["positions"]
-
-    info1.gradients += ["strain"]
-    assert info1.gradients == ["positions", "strain"]
-
-
-def test_unit_none_conversion():
-    info = TargetInfo(quantity="energy", unit=None)
+def test_unit_none_conversion(layout_scalar):
+    info = TargetInfo(quantity="energy", unit=None, layout=layout_scalar)
     assert info.unit == ""
 
 
-def test_length_unit_none_conversion():
+def test_length_unit_none_conversion(layout_scalar):
     dataset_info = DatasetInfo(
         length_unit=None,
         atomic_types=[1, 2, 3],
-        targets=TargetInfoDict(energy=TargetInfo(quantity="energy", unit="kcal/mol")),
+        targets={
+            "energy": TargetInfo(
+                quantity="energy", unit="kcal/mol", layout=layout_scalar
+            )
+        },
     )
     assert dataset_info.length_unit == ""
 
 
-def test_target_info_copy():
-    info = TargetInfo(quantity="energy", unit="eV", gradients=["positions"])
-    copy = info.copy()
-    assert copy == info
-    assert copy is not info
-
-
-def test_target_info_eq():
-    info1 = TargetInfo(quantity="energy", unit="eV", gradients=["position"])
-    info2 = TargetInfo(quantity="energy", unit="eV", gradients=["strain"])
+def test_target_info_eq(layout_scalar):
+    info1 = TargetInfo(quantity="energy", unit="kcal/mol", layout=layout_scalar)
+    info2 = TargetInfo(quantity="energy", unit="eV", layout=layout_scalar)
 
     assert info1 == info1
     assert info1 != info2
 
 
-def test_target_info_eq_error():
-    info = TargetInfo(quantity="energy", unit="eV", gradients=["position"])
+def test_target_info_eq_error(layout_scalar):
+    info = TargetInfo(quantity="energy", unit="eV", layout=layout_scalar)
 
     match = (
         "Comparison between a TargetInfo instance and a list instance is not "
@@ -106,152 +184,15 @@ def test_target_info_eq_error():
         _ = info == [1, 2, 3]
 
 
-def test_target_info_update():
-    info1 = TargetInfo(quantity="energy", unit="eV", gradients=["strain", "aaa"])
-    info2 = TargetInfo(quantity="energy", unit="eV", gradients=["positions"])
-    info1.update(info2)
-    assert info1.gradients == ["aaa", "positions", "strain"]
-
-
-def test_target_info_union():
-    info1 = TargetInfo(quantity="energy", unit="eV", gradients=["position"])
-    info2 = TargetInfo(quantity="energy", unit="eV", gradients=["strain"])
-    info_new = info1.union(info2)
-    assert isinstance(info_new, TargetInfo)
-    assert info_new.gradients == ["position", "strain"]
-
-
-def test_target_info_update_non_matching_quantity():
-    info1 = TargetInfo(quantity="energy", unit="eV")
-    info2 = TargetInfo(quantity="force", unit="eV")
-    match = r"Can't update TargetInfo with a different `quantity`: \(energy != force\)"
-    with pytest.raises(ValueError, match=match):
-        info1.update(info2)
-
-
-def test_target_info_update_non_matching_unit():
-    info1 = TargetInfo(quantity="energy", unit="eV")
-    info2 = TargetInfo(quantity="energy", unit="kcal")
-    match = r"Can't update TargetInfo with a different `unit`: \(eV != kcal\)"
-    with pytest.raises(ValueError, match=match):
-        info1.update(info2)
-
-
-def test_target_info_update_non_matching_per_atom():
-    info1 = TargetInfo(quantity="energy", unit="eV", per_atom=True)
-    info2 = TargetInfo(quantity="energy", unit="eV", per_atom=False)
-    match = "Can't update TargetInfo with a different `per_atom` property: "
-    with pytest.raises(ValueError, match=match):
-        info1.update(info2)
-
-
-def test_target_info_dict_setitem_new_entry():
-    tid = TargetInfoDict()
-    info = TargetInfo(quantity="energy", unit="eV", gradients=["position"])
-    tid["energy"] = info
-    assert tid["energy"] == info
-
-
-def test_target_info_dict_setitem_update_entry():
-    tid = TargetInfoDict()
-    info1 = TargetInfo(quantity="energy", unit="eV", gradients=["position"])
-    info2 = TargetInfo(quantity="energy", unit="eV", gradients=["strain"])
-    tid["energy"] = info1
-    tid["energy"] = info2
-    assert tid["energy"].gradients == ["position", "strain"]
-
-
-def test_target_info_dict_setitem_value_error():
-    tid = TargetInfoDict()
-    with pytest.raises(ValueError, match="value to set is not a `TargetInfo` instance"):
-        tid["energy"] = "not a TargetInfo"
-
-
-def test_target_info_dict_union():
-    tid1 = TargetInfoDict()
-    tid1["energy"] = TargetInfo(quantity="energy", unit="eV", gradients=["position"])
-
-    tid2 = TargetInfoDict()
-    tid2["myenergy"] = TargetInfo(quantity="energy", unit="eV", gradients=["strain"])
-
-    merged = tid1.union(tid2)
-    assert merged["energy"] == tid1["energy"]
-    assert merged["myenergy"] == tid2["myenergy"]
-
-
-def test_target_info_dict_merge_error():
-    tid1 = TargetInfoDict()
-    tid1["energy"] = TargetInfo(quantity="energy", unit="eV", gradients=["position"])
-
-    tid2 = TargetInfoDict()
-    tid2["energy"] = TargetInfo(
-        quantity="energy", unit="kcal/mol", gradients=["strain"]
-    )
-
-    match = r"Can't update TargetInfo with a different `unit`: \(eV != kcal/mol\)"
-    with pytest.raises(ValueError, match=match):
-        tid1.union(tid2)
-
-
-def test_target_info_dict_intersection():
-    tid1 = TargetInfoDict()
-    tid1["energy"] = TargetInfo(quantity="energy", unit="eV", gradients=["position"])
-    tid1["myenergy"] = TargetInfo(quantity="energy", unit="eV", gradients=["strain"])
-
-    tid2 = TargetInfoDict()
-    tid2["myenergy"] = TargetInfo(quantity="energy", unit="eV", gradients=["strain"])
-
-    intersection = tid1.intersection(tid2)
-    assert len(intersection) == 1
-    assert intersection["myenergy"] == tid1["myenergy"]
-
-    # Test `&` operator
-    intersection_and = tid1 & tid2
-    assert intersection_and == intersection
-
-
-def test_target_info_dict_intersection_error():
-    tid1 = TargetInfoDict()
-    tid1["energy"] = TargetInfo(quantity="energy", unit="eV", gradients=["position"])
-    tid1["myenergy"] = TargetInfo(quantity="energy", unit="eV", gradients=["strain"])
-
-    tid2 = TargetInfoDict()
-    tid2["myenergy"] = TargetInfo(
-        quantity="energy", unit="kcal/mol", gradients=["strain"]
-    )
-
-    match = (
-        r"Intersected items with the same key are not the same. Intersected "
-        r"keys are myenergy"
-    )
-
-    with pytest.raises(ValueError, match=match):
-        tid1.intersection(tid2)
-
-
-def test_target_info_dict_difference():
-    tid1 = TargetInfoDict()
-    tid1["energy"] = TargetInfo(quantity="energy", unit="eV", gradients=["position"])
-    tid1["myenergy"] = TargetInfo(quantity="energy", unit="eV", gradients=["strain"])
-
-    tid2 = TargetInfoDict()
-    tid2["myenergy"] = TargetInfo(
-        quantity="energy", unit="kcal/mol", gradients=["strain"]
-    )
-
-    difference = tid1.difference(tid2)
-    assert len(difference) == 1
-    assert difference["energy"] == tid1["energy"]
-
-    difference_sub = tid1 - tid2
-    assert difference_sub == difference
-
-
-def test_dataset_info():
+def test_dataset_info(layout_scalar):
     """Tests the DatasetInfo class."""
 
-    targets = TargetInfoDict(energy=TargetInfo(quantity="energy", unit="kcal/mol"))
-    targets["mtt::U0"] = TargetInfo(quantity="energy", unit="kcal/mol")
+    targets = {
+        "energy": TargetInfo(quantity="energy", unit="kcal/mol", layout=layout_scalar)
+    }
+    targets["mtt::U0"] = TargetInfo(
+        quantity="energy", unit="kcal/mol", layout=layout_scalar
+    )
 
     dataset_info = DatasetInfo(
         length_unit="angstrom", atomic_types=[3, 1, 2], targets=targets
@@ -271,9 +212,13 @@ def test_dataset_info():
     assert dataset_info.__repr__() == expected
 
 
-def test_set_atomic_types():
-    targets = TargetInfoDict(energy=TargetInfo(quantity="energy", unit="kcal/mol"))
-    targets["mtt::U0"] = TargetInfo(quantity="energy", unit="kcal/mol")
+def test_set_atomic_types(layout_scalar):
+    targets = {
+        "energy": TargetInfo(quantity="energy", unit="kcal/mol", layout=layout_scalar)
+    }
+    targets["mtt::U0"] = TargetInfo(
+        quantity="energy", unit="kcal/mol", layout=layout_scalar
+    )
 
     dataset_info = DatasetInfo(
         length_unit="angstrom", atomic_types=[3, 1, 2], targets=targets
@@ -286,10 +231,12 @@ def test_set_atomic_types():
     assert dataset_info.atomic_types == [1, 4, 5, 7]
 
 
-def test_dataset_info_copy():
-    targets = TargetInfoDict()
-    targets["energy"] = TargetInfo(quantity="energy", unit="eV")
-    targets["forces"] = TargetInfo(quantity="mtt::forces", unit="eV/Angstrom")
+def test_dataset_info_copy(layout_scalar, layout_cartesian):
+    targets = {}
+    targets["energy"] = TargetInfo(quantity="energy", unit="eV", layout=layout_scalar)
+    targets["mtt::my-target"] = TargetInfo(
+        quantity="mtt::my-target", unit="eV/Angstrom", layout=layout_cartesian
+    )
     info = DatasetInfo(length_unit="angstrom", atomic_types=[1, 6], targets=targets)
 
     copy = info.copy()
@@ -298,31 +245,35 @@ def test_dataset_info_copy():
     assert copy is not info
 
 
-def test_dataset_info_update():
-    targets = TargetInfoDict()
-    targets["energy"] = TargetInfo(quantity="energy", unit="eV")
+def test_dataset_info_update(layout_scalar, layout_spherical):
+    targets = {}
+    targets["energy"] = TargetInfo(quantity="energy", unit="eV", layout=layout_scalar)
 
     info = DatasetInfo(length_unit="angstrom", atomic_types=[1, 6], targets=targets)
 
     targets2 = targets.copy()
-    targets2["forces"] = TargetInfo(quantity="mtt::forces", unit="eV/Angstrom")
+    targets2["mtt::my-target"] = TargetInfo(
+        quantity="mtt::my-target", unit="eV/Angstrom", layout=layout_spherical
+    )
 
     info2 = DatasetInfo(length_unit="angstrom", atomic_types=[8], targets=targets2)
     info.update(info2)
 
     assert info.atomic_types == [1, 6, 8]
     assert info.targets["energy"] == targets["energy"]
-    assert info.targets["forces"] == targets2["forces"]
+    assert info.targets["mtt::my-target"] == targets2["mtt::my-target"]
 
 
-def test_dataset_info_update_non_matching_length_unit():
-    targets = TargetInfoDict()
-    targets["energy"] = TargetInfo(quantity="energy", unit="eV")
+def test_dataset_info_update_non_matching_length_unit(layout_scalar):
+    targets = {}
+    targets["energy"] = TargetInfo(quantity="energy", unit="eV", layout=layout_scalar)
 
     info = DatasetInfo(length_unit="angstrom", atomic_types=[1, 6], targets=targets)
 
     targets2 = targets.copy()
-    targets2["forces"] = TargetInfo(quantity="mtt::forces", unit="eV/Angstrom")
+    targets2["mtt::my-target"] = TargetInfo(
+        quantity="mtt::my-target", unit="eV/Angstrom", layout=layout_scalar
+    )
 
     info2 = DatasetInfo(length_unit="nanometer", atomic_types=[8], targets=targets2)
 
@@ -335,23 +286,25 @@ def test_dataset_info_update_non_matching_length_unit():
         info.update(info2)
 
 
-def test_dataset_info_eq():
-    targets = TargetInfoDict()
-    targets["energy"] = TargetInfo(quantity="energy", unit="eV")
+def test_dataset_info_eq(layout_scalar):
+    targets = {}
+    targets["energy"] = TargetInfo(quantity="energy", unit="eV", layout=layout_scalar)
 
     info = DatasetInfo(length_unit="angstrom", atomic_types=[1, 6], targets=targets)
 
     targets2 = targets.copy()
-    targets2["forces"] = TargetInfo(quantity="mtt::forces", unit="eV/Angstrom")
+    targets2["my-target"] = TargetInfo(
+        quantity="mtt::my-target", unit="eV/Angstrom", layout=layout_scalar
+    )
     info2 = DatasetInfo(length_unit="nanometer", atomic_types=[8], targets=targets2)
 
     assert info == info
     assert info != info2
 
 
-def test_dataset_info_eq_error():
-    targets = TargetInfoDict()
-    targets["energy"] = TargetInfo(quantity="energy", unit="eV")
+def test_dataset_info_eq_error(layout_scalar):
+    targets = {}
+    targets["energy"] = TargetInfo(quantity="energy", unit="eV", layout=layout_scalar)
 
     info = DatasetInfo(length_unit="angstrom", atomic_types=[1, 6], targets=targets)
 
@@ -363,31 +316,39 @@ def test_dataset_info_eq_error():
         _ = info == [1, 2, 3]
 
 
-def test_dataset_info_update_different_target_info():
-    targets = TargetInfoDict()
-    targets["energy"] = TargetInfo(quantity="energy", unit="eV")
+def test_dataset_info_update_different_target_info(layout_scalar):
+    targets = {}
+    targets["energy"] = TargetInfo(quantity="energy", unit="eV", layout=layout_scalar)
 
     info = DatasetInfo(length_unit="angstrom", atomic_types=[1, 6], targets=targets)
 
-    targets2 = TargetInfoDict()
-    targets2["energy"] = TargetInfo(quantity="energy", unit="eV/Angstrom")
+    targets2 = {}
+    targets2["energy"] = TargetInfo(
+        quantity="energy", unit="eV/Angstrom", layout=layout_scalar
+    )
 
     info2 = DatasetInfo(length_unit="angstrom", atomic_types=[8], targets=targets2)
 
-    match = r"Can't update TargetInfo with a different `unit`: \(eV != eV/Angstrom\)"
+    match = (
+        "Can't update DatasetInfo with different target information for target 'energy'"
+    )
     with pytest.raises(ValueError, match=match):
         info.update(info2)
 
 
-def test_dataset_info_union():
+def test_dataset_info_union(layout_scalar, layout_cartesian):
     """Tests the union method."""
-    targets = TargetInfoDict()
-    targets["energy"] = TargetInfo(quantity="energy", unit="eV")
-    targets["forces"] = TargetInfo(quantity="mtt::forces", unit="eV/Angstrom")
+    targets = {}
+    targets["energy"] = TargetInfo(quantity="energy", unit="eV", layout=layout_scalar)
+    targets["forces"] = TargetInfo(
+        quantity="mtt::forces", unit="eV/Angstrom", layout=layout_scalar
+    )
     info = DatasetInfo(length_unit="angstrom", atomic_types=[1, 6], targets=targets)
 
     other_targets = targets.copy()
-    other_targets["mtt::stress"] = TargetInfo(quantity="mtt::stress", unit="GPa")
+    other_targets["mtt::stress"] = TargetInfo(
+        quantity="mtt::stress", unit="GPa", layout=layout_cartesian
+    )
 
     other_info = DatasetInfo(
         length_unit="angstrom", atomic_types=[1], targets=other_targets
@@ -606,7 +567,7 @@ def test_collate_fn():
     assert isinstance(batch[1], dict)
 
 
-def test_get_stats():
+def test_get_stats(layout_scalar):
     """Tests the get_stats method of Dataset and Subset."""
 
     systems = read_systems(RESOURCES_PATH / "qm9_reduced_100.xyz")
@@ -644,8 +605,8 @@ def test_get_stats():
         length_unit="angstrom",
         atomic_types=[1, 6],
         targets={
-            "mtt::U0": TargetInfo(quantity="energy", unit="eV"),
-            "energy": TargetInfo(quantity="energy", unit="eV"),
+            "mtt::U0": TargetInfo(quantity="energy", unit="eV", layout=layout_scalar),
+            "energy": TargetInfo(quantity="energy", unit="eV", layout=layout_scalar),
         },
     )
 

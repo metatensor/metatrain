@@ -1,7 +1,10 @@
-from typing import Dict, Optional, Tuple
+from typing import Dict, Optional, Tuple, Union
 
 import torch
 from metatensor.torch import TensorMap
+from omegaconf import DictConfig
+
+from metatrain.utils.external_naming import to_internal_name
 
 
 # This file defines losses for metatensor models.
@@ -30,10 +33,34 @@ class TensorMapLoss:
         reduction: str = "sum",
         weight: float = 1.0,
         gradient_weights: Optional[Dict[str, float]] = None,
+        type: Union[str, dict] = "mse",
     ):
-        self.loss = torch.nn.MSELoss(reduction=reduction)
+        if gradient_weights is None:
+            gradient_weights = {}
+
+        losses = {}
+        if type == "mse":
+            losses["values"] = torch.nn.MSELoss(reduction=reduction)
+            for key in gradient_weights.keys():
+                losses[key] = torch.nn.MSELoss(reduction=reduction)
+        elif type == "mae":
+            losses["values"] = torch.nn.L1Loss(reduction=reduction)
+            for key in gradient_weights.keys():
+                losses[key] = torch.nn.L1Loss(reduction=reduction)
+        elif isinstance(type, dict) and "huber" in type:
+            # Huber loss
+            deltas = type["huber"]["deltas"]
+            losses["values"] = torch.nn.HuberLoss(
+                reduction=reduction, delta=deltas["values"]
+            )
+            for key in gradient_weights.keys():
+                losses[key] = torch.nn.HuberLoss(reduction=reduction, delta=deltas[key])
+        else:
+            raise ValueError(f"Unknown loss type: {type}")
+
+        self.losses = losses
         self.weight = weight
-        self.gradient_weights = {} if gradient_weights is None else gradient_weights
+        self.gradient_weights = gradient_weights
 
     def __call__(
         self, tensor_map_1: TensorMap, tensor_map_2: TensorMap
@@ -97,12 +124,12 @@ class TensorMapLoss:
 
         values_1 = tensor_map_1.block().values
         values_2 = tensor_map_2.block().values
-        loss += self.weight * self.loss(values_1, values_2)
+        loss += self.weight * self.losses["values"](values_1, values_2)
 
         for gradient_name, gradient_weight in self.gradient_weights.items():
             values_1 = tensor_map_1.block().gradient(gradient_name).values
             values_2 = tensor_map_2.block().gradient(gradient_name).values
-            loss += gradient_weight * self.loss(values_1, values_2)
+            loss += gradient_weight * self.losses[gradient_name](values_1, values_2)
 
         return loss
 
@@ -129,6 +156,7 @@ class TensorMapDictLoss:
         self,
         weights: Dict[str, float],
         reduction: str = "sum",
+        type: Union[str, dict] = "mse",
     ):
         outputs = [key for key in weights.keys() if "gradients" not in key]
         self.losses = {}
@@ -141,10 +169,12 @@ class TensorMapDictLoss:
                         "_gradients", ""
                     )
                     gradient_weights[gradient_name] = weight
+            type_output = _process_type(type, output)
             self.losses[output] = TensorMapLoss(
                 reduction=reduction,
                 weight=value_weight,
                 gradient_weights=gradient_weights,
+                type=type_output,
             )
 
     def __call__(
@@ -167,3 +197,27 @@ class TensorMapDictLoss:
             loss += target_loss
 
         return loss
+
+
+def _process_type(type: Union[str, DictConfig], output: str) -> Union[str, dict]:
+    if not isinstance(type, str):
+        assert "huber" in type
+        # we process the Huber loss delta dict to make it similar to the
+        # `weights` dict
+        type_output = {"huber": {"deltas": {}}}  # type: ignore
+        for key, delta in type["huber"]["deltas"].items():
+            key_internal = to_internal_name(key)
+            if key_internal == output:
+                type_output["huber"]["deltas"]["values"] = delta
+            elif key_internal.startswith(output) and key_internal.endswith(
+                "_gradients"
+            ):
+                gradient_name = key_internal.replace(f"{output}_", "").replace(
+                    "_gradients", ""
+                )
+                type_output["huber"]["deltas"][gradient_name] = delta
+            else:
+                pass
+    else:
+        type_output = type  # type: ignore
+    return type_output

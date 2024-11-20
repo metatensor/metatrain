@@ -1,3 +1,4 @@
+import copy
 import logging
 import warnings
 from pathlib import Path
@@ -8,8 +9,7 @@ import torch.distributed
 from torch.utils.data import DataLoader, DistributedSampler
 
 from ...utils.additive import remove_additive
-from ...utils.data import CombinedDataLoader, Dataset, TargetInfoDict, collate_fn
-from ...utils.data.extract_targets import get_targets_dict
+from ...utils.data import CombinedDataLoader, Dataset, collate_fn
 from ...utils.distributed.distributed_data_parallel import DistributedDataParallel
 from ...utils.distributed.slurm import DistributedEnvironment
 from ...utils.evaluate_model import evaluate_model
@@ -182,9 +182,7 @@ class Trainer:
         val_dataloader = CombinedDataLoader(val_dataloaders, shuffle=False)
 
         # Extract all the possible outputs and their gradients:
-        train_targets = get_targets_dict(
-            train_datasets, (model.module if is_distributed else model).dataset_info
-        )
+        train_targets = (model.module if is_distributed else model).dataset_info.targets
         outputs_list = []
         for target_name, target_info in train_targets.items():
             outputs_list.append(target_name)
@@ -194,21 +192,25 @@ class Trainer:
         loss_weights_dict = {}
         for output_name in outputs_list:
             loss_weights_dict[output_name] = (
-                self.hypers["loss_weights"][
+                self.hypers["loss"]["weights"][
                     to_external_name(output_name, train_targets)
                 ]
                 if to_external_name(output_name, train_targets)
-                in self.hypers["loss_weights"]
+                in self.hypers["loss"]["weights"]
                 else 1.0
             )
         loss_weights_dict_external = {
             to_external_name(key, train_targets): value
             for key, value in loss_weights_dict.items()
         }
+        loss_hypers = copy.deepcopy(self.hypers["loss"])
+        loss_hypers["weights"] = loss_weights_dict
         logging.info(f"Training with loss weights: {loss_weights_dict_external}")
 
         # Create a loss function:
-        loss_fn = TensorMapDictLoss(loss_weights_dict)
+        loss_fn = TensorMapDictLoss(
+            **loss_hypers,
+        )
 
         # Create an optimizer:
         optimizer = torch.optim.Adam(
@@ -270,9 +272,7 @@ class Trainer:
                 predictions = evaluate_model(
                     model,
                     systems,
-                    TargetInfoDict(
-                        **{key: train_targets[key] for key in targets.keys()}
-                    ),
+                    {key: train_targets[key] for key in targets.keys()},
                     is_training=True,
                 )
 
@@ -325,9 +325,7 @@ class Trainer:
                 predictions = evaluate_model(
                     model,
                     systems,
-                    TargetInfoDict(
-                        **{key: train_targets[key] for key in targets.keys()}
-                    ),
+                    {key: train_targets[key] for key in targets.keys()},
                     is_training=False,
                 )
 
@@ -432,7 +430,7 @@ class Trainer:
     def load_checkpoint(cls, path: Union[str, Path], train_hypers) -> "Trainer":
 
         # Load the checkpoint
-        checkpoint = torch.load(path, weights_only=False)
+        checkpoint = torch.load(path, weights_only=False, map_location="cpu")
         model_hypers = checkpoint["model_hypers"]
         model_state_dict = checkpoint["model_state_dict"]
         epoch = checkpoint["epoch"]

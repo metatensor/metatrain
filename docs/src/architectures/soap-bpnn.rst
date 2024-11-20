@@ -55,14 +55,22 @@ hyperparameters to tune are (in decreasing order of importance):
 - ``radial_scaling`` hyperparameters: These hyperparameters control the radial scaling
   of the SOAP descriptor. In general, the default values should work well, but they
   might need to be adjusted for specific datasets.
-- ``loss_weights``: This controls the weighting of different contributions to the loss
-  (e.g., energy, forces, virial, etc.). The default values work well for most datasets,
-  but they might need to be adjusted. For example, to set a weight of 1.0 for the energy
-  and 0.1 for the forces, you can set the following in the ``options.yaml`` file:
-  ``loss_weights: {"energy": 1.0, "forces": 0.1}``.
 - ``layernorm``: Whether to use layer normalization before the neural network. Setting
   this hyperparameter to ``false`` will lead to slower convergence of training, but
   might lead to better generalization outside of the training set distribution.
+- ``loss``: This section describes the loss function to be used, and it has three
+  subsections. 1. ``weights``. This controls the weighting of different contributions
+  to the loss (e.g., energy, forces, virial, etc.). The default values of 1.0 for all
+  targets work well for most datasets, but they might need to be adjusted. For example,
+  to set a weight of 1.0 for the energy and 0.1 for the forces, you can set the
+  following in the ``options.yaml`` file under ``loss``:
+  ``weights: {"energy": 1.0, "forces": 0.1}``. 2. ``type``. This controls the type of
+  loss to be used. The default value is ``mse``, and other options are ``mae`` and
+  ``huber``. ``huber`` is a subsection of its own, and it requires the user to specify
+  the ``deltas`` parameters in a similar way to how the ``weights`` are specified (e.g.,
+  ``deltas: {"energy": 0.1, "forces": 0.01}``). 3. ``reduction``. This controls how the
+  loss is reduced over batches. The default value is ``sum``, and the other allowed
+  option is ``mean``.
 
 
 All Hyperparameters

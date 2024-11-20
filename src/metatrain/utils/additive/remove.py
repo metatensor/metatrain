@@ -1,12 +1,12 @@
 import warnings
-from typing import Dict, List, Union
+from typing import Dict, List
 
 import metatensor.torch
 import torch
 from metatensor.torch import TensorMap
 from metatensor.torch.atomistic import System
 
-from ..data import TargetInfo, TargetInfoDict
+from ..data import TargetInfo
 from ..evaluate_model import evaluate_model
 
 
@@ -14,7 +14,7 @@ def remove_additive(
     systems: List[System],
     targets: Dict[str, TensorMap],
     additive_model: torch.nn.Module,
-    target_info_dict: Union[Dict[str, TargetInfo], TargetInfoDict],
+    target_info_dict: Dict[str, TargetInfo],
 ):
     """Remove an additive contribution from the training targets.
 
@@ -35,7 +35,7 @@ def remove_additive(
     additive_contribution = evaluate_model(
         additive_model,
         systems,
-        TargetInfoDict(**{key: target_info_dict[key] for key in targets.keys()}),
+        {key: target_info_dict[key] for key in targets.keys()},
         is_training=False,  # we don't need any gradients w.r.t. any parameters
     )
 

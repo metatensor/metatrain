@@ -8,7 +8,7 @@ class RMSEAccumulator:
     """Accumulates the RMSE between predictions and targets for an arbitrary
     number of keys, each corresponding to one target."""
 
-    def __init__(self):
+    def __init__(self) -> None:
         """Initialize the accumulator."""
         self.information: Dict[str, Tuple[float, int]] = {}
 
@@ -91,7 +91,7 @@ class MAEAccumulator:
     """Accumulates the MAE between predictions and targets for an arbitrary
     number of keys, each corresponding to one target."""
 
-    def __init__(self):
+    def __init__(self) -> None:
         """Initialize the accumulator."""
         self.information: Dict[str, Tuple[float, int]] = {}
 

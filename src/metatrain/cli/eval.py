@@ -15,7 +15,6 @@ from omegaconf import DictConfig, OmegaConf
 from ..utils.data import (
     Dataset,
     TargetInfo,
-    TargetInfoDict,
     collate_fn,
     read_systems,
     read_targets,
@@ -23,6 +22,7 @@ from ..utils.data import (
 )
 from ..utils.errors import ArchitectureError
 from ..utils.evaluate_model import evaluate_model
+from ..utils.io import load_model
 from ..utils.logging import MetricLogger
 from ..utils.metrics import MAEAccumulator, RMSEAccumulator
 from ..utils.neighbor_lists import (
@@ -95,7 +95,8 @@ def _add_eval_model_parser(subparser: argparse._SubParsersAction) -> None:
 def _prepare_eval_model_args(args: argparse.Namespace) -> None:
     """Prepare arguments for eval_model."""
     args.options = OmegaConf.load(args.options)
-    args.model = metatensor.torch.atomistic.load_atomistic_model(
+    # models for evaluation are already exported. Don't have to pass the `name` argument
+    args.model = load_model(
         path=args.__dict__.pop("path"),
         extensions_directory=args.__dict__.pop("extensions_directory"),
     )
@@ -159,7 +160,7 @@ def _concatenate_tensormaps(
 def _eval_targets(
     model: Union[MetatensorAtomisticModel, torch.jit._script.RecursiveScriptModule],
     dataset: Union[Dataset, torch.utils.data.Subset],
-    options: TargetInfoDict,
+    options: Dict[str, TargetInfo],
     return_predictions: bool,
     check_consistency: bool = False,
 ) -> Optional[Dict[str, TensorMap]]:
@@ -185,7 +186,11 @@ def _eval_targets(
     # Infer the device and dtype from the model
     model_tensor = next(itertools.chain(model.parameters(), model.buffers()))
     dtype = model_tensor.dtype
-    device = model_tensor.device
+    device = "cpu"
+    if torch.cuda.is_available() and "cuda" in model.capabilities().supported_devices:
+        device = "cuda"
+    logger.info(f"Running on device {device} with dtype {dtype}")
+    model.to(dtype=dtype, device=device)
 
     # Create a dataloader
     dataloader = torch.utils.data.DataLoader(
@@ -335,17 +340,17 @@ def eval_model(
             # (but we don't/can't calculate RMSEs)
             # TODO: allow the user to specify which outputs to evaluate
             eval_targets = {}
-            eval_info_dict = TargetInfoDict()
-            gradients = ["positions"]
-            if all(not torch.all(system.cell == 0) for system in eval_systems):
-                # only add strain if all structures have cells
-                gradients.append("strain")
+            eval_info_dict = {}
+            do_strain_grad = all(
+                not torch.all(system.cell == 0) for system in eval_systems
+            )
+            layout = _get_energy_layout(do_strain_grad)  # TODO: layout from the user
             for key in model.capabilities().outputs.keys():
                 eval_info_dict[key] = TargetInfo(
                     quantity=model.capabilities().outputs[key].quantity,
                     unit=model.capabilities().outputs[key].unit,
-                    per_atom=False,  # TODO: allow the user to specify this
-                    gradients=gradients,
+                    # TODO: allow the user to specify whether per-atom or not
+                    layout=layout,
                 )
 
         eval_dataset = Dataset.from_dict({"system": eval_systems, **eval_targets})
@@ -368,3 +373,60 @@ def eval_model(
             capabilities=model.capabilities(),
             predictions=predictions,
         )
+
+
+def _get_energy_layout(strain_gradient: bool) -> TensorMap:
+    block = TensorBlock(
+        # float64: otherwise metatensor can't serialize
+        values=torch.empty(0, 1, dtype=torch.float64),
+        samples=Labels(
+            names=["system"],
+            values=torch.empty((0, 1), dtype=torch.int32),
+        ),
+        components=[],
+        properties=Labels.range("energy", 1),
+    )
+    position_gradient_block = TensorBlock(
+        # float64: otherwise metatensor can't serialize
+        values=torch.empty(0, 3, 1, dtype=torch.float64),
+        samples=Labels(
+            names=["sample", "atom"],
+            values=torch.empty((0, 2), dtype=torch.int32),
+        ),
+        components=[
+            Labels(
+                names=["xyz"],
+                values=torch.arange(3, dtype=torch.int32).reshape(-1, 1),
+            ),
+        ],
+        properties=Labels.range("energy", 1),
+    )
+    block.add_gradient("positions", position_gradient_block)
+
+    if strain_gradient:
+        strain_gradient_block = TensorBlock(
+            # float64: otherwise metatensor can't serialize
+            values=torch.empty(0, 3, 3, 1, dtype=torch.float64),
+            samples=Labels(
+                names=["sample", "atom"],
+                values=torch.empty((0, 2), dtype=torch.int32),
+            ),
+            components=[
+                Labels(
+                    names=["xyz_1"],
+                    values=torch.arange(3, dtype=torch.int32).reshape(-1, 1),
+                ),
+                Labels(
+                    names=["xyz_2"],
+                    values=torch.arange(3, dtype=torch.int32).reshape(-1, 1),
+                ),
+            ],
+            properties=Labels.range("energy", 1),
+        )
+        block.add_gradient("strain", strain_gradient_block)
+
+    energy_layout = TensorMap(
+        keys=Labels.single(),
+        blocks=[block],
+    )
+    return energy_layout

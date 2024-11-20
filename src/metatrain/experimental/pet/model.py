@@ -8,6 +8,7 @@ from metatensor.torch import Labels, TensorBlock, TensorMap
 from metatensor.torch.atomistic import (
     MetatensorAtomisticModel,
     ModelCapabilities,
+    ModelMetadata,
     ModelOutput,
     NeighborListOptions,
     System,
@@ -20,8 +21,8 @@ from metatrain.utils.data import DatasetInfo
 
 from ...utils.additive import ZBL
 from ...utils.dtype import dtype_to_str
-from ...utils.export import export
-from .utils import systems_to_batch_dict
+from .utils import systems_to_batch_dict, update_state_dict
+from .utils.fine_tuning import LoRAWrapper
 
 
 logger = logging.getLogger(__name__)
@@ -97,6 +98,7 @@ class PET(torch.nn.Module):
             NeighborListOptions(
                 cutoff=self.cutoff,
                 full_list=True,
+                strict=True,
             )
         ]
 
@@ -135,9 +137,7 @@ class PET(torch.nn.Module):
                 values=predictions,
             )
             if selected_atoms is not None:
-                block = metatensor.torch.slice_block(
-                    block, axis="samples", labels=selected_atoms
-                )
+                block = metatensor.torch.slice_block(block, "samples", selected_atoms)
             output_tmap = TensorMap(keys=empty_labels, blocks=[block])
             if not outputs[output_name].per_atom:
                 output_tmap = metatensor.torch.sum_over_samples(output_tmap, "atom")
@@ -162,7 +162,7 @@ class PET(torch.nn.Module):
     @classmethod
     def load_checkpoint(cls, path: Union[str, Path]) -> "PET":
 
-        checkpoint = torch.load(path, weights_only=False)
+        checkpoint = torch.load(path, weights_only=False, map_location="cpu")
         hypers = checkpoint["hypers"]
         dataset_info = checkpoint["dataset_info"]
         model = cls(
@@ -174,11 +174,12 @@ class PET(torch.nn.Module):
 
         ARCHITECTURAL_HYPERS = Hypers(model.hypers)
         raw_pet = RawPET(ARCHITECTURAL_HYPERS, 0.0, len(model.atomic_types))
+        if ARCHITECTURAL_HYPERS.USE_LORA_PEFT:
+            lora_rank = ARCHITECTURAL_HYPERS.LORA_RANK
+            lora_alpha = ARCHITECTURAL_HYPERS.LORA_ALPHA
+            raw_pet = LoRAWrapper(raw_pet, lora_rank, lora_alpha)
 
-        new_state_dict = {}
-        for name, value in state_dict.items():
-            name = name.replace("model.pet_model.", "")
-            new_state_dict[name] = value
+        new_state_dict = update_state_dict(state_dict)
 
         dtype = next(iter(new_state_dict.values())).dtype
         raw_pet.to(dtype).load_state_dict(new_state_dict)
@@ -220,4 +221,4 @@ class PET(torch.nn.Module):
             supported_devices=["cpu", "cuda"],  # and not __supported_devices__
             dtype=dtype_to_str(dtype),
         )
-        return export(model=self, model_capabilities=capabilities)
+        return MetatensorAtomisticModel(self.eval(), ModelMetadata(), capabilities)

@@ -11,6 +11,7 @@ from omegaconf import OmegaConf
 from metatrain.cli.eval import eval_model
 from metatrain.experimental.soap_bpnn import __model__
 from metatrain.utils.data import DatasetInfo, TargetInfo
+from metatrain.utils.testing import energy_layout
 
 from . import EVAL_OPTIONS_PATH, MODEL_HYPERS, MODEL_PATH, RESOURCES_PATH
 
@@ -84,9 +85,7 @@ def test_eval_export(monkeypatch, tmp_path, options):
         length_unit="angstrom",
         atomic_types={1, 6, 7, 8},
         targets={
-            "energy": TargetInfo(
-                quantity="energy", unit="eV", per_atom=False, gradients=[]
-            )
+            "energy": TargetInfo(quantity="energy", unit="eV", layout=energy_layout)
         },
     )
     model = __model__(model_hypers=MODEL_HYPERS, dataset_info=dataset_info)

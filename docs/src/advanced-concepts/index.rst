@@ -12,3 +12,4 @@ such as output naming, auxiliary outputs, and wrapper models.
    auxiliary-outputs
    multi-gpu
    auto-restarting
+   fine-tuning

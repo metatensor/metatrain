@@ -8,7 +8,7 @@ from metatensor.torch import Labels, TensorBlock, TensorMap
 from metatensor.torch.atomistic import System
 from omegaconf import DictConfig
 
-from ..dataset import TargetInfo, TargetInfoDict
+from ..dataset import TargetInfo
 
 
 logger = logging.getLogger(__name__)
@@ -161,7 +161,7 @@ def read_virial(
 
 def read_targets(
     conf: DictConfig,
-) -> Tuple[Dict[str, List[TensorMap]], TargetInfoDict]:
+) -> Tuple[Dict[str, List[TensorMap]], Dict[str, TargetInfo]]:
     """Reading all target information from a fully expanded config.
 
     To get such a config you can use :func:`expand_dataset_config
@@ -175,9 +175,8 @@ def read_targets(
 
     :param conf: config containing the keys for what should be read.
     :returns: Dictionary containing a list of TensorMaps for each target section in the
-        config as well as a :py:class:`TargetInfoDict
-        <metatrain.utils.data.TargetInfoDict>` instance containing the metadata of the
-        targets.
+        config as well as a ``Dict[str, TargetInfo]`` object
+        containing the metadata of the targets.
 
     :raises ValueError: if the target name is not valid. Valid target names are
         those that either start with ``mtt::`` or those that are in the list of
@@ -185,7 +184,7 @@ def read_targets(
         https://docs.metatensor.org/latest/atomistic/outputs.html)
     """
     target_dictionary = {}
-    target_info_dictionary = TargetInfoDict()
+    target_info_dictionary = {}
     standard_outputs_list = ["energy"]
 
     for target_key, target in conf.items():
@@ -288,8 +287,39 @@ def read_targets(
         target_info_dictionary[target_key] = TargetInfo(
             quantity=target["quantity"],
             unit=target["unit"],
-            per_atom=False,  # TODO: read this from the config
-            gradients=target_info_gradients,
+            layout=_empty_tensor_map_like(target_dictionary[target_key][0]),
         )
 
     return target_dictionary, target_info_dictionary
+
+
+def _empty_tensor_map_like(tensor_map: TensorMap) -> TensorMap:
+    new_keys = tensor_map.keys
+    new_blocks: List[TensorBlock] = []
+    for block in tensor_map.blocks():
+        new_block = _empty_tensor_block_like(block)
+        new_blocks.append(new_block)
+    return TensorMap(keys=new_keys, blocks=new_blocks)
+
+
+def _empty_tensor_block_like(tensor_block: TensorBlock) -> TensorBlock:
+    new_block = TensorBlock(
+        values=torch.empty(
+            (0,) + tensor_block.values.shape[1:],
+            dtype=torch.float64,  # metatensor can't serialize otherwise
+            device=tensor_block.values.device,
+        ),
+        samples=Labels(
+            names=tensor_block.samples.names,
+            values=torch.empty(
+                (0, tensor_block.samples.values.shape[1]),
+                dtype=tensor_block.samples.values.dtype,
+                device=tensor_block.samples.values.device,
+            ),
+        ),
+        components=tensor_block.components,
+        properties=tensor_block.properties,
+    )
+    for gradient_name, gradient in tensor_block.gradients():
+        new_block.add_gradient(gradient_name, _empty_tensor_block_like(gradient))
+    return new_block

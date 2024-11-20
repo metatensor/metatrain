@@ -36,6 +36,7 @@ def write_xyz(
     ]
     for target_name, target_tensor_map in predictions.items():
         # split this target by structure
+        target_tensor_map = target_tensor_map.to("cpu")
         split_target = metatensor.torch.split(
             target_tensor_map, "samples", split_labels
         )

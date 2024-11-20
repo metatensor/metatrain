@@ -8,6 +8,7 @@ from metatensor.torch import Labels, TensorBlock, TensorMap
 from metatensor.torch.atomistic import (
     MetatensorAtomisticModel,
     ModelCapabilities,
+    ModelMetadata,
     ModelOutput,
     System,
 )
@@ -18,7 +19,6 @@ from metatrain.utils.data.dataset import DatasetInfo
 
 from ...utils.additive import ZBL, CompositionModel
 from ...utils.dtype import dtype_to_str
-from ...utils.export import export
 
 
 class Identity(torch.nn.Module):
@@ -204,7 +204,11 @@ class SoapBpnn(torch.nn.Module):
         new_atomic_types = [
             at for at in merged_info.atomic_types if at not in self.atomic_types
         ]
-        new_targets = merged_info.targets - self.dataset_info.targets
+        new_targets = {
+            key: value
+            for key, value in merged_info.targets.items()
+            if key not in self.dataset_info.targets
+        }
 
         if len(new_atomic_types) > 0:
             raise ValueError(
@@ -299,7 +303,7 @@ class SoapBpnn(torch.nn.Module):
     def load_checkpoint(cls, path: Union[str, Path]) -> "SoapBpnn":
 
         # Load the checkpoint
-        checkpoint = torch.load(path, weights_only=False)
+        checkpoint = torch.load(path, weights_only=False, map_location="cpu")
         model_hypers = checkpoint["model_hypers"]
         model_state_dict = checkpoint["model_state_dict"]
 
@@ -335,7 +339,7 @@ class SoapBpnn(torch.nn.Module):
             dtype=dtype_to_str(dtype),
         )
 
-        return export(model=self, model_capabilities=capabilities)
+        return MetatensorAtomisticModel(self.eval(), ModelMetadata(), capabilities)
 
     def add_output(self, output_name: str) -> None:
         """Add a new output to the self."""

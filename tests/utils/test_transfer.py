@@ -14,6 +14,7 @@ def test_systems_and_targets_to_dtype():
         positions=torch.tensor([[1.0, 1.0, 1.0]]),
         cell=torch.tensor([[1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]]),
         types=torch.tensor([1]),
+        pbc=torch.tensor([True, True, True]),
     )
     targets = TensorMap(
         keys=Labels.single(),
@@ -39,6 +40,7 @@ def test_systems_and_targets_to_dtype_and_device():
         positions=torch.tensor([[1.0, 1.0, 1.0]]),
         cell=torch.tensor([[1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]]),
         types=torch.tensor([1]),
+        pbc=torch.tensor([True, True, True]),
     )
     targets = TensorMap(
         keys=Labels.single(),

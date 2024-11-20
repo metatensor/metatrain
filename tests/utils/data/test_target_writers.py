@@ -20,6 +20,7 @@ def systems_capabilities_predictions(
             types=torch.tensor([1, 1]),
             positions=torch.tensor([[0, 0, 0], [0, 0, 0.74]]),
             cell=cell,
+            pbc=torch.logical_not(torch.all(cell == 0, dim=1)),
         ),
     ]
 

@@ -11,7 +11,7 @@ from metatensor.torch import Labels
 from omegaconf import OmegaConf
 from test_targets_ase import ase_system, ase_systems
 
-from metatrain.utils.data.dataset import TargetInfo, TargetInfoDict
+from metatrain.utils.data.dataset import TargetInfo
 from metatrain.utils.data.readers import (
     read_energy,
     read_forces,
@@ -178,7 +178,7 @@ def test_read_targets(stress_dict, virial_dict, monkeypatch, tmp_path, caplog):
     assert any(["Forces found" in rec.message for rec in caplog.records])
 
     assert type(result) is dict
-    assert type(target_info_dict) is TargetInfoDict
+    assert type(target_info_dict) is dict
 
     if stress_dict:
         assert any(["Stress found" in rec.message for rec in caplog.records])

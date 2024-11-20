@@ -126,6 +126,15 @@
         },
         "USE_ZBL": {
           "type": "boolean"
+        },
+        "USE_LORA_PEFT": {
+          "type": "boolean"
+        },
+        "LORA_RANK": {
+          "type": "integer"
+        },
+        "LORA_ALPHA": {
+          "type": "number"
         }
       },
       "additionalProperties": false
@@ -182,6 +191,26 @@
           "type": "boolean"
         },
         "MODEL_TO_START_WITH": {
+          "oneOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "ALL_SPECIES_PATH": {
+          "oneOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "SELF_CONTRIBUTIONS_PATH": {
           "oneOf": [
             {
               "type": "string"

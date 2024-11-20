@@ -12,5 +12,6 @@ module.
    getting-started
    architecture-life-cycle
    new-architecture
+   dataset-information
    cli/index
    utils/index

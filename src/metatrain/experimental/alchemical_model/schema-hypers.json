@@ -93,17 +93,57 @@
             "type": "string"
           }
         },
-        "loss_weights": {
+        "log_mae": {
+          "type": "boolean"
+        },
+        "loss": {
           "type": "object",
-          "patternProperties": {
-            ".*": {
-              "type": "number"
+          "properties": {
+            "weights": {
+              "type": "object",
+              "patternProperties": {
+                ".*": {
+                  "type": "number"
+                }
+              },
+              "additionalProperties": false
+            },
+            "reduction": {
+              "type": "string",
+              "enum": ["sum", "mean", "none"]
+            },
+            "type": {
+              "oneOf": [
+                {
+                  "type": "string",
+                  "enum": ["mse", "mae"]
+                },
+                {
+                  "type": "object",
+                  "properties": {
+                    "huber": {
+                      "type": "object",
+                      "properties": {
+                        "deltas": {
+                          "type": "object",
+                          "patternProperties": {
+                            ".*": {
+                              "type": "number"
+                            }
+                          },
+                          "additionalProperties": false
+                        }
+                      },
+                      "required": ["deltas"],
+                      "additionalProperties": false
+                    }
+                  },
+                  "additionalProperties": false
+                }
+              ]
             }
           },
           "additionalProperties": false
-        },
-        "log_mae": {
-          "type": "boolean"
         }
       },
       "additionalProperties": false

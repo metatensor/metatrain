@@ -204,7 +204,7 @@ def setup_logging(
     :param log_obj: A logging instance
     :param log_file: Name of the log file
     :param level: Set the root logger level to the specified level. If for example set
-        to :py:obj:`logging.DEBUG` detailed debug logs inludcing filename and function
+        to :py:obj:`logging.DEBUG` detailed debug logs including filename and function
         name are displayed. For :py:obj:`logging.INFO` only the message logged from
         `errors`, `warnings` and `infos` will be displayed.
     """
@@ -253,7 +253,7 @@ def setup_logging(
 
 
 def get_cli_input(argv: Optional[List[str]] = None) -> str:
-    """Propper formatted string of the command line input.
+    """Proper formatted string of the command line input.
 
     :param argv: List of strings to parse. If :py:obj:`None` taken from
         :py:obj:`sys.argv`.
