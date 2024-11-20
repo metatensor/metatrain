@@ -217,11 +217,27 @@ def test_output_last_layer_features():
         [system],
         {
             "energy": model.outputs["energy"],
+            "features": ll_output_options,
             "mtt::aux::energy_last_layer_features": ll_output_options,
         },
     )
     assert "energy" in outputs
+    assert "features" in outputs
     assert "mtt::aux::energy_last_layer_features" in outputs
+
+    features = outputs["features"].block()
+    assert features.samples.names == [
+        "system",
+        "atom",
+    ]
+    assert features.values.shape == (
+        4,
+        128,
+    )
+    assert features.properties.names == [
+        "properties",
+    ]
+
     last_layer_features = outputs["mtt::aux::energy_last_layer_features"].block()
     assert last_layer_features.samples.names == [
         "system",
@@ -245,11 +261,23 @@ def test_output_last_layer_features():
         [system],
         {
             "energy": model.outputs["energy"],
+            "features": ll_output_options,
             "mtt::aux::energy_last_layer_features": ll_output_options,
         },
     )
     assert "energy" in outputs
+    assert "features" in outputs
     assert "mtt::aux::energy_last_layer_features" in outputs
+
+    features = outputs["features"].block()
+    assert features.samples.names == [
+        "system",
+    ]
+    assert features.values.shape == (
+        1,
+        128,
+    )
+
     assert outputs["mtt::aux::energy_last_layer_features"].block().samples.names == [
         "system"
     ]

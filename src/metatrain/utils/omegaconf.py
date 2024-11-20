@@ -188,8 +188,8 @@ def check_dataset_options(dataset_config: ListConfig) -> None:
             for target_key in actual_config["targets"].keys():
                 if f"mtt::{target_key}" in actual_config["targets"].keys():
                     raise ValueError(
-                        f"Two targets with the names `{target_key!r}` and "
-                        f"`mtt::{target_key!r}` are not allowed to be present "
+                        f"Two targets with the names `{target_key}` and "
+                        f"`mtt::{target_key}` are not allowed to be present "
                         "at the same time."
                     )
 
