@@ -72,9 +72,7 @@ def test_alchemical_model_inference():
     dataset_info = DatasetInfo(
         length_unit="Angstrom",
         atomic_types=unique_numbers,
-        targets={
-            "energy": get_energy_target_info({"quantity": "energy", "unit": "eV"})
-        },
+        targets={"energy": get_energy_target_info({"unit": "eV"})},
     )
 
     alchemical_model = AlchemicalModel(MODEL_HYPERS, dataset_info)

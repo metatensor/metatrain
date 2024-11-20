@@ -24,9 +24,7 @@ def test_continue(monkeypatch, tmp_path):
     systems = [system.to(torch.float32) for system in systems]
 
     target_info_dict = {}
-    target_info_dict["mtt::U0"] = get_energy_target_info(
-        {"quantity": "energy", "unit": "eV"}
-    )
+    target_info_dict["mtt::U0"] = get_energy_target_info({"unit": "eV"})
 
     dataset_info = DatasetInfo(
         length_unit="Angstrom", atomic_types=[1, 6, 7, 8], targets=target_info_dict

@@ -26,7 +26,7 @@ def test_evaluate_model(training, exported):
 
     targets = {
         "energy": get_energy_target_info(
-            {"quantity": "energy", "unit": "eV"},
+            {"unit": "eV"},
             add_position_gradients=True,
             add_strain_gradients=True,
         )
