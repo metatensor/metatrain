@@ -55,6 +55,7 @@ class Trainer:
         self.hypers = {"FITTING_SCHEME": train_hypers}
         self.pet_dir = None
         self.pet_trainer_state = None
+        self.epoch = None
 
     def train(
         self,
@@ -271,7 +272,7 @@ Units of the Energy and Forces are the same units given in input"""
             pet_model = pet_model.to(device=device, dtype=dtype)
         else:
             pet_model = PET(ARCHITECTURAL_HYPERS, 0.0, len(all_species))
-        num_params = sum([p.numel() for p in pet_model.parameters()])
+        num_params = sum([p.numel() for p in pet_model.parameters() if p.requires_grad])
         logging.info(f"Number of parameters: {num_params}")
 
         if model.pet is not None and ARCHITECTURAL_HYPERS.USE_LORA_PEFT:
@@ -370,7 +371,8 @@ Units of the Energy and Forces are the same units given in input"""
         )
         TIME_TRAINING_STARTED = time.time()
         last_elapsed_time = 0
-        for epoch in range(1, FITTING_SCHEME.EPOCH_NUM + 1):
+        start_epoch = 1 if self.epoch is None else self.epoch + 1
+        for epoch in range(start_epoch, start_epoch + FITTING_SCHEME.EPOCH_NUM):
             pet_model.train(True)
             for batch in train_loader:
                 if not FITTING_SCHEME.MULTI_GPU:
@@ -395,8 +397,6 @@ Units of the Energy and Forces are the same units given in input"""
                     batch_n_atoms = torch.tensor(
                         n_atoms_list, dtype=torch.get_default_dtype(), device=device
                     )
-                    # print('batch_y: ', batch_y.shape)
-                    # print('batch_n_atoms: ', batch_n_atoms.shape)
 
                 else:
                     batch_y = batch.y
@@ -476,9 +476,6 @@ Units of the Energy and Forces are the same units given in input"""
                     batch_n_atoms = torch.tensor(
                         n_atoms_list, dtype=torch.get_default_dtype(), device=device
                     )
-
-                    # print('batch_y: ', batch_y.shape)
-                    # print('batch_n_atoms: ', batch_n_atoms.shape)
                 else:
                     batch_y = batch.y
                     batch_n_atoms = batch.n_atoms
@@ -575,25 +572,34 @@ Units of the Energy and Forces are the same units given in input"""
             scheduler.step()
             elapsed = time.time() - TIME_SCRIPT_STARTED
             if epoch > 0 and epoch % FITTING_SCHEME.CHECKPOINT_INTERVAL == 0:
-                checkpoint_dict = {
+                self.epoch = epoch
+                pet_checkpoint = {
                     "model_state_dict": pet_model.state_dict(),
                     "optim_state_dict": optim.state_dict(),
                     "scheduler_state_dict": scheduler.state_dict(),
                     "dtype_used": dtype2string(dtype),
                 }
                 torch.save(
-                    checkpoint_dict,
+                    pet_checkpoint,
                     f"{checkpoint_dir}/{NAME_OF_CALCULATION}/checkpoint_{epoch}",
                 )
+                trainer_state_dict = {
+                    "optim_state_dict": pet_checkpoint["optim_state_dict"],
+                    "scheduler_state_dict": pet_checkpoint["scheduler_state_dict"],
+                }
+                last_model_state_dict = pet_checkpoint["model_state_dict"]
+                dtype = next(iter(last_model_state_dict.values())).dtype
+                last_model_checkpoint = {
+                    "trainer_state_dict": trainer_state_dict,
+                    "model_state_dict": last_model_state_dict,
+                    "hypers": self.hypers,
+                    "epoch": self.epoch,
+                    "dataset_info": model.dataset_info,
+                    "self_contributions": self_contributions,
+                    "dtype": dtype2string(dtype),
+                }
                 torch.save(
-                    {
-                        "checkpoint": checkpoint_dict,
-                        "hypers": self.hypers,
-                        "dataset_info": model.dataset_info,
-                        "self_contributions": np.load(
-                            self.pet_dir / "self_contributions.npy"  # type: ignore
-                        ),
-                    },
+                    last_model_checkpoint,
                     f"{checkpoint_dir}/model.ckpt_{epoch}",
                 )
 
@@ -674,6 +680,7 @@ Units of the Energy and Forces are the same units given in input"""
         ##########################################
         # FINISHING THE PURE PET TRAINING SCRIPT #
         ##########################################
+        self.epoch = epoch
 
         if do_forces:
             load_path = self.pet_dir / "best_val_mae_both_model_state_dict"
@@ -685,8 +692,6 @@ Units of the Energy and Forces are the same units given in input"""
             state_dict, model.hypers, all_species, self_contributions
         )
         model.set_trained_model(wrapper)
-
-        torch.save()
 
     def save_checkpoint(self, model, path: Union[str, Path]):
         # This function takes a checkpoint from the PET folder and saves it
@@ -706,6 +711,7 @@ Units of the Energy and Forces are the same units given in input"""
             "trainer_state_dict": trainer_state_dict,
             "model_state_dict": last_model_state_dict,
             "hypers": self.hypers,
+            "epoch": self.epoch,
             "dataset_info": model.dataset_info,
             "self_contributions": model.pet.self_contributions,
             "dtype": dtype2string(dtype),
@@ -719,7 +725,9 @@ Units of the Energy and Forces are the same units given in input"""
             "dtype": dtype2string(dtype),
         }
 
-        torch.save(last_model_checkpoint, check_file_extension(path, ".ckpt"))
+        torch.save(
+            last_model_checkpoint, check_file_extension("last_" + str(path), ".ckpt")
+        )
 
         torch.save(
             best_model_checkpoint, check_file_extension("best_" + str(path), ".ckpt")
