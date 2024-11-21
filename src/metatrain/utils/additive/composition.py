@@ -6,7 +6,7 @@ import torch
 from metatensor.torch import Labels, TensorBlock, TensorMap
 from metatensor.torch.atomistic import ModelOutput, System
 
-from ..data import Dataset, DatasetInfo, get_all_targets, get_atomic_types
+from ..data import Dataset, DatasetInfo, TargetInfo, get_all_targets, get_atomic_types
 from ..jsonschema import validate
 
 
@@ -23,7 +23,7 @@ class CompositionModel(torch.nn.Module):
     """
 
     outputs: Dict[str, ModelOutput]
-    output_to_output_index: Dict[str, int]
+    weights: torch.Tensor
 
     def __init__(self, model_hypers: Dict, dataset_info: DatasetInfo):
         super().__init__()
@@ -37,30 +37,14 @@ class CompositionModel(torch.nn.Module):
         self.dataset_info = dataset_info
         self.atomic_types = sorted(dataset_info.atomic_types)
 
-        self.outputs = {
-            key: ModelOutput(
-                quantity=target_info.quantity,
-                unit=target_info.unit,
-                per_atom=True,
-            )
-            for key, target_info in dataset_info.targets.items()
-            if target_info.is_scalar and len(target_info.layout.block().properties) == 1
-            # important: only scalars can have composition contributions
-            # for now, we also require that only one property is present
-        }
-
-        n_types = len(self.atomic_types)
-        n_targets = len(self.outputs)
-
-        self.output_to_output_index = {
-            target: i
-            for i, target in enumerate(sorted(dataset_info.targets.keys()))
-            if target in self.outputs
-        }
-
+        self.new_targets: Dict[str, TargetInfo] = dataset_info.targets
+        self.outputs: Dict[str, ModelOutput] = {}
         self.register_buffer(
-            "weights", torch.zeros((n_targets, n_types), dtype=torch.float64)
+            "weights", torch.zeros((0, len(self.atomic_types)), dtype=torch.float64)
         )
+        self.output_name_to_output_index: Dict[str, int] = {}
+        for target_name, target_info in self.dataset_info.targets.items():
+            self._add_output(target_name, target_info)
 
         # cache some labels
         self.keys_label = Labels.single()
@@ -105,8 +89,9 @@ class CompositionModel(torch.nn.Module):
                 stacklevel=2,
             )
 
-        # Fill the weights for each target in the dataset info
-        for target_key in self.output_to_output_index.keys():
+        # Fill the weights for each "new" target (i.e. those that do not already
+        # have composition weights from a previous training run)
+        for target_key in self.new_targets:
 
             if target_key in fixed_weights:
                 # The fixed weights are provided for this target. Use them:
@@ -116,9 +101,11 @@ class CompositionModel(torch.nn.Module):
                         f"atomic types {self.atomic_types}."
                     )
 
-                self.weights[self.output_to_output_index[target_key]] = torch.tensor(
-                    [fixed_weights[target_key][i] for i in self.atomic_types],
-                    dtype=self.weights.dtype,
+                self.weights[self.output_name_to_output_index[target_key]] = (
+                    torch.tensor(
+                        [fixed_weights[target_key][i] for i in self.atomic_types],
+                        dtype=self.weights.dtype,
+                    )
                 )
             else:
                 datasets_with_target = []
@@ -177,7 +164,7 @@ class CompositionModel(torch.nn.Module):
                             "ill-conditioned."
                         )
                     try:
-                        self.weights[self.output_to_output_index[target_key]] = (
+                        self.weights[self.output_name_to_output_index[target_key]] = (
                             torch.linalg.solve(
                                 composition_features.T @ composition_features
                                 + regularizer
@@ -194,11 +181,31 @@ class CompositionModel(torch.nn.Module):
                         regularizer *= 10.0
 
     def restart(self, dataset_info: DatasetInfo) -> "CompositionModel":
-        """Restart the model with a new dataset info.
+        # merge old and new dataset info
+        merged_info = self.dataset_info.union(dataset_info)
+        new_atomic_types = [
+            at for at in merged_info.atomic_types if at not in self.atomic_types
+        ]
 
-        :param dataset_info: New dataset information to be used.
-        """
-        return self({}, self.dataset_info.union(dataset_info))
+        if len(new_atomic_types) > 0:
+            raise ValueError(
+                f"New atomic types found in the dataset: {new_atomic_types}. "
+                "The composition model does not support adding new atomic types."
+            )
+
+        self.new_targets = {
+            key: value
+            for key, value in merged_info.targets.items()
+            if key not in self.dataset_info.targets
+        }
+
+        # register new outputs
+        for target_name, target in self.new_targets.items():
+            self._add_output(target_name, target)
+
+        self.dataset_info = merged_info
+
+        return self
 
     def forward(
         self,
@@ -229,7 +236,7 @@ class CompositionModel(torch.nn.Module):
         for output_name in outputs:
             if output_name.startswith("mtt::aux::"):
                 continue
-            if output_name not in self.output_to_output_index:
+            if output_name not in self.outputs.keys():
                 raise ValueError(
                     f"output key {output_name} is not supported by this composition "
                     "model."
@@ -248,7 +255,7 @@ class CompositionModel(torch.nn.Module):
             if target_key not in self.outputs.keys():
                 # non-scalar
                 continue
-            weights = self.weights[self.output_to_output_index[target_key]]
+            weights = self.weights[self.output_name_to_output_index[target_key]]
 
             concatenated_types = torch.concatenate([system.types for system in systems])
             targets = torch.empty(len(concatenated_types), dtype=dtype, device=device)
@@ -292,3 +299,20 @@ class CompositionModel(torch.nn.Module):
                 )
 
         return targets_out
+
+    def _add_output(self, target_name: str, target_info: TargetInfo) -> None:
+        n_types = len(self.atomic_types)
+
+        # important: only scalars can have composition contributions
+        # for now, we also require that only one property is present
+        if target_info.is_scalar and len(target_info.layout.block().properties) == 1:
+            self.outputs[target_name] = ModelOutput(
+                quantity=target_info.quantity,
+                unit=target_info.unit,
+                per_atom=True,
+            )
+
+        self.weights = torch.concatenate(
+            [self.weights, torch.zeros((1, n_types), dtype=self.weights.dtype)]
+        )
+        self.output_name_to_output_index[target_name] = len(self.weights) - 1

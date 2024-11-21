@@ -300,6 +300,7 @@ class SoapBpnn(torch.nn.Module):
             for key, value in merged_info.targets.items()
             if key not in self.dataset_info.targets
         }
+        self.has_new_targets = len(new_targets) > 0
 
         if len(new_atomic_types) > 0:
             raise ValueError(
@@ -312,7 +313,9 @@ class SoapBpnn(torch.nn.Module):
             self._add_output(target_name, target)
 
         self.dataset_info = merged_info
-        self.atomic_types = sorted(self.atomic_types)
+
+        # restart the composition model
+        self.additive_models[0].restart(dataset_info)
 
         return self
 

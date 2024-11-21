@@ -1,4 +1,3 @@
-import copy
 from math import prod
 from pathlib import Path
 from typing import Dict, List, Optional, Union
@@ -105,6 +104,9 @@ class NanoPET(torch.nn.Module):
         self.head_types = self.hypers["heads"]
         self.last_layers = torch.nn.ModuleDict()
         self.output_shapes: Dict[str, List[int]] = {}
+        self.key_labels: Dict[str, Labels] = {}
+        self.component_labels: Dict[str, List[Labels]] = {}
+        self.property_labels: Dict[str, Labels] = {}
         for target_name, target_info in dataset_info.targets.items():
             self._add_output(target_name, target_info)
 
@@ -129,24 +131,7 @@ class NanoPET(torch.nn.Module):
             additive_models.append(ZBL(model_hypers, dataset_info))
         self.additive_models = torch.nn.ModuleList(additive_models)
 
-        # cache keys, components, properties labels
         self.single_label = Labels.single()
-        self.key_labels = {
-            output_name: copy.deepcopy(dataset_info.targets[output_name].layout.keys)
-            for output_name in self.dataset_info.targets.keys()
-        }
-        self.component_labels = {
-            output_name: copy.deepcopy(
-                dataset_info.targets[output_name].layout.block().components
-            )
-            for output_name in self.dataset_info.targets.keys()
-        }
-        self.property_labels = {
-            output_name: copy.deepcopy(
-                dataset_info.targets[output_name].layout.block().properties
-            )
-            for output_name in self.dataset_info.targets.keys()
-        }
 
     def restart(self, dataset_info: DatasetInfo) -> "NanoPET":
         # merge old and new dataset info
@@ -159,6 +144,7 @@ class NanoPET(torch.nn.Module):
             for key, value in merged_info.targets.items()
             if key not in self.dataset_info.targets
         }
+        self.has_new_targets = len(new_targets) > 0
 
         if len(new_atomic_types) > 0:
             raise ValueError(
@@ -171,7 +157,9 @@ class NanoPET(torch.nn.Module):
             self._add_output(target_name, target)
 
         self.dataset_info = merged_info
-        self.atomic_types = sorted(self.atomic_types)
+
+        # restart the composition model
+        self.additive_models[0].restart(dataset_info)
 
         return self
 
@@ -549,3 +537,7 @@ class NanoPET(torch.nn.Module):
             prod(self.output_shapes[target_name]),
             bias=False,
         )
+
+        self.key_labels[target_name] = target_info.layout.keys
+        self.component_labels[target_name] = target_info.layout.block().components
+        self.property_labels[target_name] = target_info.layout.block().properties
