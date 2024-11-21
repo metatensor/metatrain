@@ -86,6 +86,93 @@ def test_write_xyz(monkeypatch, tmp_path):
         assert all(atoms.pbc == 3 * [False])
 
 
+def test_write_components_and_properties_xyz(monkeypatch, tmp_path):
+    monkeypatch.chdir(tmp_path)
+
+    systems, _, _ = systems_capabilities_predictions()
+
+    capabilities = ModelCapabilities(
+        length_unit="angstrom",
+        outputs={"energy": ModelOutput(quantity="dos", unit="")},
+        interaction_range=1.0,
+        dtype="float32",
+    )
+
+    predictions = {
+        "dos": TensorMap(
+            keys=Labels.single(),
+            blocks=[
+                TensorBlock(
+                    values=torch.rand(2, 3, 100),
+                    samples=Labels(["system"], torch.tensor([[0], [1]])),
+                    components=[
+                        Labels.range("xyz", 3),
+                    ],
+                    properties=Labels(
+                        ["property"],
+                        torch.arange(100, dtype=torch.int32).reshape(-1, 1),
+                    ),
+                )
+            ],
+        )
+    }
+
+    filename = "test_output.xyz"
+
+    write_xyz(filename, systems, capabilities, predictions)
+
+    # Read the file and verify its contents
+    frames = ase.io.read(filename, index=":")
+    assert len(frames) == len(systems)
+    for atoms in frames:
+        assert atoms.info["dos"].shape == (3, 100)
+
+
+def test_write_components_and_properties_xyz_per_atom(monkeypatch, tmp_path):
+    monkeypatch.chdir(tmp_path)
+
+    systems, _, _ = systems_capabilities_predictions()
+
+    capabilities = ModelCapabilities(
+        length_unit="angstrom",
+        outputs={"energy": ModelOutput(quantity="dos", unit="", per_atom=True)},
+        interaction_range=1.0,
+        dtype="float32",
+    )
+
+    predictions = {
+        "dos": TensorMap(
+            keys=Labels.single(),
+            blocks=[
+                TensorBlock(
+                    values=torch.rand(4, 3, 100),
+                    samples=Labels(
+                        ["system", "atom"],
+                        torch.tensor([[0, 0], [0, 1], [1, 0], [1, 1]]),
+                    ),
+                    components=[
+                        Labels.range("xyz", 3),
+                    ],
+                    properties=Labels(
+                        ["property"],
+                        torch.arange(100, dtype=torch.int32).reshape(-1, 1),
+                    ),
+                )
+            ],
+        )
+    }
+
+    filename = "test_output.xyz"
+
+    write_xyz(filename, systems, capabilities, predictions)
+
+    # Read the file and verify its contents
+    frames = ase.io.read(filename, index=":")
+    assert len(frames) == len(systems)
+    for atoms in frames:
+        assert atoms.arrays["dos"].shape == (2, 300)
+
+
 def test_write_xyz_cell(monkeypatch, tmp_path):
     monkeypatch.chdir(tmp_path)
 
@@ -100,10 +187,14 @@ def test_write_xyz_cell(monkeypatch, tmp_path):
 
     # Read the file and verify its contents
     frames = ase.io.read(filename, index=":")
-    for atoms in frames:
+    for i, atoms in enumerate(frames):
         cell_actual = torch.tensor(atoms.cell.array, dtype=cell_expected.dtype)
         torch.testing.assert_close(cell_actual, cell_expected)
         assert all(atoms.pbc == 3 * [True])
+        assert atoms.info["energy"] == float(predictions["energy"].block().values[i, 0])
+        assert atoms.arrays["forces"].shape == (2, 3)
+        assert atoms.info["stress"].shape == (3, 3)
+        assert atoms.info["virial"].shape == (3, 3)
 
 
 @pytest.mark.parametrize("fileformat", (None, ".xyz"))

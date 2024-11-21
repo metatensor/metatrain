@@ -8,13 +8,16 @@ from metatensor.torch.atomistic import ModelOutput, System
 from omegaconf import OmegaConf
 
 from metatrain.utils.additive import ZBL, CompositionModel, remove_additive
-from metatrain.utils.data import Dataset, DatasetInfo, TargetInfo
+from metatrain.utils.data import Dataset, DatasetInfo
 from metatrain.utils.data.readers import read_systems, read_targets
+from metatrain.utils.data.target_info import (
+    get_energy_target_info,
+    get_generic_target_info,
+)
 from metatrain.utils.neighbor_lists import (
     get_requested_neighbor_lists,
     get_system_with_neighbor_lists,
 )
-from metatrain.utils.testing import energy_layout
 
 
 RESOURCES_PATH = Path(__file__).parents[1] / "resources"
@@ -83,12 +86,7 @@ def test_composition_model_train():
         dataset_info=DatasetInfo(
             length_unit="angstrom",
             atomic_types=[1, 8],
-            targets={
-                "energy": TargetInfo(
-                    quantity="energy",
-                    layout=energy_layout,
-                )
-            },
+            targets={"energy": get_energy_target_info({"unit": "eV"})},
         ),
     )
 
@@ -134,6 +132,9 @@ def test_composition_model_predict():
             "reader": "ase",
             "key": "U0",
             "unit": "eV",
+            "type": "scalar",
+            "per_atom": False,
+            "num_subtargets": 1,
             "forces": False,
             "stress": False,
             "virial": False,
@@ -210,12 +211,7 @@ def test_composition_model_torchscript(tmpdir):
         dataset_info=DatasetInfo(
             length_unit="angstrom",
             atomic_types=[1, 8],
-            targets={
-                "energy": TargetInfo(
-                    quantity="energy",
-                    layout=energy_layout,
-                )
-            },
+            targets={"energy": get_energy_target_info({"unit": "eV"})},
         ),
     )
     composition_model = torch.jit.script(composition_model)
@@ -243,6 +239,9 @@ def test_remove_additive():
             "reader": "ase",
             "key": "U0",
             "unit": "eV",
+            "type": "scalar",
+            "per_atom": False,
+            "num_subtargets": 1,
             "forces": False,
             "stress": False,
             "virial": False,
@@ -339,12 +338,7 @@ def test_composition_model_missing_types():
         dataset_info=DatasetInfo(
             length_unit="angstrom",
             atomic_types=[1],
-            targets={
-                "energy": TargetInfo(
-                    quantity="energy",
-                    layout=energy_layout,
-                )
-            },
+            targets={"energy": get_energy_target_info({"unit": "eV"})},
         ),
     )
     with pytest.raises(
@@ -358,12 +352,7 @@ def test_composition_model_missing_types():
         dataset_info=DatasetInfo(
             length_unit="angstrom",
             atomic_types=[1, 8, 100],
-            targets={
-                "energy": TargetInfo(
-                    quantity="energy",
-                    layout=energy_layout,
-                )
-            },
+            targets={"energy": get_energy_target_info({"unit": "eV"})},
         ),
     )
     with pytest.warns(
@@ -388,9 +377,18 @@ def test_composition_model_wrong_target():
                 length_unit="angstrom",
                 atomic_types=[1],
                 targets={
-                    "energy": TargetInfo(
-                        quantity="FOO",
-                        layout=energy_layout,
+                    "energy": get_generic_target_info(
+                        {
+                            "quantity": "dipole",
+                            "unit": "D",
+                            "per_atom": True,
+                            "num_subtargets": 5,
+                            "type": {
+                                "Cartesian": {
+                                    "rank": 1,
+                                }
+                            },
+                        }
                     )
                 },
             ),
@@ -412,6 +410,9 @@ def test_zbl():
             "reader": "ase",
             "key": "U0",
             "unit": "eV",
+            "type": "scalar",
+            "per_atom": False,
+            "num_subtargets": 1,
             "forces": False,
             "stress": False,
             "virial": False,

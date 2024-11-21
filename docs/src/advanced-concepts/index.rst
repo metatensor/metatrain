@@ -13,3 +13,4 @@ such as output naming, auxiliary outputs, and wrapper models.
    multi-gpu
    auto-restarting
    fine-tuning
+   preparing-generic-targets

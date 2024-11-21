@@ -11,12 +11,12 @@ from pet.pet import PET
 
 from metatrain.experimental.pet import PET as WrappedPET
 from metatrain.utils.architectures import get_default_hypers
-from metatrain.utils.data import DatasetInfo, TargetInfo
+from metatrain.utils.data import DatasetInfo
+from metatrain.utils.data.target_info import get_energy_target_info
 from metatrain.utils.neighbor_lists import (
     get_requested_neighbor_lists,
     get_system_with_neighbor_lists,
 )
-from metatrain.utils.testing import energy_layout
 
 
 DEFAULT_HYPERS = get_default_hypers("experimental.pet")
@@ -32,9 +32,7 @@ def test_to(device):
     dataset_info = DatasetInfo(
         length_unit="Angstrom",
         atomic_types=[1, 6, 7, 8],
-        targets={
-            "energy": TargetInfo(quantity="energy", unit="eV", layout=energy_layout)
-        },
+        targets={"energy": get_energy_target_info({"unit": "eV"})},
     )
     model = WrappedPET(DEFAULT_HYPERS["model"], dataset_info)
     ARCHITECTURAL_HYPERS = Hypers(model.hypers)
