@@ -1,9 +1,11 @@
-from pet.pet import PET, SelfContributionsWrapper
-from pet.hypers import Hypers
-from .fine_tuning import LoRAWrapper
-from . import update_state_dict
-from typing import List, Dict
+from typing import Dict, List
+
 import numpy as np
+from pet.hypers import Hypers
+from pet.pet import PET, SelfContributionsWrapper
+
+from .fine_tuning import LoRAWrapper
+from .update_state_dict import update_state_dict
 
 
 def load_raw_pet_model(
@@ -11,7 +13,7 @@ def load_raw_pet_model(
     hypers: Dict,
     atomic_types: List,
     self_contributions: np.ndarray,
-) -> PET:
+) -> "SelfContributionsWrapper":
     """Creates a raw PET model instance."""
 
     ARCHITECTURAL_HYPERS = Hypers(hypers)

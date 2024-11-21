@@ -19,7 +19,7 @@ from metatrain.utils.data import DatasetInfo
 
 from ...utils.additive import ZBL
 from ...utils.dtype import dtype_to_str
-from .utils import systems_to_batch_dict, load_raw_pet_model
+from .utils import load_raw_pet_model, systems_to_batch_dict
 
 
 logger = logging.getLogger(__name__)

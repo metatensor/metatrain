@@ -19,12 +19,7 @@ from pet.data_preparation import (
     update_pyg_graphs,
 )
 from pet.hypers import Hypers, save_hypers
-from pet.pet import (
-    PET,
-    FlagsWrapper,
-    PETMLIPWrapper,
-    PETUtilityWrapper,
-)
+from pet.pet import PET, FlagsWrapper, PETMLIPWrapper, PETUtilityWrapper
 from pet.utilities import (
     FullLogger,
     ModelKeeper,
@@ -44,7 +39,7 @@ from torch_geometric.nn import DataParallel
 from ...utils.data import Dataset, check_datasets
 from ...utils.io import check_file_extension
 from . import PET as WrappedPET
-from .utils import dataset_to_ase, update_hypers, load_raw_pet_model
+from .utils import dataset_to_ase, load_raw_pet_model, update_hypers
 
 
 logger = logging.getLogger(__name__)
