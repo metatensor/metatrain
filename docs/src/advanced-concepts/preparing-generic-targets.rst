@@ -26,7 +26,7 @@ like this:
         type:
           cartiesian:
             rank: 1
-        num_properties: 10
+        num_subtargets: 10
 
 The crucial fields here are:
 
@@ -36,12 +36,13 @@ The crucial fields here are:
     a Cartesian vector. The ``rank`` field specifies the rank of the target. For
     Cartesian vectors, the rank is 1. Other possibilities for the ``type`` are
     ``scalar`` (for a scalar target) and ``spherical`` (for a spherical tensor).
-- ``num_properties``: This field specifies the number of independent properties in the
-    target that need to be learned. They are treated as entirely equivalent by models in
+- ``num_subtargets``: This field specifies the number of sub-targets that need to be
+    learned as part of this target. They are treated as entirely equivalent by models in
     metatrain and will often be represented as outputs of the same neural network layer.
     A common use case for this field is when you are learning a discretization of a
-    continuous target, such as the grid points of a band structure. In this case, there
-    are 10 properties.
+    continuous target, such as the grid points of a band structure. In the example
+    above, there are 10 sub-targets. In ``metatensor``, these correspond to the number
+    of ``properties`` of the target.
 
 A few more words should be spent on ``spherical`` targets. These should be made of a
 certain number of irreducible spherical tensors. For example, if you are learning a
@@ -62,7 +63,7 @@ the target section should would look like this:
             irreps:
                 - {o3_lambda: 0, o3_sigma: 1}
                 - {o3_lambda: 2, o3_sigma: 1}
-        num_properties: 10
+        num_subtargets: 10
 
 where ``o3_lambda`` specifies the L value of the spherical tensor and ``o3_sigma`` its
 parity with respect to inversion (1 for proper tensors, -1 for pseudo-tensors).

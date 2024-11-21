@@ -89,7 +89,7 @@ def test_read_targets(stress_dict, virial_dict, monkeypatch, tmp_path, caplog):
         "unit": "eV",
         "type": "scalar",
         "per_atom": False,
-        "num_properties": 1,
+        "num_subtargets": 1,
         "forces": {"read_from": filename, "reader": "ase", "key": "forces"},
         "stress": stress_dict,
         "virial": virial_dict,
@@ -176,7 +176,7 @@ def test_read_targets_warnings(stress_dict, virial_dict, monkeypatch, tmp_path, 
         "unit": "eV",
         "type": "scalar",
         "per_atom": False,
-        "num_properties": 1,
+        "num_subtargets": 1,
         "forces": {"read_from": filename, "reader": "ase", "key": "forces"},
         "stress": stress_dict,
         "virial": virial_dict,
@@ -209,7 +209,7 @@ def test_read_targets_error(monkeypatch, tmp_path):
         "key": "true_energy",
         "type": "scalar",
         "per_atom": False,
-        "num_properties": 1,
+        "num_subtargets": 1,
         "forces": {"read_from": filename, "reader": "ase", "key": "forces"},
         "stress": True,
         "virial": True,
@@ -245,7 +245,7 @@ def test_read_targets_generic_1(key, monkeypatch, tmp_path):
             }
         },
         "per_atom": False,
-        "num_properties": 3,
+        "num_subtargets": 3,
     }
     conf = {"stress": stress_section}
     with pytest.warns(UserWarning, match="should not be its own top-level target"):
@@ -284,7 +284,7 @@ def test_read_targets_generic_2(key, monkeypatch, tmp_path):
             }
         },
         "per_atom": False,
-        "num_properties": 1,
+        "num_subtargets": 1,
     }
     conf = {"stress": stress_section}
     with pytest.warns(UserWarning, match="should not be its own top-level target"):
@@ -319,7 +319,7 @@ def test_read_targets_generic_3(key, monkeypatch, tmp_path):
         "unit": "GPa",
         "type": "scalar",
         "per_atom": False,
-        "num_properties": 9,
+        "num_subtargets": 9,
     }
     conf = {"stress": stress_section}
     with pytest.warns(UserWarning, match="should not be its own top-level target"):
@@ -350,7 +350,7 @@ def test_read_targets_generic_errors(monkeypatch, tmp_path):
             }
         },
         "per_atom": False,
-        "num_properties": 9,
+        "num_subtargets": 9,
     }
     conf = {"stress": stress_section}
     with pytest.raises(ValueError, match="use the metatensor reader"):

@@ -98,7 +98,7 @@ CONF_TARGET_FIELDS = OmegaConf.create(
         "unit": None,
         "per_atom": False,
         "type": "scalar",
-        "num_properties": 1,
+        "num_subtargets": 1,
     }
 )
 
