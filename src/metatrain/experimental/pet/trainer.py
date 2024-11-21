@@ -134,11 +134,11 @@ class Trainer:
                 "shift agnostic loss is intended only for general target training"
             )
 
-        ARCHITECTURAL_HYPERS.D_OUTPUT = 1  # energy is a single scalar
-        ARCHITECTURAL_HYPERS.TARGET_TYPE = "structural"  # energy is structural property
-        ARCHITECTURAL_HYPERS.TARGET_AGGREGATION = (
-            "sum"  # energy is a sum of atomic energies
-        )
+        # ARCHITECTURAL_HYPERS.D_OUTPUT = 1  # energy is a single scalar
+        # ARCHITECTURAL_HYPERS.TARGET_TYPE = "structural"  # energy is structural
+        # property ARCHITECTURAL_HYPERS.TARGET_AGGREGATION = (
+        #     "sum"  # energy is a sum of atomic energies
+        # )
 
         training_configuration_log += (
             f"Output dimensionality: {ARCHITECTURAL_HYPERS.D_OUTPUT}\n"
@@ -269,6 +269,12 @@ Units of the Energy and Forces are the same units given in input"""
         logging.info("Initializing the model...")
         if model.pet is not None:
             pet_model = model.pet.model
+            if not ARCHITECTURAL_HYPERS.USE_LORA_PEFT:
+                pet_model.hypers.TARGET_TYPE = "structural"
+                pet_model.TARGET_TYPE = "structural"
+            else:
+                pet_model.model.hypers.TARGET_TYPE = "structural"
+                pet_model.model.TARGET_TYPE = "structural"
             pet_model = pet_model.to(device=device, dtype=dtype)
         else:
             pet_model = PET(ARCHITECTURAL_HYPERS, 0.0, len(all_species))
@@ -309,6 +315,11 @@ Units of the Energy and Forces are the same units given in input"""
         if self.pet_trainer_state is not None:
             optim.load_state_dict(self.pet_trainer_state["optim_state_dict"])
             scheduler.load_state_dict(self.pet_trainer_state["scheduler_state_dict"])
+        else:
+            logging.info(
+                "No optimizer and scheduler state found in the "
+                "checkpoint, starting from scratch"
+            )
 
         history = []
         if MLIP_SETTINGS.USE_ENERGIES:
@@ -713,7 +724,7 @@ Units of the Energy and Forces are the same units given in input"""
             "hypers": self.hypers,
             "epoch": self.epoch,
             "dataset_info": model.dataset_info,
-            "self_contributions": model.pet.self_contributions,
+            "self_contributions": model.pet.self_contributions.numpy(),
             "dtype": dtype2string(dtype),
         }
         best_model_checkpoint = {
@@ -721,7 +732,7 @@ Units of the Energy and Forces are the same units given in input"""
             "model_state_dict": best_model_state_dict,
             "hypers": self.hypers,
             "dataset_info": model.dataset_info,
-            "self_contributions": model.pet.self_contributions,
+            "self_contributions": model.pet.self_contributions.numpy(),
             "dtype": dtype2string(dtype),
         }
 
