@@ -144,14 +144,14 @@ class PET(torch.nn.Module):
             model_hypers=hypers["ARCHITECTURAL_HYPERS"], dataset_info=dataset_info
         )
         state_dict = checkpoint["model_state_dict"]
+        dtype = next(iter(state_dict.values())).dtype
         wrapper = load_raw_pet_model(
             state_dict,
-            hypers,
+            model.hypers,
             model.atomic_types,
             checkpoint["self_contributions"],
         )
 
-        dtype = checkpoint["dtype"]
         model.to(dtype).set_trained_model(wrapper)
 
         return model
