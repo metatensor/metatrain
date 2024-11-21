@@ -65,7 +65,7 @@ alchemical-model = [
   "torch_alchemical @ git+https://github.com/abmazitov/torch_alchemical.git@51ff519",
 ]
 pet = [
-  "pet @ git+https://github.com/lab-cosmo/pet@ee90692",
+  "pet @ git+https://github.com/lab-cosmo/pet@4b48a13721e51f699755a8d93b432e284683125d",
 ]
 gap = [
     "rascaline-torch @ git+https://github.com/luthaf/rascaline@5326b6e#subdirectory=python/rascaline-torch",
