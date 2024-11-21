@@ -15,6 +15,11 @@ def load_raw_pet_model(
     """Creates a raw PET model instance."""
 
     ARCHITECTURAL_HYPERS = Hypers(hypers)
+
+    ARCHITECTURAL_HYPERS.D_OUTPUT = 1
+    ARCHITECTURAL_HYPERS.TARGET_AGGREGATION = "sum"
+    ARCHITECTURAL_HYPERS.TARGET_TYPE = "atomic"
+
     raw_pet = PET(ARCHITECTURAL_HYPERS, 0.0, len(atomic_types))
     if ARCHITECTURAL_HYPERS.USE_LORA_PEFT:
         lora_rank = ARCHITECTURAL_HYPERS.LORA_RANK
