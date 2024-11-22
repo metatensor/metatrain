@@ -23,6 +23,7 @@ from ...utils.neighbor_lists import (
     get_system_with_neighbor_lists,
 )
 from ...utils.per_atom import average_by_num_atoms
+from ...utils.scaler import remove_scale
 from ...utils.transfer import (
     systems_and_targets_to_device,
     systems_and_targets_to_dtype,
@@ -119,6 +120,10 @@ class Trainer:
         model.additive_models[0].train_model(  # this is the composition model
             train_datasets, self.hypers["fixed_composition_weights"]
         )
+
+        if self.hypers["scale_targets"]:
+            logger.info("Calculating scaling weights")
+            model.scaler.train_model(train_datasets, model.additive_models)
 
         if is_distributed:
             model = DistributedDataParallel(model, device_ids=[device])
@@ -275,6 +280,7 @@ class Trainer:
                     targets = remove_additive(
                         systems, targets, additive_model, train_targets
                     )
+                targets = remove_scale(targets, model.scaler)
                 systems, targets = systems_and_targets_to_dtype(systems, targets, dtype)
                 predictions = evaluate_model(
                     model,
@@ -328,6 +334,7 @@ class Trainer:
                     targets = remove_additive(
                         systems, targets, additive_model, train_targets
                     )
+                targets = remove_scale(targets, model.scaler)
                 systems, targets = systems_and_targets_to_dtype(systems, targets, dtype)
                 predictions = evaluate_model(
                     model,
@@ -371,6 +378,7 @@ class Trainer:
             finalized_val_info = {"loss": val_loss, **finalized_val_info}
 
             if epoch == start_epoch:
+                scaler_scales = model.scaler.get_scales_dict()
                 metric_logger = MetricLogger(
                     log_obj=logger,
                     dataset_info=(
@@ -378,6 +386,14 @@ class Trainer:
                     ).dataset_info,
                     initial_metrics=[finalized_train_info, finalized_val_info],
                     names=["training", "validation"],
+                    scales={
+                        key: (
+                            scaler_scales[key.split(" ")[0]]
+                            if ("MAE" in key or "RMSE" in key)
+                            else 1.0
+                        )
+                        for key in finalized_train_info.keys()
+                    },
                 )
             if epoch % self.hypers["log_interval"] == 0:
                 metric_logger.log(

@@ -130,6 +130,9 @@
         "checkpoint_interval": {
           "type": "integer"
         },
+        "scale_targets": {
+          "type": "boolean"
+        },
         "fixed_composition_weights": {
           "type": "object",
           "patternProperties": {

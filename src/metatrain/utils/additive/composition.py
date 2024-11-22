@@ -11,15 +11,13 @@ from ..jsonschema import validate
 
 
 class CompositionModel(torch.nn.Module):
-    """A simple model that calculates the energy based on the stoichiometry in a system.
+    """A simple model that calculates the contributions to scalar targets
+    based on the stoichiometry in a system.
 
     :param model_hypers: A dictionary of model hyperparameters. The paramater is ignored
         and is only present to be consistent with the general model API.
     :param dataset_info: An object containing information about the dataset, including
         target quantities and atomic types.
-
-    :raises ValueError: If any target quantity in the dataset info is not an energy-like
-        quantity.
     """
 
     outputs: Dict[str, ModelOutput]
@@ -61,6 +59,7 @@ class CompositionModel(torch.nn.Module):
         :param fixed_weights: Optional fixed weights to use for the composition model,
             for one or more target quantities.
 
+        :raises ValueError: If the provided datasets contain unknown targets.
         :raises ValueError: If the provided datasets contain unknown atomic types.
         :raises RuntimeError: If the linear system to calculate the composition weights
             cannot be solved.

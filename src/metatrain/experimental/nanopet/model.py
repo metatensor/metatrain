@@ -17,6 +17,7 @@ from metatensor.torch.atomistic import (
 from ...utils.additive import ZBL, CompositionModel
 from ...utils.data import DatasetInfo, TargetInfo
 from ...utils.dtype import dtype_to_str
+from ...utils.scaler import Scaler
 from .modules.encoder import Encoder
 from .modules.nef import (
     edge_array_to_nef,
@@ -131,6 +132,9 @@ class NanoPET(torch.nn.Module):
             additive_models.append(ZBL(model_hypers, dataset_info))
         self.additive_models = torch.nn.ModuleList(additive_models)
 
+        # scaler: this is also handled by the trainer at training time
+        self.scaler = Scaler(model_hypers={}, dataset_info=dataset_info)
+
         self.single_label = Labels.single()
 
     def restart(self, dataset_info: DatasetInfo) -> "NanoPET":
@@ -158,8 +162,9 @@ class NanoPET(torch.nn.Module):
 
         self.dataset_info = merged_info
 
-        # restart the composition model
+        # restart the composition and scaler models
         self.additive_models[0].restart(dataset_info)
+        self.scaler.restart(dataset_info)
 
         return self
 
@@ -424,7 +429,8 @@ class NanoPET(torch.nn.Module):
                 )
 
         if not self.training:
-            # at evaluation, we also add the additive contributions
+            # at evaluation, we also introduce the scaler and additive contributions
+            return_dict = self.scaler(return_dict)
             for additive_model in self.additive_models:
                 # some of the outputs might not be present in the additive model
                 # (e.g. the composition model only provides outputs for scalar targets)
