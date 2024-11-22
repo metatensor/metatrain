@@ -12,15 +12,14 @@ from .jsonschema import validate
 
 
 class Scaler(torch.nn.Module):
-    """A class that scales the targets of regression problems.
+    """
+    A class that scales the targets of regression problems to unit standard
+    deviation.
 
     :param model_hypers: A dictionary of model hyperparameters. The paramater is ignored
         and is only present to be consistent with the general model API.
     :param dataset_info: An object containing information about the dataset, including
         target quantities and atomic types.
-
-    :raises ValueError: If any target quantity in the dataset info is not an energy-like
-        quantity.
     """
 
     outputs: Dict[str, ModelOutput]
@@ -49,13 +48,15 @@ class Scaler(torch.nn.Module):
         datasets: List[Union[Dataset, torch.utils.data.Subset]],
         additive_models: List[torch.nn.Module],
     ) -> None:
-        """Calculate the scaling weights for all the targets in the datasets.
+        """
+        Calculate the scaling weights for all the targets in the datasets.
 
         :param datasets: Dataset(s) to calculate the scaling weights for.
         :param additive_models: Additive models to be removed from the targets
             before calculating the statistics.
 
-        :raises ValueError: If the provided datasets contain unknown targets.
+        :raises ValueError: If the provided datasets contain targets unknown
+            to the scaler.
         """
         if not isinstance(datasets, list):
             datasets = [datasets]
@@ -144,12 +145,15 @@ class Scaler(torch.nn.Module):
         self,
         outputs: Dict[str, TensorMap],
     ) -> Dict[str, TensorMap]:
-        """Scales all the targets in the outputs dictionary.
+        """
+        Scales all the targets in the outputs dictionary back to their
+        original scale.
 
         :param outputs: A dictionary of target quantities and their values
             to be scaled.
 
-        :raises ValueError: If an output is missing from the internal scales.
+        :raises ValueError: If an output does not have a corresponding
+            scale in the scaler model.
         """
 
         for output_name in outputs:
@@ -189,6 +193,9 @@ class Scaler(torch.nn.Module):
         Return a dictionary with the scales for each output and output gradient.
 
         :return: A dictionary with the scales for each output and output gradient.
+            These correspond to the standard deviation of the targets in the
+            original dataset. The scales for each output gradient are the same
+            as the corresponding output.
         """
 
         scales_dict = {
@@ -209,7 +216,8 @@ def remove_scale(
     targets: Dict[str, TensorMap],
     scaler: Scaler,
 ):
-    """Remove the scaling from the targets.
+    """
+    Scale all targets to a standard deviation of one.
 
     :param targets: Dictionary containing the targets to be scaled.
     :param scaler: The scaler used to scale the targets.
