@@ -86,7 +86,7 @@ def test_regression_train():
             "unit": "eV",
             "type": "scalar",
             "per_atom": False,
-            "num_properties": 1,
+            "num_subtargets": 1,
             "forces": False,
             "stress": False,
             "virial": False,

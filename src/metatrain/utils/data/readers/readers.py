@@ -133,7 +133,7 @@ def read_targets(
         is_energy = (
             (target["quantity"] == "energy")
             and (not target["per_atom"])
-            and target["num_properties"] == 1
+            and target["num_subtargets"] == 1
             and target["type"] == "scalar"
         )
         energy_or_generic = "energy" if is_energy else "generic"

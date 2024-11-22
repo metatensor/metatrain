@@ -288,7 +288,7 @@ def test_vector_output(per_atom):
                     "type": {
                         "spherical": {"irreps": [{"o3_lambda": 1, "o3_sigma": 1}]}
                     },
-                    "num_properties": 100,
+                    "num_subtargets": 100,
                     "per_atom": per_atom,
                 }
             )

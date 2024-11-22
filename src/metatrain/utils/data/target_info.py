@@ -278,13 +278,13 @@ def _get_scalar_target_info(target: DictConfig) -> TargetInfo:
 
     block = TensorBlock(
         # float64: otherwise metatensor can't serialize
-        values=torch.empty(0, target["num_properties"], dtype=torch.float64),
+        values=torch.empty(0, target["num_subtargets"], dtype=torch.float64),
         samples=Labels(
             names=sample_names,
             values=torch.empty((0, len(sample_names)), dtype=torch.int32),
         ),
         components=[],
-        properties=Labels.range("properties", target["num_properties"]),
+        properties=Labels.range("properties", target["num_subtargets"]),
     )
     layout = TensorMap(
         keys=Labels.single(),
@@ -321,7 +321,7 @@ def _get_cartesian_target_info(target: DictConfig) -> TargetInfo:
     block = TensorBlock(
         # float64: otherwise metatensor can't serialize
         values=torch.empty(
-            [0] + [3] * len(components) + [target["num_properties"]],
+            [0] + [3] * len(components) + [target["num_subtargets"]],
             dtype=torch.float64,
         ),
         samples=Labels(
@@ -329,7 +329,7 @@ def _get_cartesian_target_info(target: DictConfig) -> TargetInfo:
             values=torch.empty((0, len(sample_names)), dtype=torch.int32),
         ),
         components=components,
-        properties=Labels.range("properties", target["num_properties"]),
+        properties=Labels.range("properties", target["num_subtargets"]),
     )
     layout = TensorMap(
         keys=Labels.single(),
@@ -366,7 +366,7 @@ def _get_spherical_target_info(target: DictConfig) -> TargetInfo:
             values=torch.empty(
                 0,
                 2 * irrep["o3_lambda"] + 1,
-                target["num_properties"],
+                target["num_subtargets"],
                 dtype=torch.float64,
             ),
             samples=Labels(
@@ -374,7 +374,7 @@ def _get_spherical_target_info(target: DictConfig) -> TargetInfo:
                 values=torch.empty((0, len(sample_names)), dtype=torch.int32),
             ),
             components=components,
-            properties=Labels.range("properties", target["num_properties"]),
+            properties=Labels.range("properties", target["num_subtargets"]),
         )
         keys.append([irrep["o3_lambda"], irrep["o3_sigma"]])
         blocks.append(block)
