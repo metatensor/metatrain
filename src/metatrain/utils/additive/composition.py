@@ -21,6 +21,7 @@ class CompositionModel(torch.nn.Module):
     """
 
     outputs: Dict[str, ModelOutput]
+    output_name_to_output_index: Dict[str, int]
     weights: torch.Tensor
 
     def __init__(self, model_hypers: Dict, dataset_info: DatasetInfo):
@@ -35,12 +36,16 @@ class CompositionModel(torch.nn.Module):
         self.dataset_info = dataset_info
         self.atomic_types = sorted(dataset_info.atomic_types)
 
-        self.new_targets: Dict[str, TargetInfo] = dataset_info.targets
-        self.outputs: Dict[str, ModelOutput] = {}
+        self.new_targets = {
+            target_name: target_info
+            for target_name, target_info in dataset_info.targets.items()
+            if target_info.is_scalar and len(target_info.layout.block().properties) == 1
+        }
+        self.outputs = {}
         self.register_buffer(
             "weights", torch.zeros((0, len(self.atomic_types)), dtype=torch.float64)
         )
-        self.output_name_to_output_index: Dict[str, int] = {}
+        self.output_name_to_output_index = {}
         for target_name, target_info in self.dataset_info.targets.items():
             self._add_output(target_name, target_info)
 
@@ -190,9 +195,11 @@ class CompositionModel(torch.nn.Module):
             )
 
         self.new_targets = {
-            key: value
-            for key, value in merged_info.targets.items()
-            if key not in self.dataset_info.targets
+            target_name: target_info
+            for target_name, target_info in merged_info.targets.items()
+            if target_name not in self.dataset_info.targets
+            and target_info.is_scalar
+            and len(target_info.layout.block().properties) == 1
         }
 
         # register new outputs
@@ -230,7 +237,7 @@ class CompositionModel(torch.nn.Module):
             self.properties_label = self.properties_label.to(device)
 
         for output_name in outputs:
-            if output_name.startswith("mtt::aux::"):
+            if output_name.startswith("mtt::aux::") or output_name == "features":
                 continue
             if output_name not in self.outputs.keys():
                 raise ValueError(
@@ -246,7 +253,7 @@ class CompositionModel(torch.nn.Module):
         # number of atoms per atomic type.
         targets_out: Dict[str, TensorMap] = {}
         for target_key, target in outputs.items():
-            if target_key.startswith("mtt::aux::"):
+            if target_key.startswith("mtt::aux::") or target_key == "features":
                 continue
             if target_key not in self.outputs.keys():
                 # non-scalar
@@ -307,8 +314,7 @@ class CompositionModel(torch.nn.Module):
                 unit=target_info.unit,
                 per_atom=True,
             )
-
-        self.weights = torch.concatenate(
-            [self.weights, torch.zeros((1, n_types), dtype=self.weights.dtype)]
-        )
-        self.output_name_to_output_index[target_name] = len(self.weights) - 1
+            self.weights = torch.concatenate(
+                [self.weights, torch.zeros((1, n_types), dtype=self.weights.dtype)]
+            )
+            self.output_name_to_output_index[target_name] = len(self.weights) - 1

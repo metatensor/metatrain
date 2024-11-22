@@ -93,7 +93,7 @@ def test_composition_model_train():
     composition_model.train_model(dataset)
     assert composition_model.weights.shape[0] == 1
     assert composition_model.weights.shape[1] == 2
-    assert composition_model.output_to_output_index == {"energy": 0}
+    assert composition_model.output_name_to_output_index == {"energy": 0}
     assert composition_model.atomic_types == [1, 8]
     torch.testing.assert_close(
         composition_model.weights, torch.tensor([[2.0, 1.0]], dtype=torch.float64)
@@ -102,7 +102,7 @@ def test_composition_model_train():
     composition_model.train_model([dataset])
     assert composition_model.weights.shape[0] == 1
     assert composition_model.weights.shape[1] == 2
-    assert composition_model.output_to_output_index == {"energy": 0}
+    assert composition_model.output_name_to_output_index == {"energy": 0}
     assert composition_model.atomic_types == [1, 8]
     torch.testing.assert_close(
         composition_model.weights, torch.tensor([[2.0, 1.0]], dtype=torch.float64)
@@ -111,7 +111,7 @@ def test_composition_model_train():
     composition_model.train_model([dataset, dataset, dataset])
     assert composition_model.weights.shape[0] == 1
     assert composition_model.weights.shape[1] == 2
-    assert composition_model.output_to_output_index == {"energy": 0}
+    assert composition_model.output_name_to_output_index == {"energy": 0}
     assert composition_model.atomic_types == [1, 8]
     torch.testing.assert_close(
         composition_model.weights, torch.tensor([[2.0, 1.0]], dtype=torch.float64)
@@ -370,7 +370,7 @@ def test_composition_model_wrong_target():
         model_hypers={},
         dataset_info=DatasetInfo(
             length_unit="angstrom",
-            atomic_types=[1],
+            atomic_types=[1, 8],
             targets={
                 "force": get_generic_target_info(
                     {
@@ -378,19 +378,68 @@ def test_composition_model_wrong_target():
                         "unit": "",
                         "type": {"cartesian": {"rank": 1}},
                         "num_subtargets": 1,
-                        "per_atom": True,
+                        "per_atom": False,
                     }
                 )
             },
         ),
     )
-    # This should do nothing, because the target is not scalar and it should be
-    # ignored by the composition model. The warning is due to the "empty" dataset
-    # not containing H (atomic type 1)
-    with pytest.warns(UserWarning, match="do not contain atomic types"):
-        composition_model.train_model([])
 
-    assert composition_model.weights.shape == (0, 1)
+    systems = [
+        System(
+            positions=torch.tensor([[0.0, 0.0, 0.0]], dtype=torch.float64),
+            types=torch.tensor([8]),
+            cell=torch.eye(3, dtype=torch.float64),
+            pbc=torch.tensor([True, True, True]),
+        ),
+        System(
+            positions=torch.tensor(
+                [[0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [0.0, 1.0, 0.0]], dtype=torch.float64
+            ),
+            types=torch.tensor([1, 1, 8]),
+            cell=torch.eye(3, dtype=torch.float64),
+            pbc=torch.tensor([True, True, True]),
+        ),
+        System(
+            positions=torch.tensor(
+                [
+                    [0.0, 0.0, 0.0],
+                    [1.0, 0.0, 0.0],
+                    [0.0, 1.0, 0.0],
+                    [0.0, 0.0, 1.0],
+                    [1.0, 0.0, 1.0],
+                    [0.0, 1.0, 1.0],
+                ],
+                dtype=torch.float64,
+            ),
+            types=torch.tensor([1, 1, 8, 1, 1, 8]),
+            cell=torch.eye(3, dtype=torch.float64),
+            pbc=torch.tensor([True, True, True]),
+        ),
+    ]
+    force = [[1.0, 5.0, 10.0], [2.0, 6.0, 11.0], [3.0, 7.0, 12.0]]
+    force = [
+        TensorMap(
+            keys=Labels.single(),
+            blocks=[
+                TensorBlock(
+                    values=torch.tensor(
+                        [[[single_f] for single_f in f]], dtype=torch.float64
+                    ),
+                    samples=Labels(names=["system"], values=torch.tensor([[i]])),
+                    components=[
+                        Labels(names=["xyz"], values=torch.tensor([[0], [1], [2]])),
+                    ],
+                    properties=Labels(names=["energy"], values=torch.tensor([[0]])),
+                )
+            ],
+        )
+        for i, f in enumerate(force)
+    ]
+    dataset = Dataset.from_dict({"system": systems, "force": force})
+
+    composition_model.train_model(dataset)
+    assert composition_model.weights.shape == (0, 2)
 
 
 def test_zbl():

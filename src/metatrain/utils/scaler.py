@@ -157,7 +157,7 @@ class Scaler(torch.nn.Module):
         """
 
         for output_name in outputs:
-            if output_name.startswith("mtt::aux::"):
+            if output_name.startswith("mtt::aux::") or output_name == "features":
                 continue
             if output_name not in self.outputs.keys():
                 raise ValueError(
@@ -167,11 +167,14 @@ class Scaler(torch.nn.Module):
 
         scaled_outputs: Dict[str, TensorMap] = {}
         for target_key, target in outputs.items():
-            scale = float(
-                self.scales[self.output_name_to_output_index[target_key]].item()
-            )
-            scaled_target = metatensor.torch.multiply(target, scale)
-            scaled_outputs[target_key] = scaled_target
+            if target_key.startswith("mtt::aux::") or target_key == "features":
+                scaled_outputs[target_key] = target
+            else:
+                scale = float(
+                    self.scales[self.output_name_to_output_index[target_key]].item()
+                )
+                scaled_target = metatensor.torch.multiply(target, scale)
+                scaled_outputs[target_key] = scaled_target
 
         return scaled_outputs
 
