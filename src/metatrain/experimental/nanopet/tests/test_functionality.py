@@ -334,7 +334,7 @@ def test_vector_output(per_atom):
                     "quantity": "forces",
                     "unit": "",
                     "type": {"cartesian": {"rank": 1}},
-                    "num_properties": 100,
+                    "num_subtargets": 100,
                     "per_atom": per_atom,
                 }
             )
