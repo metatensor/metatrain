@@ -135,7 +135,7 @@
                 "per_atom": {
                   "type": "boolean"
                 },
-                "num_properties": {
+                "num_subtargets": {
                   "type": "integer"
                 },
                 "type": {

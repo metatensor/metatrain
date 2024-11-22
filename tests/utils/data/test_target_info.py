@@ -14,7 +14,7 @@ def energy_target_config() -> DictConfig:
             "quantity": "energy",
             "unit": "eV",
             "per_atom": False,
-            "num_properties": 1,
+            "num_subtargets": 1,
             "type": "scalar",
         }
     )
@@ -27,7 +27,7 @@ def scalar_target_config() -> DictConfig:
             "quantity": "scalar",
             "unit": "",
             "per_atom": False,
-            "num_properties": 10,
+            "num_subtargets": 10,
             "type": "scalar",
         }
     )
@@ -40,7 +40,7 @@ def cartesian_target_config() -> DictConfig:
             "quantity": "dipole",
             "unit": "D",
             "per_atom": True,
-            "num_properties": 5,
+            "num_subtargets": 5,
             "type": {
                 "Cartesian": {
                     "rank": 1,
@@ -57,7 +57,7 @@ def spherical_target_config() -> DictConfig:
             "quantity": "spherical",
             "unit": "",
             "per_atom": False,
-            "num_properties": 1,
+            "num_subtargets": 1,
             "type": {
                 "spherical": {
                     "irreps": [

@@ -136,7 +136,7 @@ def test_read_energy(monkeypatch, tmpdir, energy_tensor_map):
         "unit": "eV",
         "type": "scalar",
         "per_atom": False,
-        "num_properties": 1,
+        "num_subtargets": 1,
         "forces": False,
         "stress": False,
         "virial": False,
@@ -166,7 +166,7 @@ def test_read_generic_scalar(monkeypatch, tmpdir, scalar_tensor_map):
         "per_atom": True,
         "unit": "unit",
         "type": "scalar",
-        "num_properties": 10,
+        "num_subtargets": 10,
     }
 
     tensor_maps, target_info = read_generic(OmegaConf.create(conf))
@@ -200,7 +200,7 @@ def test_read_generic_spherical(monkeypatch, tmpdir, spherical_tensor_map):
                 ],
             },
         },
-        "num_properties": 1,
+        "num_subtargets": 1,
     }
 
     tensor_maps, target_info = read_generic(OmegaConf.create(conf))
@@ -231,7 +231,7 @@ def test_read_generic_cartesian(monkeypatch, tmpdir, cartesian_tensor_map):
                 "rank": 2,
             },
         },
-        "num_properties": 1,
+        "num_subtargets": 1,
     }
 
     tensor_maps, target_info = read_generic(OmegaConf.create(conf))
@@ -262,7 +262,7 @@ def test_read_errors(monkeypatch, tmpdir, energy_tensor_map, scalar_tensor_map):
         "unit": "eV",
         "type": "scalar",
         "per_atom": False,
-        "num_properties": 1,
+        "num_subtargets": 1,
         "forces": False,
         "stress": False,
         "virial": False,
