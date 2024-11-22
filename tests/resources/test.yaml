@@ -15,7 +15,7 @@ training_set:
       quantity: force
       key: forces
       per_atom: true
-      num_properties: 3
+      num_subtargets: 3
 
 test_set: 0.5
 validation_set: 0.1

@@ -9,7 +9,7 @@ SOAP-BPNN
 
 This is a Behler-Parrinello neural network :footcite:p:`behler_generalized_2007` with
 using features based on the Smooth overlab of atomic positions (SOAP)
-:footcite:p:`bartok_representing_2013`. The SOAP features are calculated wit `rascaline
+:footcite:p:`bartok_representing_2013`. The SOAP features are calculated with `rascaline
 <https://luthaf.fr/rascaline/latest/index.html>`_.
 
 Installation
