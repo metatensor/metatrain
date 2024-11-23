@@ -12,7 +12,10 @@ architecture:
     radial_basis:
       mlp: true
       type: physical
-      E_max: 70.0
+      E_max: 30.0
+    nu_scaling: 0.3
+    mp_scaling: 0.3
+    overall_scaling: 1.0
   training:
     learning_rate: 1e-2
     batch_size: 8

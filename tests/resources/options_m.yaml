@@ -13,7 +13,7 @@ architecture:
       mlp: true
       type: physical
       E_max: 30.0
-    nu_scaling: 0.1
+    nu_scaling: 0.3
     mp_scaling: 0.3
     overall_scaling: 1.0
   training:

@@ -8,7 +8,7 @@ import torch
 import torch.distributed
 from torch.utils.data import DataLoader, DistributedSampler
 
-from ...utils.data import CombinedDataLoader, Dataset, collate_fn, get_all_targets
+from ...utils.data import CombinedDataLoader, Dataset, collate_fn
 from ...utils.distributed.distributed_data_parallel import DistributedDataParallel
 from ...utils.distributed.slurm import DistributedEnvironment
 from ...utils.evaluate_model import evaluate_model
@@ -20,6 +20,12 @@ from ...utils.metrics import MAEAccumulator, RMSEAccumulator
 from ...utils.neighbor_lists import get_system_with_neighbor_lists
 from ...utils.per_atom import average_by_num_atoms
 from .model import PhACE
+from ...utils.scaler import remove_scale
+from ...utils.transfer import (
+    systems_and_targets_to_device,
+    systems_and_targets_to_dtype,
+)
+from ...utils.additive import remove_additive
 
 
 logger = logging.getLogger(__name__)
@@ -38,6 +44,9 @@ class Trainer:
         self.optimizer_state_dict = None
         self.scheduler_state_dict = None
         self.epoch = None
+        self.best_loss = None
+        self.best_model_state_dict = None
+        self.best_optimizer_state_dict = None
 
     def train(
         self,
@@ -193,6 +202,10 @@ class Trainer:
             **loss_hypers,
         )
 
+        if self.hypers["scale_targets"]:
+            logger.info("Calculating scaling weights")
+            model.scaler.train_model(train_datasets, model.additive_models)
+
         torch.jit.set_fusion_strategy([("DYNAMIC", 0)])
         scripted_model = torch.jit.script(model)
         if is_distributed:
@@ -205,7 +218,10 @@ class Trainer:
             model.parameters(), lr=self.hypers["learning_rate"]
         )
         if self.optimizer_state_dict is not None:
-            optimizer.load_state_dict(self.optimizer_state_dict)
+            # try to load the optimizer state dict, but this is only possible
+            # if there are no new targets in the model (new parameters)
+            if not model.has_new_targets:
+                optimizer.load_state_dict(self.optimizer_state_dict)
 
         # Create an optimizer and a scheduler:
         optimizer = torch.optim.AdamW(
@@ -214,20 +230,29 @@ class Trainer:
             amsgrad=True,
             weight_decay=5e-5,
         )
-        scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
+        lr_scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
             optimizer,
             factor=self.hypers["scheduler_factor"],
             patience=self.hypers["scheduler_patience"],
+            threshold=0.001,
         )
+        if self.scheduler_state_dict is not None:
+            # same as the optimizer, try to load the scheduler state dict
+            if not model.has_new_targets:
+                lr_scheduler.load_state_dict(self.scheduler_state_dict)
 
         # per-atom targets:
         per_structure_targets = self.hypers["per_structure_targets"]
 
+        # Log the initial learning rate:
+        old_lr = optimizer.param_groups[0]["lr"]
+        logger.info(f"Initial learning rate: {old_lr}")
+
         # Train the model:
+        if self.best_loss is None:
+            self.best_loss = float("inf")
         logger.info("Starting training")
 
-        best_val_metric = float("inf")
-        n_epochs_without_improvement = 0
         for epoch in range(self.hypers["num_epochs"]):
             train_rmse_calculator = RMSEAccumulator()
             train_mae_calculator = MAEAccumulator()
@@ -239,11 +264,20 @@ class Trainer:
                 optimizer.zero_grad()
 
                 systems, targets = batch
-                systems = [system.to(device=device, dtype=dtype) for system in systems]
-                targets = {
-                    key: value.to(device=device, dtype=dtype)
-                    for key, value in targets.items()
-                }
+                systems, targets = batch
+                systems, targets = systems_and_targets_to_device(
+                    systems, targets, device
+                )
+                for additive_model in (
+                    model.module if is_distributed else model
+                ).additive_models:
+                    targets = remove_additive(
+                        systems, targets, additive_model, train_targets
+                    )
+                targets = remove_scale(targets, (
+                    model.module if is_distributed else model
+                ).scaler)
+                systems, targets = systems_and_targets_to_dtype(systems, targets, dtype)
                 predictions = evaluate_model(
                     scripted_model,
                     systems,
@@ -276,11 +310,19 @@ class Trainer:
             val_loss = 0.0
             for batch in val_dataloader:
                 systems, targets = batch
-                systems = [system.to(device=device, dtype=dtype) for system in systems]
-                targets = {
-                    key: value.to(device=device, dtype=dtype)
-                    for key, value in targets.items()
-                }
+                systems, targets = systems_and_targets_to_device(
+                    systems, targets, device
+                )
+                for additive_model in (
+                    model.module if is_distributed else model
+                ).additive_models:
+                    targets = remove_additive(
+                        systems, targets, additive_model, train_targets
+                    )
+                targets = remove_scale(targets, (
+                    model.module if is_distributed else model
+                ).scaler)
+                systems, targets = systems_and_targets_to_dtype(systems, targets, dtype)
                 predictions = evaluate_model(
                     scripted_model,
                     systems,
@@ -316,11 +358,24 @@ class Trainer:
             }
 
             if epoch == 0:
+                scaler_scales = (
+                    model.module if is_distributed else model
+                ).scaler.get_scales_dict()
                 metric_logger = MetricLogger(
                     log_obj=logger,
-                    dataset_info=model.dataset_info,
+                    dataset_info=(
+                        model.module if is_distributed else model
+                    ).dataset_info,
                     initial_metrics=[finalized_train_info, finalized_val_info],
                     names=["training", "validation"],
+                    scales={
+                        key: (
+                            scaler_scales[key.split(" ")[0]]
+                            if ("MAE" in key or "RMSE" in key)
+                            else 1.0
+                        )
+                        for key in finalized_train_info.keys()
+                    },
                 )
             if epoch % self.hypers["log_interval"] == 0:
                 metric_logger.log(
@@ -332,55 +387,59 @@ class Trainer:
             #     model.save_checkpoint(Path(checkpoint_dir) / f"model_{epoch}.ckpt")
             # TODO: how do I make this work given that it's scripted?
 
-            lr_before = optimizer.param_groups[0]["lr"]
-            scheduler.step(val_loss)
-            lr_after = optimizer.param_groups[0]["lr"]
-            if lr_before != lr_after:
-                logger.info(f"Learning rate changed from {lr_before} to {lr_after}")
-                scripted_model.load_state_dict(best_state_dict)
-                optimizer.load_state_dict(best_optimizer_state_dict)
-                for param_group in optimizer.param_groups:
-                    param_group["lr"] = lr_after
-            if lr_after < 1e-6:
-                logger.info("Training has converged, stopping")
-                break
+            # lr_before = optimizer.param_groups[0]["lr"]
+            # scheduler.step(val_loss)
+            # lr_after = optimizer.param_groups[0]["lr"]
+            # if lr_before != lr_after:
+            #     logger.info(f"Learning rate changed from {lr_before} to {lr_after}")
+            #     scripted_model.load_state_dict(best_state_dict)
+            #     optimizer.load_state_dict(best_optimizer_state_dict)
+            #     for param_group in optimizer.param_groups:
+            #         param_group["lr"] = lr_after
+            # if lr_after < 1e-6:
+            #     logger.info("Training has converged, stopping")
+            #     break
 
-            val_metric = (
-                finalized_val_info["energy MAE (per atom)"]
-                * finalized_val_info["energy_positions_gradients MAE"]
-                if "energy_positions_gradients MAE" in finalized_train_info
-                else (
-                    finalized_val_info["energy MAE"]
-                    if "energy MAE" in finalized_val_info
-                    else finalized_val_info["energy MAE (per atom)"]
-                )
-            )
-            if val_metric < best_val_metric:
-                best_val_metric = val_metric
-                n_epochs_without_improvement = 0
-                best_state_dict = copy.deepcopy(scripted_model.state_dict())
-                best_optimizer_state_dict = copy.deepcopy(optimizer.state_dict())
-
-            else:
-                n_epochs_without_improvement += 1
-                if (
-                    n_epochs_without_improvement
-                    >= self.hypers["early_stopping_patience"]
-                ):
-                    logger.info(
-                        f"Stopping early after {n_epochs_without_improvement} epochs without improvement"
-                    )
+            # val_metric = (
+            #     finalized_val_info["energy MAE (per atom)"]
+            #     * finalized_val_info["energy_positions_gradients MAE"]
+            #     if "energy_positions_gradients MAE" in finalized_train_info
+            #     else (
+            #         finalized_val_info["energy MAE"]
+            #         if "energy MAE" in finalized_val_info
+            #         else finalized_val_info["energy MAE (per atom)"]
+            #     )
+            # )
+            lr_scheduler.step(val_loss)
+            new_lr = lr_scheduler.get_last_lr()[0]
+            if new_lr != old_lr:
+                if new_lr < 1e-7:
+                    logger.info("Learning rate is too small, stopping training")
                     break
+                else:
+                    logger.info(f"Changing learning rate from {old_lr} to {new_lr}")
+                    old_lr = new_lr
+                    lr_scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
+                        optimizer,
+                        mode="min",
+                        factor=self.hypers["scheduler_factor"],
+                        patience=self.hypers["scheduler_patience"],
+                        threshold=0.001,
+                    )
 
-        if is_distributed:
-            model.load_state_dict(
-                {
-                    name.replace("module.", ""): tensor
-                    for name, tensor in best_state_dict.items()
-                }
-            )
-        else:
-            model.load_state_dict(best_state_dict)
+        # prepare for the checkpoint that will be saved outside the function
+        self.optimizer_state_dict = optimizer.state_dict()
+        self.scheduler_state_dict = lr_scheduler.state_dict()
+
+        # if is_distributed:
+        #     model.load_state_dict(
+        #         {
+        #             name.replace("module.", ""): tensor
+        #             for name, tensor in best_state_dict.items()
+        #         }
+        #     )
+        # else:
+        #     model.load_state_dict(best_state_dict)
 
     def save_checkpoint(self, model, path: Union[str, Path]):
         # ???????????????
@@ -394,6 +453,9 @@ class Trainer:
             "epoch": self.epoch,
             "optimizer_state_dict": self.optimizer_state_dict,
             "scheduler_state_dict": self.scheduler_state_dict,
+            "best_loss": self.best_loss,
+            "best_model_state_dict": self.best_model_state_dict,
+            "best_optimizer_state_dict": self.best_optimizer_state_dict,
         }
         torch.save(
             checkpoint,
@@ -405,20 +467,20 @@ class Trainer:
 
         # Load the checkpoint
         checkpoint = torch.load(path)
-        model_hypers = checkpoint["model_hypers"]
-        model_state_dict = checkpoint["model_state_dict"]
         epoch = checkpoint["epoch"]
         optimizer_state_dict = checkpoint["optimizer_state_dict"]
         scheduler_state_dict = checkpoint["scheduler_state_dict"]
+        best_loss = checkpoint["best_loss"]
+        best_model_state_dict = checkpoint["best_model_state_dict"]
+        best_optimizer_state_dict = checkpoint["best_optimizer_state_dict"]
 
         # Create the trainer
         trainer = cls(train_hypers)
         trainer.optimizer_state_dict = optimizer_state_dict
         trainer.scheduler_state_dict = scheduler_state_dict
         trainer.epoch = epoch
-
-        # Create the model
-        model = PhACE(**model_hypers)
-        model.load_state_dict(model_state_dict)
+        trainer.best_loss = best_loss
+        trainer.best_model_state_dict = best_model_state_dict
+        trainer.best_optimizer_state_dict = best_optimizer_state_dict
 
         return trainer

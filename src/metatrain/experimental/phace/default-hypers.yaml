@@ -30,6 +30,7 @@ architecture:
     scheduler_factor: 0.8
     log_interval: 10
     checkpoint_interval: 25
+    scale_targets: true
     fixed_composition_weights: {}
     per_structure_targets: []
     log_mae: False
