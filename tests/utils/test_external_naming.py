@@ -6,12 +6,14 @@ def test_to_external_name():
     """Tests the to_external_name function."""
 
     quantities = {
-        "energy": get_energy_target_info({"quantity": "energy", "unit": "eV"}),
-        "mtt::free_energy": get_energy_target_info(
-            {"quantity": "energy", "unit": "eV"}
-        ),
-        "mtt::foo": get_energy_target_info({"quantity": "bar", "unit": "eV"}),
+        "energy": get_energy_target_info({"unit": "eV"}),
+        "mtt::free_energy": get_energy_target_info({"unit": "eV"}),
+        "mtt::foo": get_energy_target_info({"unit": "eV"}),
     }
+
+    # hack to test the fact that non-energies should be treated differently
+    # (i.e., their gradients should not have special names)
+    quantities["mtt::foo"].quantity = "bar"
 
     assert to_external_name("energy_positions_gradients", quantities) == "forces"
     assert (

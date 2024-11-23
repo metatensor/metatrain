@@ -27,7 +27,7 @@ torch.manual_seed(0)
 def test_regression_init():
     """Perform a regression test on the model at initialization"""
     targets = {}
-    targets["mtt::U0"] = get_energy_target_info({"quantity": "energy", "unit": "eV"})
+    targets["mtt::U0"] = get_energy_target_info({"unit": "eV"})
 
     dataset_info = DatasetInfo(
         length_unit="Angstrom", atomic_types=[1, 6, 7, 8], targets=targets
@@ -52,7 +52,7 @@ def test_regression_train_and_invariance():
             "unit": "kcal/mol",
             "type": "scalar",
             "per_atom": False,
-            "num_properties": 1,
+            "num_subtargets": 1,
             "forces": False,
             "stress": False,
             "virial": False,
@@ -62,9 +62,7 @@ def test_regression_train_and_invariance():
     dataset = Dataset.from_dict({"system": systems, "mtt::U0": targets["mtt::U0"]})
 
     target_info_dict = {}
-    target_info_dict["mtt::U0"] = get_energy_target_info(
-        {"quantity": "energy", "unit": "eV"}
-    )
+    target_info_dict["mtt::U0"] = get_energy_target_info({"unit": "eV"})
 
     dataset_info = DatasetInfo(
         length_unit="Angstrom", atomic_types=[1, 6, 7, 8], targets=target_info_dict
@@ -129,7 +127,7 @@ def test_ethanol_regression_train_and_invariance():
             "key": "energy",
             "type": "scalar",
             "per_atom": False,
-            "num_properties": 1,
+            "num_subtargets": 1,
             "forces": {
                 "read_from": DATASET_ETHANOL_PATH,
                 "reader": "ase",
@@ -148,9 +146,7 @@ def test_ethanol_regression_train_and_invariance():
     hypers["model"]["krr"]["num_sparse_points"] = 900
 
     target_info_dict = {
-        "energy": get_energy_target_info(
-            {"quantity": "energy", "unit": "eV"}, add_position_gradients=True
-        )
+        "energy": get_energy_target_info({"unit": "eV"}, add_position_gradients=True)
     }
 
     dataset_info = DatasetInfo(

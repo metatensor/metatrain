@@ -66,9 +66,7 @@ def test_prediction():
     dataset_info = DatasetInfo(
         length_unit="Angstrom",
         atomic_types=[1, 6, 7, 8],
-        targets={
-            "energy": get_energy_target_info({"quantity": "energy", "unit": "eV"})
-        },
+        targets={"energy": get_energy_target_info({"unit": "eV"})},
     )
     model = WrappedPET(DEFAULT_HYPERS["model"], dataset_info)
     ARCHITECTURAL_HYPERS = Hypers(model.hypers)
@@ -119,9 +117,7 @@ def test_per_atom_predictions_functionality():
     dataset_info = DatasetInfo(
         length_unit="Angstrom",
         atomic_types=[1, 6, 7, 8],
-        targets={
-            "energy": get_energy_target_info({"quantity": "energy", "unit": "eV"})
-        },
+        targets={"energy": get_energy_target_info({"unit": "eV"})},
     )
     model = WrappedPET(DEFAULT_HYPERS["model"], dataset_info)
     ARCHITECTURAL_HYPERS = Hypers(model.hypers)
@@ -173,9 +169,7 @@ def test_selected_atoms_functionality():
     dataset_info = DatasetInfo(
         length_unit="Angstrom",
         atomic_types=[1, 6, 7, 8],
-        targets={
-            "energy": get_energy_target_info({"quantity": "energy", "unit": "eV"})
-        },
+        targets={"energy": get_energy_target_info({"unit": "eV"})},
     )
     model = WrappedPET(DEFAULT_HYPERS["model"], dataset_info)
     ARCHITECTURAL_HYPERS = Hypers(model.hypers)

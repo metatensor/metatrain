@@ -23,6 +23,7 @@ from ...utils.neighbor_lists import (
     get_system_with_neighbor_lists,
 )
 from ...utils.per_atom import average_by_num_atoms
+from ...utils.scaler import remove_scale
 from ...utils.transfer import (
     systems_and_targets_to_device,
     systems_and_targets_to_dtype,
@@ -39,6 +40,9 @@ class Trainer:
         self.optimizer_state_dict = None
         self.scheduler_state_dict = None
         self.epoch = None
+        self.best_loss = None
+        self.best_model_state_dict = None
+        self.best_optimizer_state_dict = None
 
     def train(
         self,
@@ -116,6 +120,10 @@ class Trainer:
         model.additive_models[0].train_model(  # this is the composition model
             train_datasets, self.hypers["fixed_composition_weights"]
         )
+
+        if self.hypers["scale_targets"]:
+            logger.info("Calculating scaling weights")
+            model.scaler.train_model(train_datasets, model.additive_models)
 
         if is_distributed:
             model = DistributedDataParallel(model, device_ids=[device])
@@ -217,7 +225,10 @@ class Trainer:
             model.parameters(), lr=self.hypers["learning_rate"]
         )
         if self.optimizer_state_dict is not None:
-            optimizer.load_state_dict(self.optimizer_state_dict)
+            # try to load the optimizer state dict, but this is only possible
+            # if there are no new targets in the model (new parameters)
+            if not model.has_new_targets:
+                optimizer.load_state_dict(self.optimizer_state_dict)
 
         # Create a scheduler:
         lr_scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
@@ -225,13 +236,12 @@ class Trainer:
             mode="min",
             factor=self.hypers["scheduler_factor"],
             patience=self.hypers["scheduler_patience"],
+            threshold=0.001,
         )
         if self.scheduler_state_dict is not None:
-            lr_scheduler.load_state_dict(self.scheduler_state_dict)
-
-        # counters for early stopping:
-        best_val_loss = float("inf")
-        epochs_without_improvement = 0
+            # same as the optimizer, try to load the scheduler state dict
+            if not model.has_new_targets:
+                lr_scheduler.load_state_dict(self.scheduler_state_dict)
 
         # per-atom targets:
         per_structure_targets = self.hypers["per_structure_targets"]
@@ -243,6 +253,8 @@ class Trainer:
         start_epoch = 0 if self.epoch is None else self.epoch + 1
 
         # Train the model:
+        if self.best_loss is None:
+            self.best_loss = float("inf")
         logger.info("Starting training")
         for epoch in range(start_epoch, start_epoch + self.hypers["num_epochs"]):
             if is_distributed:
@@ -268,6 +280,7 @@ class Trainer:
                     targets = remove_additive(
                         systems, targets, additive_model, train_targets
                     )
+                targets = remove_scale(targets, model.scaler)
                 systems, targets = systems_and_targets_to_dtype(systems, targets, dtype)
                 predictions = evaluate_model(
                     model,
@@ -321,6 +334,7 @@ class Trainer:
                     targets = remove_additive(
                         systems, targets, additive_model, train_targets
                     )
+                targets = remove_scale(targets, model.scaler)
                 systems, targets = systems_and_targets_to_dtype(systems, targets, dtype)
                 predictions = evaluate_model(
                     model,
@@ -364,11 +378,22 @@ class Trainer:
             finalized_val_info = {"loss": val_loss, **finalized_val_info}
 
             if epoch == start_epoch:
+                scaler_scales = model.scaler.get_scales_dict()
                 metric_logger = MetricLogger(
                     log_obj=logger,
-                    dataset_info=model.dataset_info,
+                    dataset_info=(
+                        model.module if is_distributed else model
+                    ).dataset_info,
                     initial_metrics=[finalized_train_info, finalized_val_info],
                     names=["training", "validation"],
+                    scales={
+                        key: (
+                            scaler_scales[key.split(" ")[0]]
+                            if ("MAE" in key or "RMSE" in key)
+                            else 1.0
+                        )
+                        for key in finalized_train_info.keys()
+                    },
                 )
             if epoch % self.hypers["log_interval"] == 0:
                 metric_logger.log(
@@ -380,8 +405,26 @@ class Trainer:
             lr_scheduler.step(val_loss)
             new_lr = lr_scheduler.get_last_lr()[0]
             if new_lr != old_lr:
-                logger.info(f"Changing learning rate from {old_lr} to {new_lr}")
-                old_lr = new_lr
+                if new_lr < 1e-7:
+                    logger.info("Learning rate is too small, stopping training")
+                    break
+                else:
+                    logger.info(f"Changing learning rate from {old_lr} to {new_lr}")
+                    old_lr = new_lr
+                    lr_scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
+                        optimizer,
+                        mode="min",
+                        factor=self.hypers["scheduler_factor"],
+                        patience=self.hypers["scheduler_patience"],
+                        threshold=0.001,
+                    )
+
+            if val_loss < self.best_loss:
+                self.best_loss = val_loss
+                self.best_model_state_dict = (
+                    model.module if is_distributed else model
+                ).state_dict()
+                self.best_optimizer_state_dict = optimizer.state_dict()
 
             if epoch % self.hypers["checkpoint_interval"] == 0:
                 if is_distributed:
@@ -395,19 +438,9 @@ class Trainer:
                         Path(checkpoint_dir) / f"model_{epoch}.ckpt",
                     )
 
-            # early stopping criterion:
-            if val_loss < best_val_loss:
-                best_val_loss = val_loss
-                epochs_without_improvement = 0
-            else:
-                epochs_without_improvement += 1
-                if epochs_without_improvement >= self.hypers["early_stopping_patience"]:
-                    logger.info(
-                        "Early stopping criterion reached after "
-                        f"{self.hypers['early_stopping_patience']} epochs "
-                        "without improvement."
-                    )
-                    break
+        # prepare for the checkpoint that will be saved outside the function
+        self.optimizer_state_dict = optimizer.state_dict()
+        self.scheduler_state_dict = lr_scheduler.state_dict()
 
     def save_checkpoint(self, model, path: Union[str, Path]):
         checkpoint = {
@@ -420,6 +453,9 @@ class Trainer:
             "epoch": self.epoch,
             "optimizer_state_dict": self.optimizer_state_dict,
             "scheduler_state_dict": self.scheduler_state_dict,
+            "best_loss": self.best_loss,
+            "best_model_state_dict": self.best_model_state_dict,
+            "best_optimizer_state_dict": self.best_optimizer_state_dict,
         }
         torch.save(
             checkpoint,
@@ -431,20 +467,20 @@ class Trainer:
 
         # Load the checkpoint
         checkpoint = torch.load(path, weights_only=False, map_location="cpu")
-        model_hypers = checkpoint["model_hypers"]
-        model_state_dict = checkpoint["model_state_dict"]
         epoch = checkpoint["epoch"]
         optimizer_state_dict = checkpoint["optimizer_state_dict"]
         scheduler_state_dict = checkpoint["scheduler_state_dict"]
+        best_loss = checkpoint["best_loss"]
+        best_model_state_dict = checkpoint["best_model_state_dict"]
+        best_optimizer_state_dict = checkpoint["best_optimizer_state_dict"]
 
         # Create the trainer
         trainer = cls(train_hypers)
         trainer.optimizer_state_dict = optimizer_state_dict
         trainer.scheduler_state_dict = scheduler_state_dict
         trainer.epoch = epoch
-
-        # Create the model
-        model = SoapBpnn(**model_hypers)
-        model.load_state_dict(model_state_dict)
+        trainer.best_loss = best_loss
+        trainer.best_model_state_dict = best_model_state_dict
+        trainer.best_optimizer_state_dict = best_optimizer_state_dict
 
         return trainer

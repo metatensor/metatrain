@@ -10,23 +10,27 @@ representation.
 The following auxiliary outputs that are currently supported
 by one or more architectures in the library:
 
-- ``mtt::aux::last_layer_features``: The internal representation
-   of the model at the last layer, before the final linear transformation.
+- ``mtt::aux::{target}_last_layer_features``: The representation
+   of the model at the last layer, before the final linear transformation
+   to produce target ``target``. If the model produces multiple targets,
+   the corresponding representations might be different. This output
+   differs from the ``features`` output which is the same for all targets
+   of a model.
 
 The following table shows the architectures that support each of the
 auxiliary outputs:
 
-+------------------------------------------+-----------+------------------+-----+
-| Auxiliary output                         | SOAP-BPNN | Alchemical Model | PET |
-+------------------------------------------+-----------+------------------+-----+
-| ``mtt::aux::last_layer_features``        | Yes       |       No         | No  |
-+------------------------------------------+-----------+------------------+-----+
++--------------------------------------------+-----------+------------------+-----+-----+---------+
+| Auxiliary output                           | SOAP-BPNN | Alchemical Model | PET | GAP | NanoPET |
++--------------------------------------------+-----------+------------------+-----+-----+---------+
+| ``mtt::aux::{target}_last_layer_features`` |    Yes    |       No         | No  | No  |   Yes   |
++--------------------------------------------+-----------+------------------+-----+-----+---------+
 
-The following tables show the metadata that is expected for each of the
+The following tables show the metadata that will be provided for each of the
 auxiliary outputs:
 
-mtt::aux::last_layer_features
-^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+mtt::aux::{target}_last_layer_features
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
 .. list-table:: Metadata for last-layer features
   :widths: 2 3 7
@@ -61,5 +65,5 @@ mtt::aux::last_layer_features
   * - properties
     - ``"properties"``
     - the last-layer features have a single property dimension named
-      ``"property"``, with entries ranging from 0 to the number of features
+      ``"properties"``, with entries ranging from 0 to the number of features
       in the last layer.

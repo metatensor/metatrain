@@ -9,7 +9,7 @@ SOAP-BPNN
 
 This is a Behler-Parrinello neural network :footcite:p:`behler_generalized_2007` with
 using features based on the Smooth overlab of atomic positions (SOAP)
-:footcite:p:`bartok_representing_2013`. The SOAP features are calculated wit `rascaline
+:footcite:p:`bartok_representing_2013`. The SOAP features are calculated with `rascaline
 <https://luthaf.fr/rascaline/latest/index.html>`_.
 
 Installation
@@ -155,6 +155,8 @@ The parameters for training are
 :param learning_rate: learning rate
 :param log_interval: number of epochs that elapse between reporting new training results
 :param checkpoint_interval: Interval to save a checkpoint to disk.
+:param scale_targets: Whether to scale the targets to have unit standard deviation
+    across the training set during training.
 :param fixed_composition_weights: allows to set fixed isolated atom energies from
     outside. These are per target name and per (integer) atom type. For example,
     ``fixed_composition_weights: {"energy": {1: -396.0, 6: -500.0}, "mtt::U0": {1: 0.0,

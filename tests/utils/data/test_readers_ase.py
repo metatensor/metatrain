@@ -11,10 +11,10 @@ from metatensor.torch import Labels
 from test_targets_ase import ase_systems
 
 from metatrain.utils.data.readers.ase import (
-    read_energy_ase,
-    read_forces_ase,
-    read_stress_ase,
-    read_virial_ase,
+    _read_energy_ase,
+    _read_forces_ase,
+    _read_stress_ase,
+    _read_virial_ase,
 )
 
 
@@ -25,7 +25,7 @@ def test_read_energies(monkeypatch, tmp_path):
     systems = ase_systems()
     ase.io.write(filename, systems)
 
-    results = read_energy_ase(filename, key="true_energy")
+    results = _read_energy_ase(filename, key="true_energy")
 
     assert type(results) is list
     assert len(results) == len(systems)
@@ -43,7 +43,7 @@ def test_read_forces(monkeypatch, tmp_path):
     systems = ase_systems()
     ase.io.write(filename, systems)
 
-    results = read_forces_ase(filename, key="forces")
+    results = _read_forces_ase(filename, key="forces")
 
     assert type(results) is list
     assert len(results) == len(systems)
@@ -56,7 +56,7 @@ def test_read_forces(monkeypatch, tmp_path):
         assert result.properties == Labels("energy", torch.tensor([[0]]))
 
 
-@pytest.mark.parametrize("reader_func", [read_stress_ase, read_virial_ase])
+@pytest.mark.parametrize("reader_func", [_read_stress_ase, _read_virial_ase])
 def test_read_stress_virial(reader_func, monkeypatch, tmp_path):
     monkeypatch.chdir(tmp_path)
 

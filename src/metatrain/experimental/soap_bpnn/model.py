@@ -21,6 +21,7 @@ from metatrain.utils.data.dataset import DatasetInfo
 
 from ...utils.additive import ZBL, CompositionModel
 from ...utils.dtype import dtype_to_str
+from ...utils.scaler import Scaler
 
 
 class Identity(torch.nn.Module):
@@ -66,7 +67,7 @@ class MLPMap(ModuleMap):
 
             nns_per_species.append(torch.nn.Sequential(*module_list))
         in_keys = Labels(
-            "central_species",
+            "center_type",
             values=torch.tensor(atomic_types).reshape(-1, 1),
         )
         out_properties = [
@@ -90,7 +91,7 @@ class LayerNormMap(ModuleMap):
             layernorm_per_species.append(torch.nn.LayerNorm((n_layer,)))
 
         in_keys = Labels(
-            "central_species",
+            "center_type",
             values=torch.tensor(atomic_types).reshape(-1, 1),
         )
         out_properties = [
@@ -101,6 +102,28 @@ class LayerNormMap(ModuleMap):
             for _ in range(len(in_keys))
         ]
         super().__init__(in_keys, layernorm_per_species, out_properties)
+
+
+class MLPHeadMap(ModuleMap):
+    def __init__(
+        self, in_keys: Labels, num_features: int, out_properties: List[Labels]
+    ) -> None:
+
+        # hardcoded for now, but could be a hyperparameter
+        activation_function = torch.nn.SiLU()
+
+        # Build a neural network for each species. 1 layer for now.
+        nns_per_species = []
+        for _ in in_keys:
+            nns_per_species.append(
+                torch.nn.Sequential(
+                    torch.nn.Linear(num_features, num_features),
+                    activation_function,
+                )
+            )
+
+        super().__init__(in_keys, nns_per_species, out_properties)
+        self.activation_function = activation_function
 
 
 class VectorFeaturizer(torch.nn.Module):
@@ -240,9 +263,18 @@ class SoapBpnn(torch.nn.Module):
         self.last_layer_feature_size = self.n_inputs_last_layer * len(self.atomic_types)
 
         self.outputs = {
-            "mtt::aux::last_layer_features": ModelOutput(unit="unitless", per_atom=True)
-        }  # the model is always capable of outputting the last-layer features
+            "features": ModelOutput(unit="", per_atom=True)
+        }  # the model is always capable of outputting the internal features
+        for target_name in dataset_info.targets.keys():
+            # the model can always output the last-layer features for the targets
+            ll_features_name = (
+                f"mtt::aux::{target_name.replace('mtt::', '')}_last_layer_features"
+            )
+            self.outputs[ll_features_name] = ModelOutput(per_atom=True)
+
         self.vector_featurizers = torch.nn.ModuleDict({})
+        self.heads = torch.nn.ModuleDict({})
+        self.head_types = self.hypers["heads"]
         self.last_layers = torch.nn.ModuleDict({})
         for target_name, target in dataset_info.targets.items():
             self._add_output(target_name, target)
@@ -258,6 +290,9 @@ class SoapBpnn(torch.nn.Module):
             additive_models.append(ZBL(model_hypers, dataset_info))
         self.additive_models = torch.nn.ModuleList(additive_models)
 
+        # scaler: this is also handled by the trainer at training time
+        self.scaler = Scaler(model_hypers={}, dataset_info=dataset_info)
+
     def restart(self, dataset_info: DatasetInfo) -> "SoapBpnn":
         # merge old and new dataset info
         merged_info = self.dataset_info.union(dataset_info)
@@ -269,6 +304,7 @@ class SoapBpnn(torch.nn.Module):
             for key, value in merged_info.targets.items()
             if key not in self.dataset_info.targets
         }
+        self.has_new_targets = len(new_targets) > 0
 
         if len(new_atomic_types) > 0:
             raise ValueError(
@@ -281,7 +317,10 @@ class SoapBpnn(torch.nn.Module):
             self._add_output(target_name, target)
 
         self.dataset_info = merged_info
-        self.atomic_types = sorted(self.atomic_types)
+
+        # restart the composition and scaler models
+        self.additive_models[0].restart(dataset_info)
+        self.scaler.restart(dataset_info)
 
         return self
 
@@ -302,31 +341,58 @@ class SoapBpnn(torch.nn.Module):
         )
 
         soap_features = self.layernorm(soap_features)
-        last_layer_features = self.bpnn(soap_features)
+        features = self.bpnn(soap_features)
 
         # output the hidden features, if requested:
-        if "mtt::aux::last_layer_features" in outputs:
-            last_layer_features_options = outputs["mtt::aux::last_layer_features"]
-            out_features = last_layer_features.keys_to_properties(
+        if "features" in outputs:
+            features_options = outputs["features"]
+            out_features = features.keys_to_properties(
                 self.center_type_labels.to(device)
             )
-            if not last_layer_features_options.per_atom:
+            if not features_options.per_atom:
                 out_features = metatensor.torch.sum_over_samples(out_features, ["atom"])
-            return_dict["mtt::aux::last_layer_features"] = (
-                _remove_center_type_from_properties(out_features)
-            )
+            return_dict["features"] = _remove_center_type_from_properties(out_features)
 
-        last_layer_features_by_output: Dict[str, TensorMap] = {}
+        features_by_output: Dict[str, TensorMap] = {}
         for output_name, vector_featurizer in self.vector_featurizers.items():
-            last_layer_features_by_output[output_name] = vector_featurizer(
-                systems, last_layer_features
+            features_by_output[output_name] = vector_featurizer(systems, features)
+        for output_name, head in self.heads.items():
+            features_by_output[output_name] = head(features_by_output[output_name])
+
+        # output the last-layer features for the outputs, if requested:
+        for output_name in outputs.keys():
+            if not (
+                output_name.startswith("mtt::aux::")
+                and output_name.endswith("_last_layer_features")
+            ):
+                continue
+            base_name = output_name.replace("mtt::aux::", "").replace(
+                "_last_layer_features", ""
             )
+            # the corresponding output could be base_name or mtt::base_name
+            if (
+                f"mtt::{base_name}" not in features_by_output
+                and base_name not in features_by_output
+            ):
+                raise ValueError(
+                    f"Features {output_name} can only be requested, "
+                    f"if the corresponding output {base_name} is also requested."
+                )
+            if f"mtt::{base_name}" in features_by_output:
+                base_name = f"mtt::{base_name}"
+            features_options = outputs[output_name]
+            out_features = features_by_output[base_name].keys_to_properties(
+                self.center_type_labels.to(device)
+            )
+            if not features_options.per_atom:
+                out_features = metatensor.torch.sum_over_samples(out_features, ["atom"])
+            return_dict[output_name] = _remove_center_type_from_properties(out_features)
 
         atomic_properties: Dict[str, TensorMap] = {}
         for output_name, output_layer in self.last_layers.items():
             if output_name in outputs:
                 atomic_properties[output_name] = output_layer(
-                    last_layer_features_by_output[output_name]
+                    features_by_output[output_name]
                 )
 
         for output_name, atomic_property in atomic_properties.items():
@@ -343,7 +409,8 @@ class SoapBpnn(torch.nn.Module):
                 )
 
         if not self.training:
-            # at evaluation, we also add the additive contributions
+            # at evaluation, we also introduce the scaler and additive contributions
+            return_dict = self.scaler(return_dict)
             for additive_model in self.additive_models:
                 # some of the outputs might not be present in the additive model
                 # (e.g. the composition model only provides outputs for scalar targets)
@@ -408,6 +475,7 @@ class SoapBpnn(torch.nn.Module):
 
     def _add_output(self, target_name: str, target: TargetInfo) -> None:
 
+        # featurizers for non-scalars
         if target.is_scalar:
             self.vector_featurizers[target_name] = IdentityWithExtraArg()
         elif target.is_spherical:
@@ -425,47 +493,63 @@ class SoapBpnn(torch.nn.Module):
         else:
             raise ValueError("SOAP-BPNN only supports scalar and spherical targets.")
 
-        if target.is_scalar:
-            self.last_layers[target_name] = LinearMap(
-                Labels(
-                    "central_species",
+        if target_name not in self.head_types:  # default to linear head
+            self.heads[target_name] = Identity()
+        elif self.head_types[target_name] == "mlp":
+            if not target.is_scalar:
+                raise ValueError(
+                    "MLP head is only supported for scalar targets, "
+                    f"but target {target_name} is not scalar."
+                )
+            self.heads[target_name] = MLPHeadMap(
+                in_keys=Labels(
+                    "center_type",
                     values=torch.tensor(self.atomic_types).reshape(-1, 1),
                 ),
-                in_features=self.n_inputs_last_layer,
-                out_features=1,
-                bias=False,
+                num_features=self.n_inputs_last_layer,
                 out_properties=[
                     Labels(
-                        names=["energy"],
-                        values=torch.tensor([[0]]),
+                        names=["property"],
+                        values=torch.arange(self.n_inputs_last_layer).reshape(-1, 1),
                     )
                     for _ in self.atomic_types
                 ],
             )
+        elif self.head_types[target_name] == "linear":
+            self.heads[target_name] = Identity()
         else:
-            self.last_layers[target_name] = LinearMap(
-                Labels(
-                    names=["o3_lambda", "o3_sigma", "center_type"],
-                    values=torch.stack(
-                        [
-                            torch.tensor([1] * len(self.atomic_types)),
-                            torch.tensor([1] * len(self.atomic_types)),
-                            torch.tensor(self.atomic_types),
-                        ],
-                        dim=1,
-                    ),
-                ),
-                in_features=self.n_inputs_last_layer,
-                out_features=1,
-                bias=False,
-                out_properties=[
-                    Labels(
-                        names=["properties"],
-                        values=torch.tensor([[0]]),
-                    )
-                    for _ in self.atomic_types
-                ],
+            raise ValueError(
+                f"Unsupported head type {self.head_types[target_name]} "
+                f"for target {target_name}"
             )
+
+        # last linear layer
+        last_layer_arguments = {
+            "in_features": self.n_inputs_last_layer,
+            "out_features": len(target.layout.block().properties.values),
+            "bias": False,
+            "out_properties": [
+                target.layout.block().properties for _ in self.atomic_types
+            ],
+        }
+        if target.is_scalar:
+            last_layer_arguments["in_keys"] = Labels(
+                "center_type",
+                values=torch.tensor(self.atomic_types).reshape(-1, 1),
+            )
+        else:  # spherical vector
+            last_layer_arguments["in_keys"] = Labels(
+                names=["o3_lambda", "o3_sigma", "center_type"],
+                values=torch.stack(
+                    [
+                        torch.tensor([1] * len(self.atomic_types)),
+                        torch.tensor([1] * len(self.atomic_types)),
+                        torch.tensor(self.atomic_types),
+                    ],
+                    dim=1,
+                ),
+            )
+        self.last_layers[target_name] = LinearMap(**last_layer_arguments)
 
         self.outputs[target_name] = ModelOutput(
             quantity=target.quantity,

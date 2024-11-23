@@ -84,9 +84,7 @@ def test_eval_export(monkeypatch, tmp_path, options):
     dataset_info = DatasetInfo(
         length_unit="angstrom",
         atomic_types={1, 6, 7, 8},
-        targets={
-            "energy": get_energy_target_info({"quantity": "energy", "unit": "eV"})
-        },
+        targets={"energy": get_energy_target_info({"unit": "eV"})},
     )
     model = __model__(model_hypers=MODEL_HYPERS, dataset_info=dataset_info)
 

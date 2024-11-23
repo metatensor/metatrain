@@ -39,7 +39,7 @@ def test_ethanol_regression_train_and_invariance():
             "unit": "kcal/mol",
             "type": "scalar",
             "per_atom": False,
-            "num_properties": 1,
+            "num_subtargets": 1,
             "forces": {
                 "read_from": DATASET_ETHANOL_PATH,
                 "reader": "ase",
@@ -60,7 +60,7 @@ def test_ethanol_regression_train_and_invariance():
 
     target_info_dict = {
         "energy": get_energy_target_info(
-            {"quantity": "energy", "unit": "kcal/mol"}, add_position_gradients=True
+            {"unit": "kcal/mol"}, add_position_gradients=True
         )
     }
 

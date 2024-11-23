@@ -18,10 +18,10 @@ def energy_tensor_map():
         keys=Labels.single(),
         blocks=[
             TensorBlock(
-                values=torch.rand(1, 1, dtype=torch.float64),
+                values=torch.rand(2, 1, dtype=torch.float64),
                 samples=Labels(
                     names=["system"],
-                    values=torch.tensor([[0]], dtype=torch.int32),
+                    values=torch.tensor([[0], [1]], dtype=torch.int32),
                 ),
                 components=[],
                 properties=Labels.range("energy", 1),
@@ -36,10 +36,10 @@ def scalar_tensor_map():
         keys=Labels.single(),
         blocks=[
             TensorBlock(
-                values=torch.rand(2, 10, dtype=torch.float64),
+                values=torch.rand(3, 10, dtype=torch.float64),
                 samples=Labels(
                     names=["system", "atom"],
-                    values=torch.tensor([[0, 0], [0, 1]], dtype=torch.int32),
+                    values=torch.tensor([[0, 0], [0, 1], [1, 0]], dtype=torch.int32),
                 ),
                 components=[],
                 properties=Labels.range("properties", 10),
@@ -57,10 +57,10 @@ def spherical_tensor_map():
         ),
         blocks=[
             TensorBlock(
-                values=torch.rand(1, 1, 1, dtype=torch.float64),
+                values=torch.rand(2, 1, 1, dtype=torch.float64),
                 samples=Labels(
                     names=["system"],
-                    values=torch.tensor([[0]], dtype=torch.int32),
+                    values=torch.tensor([[0], [1]], dtype=torch.int32),
                 ),
                 components=[
                     Labels(
@@ -71,10 +71,10 @@ def spherical_tensor_map():
                 properties=Labels.range("properties", 1),
             ),
             TensorBlock(
-                values=torch.rand(1, 5, 1, dtype=torch.float64),
+                values=torch.rand(2, 5, 1, dtype=torch.float64),
                 samples=Labels(
                     names=["system"],
-                    values=torch.tensor([[0]], dtype=torch.int32),
+                    values=torch.tensor([[0], [1]], dtype=torch.int32),
                 ),
                 components=[
                     Labels(
@@ -94,10 +94,10 @@ def cartesian_tensor_map():
         keys=Labels.single(),
         blocks=[
             TensorBlock(
-                values=torch.rand(1, 3, 3, 1, dtype=torch.float64),
+                values=torch.rand(2, 3, 3, 1, dtype=torch.float64),
                 samples=Labels(
                     names=["system"],
-                    values=torch.tensor([[0]], dtype=torch.int32),
+                    values=torch.tensor([[0], [1]], dtype=torch.int32),
                 ),
                 components=[
                     Labels(
@@ -117,26 +117,26 @@ def cartesian_tensor_map():
 
 def test_read_systems():
     with pytest.raises(NotImplementedError):
-        read_systems("foo.mts")
+        read_systems("foo.npz")
 
 
 def test_read_energy(monkeypatch, tmpdir, energy_tensor_map):
     monkeypatch.chdir(tmpdir)
 
-    torch.save(
-        [energy_tensor_map, energy_tensor_map],
-        "energy.mts",
+    metatensor.torch.save(
+        "energy.npz",
+        energy_tensor_map,
     )
 
     conf = {
         "quantity": "energy",
-        "read_from": "energy.mts",
+        "read_from": "energy.npz",
         "reader": "metatensor",
         "key": "true_energy",
         "unit": "eV",
         "type": "scalar",
         "per_atom": False,
-        "num_properties": 1,
+        "num_subtargets": 1,
         "forces": False,
         "stress": False,
         "virial": False,
@@ -144,46 +144,50 @@ def test_read_energy(monkeypatch, tmpdir, energy_tensor_map):
 
     tensor_maps, target_info = read_energy(OmegaConf.create(conf))
 
-    for tensor_map in tensor_maps:
-        assert metatensor.torch.equal(tensor_map, energy_tensor_map)
+    tensor_map = metatensor.torch.join(
+        tensor_maps, axis="samples", remove_tensor_name=True
+    )
+    assert metatensor.torch.equal(tensor_map, energy_tensor_map)
 
 
 def test_read_generic_scalar(monkeypatch, tmpdir, scalar_tensor_map):
     monkeypatch.chdir(tmpdir)
 
-    torch.save(
-        [scalar_tensor_map, scalar_tensor_map],
-        "generic.mts",
+    metatensor.torch.save(
+        "generic.npz",
+        scalar_tensor_map,
     )
 
     conf = {
         "quantity": "generic",
-        "read_from": "generic.mts",
+        "read_from": "generic.npz",
         "reader": "metatensor",
         "keys": ["scalar"],
         "per_atom": True,
         "unit": "unit",
         "type": "scalar",
-        "num_properties": 10,
+        "num_subtargets": 10,
     }
 
     tensor_maps, target_info = read_generic(OmegaConf.create(conf))
 
-    for tensor_map in tensor_maps:
-        assert metatensor.torch.equal(tensor_map, scalar_tensor_map)
+    tensor_map = metatensor.torch.join(
+        tensor_maps, axis="samples", remove_tensor_name=True
+    )
+    assert metatensor.torch.equal(tensor_map, scalar_tensor_map)
 
 
 def test_read_generic_spherical(monkeypatch, tmpdir, spherical_tensor_map):
     monkeypatch.chdir(tmpdir)
 
-    torch.save(
-        [spherical_tensor_map, spherical_tensor_map],
-        "generic.mts",
+    metatensor.torch.save(
+        "generic.npz",
+        spherical_tensor_map,
     )
 
     conf = {
         "quantity": "generic",
-        "read_from": "generic.mts",
+        "read_from": "generic.npz",
         "reader": "metatensor",
         "keys": ["o3_lambda", "o3_sigma"],
         "per_atom": False,
@@ -196,26 +200,28 @@ def test_read_generic_spherical(monkeypatch, tmpdir, spherical_tensor_map):
                 ],
             },
         },
-        "num_properties": 1,
+        "num_subtargets": 1,
     }
 
     tensor_maps, target_info = read_generic(OmegaConf.create(conf))
 
-    for tensor_map in tensor_maps:
-        assert metatensor.torch.equal(tensor_map, spherical_tensor_map)
+    tensor_map = metatensor.torch.join(
+        tensor_maps, axis="samples", remove_tensor_name=True
+    )
+    assert metatensor.torch.equal(tensor_map, spherical_tensor_map)
 
 
 def test_read_generic_cartesian(monkeypatch, tmpdir, cartesian_tensor_map):
     monkeypatch.chdir(tmpdir)
 
-    torch.save(
-        [cartesian_tensor_map, cartesian_tensor_map],
-        "generic.mts",
+    metatensor.torch.save(
+        "generic.npz",
+        cartesian_tensor_map,
     )
 
     conf = {
         "quantity": "generic",
-        "read_from": "generic.mts",
+        "read_from": "generic.npz",
         "reader": "metatensor",
         "keys": ["cartesian"],
         "per_atom": False,
@@ -225,58 +231,60 @@ def test_read_generic_cartesian(monkeypatch, tmpdir, cartesian_tensor_map):
                 "rank": 2,
             },
         },
-        "num_properties": 1,
+        "num_subtargets": 1,
     }
 
     tensor_maps, target_info = read_generic(OmegaConf.create(conf))
 
-    for tensor_map in tensor_maps:
-        assert metatensor.torch.equal(tensor_map, cartesian_tensor_map)
+    print(tensor_maps)
+
+    tensor_map = metatensor.torch.join(
+        tensor_maps, axis="samples", remove_tensor_name=True
+    )
+    print(tensor_map)
+    print(cartesian_tensor_map)
+    assert metatensor.torch.equal(tensor_map, cartesian_tensor_map)
 
 
 def test_read_errors(monkeypatch, tmpdir, energy_tensor_map, scalar_tensor_map):
     monkeypatch.chdir(tmpdir)
 
-    torch.save(
-        [energy_tensor_map, energy_tensor_map],
-        "energy.mts",
+    metatensor.torch.save(
+        "energy.npz",
+        energy_tensor_map,
     )
 
     conf = {
         "quantity": "energy",
-        "read_from": "energy.mts",
+        "read_from": "energy.npz",
         "reader": "metatensor",
         "key": "true_energy",
         "unit": "eV",
         "type": "scalar",
         "per_atom": False,
-        "num_properties": 1,
+        "num_subtargets": 1,
         "forces": False,
         "stress": False,
         "virial": False,
     }
 
     numpy_array = np.zeros((2, 2))
-    np.save("numpy_array.mts", numpy_array)
-    conf["read_from"] = "numpy_array.mts"
+    np.save("numpy_array.npz", numpy_array)
+    conf["read_from"] = "numpy_array.npz"
     with pytest.raises(ValueError, match="Failed to read"):
         read_energy(OmegaConf.create(conf))
-    conf["read_from"] = "energy.mts"
+    conf["read_from"] = "energy.npz"
 
     conf["forces"] = True
     with pytest.raises(ValueError, match="Unexpected gradients"):
         read_energy(OmegaConf.create(conf))
     conf["forces"] = False
 
-    torch.save(
-        [scalar_tensor_map, scalar_tensor_map],
-        "scalar.mts",
+    metatensor.torch.save(
+        "scalar.npz",
+        scalar_tensor_map,
     )
 
-    conf["read_from"] = "scalar.mts"
+    conf["read_from"] = "scalar.npz"
     with pytest.raises(ValueError, match="Unexpected samples"):
-        read_generic(OmegaConf.create(conf))
-
-    conf["per_atom"] = True
-    with pytest.raises(ValueError, match="Unexpected properties"):
         read_generic(OmegaConf.create(conf))

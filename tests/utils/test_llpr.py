@@ -37,7 +37,7 @@ def test_llpr(tmpdir):
             "unit": "kcal/mol",
             "type": "scalar",
             "per_atom": False,
-            "num_properties": 1,
+            "num_subtargets": 1,
             "forces": False,
             "stress": False,
             "virial": False,
@@ -72,7 +72,7 @@ def test_llpr(tmpdir):
         outputs={
             "mtt::aux::energy_uncertainty": ModelOutput(per_atom=True),
             "energy": ModelOutput(per_atom=True),
-            "mtt::aux::last_layer_features": ModelOutput(per_atom=True),
+            "mtt::aux::energy_last_layer_features": ModelOutput(per_atom=True),
         },
         selected_atoms=None,
     )
@@ -83,14 +83,14 @@ def test_llpr(tmpdir):
 
     assert "mtt::aux::energy_uncertainty" in outputs
     assert "energy" in outputs
-    assert "mtt::aux::last_layer_features" in outputs
+    assert "mtt::aux::energy_last_layer_features" in outputs
 
     assert outputs["mtt::aux::energy_uncertainty"].block().samples.names == [
         "system",
         "atom",
     ]
     assert outputs["energy"].block().samples.names == ["system", "atom"]
-    assert outputs["mtt::aux::last_layer_features"].block().samples.names == [
+    assert outputs["mtt::aux::energy_last_layer_features"].block().samples.names == [
         "system",
         "atom",
     ]
@@ -124,6 +124,7 @@ def test_llpr(tmpdir):
     evaluation_options = ModelEvaluationOptions(
         length_unit="angstrom",
         outputs={
+            "energy": ModelOutput(per_atom=False),
             "mtt::aux::energy_uncertainty": ModelOutput(per_atom=False),
             "mtt::energy_ensemble": ModelOutput(per_atom=False),
         },
@@ -162,7 +163,7 @@ def test_llpr_covariance_as_pseudo_hessian(tmpdir):
             "unit": "kcal/mol",
             "type": "scalar",
             "per_atom": False,
-            "num_properties": 1,
+            "num_subtargets": 1,
             "forces": False,
             "stress": False,
             "virial": False,
@@ -197,7 +198,7 @@ def test_llpr_covariance_as_pseudo_hessian(tmpdir):
     loss_fn = TensorMapDictLoss(loss_weight_dict)
 
     llpr_model.compute_covariance_as_pseudo_hessian(
-        dataloader, target_info, loss_fn, parameters
+        dataloader, target_info, loss_fn, {"energy": parameters}
     )
     llpr_model.compute_inverse_covariance()
 
@@ -212,7 +213,7 @@ def test_llpr_covariance_as_pseudo_hessian(tmpdir):
         outputs={
             "mtt::aux::energy_uncertainty": ModelOutput(per_atom=True),
             "energy": ModelOutput(per_atom=True),
-            "mtt::aux::last_layer_features": ModelOutput(per_atom=True),
+            "mtt::aux::energy_last_layer_features": ModelOutput(per_atom=True),
         },
         selected_atoms=None,
     )
@@ -223,14 +224,14 @@ def test_llpr_covariance_as_pseudo_hessian(tmpdir):
 
     assert "mtt::aux::energy_uncertainty" in outputs
     assert "energy" in outputs
-    assert "mtt::aux::last_layer_features" in outputs
+    assert "mtt::aux::energy_last_layer_features" in outputs
 
     assert outputs["mtt::aux::energy_uncertainty"].block().samples.names == [
         "system",
         "atom",
     ]
     assert outputs["energy"].block().samples.names == ["system", "atom"]
-    assert outputs["mtt::aux::last_layer_features"].block().samples.names == [
+    assert outputs["mtt::aux::energy_last_layer_features"].block().samples.names == [
         "system",
         "atom",
     ]
@@ -242,7 +243,7 @@ def test_llpr_covariance_as_pseudo_hessian(tmpdir):
             params.append(param.squeeze())
     weights = torch.cat(params)
 
-    n_ensemble_members = 10000
+    n_ensemble_members = 1000000  # converges slowly...
     llpr_model.calibrate(dataloader)
     llpr_model.generate_ensemble({"energy": weights}, n_ensemble_members)
     assert "mtt::energy_ensemble" in llpr_model.capabilities.outputs
@@ -264,6 +265,7 @@ def test_llpr_covariance_as_pseudo_hessian(tmpdir):
     evaluation_options = ModelEvaluationOptions(
         length_unit="angstrom",
         outputs={
+            "energy": ModelOutput(per_atom=False),
             "mtt::aux::energy_uncertainty": ModelOutput(per_atom=False),
             "mtt::energy_ensemble": ModelOutput(per_atom=False),
         },
@@ -282,5 +284,5 @@ def test_llpr_covariance_as_pseudo_hessian(tmpdir):
     )
 
     torch.testing.assert_close(
-        analytical_uncertainty, ensemble_uncertainty, rtol=1e-2, atol=1e-2
+        analytical_uncertainty, ensemble_uncertainty, rtol=5e-3, atol=0.0
     )

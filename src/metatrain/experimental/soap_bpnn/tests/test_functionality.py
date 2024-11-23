@@ -23,9 +23,7 @@ def test_prediction_subset_elements():
     dataset_info = DatasetInfo(
         length_unit="Angstrom",
         atomic_types=[1, 6, 7, 8],
-        targets={
-            "energy": get_energy_target_info({"quantity": "energy", "unit": "eV"})
-        },
+        targets={"energy": get_energy_target_info({"unit": "eV"})},
     )
 
     model = SoapBpnn(MODEL_HYPERS, dataset_info)
@@ -49,9 +47,7 @@ def test_prediction_subset_atoms():
     dataset_info = DatasetInfo(
         length_unit="Angstrom",
         atomic_types=[1, 6, 7, 8],
-        targets={
-            "energy": get_energy_target_info({"quantity": "energy", "unit": "eV"})
-        },
+        targets={"energy": get_energy_target_info({"unit": "eV"})},
     )
 
     model = SoapBpnn(MODEL_HYPERS, dataset_info)
@@ -119,9 +115,7 @@ def test_output_last_layer_features():
     dataset_info = DatasetInfo(
         length_unit="Angstrom",
         atomic_types=[1, 6, 7, 8],
-        targets={
-            "energy": get_energy_target_info({"quantity": "energy", "unit": "eV"})
-        },
+        targets={"energy": get_energy_target_info({"unit": "eV"})},
     )
 
     model = SoapBpnn(MODEL_HYPERS, dataset_info)
@@ -145,12 +139,28 @@ def test_output_last_layer_features():
         [system],
         {
             "energy": model.outputs["energy"],
-            "mtt::aux::last_layer_features": ll_output_options,
+            "features": ll_output_options,
+            "mtt::aux::energy_last_layer_features": ll_output_options,
         },
     )
     assert "energy" in outputs
-    assert "mtt::aux::last_layer_features" in outputs
-    last_layer_features = outputs["mtt::aux::last_layer_features"].block()
+    assert "features" in outputs
+    assert "mtt::aux::energy_last_layer_features" in outputs
+
+    features = outputs["features"].block()
+    assert features.samples.names == [
+        "system",
+        "atom",
+    ]
+    assert features.values.shape == (
+        4,
+        128,
+    )
+    assert features.properties.names == [
+        "properties",
+    ]
+
+    last_layer_features = outputs["mtt::aux::energy_last_layer_features"].block()
     assert last_layer_features.samples.names == [
         "system",
         "atom",
@@ -173,17 +183,34 @@ def test_output_last_layer_features():
         [system],
         {
             "energy": model.outputs["energy"],
-            "mtt::aux::last_layer_features": ll_output_options,
+            "features": ll_output_options,
+            "mtt::aux::energy_last_layer_features": ll_output_options,
         },
     )
     assert "energy" in outputs
-    assert "mtt::aux::last_layer_features" in outputs
-    assert outputs["mtt::aux::last_layer_features"].block().samples.names == ["system"]
-    assert outputs["mtt::aux::last_layer_features"].block().values.shape == (
+    assert "features" in outputs
+    assert "mtt::aux::energy_last_layer_features" in outputs
+
+    features = outputs["features"].block()
+    assert features.samples.names == [
+        "system",
+    ]
+    assert features.values.shape == (
         1,
         128,
     )
-    assert outputs["mtt::aux::last_layer_features"].block().properties.names == [
+    assert features.properties.names == [
+        "properties",
+    ]
+
+    assert outputs["mtt::aux::energy_last_layer_features"].block().samples.names == [
+        "system"
+    ]
+    assert outputs["mtt::aux::energy_last_layer_features"].block().values.shape == (
+        1,
+        128,
+    )
+    assert outputs["mtt::aux::energy_last_layer_features"].block().properties.names == [
         "properties",
     ]
 
@@ -193,9 +220,7 @@ def test_output_per_atom():
     dataset_info = DatasetInfo(
         length_unit="Angstrom",
         atomic_types=[1, 6, 7, 8],
-        targets={
-            "energy": get_energy_target_info({"quantity": "energy", "unit": "eV"})
-        },
+        targets={"energy": get_energy_target_info({"unit": "eV"})},
     )
 
     model = SoapBpnn(MODEL_HYPERS, dataset_info)
@@ -263,7 +288,7 @@ def test_vector_output(per_atom):
                     "type": {
                         "spherical": {"irreps": [{"o3_lambda": 1, "o3_sigma": 1}]}
                     },
-                    "num_properties": 100,
+                    "num_subtargets": 100,
                     "per_atom": per_atom,
                 }
             )

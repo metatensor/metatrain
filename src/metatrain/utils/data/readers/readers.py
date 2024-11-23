@@ -16,14 +16,24 @@ logger = logging.getLogger(__name__)
 AVAILABLE_READERS = ["ase", "metatensor"]
 """:py:class:`list`: list containing all implemented reader libraries"""
 
-DEFAULT_READER = {".xyz": "ase", ".extxyz": "ase", ".mts": "metatensor"}
+DEFAULT_READER = {".xyz": "ase", ".extxyz": "ase", ".npz": "metatensor"}
 """:py:class:`dict`: dictionary mapping file extensions to a default reader"""
 
 
-def _call_base_systems_reader(
-    filename: str, reader: Optional[str] = None
+def read_systems(
+    filename: str,
+    reader: Optional[str] = None,
 ) -> List[System]:
+    """Read system informations from a file.
 
+    :param filename: name of the file to read
+    :param reader: reader library for parsing the file. If :py:obj:`None` the library is
+        is tried to determined from the file extension.
+    :param dtype: desired data type of returned tensor
+    :returns: list of systems
+        determined from the file extension.
+    :returns: list of systems stored in double precision
+    """
     if reader is None:
         try:
             file_suffix = Path(filename).suffix
@@ -48,76 +58,20 @@ def _call_base_systems_reader(
     try:
         reader_met = reader_mod.read_systems
     except AttributeError:
-        raise ValueError(f"Reader library {reader!r} can't read systems.")
+        raise ValueError(
+            f"Reader library {reader!r} cannot read systems."
+            f"You can try with other readers: {AVAILABLE_READERS}"
+        )
 
     systems = reader_met(filename)
 
     # elements in data are `torch.ScriptObject`s and their `dtype` is an integer.
     # A C++ double/torch.float64 is `7` according to
     # https://github.com/pytorch/pytorch/blob/207564bab1c4fe42750931765734ee604032fb69/c10/core/ScalarType.h#L54-L93
-    assert all(s.dtype == 7 for s in systems)
+    if not all(s.dtype == 7 for s in systems):
+        raise ValueError("The loaded systems are not in double precision.")
 
     return systems
-
-
-def read_systems(
-    filename: str,
-    reader: Optional[str] = None,
-) -> List[System]:
-    """Read system informations from a file.
-
-    :param filename: name of the file to read
-    :param reader: reader library for parsing the file. If :py:obj:`None` the library is
-        is tried to determined from the file extension.
-    :param dtype: desired data type of returned tensor
-    :returns: list of systems
-        determined from the file extension.
-    :returns: list of systems stored in double precision
-    """
-    return _call_base_systems_reader(filename=filename, reader=reader)
-
-
-def _call_base_target_reader(
-    target: DictConfig, target_kind: str
-) -> Tuple[List[TensorMap], TargetInfo]:
-    reader = target["reader"]
-    filename = target["read_from"]
-
-    if reader is None:
-        try:
-            file_suffix = Path(filename).suffix
-            reader = DEFAULT_READER[file_suffix]
-        except KeyError:
-            raise ValueError(
-                f"File extension {file_suffix!r} is not linked to a default reader "
-                "library. You can try reading it by setting a specific 'reader' from "
-                f"the known ones: {', '.join(AVAILABLE_READERS)} "
-            )
-
-    try:
-        reader_mod = importlib.import_module(
-            name=f".{reader}", package="metatrain.utils.data.readers"
-        )
-    except ImportError:
-        raise ValueError(
-            f"Reader library {reader!r} not supported. Choose from "
-            f"{', '.join(AVAILABLE_READERS)}"
-        )
-
-    try:
-        reader_met = getattr(reader_mod, f"read_{target_kind}")
-    except AttributeError:
-        raise ValueError(f"Reader library {reader!r} can't read {target!r}.")
-
-    target_data_and_target_info = reader_met(target)
-
-    # elements in data are `torch.ScriptObject`s and their `dtype` is an integer.
-    # A C++ double/torch.float64 is `7` according to
-    # https://github.com/pytorch/pytorch/blob/207564bab1c4fe42750931765734ee604032fb69/c10/core/ScalarType.h#L54-L93
-    data = target_data_and_target_info[0]
-    assert all(d.dtype == 7 for d in data)
-
-    return target_data_and_target_info
 
 
 def read_targets(
@@ -179,13 +133,51 @@ def read_targets(
         is_energy = (
             (target["quantity"] == "energy")
             and (not target["per_atom"])
-            and target["num_properties"] == 1
+            and target["num_subtargets"] == 1
             and target["type"] == "scalar"
         )
         energy_or_generic = "energy" if is_energy else "generic"
-        targets_as_list_of_tensor_maps, target_info = _call_base_target_reader(
-            target, energy_or_generic
-        )
+
+        reader = target["reader"]
+        filename = target["read_from"]
+
+        if reader is None:
+            try:
+                file_suffix = Path(filename).suffix
+                reader = DEFAULT_READER[file_suffix]
+            except KeyError:
+                raise ValueError(
+                    f"File extension {file_suffix!r} is not linked to a default reader "
+                    "library. You can try reading it by setting a specific 'reader' "
+                    f"from the known ones: {', '.join(AVAILABLE_READERS)} "
+                )
+
+        try:
+            reader_mod = importlib.import_module(
+                name=f".{reader}", package="metatrain.utils.data.readers"
+            )
+        except ImportError:
+            raise ValueError(
+                f"Reader library {reader!r} not supported. Choose from "
+                f"{', '.join(AVAILABLE_READERS)}"
+            )
+
+        try:
+            reader_met = getattr(reader_mod, f"read_{energy_or_generic}")
+        except AttributeError:
+            raise ValueError(
+                f"Reader library {reader!r} cannot read {target!r}."
+                f"You can try with other readers: {AVAILABLE_READERS}"
+            )
+
+        targets_as_list_of_tensor_maps, target_info = reader_met(target)
+
+        # elements in data are `torch.ScriptObject`s and their `dtype` is an integer.
+        # A C++ double/torch.float64 is `7` according to
+        # https://github.com/pytorch/pytorch/blob/207564bab1c4fe42750931765734ee604032fb69/c10/core/ScalarType.h#L54-L93
+        if not all(t.dtype == 7 for t in targets_as_list_of_tensor_maps):
+            raise ValueError("The loaded targets are not in double precision.")
+
         target_dictionary[target_key] = targets_as_list_of_tensor_maps
         target_info_dictionary[target_key] = target_info
 

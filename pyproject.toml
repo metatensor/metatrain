@@ -67,6 +67,7 @@ alchemical-model = [
 pet = [
   "pet @ git+https://github.com/lab-cosmo/pet@ee90692",
 ]
+nanopet = []
 gap = [
     "rascaline-torch @ git+https://github.com/luthaf/rascaline@5326b6e#subdirectory=python/rascaline-torch",
     "skmatter",

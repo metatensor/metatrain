@@ -23,7 +23,7 @@ def test_regression_init():
     """Perform a regression test on the model at initialization"""
 
     targets = {}
-    targets["mtt::U0"] = get_energy_target_info({"quantity": "energy", "unit": "eV"})
+    targets["mtt::U0"] = get_energy_target_info({"unit": "eV"})
 
     dataset_info = DatasetInfo(
         length_unit="Angstrom", atomic_types=[1, 6, 7, 8], targets=targets
@@ -41,17 +41,17 @@ def test_regression_init():
 
     expected_output = torch.tensor(
         [
-            [0.053602740169],
-            [-0.142421141267],
-            [-0.122775360942],
-            [-0.202754884958],
-            [-0.031394608319],
+            [-0.066850379109],
+            [-0.012763320468],
+            [-0.076015546918],
+            [0.041823804379],
+            [-0.022180110216],
         ]
     )
 
     # if you need to change the hardcoded values:
-    # torch.set_printoptions(precision=12)
-    # print(output["mtt::U0"].block().values)
+    torch.set_printoptions(precision=12)
+    print(output["mtt::U0"].block().values)
 
     torch.testing.assert_close(
         output["mtt::U0"].block().values, expected_output, rtol=1e-5, atol=1e-5
@@ -73,7 +73,7 @@ def test_regression_train():
             "unit": "eV",
             "type": "scalar",
             "per_atom": False,
-            "num_properties": 1,
+            "num_subtargets": 1,
             "forces": False,
             "stress": False,
             "virial": False,
@@ -110,17 +110,17 @@ def test_regression_train():
 
     expected_output = torch.tensor(
         [
-            [0.090618140996],
-            [-0.020789206028],
-            [0.020192664117],
-            [0.093057855964],
-            [0.094577327371],
+            [0.060663934797],
+            [-0.291389346123],
+            [0.722195267677],
+            [0.455028623343],
+            [0.073435015976],
         ]
     )
 
     # if you need to change the hardcoded values:
-    # torch.set_printoptions(precision=12)
-    # print(output["mtt::U0"].block().values)
+    torch.set_printoptions(precision=12)
+    print(output["mtt::U0"].block().values)
 
     torch.testing.assert_close(
         output["mtt::U0"].block().values, expected_output, rtol=1e-5, atol=1e-5

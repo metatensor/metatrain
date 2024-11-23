@@ -26,7 +26,7 @@ def test_regression_init():
     """Perform a regression test on the model at initialization"""
 
     targets = {}
-    targets["mtt::U0"] = get_energy_target_info({"quantity": "energy", "unit": "eV"})
+    targets["mtt::U0"] = get_energy_target_info({"unit": "eV"})
 
     dataset_info = DatasetInfo(
         length_unit="Angstrom", atomic_types=[1, 6, 7, 8], targets=targets
@@ -86,7 +86,7 @@ def test_regression_train():
             "unit": "eV",
             "type": "scalar",
             "per_atom": False,
-            "num_properties": 1,
+            "num_subtargets": 1,
             "forces": False,
             "stress": False,
             "virial": False,
