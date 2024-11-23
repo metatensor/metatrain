@@ -280,7 +280,9 @@ class Trainer:
                     targets = remove_additive(
                         systems, targets, additive_model, train_targets
                     )
-                targets = remove_scale(targets, model.scaler)
+                targets = remove_scale(
+                    targets, (model.module if is_distributed else model).scaler
+                )
                 systems, targets = systems_and_targets_to_dtype(systems, targets, dtype)
                 predictions = evaluate_model(
                     model,
@@ -334,7 +336,9 @@ class Trainer:
                     targets = remove_additive(
                         systems, targets, additive_model, train_targets
                     )
-                targets = remove_scale(targets, model.scaler)
+                targets = remove_scale(
+                    targets, (model.module if is_distributed else model).scaler
+                )
                 systems, targets = systems_and_targets_to_dtype(systems, targets, dtype)
                 predictions = evaluate_model(
                     model,
@@ -378,7 +382,9 @@ class Trainer:
             finalized_val_info = {"loss": val_loss, **finalized_val_info}
 
             if epoch == start_epoch:
-                scaler_scales = model.scaler.get_scales_dict()
+                scaler_scales = (
+                    model.module if is_distributed else model
+                ).scaler.get_scales_dict()
                 metric_logger = MetricLogger(
                     log_obj=logger,
                     dataset_info=(
