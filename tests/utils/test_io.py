@@ -73,7 +73,7 @@ def test_load_model_yaml(suffix):
 
 
 def test_load_model_unknown_model():
-    architecture_name = "experimental.pet"
+    architecture_name = "experimental.nanopet"
     path = RESOURCES_PATH / "model-32-bit.ckpt"
 
     match = (

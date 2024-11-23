@@ -29,11 +29,6 @@ class RotationalAugmenter:
                         "RotationalAugmenter only supports Cartesian targets "
                         "with `rank=1`."
                     )
-                if not target_info.per_atom:
-                    raise ValueError(
-                        "RotationalAugmenter only supports Cartesian targets "
-                        "with `per_atom=True`."
-                    )
 
         self.target_info_dict = target_info_dict
 
@@ -44,13 +39,12 @@ class RotationalAugmenter:
         )
         if is_any_target_spherical:
             try:
-                import quaternionic
                 import spherical
             except ImportError:
-                # quaternionic is a requirement for spherical
+                # quaternionic (used below) is a dependency of spherical
                 raise ImportError(
-                    "Using nanoPET with spherical targets requires the `spherical` "
-                    "package. Please install it with `pip install spherical`."
+                    "To use spherical targets with nanoPET, please install the "
+                    "`spherical` package with `pip install spherical`."
                 )
             largest_l = max(
                 len(block.components[0]) // 2 - 1
@@ -77,6 +71,8 @@ class RotationalAugmenter:
 
         wigner_D_matrices = {}
         if self.wigner is not None:
+            import quaternionic
+
             quaternionic_rotations = [
                 quaternionic.array.from_rotation_matrix(t.numpy())
                 for t in transformations
@@ -118,6 +114,52 @@ class RotationalAugmenter:
         )
 
 
+def _apply_wigner_D_matrices(
+    systems: List[System],
+    target_tmap: TensorMap,
+    transformations: List[torch.Tensor],
+    wigner_D_matrices: Dict[int, List[torch.Tensor]],
+) -> TensorMap:
+
+    new_blocks: List[TensorBlock] = []
+    for key, block in target_tmap.items():
+        ell, sigma = int(key[0]), int(key[1])
+        values = block.values
+        if "atom" in block.samples.names:
+            split_values = torch.split(
+                values, [len(system.positions) for system in systems]
+            )
+        else:
+            split_values = torch.split(values, [1 for _ in systems])
+        new_values = []
+        ell = len(block.components[0]) // 2 - 1
+        for v, transformation, wigner_D_matrix in zip(
+            split_values, transformations, wigner_D_matrices[ell]
+        ):
+            is_inverted = torch.det(transformation) < 0
+            new_v = v.clone()
+            if is_inverted and sigma == -1:  # inversion
+                new_v = -new_v
+            # fold property dimension in, apply transformation, unfold property dim
+            new_v = new_v.transpose(1, 2)
+            new_v = new_v @ wigner_D_matrix.T
+            new_v = new_v.transpose(1, 2)
+            new_values.append(new_v)
+        new_values = torch.concatenate(new_values)
+        new_block = TensorBlock(
+            values=new_values,
+            samples=block.samples,
+            components=block.components,
+            properties=block.properties,
+        )
+        new_blocks.append(new_block)
+
+    return TensorMap(
+        keys=target_tmap.keys,
+        blocks=new_blocks,
+    )
+
+
 # script for speed
 @torch.jit.script
 def _apply_random_augmentations(
@@ -126,8 +168,6 @@ def _apply_random_augmentations(
     transformations: List[torch.Tensor],
     wigner_D_matrices: Dict[int, List[torch.Tensor]],
 ) -> Tuple[List[System], Dict[str, TensorMap]]:
-
-    split_sizes_forces = [system.positions.shape[0] for system in systems]
 
     # Apply the transformations to the systems
     new_systems: List[System] = []
@@ -177,6 +217,7 @@ def _apply_random_augmentations(
                 # transform position gradients:
                 block = target_tmap.block().gradient("positions")
                 position_gradients = block.values.squeeze(-1)
+                split_sizes_forces = [system.positions.shape[0] for system in systems]
                 split_position_gradients = torch.split(
                     position_gradients, split_sizes_forces
                 )
@@ -229,20 +270,28 @@ def _apply_random_augmentations(
             )
 
         else:
-            # transform per-atom Cartesian vector:
-            assert "atom" in target_tmap.block().samples.names
-            assert len(target_tmap.block().properties.values) == 1
+            # transform Cartesian vector:
             block = target_tmap.block()
-            vectors = block.values.squeeze(-1)
-            split_vectors = torch.split(vectors, split_sizes_forces)
-            vectors = torch.cat(
-                [split_vectors[i] @ transformations[i].T for i in range(len(systems))]
-            )
+            vectors = block.values
+            if "atom" in target_tmap.block().samples.names:
+                split_vectors = torch.split(
+                    vectors, [len(system.positions) for system in systems]
+                )
+            else:
+                split_vectors = torch.split(vectors, [1 for _ in systems])
+            new_vectors = []
+            for v, transformation in zip(split_vectors, transformations):
+                # fold property dimension in, apply transformation, unfold property dim
+                new_v = v.transpose(1, 2)
+                new_v = new_v @ transformation.T
+                new_v = new_v.transpose(1, 2)
+                new_vectors.append(new_v)
+            new_vectors = torch.cat(new_vectors)
             new_targets[name] = TensorMap(
                 keys=target_tmap.keys,
                 blocks=[
                     TensorBlock(
-                        values=vectors.unsqueeze(-1),
+                        values=new_vectors,
                         samples=block.samples,
                         components=block.components,
                         properties=block.properties,
@@ -253,86 +302,32 @@ def _apply_random_augmentations(
     return new_systems, new_targets
 
 
-def _apply_wigner_D_matrices(
-    systems: List[System],
-    target_tmap: TensorMap,
-    transformations: List[torch.Tensor],
-    wigner_D_matrices: Dict[int, List[torch.Tensor]],
-) -> TensorMap:
-
-    new_blocks = []
-    for key, block in target_tmap:
-        ell, sigma = int(key[0]), int(key[1])
-        values = block.values
-        if ["atom"] in block.samples.names:
-            split_values = torch.split(
-                values, [len(system.positions) for system in systems]
-            )
-        else:
-            split_values = torch.split(values, [1 for _ in systems])
-        new_values = []
-        ell = len(block.components[0]) // 2 - 1
-        for v, transformation, wigner_D_matrix in zip(
-            split_values, transformations, wigner_D_matrices[ell]
-        ):
-            is_inverted = torch.det(transformation) < 0
-            new_v = v.clone()
-            if is_inverted and sigma == -1:  # inversion
-                new_v = -new_v
-            # fold property dimension in, apply transformation, unfold property dim
-            new_v = new_v.transpose(1, 2)
-            new_v = new_v @ wigner_D_matrix.T
-            new_v = new_v.transpose(1, 2)
-            new_values.append(new_v)
-        new_values = torch.concatenate(new_values)
-        new_block = TensorBlock(
-            values=new_values,
-            samples=block.samples,
-            components=block.components,
-            properties=block.properties,
-        )
-        new_blocks.append(new_block)
-
-    return TensorMap(
-        keys=target_tmap.keys,
-        blocks=new_blocks,
-    )
-
-
-import numpy as np
-
-
-def _complex_to_real_spherical_harmonics_transform(l):
+def _complex_to_real_spherical_harmonics_transform(ell: int):
     """
     Generate the transformation matrix from complex spherical harmonics
     to real spherical harmonics for a given l.
-
-    Parameters:
-        l (int): Degree of the spherical harmonics.
-
-    Returns:
-        np.ndarray: Transformation matrix of shape ((2l+1), (2l+1)).
+    Returns a transformation matrix of shape ((2l+1), (2l+1)).
     """
-    if l < 0 or not isinstance(l, int):
+    if ell < 0 or not isinstance(ell, int):
         raise ValueError("l must be a non-negative integer.")
 
     # The size of the transformation matrix is (2l+1) x (2l+1)
-    size = 2 * l + 1
+    size = 2 * ell + 1
     T = np.zeros((size, size), dtype=complex)
 
-    for m in range(-l, l + 1):
-        m_index = m + l  # Index in the matrix
+    for m in range(-ell, ell + 1):
+        m_index = m + ell  # Index in the matrix
         if m > 0:
             # Real part of Y_{l}^{m}
-            T[m_index, l + m] = 1 / np.sqrt(2)
-            T[m_index, l - m] = 1 / np.sqrt(2) * (-1) ** m
+            T[m_index, ell + m] = 1 / np.sqrt(2)
+            T[m_index, ell - m] = 1 / np.sqrt(2) * (-1) ** m
         elif m < 0:
             # Imaginary part of Y_{l}^{|m|}
-            T[m_index, l + abs(m)] = -1j / np.sqrt(2)
-            T[m_index, l - abs(m)] = 1j / np.sqrt(2) * (-1) ** abs(m)
+            T[m_index, ell + abs(m)] = -1j / np.sqrt(2)
+            T[m_index, ell - abs(m)] = 1j / np.sqrt(2) * (-1) ** abs(m)
         else:  # m == 0
             # Y_{l}^{0} remains unchanged
-            T[m_index, l] = 1
+            T[m_index, ell] = 1
 
     # Return the transformation matrix to convert complex to real spherical harmonics
     return T
