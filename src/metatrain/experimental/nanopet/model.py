@@ -39,13 +39,7 @@ class NanoPET(torch.nn.Module):
 
     def __init__(self, model_hypers: Dict, dataset_info: DatasetInfo) -> None:
         super().__init__()
-
-        for target in dataset_info.targets.values():
-            if target.is_spherical:
-                raise ValueError(
-                    "The NanoPET model does not support spherical tensor targets. "
-                    "Only scalar and Cartesian tensor targets are supported."
-                )
+        # checks on targets inside the RotationalAugmenter class in the trainer
 
         self.hypers = model_hypers
         self.dataset_info = dataset_info

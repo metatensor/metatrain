@@ -26,7 +26,7 @@ from ...utils.neighbor_lists import (
 from ...utils.per_atom import average_by_num_atoms
 from ...utils.scaler import remove_scale
 from .model import NanoPET
-from .modules.augmentation import apply_random_augmentations
+from .modules.augmentation import RotationalAugmenter
 
 
 logger = logging.getLogger(__name__)
@@ -257,6 +257,8 @@ class Trainer:
                 {key: value.to(dtype=dtype) for key, value in targets.items()},
             )
 
+        rotational_augmenter = RotationalAugmenter(train_targets)
+
         # Train the model:
         if self.best_loss is None:
             self.best_loss = float("inf")
@@ -276,7 +278,9 @@ class Trainer:
                 optimizer.zero_grad()
 
                 systems, targets = batch
-                systems, targets = apply_random_augmentations(systems, targets)
+                systems, targets = rotational_augmenter.apply_random_augmentations(
+                    systems, targets
+                )
                 systems, targets = systems_and_targets_to_device(
                     systems, targets, device
                 )
