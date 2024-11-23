@@ -168,7 +168,7 @@ class ZBL(torch.nn.Module):
         # Set the outputs as the ZBL energies
         targets_out: Dict[str, TensorMap] = {}
         for target_key, target in outputs.items():
-            if target_key.startswith("mtt::aux::"):
+            if target_key.startswith("mtt::aux::") or target_key == "features":
                 continue
             sample_values: List[List[int]] = []
 
