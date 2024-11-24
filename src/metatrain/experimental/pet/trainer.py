@@ -783,7 +783,8 @@ Units of the Energy and Forces are the same units given in input"""
         }
 
         torch.save(
-            last_model_checkpoint, check_file_extension("last_" + str(path), ".ckpt")
+            last_model_checkpoint,
+            check_file_extension(f"last_{str(path)}_checkpoint", ".ckpt"),
         )
 
         torch.save(
