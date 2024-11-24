@@ -56,11 +56,30 @@ class PET(torch.nn.Module):
         self.additive_models = torch.nn.ModuleList(additive_models)
 
     def restart(self, dataset_info: DatasetInfo) -> "PET":
-        if dataset_info != self.dataset_info:
-            self.fine_tuning_mode = True
+        merged_info = self.dataset_info.union(dataset_info)
+        new_atomic_types = [
+            at for at in merged_info.atomic_types if at not in self.atomic_types
+        ]
+        new_targets = {
+            key: value
+            for key, value in merged_info.targets.items()
+            if key not in self.dataset_info.targets
+        }
+
+        if len(new_atomic_types) > 0:
             raise ValueError(
-                "PET cannot be restarted with different dataset information"
+                f"New atomic types found in the dataset: {new_atomic_types}. "
+                "The PET model does not support adding new atomic types."
             )
+
+        if len(new_targets) > 0:
+            raise ValueError(
+                f"New targets found in the training options: {new_targets}. "
+                "The PET model does not support adding new training targets."
+            )
+
+        self.dataset_info = merged_info
+        self.atomic_types = sorted(self.atomic_types)
         return self
 
     def set_trained_model(self, trained_model: RawPET) -> None:
