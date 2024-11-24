@@ -45,7 +45,7 @@ class PET(torch.nn.Module):
         self.atomic_types: List[int] = dataset_info.atomic_types
         self.dataset_info = dataset_info
         self.pet = None
-        self.fine_tuning_mode = False
+        self.is_lora_applied = False
         self.checkpoint_path: Optional[str] = None
 
         # additive models: these are handled by the trainer at training
@@ -139,17 +139,23 @@ class PET(torch.nn.Module):
 
         checkpoint = torch.load(path, weights_only=False, map_location="cpu")
         hypers = checkpoint["hypers"]
+        model_hypers = hypers["ARCHITECTURAL_HYPERS"]
         dataset_info = checkpoint["dataset_info"]
-        model = cls(
-            model_hypers=hypers["ARCHITECTURAL_HYPERS"], dataset_info=dataset_info
-        )
+        model = cls(model_hypers=model_hypers, dataset_info=dataset_info)
         state_dict = checkpoint["model_state_dict"]
         dtype = next(iter(state_dict.values())).dtype
+        lora_state_dict = checkpoint["lora_state_dict"]
+        if lora_state_dict is not None:
+            model.is_lora_applied = True
+        else:
+            lora_state_dict = {}
         wrapper = load_raw_pet_model(
             state_dict,
             model.hypers,
             model.atomic_types,
             checkpoint["self_contributions"],
+            use_lora_peft=model.is_lora_applied,
+            **lora_state_dict,
         )
 
         model.to(dtype).set_trained_model(wrapper)

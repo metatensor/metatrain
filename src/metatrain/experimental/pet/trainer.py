@@ -11,7 +11,6 @@ import numpy as np
 import torch
 from pet.analysis import adapt_hypers
 from pet.data_preparation import (
-    get_all_species,
     get_corrected_energies,
     get_forces,
     get_pyg_graphs,
@@ -40,6 +39,7 @@ from ...utils.data import Dataset, check_datasets
 from ...utils.io import check_file_extension
 from . import PET as WrappedPET
 from .utils import dataset_to_ase, load_raw_pet_model, update_hypers
+from .utils.fine_tuning import LoRAWrapper
 
 
 logger = logging.getLogger(__name__)
@@ -51,6 +51,8 @@ class Trainer:
         self.pet_dir = None
         self.pet_trainer_state = None
         self.epoch = None
+        self.best_loss = None
+        self.best_model_state_dict = None
 
     def train(
         self,
@@ -124,6 +126,12 @@ class Trainer:
         MLIP_SETTINGS = hypers.MLIP_SETTINGS
         ARCHITECTURAL_HYPERS = hypers.ARCHITECTURAL_HYPERS
 
+        if model.is_lora_applied and not FITTING_SCHEME.USE_LORA_PEFT:
+            raise ValueError(
+                "LoRA is applied to the model, but the USE_LORA_PEFT is False"
+                " in the training hyperparameters. Please set USE_LORA_PEFT to True"
+            )
+
         if FITTING_SCHEME.USE_SHIFT_AGNOSTIC_LOSS:
             raise ValueError(
                 "shift agnostic loss is intended only for general target training"
@@ -170,24 +178,8 @@ Units of the Energy and Forces are the same units given in input"""
         )
 
         adapt_hypers(FITTING_SCHEME, ase_train_dataset)
-        dataset = ase_train_dataset + ase_val_dataset
 
-        all_dataset_species = get_all_species(dataset)
-
-        if FITTING_SCHEME.ALL_SPECIES_PATH is not None:
-            logging.info(f"Loading all species from: {FITTING_SCHEME.ALL_SPECIES_PATH}")
-            all_species = np.load(FITTING_SCHEME.ALL_SPECIES_PATH)
-            if not np.all(np.isin(all_dataset_species, all_species)):
-                raise ValueError(
-                    "For the model fine-tuning, the set of species in the dataset "
-                    "must be a subset of the set of species in the pre-trained model. "
-                    "Please check, if the ALL_SPECIES_PATH is file contains all the "
-                    "elements from the fine-tuning dataset."
-                )
-            model.atomic_types = all_species.tolist()
-            model.dataset_info.atomic_types = all_species.tolist()
-        else:
-            all_species = all_dataset_species
+        all_species = model.atomic_types
 
         name_to_load, NAME_OF_CALCULATION = get_calc_names(
             os.listdir(checkpoint_dir), name_of_calculation
@@ -264,28 +256,34 @@ Units of the Energy and Forces are the same units given in input"""
         logging.info("Initializing the model...")
         if model.pet is not None:
             pet_model = model.pet.model
-            if not ARCHITECTURAL_HYPERS.USE_LORA_PEFT:
-                pet_model.hypers.TARGET_TYPE = "structural"
-                pet_model.TARGET_TYPE = "structural"
-            else:
+            if model.is_lora_applied:
                 pet_model.model.hypers.TARGET_TYPE = "structural"
                 pet_model.model.TARGET_TYPE = "structural"
+            else:
+                pet_model.hypers.TARGET_TYPE = "structural"
+                pet_model.TARGET_TYPE = "structural"
             pet_model = pet_model.to(device=device, dtype=dtype)
         else:
             pet_model = PET(ARCHITECTURAL_HYPERS, 0.0, len(all_species))
-        num_params = sum([p.numel() for p in pet_model.parameters() if p.requires_grad])
+        num_params = sum([p.numel() for p in pet_model.parameters()])
         logging.info(f"Number of parameters: {num_params}")
 
-        if model.pet is not None and ARCHITECTURAL_HYPERS.USE_LORA_PEFT:
-            for param in pet_model.model.parameters():
-                param.requires_grad = False
+        if FITTING_SCHEME.USE_LORA_PEFT:
+            if not model.is_lora_applied:
+                for param in pet_model.parameters():
+                    param.requires_grad = False
+                lora_rank = FITTING_SCHEME.LORA_RANK
+                lora_alpha = FITTING_SCHEME.LORA_ALPHA
+                pet_model = LoRAWrapper(pet_model, lora_rank, lora_alpha)
+                model.is_lora_applied = True
+
             num_trainable_params = sum(
                 [p.numel() for p in pet_model.parameters() if p.requires_grad]
             )
             fraction = num_trainable_params / num_params * 100
             logging.info(
-                f"Using LoRA PEFT with rank {ARCHITECTURAL_HYPERS.LORA_RANK} "
-                + f"and alpha {ARCHITECTURAL_HYPERS.LORA_ALPHA}"
+                f"Using LoRA PEFT with rank {FITTING_SCHEME.LORA_RANK} "
+                + f"and alpha {FITTING_SCHEME.LORA_ALPHA}"
             )
             logging.info(
                 "Number of trainable parameters: "
@@ -308,6 +306,23 @@ Units of the Energy and Forces are the same units given in input"""
         scheduler = get_scheduler(optim, FITTING_SCHEME)
 
         if self.pet_trainer_state is not None:
+            for i, param_group in enumerate(optim.param_groups):
+                if len(param_group["params"]) != len(
+                    self.pet_trainer_state["optim_state_dict"]["param_groups"][i][
+                        "params"
+                    ]
+                ):
+                    raise RuntimeError(
+                        "The number of parameters in the optimizer state dict "
+                        "from the loaded checkpoint does not match the current "
+                        "optimizer state. This means the model architecture has "
+                        "changed since the last checkpoint. If you are using LoRA "
+                        "PEFT, you shoud use the best model chekpoint from the "
+                        "pre-training step. If you still need to use the current "
+                        "chekcpoint, set the trainer_state_dict in the checkpoint "
+                        "to None and restart the training."
+                    )
+
             optim.load_state_dict(self.pet_trainer_state["optim_state_dict"])
             scheduler.load_state_dict(self.pet_trainer_state["scheduler_state_dict"])
         else:
@@ -377,6 +392,8 @@ Units of the Energy and Forces are the same units given in input"""
         )
         TIME_TRAINING_STARTED = time.time()
         last_elapsed_time = 0
+        if self.best_loss is None:
+            self.best_loss = float("inf")
         start_epoch = 1 if self.epoch is None else self.epoch + 1
         for epoch in range(start_epoch, start_epoch + FITTING_SCHEME.EPOCH_NUM):
             pet_model.train(True)
@@ -594,15 +611,22 @@ Units of the Energy and Forces are the same units given in input"""
                     "scheduler_state_dict": pet_checkpoint["scheduler_state_dict"],
                 }
                 last_model_state_dict = pet_checkpoint["model_state_dict"]
-                dtype = next(iter(last_model_state_dict.values())).dtype
+                if model.is_lora_applied:
+                    lora_state_dict = {
+                        "lora_rank": FITTING_SCHEME.LORA_RANK,
+                        "lora_alpha": FITTING_SCHEME.LORA_ALPHA,
+                    }
+                else:
+                    lora_state_dict = None
                 last_model_checkpoint = {
                     "trainer_state_dict": trainer_state_dict,
                     "model_state_dict": last_model_state_dict,
+                    "best_model_state_dict": self.best_model_state_dict,
                     "hypers": self.hypers,
                     "epoch": self.epoch,
                     "dataset_info": model.dataset_info,
                     "self_contributions": self_contributions,
-                    "dtype": dtype2string(dtype),
+                    "lora_state_dict": lora_state_dict,
                 }
                 torch.save(
                     last_model_checkpoint,
@@ -649,6 +673,12 @@ Units of the Energy and Forces are the same units given in input"""
             summary += f"{energies_rmse_model_keeper.best_error} "
             summary += f"at epoch {energies_rmse_model_keeper.best_epoch}\n"
 
+            if energies_mae_model_keeper.best_error < self.best_loss:
+                self.best_loss = energies_mae_model_keeper.best_error
+                self.best_model_state_dict = (
+                    energies_mae_model_keeper.best_model.state_dict()
+                )
+
         if MLIP_SETTINGS.USE_FORCES:
             save_model("best_val_mae_forces_model", forces_mae_model_keeper)
             summary += f"best val mae in forces: {forces_mae_model_keeper.best_error} "
@@ -659,6 +689,12 @@ Units of the Energy and Forces are the same units given in input"""
                 f"best val rmse in forces: {forces_rmse_model_keeper.best_error} "
             )
             summary += f"at epoch {forces_rmse_model_keeper.best_epoch}\n"
+
+            if forces_mae_model_keeper.best_error < self.best_loss:
+                self.best_loss = forces_mae_model_keeper.best_error
+                self.best_model_state_dict = (
+                    forces_mae_model_keeper.best_model.state_dict()
+                )
 
         if MLIP_SETTINGS.USE_ENERGIES and MLIP_SETTINGS.USE_FORCES:
             save_model("best_val_mae_both_model", multiplication_mae_model_keeper)
@@ -679,6 +715,12 @@ Units of the Energy and Forces are the same units given in input"""
             )
             summary += f"{multiplication_rmse_model_keeper.best_epoch}\n"
 
+            if multiplication_mae_model_keeper.best_error < self.best_loss:
+                self.best_loss = multiplication_mae_model_keeper.best_error
+                self.best_model_state_dict = (
+                    multiplication_mae_model_keeper.best_model.state_dict()
+                )
+
         with open(f"{checkpoint_dir}/{NAME_OF_CALCULATION}/summary.txt", "wb") as f:
             f.write(summary.encode())
         logging.info(f"Total elapsed time: {time.time() - TIME_SCRIPT_STARTED}")
@@ -687,15 +729,14 @@ Units of the Energy and Forces are the same units given in input"""
         # FINISHING THE PURE PET TRAINING SCRIPT #
         ##########################################
         self.epoch = epoch
-
-        if do_forces:
-            load_path = self.pet_dir / "best_val_mae_both_model_state_dict"
-        else:
-            load_path = self.pet_dir / "best_val_mae_energies_model_state_dict"
-
-        state_dict = torch.load(load_path, weights_only=True)
         wrapper = load_raw_pet_model(
-            state_dict, model.hypers, all_species, self_contributions
+            self.best_model_state_dict,
+            model.hypers,
+            all_species,
+            self_contributions,
+            use_lora_peft=FITTING_SCHEME.USE_LORA_PEFT,
+            lora_rank=FITTING_SCHEME.LORA_RANK,
+            lora_alpha=FITTING_SCHEME.LORA_ALPHA,
         )
         model.set_trained_model(wrapper)
 
@@ -711,24 +752,34 @@ Units of the Energy and Forces are the same units given in input"""
             "scheduler_state_dict": pet_checkpoint["scheduler_state_dict"],
         }
         last_model_state_dict = pet_checkpoint["model_state_dict"]
-        dtype = next(iter(last_model_state_dict.values())).dtype
-        best_model_state_dict = model.pet.model.state_dict()
+        if model.is_lora_applied:
+            lora_state_dict = {
+                "lora_rank": model.pet.model.rank,
+                "lora_alpha": model.pet.model.alpha,
+            }
+        else:
+            lora_state_dict = None
         last_model_checkpoint = {
             "trainer_state_dict": trainer_state_dict,
             "model_state_dict": last_model_state_dict,
+            "best_model_state_dict": self.best_model_state_dict,
+            "best_loss": self.best_loss,
             "hypers": self.hypers,
             "epoch": self.epoch,
             "dataset_info": model.dataset_info,
             "self_contributions": model.pet.self_contributions.numpy(),
-            "dtype": dtype2string(dtype),
+            "lora_state_dict": lora_state_dict,
         }
         best_model_checkpoint = {
             "trainer_state_dict": None,
-            "model_state_dict": best_model_state_dict,
+            "model_state_dict": self.best_model_state_dict,
+            "best_model_state_dict": None,
+            "best_loss": None,
             "hypers": self.hypers,
+            "epoch": None,
             "dataset_info": model.dataset_info,
             "self_contributions": model.pet.self_contributions.numpy(),
-            "dtype": dtype2string(dtype),
+            "lora_state_dict": lora_state_dict,
         }
 
         torch.save(
@@ -747,4 +798,7 @@ Units of the Energy and Forces are the same units given in input"""
         checkpoint = torch.load(path, weights_only=False, map_location="cpu")
         trainer = cls(train_hypers)
         trainer.pet_trainer_state = checkpoint["trainer_state_dict"]
+        trainer.epoch = checkpoint["epoch"]
+        trainer.best_loss = checkpoint["best_loss"]
+        trainer.best_model_state_dict = checkpoint["best_model_state_dict"]
         return trainer

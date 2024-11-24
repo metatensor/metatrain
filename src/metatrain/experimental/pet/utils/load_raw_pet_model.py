@@ -1,6 +1,7 @@
 from typing import Dict, List
 
 import numpy as np
+import torch
 from pet.hypers import Hypers
 from pet.pet import PET, SelfContributionsWrapper
 
@@ -13,6 +14,7 @@ def load_raw_pet_model(
     hypers: Dict,
     atomic_types: List,
     self_contributions: np.ndarray,
+    **kwargs,
 ) -> "SelfContributionsWrapper":
     """Creates a raw PET model instance."""
 
@@ -23,15 +25,16 @@ def load_raw_pet_model(
     ARCHITECTURAL_HYPERS.TARGET_TYPE = "atomic"
 
     raw_pet = PET(ARCHITECTURAL_HYPERS, 0.0, len(atomic_types))
-    if ARCHITECTURAL_HYPERS.USE_LORA_PEFT:
-        lora_rank = ARCHITECTURAL_HYPERS.LORA_RANK
-        lora_alpha = ARCHITECTURAL_HYPERS.LORA_ALPHA
+    if "use_lora_peft" in kwargs and kwargs["use_lora_peft"] is True:
+        lora_rank = kwargs["lora_rank"]
+        lora_alpha = kwargs["lora_alpha"]
         raw_pet = LoRAWrapper(raw_pet, lora_rank, lora_alpha)
 
     new_state_dict = update_state_dict(state_dict)
-
     dtype = next(iter(new_state_dict.values())).dtype
     raw_pet.to(dtype).load_state_dict(new_state_dict)
+    if isinstance(self_contributions, torch.Tensor):
+        self_contributions = self_contributions.cpu().numpy()
     wrapper = SelfContributionsWrapper(raw_pet, self_contributions)
 
     return wrapper
