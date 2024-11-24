@@ -319,7 +319,7 @@ Units of the Energy and Forces are the same units given in input"""
                         "changed since the last checkpoint. If you are using LoRA "
                         "PEFT, you should use the best model chekpoint from the "
                         "pre-training step. If you still need to use the current "
-                        "chekcpoint, set the trainer_state_dict in the checkpoint "
+                        "checkpoint, set the trainer_state_dict in the checkpoint "
                         "to None and restart the training."
                     )
 
