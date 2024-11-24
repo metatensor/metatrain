@@ -47,7 +47,7 @@ class RotationalAugmenter:
                     "`spherical` package with `pip install spherical`."
                 )
             largest_l = max(
-                len(block.components[0]) // 2 - 1
+                (len(block.components[0]) - 1) // 2
                 for target_info in target_info_dict.values()
                 if target_info.is_spherical
                 for block in target_info.layout.blocks()
@@ -83,8 +83,8 @@ class RotationalAugmenter:
             for target_name in targets.keys():
                 target_info = self.target_info_dict[target_name]
                 if target_info.is_spherical:
-                    for block in target_info.layout.block():
-                        ell = len(block.components[0]) // 2 - 1
+                    for block in target_info.layout.blocks():
+                        ell = (len(block.components[0]) - 1) // 2
                         if ell not in wigner_D_matrices:
                             wigner_D_matrices_l = []
                             for wigner_D_matrix_complex in wigner_D_matrices_complex:
@@ -132,7 +132,7 @@ def _apply_wigner_D_matrices(
         else:
             split_values = torch.split(values, [1 for _ in systems])
         new_values = []
-        ell = len(block.components[0]) // 2 - 1
+        ell = (len(block.components[0]) - 1) // 2
         for v, transformation, wigner_D_matrix in zip(
             split_values, transformations, wigner_D_matrices[ell]
         ):
@@ -194,16 +194,15 @@ def _apply_random_augmentations(
     # Apply the transformation to the targets
     new_targets: Dict[str, TensorMap] = {}
     for name, target_tmap in targets.items():
-        assert len(target_tmap.blocks()) == 1
-        is_scalar = len(target_tmap.block().components) == 0
+        is_scalar = False
+        if len(target_tmap.blocks()) == 1:
+            if len(target_tmap.block().components) == 0:
+                is_scalar = True
+
         is_spherical = all(
             len(block.components) == 1 and block.components[0].names == ["o3_mu"]
             for block in target_tmap.blocks()
         )
-
-        # for now, only accept vectors if they only have one subtarget/property
-        if not is_scalar:
-            assert target_tmap.block().values.shape[-1] == 1
 
         if is_scalar:
             # no change for energies
