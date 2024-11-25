@@ -5,9 +5,11 @@ Actual unit tests for the function are performed in `tests/utils/test_export`.
 
 import glob
 import logging
+import os
 import subprocess
 from pathlib import Path
 
+import huggingface_hub
 import pytest
 import torch
 
@@ -104,3 +106,42 @@ def test_reexport(monkeypatch, tmp_path):
     export_model(model_loaded, "exported_new.pt")
 
     assert Path("exported_new.pt").is_file()
+
+
+def test_private_huggingface(monkeypatch, tmp_path):
+    """Test that the export cli succeeds when exporting a private
+    model from HuggingFace."""
+    monkeypatch.chdir(tmp_path)
+
+    HF_TOKEN = os.getenv("HUGGINGFACE_TOKEN_METATRAIN")
+    if HF_TOKEN is None:
+        pytest.skip("HuggingFace token not found in environment.")
+    assert len(HF_TOKEN) > 0
+
+    huggingface_hub.upload_file(
+        path_or_fileobj=str(RESOURCES_PATH / "model-32-bit.ckpt"),
+        path_in_repo="model.ckpt",
+        repo_id="metatensor/metatrain-test",
+        commit_message="Overwrite test model with new version",
+        token=HF_TOKEN,
+    )
+
+    command = [
+        "mtt",
+        "export",
+        "experimental.soap_bpnn",
+        "https://huggingface.co/metatensor/metatrain-test/resolve/main/model.ckpt",
+        f"--huggingface_api_token={HF_TOKEN}",
+    ]
+
+    output = "exported-model.pt"
+
+    subprocess.check_call(command)
+    assert Path(output).is_file()
+
+    # Test if extensions are saved
+    extensions_glob = glob.glob("extensions/")
+    assert len(extensions_glob) == 1
+
+    # Test that the model can be loaded
+    load_model(output, extensions_directory="extensions/")

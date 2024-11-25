@@ -47,6 +47,9 @@ def test_is_exported_file():
 def test_load_model_checkpoint(path):
     model = load_model(path, architecture_name="experimental.soap_bpnn")
     assert type(model) is SoapBpnn
+    if str(path).startswith("file:"):
+        # test that the checkpoint is also copied to the current directory
+        assert Path("model-32-bit.ckpt").exists()
 
 
 @pytest.mark.parametrize(
@@ -64,7 +67,7 @@ def test_load_model_exported(path):
 
 @pytest.mark.parametrize("suffix", [".yml", ".yaml"])
 def test_load_model_yaml(suffix):
-    match = f"path 'foo{suffix}' seems to be a YAML option file and no model"
+    match = f"path 'foo{suffix}' seems to be a YAML option file and not a model"
     with pytest.raises(ValueError, match=match):
         load_model(
             f"foo{suffix}",

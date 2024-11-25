@@ -1,3 +1,5 @@
+import logging
+import shutil
 import warnings
 from pathlib import Path
 from typing import Any, Optional, Union
@@ -7,6 +9,9 @@ from urllib.request import urlretrieve
 from metatensor.torch.atomistic import check_atomistic_model, load_atomistic_model
 
 from .architectures import import_architecture
+
+
+logger = logging.getLogger(__name__)
 
 
 def check_file_extension(
@@ -65,6 +70,7 @@ def load_model(
     path: Union[str, Path],
     extensions_directory: Optional[Union[str, Path]] = None,
     architecture_name: Optional[str] = None,
+    **kwargs,
 ) -> Any:
     """Load checkpoints and exported models from an URL or a local file.
 
@@ -99,15 +105,64 @@ def load_model(
         )
 
     if Path(path).suffix in [".yaml", ".yml"]:
-        raise ValueError(f"path '{path}' seems to be a YAML option file and no model")
-
-    if urlparse(str(path)).scheme:
-        path, _ = urlretrieve(str(path))
-
-    if is_exported_file(str(path)):
-        return load_atomistic_model(
-            str(path), extensions_directory=extensions_directory
+        raise ValueError(
+            f"path '{path}' seems to be a YAML option file and not a model"
         )
+
+    # Download from HuggingFace with a private token
+    if kwargs.get("huggingface_api_token"):
+        try:
+            from huggingface_hub import hf_hub_download
+        except ImportError:
+            raise ImportError(
+                "To download a model from HuggingFace, please install the "
+                "`huggingface_hub` package with pip (`pip install "
+                "huggingface_hub`)."
+            )
+        path = str(path)
+        if not path.startswith("https://huggingface.co/"):
+            raise ValueError(
+                f"Invalid URL '{path}'. HuggingFace models should start with "
+                "'https://huggingface.co/'."
+            )
+        # get repo_id and filename
+        split_path = path.split("/")
+        repo_id = f"{split_path[3]}/{split_path[4]}"  # org/repo
+        filename = ""
+        for i in range(5, len(split_path)):
+            filename += split_path[i] + "/"
+        filename = filename[:-1]
+        if filename.startswith("resolve"):
+            if not filename[8:].startswith("main/"):
+                raise ValueError(
+                    f"Invalid URL '{path}'. metatrain only supports models from the "
+                    "'main' branch."
+                )
+            filename = filename[13:]
+        if filename.startswith("blob/"):
+            if not filename[5:].startswith("main/"):
+                raise ValueError(
+                    f"Invalid URL '{path}'. metatrain only supports models from the "
+                    "'main' branch."
+                )
+            filename = filename[10:]
+        path = hf_hub_download(repo_id, filename, token=kwargs["huggingface_api_token"])
+        # make sure to copy the checkpoint to the current directory
+        shutil.copy(path, Path.cwd() / filename)
+        logger.info(f"Downloaded model from HuggingFace to {filename}")
+
+    elif urlparse(str(path)).scheme:
+        path, _ = urlretrieve(str(path))
+        # make sure to copy the checkpoint to the current directory
+        shutil.copy(path, Path.cwd() / str(path).split("/")[-1])
+        logger.info(f"Downloaded model to {str(path).split('/')[-1]}")
+
+    else:
+        pass
+
+    path = str(path)
+    if is_exported_file(path):
+        return load_atomistic_model(path, extensions_directory=extensions_directory)
     else:  # model is a checkpoint
         if architecture_name is None:
             raise ValueError(
@@ -117,7 +172,7 @@ def load_model(
         architecture = import_architecture(architecture_name)
 
         try:
-            return architecture.__model__.load_checkpoint(str(path))
+            return architecture.__model__.load_checkpoint(path)
         except Exception as err:
             raise ValueError(
                 f"path '{path}' is not a valid model file for the {architecture_name} "

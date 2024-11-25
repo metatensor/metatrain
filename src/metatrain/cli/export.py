@@ -53,14 +53,30 @@ def _add_export_model_parser(subparser: argparse._SubParsersAction) -> None:
         default="exported-model.pt",
         help="Filename of the exported model (default: %(default)s).",
     )
+    parser.add_argument(
+        "--huggingface_api_token",
+        dest="huggingface_api_token",
+        type=str,
+        required=False,
+        default="",
+        help="API token to download a private model from HuggingFace.",
+    )
 
 
 def _prepare_export_model_args(args: argparse.Namespace) -> None:
     """Prepare arguments for export_model."""
+    path = args.__dict__.pop("path")
+    architecture_name = args.__dict__.pop("architecture_name")
     args.model = load_model(
-        path=args.__dict__.pop("path"),
-        architecture_name=args.__dict__.pop("architecture_name"),
+        path=path,
+        architecture_name=architecture_name,
+        **args.__dict__,
     )
+    keys_to_keep = ["model", "output"]  # only these are needed for `export_model``
+    original_keys = list(args.__dict__.keys())
+    for key in original_keys:
+        if key not in keys_to_keep:
+            args.__dict__.pop(key)
 
 
 def export_model(model: Any, output: Union[Path, str] = "exported-model.pt") -> None:
