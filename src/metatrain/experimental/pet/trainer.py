@@ -51,7 +51,7 @@ class Trainer:
         self.pet_dir = None
         self.pet_trainer_state = None
         self.epoch = None
-        self.best_loss = None
+        self.best_metric = None
         self.best_model_state_dict = None
 
     def train(
@@ -386,8 +386,8 @@ Units of the Energy and Forces are the same units given in input"""
         )
         TIME_TRAINING_STARTED = time.time()
         last_elapsed_time = 0
-        if self.best_loss is None:
-            self.best_loss = float("inf")
+        if self.best_metric is None:
+            self.best_metric = float("inf")
         start_epoch = 1 if self.epoch is None else self.epoch + 1
         for epoch in range(start_epoch, start_epoch + FITTING_SCHEME.EPOCH_NUM):
             pet_model.train(True)
@@ -667,8 +667,8 @@ Units of the Energy and Forces are the same units given in input"""
             summary += f"{energies_rmse_model_keeper.best_error} "
             summary += f"at epoch {energies_rmse_model_keeper.best_epoch}\n"
 
-            if energies_mae_model_keeper.best_error < self.best_loss:
-                self.best_loss = energies_mae_model_keeper.best_error
+            if energies_mae_model_keeper.best_error < self.best_metric:
+                self.best_metric = energies_mae_model_keeper.best_error
                 self.best_model_state_dict = (
                     energies_mae_model_keeper.best_model.state_dict()
                 )
@@ -684,8 +684,8 @@ Units of the Energy and Forces are the same units given in input"""
             )
             summary += f"at epoch {forces_rmse_model_keeper.best_epoch}\n"
 
-            if forces_mae_model_keeper.best_error < self.best_loss:
-                self.best_loss = forces_mae_model_keeper.best_error
+            if forces_mae_model_keeper.best_error < self.best_metric:
+                self.best_metric = forces_mae_model_keeper.best_error
                 self.best_model_state_dict = (
                     forces_mae_model_keeper.best_model.state_dict()
                 )
@@ -709,8 +709,8 @@ Units of the Energy and Forces are the same units given in input"""
             )
             summary += f"{multiplication_rmse_model_keeper.best_epoch}\n"
 
-            if multiplication_mae_model_keeper.best_error < self.best_loss:
-                self.best_loss = multiplication_mae_model_keeper.best_error
+            if multiplication_mae_model_keeper.best_error < self.best_metric:
+                self.best_metric = multiplication_mae_model_keeper.best_error
                 self.best_model_state_dict = (
                     multiplication_mae_model_keeper.best_model.state_dict()
                 )
@@ -757,7 +757,7 @@ Units of the Energy and Forces are the same units given in input"""
             "trainer_state_dict": trainer_state_dict,
             "model_state_dict": last_model_state_dict,
             "best_model_state_dict": self.best_model_state_dict,
-            "best_loss": self.best_loss,
+            "best_metric": self.best_metric,
             "hypers": self.hypers,
             "epoch": self.epoch,
             "dataset_info": model.dataset_info,
@@ -768,7 +768,7 @@ Units of the Energy and Forces are the same units given in input"""
             "trainer_state_dict": None,
             "model_state_dict": self.best_model_state_dict,
             "best_model_state_dict": None,
-            "best_loss": None,
+            "best_metric": None,
             "hypers": self.hypers,
             "epoch": None,
             "dataset_info": model.dataset_info,
@@ -796,7 +796,7 @@ Units of the Energy and Forces are the same units given in input"""
         trainer.epoch = checkpoint["epoch"]
         old_fitting_scheme = checkpoint["hypers"]["FITTING_SCHEME"]
         new_fitting_scheme = train_hypers
-        best_loss = checkpoint["best_loss"]
+        best_metric = checkpoint["best_metric"]
         best_model_state_dict = checkpoint["best_model_state_dict"]
         # The following code is not reached in the current implementation
         # because the check for the train targets is done earlier in the
@@ -812,8 +812,8 @@ Units of the Energy and Forces are the same units given in input"""
                         "The `best model` and the `best loss` parts of the checkpoint "
                         "will be reset to avoid inconsistencies."
                     )
-                    best_loss = None
+                    best_metric = None
                     best_model_state_dict = None
-        trainer.best_loss = best_loss
+        trainer.best_metric = best_metric
         trainer.best_model_state_dict = best_model_state_dict
         return trainer
