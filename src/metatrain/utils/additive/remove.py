@@ -35,11 +35,20 @@ def remove_additive(
     additive_contribution = evaluate_model(
         additive_model,
         systems,
-        {key: target_info_dict[key] for key in targets.keys()},
+        {
+            key: target_info_dict[key]
+            for key in targets.keys()
+            if key in additive_model.outputs
+        },
         is_training=False,  # we don't need any gradients w.r.t. any parameters
     )
 
-    for target_key in targets:
+    for target_key in additive_contribution.keys():
+        # note that we loop over the keys of additive_contribution, not targets,
+        # because the targets might contain additional keys (this is for example
+        # the case of the composition model, which will only provide outputs
+        # for scalar targets
+
         # make the samples the same so we can use metatensor.torch.subtract
         # we also need to detach the values to avoid backpropagating through the
         # subtraction

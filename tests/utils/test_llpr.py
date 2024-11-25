@@ -242,7 +242,7 @@ def test_llpr_covariance_as_pseudo_hessian(tmpdir):
             params.append(param.squeeze())
     weights = torch.cat(params)
 
-    n_ensemble_members = 10000
+    n_ensemble_members = 1000000  # converges slowly...
     llpr_model.calibrate(dataloader)
     llpr_model.generate_ensemble({"energy": weights}, n_ensemble_members)
     assert "mtt::energy_ensemble" in llpr_model.capabilities.outputs
@@ -282,5 +282,5 @@ def test_llpr_covariance_as_pseudo_hessian(tmpdir):
     )
 
     torch.testing.assert_close(
-        analytical_uncertainty, ensemble_uncertainty, rtol=1e-2, atol=1e-2
+        analytical_uncertainty, ensemble_uncertainty, rtol=5e-3, atol=0.0
     )

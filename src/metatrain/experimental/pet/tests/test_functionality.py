@@ -19,7 +19,10 @@ from pet.pet import PET
 from metatrain.experimental.pet import PET as WrappedPET
 from metatrain.utils.architectures import get_default_hypers
 from metatrain.utils.data import DatasetInfo
-from metatrain.utils.data.target_info import get_energy_target_info
+from metatrain.utils.data.target_info import (
+    get_energy_target_info,
+    get_generic_target_info,
+)
 from metatrain.utils.jsonschema import validate
 from metatrain.utils.neighbor_lists import (
     get_requested_neighbor_lists,
@@ -222,3 +225,29 @@ def test_selected_atoms_functionality():
         evaluation_options,
         check_consistency=True,
     )
+
+
+@pytest.mark.parametrize("per_atom", [True, False])
+def test_vector_output(per_atom):
+    """Tests that the model can predict a (spherical) vector output."""
+
+    dataset_info = DatasetInfo(
+        length_unit="Angstrom",
+        atomic_types=[1, 6, 7, 8],
+        targets={
+            "forces": get_generic_target_info(
+                {
+                    "quantity": "forces",
+                    "unit": "",
+                    "type": {
+                        "spherical": {"irreps": [{"o3_lambda": 1, "o3_sigma": 1}]}
+                    },
+                    "num_subtargets": 100,
+                    "per_atom": per_atom,
+                }
+            )
+        },
+    )
+
+    with pytest.raises(ValueError, match="PET only supports total-energy-like outputs"):
+        WrappedPET(DEFAULT_HYPERS["model"], dataset_info)
