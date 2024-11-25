@@ -1,10 +1,12 @@
-seed: 42
+seed: 21
+base_precision: 32
 
 architecture:
   name: experimental.nanopet
   training:
-    batch_size: 16
-    num_epochs: 100
+    batch_size: 32
+    num_epochs: 2000
+    log_mae: true
 
 training_set:
   systems:
@@ -16,7 +18,7 @@ training_set:
       type:
         spherical:
           irreps:
-            - {"o3_lambda": 0, "o3_sigma": 1}
+            # - {"o3_lambda": 0, "o3_sigma": 1}
             - {"o3_lambda": 2, "o3_sigma": 1}
 
 test_set: 0.1

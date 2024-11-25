@@ -25,8 +25,8 @@ def _complex_to_real_spherical_harmonics_transform(ell: int):
             T[m_index, ell - m] = 1 / np.sqrt(2) * (-1) ** m
         elif m < 0:
             # Imaginary part of Y_{l}^{|m|}
-            T[m_index, ell + abs(m)] = -1j / np.sqrt(2)
-            T[m_index, ell - abs(m)] = 1j / np.sqrt(2) * (-1) ** abs(m)
+            T[m_index, ell + abs(m)] = 1j / np.sqrt(2)
+            T[m_index, ell - abs(m)] = -1j / np.sqrt(2) * (-1)**abs(m)
         else:  # m == 0
             # Y_{l}^{0} remains unchanged
             T[m_index, ell] = 1
@@ -85,22 +85,27 @@ components_l2 = Labels(
     values=torch.tensor([[-2], [-1], [0], [1], [2]]),
 )
 
+# keys = Labels(
+#     names=["o3_lambda", "o3_sigma"],
+#     values=torch.tensor([[0, 1], [2, 1]]),
+# )
+
 keys = Labels(
     names=["o3_lambda", "o3_sigma"],
-    values=torch.tensor([[0, 1], [2, 1]]),
+    values=torch.tensor([[2, 1]]),
 )
 
 tensor_map = TensorMap(
     keys=keys,
     blocks=[
-        TensorBlock(
-            values=torch.tensor(polarizabilities_l0, dtype=torch.float64).reshape(
-                100, 1, 1
-            ),
-            samples=samples,
-            components=[components_l0],
-            properties=properties,
-        ),
+        # TensorBlock(
+        #     values=torch.tensor(polarizabilities_l0, dtype=torch.float64).reshape(
+        #         100, 1, 1
+        #     ),
+        #     samples=samples,
+        #     components=[components_l0],
+        #     properties=properties,
+        # ),
         TensorBlock(
             values=torch.tensor(polarizabilities_l2, dtype=torch.float64).reshape(
                 100, 5, 1

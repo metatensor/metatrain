@@ -322,8 +322,8 @@ def _complex_to_real_spherical_harmonics_transform(ell: int):
             T[m_index, ell - m] = 1 / np.sqrt(2) * (-1) ** m
         elif m < 0:
             # Imaginary part of Y_{l}^{|m|}
-            T[m_index, ell + abs(m)] = -1j / np.sqrt(2)
-            T[m_index, ell - abs(m)] = 1j / np.sqrt(2) * (-1) ** abs(m)
+            T[m_index, ell + abs(m)] = 1j / np.sqrt(2)
+            T[m_index, ell - abs(m)] = -1j / np.sqrt(2) * (-1)**abs(m)
         else:  # m == 0
             # Y_{l}^{0} remains unchanged
             T[m_index, ell] = 1
