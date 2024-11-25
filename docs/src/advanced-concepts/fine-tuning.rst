@@ -48,31 +48,17 @@ Prerequisites
 
 1. Train the Base Model. You can train the base model using the command:
 ``mtt train options.yaml``. Alternatively, you can use a pre-trained
-foundational model, if you have access to its state dict.
+foundational model, if you have access to its checkpoint. After this training,
+you will find the checkpoint file called ``best_model.ckpt`` in the training
+directory.
 
-2. Define Paths in ``options.yaml``. Specify the paths to ``model_state_dict``,
-``all_species.npy``, and ``self_contributions.npy`` in the ``training``
-section of the ``options.yaml`` file:
-
-.. code-block:: yaml
-
-  training:
-    MODEL_TO_START_WITH: <path_to_model_state_dict>
-    ALL_SPECIES_PATH: <path_to_all_species.npy>
-    SELF_CONTRIBUTIONS_PATH: <path_to_self_contributions.npy>
-
-These parameters are relevant for the outputs of the PET model. If you are
-not familiar with their meaning, please refer to the :ref:`architecture-pet`
-model documentation.
-
-
-3. Set the LoRA parameters in the ``architecture.model``
+2. Set the LoRA parameters in the ``architecture.training``
 section of the ``options.yaml``:
 
 .. code-block:: yaml
 
   architecture:
-    model:
+    training:
       LORA_RANK: <desired_rank>
       LORA_ALPHA: <desired_alpha>
       USE_LORA_PEFT: True
@@ -82,7 +68,8 @@ These parameters control whether to use LoRA for pre-trained model fine-tuning
 (``LORA_RANK``), and the regularization factor for the low-rank matrices
 (``LORA_ALPHA``).
 
-4. Run ``mtt train options.yaml`` to fine-tune the model.
+4. Run ``mtt train options.yaml -c best_model.ckpt`` to fine-tune the model.
+The ``-c`` flag specifies the path to the pre-trained model checkpoint.
 
 Fine-Tuning Options
 ^^^^^^^^^^^^^^^^^^^

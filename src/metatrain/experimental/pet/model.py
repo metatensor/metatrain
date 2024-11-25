@@ -13,16 +13,13 @@ from metatensor.torch.atomistic import (
     NeighborListOptions,
     System,
 )
-from pet.hypers import Hypers
 from pet.pet import PET as RawPET
-from pet.pet import SelfContributionsWrapper
 
 from metatrain.utils.data import DatasetInfo
 
 from ...utils.additive import ZBL
 from ...utils.dtype import dtype_to_str
-from .utils import systems_to_batch_dict, update_state_dict
-from .utils.fine_tuning import LoRAWrapper
+from .utils import load_raw_pet_model, systems_to_batch_dict
 
 
 logger = logging.getLogger(__name__)
@@ -48,6 +45,7 @@ class PET(torch.nn.Module):
         self.atomic_types: List[int] = dataset_info.atomic_types
         self.dataset_info = dataset_info
         self.pet = None
+        self.is_lora_applied = False
         self.checkpoint_path: Optional[str] = None
 
         # additive models: these are handled by the trainer at training
@@ -58,10 +56,30 @@ class PET(torch.nn.Module):
         self.additive_models = torch.nn.ModuleList(additive_models)
 
     def restart(self, dataset_info: DatasetInfo) -> "PET":
-        if dataset_info != self.dataset_info:
+        merged_info = self.dataset_info.union(dataset_info)
+        new_atomic_types = [
+            at for at in merged_info.atomic_types if at not in self.atomic_types
+        ]
+        new_targets = {
+            key: value
+            for key, value in merged_info.targets.items()
+            if key not in self.dataset_info.targets
+        }
+
+        if len(new_atomic_types) > 0:
             raise ValueError(
-                "PET cannot be restarted with different dataset information"
+                f"New atomic types found in the dataset: {new_atomic_types}. "
+                "The PET model does not support adding new atomic types."
             )
+
+        if len(new_targets) > 0:
+            raise ValueError(
+                f"New targets found in the training options: {new_targets}. "
+                "The PET model does not support adding new training targets."
+            )
+
+        self.dataset_info = merged_info
+        self.atomic_types = sorted(self.atomic_types)
         return self
 
     def set_trained_model(self, trained_model: RawPET) -> None:
@@ -140,28 +158,24 @@ class PET(torch.nn.Module):
 
         checkpoint = torch.load(path, weights_only=False, map_location="cpu")
         hypers = checkpoint["hypers"]
+        model_hypers = hypers["ARCHITECTURAL_HYPERS"]
         dataset_info = checkpoint["dataset_info"]
-        model = cls(
-            model_hypers=hypers["ARCHITECTURAL_HYPERS"], dataset_info=dataset_info
+        model = cls(model_hypers=model_hypers, dataset_info=dataset_info)
+        state_dict = checkpoint["model_state_dict"]
+        dtype = next(iter(state_dict.values())).dtype
+        lora_state_dict = checkpoint["lora_state_dict"]
+        if lora_state_dict is not None:
+            model.is_lora_applied = True
+        else:
+            lora_state_dict = {}
+        wrapper = load_raw_pet_model(
+            state_dict,
+            model.hypers,
+            model.atomic_types,
+            checkpoint["self_contributions"],
+            use_lora_peft=model.is_lora_applied,
+            **lora_state_dict,
         )
-
-        checkpoint = torch.load(path, weights_only=False)
-        state_dict = checkpoint["checkpoint"]["model_state_dict"]
-
-        ARCHITECTURAL_HYPERS = Hypers(model.hypers)
-        raw_pet = RawPET(ARCHITECTURAL_HYPERS, 0.0, len(model.atomic_types))
-        if ARCHITECTURAL_HYPERS.USE_LORA_PEFT:
-            lora_rank = ARCHITECTURAL_HYPERS.LORA_RANK
-            lora_alpha = ARCHITECTURAL_HYPERS.LORA_ALPHA
-            raw_pet = LoRAWrapper(raw_pet, lora_rank, lora_alpha)
-
-        new_state_dict = update_state_dict(state_dict)
-
-        dtype = next(iter(new_state_dict.values())).dtype
-        raw_pet.to(dtype).load_state_dict(new_state_dict)
-
-        self_contributions = checkpoint["self_contributions"]
-        wrapper = SelfContributionsWrapper(raw_pet, self_contributions)
 
         model.to(dtype).set_trained_model(wrapper)
 
