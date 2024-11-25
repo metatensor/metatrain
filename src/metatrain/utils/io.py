@@ -155,7 +155,7 @@ def load_model(
         path, _ = urlretrieve(str(path))
         # make sure to copy the checkpoint to the current directory
         shutil.copy(path, Path.cwd() / str(path).split("/")[-1])
-        logger.info(f"Downloaded model to {str(path).split("/")[-1]}")
+        logger.info(f"Downloaded model to {str(path).split('/')[-1]}")
 
     else:
         pass
