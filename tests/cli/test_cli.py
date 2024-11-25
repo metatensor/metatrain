@@ -149,7 +149,7 @@ def test_run_information(capfd, monkeypatch, tmp_path):
     monkeypatch.chdir(tmp_path)
 
     with pytest.raises(CalledProcessError):
-        subprocess.check_call(["mtt", "export", "experimental.soap_bpnn", "model.ckpt"])
+        subprocess.check_call(["mtt", "export", "model.ckpt"])
 
     stdout_log = capfd.readouterr().out
 

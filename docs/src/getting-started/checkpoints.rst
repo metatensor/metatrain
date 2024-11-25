@@ -30,13 +30,13 @@ positional arguments
 
 .. code-block:: bash
 
-    mtt export experimental.soap_bpnn model.ckpt -o model.pt
+    mtt export model.ckpt -o model.pt
 
 or
 
 .. code-block:: bash
 
-    mtt export experimental.soap_bpnn model.ckpt --output model.pt
+    mtt export model.ckpt --output model.pt
 
 For a export of distribution of models the ``export`` command also supports parsing
 models from remote locations. To export a remote model you can provide a URL instead of
@@ -44,7 +44,7 @@ a file path.
 
 .. code-block:: bash
 
-    mtt export experimental.soap_bpnn https://my.url.com/model.ckpt --output model.pt
+    mtt export https://my.url.com/model.ckpt --output model.pt
 
 Downloading private HuggingFace models is also supported, by specifying the
 corresponding API token with the ``--huggingface_api_token`` flag.

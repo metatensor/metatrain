@@ -5,7 +5,6 @@ from typing import Any, Union
 
 from metatensor.torch.atomistic import is_atomistic_model
 
-from ..utils.architectures import find_all_architectures
 from ..utils.io import check_file_extension, load_model
 from .formatter import CustomHelpFormatter
 
@@ -30,12 +29,6 @@ def _add_export_model_parser(subparser: argparse._SubParsersAction) -> None:
     )
     parser.set_defaults(callable="export_model")
 
-    parser.add_argument(
-        "architecture_name",
-        type=str,
-        choices=find_all_architectures(),
-        help="name of the model's architecture",
-    )
     parser.add_argument(
         "path",
         type=str,
@@ -66,10 +59,8 @@ def _add_export_model_parser(subparser: argparse._SubParsersAction) -> None:
 def _prepare_export_model_args(args: argparse.Namespace) -> None:
     """Prepare arguments for export_model."""
     path = args.__dict__.pop("path")
-    architecture_name = args.__dict__.pop("architecture_name")
     args.model = load_model(
         path=path,
-        architecture_name=architecture_name,
         **args.__dict__,
     )
     keys_to_keep = ["model", "output"]  # only these are needed for `export_model``

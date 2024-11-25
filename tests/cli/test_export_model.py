@@ -57,7 +57,6 @@ def test_export_cli(monkeypatch, tmp_path, output, dtype):
     command = [
         "mtt",
         "export",
-        "experimental.soap_bpnn",
         str(RESOURCES_PATH / f"model-{dtype_string}-bit.ckpt"),
     ]
 
@@ -129,7 +128,6 @@ def test_private_huggingface(monkeypatch, tmp_path):
     command = [
         "mtt",
         "export",
-        "experimental.soap_bpnn",
         "https://huggingface.co/metatensor/metatrain-test/resolve/main/model.ckpt",
         f"--huggingface_api_token={HF_TOKEN}",
     ]

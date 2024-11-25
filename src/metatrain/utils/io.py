@@ -6,8 +6,10 @@ from typing import Any, Optional, Union
 from urllib.parse import urlparse
 from urllib.request import urlretrieve
 
+import torch
 from metatensor.torch.atomistic import check_atomistic_model, load_atomistic_model
 
+from ..utils.architectures import find_all_architectures
 from .architectures import import_architecture
 
 
@@ -69,7 +71,6 @@ def is_exported_file(path: str) -> bool:
 def load_model(
     path: Union[str, Path],
     extensions_directory: Optional[Union[str, Path]] = None,
-    architecture_name: Optional[str] = None,
     **kwargs,
 ) -> Any:
     """Load checkpoints and exported models from an URL or a local file.
@@ -77,32 +78,19 @@ def load_model(
     If an exported model should be loaded and requires compiled extensions, their
     location should be passed using the ``extensions_directory`` parameter.
 
-    Loading checkpoints requires the ``architecture_name`` parameter, which can be
-    ommited for loading an exported model. After reading a checkpoint, the returned
+    After reading a checkpoint, the returned
     model can be exported with the model's own ``export()`` method.
 
     :param path: local or remote path to a model. For supported URL schemes see
         :py:class`urllib.request`
     :param extensions_directory: path to a directory containing all extensions required
         by an *exported* model
-    :param architecture_name: name of the architecture required for loading from a
-        *checkpoint*.
 
-    :raises ValueError: if both an ``extensions_directory`` and ``architecture_name``
-        are given
     :raises ValueError: if ``path`` is a YAML option file and no model
-    :raises ValueError: if no ``archietcture_name`` is given for loading a checkpoint
-    :raises ValueError: if the checkpoint saved in ``path`` does not math the given
-        ``architecture_name``
+    :raises ValueError: if no ``archietcture_name`` is found in the checkpoint
+    :raises ValueError: if the ``architecture_name`` is not found in the available
+        architectures
     """
-    if extensions_directory is not None and architecture_name is not None:
-        raise ValueError(
-            f"Both ``extensions_directory`` ('{str(extensions_directory)}') and "
-            f"``architecture_name`` ('{architecture_name}') are given which are "
-            "mutually exclusive. An ``extensions_directory`` is only required for "
-            "*exported* models while an ``architecture_name`` is only needed for model "
-            "*checkpoints*."
-        )
 
     if Path(path).suffix in [".yaml", ".yml"]:
         raise ValueError(
@@ -164,10 +152,14 @@ def load_model(
     if is_exported_file(path):
         return load_atomistic_model(path, extensions_directory=extensions_directory)
     else:  # model is a checkpoint
-        if architecture_name is None:
+        checkpoint = torch.load(path, weights_only=False, map_location="cpu")
+        if "architecture_name" not in checkpoint:
+            raise ValueError("No architecture name found in the checkpoint")
+        architecture_name = checkpoint["architecture_name"]
+        if architecture_name not in find_all_architectures():
             raise ValueError(
-                f"path '{path}' seems to be a checkpointed model but no "
-                "`architecture_name` was given"
+                f"Checkpoint architecture '{architecture_name}' not found "
+                "in the available architectures"
             )
         architecture = import_architecture(architecture_name)
 
