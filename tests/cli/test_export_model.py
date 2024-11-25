@@ -117,8 +117,9 @@ def test_private_huggingface(monkeypatch, tmp_path):
     model from HuggingFace."""
     monkeypatch.chdir(tmp_path)
 
-    HF_TOKEN = os.getenv("HUGGINGFACE_TOKEN")
-    assert HF_TOKEN is not None
+    HF_TOKEN = os.getenv("HUGGINGFACE_TOKEN_METATRAIN")
+    if HF_TOKEN is None:
+        pytest.skip("HuggingFace token not found in environment.")
     assert len(HF_TOKEN) > 0
 
     huggingface_hub.upload_file(
