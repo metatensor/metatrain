@@ -148,13 +148,14 @@ def load_model(
             filename = filename[10:]
         path = hf_hub_download(repo_id, filename, token=kwargs["huggingface_api_token"])
         # make sure to copy the checkpoint to the current directory
-        logger.info(f"Downloaded model from HuggingFace to {path}")
         shutil.copy(path, Path.cwd() / filename)
+        logger.info(f"Downloaded model from HuggingFace to {filename}")
 
     elif urlparse(str(path)).scheme:
         path, _ = urlretrieve(str(path))
         # make sure to copy the checkpoint to the current directory
         shutil.copy(path, Path.cwd() / str(path).split("/")[-1])
+        logger.info(f"Downloaded model to {str(path).split("/")[-1]}")
 
     else:
         pass
