@@ -126,7 +126,13 @@
         },
         "USE_ZBL": {
           "type": "boolean"
-        },
+        }
+      },
+      "additionalProperties": false
+    },
+    "training": {
+      "type": "object",
+      "properties": {
         "USE_LORA_PEFT": {
           "type": "boolean"
         },
@@ -135,13 +141,7 @@
         },
         "LORA_ALPHA": {
           "type": "number"
-        }
-      },
-      "additionalProperties": false
-    },
-    "training": {
-      "type": "object",
-      "properties": {
+        },
         "INITIAL_LR": {
           "type": "number"
         },

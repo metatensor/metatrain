@@ -7,9 +7,7 @@ def update_state_dict(state_dict: Dict) -> Dict:
     """
     new_state_dict = {}
     for name, value in state_dict.items():
-        if "pet_model" in name:
+        if "pet_model." in name:
             name = name.split("pet_model.")[1]
-        else:
-            name = name.replace("pet.model.", "")
         new_state_dict[name] = value
     return new_state_dict

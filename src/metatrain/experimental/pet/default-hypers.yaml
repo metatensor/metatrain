@@ -34,11 +34,11 @@ architecture:
     TARGET_INDEX_KEY: target_index
     RESIDUAL_FACTOR: 0.5
     USE_ZBL: False
+
+  training:
     USE_LORA_PEFT: False 
     LORA_RANK: 4
     LORA_ALPHA: 0.5
-
-  training:
     INITIAL_LR: 1e-4
     EPOCH_NUM_ATOMIC: 1000000000
     EPOCHS_WARMUP_ATOMIC: 100000000

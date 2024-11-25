@@ -7,8 +7,8 @@ from omegaconf import OmegaConf
 
 from metatrain.experimental.soap_bpnn import SoapBpnn
 from metatrain.utils.architectures import check_architecture_options
-from metatrain.utils.data import DatasetInfo, TargetInfo
-from metatrain.utils.testing import energy_layout
+from metatrain.utils.data import DatasetInfo
+from metatrain.utils.data.target_info import get_energy_target_info
 
 from . import DEFAULT_HYPERS, MODEL_HYPERS
 
@@ -20,9 +20,7 @@ def test_prediction_subset_elements():
     dataset_info = DatasetInfo(
         length_unit="Angstrom",
         atomic_types=[1, 6, 7, 8],
-        targets={
-            "energy": TargetInfo(quantity="energy", unit="eV", layout=energy_layout)
-        },
+        targets={"energy": get_energy_target_info({"unit": "eV"})},
     )
 
     model = SoapBpnn(MODEL_HYPERS, dataset_info)
@@ -46,9 +44,7 @@ def test_prediction_subset_atoms():
     dataset_info = DatasetInfo(
         length_unit="Angstrom",
         atomic_types=[1, 6, 7, 8],
-        targets={
-            "energy": TargetInfo(quantity="energy", unit="eV", layout=energy_layout)
-        },
+        targets={"energy": get_energy_target_info({"unit": "eV"})},
     )
 
     model = SoapBpnn(MODEL_HYPERS, dataset_info)
@@ -116,9 +112,7 @@ def test_output_last_layer_features():
     dataset_info = DatasetInfo(
         length_unit="Angstrom",
         atomic_types=[1, 6, 7, 8],
-        targets={
-            "energy": TargetInfo(quantity="energy", unit="eV", layout=energy_layout)
-        },
+        targets={"energy": get_energy_target_info({"unit": "eV"})},
     )
 
     model = SoapBpnn(MODEL_HYPERS, dataset_info)
@@ -190,9 +184,7 @@ def test_output_per_atom():
     dataset_info = DatasetInfo(
         length_unit="Angstrom",
         atomic_types=[1, 6, 7, 8],
-        targets={
-            "energy": TargetInfo(quantity="energy", unit="eV", layout=energy_layout)
-        },
+        targets={"energy": get_energy_target_info({"unit": "eV"})},
     )
 
     model = SoapBpnn(MODEL_HYPERS, dataset_info)

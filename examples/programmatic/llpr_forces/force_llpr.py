@@ -27,6 +27,9 @@ train_target_config = {
         "reader": "ase",
         "key": "energy",
         "unit": "kcal/mol",
+        "type": "scalar",
+        "per_atom": False,
+        "num_subtargets": 1,
         "forces": {
             "read_from": "train.xyz",
             "file_format": ".xyz",
@@ -53,6 +56,9 @@ valid_target_config = {
         "reader": "ase",
         "key": "energy",
         "unit": "kcal/mol",
+        "type": "scalar",
+        "per_atom": False,
+        "num_subtargets": 1,
         "forces": {
             "read_from": "valid.xyz",
             "file_format": ".xyz",
@@ -79,6 +85,9 @@ test_target_config = {
         "reader": "ase",
         "key": "energy",
         "unit": "kcal/mol",
+        "type": "scalar",
+        "per_atom": False,
+        "num_subtargets": 1,
         "forces": {
             "read_from": "test.xyz",
             "file_format": ".xyz",
