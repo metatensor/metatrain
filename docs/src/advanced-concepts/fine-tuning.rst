@@ -48,9 +48,9 @@ Prerequisites
 
 1. Train the Base Model. You can train the base model using the command:
 ``mtt train options.yaml``. Alternatively, you can use a pre-trained
-foundational model, if you have access to its state dict. After this training,
-you will find the checkpoint file with the ``best_model_*`` prefix in the
-training directory.
+foundational model, if you have access to its checkpoint. After this training,
+you will find the checkpoint file called ``best_model.ckpt`` in the training
+directory.
 
 2. Set the LoRA parameters in the ``architecture.training``
 section of the ``options.yaml``:
@@ -68,7 +68,7 @@ These parameters control whether to use LoRA for pre-trained model fine-tuning
 (``LORA_RANK``), and the regularization factor for the low-rank matrices
 (``LORA_ALPHA``).
 
-4. Run ``mtt train options.yaml -c best_model_*.ckpt`` to fine-tune the model.
+4. Run ``mtt train options.yaml -c best_model.ckpt`` to fine-tune the model.
 The ``-c`` flag specifies the path to the pre-trained model checkpoint.
 
 Fine-Tuning Options

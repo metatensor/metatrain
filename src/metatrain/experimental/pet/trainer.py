@@ -137,12 +137,6 @@ class Trainer:
                 "shift agnostic loss is intended only for general target training"
             )
 
-        # ARCHITECTURAL_HYPERS.D_OUTPUT = 1  # energy is a single scalar
-        # ARCHITECTURAL_HYPERS.TARGET_TYPE = "structural"  # energy is structural
-        # property ARCHITECTURAL_HYPERS.TARGET_AGGREGATION = (
-        #     "sum"  # energy is a sum of atomic energies
-        # )
-
         training_configuration_log += (
             f"Output dimensionality: {ARCHITECTURAL_HYPERS.D_OUTPUT}\n"
         )
@@ -800,6 +794,26 @@ Units of the Energy and Forces are the same units given in input"""
         trainer = cls(train_hypers)
         trainer.pet_trainer_state = checkpoint["trainer_state_dict"]
         trainer.epoch = checkpoint["epoch"]
-        trainer.best_loss = checkpoint["best_loss"]
-        trainer.best_model_state_dict = checkpoint["best_model_state_dict"]
+        old_fitting_scheme = checkpoint["hypers"]["FITTING_SCHEME"]
+        new_fitting_scheme = train_hypers
+        best_loss = checkpoint["best_loss"]
+        best_model_state_dict = checkpoint["best_model_state_dict"]
+        # The following code is not reached in the current implementation
+        # because the check for the train targets is done earlier in the
+        # training process, and changing the training targets between the
+        # runs is forbidden. However, this code is kept here for future reference.
+        for key in new_fitting_scheme:
+            if key in ["USE_ENERGIES", "USE_FORCES"]:
+                if new_fitting_scheme[key] != old_fitting_scheme[key]:
+                    logger.warning(
+                        f"The {key} training hyperparameter was changed from "
+                        f"{old_fitting_scheme[key]} to {new_fitting_scheme[key]} "
+                        "inbetween the last checkpoint and the current training. "
+                        "The `best model` and the `best loss` parts of the checkpoint "
+                        "will be reset to avoid inconsistencies."
+                    )
+                    best_loss = None
+                    best_model_state_dict = None
+        trainer.best_loss = best_loss
+        trainer.best_model_state_dict = best_model_state_dict
         return trainer
