@@ -41,12 +41,16 @@ class PET(torch.nn.Module):
         if not (
             target.is_scalar
             and target.quantity == "energy"
-            and "atom" not in target.layout.block(0).samples.names
             and len(target.layout.block(0).properties) == 1
         ):
             raise ValueError(
                 "PET only supports total-energy-like outputs, "
                 f"but a {target.quantity} was provided"
+            )
+        if target.per_atom:
+            raise ValueError(
+                "PET only supports per-structure outputs, "
+                "but a per-atom output was provided"
             )
 
         model_hypers["D_OUTPUT"] = 1
