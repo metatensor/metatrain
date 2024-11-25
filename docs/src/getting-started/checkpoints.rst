@@ -46,8 +46,8 @@ a file path.
 
     mtt export experimental.soap_bpnn https://my.url.com/model.ckpt --output model.pt
 
-(Downloading private models is also supported, only through HuggingFace and using the
-``--huggingface_api_token`` flag.)
+Downloading private HuggingFace models is also supported, by specifying the
+corresponding API token with the ``--huggingface_api_token`` flag.
 
 Keep in mind that a checkpoint (``.ckpt``) is only a temporary file, which can have
 several dependencies and may become unusable if the corresponding architecture is
