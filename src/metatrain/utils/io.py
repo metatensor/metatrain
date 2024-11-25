@@ -92,6 +92,8 @@ def load_model(
         architectures
     """
 
+    print("LOADING MODEL")
+
     if Path(path).suffix in [".yaml", ".yml"]:
         raise ValueError(
             f"path '{path}' seems to be a YAML option file and not a model"
@@ -159,7 +161,8 @@ def load_model(
         if architecture_name not in find_all_architectures():
             raise ValueError(
                 f"Checkpoint architecture '{architecture_name}' not found "
-                "in the available architectures"
+                "in the available architectures. Available architectures are: "
+                f"{find_all_architectures()}"
             )
         architecture = import_architecture(architecture_name)
 
@@ -167,6 +170,6 @@ def load_model(
             return architecture.__model__.load_checkpoint(path)
         except Exception as err:
             raise ValueError(
-                f"path '{path}' is not a valid model file for the {architecture_name} "
+                f"path '{path}' is not a valid checkpoint for the {architecture_name} "
                 "architecture"
             ) from err
