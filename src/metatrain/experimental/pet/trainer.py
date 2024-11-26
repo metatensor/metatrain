@@ -258,14 +258,11 @@ Units of the Energy and Forces are the same units given in input"""
                 pet_model.TARGET_TYPE = "structural"
         else:
             pet_model = PET(ARCHITECTURAL_HYPERS, 0.0, len(all_species))
-        pet_model = pet_model.to(device=device, dtype=dtype)
         num_params = sum([p.numel() for p in pet_model.parameters()])
         logging.info(f"Number of parameters: {num_params}")
 
         if FITTING_SCHEME.USE_LORA_PEFT:
             if not model.is_lora_applied:
-                for param in pet_model.parameters():
-                    param.requires_grad = False
                 lora_rank = FITTING_SCHEME.LORA_RANK
                 lora_alpha = FITTING_SCHEME.LORA_ALPHA
                 pet_model = LoRAWrapper(pet_model, lora_rank, lora_alpha)
@@ -283,7 +280,7 @@ Units of the Energy and Forces are the same units given in input"""
                 "Number of trainable parameters: "
                 + f"{num_trainable_params} [{fraction:.2f}%]"
             )
-
+        pet_model = pet_model.to(device=device, dtype=dtype)
         pet_model = PETUtilityWrapper(pet_model, FITTING_SCHEME.GLOBAL_AUG)
 
         pet_model = PETMLIPWrapper(
