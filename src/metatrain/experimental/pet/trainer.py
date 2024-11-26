@@ -258,7 +258,6 @@ Units of the Energy and Forces are the same units given in input"""
                 pet_model.TARGET_TYPE = "structural"
         else:
             pet_model = PET(ARCHITECTURAL_HYPERS, 0.0, len(all_species))
-        pet_model = pet_model.to(device=device, dtype=dtype)
         num_params = sum([p.numel() for p in pet_model.parameters()])
         logging.info(f"Number of parameters: {num_params}")
 
