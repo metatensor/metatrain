@@ -92,8 +92,6 @@ def load_model(
         architectures
     """
 
-    print("LOADING MODEL")
-
     if Path(path).suffix in [".yaml", ".yml"]:
         raise ValueError(
             f"path '{path}' seems to be a YAML option file and not a model"
