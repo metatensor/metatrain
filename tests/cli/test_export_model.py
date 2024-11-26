@@ -148,3 +148,21 @@ def test_private_huggingface(monkeypatch, tmp_path):
 
     # Test that the model can be loaded
     load_model(output, extensions_directory="extensions/")
+
+    # also test with the token in the environment variable
+    os.environ["HUGGINGFACE_METATRAIN_TOKEN"] = HF_TOKEN
+
+    # remove output file and extensions
+    os.remove(output)
+    os.rmdir("extensions/")
+
+    command = command[:-1]  # remove the token from the command line
+    subprocess.check_call(command)
+    assert Path(output).is_file()
+
+    # Test if extensions are saved
+    extensions_glob = glob.glob("extensions/")
+    assert len(extensions_glob) == 1
+
+    # Test that the model can be loaded
+    load_model(output, extensions_directory="extensions/")
