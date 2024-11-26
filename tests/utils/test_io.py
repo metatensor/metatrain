@@ -85,3 +85,14 @@ def test_load_model_unknown_model(monkeypatch, tmpdir):
     )
     with pytest.raises(ValueError, match=match):
         load_model(path, architecture_name=architecture_name)
+
+
+def test_load_model_no_architecture_name(monkeypatch, tmpdir):
+    monkeypatch.chdir(tmpdir)
+    architecture_name = "experimental.soap_bpnn"
+    path = "fake.ckpt"
+    torch.save({"not_architecture_name": architecture_name}, path)
+
+    match = "No architecture name found in the checkpoint"
+    with pytest.raises(ValueError, match=match):
+        load_model(path, architecture_name=architecture_name)
