@@ -57,7 +57,6 @@ def test_export_cli(monkeypatch, tmp_path, output, dtype):
     command = [
         "mtt",
         "export",
-        "experimental.soap_bpnn",
         str(RESOURCES_PATH / f"model-{dtype_string}-bit.ckpt"),
     ]
 
@@ -81,12 +80,17 @@ def test_export_cli(monkeypatch, tmp_path, output, dtype):
     assert next(model.parameters()).device.type == "cpu"
 
 
-def test_export_cli_architecture_names_choices():
-    stderr = str(subprocess.run(["mtt", "export", "foo"], capture_output=True).stderr)
+def test_export_cli_unknown_architecture(monkeypatch, tmp_path):
+    monkeypatch.chdir(tmp_path)
+    torch.save({"architecture_name": "foo"}, "fake.ckpt")
 
-    assert "invalid choice: 'foo'" in stderr
+    stdout = str(
+        subprocess.run(["mtt", "export", "fake.ckpt"], capture_output=True).stdout
+    )
+
+    assert "architecture 'foo' not found in the available architectures" in stdout
     for architecture_name in find_all_architectures():
-        assert architecture_name in stderr
+        assert architecture_name in stdout
 
 
 def test_reexport(monkeypatch, tmp_path):
@@ -129,7 +133,6 @@ def test_private_huggingface(monkeypatch, tmp_path):
     command = [
         "mtt",
         "export",
-        "experimental.soap_bpnn",
         "https://huggingface.co/metatensor/metatrain-test/resolve/main/model.ckpt",
         f"--huggingface_api_token={HF_TOKEN}",
     ]

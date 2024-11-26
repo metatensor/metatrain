@@ -160,7 +160,9 @@ methods for ``train()``, ``save_checkpoint()`` and ``load_checkpoint()``.
 
 The format of checkpoints is not defined by ``metatrain`` and can be any format that
 can be loaded by the trainer (to restart training) and by the model (to export the
-checkpoint).
+checkpoint). The only requirements are that the checkpoint must be loadable with
+``torch.load()``, it must be a dictionary, and it must contain the name of the
+architecture under the ``architecture_name`` key.
 
 Init file (``__init__.py``)
 ---------------------------
