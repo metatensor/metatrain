@@ -263,8 +263,6 @@ Units of the Energy and Forces are the same units given in input"""
 
         if FITTING_SCHEME.USE_LORA_PEFT:
             if not model.is_lora_applied:
-                for param in pet_model.parameters():
-                    param.requires_grad = False
                 lora_rank = FITTING_SCHEME.LORA_RANK
                 lora_alpha = FITTING_SCHEME.LORA_ALPHA
                 pet_model = LoRAWrapper(pet_model, lora_rank, lora_alpha)
