@@ -61,6 +61,12 @@ class PET(torch.nn.Module):
         self.is_lora_applied = False
         self.checkpoint_path: Optional[str] = None
 
+        # last-layer feature size (for LLPR module)
+        self.last_layer_feature_size = (
+            self.hypers["N_GNN_LAYERS"] * self.hypers["HEAD_N_NEURONS"] * 2
+        )
+        # times 2 because of the concatenation of the node and edge features
+
         # additive models: these are handled by the trainer at training
         # time, and they are added to the output at evaluation time
         additive_models = []
@@ -123,20 +129,44 @@ class PET(torch.nn.Module):
         output = self.pet(batch)  # type: ignore
         predictions = output["prediction"]
         output_quantities: Dict[str, TensorMap] = {}
+
+        structure_index = batch["batch"]
+        _, counts = torch.unique(batch["batch"], return_counts=True)
+        atom_index = torch.cat(
+            [torch.arange(count, device=predictions.device) for count in counts]
+        )
+        samples_values = torch.stack([structure_index, atom_index], dim=1)
+        samples = Labels(names=["system", "atom"], values=samples_values)
+        empty_labels = Labels(
+            names=["_"], values=torch.tensor([[0]], device=predictions.device)
+        )
+
+        if "mtt::aux::last_layer_features" in outputs:
+            ll_features = output["last_layer_features"]
+            print(ll_features.shape)
+            block = TensorBlock(
+                values=ll_features,
+                samples=samples,
+                components=[],
+                properties=Labels(
+                    names=["properties"],
+                    values=torch.arange(ll_features.shape[1]).reshape(-1, 1),
+                ),
+            )
+            output_tmap = TensorMap(
+                keys=empty_labels,
+                blocks=[block],
+            )
+            if not outputs["mtt::aux::last_layer_features"].per_atom:
+                output_tmap = metatensor.torch.sum_over_samples(output_tmap, "atom")
+            output_quantities["mtt::aux::last_layer_features"] = output_tmap
+
         for output_name in outputs:
+            if output_name.startswith("mtt::aux::"):
+                continue  # skip auxiliary outputs (not targets)
             energy_labels = Labels(
                 names=["energy"], values=torch.tensor([[0]], device=predictions.device)
             )
-            empty_labels = Labels(
-                names=["_"], values=torch.tensor([[0]], device=predictions.device)
-            )
-            structure_index = batch["batch"]
-            _, counts = torch.unique(batch["batch"], return_counts=True)
-            atom_index = torch.cat(
-                [torch.arange(count, device=predictions.device) for count in counts]
-            )
-            samples_values = torch.stack([structure_index, atom_index], dim=1)
-            samples = Labels(names=["system", "atom"], values=samples_values)
             block = TensorBlock(
                 samples=samples,
                 components=[],
@@ -216,7 +246,10 @@ class PET(torch.nn.Module):
                     quantity=self.dataset_info.targets[self.target_name].quantity,
                     unit=self.dataset_info.targets[self.target_name].unit,
                     per_atom=False,
-                )
+                ),
+                "mtt::aux::last_layer_features": ModelOutput(
+                    unit="unitless", per_atom=True
+                ),
             },
             atomic_types=self.atomic_types,
             interaction_range=interaction_range,

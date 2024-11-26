@@ -251,3 +251,81 @@ def test_vector_output(per_atom):
 
     with pytest.raises(ValueError, match="PET only supports total-energy-like outputs"):
         WrappedPET(DEFAULT_HYPERS["model"], dataset_info)
+
+
+def test_output_last_layer_features():
+    """Tests that the model can output its last layer features."""
+    dataset_info = DatasetInfo(
+        length_unit="Angstrom",
+        atomic_types=[1, 6, 7, 8],
+        targets={"energy": get_energy_target_info({"unit": "eV"})},
+    )
+
+    model = WrappedPET(DEFAULT_HYPERS["model"], dataset_info)
+    ARCHITECTURAL_HYPERS = Hypers(model.hypers)
+    raw_pet = PET(ARCHITECTURAL_HYPERS, 0.0, len(model.atomic_types))
+    model.set_trained_model(raw_pet)
+
+    system = System(
+        types=torch.tensor([6, 1, 8, 7]),
+        positions=torch.tensor(
+            [[0.0, 0.0, 0.0], [0.0, 0.0, 1.0], [0.0, 0.0, 2.0], [0.0, 0.0, 3.0]],
+        ),
+        cell=torch.zeros(3, 3),
+        pbc=torch.tensor([False, False, False]),
+    )
+
+    requested_neighbor_lists = get_requested_neighbor_lists(model)
+    system = get_system_with_neighbor_lists(system, requested_neighbor_lists)
+
+    # last-layer features per atom:
+    ll_output_options = ModelOutput(
+        quantity="",
+        unit="unitless",
+        per_atom=True,
+    )
+    outputs = model(
+        [system],
+        {
+            "energy": ModelOutput(quantity="energy", unit="eV", per_atom=True),
+            "mtt::aux::last_layer_features": ll_output_options,
+        },
+    )
+    assert "energy" in outputs
+    assert "mtt::aux::last_layer_features" in outputs
+    last_layer_features = outputs["mtt::aux::last_layer_features"].block()
+    assert last_layer_features.samples.names == [
+        "system",
+        "atom",
+    ]
+    assert last_layer_features.values.shape == (
+        4,
+        768,  # 768 = 3 (gnn layers) * 256 (128 for edge repr, 128 for node repr)
+    )
+    assert last_layer_features.properties.names == [
+        "properties",
+    ]
+
+    # last-layer features per system:
+    ll_output_options = ModelOutput(
+        quantity="",
+        unit="unitless",
+        per_atom=False,
+    )
+    outputs = model(
+        [system],
+        {
+            "energy": ModelOutput(quantity="energy", unit="eV", per_atom=True),
+            "mtt::aux::last_layer_features": ll_output_options,
+        },
+    )
+    assert "energy" in outputs
+    assert "mtt::aux::last_layer_features" in outputs
+    assert outputs["mtt::aux::last_layer_features"].block().samples.names == ["system"]
+    assert outputs["mtt::aux::last_layer_features"].block().values.shape == (
+        1,
+        768,  # 768 = 3 (gnn layers) * 256 (128 for edge repr, 128 for node repr)
+    )
+    assert outputs["mtt::aux::last_layer_features"].block().properties.names == [
+        "properties",
+    ]
