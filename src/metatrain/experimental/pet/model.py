@@ -63,9 +63,12 @@ class PET(torch.nn.Module):
 
         # last-layer feature size (for LLPR module)
         self.last_layer_feature_size = (
-            self.hypers["N_GNN_LAYERS"] * self.hypers["HEAD_N_NEURONS"] * 2
+            self.hypers["N_GNN_LAYERS"]
+            * self.hypers["HEAD_N_NEURONS"]
+            * (1 + self.hypers["USE_BOND_ENERGIES"])
         )
-        # times 2 because of the concatenation of the node and edge features
+        # if they are enabled, the edge features are concatenated
+        # to the node features
 
         # additive models: these are handled by the trainer at training
         # time, and they are added to the output at evaluation time
@@ -143,7 +146,6 @@ class PET(torch.nn.Module):
 
         if "mtt::aux::last_layer_features" in outputs:
             ll_features = output["last_layer_features"]
-            print(ll_features.shape)
             block = TensorBlock(
                 values=ll_features,
                 samples=samples,
