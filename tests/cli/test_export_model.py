@@ -6,6 +6,7 @@ Actual unit tests for the function are performed in `tests/utils/test_export`.
 import glob
 import logging
 import os
+import shutil
 import subprocess
 from pathlib import Path
 
@@ -139,6 +140,24 @@ def test_private_huggingface(monkeypatch, tmp_path):
 
     output = "exported-model.pt"
 
+    subprocess.check_call(command)
+    assert Path(output).is_file()
+
+    # Test if extensions are saved
+    extensions_glob = glob.glob("extensions/")
+    assert len(extensions_glob) == 1
+
+    # Test that the model can be loaded
+    load_model(output, extensions_directory="extensions/")
+
+    # also test with the token in the environment variable
+    os.environ["HF_TOKEN"] = HF_TOKEN
+
+    # remove output file and extensions
+    os.remove(output)
+    shutil.rmtree("extensions/")
+
+    command = command[:-1]  # remove the token from the command line
     subprocess.check_call(command)
     assert Path(output).is_file()
 

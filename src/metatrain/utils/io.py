@@ -99,7 +99,23 @@ def load_model(
         )
 
     # Download from HuggingFace with a private token
-    if kwargs.get("huggingface_api_token"):
+    if (
+        kwargs.get("huggingface_api_token")  # token from CLI
+        or os.environ.get("HF_TOKEN")  # token from env variable
+    ) and "huggingface.co" in str(path):
+        cli_token = kwargs.get("huggingface_api_token")
+        env_token = os.environ.get("HF_TOKEN")
+        if cli_token and env_token:
+            logging.info(
+                "Both CLI and environment variable tokens are set for "
+                "HuggingFace. Using the CLI token."
+            )
+            hf_token = cli_token
+        else:
+            if cli_token:
+                hf_token = cli_token
+            if env_token:
+                hf_token = env_token
         try:
             from huggingface_hub import hf_hub_download
         except ImportError:
@@ -135,7 +151,7 @@ def load_model(
                     "'main' branch."
                 )
             filename = filename[10:]
-        path = hf_hub_download(repo_id, filename, token=kwargs["huggingface_api_token"])
+        path = hf_hub_download(repo_id, filename, token=hf_token)
         # make sure to copy the checkpoint to the current directory
         basename = os.path.basename(path)
         shutil.copy(path, Path.cwd() / basename)
