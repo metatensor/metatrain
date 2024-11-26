@@ -101,10 +101,10 @@ def load_model(
     # Download from HuggingFace with a private token
     if (
         kwargs.get("huggingface_api_token")  # token from CLI
-        or os.environ.get("HUGGINGFACE_METATRAIN_TOKEN")  # token from env variable
+        or os.environ.get("HF_TOKEN")  # token from env variable
     ) and "huggingface.co" in str(path):
         cli_token = kwargs.get("huggingface_api_token")
-        env_token = os.environ.get("HUGGINGFACE_METATRAIN_TOKEN")
+        env_token = os.environ.get("HF_TOKEN")
         if cli_token and env_token:
             logging.info(
                 "Both CLI and environment variable tokens are set for "

@@ -6,6 +6,7 @@ Actual unit tests for the function are performed in `tests/utils/test_export`.
 import glob
 import logging
 import os
+import shutil
 import subprocess
 from pathlib import Path
 
@@ -150,11 +151,11 @@ def test_private_huggingface(monkeypatch, tmp_path):
     load_model(output, extensions_directory="extensions/")
 
     # also test with the token in the environment variable
-    os.environ["HUGGINGFACE_METATRAIN_TOKEN"] = HF_TOKEN
+    os.environ["HF_TOKEN"] = HF_TOKEN
 
     # remove output file and extensions
     os.remove(output)
-    os.rmdir("extensions/")
+    shutil.rmtree("extensions/")
 
     command = command[:-1]  # remove the token from the command line
     subprocess.check_call(command)
