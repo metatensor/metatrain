@@ -44,6 +44,8 @@ class LoRAWrapper(torch.nn.Module):
         self.alpha = alpha
         self.hidden_dim = model.hypers.TRANSFORMER_D_MODEL
         self.num_hidden_layers = model.hypers.N_GNN_LAYERS * model.hypers.N_TRANS_LAYERS
+        for param in model.parameters():
+            param.requires_grad = False
         for gnn_layer in model.gnn_layers:
             for trans_layer in gnn_layer.trans.layers:
                 trans_layer.attention = AttentionBlockWithLoRA(

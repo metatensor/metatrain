@@ -22,6 +22,9 @@ class CompositionModel(torch.nn.Module):
         quantity.
     """
 
+    outputs: Dict[str, ModelOutput]
+    output_to_output_index: Dict[str, int]
+
     def __init__(self, model_hypers: Dict, dataset_info: DatasetInfo):
         super().__init__()
 
@@ -31,31 +34,28 @@ class CompositionModel(torch.nn.Module):
             schema={"type": "object", "additionalProperties": False},
         )
 
-        # Check capabilities
-        for target in dataset_info.targets.values():
-            if target.quantity != "energy":
-                raise ValueError(
-                    "CompositionModel only supports energy-like outputs, but a "
-                    f"{target.quantity} output was provided."
-                )
-
         self.dataset_info = dataset_info
         self.atomic_types = sorted(dataset_info.atomic_types)
 
         self.outputs = {
             key: ModelOutput(
-                quantity=value.quantity,
-                unit=value.unit,
+                quantity=target_info.quantity,
+                unit=target_info.unit,
                 per_atom=True,
             )
-            for key, value in dataset_info.targets.items()
+            for key, target_info in dataset_info.targets.items()
+            if target_info.is_scalar and len(target_info.layout.block().properties) == 1
+            # important: only scalars can have composition contributions
+            # for now, we also require that only one property is present
         }
 
         n_types = len(self.atomic_types)
-        n_targets = len(dataset_info.targets)
+        n_targets = len(self.outputs)
 
         self.output_to_output_index = {
-            target: i for i, target in enumerate(sorted(dataset_info.targets.keys()))
+            target: i
+            for i, target in enumerate(sorted(dataset_info.targets.keys()))
+            if target in self.outputs
         }
 
         self.register_buffer(
@@ -126,10 +126,13 @@ class CompositionModel(torch.nn.Module):
                     if target_key in get_all_targets(dataset):
                         datasets_with_target.append(dataset)
                 if len(datasets_with_target) == 0:
-                    raise ValueError(
+                    # this is a possibility when transfer learning
+                    warnings.warn(
                         f"Target {target_key} in the model's new capabilities is not "
-                        "present in any of the training datasets."
+                        "present in any of the training datasets.",
+                        stacklevel=2,
                     )
+                    continue
 
                 targets = torch.stack(
                     [
@@ -241,6 +244,9 @@ class CompositionModel(torch.nn.Module):
         targets_out: Dict[str, TensorMap] = {}
         for target_key, target in outputs.items():
             if target_key.startswith("mtt::aux::"):
+                continue
+            if target_key not in self.outputs.keys():
+                # non-scalar
                 continue
             weights = self.weights[self.output_to_output_index[target_key]]
 

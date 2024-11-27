@@ -8,7 +8,10 @@ from omegaconf import OmegaConf
 from metatrain.experimental.soap_bpnn import SoapBpnn
 from metatrain.utils.architectures import check_architecture_options
 from metatrain.utils.data import DatasetInfo
-from metatrain.utils.data.target_info import get_energy_target_info
+from metatrain.utils.data.target_info import (
+    get_energy_target_info,
+    get_generic_target_info,
+)
 
 from . import DEFAULT_HYPERS, MODEL_HYPERS
 
@@ -235,3 +238,39 @@ def test_fixed_composition_weights_error():
         check_architecture_options(
             name="experimental.soap_bpnn", options=OmegaConf.to_container(hypers)
         )
+
+
+@pytest.mark.parametrize("per_atom", [True, False])
+def test_vector_output(per_atom):
+    """Tests that the model can predict a (spherical) vector output."""
+
+    dataset_info = DatasetInfo(
+        length_unit="Angstrom",
+        atomic_types=[1, 6, 7, 8],
+        targets={
+            "forces": get_generic_target_info(
+                {
+                    "quantity": "forces",
+                    "unit": "",
+                    "type": {
+                        "spherical": {"irreps": [{"o3_lambda": 1, "o3_sigma": 1}]}
+                    },
+                    "num_subtargets": 100,
+                    "per_atom": per_atom,
+                }
+            )
+        },
+    )
+
+    model = SoapBpnn(MODEL_HYPERS, dataset_info)
+
+    system = System(
+        types=torch.tensor([6, 6]),
+        positions=torch.tensor([[0.0, 0.0, 0.0], [0.0, 0.0, 1.0]]),
+        cell=torch.zeros(3, 3),
+        pbc=torch.tensor([False, False, False]),
+    )
+    model(
+        [system],
+        {"force": model.outputs["forces"]},
+    )

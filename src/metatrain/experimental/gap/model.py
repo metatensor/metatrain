@@ -37,9 +37,13 @@ class GAP(torch.nn.Module):
 
         # Check capabilities
         for target in dataset_info.targets.values():
-            if target.quantity != "energy":
+            if not (
+                target.is_scalar
+                and target.quantity == "energy"
+                and len(target.layout.block(0).properties) == 1
+            ):
                 raise ValueError(
-                    "GAP only supports energy-like outputs, "
+                    "GAP only supports total-energy-like outputs, "
                     f"but a {target.quantity} was provided"
                 )
             if target.per_atom:
