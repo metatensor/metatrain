@@ -39,12 +39,16 @@ class AlchemicalModel(torch.nn.Module):
         if not (
             target.is_scalar
             and target.quantity == "energy"
-            and "atom" not in target.layout.block(0).samples.names
             and len(target.layout.block(0).properties) == 1
         ):
             raise ValueError(
                 "The Alchemical Model only supports total-energy-like outputs, "
                 f"but a {target.quantity} was provided"
+            )
+        if target.per_atom:
+            raise ValueError(
+                "Alchemical Model only supports per-structure outputs, "
+                "but a per-atom output was provided"
             )
 
         self.outputs = {
