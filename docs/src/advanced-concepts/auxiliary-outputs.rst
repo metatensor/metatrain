@@ -16,11 +16,11 @@ by one or more architectures in the library:
 The following table shows the architectures that support each of the
 auxiliary outputs:
 
-+------------------------------------------+-----------+------------------+-----+
-| Auxiliary output                         | SOAP-BPNN | Alchemical Model | PET |
-+------------------------------------------+-----------+------------------+-----+
-| ``mtt::aux::last_layer_features``        | Yes       |       No         | No  |
-+------------------------------------------+-----------+------------------+-----+
++------------------------------------------+-----------+------------------+-----+-----+
+| Auxiliary output                         | SOAP-BPNN | Alchemical Model | PET | GAP |
++------------------------------------------+-----------+------------------+-----+-----+
+| ``mtt::aux::last_layer_features``        | Yes       |       No         | Yes | No  |
++------------------------------------------+-----------+------------------+-----+-----+
 
 The following tables show the metadata that is expected for each of the
 auxiliary outputs:
