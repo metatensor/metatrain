@@ -610,9 +610,11 @@ Units of the Energy and Forces are the same units given in input"""
                 else:
                     lora_state_dict = None
                 last_model_checkpoint = {
+                    "architecture_name": "experimental.pet",
                     "trainer_state_dict": trainer_state_dict,
                     "model_state_dict": last_model_state_dict,
                     "best_model_state_dict": self.best_model_state_dict,
+                    "best_metric": self.best_metric,
                     "hypers": self.hypers,
                     "epoch": self.epoch,
                     "dataset_info": model.dataset_info,
