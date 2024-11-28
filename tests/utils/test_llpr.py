@@ -105,7 +105,7 @@ def test_llpr(tmpdir):
     n_ensemble_members = 10000
     llpr_model.calibrate(dataloader)
     llpr_model.generate_ensemble({"energy": weights}, n_ensemble_members)
-    assert "mtt::energy_ensemble" in llpr_model.capabilities.outputs
+    assert "energy_ensemble" in llpr_model.capabilities.outputs
 
     exported_model = MetatensorAtomisticModel(
         llpr_model.eval(),
@@ -126,7 +126,7 @@ def test_llpr(tmpdir):
         outputs={
             "energy": ModelOutput(per_atom=False),
             "mtt::aux::energy_uncertainty": ModelOutput(per_atom=False),
-            "mtt::energy_ensemble": ModelOutput(per_atom=False),
+            "energy_ensemble": ModelOutput(per_atom=False),
         },
         selected_atoms=None,
     )
@@ -135,11 +135,11 @@ def test_llpr(tmpdir):
     )
 
     assert "mtt::aux::energy_uncertainty" in outputs
-    assert "mtt::energy_ensemble" in outputs
+    assert "energy_ensemble" in outputs
 
     analytical_uncertainty = outputs["mtt::aux::energy_uncertainty"].block().values
     ensemble_uncertainty = torch.var(
-        outputs["mtt::energy_ensemble"].block().values, dim=1, keepdim=True
+        outputs["energy_ensemble"].block().values, dim=1, keepdim=True
     )
 
     torch.testing.assert_close(
@@ -246,7 +246,7 @@ def test_llpr_covariance_as_pseudo_hessian(tmpdir):
     n_ensemble_members = 1000000  # converges slowly...
     llpr_model.calibrate(dataloader)
     llpr_model.generate_ensemble({"energy": weights}, n_ensemble_members)
-    assert "mtt::energy_ensemble" in llpr_model.capabilities.outputs
+    assert "energy_ensemble" in llpr_model.capabilities.outputs
 
     exported_model = MetatensorAtomisticModel(
         llpr_model.eval(),
@@ -267,7 +267,7 @@ def test_llpr_covariance_as_pseudo_hessian(tmpdir):
         outputs={
             "energy": ModelOutput(per_atom=False),
             "mtt::aux::energy_uncertainty": ModelOutput(per_atom=False),
-            "mtt::energy_ensemble": ModelOutput(per_atom=False),
+            "energy_ensemble": ModelOutput(per_atom=False),
         },
         selected_atoms=None,
     )
@@ -276,11 +276,11 @@ def test_llpr_covariance_as_pseudo_hessian(tmpdir):
     )
 
     assert "mtt::aux::energy_uncertainty" in outputs
-    assert "mtt::energy_ensemble" in outputs
+    assert "energy_ensemble" in outputs
 
     analytical_uncertainty = outputs["mtt::aux::energy_uncertainty"].block().values
     ensemble_uncertainty = torch.var(
-        outputs["mtt::energy_ensemble"].block().values, dim=1, keepdim=True
+        outputs["energy_ensemble"].block().values, dim=1, keepdim=True
     )
 
     torch.testing.assert_close(
