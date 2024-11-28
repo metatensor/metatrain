@@ -43,7 +43,6 @@ def _add_export_model_parser(subparser: argparse._SubParsersAction) -> None:
         dest="output",
         type=str,
         required=False,
-        default="exported-model.pt",
         help="Filename of the exported model (default: %(default)s).",
     )
     parser.add_argument(
@@ -68,9 +67,11 @@ def _prepare_export_model_args(args: argparse.Namespace) -> None:
     for key in original_keys:
         if key not in keys_to_keep:
             args.__dict__.pop(key)
+    if args.__dict__.get("output") is None:
+        args.__dict__["output"] = Path.cwd() / (Path(path).stem + ".pt")
 
 
-def export_model(model: Any, output: Union[Path, str] = "exported-model.pt") -> None:
+def export_model(model: Any, output: Union[Path, str]) -> None:
     """Export a trained model allowing it to make predictions.
 
     This includes predictions within molecular simulation engines. Exported models will
