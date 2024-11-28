@@ -373,7 +373,7 @@ class NanoPET(torch.nn.Module):
                 and base_name not in atomic_features_dict
             ):
                 raise ValueError(
-                    f"Features {output_name} can only be requested, "
+                    f"Features {output_name} can only be requested "
                     f"if the corresponding output {base_name} is also requested."
                 )
             if f"mtt::{base_name}" in atomic_features_dict:

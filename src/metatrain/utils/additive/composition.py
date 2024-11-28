@@ -6,6 +6,8 @@ import torch
 from metatensor.torch import Labels, TensorBlock, TensorMap
 from metatensor.torch.atomistic import ModelOutput, System
 
+from metatrain.utils.data.target_info import is_auxiliary_output
+
 from ..data import Dataset, DatasetInfo, get_all_targets, get_atomic_types
 from ..jsonschema import validate
 
@@ -227,8 +229,9 @@ class CompositionModel(torch.nn.Module):
             self.properties_label = self.properties_label.to(device)
 
         for output_name in outputs:
-            if output_name.startswith("mtt::aux::"):
-                continue
+            # TODO: special case for ensembles
+            if is_auxiliary_output(output_name):
+                continue  # skip auxiliary outputs
             if output_name not in self.output_to_output_index:
                 raise ValueError(
                     f"output key {output_name} is not supported by this composition "
