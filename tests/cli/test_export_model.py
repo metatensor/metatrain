@@ -138,7 +138,7 @@ def test_private_huggingface(monkeypatch, tmp_path):
         f"--huggingface_api_token={HF_TOKEN}",
     ]
 
-    output = "model-32-bit.pt"
+    output = "model.pt"
 
     subprocess.check_call(command)
     assert Path(output).is_file()
