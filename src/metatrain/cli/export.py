@@ -43,7 +43,10 @@ def _add_export_model_parser(subparser: argparse._SubParsersAction) -> None:
         dest="output",
         type=str,
         required=False,
-        help="Filename of the exported model (default: %(default)s).",
+        help=(
+            "Filename of the exported model (default: <stem>.pt, "
+            "where <stem> is the name of the checkpoint without the extension)."
+        ),
     )
     parser.add_argument(
         "--huggingface_api_token",
