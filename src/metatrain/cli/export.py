@@ -68,7 +68,7 @@ def _prepare_export_model_args(args: argparse.Namespace) -> None:
         if key not in keys_to_keep:
             args.__dict__.pop(key)
     if args.__dict__.get("output") is None:
-        args.__dict__["output"] = Path.cwd() / (Path(path).stem + ".pt")
+        args.__dict__["output"] = Path(path).stem + ".pt"
 
 
 def export_model(model: Any, output: Union[Path, str]) -> None:
