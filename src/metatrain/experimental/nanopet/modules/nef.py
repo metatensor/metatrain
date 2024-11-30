@@ -3,7 +3,14 @@ from typing import Optional
 import torch
 
 
+# NEF stands for Node Edge Feature, representing the three dimensions of
+# the internal representations of a PET model. This module contains
+# functions to manipulate these representations.
+
+
 def get_nef_indices(centers, n_nodes: int, n_edges_per_node: int):
+    # computes tensors of indices useful to convert between edge
+    # and NEF layouts
 
     bincount = torch.bincount(centers, minlength=n_nodes)
 
@@ -25,6 +32,10 @@ def get_nef_indices(centers, n_nodes: int, n_edges_per_node: int):
 
 
 def get_corresponding_edges(array):
+    # computes the corresponding edge (i.e., the edge that goes in the
+    # opposite direction) for each edge in the array; this is useful
+    # in the message-passing operation
+
     array = array.to(torch.int64)  # avoid overflow
 
     centers = array[:, 0]
@@ -95,8 +106,7 @@ def edge_array_to_nef(
     mask: Optional[torch.Tensor] = None,
     fill_value: float = 0.0,
 ):
-    """Converts an edge array to a NEF array."""
-
+    # converts an edge array to a NEF array
     if mask is None:
         return edge_array[nef_indices]
     else:
@@ -108,6 +118,5 @@ def edge_array_to_nef(
 
 
 def nef_array_to_edges(nef_array, centers, nef_to_edges_neighbor):
-    """Converts a NEF array to an edge array."""
-
+    # converts a NEF array to an edge array
     return nef_array[centers, nef_to_edges_neighbor]

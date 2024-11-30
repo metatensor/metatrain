@@ -31,6 +31,7 @@ from .modules.transformer import Transformer
 
 
 class NanoPET(torch.nn.Module):
+    """Re-implementation of the PET architecture (https://arxiv.org/pdf/2305.19302)."""
 
     __supported_devices__ = ["cuda", "cpu"]
     __supported_dtypes__ = [torch.float64, torch.float32]
@@ -197,7 +198,7 @@ class NanoPET(torch.nn.Module):
                 for output_name, label in self.property_labels.items()
             }
 
-        segment_indices = torch.concatenate(
+        system_indices = torch.concatenate(
             [
                 torch.full(
                     (len(system),),
@@ -210,7 +211,7 @@ class NanoPET(torch.nn.Module):
 
         sample_values = torch.stack(
             [
-                segment_indices,
+                system_indices,
                 torch.concatenate(
                     [
                         torch.arange(
@@ -246,7 +247,7 @@ class NanoPET(torch.nn.Module):
             cell_contributions = torch.einsum(
                 "ab, abc -> ac",
                 cell_shifts.to(cells.dtype),
-                cells[segment_indices[centers]],
+                cells[system_indices[centers]],
             )
 
         edge_vectors = positions[neighbors] - positions[centers] + cell_contributions

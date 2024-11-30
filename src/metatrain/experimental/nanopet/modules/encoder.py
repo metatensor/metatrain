@@ -4,6 +4,12 @@ import torch
 
 
 class Encoder(torch.nn.Module):
+    """
+    An encoder of edges. It generates a fixed-size representation of the
+    interatomic vector, the chemical element of the center and the chemical
+    element of the neighbor. The representations are then concatenated and
+    compressed to the initial fixed size.
+    """
 
     def __init__(
         self,
