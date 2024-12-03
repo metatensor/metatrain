@@ -10,7 +10,15 @@ import torch
 
 def get_nef_indices(centers, n_nodes: int, n_edges_per_node: int):
     # computes tensors of indices useful to convert between edge
-    # and NEF layouts
+    # and NEF layouts; the usage and function of nef_indices and
+    # nef_to_edges_neighbor is clear in the edge_array_to_nef and
+    # nef_array_to_edges functions below.
+    # In particular:
+    # nef_array = edge_array[nef_indices]
+    # edge_array = nef_array[centers, nef_to_edges_neighbor]
+    # The third output, nef_mask, is a mask that can be used to
+    # filter out the padding values in the NEF array, as different
+    # nodes will have, in general, different number of edges.
 
     bincount = torch.bincount(centers, minlength=n_nodes)
 
@@ -20,15 +28,15 @@ def get_nef_indices(centers, n_nodes: int, n_edges_per_node: int):
 
     argsort = torch.argsort(centers, stable=True)
 
-    edges_to_nef = torch.zeros(
+    nef_indices = torch.zeros(
         (n_nodes, n_edges_per_node), dtype=torch.long, device=centers.device
     )
-    edges_to_nef[nef_mask] = argsort
+    nef_indices[nef_mask] = argsort
 
     nef_to_edges_neighbor = torch.empty_like(centers, dtype=torch.long)
     nef_to_edges_neighbor[argsort] = arange_expanded[nef_mask]
 
-    return edges_to_nef, nef_to_edges_neighbor, nef_mask
+    return nef_indices, nef_to_edges_neighbor, nef_mask
 
 
 def get_corresponding_edges(array):
@@ -118,5 +126,8 @@ def edge_array_to_nef(
 
 
 def nef_array_to_edges(nef_array, centers, nef_to_edges_neighbor):
-    # converts a NEF array to an edge array
+    # converts a NEF array to an edge array. Most often, this converts
+    # a NEF array (three-dimensional, where the dimensions are the nodes,
+    # the edges, and the features) to an edge array (two-dimensional,
+    # where the dimensions are the edges and the features).
     return nef_array[centers, nef_to_edges_neighbor]

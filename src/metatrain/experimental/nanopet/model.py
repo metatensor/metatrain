@@ -31,7 +31,21 @@ from .modules.transformer import Transformer
 
 
 class NanoPET(torch.nn.Module):
-    """Re-implementation of the PET architecture (https://arxiv.org/pdf/2305.19302)."""
+    """
+    Re-implementation of the PET architecture (https://arxiv.org/pdf/2305.19302).
+
+    The positions and atomic species are encoded into a high-dimensional space
+    using a simple encoder. The resulting features (in NEF, or Node-Edge-Feature
+    format*) are then processed by a series of transformer layers. This process is
+    repeated for a number of message-passing layers, where features are exchanged
+    between corresponding edges (ij and ji). The final representation is used to
+    predict atomic properties through decoders named "heads".
+
+    * NEF format: a three-dimensional tensor where the first dimension corresponds
+    to the nodes, the second to the edges corresponding to the neighbors of the
+    node (padded as different nodes might have different numbers of edges),
+    and the third to the features.
+    """
 
     __supported_devices__ = ["cuda", "cpu"]
     __supported_dtypes__ = [torch.float64, torch.float32]
@@ -258,7 +272,7 @@ class NanoPET(torch.nn.Module):
         else:
             max_edges_per_node = int(torch.max(bincount))
 
-        # Convert to NEF:
+        # Convert to NEF (Node-Edge-Feature) format:
         nef_indices, nef_to_edges_neighbor, nef_mask = get_nef_indices(
             centers, len(positions), max_edges_per_node
         )
