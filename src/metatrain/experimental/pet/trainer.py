@@ -153,7 +153,7 @@ class Trainer:
 
         st = """
 Legend: LR          -> Learning Rate
-        MAE         -> Mean Square Error
+        MAE         -> Mean Absolute Error
         RMSE        -> Root Mean Square Error
         V-E-MAE/at  -> MAE of the Energy per atom on the Validation set
         V-E-RMSE/at -> RMSE of the Energy per atom on the Validation set
