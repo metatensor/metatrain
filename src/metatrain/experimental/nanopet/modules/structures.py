@@ -18,7 +18,7 @@ def concatenate_structures(systems: List[System]):
         positions.append(system.positions)
         species.append(system.types)
 
-        assert len(system.known_neighbor_lists()) == 1
+        assert len(system.known_neighbor_lists()) >= 1, "no neighbor list found"
         neighbor_list = system.get_neighbor_list(system.known_neighbor_lists()[0])
         nl_values = neighbor_list.samples.values
 
