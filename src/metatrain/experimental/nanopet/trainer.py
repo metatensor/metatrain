@@ -439,6 +439,7 @@ class Trainer:
 
     def save_checkpoint(self, model, path: Union[str, Path]):
         checkpoint = {
+            "architecture_name": "experimental.nanopet",
             "model_hypers": {
                 "model_hypers": model.hypers,
                 "dataset_info": model.dataset_info,
