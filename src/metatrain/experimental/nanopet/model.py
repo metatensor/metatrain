@@ -67,6 +67,12 @@ class NanoPET(torch.nn.Module):
         self.new_outputs = list(dataset_info.targets.keys())
         self.atomic_types = dataset_info.atomic_types
 
+        self.requested_nl = NeighborListOptions(
+            cutoff=self.hypers["cutoff"],
+            full_list=True,
+            strict=True,
+        )
+
         self.cutoff = self.hypers["cutoff"]
         self.cutoff_width = self.hypers["cutoff_width"]
 
@@ -250,7 +256,7 @@ class NanoPET(torch.nn.Module):
             species,
             cells,
             cell_shifts,
-        ) = concatenate_structures(systems)
+        ) = concatenate_structures(systems, self.requested_nl)
 
         # somehow the backward of this operation is very slow at evaluation,
         # where there is only one cell, therefore we simplify the calculation
@@ -420,13 +426,7 @@ class NanoPET(torch.nn.Module):
     def requested_neighbor_lists(
         self,
     ) -> List[NeighborListOptions]:
-        return [
-            NeighborListOptions(
-                cutoff=self.hypers["cutoff"],
-                full_list=True,
-                strict=True,
-            )
-        ]
+        return [self.requested_nl]
 
     @classmethod
     def load_checkpoint(cls, path: Union[str, Path]) -> "NanoPET":
