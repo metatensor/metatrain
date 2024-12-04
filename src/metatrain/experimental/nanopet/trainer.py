@@ -1,11 +1,12 @@
 import copy
 import logging
-import warnings
 from pathlib import Path
-from typing import List, Union
+from typing import Dict, List, Tuple, Union
 
 import torch
 import torch.distributed
+from metatensor.torch import TensorMap
+from metatensor.torch.atomistic import System
 from torch.utils.data import DataLoader, DistributedSampler
 
 from ...utils.additive import remove_additive
@@ -23,11 +24,8 @@ from ...utils.neighbor_lists import (
     get_system_with_neighbor_lists,
 )
 from ...utils.per_atom import average_by_num_atoms
-from ...utils.transfer import (
-    systems_and_targets_to_device,
-    systems_and_targets_to_dtype,
-)
-from .model import SoapBpnn
+from .model import NanoPET
+from .modules.augmentation import apply_random_augmentations
 
 
 logger = logging.getLogger(__name__)
@@ -45,25 +43,14 @@ class Trainer:
 
     def train(
         self,
-        model: SoapBpnn,
+        model: NanoPET,
         dtype: torch.dtype,
         devices: List[torch.device],
         train_datasets: List[Union[Dataset, torch.utils.data.Subset]],
         val_datasets: List[Union[Dataset, torch.utils.data.Subset]],
         checkpoint_dir: str,
     ):
-        # Filter out the second derivative and device warnings from rascaline
-        warnings.filterwarnings(action="ignore", message="Systems data is on device")
-        warnings.filterwarnings(
-            action="ignore",
-            message="second derivatives with respect to positions are not implemented",
-        )
-        warnings.filterwarnings(
-            action="ignore",
-            message="second derivatives with respect to cell matrix",
-        )
-
-        assert dtype in SoapBpnn.__supported_dtypes__
+        assert dtype in NanoPET.__supported_dtypes__
 
         is_distributed = self.hypers["distributed"]
 
@@ -240,6 +227,24 @@ class Trainer:
 
         start_epoch = 0 if self.epoch is None else self.epoch + 1
 
+        @torch.jit.script
+        def systems_and_targets_to_device(
+            systems: List[System], targets: Dict[str, TensorMap], device: torch.device
+        ) -> Tuple[List[System], Dict[str, TensorMap]]:
+            return (
+                [system.to(device=device) for system in systems],
+                {key: value.to(device=device) for key, value in targets.items()},
+            )
+
+        @torch.jit.script
+        def systems_and_targets_to_dtype(
+            systems: List[System], targets: Dict[str, TensorMap], dtype: torch.dtype
+        ) -> Tuple[List[System], Dict[str, TensorMap]]:
+            return (
+                [system.to(dtype=dtype) for system in systems],
+                {key: value.to(dtype=dtype) for key, value in targets.items()},
+            )
+
         # Train the model:
         if self.best_loss is None:
             self.best_loss = float("inf")
@@ -259,6 +264,7 @@ class Trainer:
                 optimizer.zero_grad()
 
                 systems, targets = batch
+                systems, targets = apply_random_augmentations(systems, targets)
                 systems, targets = systems_and_targets_to_device(
                     systems, targets, device
                 )
@@ -283,8 +289,8 @@ class Trainer:
                 targets = average_by_num_atoms(targets, systems, per_structure_targets)
 
                 train_loss_batch = loss_fn(predictions, targets)
-
                 train_loss_batch.backward()
+                torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
                 optimizer.step()
 
                 if is_distributed:
@@ -294,6 +300,8 @@ class Trainer:
                 train_rmse_calculator.update(predictions, targets)
                 if self.hypers["log_mae"]:
                     train_mae_calculator.update(predictions, targets)
+
+                # count += 1
 
             finalized_train_info = train_rmse_calculator.finalize(
                 not_per_atom=["positions_gradients"] + per_structure_targets,
@@ -312,16 +320,18 @@ class Trainer:
             val_loss = 0.0
             for batch in val_dataloader:
                 systems, targets = batch
-                systems, targets = systems_and_targets_to_device(
-                    systems, targets, device
-                )
+                systems = [system.to(device=device) for system in systems]
+                targets = {
+                    key: value.to(device=device) for key, value in targets.items()
+                }
                 for additive_model in (
                     model.module if is_distributed else model
                 ).additive_models:
                     targets = remove_additive(
                         systems, targets, additive_model, train_targets
                     )
-                systems, targets = systems_and_targets_to_dtype(systems, targets, dtype)
+                systems = [system.to(dtype=dtype) for system in systems]
+                targets = {key: value.to(dtype=dtype) for key, value in targets.items()}
                 predictions = evaluate_model(
                     model,
                     systems,
@@ -361,7 +371,10 @@ class Trainer:
 
             # Now we log the information:
             finalized_train_info = {"loss": train_loss, **finalized_train_info}
-            finalized_val_info = {"loss": val_loss, **finalized_val_info}
+            finalized_val_info = {
+                "loss": val_loss,
+                **finalized_val_info,
+            }
 
             if epoch == start_epoch:
                 metric_logger = MetricLogger(
@@ -426,7 +439,7 @@ class Trainer:
 
     def save_checkpoint(self, model, path: Union[str, Path]):
         checkpoint = {
-            "architecture_name": "experimental.soap_bpnn",
+            "architecture_name": "experimental.nanopet",
             "model_hypers": {
                 "model_hypers": model.hypers,
                 "dataset_info": model.dataset_info,
@@ -449,7 +462,7 @@ class Trainer:
     def load_checkpoint(cls, path: Union[str, Path], train_hypers) -> "Trainer":
 
         # Load the checkpoint
-        checkpoint = torch.load(path, weights_only=False, map_location="cpu")
+        checkpoint = torch.load(path, weights_only=False)
         epoch = checkpoint["epoch"]
         optimizer_state_dict = checkpoint["optimizer_state_dict"]
         scheduler_state_dict = checkpoint["scheduler_state_dict"]

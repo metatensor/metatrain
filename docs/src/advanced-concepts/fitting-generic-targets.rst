@@ -38,6 +38,11 @@ capabilities of the architectures in metatrain.
      - No
      - No
      - No
+   * - NanoPET
+     - Energy, forces, stress/virial
+     - Yes
+     - No
+     - Only with ``rank=1`` (vectors)
 
 
 Preparing generic targets for reading by metatrain
