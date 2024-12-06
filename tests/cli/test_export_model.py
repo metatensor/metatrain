@@ -64,7 +64,7 @@ def test_export_cli(monkeypatch, tmp_path, output, dtype):
     if output is not None:
         command += ["-o", output]
     else:
-        output = "exported-model.pt"
+        output = f"model-{dtype_string}-bit.pt"
 
     subprocess.check_call(command)
     assert Path(output).is_file()
@@ -138,7 +138,7 @@ def test_private_huggingface(monkeypatch, tmp_path):
         f"--huggingface_api_token={HF_TOKEN}",
     ]
 
-    output = "exported-model.pt"
+    output = "model.pt"
 
     subprocess.check_call(command)
     assert Path(output).is_file()
