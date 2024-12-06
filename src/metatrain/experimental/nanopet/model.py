@@ -14,6 +14,8 @@ from metatensor.torch.atomistic import (
     System,
 )
 
+from metatrain.utils.data.target_info import is_auxiliary_output
+
 from ...utils.additive import ZBL, CompositionModel
 from ...utils.data import DatasetInfo, TargetInfo
 from ...utils.dtype import dtype_to_str
@@ -31,6 +33,21 @@ from .modules.transformer import Transformer
 
 
 class NanoPET(torch.nn.Module):
+    """
+    Re-implementation of the PET architecture (https://arxiv.org/pdf/2305.19302).
+
+    The positions and atomic species are encoded into a high-dimensional space
+    using a simple encoder. The resulting features (in NEF, or Node-Edge-Feature
+    format*) are then processed by a series of transformer layers. This process is
+    repeated for a number of message-passing layers, where features are exchanged
+    between corresponding edges (ij and ji). The final representation is used to
+    predict atomic properties through decoders named "heads".
+
+    * NEF format: a three-dimensional tensor where the first dimension corresponds
+    to the nodes, the second to the edges corresponding to the neighbors of the
+    node (padded as different nodes might have different numbers of edges),
+    and the third to the features.
+    """
 
     __supported_devices__ = ["cuda", "cpu"]
     __supported_dtypes__ = [torch.float64, torch.float32]
@@ -51,6 +68,12 @@ class NanoPET(torch.nn.Module):
         self.dataset_info = dataset_info
         self.new_outputs = list(dataset_info.targets.keys())
         self.atomic_types = dataset_info.atomic_types
+
+        self.requested_nl = NeighborListOptions(
+            cutoff=self.hypers["cutoff"],
+            full_list=True,
+            strict=True,
+        )
 
         self.cutoff = self.hypers["cutoff"]
         self.cutoff_width = self.hypers["cutoff_width"]
@@ -194,7 +217,7 @@ class NanoPET(torch.nn.Module):
                 for output_name, label in self.property_labels.items()
             }
 
-        segment_indices = torch.concatenate(
+        system_indices = torch.concatenate(
             [
                 torch.full(
                     (len(system),),
@@ -207,7 +230,7 @@ class NanoPET(torch.nn.Module):
 
         sample_values = torch.stack(
             [
-                segment_indices,
+                system_indices,
                 torch.concatenate(
                     [
                         torch.arange(
@@ -232,7 +255,7 @@ class NanoPET(torch.nn.Module):
             species,
             cells,
             cell_shifts,
-        ) = concatenate_structures(systems)
+        ) = concatenate_structures(systems, self.requested_nl)
 
         # somehow the backward of this operation is very slow at evaluation,
         # where there is only one cell, therefore we simplify the calculation
@@ -243,7 +266,7 @@ class NanoPET(torch.nn.Module):
             cell_contributions = torch.einsum(
                 "ab, abc -> ac",
                 cell_shifts.to(cells.dtype),
-                cells[segment_indices[centers]],
+                cells[system_indices[centers]],
             )
 
         edge_vectors = positions[neighbors] - positions[centers] + cell_contributions
@@ -254,7 +277,7 @@ class NanoPET(torch.nn.Module):
         else:
             max_edges_per_node = int(torch.max(bincount))
 
-        # Convert to NEF:
+        # Convert to NEF (Node-Edge-Feature) format:
         nef_indices, nef_to_edges_neighbor, nef_mask = get_nef_indices(
             centers, len(positions), max_edges_per_node
         )
@@ -366,7 +389,7 @@ class NanoPET(torch.nn.Module):
                 and base_name not in atomic_features_dict
             ):
                 raise ValueError(
-                    f"Features {output_name} can only be requested, "
+                    f"Features {output_name} can only be requested "
                     f"if the corresponding output {base_name} is also requested."
                 )
             if f"mtt::{base_name}" in atomic_features_dict:
@@ -442,8 +465,8 @@ class NanoPET(torch.nn.Module):
                     systems, outputs_for_additive_model, selected_atoms
                 )
                 for name in additive_contributions:
-                    if name.startswith("mtt::aux::"):
-                        continue  # skip auxiliary outputs (not targets)
+                    if is_auxiliary_output(name):
+                        continue
                     return_dict[name] = metatensor.torch.add(
                         return_dict[name],
                         additive_contributions[name],
@@ -454,13 +477,7 @@ class NanoPET(torch.nn.Module):
     def requested_neighbor_lists(
         self,
     ) -> List[NeighborListOptions]:
-        return [
-            NeighborListOptions(
-                cutoff=self.hypers["cutoff"],
-                full_list=True,
-                strict=True,
-            )
-        ]
+        return [self.requested_nl]
 
     @classmethod
     def load_checkpoint(cls, path: Union[str, Path]) -> "NanoPET":

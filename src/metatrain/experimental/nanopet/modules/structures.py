@@ -1,10 +1,12 @@
 from typing import List
 
 import torch
-from metatensor.torch.atomistic import System
+from metatensor.torch.atomistic import NeighborListOptions, System
 
 
-def concatenate_structures(systems: List[System]):
+def concatenate_structures(
+    systems: List[System], neighbor_list_options: NeighborListOptions
+):
 
     positions = []
     centers = []
@@ -18,8 +20,8 @@ def concatenate_structures(systems: List[System]):
         positions.append(system.positions)
         species.append(system.types)
 
-        assert len(system.known_neighbor_lists()) == 1
-        neighbor_list = system.get_neighbor_list(system.known_neighbor_lists()[0])
+        assert len(system.known_neighbor_lists()) >= 1, "no neighbor list found"
+        neighbor_list = system.get_neighbor_list(neighbor_list_options)
         nl_values = neighbor_list.samples.values
 
         centers.append(nl_values[:, 0] + node_counter)

@@ -7,8 +7,8 @@ NanoPET
 
   This is an **experimental model**.  You should not use it for anything important.
 
-This is a more reader- and user-friendly implementation of PET, with slightly
-improved training and evaluation speed.
+This is a more user-friendly re-implementation of the original PET (which lives in
+https://github.com/spozdn/pet), with slightly improved training and evaluation speed.
 
 Installation
 ------------

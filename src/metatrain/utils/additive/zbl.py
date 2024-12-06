@@ -7,6 +7,8 @@ from ase.data import covalent_radii
 from metatensor.torch import Labels, TensorBlock, TensorMap
 from metatensor.torch.atomistic import ModelOutput, NeighborListOptions, System
 
+from metatrain.utils.data.target_info import is_auxiliary_output
+
 from ..data import DatasetInfo
 
 
@@ -168,7 +170,7 @@ class ZBL(torch.nn.Module):
         # Set the outputs as the ZBL energies
         targets_out: Dict[str, TensorMap] = {}
         for target_key, target in outputs.items():
-            if target_key.startswith("mtt::aux::") or target_key == "features":
+            if is_auxiliary_output(target_key):
                 continue
             sample_values: List[List[int]] = []
 

@@ -2,7 +2,11 @@ import torch
 
 
 class AttentionBlock(torch.nn.Module):
-    """A single transformer attention block."""
+    """
+    A single transformer attention block. We are not using the
+    MultiHeadAttention module from torch.nn because we need to apply a
+    radial mask to the attention weights.
+    """
 
     def __init__(
         self,

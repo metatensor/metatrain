@@ -13,16 +13,14 @@ from metatensor.torch.atomistic import (
     NeighborListOptions,
     System,
 )
-from pet.hypers import Hypers
 from pet.pet import PET as RawPET
-from pet.pet import SelfContributionsWrapper
 
 from metatrain.utils.data import DatasetInfo
+from metatrain.utils.data.target_info import is_auxiliary_output
 
 from ...utils.additive import ZBL
 from ...utils.dtype import dtype_to_str
-from .utils import systems_to_batch_dict, update_state_dict
-from .utils.fine_tuning import LoRAWrapper
+from .utils import load_raw_pet_model, systems_to_batch_dict
 
 
 logger = logging.getLogger(__name__)
@@ -41,12 +39,16 @@ class PET(torch.nn.Module):
         if not (
             target.is_scalar
             and target.quantity == "energy"
-            and "atom" not in target.layout.block(0).samples.names
             and len(target.layout.block(0).properties) == 1
         ):
             raise ValueError(
                 "PET only supports total-energy-like outputs, "
                 f"but a {target.quantity} was provided"
+            )
+        if target.per_atom:
+            raise ValueError(
+                "PET only supports per-structure outputs, "
+                "but a per-atom output was provided"
             )
 
         model_hypers["D_OUTPUT"] = 1
@@ -57,7 +59,17 @@ class PET(torch.nn.Module):
         self.atomic_types: List[int] = dataset_info.atomic_types
         self.dataset_info = dataset_info
         self.pet = None
+        self.is_lora_applied = False
         self.checkpoint_path: Optional[str] = None
+
+        # last-layer feature size (for LLPR module)
+        self.last_layer_feature_size = (
+            self.hypers["N_GNN_LAYERS"]
+            * self.hypers["HEAD_N_NEURONS"]
+            * (1 + self.hypers["USE_BOND_ENERGIES"])
+        )
+        # if they are enabled, the edge features are concatenated
+        # to the node features
 
         # additive models: these are handled by the trainer at training
         # time, and they are added to the output at evaluation time
@@ -67,10 +79,30 @@ class PET(torch.nn.Module):
         self.additive_models = torch.nn.ModuleList(additive_models)
 
     def restart(self, dataset_info: DatasetInfo) -> "PET":
-        if dataset_info != self.dataset_info:
+        merged_info = self.dataset_info.union(dataset_info)
+        new_atomic_types = [
+            at for at in merged_info.atomic_types if at not in self.atomic_types
+        ]
+        new_targets = {
+            key: value
+            for key, value in merged_info.targets.items()
+            if key not in self.dataset_info.targets
+        }
+
+        if len(new_atomic_types) > 0:
             raise ValueError(
-                "PET cannot be restarted with different dataset information"
+                f"New atomic types found in the dataset: {new_atomic_types}. "
+                "The PET model does not support adding new atomic types."
             )
+
+        if len(new_targets) > 0:
+            raise ValueError(
+                f"New targets found in the training options: {new_targets}. "
+                "The PET model does not support adding new training targets."
+            )
+
+        self.dataset_info = merged_info
+        self.atomic_types = sorted(self.atomic_types)
         return self
 
     def set_trained_model(self, trained_model: RawPET) -> None:
@@ -101,20 +133,71 @@ class PET(torch.nn.Module):
         output = self.pet(batch)  # type: ignore
         predictions = output["prediction"]
         output_quantities: Dict[str, TensorMap] = {}
+
+        structure_index = batch["batch"]
+        _, counts = torch.unique(batch["batch"], return_counts=True)
+        atom_index = torch.cat(
+            [torch.arange(count, device=predictions.device) for count in counts]
+        )
+        samples_values = torch.stack([structure_index, atom_index], dim=1)
+        samples = Labels(names=["system", "atom"], values=samples_values)
+        empty_labels = Labels(
+            names=["_"], values=torch.tensor([[0]], device=predictions.device)
+        )
+
+        # output the last-layer features for the outputs, if requested:
+        if (
+            f"mtt::aux::{self.target_name}_last_layer_features" in outputs
+            or "features" in outputs
+        ):
+            ll_output_name = f"mtt::aux::{self.target_name}_last_layer_features"
+            base_name = self.target_name
+            if ll_output_name in outputs and base_name not in outputs:
+                raise ValueError(
+                    f"Features {ll_output_name} can only be requested "
+                    f"if the corresponding output {base_name} is also requested."
+                )
+            ll_features = output["last_layer_features"]
+            block = TensorBlock(
+                values=ll_features,
+                samples=samples,
+                components=[],
+                properties=Labels(
+                    names=["properties"],
+                    values=torch.arange(
+                        ll_features.shape[1], device=predictions.device
+                    ).reshape(-1, 1),
+                ),
+            )
+            output_tmap = TensorMap(
+                keys=empty_labels,
+                blocks=[block],
+            )
+            if ll_output_name in outputs:
+                ll_features_options = outputs[ll_output_name]
+                if not ll_features_options.per_atom:
+                    processed_output_tmap = metatensor.torch.sum_over_samples(
+                        output_tmap, "atom"
+                    )
+                else:
+                    processed_output_tmap = output_tmap
+                output_quantities[ll_output_name] = processed_output_tmap
+            if "features" in outputs:
+                features_options = outputs["features"]
+                if not features_options.per_atom:
+                    processed_output_tmap = metatensor.torch.sum_over_samples(
+                        output_tmap, "atom"
+                    )
+                else:
+                    processed_output_tmap = output_tmap
+                output_quantities["features"] = processed_output_tmap
+
         for output_name in outputs:
+            if is_auxiliary_output(output_name):
+                continue  # skip auxiliary outputs (not targets)
             energy_labels = Labels(
                 names=["energy"], values=torch.tensor([[0]], device=predictions.device)
             )
-            empty_labels = Labels(
-                names=["_"], values=torch.tensor([[0]], device=predictions.device)
-            )
-            structure_index = batch["batch"]
-            _, counts = torch.unique(batch["batch"], return_counts=True)
-            atom_index = torch.cat(
-                [torch.arange(count, device=predictions.device) for count in counts]
-            )
-            samples_values = torch.stack([structure_index, atom_index], dim=1)
-            samples = Labels(names=["system", "atom"], values=samples_values)
             block = TensorBlock(
                 samples=samples,
                 components=[],
@@ -135,7 +218,7 @@ class PET(torch.nn.Module):
                     systems, outputs, selected_atoms
                 )
                 for output_name in output_quantities:
-                    if output_name.startswith("mtt::aux::"):
+                    if is_auxiliary_output(output_name):
                         continue  # skip auxiliary outputs (not targets)
                     output_quantities[output_name] = metatensor.torch.add(
                         output_quantities[output_name],
@@ -149,28 +232,24 @@ class PET(torch.nn.Module):
 
         checkpoint = torch.load(path, weights_only=False, map_location="cpu")
         hypers = checkpoint["hypers"]
+        model_hypers = hypers["ARCHITECTURAL_HYPERS"]
         dataset_info = checkpoint["dataset_info"]
-        model = cls(
-            model_hypers=hypers["ARCHITECTURAL_HYPERS"], dataset_info=dataset_info
+        model = cls(model_hypers=model_hypers, dataset_info=dataset_info)
+        state_dict = checkpoint["model_state_dict"]
+        dtype = next(iter(state_dict.values())).dtype
+        lora_state_dict = checkpoint["lora_state_dict"]
+        if lora_state_dict is not None:
+            model.is_lora_applied = True
+        else:
+            lora_state_dict = {}
+        wrapper = load_raw_pet_model(
+            state_dict,
+            model.hypers,
+            model.atomic_types,
+            checkpoint["self_contributions"],
+            use_lora_peft=model.is_lora_applied,
+            **lora_state_dict,
         )
-
-        checkpoint = torch.load(path, weights_only=False)
-        state_dict = checkpoint["checkpoint"]["model_state_dict"]
-
-        ARCHITECTURAL_HYPERS = Hypers(model.hypers)
-        raw_pet = RawPET(ARCHITECTURAL_HYPERS, 0.0, len(model.atomic_types))
-        if ARCHITECTURAL_HYPERS.USE_LORA_PEFT:
-            lora_rank = ARCHITECTURAL_HYPERS.LORA_RANK
-            lora_alpha = ARCHITECTURAL_HYPERS.LORA_ALPHA
-            raw_pet = LoRAWrapper(raw_pet, lora_rank, lora_alpha)
-
-        new_state_dict = update_state_dict(state_dict)
-
-        dtype = next(iter(new_state_dict.values())).dtype
-        raw_pet.to(dtype).load_state_dict(new_state_dict)
-
-        self_contributions = checkpoint["self_contributions"]
-        wrapper = SelfContributionsWrapper(raw_pet, self_contributions)
 
         model.to(dtype).set_trained_model(wrapper)
 
@@ -198,7 +277,10 @@ class PET(torch.nn.Module):
                     quantity=self.dataset_info.targets[self.target_name].quantity,
                     unit=self.dataset_info.targets[self.target_name].unit,
                     per_atom=False,
-                )
+                ),
+                f"mtt::aux::{self.target_name.replace('mtt::', '')}_last_layer_features": ModelOutput(  # noqa: E501
+                    unit="unitless", per_atom=True
+                ),
             },
             atomic_types=self.atomic_types,
             interaction_range=interaction_range,

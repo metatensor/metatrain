@@ -18,6 +18,7 @@ from metatensor.torch.learn.nn import ModuleMap
 
 from metatrain.utils.data import TargetInfo
 from metatrain.utils.data.dataset import DatasetInfo
+from metatrain.utils.data.target_info import is_auxiliary_output
 
 from ...utils.additive import ZBL, CompositionModel
 from ...utils.dtype import dtype_to_str
@@ -375,7 +376,7 @@ class SoapBpnn(torch.nn.Module):
                 and base_name not in features_by_output
             ):
                 raise ValueError(
-                    f"Features {output_name} can only be requested, "
+                    f"Features {output_name} can only be requested "
                     f"if the corresponding output {base_name} is also requested."
                 )
             if f"mtt::{base_name}" in features_by_output:
@@ -422,7 +423,7 @@ class SoapBpnn(torch.nn.Module):
                     systems, outputs_for_additive_model, selected_atoms
                 )
                 for name in additive_contributions:
-                    if name.startswith("mtt::aux::"):
+                    if is_auxiliary_output(name):
                         continue  # skip auxiliary outputs (not targets)
                     return_dict[name] = metatensor.torch.add(
                         return_dict[name],
