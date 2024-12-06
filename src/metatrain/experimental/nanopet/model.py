@@ -539,14 +539,10 @@ class NanoPET(torch.nn.Module):
             unit=target_info.unit,
             per_atom=True,
         )
-        if target_name not in self.head_types:  # default to MLP
-            self.heads[target_name] = torch.nn.Sequential(
-                torch.nn.Linear(self.hypers["d_pet"], 4 * self.hypers["d_pet"]),
-                torch.nn.SiLU(),
-                torch.nn.Linear(4 * self.hypers["d_pet"], self.hypers["d_pet"]),
-                torch.nn.SiLU(),
-            )
-        elif self.head_types[target_name] == "mlp":
+        if (
+            target_name not in self.head_types  # default to MLP
+            or self.head_types[target_name] == "mlp"
+        ):
             self.heads[target_name] = torch.nn.Sequential(
                 torch.nn.Linear(self.hypers["d_pet"], 4 * self.hypers["d_pet"]),
                 torch.nn.SiLU(),
