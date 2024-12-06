@@ -86,6 +86,7 @@ The model-related hyperparameters are
 :param num_heads: Number of attention heads
 :param num_attention_layers: Number of attention layers in each GNN layer
 :param num_gnn_layers: Number of GNN layers
+:param heads: The type of head (linear or mlp) to use for each target
 :param zbl: Whether to use the ZBL short-range repulsion as the baseline for the model
 
 training

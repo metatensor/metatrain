@@ -147,12 +147,12 @@ evaluation_options = ModelEvaluationOptions(
     length_unit="angstrom",
     outputs={
         # request the uncertainty in the atomic energy predictions
+        "energy": ModelOutput(per_atom=True),  # needed to request the uncertainties
         "mtt::aux::energy_uncertainty": ModelOutput(per_atom=True),
         # `per_atom=False` would return the total uncertainty for the system,
         # or (the inverse of) the TPR (total prediction rigidity)
         # you also can request other outputs from the model here, for example:
-        # "energy": ModelOutput(per_atom=True),
-        # "mtt::aux::last_layer_features": ModelOutput(per_atom=True),
+        # "mtt::aux::energy_last_layer_features": ModelOutput(per_atom=True),
     },
     selected_atoms=None,
 )
