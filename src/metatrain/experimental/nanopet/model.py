@@ -15,6 +15,8 @@ from metatensor.torch.atomistic import (
     System,
 )
 
+from metatrain.utils.data.target_info import is_auxiliary_output
+
 from ...utils.additive import ZBL, CompositionModel
 from ...utils.data import DatasetInfo, TargetInfo
 from ...utils.dtype import dtype_to_str
@@ -469,8 +471,8 @@ class NanoPET(torch.nn.Module):
                     systems, outputs_for_additive_model, selected_atoms
                 )
                 for name in additive_contributions:
-                    if name.startswith("mtt::aux::"):
-                        continue  # skip auxiliary outputs (not targets)
+                    if is_auxiliary_output(name):
+                        continue
                     return_dict[name] = metatensor.torch.add(
                         return_dict[name],
                         additive_contributions[name],

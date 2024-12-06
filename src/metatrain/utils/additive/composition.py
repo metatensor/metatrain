@@ -246,8 +246,9 @@ class CompositionModel(torch.nn.Module):
         # number of atoms per atomic type.
         targets_out: Dict[str, TensorMap] = {}
         for target_key, target in outputs.items():
-            if target_key.startswith("mtt::aux::"):
-                continue
+            if is_auxiliary_output(output_name):
+                # TODO: special case for ensembles
+                continue  # skip auxiliary outputs
             if target_key not in self.outputs.keys():
                 # non-scalar
                 continue
