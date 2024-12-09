@@ -52,13 +52,12 @@ possibility. The changes above can be achieved by typing:
 .. code-block:: bash
 
    mtt train options.yaml \
-      -r architecture.model.soap.cutoff=7.0,architecture.training.num_epochs=200
+      -r architecture.model.soap.cutoff=7.0 -r architecture.training.num_epochs=200
 
 Here, the ``-r`` or equivalent ``--override`` flag is used to parse the override flags.
 The syntax follows a dotlist-style string format where each level of the options is
-seperated by a ``.`` and each separate option to override is separated by a comma.
-As a further example, to use single precision for your training you can add
-``-r base_precision=32``.
+seperated by a ``.``. As a further example, to use single precision for your training
+you can add ``-r base_precision=32``.
 
 .. note::
    Command line overrides allow adding new values to your training parameters and

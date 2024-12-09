@@ -83,8 +83,9 @@ def _add_train_model_parser(subparser: argparse._SubParsersAction) -> None:
         "-r",
         "--override",
         dest="override_options",
-        type=lambda string: OmegaConf.from_dotlist(string.split(",")),
-        help="Command line override flags.",
+        action="append",
+        help="Command-line override flags.",
+        default=[],
     )
 
 
@@ -93,8 +94,7 @@ def _prepare_train_model_args(args: argparse.Namespace) -> None:
     args.options = OmegaConf.load(args.options)
     # merge/override file options with command line options
     override_options = args.__dict__.pop("override_options")
-    if override_options is None:
-        override_options = {}
+    override_options = OmegaConf.from_dotlist(override_options)
 
     args.options = OmegaConf.merge(args.options, override_options)
 
