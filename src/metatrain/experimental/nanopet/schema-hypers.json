@@ -27,6 +27,16 @@
         "num_gnn_layers": {
           "type": "integer"
         },
+        "heads": {
+          "type": "object",
+          "patternProperties": {
+            ".*": {
+              "type": "string",
+              "enum": ["linear", "mlp"]
+            }
+          },
+          "additionalProperties": false
+        },
         "zbl": {
           "type": "boolean"
         }

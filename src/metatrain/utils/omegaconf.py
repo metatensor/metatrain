@@ -134,10 +134,12 @@ def check_dataset_options(dataset_config: ListConfig) -> None:
     - For unknown quantities a warning is given.
     - If the names of the ``"targets"`` sections are the same between the elements of
        the list of datasets also the units must be the same.
+    - Two targets with the names `{target}` and `mtt::{target}` are not allowed.
 
     :param dataset_config: A List of configuration to be checked. In the list contains
         only one element no checks are performed.
-    :raises ValueError: If for a known quantity the units are not known.
+    :raises ValueError: If the units are not consistent between the dataset options or
+        if two different targets have the `{target}` and `mtt::{target}` names.
     """
     desired_config = dataset_config[0]
 
@@ -179,6 +181,16 @@ def check_dataset_options(dataset_config: ListConfig) -> None:
                     raise ValueError(
                         f"Units of target section {target_key!r} are inconsistent. "
                         f"Found {unit!r} and {unit_dict[target_key]!r}!"
+                    )
+
+        # `target` and `mtt::target` are not allowed to be present at the same time
+        if hasattr(actual_config, "targets"):
+            for target_key in actual_config["targets"].keys():
+                if f"mtt::{target_key}" in actual_config["targets"].keys():
+                    raise ValueError(
+                        f"Two targets with the names `{target_key}` and "
+                        f"`mtt::{target_key}` are not allowed to be present "
+                        "at the same time."
                     )
 
 
