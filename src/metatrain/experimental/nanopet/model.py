@@ -73,8 +73,8 @@ class NanoPET(torch.nn.Module):
             strict=True,
         )
 
-        self.cutoff = self.hypers["cutoff"]
-        self.cutoff_width = self.hypers["cutoff_width"]
+        self.cutoff = float(self.hypers["cutoff"])
+        self.cutoff_width = float(self.hypers["cutoff_width"])
 
         self.encoder = Encoder(len(self.atomic_types), self.hypers["d_pet"])
 
