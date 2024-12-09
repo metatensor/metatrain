@@ -106,8 +106,8 @@ def test_train(capfd, monkeypatch, tmp_path, output):
 @pytest.mark.parametrize(
     "overrides",
     [
-        "architecture.training.num_epochs=2",
-        "architecture.training.num_epochs=2 architecture.training.batch_size=3",
+        ["architecture.training.num_epochs=2"],
+        ["architecture.training.num_epochs=2", "architecture.training.batch_size=3"],
     ],
 )
 def test_command_line_override(monkeypatch, tmp_path, overrides):
@@ -116,7 +116,9 @@ def test_command_line_override(monkeypatch, tmp_path, overrides):
     shutil.copy(DATASET_PATH_QM9, "qm9_reduced_100.xyz")
     shutil.copy(OPTIONS_PATH, "options.yaml")
 
-    command = ["mtt", "train", "options.yaml", "-r", overrides]
+    command = ["mtt", "train", "options.yaml"]
+    for override in overrides:
+        command += ["-r", override]
 
     subprocess.check_call(command)
 
@@ -126,7 +128,7 @@ def test_command_line_override(monkeypatch, tmp_path, overrides):
     restart_options = OmegaConf.load(restart_glob[0])
     assert restart_options["architecture"]["training"]["num_epochs"] == 2
 
-    if len(overrides.split()) == 2:
+    if len(overrides) == 2:
         assert restart_options["architecture"]["training"]["batch_size"] == 3
 
 
