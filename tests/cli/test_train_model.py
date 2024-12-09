@@ -107,7 +107,7 @@ def test_train(capfd, monkeypatch, tmp_path, output):
     "overrides",
     [
         "architecture.training.num_epochs=2",
-        "architecture.training.num_epochs=2 architecture.training.batch_size=3",
+        "architecture.training.num_epochs=2,architecture.training.batch_size=3",
     ],
 )
 def test_command_line_override(monkeypatch, tmp_path, overrides):

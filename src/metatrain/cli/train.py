@@ -83,7 +83,7 @@ def _add_train_model_parser(subparser: argparse._SubParsersAction) -> None:
         "-r",
         "--override",
         dest="override_options",
-        type=lambda string: OmegaConf.from_dotlist(string.split()),
+        type=lambda string: OmegaConf.from_dotlist(string.split(",")),
         help="Command line override flags.",
     )
 
