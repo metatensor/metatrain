@@ -88,7 +88,7 @@ class DatasetInfo:
                     f"Can't update DatasetInfo with different target information for "
                     f"target '{key}': {self.targets[key]} is not compatible with "
                     f"{other.targets[key]}. If the units, quantity and keys of the two "
-                    "targets are :the same, this must be due to a mismatch in the "
+                    "targets are the same, this must be due to a mismatch in the "
                     "internal metadata of the layout."
                 )
         self.targets.update(other.targets)
