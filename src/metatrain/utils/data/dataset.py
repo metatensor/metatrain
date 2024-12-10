@@ -83,10 +83,13 @@ class DatasetInfo:
 
         intersecting_target_keys = self.targets.keys() & other.targets.keys()
         for key in intersecting_target_keys:
-            if self.targets[key] != other.targets[key]:
+            if not self.targets[key].is_compatible_with(other.targets[key]):
                 raise ValueError(
                     f"Can't update DatasetInfo with different target information for "
-                    f"target '{key}': {self.targets[key]} != {other.targets[key]}"
+                    f"target '{key}': {self.targets[key]} is not compatible with "
+                    f"{other.targets[key]}. If the units, quantity and keys of the two "
+                    "targets are :the same, this must be due to a mismatch in the "
+                    "internal metadata of the layout."
                 )
         self.targets.update(other.targets)
 
