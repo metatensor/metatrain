@@ -366,31 +366,25 @@ def test_composition_model_wrong_target():
     """
     Test the error when a non-scalar is fed to the composition model.
     """
-    composition_model = CompositionModel(
-        model_hypers={},
-        dataset_info=DatasetInfo(
-            length_unit="angstrom",
-            atomic_types=[1],
-            targets={
-                "force": get_generic_target_info(
-                    {
-                        "quantity": "force",
-                        "unit": "",
-                        "type": {"cartesian": {"rank": 1}},
-                        "num_subtargets": 1,
-                        "per_atom": True,
-                    }
-                )
-            },
-        ),
-    )
-    # This should do nothing, because the target is not scalar and it should be
-    # ignored by the composition model. The warning is due to the "empty" dataset
-    # not containing H (atomic type 1)
-    with pytest.warns(UserWarning, match="do not contain atomic types"):
-        composition_model.train_model([])
-
-    assert composition_model.weights.shape == (0, 1)
+    with pytest.raises(ValueError, match="does not support target quantity force"):
+        CompositionModel(
+            model_hypers={},
+            dataset_info=DatasetInfo(
+                length_unit="angstrom",
+                atomic_types=[1],
+                targets={
+                    "force": get_generic_target_info(
+                        {
+                            "quantity": "force",
+                            "unit": "",
+                            "type": {"cartesian": {"rank": 1}},
+                            "num_subtargets": 1,
+                            "per_atom": True,
+                        }
+                    )
+                },
+            ),
+        )
 
 
 def test_zbl():

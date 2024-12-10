@@ -6,9 +6,7 @@ import torch
 from metatensor.torch import Labels, TensorBlock, TensorMap
 from metatensor.torch.atomistic import ModelOutput, System
 
-from metatrain.utils.data.target_info import is_auxiliary_output
-
-from ..data import Dataset, DatasetInfo, get_all_targets, get_atomic_types
+from ..data import Dataset, DatasetInfo, TargetInfo, get_all_targets, get_atomic_types
 from ..jsonschema import validate
 
 
@@ -39,6 +37,14 @@ class CompositionModel(torch.nn.Module):
         self.dataset_info = dataset_info
         self.atomic_types = sorted(dataset_info.atomic_types)
 
+        for target_info in dataset_info.targets.values():
+            if not is_valid_composition_model_target(target_info):
+                raise ValueError(
+                    f"Composition model does not support target quantity "
+                    f"{target_info.quantity}. This is an architecture bug. "
+                    "Please report this issue and help us improve!"
+                )
+
         self.outputs = {
             key: ModelOutput(
                 quantity=target_info.quantity,
@@ -46,9 +52,6 @@ class CompositionModel(torch.nn.Module):
                 per_atom=True,
             )
             for key, target_info in dataset_info.targets.items()
-            if target_info.is_scalar and len(target_info.layout.block().properties) == 1
-            # important: only scalars can have composition contributions
-            # for now, we also require that only one property is present
         }
 
         n_types = len(self.atomic_types)
@@ -200,6 +203,14 @@ class CompositionModel(torch.nn.Module):
 
         :param dataset_info: New dataset information to be used.
         """
+        for target_info in dataset_info.targets.values():
+            if not is_valid_composition_model_target(target_info):
+                raise ValueError(
+                    f"Composition model does not support target quantity "
+                    f"{target_info.quantity}. This is an architecture bug. "
+                    "Please report this issue and help us improve!"
+                )
+
         return self({}, self.dataset_info.union(dataset_info))
 
     def forward(
@@ -229,9 +240,6 @@ class CompositionModel(torch.nn.Module):
             self.properties_label = self.properties_label.to(device)
 
         for output_name in outputs:
-            # TODO: special case for ensembles
-            if is_auxiliary_output(output_name):
-                continue  # skip auxiliary outputs
             if output_name not in self.output_to_output_index:
                 raise ValueError(
                     f"output key {output_name} is not supported by this composition "
@@ -246,12 +254,6 @@ class CompositionModel(torch.nn.Module):
         # number of atoms per atomic type.
         targets_out: Dict[str, TensorMap] = {}
         for target_key, target in outputs.items():
-            if is_auxiliary_output(target_key):
-                # TODO: special case for ensembles
-                continue  # skip auxiliary outputs
-            if target_key not in self.outputs.keys():
-                # non-scalar
-                continue
             weights = self.weights[self.output_to_output_index[target_key]]
 
             concatenated_types = torch.concatenate([system.types for system in systems])
@@ -296,3 +298,17 @@ class CompositionModel(torch.nn.Module):
                 )
 
         return targets_out
+
+
+def is_valid_composition_model_target(target_info: TargetInfo) -> bool:
+    """Finds if a ``TargetInfo`` object is compatible with a composition model.
+
+    :param target_info: The ``TargetInfo`` object to be checked.
+    """
+    # only scalars can have composition contributions
+    if not target_info.is_scalar:
+        return False
+    # for now, we also require that only one property is present
+    if len(target_info.layout.block().properties) != 1:
+        return False
+    return True
