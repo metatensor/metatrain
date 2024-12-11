@@ -110,17 +110,17 @@ train_systems = [
     get_system_with_neighbor_lists(system, requested_neighbor_lists)
     for system in train_systems
 ]
-train_dataset = Dataset({"system": train_systems, **train_targets})
+train_dataset = Dataset.from_dict({"system": train_systems, **train_targets})
 valid_systems = [
     get_system_with_neighbor_lists(system, requested_neighbor_lists)
     for system in valid_systems
 ]
-valid_dataset = Dataset({"system": valid_systems, **valid_targets})
+valid_dataset = Dataset.from_dict({"system": valid_systems, **valid_targets})
 test_systems = [
     get_system_with_neighbor_lists(system, requested_neighbor_lists)
     for system in test_systems
 ]
-test_dataset = Dataset({"system": test_systems, **test_targets})
+test_dataset = Dataset.from_dict({"system": test_systems, **test_targets})
 
 train_dataloader = torch.utils.data.DataLoader(
     train_dataset,
@@ -158,7 +158,7 @@ for name, param in llpr_model.named_parameters():
         print(name)
 
 llpr_model.compute_covariance_as_pseudo_hessian(
-    train_dataloader, target_info, loss_fn, parameters
+    train_dataloader, target_info, loss_fn, {"energy": parameters}
 )
 llpr_model.compute_inverse_covariance()
 llpr_model.calibrate(valid_dataloader)
@@ -172,7 +172,7 @@ exported_model = MetatensorAtomisticModel(
 evaluation_options = ModelEvaluationOptions(
     length_unit="angstrom",
     outputs={
-        "mtt::aux::last_layer_features": ModelOutput(per_atom=False),
+        "mtt::aux::energy_last_layer_features": ModelOutput(per_atom=False),
         "mtt::aux::energy_uncertainty": ModelOutput(per_atom=False),
         "energy": ModelOutput(per_atom=False),
     },
@@ -183,11 +183,12 @@ force_errors = []
 force_uncertainties = []
 
 for batch in test_dataloader:
+    dtype = getattr(torch, model.capabilities().dtype)
     systems, targets = batch
-    systems = [system.to("cuda", torch.float64) for system in systems]
+    systems = [system.to("cuda", dtype) for system in systems]
     for system in systems:
         system.positions.requires_grad = True
-    targets = {name: tmap.to("cuda", torch.float64) for name, tmap in targets.items()}
+    targets = {name: tmap.to("cuda", dtype) for name, tmap in targets.items()}
 
     outputs = exported_model(systems, evaluation_options, check_consistency=True)
     energy = outputs["energy"].block().values
@@ -202,7 +203,7 @@ for batch in test_dataloader:
     force_error = (predicted_forces - true_forces) ** 2
     force_errors.append(force_error.detach().clone().cpu().numpy())
 
-    last_layer_features = outputs["mtt::aux::last_layer_features"].block().values
+    last_layer_features = outputs["mtt::aux::energy_last_layer_features"].block().values
     last_layer_features = torch.sum(last_layer_features, dim=0)
     ll_feature_grads = []
     for ll_feature in last_layer_features.reshape((-1,)):
@@ -220,7 +221,7 @@ for batch in test_dataloader:
     force_uncertainty = torch.einsum(
         "if, fg, ig -> i",
         ll_feature_grads,
-        exported_model._module.inv_covariance,
+        exported_model.module.inv_covariances["mtt::aux::energy_uncertainty"],
         ll_feature_grads,
     )
     force_uncertainties.append(force_uncertainty.detach().clone().cpu().numpy())

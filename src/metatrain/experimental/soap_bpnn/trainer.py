@@ -227,6 +227,7 @@ class Trainer:
             optimizer,
             factor=self.hypers["scheduler_factor"],
             patience=self.hypers["scheduler_patience"],
+            threshold=0.001,
         )
         if self.scheduler_state_dict is not None:
             lr_scheduler.load_state_dict(self.scheduler_state_dict)

@@ -421,3 +421,10 @@ def _get_spherical_target_info(target: DictConfig) -> TargetInfo:
         layout=layout,
     )
     return target_info
+
+
+def is_auxiliary_output(name: str) -> bool:
+    is_auxiliary = (
+        name == "features" or name == "energy_ensemble" or name.startswith("mtt::aux::")
+    )
+    return is_auxiliary

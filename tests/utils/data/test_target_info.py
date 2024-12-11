@@ -4,6 +4,7 @@ from omegaconf import DictConfig
 from metatrain.utils.data.target_info import (
     get_energy_target_info,
     get_generic_target_info,
+    is_auxiliary_output,
 )
 
 
@@ -117,6 +118,17 @@ def test_layout_spherical(spherical_target_config):
     assert target_info.unit == ""
     assert target_info.per_atom is False
     assert target_info.gradients == []
+
+
+def test_is_auxiliary_output():
+    assert is_auxiliary_output("mtt::aux::energy_uncertainty")
+    assert is_auxiliary_output("mtt::aux::energy_last_layer_features")
+    assert not is_auxiliary_output("energy")
+    assert not is_auxiliary_output("foo")
+    assert is_auxiliary_output("mtt::aux::foo")
+    assert is_auxiliary_output("features")
+    assert is_auxiliary_output("energy_ensemble")
+    assert is_auxiliary_output("mtt::aux::energy_ensemble")
 
 
 def test_is_compatible_with(energy_target_config, spherical_target_config):

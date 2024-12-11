@@ -79,6 +79,10 @@ All Hyperparameters
 
 model
 #####
+
+:param heads: The type of head (linear or mlp) to use for each target
+:param zbl: Whether to use the ZBL short-range repulsion as the baseline for the model
+
 soap
 ^^^^
 :param cutoff: Spherical cutoff (Å) to use for atomic environments
