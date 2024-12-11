@@ -19,7 +19,7 @@ from metatensor.torch.learn.nn import ModuleMap
 from metatrain.utils.data import TargetInfo
 from metatrain.utils.data.dataset import DatasetInfo
 
-from ...utils.additive import ZBL, CompositionModel, is_valid_composition_model_target
+from ...utils.additive import ZBL, CompositionModel
 from ...utils.dtype import dtype_to_str
 
 
@@ -288,7 +288,7 @@ class SoapBpnn(torch.nn.Module):
                 targets={
                     target_name: target_info
                     for target_name, target_info in dataset_info.targets.items()
-                    if is_valid_composition_model_target(target_info)
+                    if CompositionModel.is_valid_target(target_info)
                 },
             ),
         )

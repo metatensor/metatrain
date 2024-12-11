@@ -15,7 +15,7 @@ from metatensor.torch.atomistic import (
     System,
 )
 
-from ...utils.additive import ZBL, CompositionModel, is_valid_composition_model_target
+from ...utils.additive import ZBL, CompositionModel
 from ...utils.data import DatasetInfo, TargetInfo
 from ...utils.dtype import dtype_to_str
 from .modules.encoder import Encoder
@@ -149,7 +149,7 @@ class NanoPET(torch.nn.Module):
                 targets={
                     target_name: target_info
                     for target_name, target_info in dataset_info.targets.items()
-                    if is_valid_composition_model_target(target_info)
+                    if CompositionModel.is_valid_target(target_info)
                 },
             ),
         )

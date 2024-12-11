@@ -38,7 +38,7 @@ class CompositionModel(torch.nn.Module):
         self.atomic_types = sorted(dataset_info.atomic_types)
 
         for target_info in dataset_info.targets.values():
-            if not is_valid_composition_model_target(target_info):
+            if not self.is_valid_target(target_info):
                 raise ValueError(
                     f"Composition model does not support target quantity "
                     f"{target_info.quantity}. This is an architecture bug. "
@@ -204,7 +204,7 @@ class CompositionModel(torch.nn.Module):
         :param dataset_info: New dataset information to be used.
         """
         for target_info in dataset_info.targets.values():
-            if not is_valid_composition_model_target(target_info):
+            if not self.is_valid_target(target_info):
                 raise ValueError(
                     f"Composition model does not support target quantity "
                     f"{target_info.quantity}. This is an architecture bug. "
@@ -299,16 +299,16 @@ class CompositionModel(torch.nn.Module):
 
         return targets_out
 
+    @staticmethod
+    def is_valid_target(target_info: TargetInfo) -> bool:
+        """Finds if a ``TargetInfo`` object is compatible with a composition model.
 
-def is_valid_composition_model_target(target_info: TargetInfo) -> bool:
-    """Finds if a ``TargetInfo`` object is compatible with a composition model.
-
-    :param target_info: The ``TargetInfo`` object to be checked.
-    """
-    # only scalars can have composition contributions
-    if not target_info.is_scalar:
-        return False
-    # for now, we also require that only one property is present
-    if len(target_info.layout.block().properties) != 1:
-        return False
-    return True
+        :param target_info: The ``TargetInfo`` object to be checked.
+        """
+        # only scalars can have composition contributions
+        if not target_info.is_scalar:
+            return False
+        # for now, we also require that only one property is present
+        if len(target_info.layout.block().properties) != 1:
+            return False
+        return True
