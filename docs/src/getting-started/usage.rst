@@ -52,7 +52,7 @@ the restart ``options_restart.yaml`` file. To start the training create an
 
 .. literalinclude:: ../../../examples/basic_usage/usage.sh
     :language: bash
-    :lines: 3-8
+    :lines: 3-10
 
 After the training has finished, the ``mtt train`` command generates the ``model.ckpt``
 (final checkpoint) and ``model.pt`` (exported model) files in the current directory, as
@@ -69,8 +69,8 @@ The sub-command to evaluate an already trained model is
     mtt eval
 
 Besides the trained ``model``, you will also have to provide a file containing the
-system and possible target values for evaluation. The system of this ``eval.yaml``
-is exactly the same as for a dataset in the ``options.yaml`` file.
+system and possible target values for evaluation. The system section of this
+``eval.yaml`` is exactly the same as for a dataset in the ``options.yaml`` file.
 
 .. literalinclude:: ../../static/qm9/eval.yaml
    :language: yaml
@@ -82,8 +82,10 @@ typing
 
 .. literalinclude:: ../../../examples/basic_usage/usage.sh
     :language: bash
-    :lines: 9-24
+    :lines: 12-27
 
+An important parameter of ``mtt eval`` is the ``-b`` (or ``--batch-size``) option,
+which allows you to specify the batch size for the evaluation.
 
 Molecular simulations
 #####################

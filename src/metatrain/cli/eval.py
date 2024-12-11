@@ -85,6 +85,15 @@ def _add_eval_model_parser(subparser: argparse._SubParsersAction) -> None:
         help="filename of the predictions (default: %(default)s)",
     )
     parser.add_argument(
+        "-b",
+        "--batch-size",
+        dest="batch_size",
+        required=False,
+        type=int,
+        default=1,
+        help="batch size for evaluation (default: %(default)s)",
+    )
+    parser.add_argument(
         "--check-consistency",
         dest="check_consistency",
         action="store_true",
@@ -162,6 +171,7 @@ def _eval_targets(
     dataset: Union[Dataset, torch.utils.data.Subset],
     options: Dict[str, TargetInfo],
     return_predictions: bool,
+    batch_size: int = 1,
     check_consistency: bool = False,
 ) -> Optional[Dict[str, TensorMap]]:
     """Evaluates an exported model on a dataset and prints the RMSEs for each target.
@@ -192,10 +202,21 @@ def _eval_targets(
     logger.info(f"Running on device {device} with dtype {dtype}")
     model.to(dtype=dtype, device=device)
 
+    if len(dataset) % batch_size != 0:
+        # debug level: we don't want to clutter the output at the end of training
+        # gross issues will still show up in the standard deviation of the timings
+        logger.debug(
+            f"The dataset size ({len(dataset)}) is not a multiple of the batch size "
+            f"({batch_size}). {len(dataset) // batch_size} batches will be "
+            f"constructed with a batch size of {batch_size}, and the last batch will "
+            f"have a size of {len(dataset) % batch_size}. This might lead to "
+            "inaccurate average timings."
+        )
+
     # Create a dataloader
     dataloader = torch.utils.data.DataLoader(
         dataset,
-        batch_size=1,  # TODO: allow to set from outside!!
+        batch_size=batch_size,
         collate_fn=collate_fn,
         shuffle=False,
     )
@@ -298,6 +319,7 @@ def eval_model(
     model: Union[MetatensorAtomisticModel, torch.jit._script.RecursiveScriptModule],
     options: DictConfig,
     output: Union[Path, str] = "output.xyz",
+    batch_size: int = 1,
     check_consistency: bool = False,
 ) -> None:
     """Evaluate an exported model on a given data set.
@@ -362,6 +384,7 @@ def eval_model(
                 dataset=eval_dataset,
                 options=eval_info_dict,
                 return_predictions=True,
+                batch_size=batch_size,
                 check_consistency=check_consistency,
             )
         except Exception as e:
