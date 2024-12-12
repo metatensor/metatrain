@@ -18,7 +18,6 @@ from metatensor.torch.learn.nn import ModuleMap
 
 from metatrain.utils.data import TargetInfo
 from metatrain.utils.data.dataset import DatasetInfo
-from metatrain.utils.data.target_info import is_auxiliary_output
 
 from ...utils.additive import ZBL, CompositionModel
 from ...utils.dtype import dtype_to_str
@@ -283,7 +282,15 @@ class SoapBpnn(torch.nn.Module):
         # time, and they are added to the output at evaluation time
         composition_model = CompositionModel(
             model_hypers={},
-            dataset_info=dataset_info,
+            dataset_info=DatasetInfo(
+                length_unit=dataset_info.length_unit,
+                atomic_types=self.atomic_types,
+                targets={
+                    target_name: target_info
+                    for target_name, target_info in dataset_info.targets.items()
+                    if CompositionModel.is_valid_target(target_info)
+                },
+            ),
         )
         additive_models = [composition_model]
         if self.hypers["zbl"]:
@@ -404,18 +411,16 @@ class SoapBpnn(torch.nn.Module):
         if not self.training:
             # at evaluation, we also add the additive contributions
             for additive_model in self.additive_models:
-                # some of the outputs might not be present in the additive model
-                # (e.g. the composition model only provides outputs for scalar targets)
                 outputs_for_additive_model: Dict[str, ModelOutput] = {}
-                for output_name in outputs:
-                    if output_name in additive_model.outputs:
-                        outputs_for_additive_model[output_name] = outputs[output_name]
+                for name, output in outputs.items():
+                    if name in additive_model.outputs:
+                        outputs_for_additive_model[name] = output
                 additive_contributions = additive_model(
-                    systems, outputs_for_additive_model, selected_atoms
+                    systems,
+                    outputs_for_additive_model,
+                    selected_atoms,
                 )
                 for name in additive_contributions:
-                    if is_auxiliary_output(name):
-                        continue  # skip auxiliary outputs (not targets)
                     return_dict[name] = metatensor.torch.add(
                         return_dict[name],
                         additive_contributions[name],

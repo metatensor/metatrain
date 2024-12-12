@@ -129,3 +129,17 @@ def test_is_auxiliary_output():
     assert is_auxiliary_output("features")
     assert is_auxiliary_output("energy_ensemble")
     assert is_auxiliary_output("mtt::aux::energy_ensemble")
+
+
+def test_is_compatible_with(energy_target_config, spherical_target_config):
+    energy_target_info = get_energy_target_info(energy_target_config)
+    spherical_target_config = get_generic_target_info(spherical_target_config)
+    energy_target_info_with_forces = get_energy_target_info(
+        energy_target_config, add_position_gradients=True
+    )
+    assert energy_target_info.is_compatible_with(energy_target_info)
+    assert energy_target_info_with_forces.is_compatible_with(energy_target_info)
+    assert not energy_target_info.is_compatible_with(spherical_target_config)
+    assert not (
+        energy_target_info_with_forces.is_compatible_with(spherical_target_config)
+    )

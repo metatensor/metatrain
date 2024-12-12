@@ -214,12 +214,16 @@ class PET(torch.nn.Module):
         if not self.training:
             # at evaluation, we also add the additive contributions
             for additive_model in self.additive_models:
+                outputs_for_additive_model: Dict[str, ModelOutput] = {}
+                for name, output in outputs.items():
+                    if name in additive_model.outputs:
+                        outputs_for_additive_model[name] = output
                 additive_contributions = additive_model(
-                    systems, outputs, selected_atoms
+                    systems,
+                    outputs_for_additive_model,
+                    selected_atoms,
                 )
-                for output_name in output_quantities:
-                    if is_auxiliary_output(output_name):
-                        continue  # skip auxiliary outputs (not targets)
+                for output_name in additive_contributions:
                     output_quantities[output_name] = metatensor.torch.add(
                         output_quantities[output_name],
                         additive_contributions[output_name],
