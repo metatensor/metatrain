@@ -14,8 +14,6 @@ from metatensor.torch.atomistic import (
     System,
 )
 
-from metatrain.utils.data.target_info import is_auxiliary_output
-
 from ...utils.additive import ZBL, CompositionModel
 from ...utils.data import DatasetInfo, TargetInfo
 from ...utils.dtype import dtype_to_str
@@ -463,18 +461,16 @@ class NanoPET(torch.nn.Module):
             # at evaluation, we also introduce the scaler and additive contributions
             return_dict = self.scaler(return_dict)
             for additive_model in self.additive_models:
-                # some of the outputs might not be present in the additive model
-                # (e.g. the composition model only provides outputs for scalar targets)
                 outputs_for_additive_model: Dict[str, ModelOutput] = {}
-                for output_name in outputs:
-                    if output_name in additive_model.outputs:
-                        outputs_for_additive_model[output_name] = outputs[output_name]
+                for name, output in outputs.items():
+                    if name in additive_model.outputs:
+                        outputs_for_additive_model[name] = output
                 additive_contributions = additive_model(
-                    systems, outputs_for_additive_model, selected_atoms
+                    systems,
+                    outputs_for_additive_model,
+                    selected_atoms,
                 )
                 for name in additive_contributions:
-                    if is_auxiliary_output(name):
-                        continue
                     return_dict[name] = metatensor.torch.add(
                         return_dict[name],
                         additive_contributions[name],

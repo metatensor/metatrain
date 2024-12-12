@@ -47,7 +47,6 @@ class CompositionModel(torch.nn.Module):
         self.new_targets = {
             target_name: target_info
             for target_name, target_info in dataset_info.targets.items()
-            if target_name not in self.dataset_info.targets
         }
 
         self.register_buffer(
