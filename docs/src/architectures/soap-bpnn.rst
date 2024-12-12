@@ -159,6 +159,8 @@ The parameters for training are
 :param learning_rate: learning rate
 :param log_interval: number of epochs that elapse between reporting new training results
 :param checkpoint_interval: Interval to save a checkpoint to disk.
+:param scale_targets: Whether to scale the targets to have unit standard deviation
+    across the training set during training.
 :param fixed_composition_weights: allows to set fixed isolated atom energies from
     outside. These are per target name and per (integer) atom type. For example,
     ``fixed_composition_weights: {"energy": {1: -396.0, 6: -500.0}, "mtt::U0": {1: 0.0,
