@@ -384,9 +384,6 @@ def test_composition_model_wrong_target():
                     )
                 },
             ),
-            types=torch.tensor([1, 1, 8]),
-            cell=torch.eye(3, dtype=torch.float64),
-            pbc=torch.tensor([True, True, True]),
         )
 
 

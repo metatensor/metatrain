@@ -253,8 +253,8 @@ def test_vector_output(per_atom):
         WrappedPET(DEFAULT_HYPERS["model"], dataset_info)
 
 
-def test_output_features():
-    """Tests that the model can output its features and last-layer features."""
+def test_output_last_layer_features():
+    """Tests that the model can output its last layer features."""
     dataset_info = DatasetInfo(
         length_unit="Angstrom",
         atomic_types=[1, 6, 7, 8],
@@ -288,27 +288,23 @@ def test_output_features():
         [system],
         {
             "energy": ModelOutput(quantity="energy", unit="eV", per_atom=True),
-            "mtt::aux::energy_last_layer_features": ll_output_options,
-            "features": ll_output_options,
+            "mtt::aux::last_layer_features": ll_output_options,
         },
     )
     assert "energy" in outputs
-    assert "mtt::aux::energy_last_layer_features" in outputs
-    assert "features" in outputs
-    last_layer_features = outputs["mtt::aux::energy_last_layer_features"].block()
-    features = outputs["features"].block()
-    assert last_layer_features.samples.names == ["system", "atom"]
+    assert "mtt::aux::last_layer_features" in outputs
+    last_layer_features = outputs["mtt::aux::last_layer_features"].block()
+    assert last_layer_features.samples.names == [
+        "system",
+        "atom",
+    ]
     assert last_layer_features.values.shape == (
         4,
         768,  # 768 = 3 (gnn layers) * 256 (128 for edge repr, 128 for node repr)
     )
-    assert last_layer_features.properties.names == ["properties"]
-    assert features.samples.names == ["system", "atom"]
-    assert features.values.shape == (
-        4,
-        768,  # 768 = 3 (gnn layers) * 256 (128 for edge repr, 128 for node repr)
-    )
-    assert features.properties.names == ["properties"]
+    assert last_layer_features.properties.names == [
+        "properties",
+    ]
 
     # last-layer features per system:
     ll_output_options = ModelOutput(
@@ -320,26 +316,16 @@ def test_output_features():
         [system],
         {
             "energy": ModelOutput(quantity="energy", unit="eV", per_atom=True),
-            "mtt::aux::energy_last_layer_features": ll_output_options,
-            "features": ll_output_options,
+            "mtt::aux::last_layer_features": ll_output_options,
         },
     )
     assert "energy" in outputs
-    assert "mtt::aux::energy_last_layer_features" in outputs
-    assert "features" in outputs
-    assert outputs["mtt::aux::energy_last_layer_features"].block().samples.names == [
-        "system"
-    ]
-    assert outputs["mtt::aux::energy_last_layer_features"].block().values.shape == (
+    assert "mtt::aux::last_layer_features" in outputs
+    assert outputs["mtt::aux::last_layer_features"].block().samples.names == ["system"]
+    assert outputs["mtt::aux::last_layer_features"].block().values.shape == (
         1,
         768,  # 768 = 3 (gnn layers) * 256 (128 for edge repr, 128 for node repr)
     )
-    assert outputs["mtt::aux::energy_last_layer_features"].block().properties.names == [
+    assert outputs["mtt::aux::last_layer_features"].block().properties.names == [
         "properties",
     ]
-    assert outputs["features"].block().samples.names == ["system"]
-    assert outputs["features"].block().values.shape == (
-        1,
-        768,  # 768 = 3 (gnn layers) * 256 (128 for edge repr, 128 for node repr)
-    )
-    assert outputs["features"].block().properties.names == ["properties"]
