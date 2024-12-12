@@ -16,7 +16,6 @@ from metatensor.torch.atomistic import (
 from pet.pet import PET as RawPET
 
 from metatrain.utils.data import DatasetInfo
-from metatrain.utils.data.target_info import is_auxiliary_output
 
 from ...utils.additive import ZBL
 from ...utils.dtype import dtype_to_str
@@ -145,18 +144,7 @@ class PET(torch.nn.Module):
             names=["_"], values=torch.tensor([[0]], device=predictions.device)
         )
 
-        # output the last-layer features for the outputs, if requested:
-        if (
-            f"mtt::aux::{self.target_name}_last_layer_features" in outputs
-            or "features" in outputs
-        ):
-            ll_output_name = f"mtt::aux::{self.target_name}_last_layer_features"
-            base_name = self.target_name
-            if ll_output_name in outputs and base_name not in outputs:
-                raise ValueError(
-                    f"Features {ll_output_name} can only be requested "
-                    f"if the corresponding output {base_name} is also requested."
-                )
+        if "mtt::aux::last_layer_features" in outputs:
             ll_features = output["last_layer_features"]
             block = TensorBlock(
                 values=ll_features,
@@ -164,36 +152,19 @@ class PET(torch.nn.Module):
                 components=[],
                 properties=Labels(
                     names=["properties"],
-                    values=torch.arange(
-                        ll_features.shape[1], device=predictions.device
-                    ).reshape(-1, 1),
+                    values=torch.arange(ll_features.shape[1]).reshape(-1, 1),
                 ),
             )
             output_tmap = TensorMap(
                 keys=empty_labels,
                 blocks=[block],
             )
-            if ll_output_name in outputs:
-                ll_features_options = outputs[ll_output_name]
-                if not ll_features_options.per_atom:
-                    processed_output_tmap = metatensor.torch.sum_over_samples(
-                        output_tmap, "atom"
-                    )
-                else:
-                    processed_output_tmap = output_tmap
-                output_quantities[ll_output_name] = processed_output_tmap
-            if "features" in outputs:
-                features_options = outputs["features"]
-                if not features_options.per_atom:
-                    processed_output_tmap = metatensor.torch.sum_over_samples(
-                        output_tmap, "atom"
-                    )
-                else:
-                    processed_output_tmap = output_tmap
-                output_quantities["features"] = processed_output_tmap
+            if not outputs["mtt::aux::last_layer_features"].per_atom:
+                output_tmap = metatensor.torch.sum_over_samples(output_tmap, "atom")
+            output_quantities["mtt::aux::last_layer_features"] = output_tmap
 
         for output_name in outputs:
-            if is_auxiliary_output(output_name):
+            if output_name.startswith("mtt::aux::"):
                 continue  # skip auxiliary outputs (not targets)
             energy_labels = Labels(
                 names=["energy"], values=torch.tensor([[0]], device=predictions.device)
@@ -214,12 +185,16 @@ class PET(torch.nn.Module):
         if not self.training:
             # at evaluation, we also add the additive contributions
             for additive_model in self.additive_models:
+                outputs_for_additive_model: Dict[str, ModelOutput] = {}
+                for name, output in outputs.items():
+                    if name in additive_model.outputs:
+                        outputs_for_additive_model[name] = output
                 additive_contributions = additive_model(
-                    systems, outputs, selected_atoms
+                    systems,
+                    outputs_for_additive_model,
+                    selected_atoms,
                 )
-                for output_name in output_quantities:
-                    if is_auxiliary_output(output_name):
-                        continue  # skip auxiliary outputs (not targets)
+                for output_name in additive_contributions:
                     output_quantities[output_name] = metatensor.torch.add(
                         output_quantities[output_name],
                         additive_contributions[output_name],
@@ -278,7 +253,7 @@ class PET(torch.nn.Module):
                     unit=self.dataset_info.targets[self.target_name].unit,
                     per_atom=False,
                 ),
-                f"mtt::aux::{self.target_name.replace('mtt::', '')}_last_layer_features": ModelOutput(  # noqa: E501
+                "mtt::aux::last_layer_features": ModelOutput(
                     unit="unitless", per_atom=True
                 ),
             },

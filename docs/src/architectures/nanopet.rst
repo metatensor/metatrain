@@ -86,6 +86,7 @@ The model-related hyperparameters are
 :param num_heads: Number of attention heads
 :param num_attention_layers: Number of attention layers in each GNN layer
 :param num_gnn_layers: Number of GNN layers
+:param heads: The type of head (linear or mlp) to use for each target
 :param zbl: Whether to use the ZBL short-range repulsion as the baseline for the model
 
 training
@@ -101,8 +102,6 @@ The hyperparameters for training are
 :param scheduler_factor: Factor to reduce the learning rate by
 :param log_interval: Interval at which to log training metrics
 :param checkpoint_interval: Interval at which to save model checkpoints
-:param scale_targets: Whether to scale the targets to have unit standard deviation
-    across the training set during training.
 :param fixed_composition_weights: Weights for fixed atomic contributions to scalar
   targets
 :param per_structure_targets: Targets to calculate per-structure losses for

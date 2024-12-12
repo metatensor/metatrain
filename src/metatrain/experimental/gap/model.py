@@ -21,7 +21,6 @@ from metatensor.torch.atomistic import (
 from skmatter._selection import _FPS
 
 from metatrain.utils.data.dataset import DatasetInfo
-from metatrain.utils.data.target_info import is_auxiliary_output
 
 from ...utils.additive import ZBL, CompositionModel
 
@@ -222,12 +221,16 @@ class GAP(torch.nn.Module):
         if not self.training:
             # at evaluation, we also add the additive contributions
             for additive_model in self.additive_models:
+                outputs_for_additive_model: Dict[str, ModelOutput] = {}
+                for name, output in outputs.items():
+                    if name in additive_model.outputs:
+                        outputs_for_additive_model[name] = output
                 additive_contributions = additive_model(
-                    systems, outputs, selected_atoms
+                    systems,
+                    outputs_for_additive_model,
+                    selected_atoms,
                 )
-                for name in return_dict:
-                    if is_auxiliary_output(name):
-                        continue  # skip auxiliary outputs (not targets)
+                for name in additive_contributions:
                     return_dict[name] = metatensor.torch.add(
                         return_dict[name],
                         additive_contributions[name],

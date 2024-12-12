@@ -148,7 +148,15 @@ class NanoPET(torch.nn.Module):
         # time, and they are added to the output at evaluation time
         composition_model = CompositionModel(
             model_hypers={},
-            dataset_info=dataset_info,
+            dataset_info=DatasetInfo(
+                length_unit=dataset_info.length_unit,
+                atomic_types=self.atomic_types,
+                targets={
+                    target_name: target_info
+                    for target_name, target_info in dataset_info.targets.items()
+                    if CompositionModel.is_valid_target(target_info)
+                },
+            ),
         )
         additive_models = [composition_model]
         if self.hypers["zbl"]:
@@ -533,14 +541,10 @@ class NanoPET(torch.nn.Module):
             unit=target_info.unit,
             per_atom=True,
         )
-        if target_name not in self.head_types:  # default to MLP
-            self.heads[target_name] = torch.nn.Sequential(
-                torch.nn.Linear(self.hypers["d_pet"], 4 * self.hypers["d_pet"]),
-                torch.nn.SiLU(),
-                torch.nn.Linear(4 * self.hypers["d_pet"], self.hypers["d_pet"]),
-                torch.nn.SiLU(),
-            )
-        elif self.head_types[target_name] == "mlp":
+        if (
+            target_name not in self.head_types  # default to MLP
+            or self.head_types[target_name] == "mlp"
+        ):
             self.heads[target_name] = torch.nn.Sequential(
                 torch.nn.Linear(self.hypers["d_pet"], 4 * self.hypers["d_pet"]),
                 torch.nn.SiLU(),
