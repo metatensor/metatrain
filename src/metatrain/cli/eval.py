@@ -233,11 +233,15 @@ def _eval_targets(
     total_time = 0.0
     timings_per_atom = []
 
-    # Warm up with a single batch 5 times (to get accurate timings later)
-    batch = next(iter(dataloader))
-    systems = batch[0]
-    systems = [system.to(dtype=dtype, device=device) for system in systems]
-    for _ in range(5):
+    # Warm up with a single batch 10 times (to get accurate timings later).
+    # We use different batches to warm up torch potentially with different
+    # tensor sizes, so dynamic shape compilation happens. We have to cycle
+    # the dataloader in case there are few batches.
+    cycled_dataloader = itertools.cycle(dataloader)
+    for _ in range(10):
+        batch = next(cycled_dataloader)
+        systems = batch[0]
+        systems = [system.to(dtype=dtype, device=device) for system in systems]
         evaluate_model(
             model,
             systems,
@@ -303,8 +307,8 @@ def _eval_targets(
     std_per_atom = np.std(timings_per_atom)
     logger.info(
         f"evaluation time: {total_time:.2f} s "
-        f"[{1000.0*mean_per_atom:.2f} ± "
-        f"{1000.0*std_per_atom:.2f} ms per atom]"
+        f"[{1000.0*mean_per_atom:.4f} ± "
+        f"{1000.0*std_per_atom:.4f} ms per atom]"
     )
 
     if return_predictions:

@@ -9,6 +9,7 @@ architecture:
     num_heads: 4
     num_attention_layers: 2
     num_gnn_layers: 2
+    heads: {}
     zbl: False
 
   training:

@@ -81,6 +81,16 @@
           },
           "additionalProperties": false
         },
+        "heads": {
+          "type": "object",
+          "patternProperties": {
+            ".*": {
+              "type": "string",
+              "enum": ["linear", "mlp"]
+            }
+          },
+          "additionalProperties": false
+        },
         "zbl": {
           "type": "boolean"
         }
