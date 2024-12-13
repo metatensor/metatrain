@@ -10,13 +10,12 @@ from scipy.spatial.transform import Rotation
 from ....utils.data import TargetInfo
 
 
-def get_random_augmentation():
+def get_random_rotation():
+    return Rotation.random()
 
-    transformation = Rotation.random().as_matrix()
-    invert = random.choice([True, False])
-    if invert:
-        transformation *= -1
-    return transformation
+
+def get_random_inversion():
+    return random.choice([1, -1])
 
 
 class RotationalAugmenter:
@@ -65,27 +64,27 @@ class RotationalAugmenter:
         Apply a random augmentation to a number of ``System`` objects and its targets.
         """
 
+        rotations = [get_random_rotation() for _ in range(len(systems))]
+        inversions = [get_random_inversion() for _ in range(len(systems))]
         transformations = [
-            torch.from_numpy(get_random_augmentation()) for _ in range(len(systems))
+            torch.from_numpy(r.as_matrix() * i) for r, i in zip(rotations, inversions)
         ]
 
         wigner_D_matrices = {}
         if self.wigner is not None:
-            import quaternionic
-
-            quaternionic_rotations = [
-                quaternionic.array.from_rotation_matrix(t.numpy())
-                for t in transformations
+            scipy_quaternions = [r.as_quat() for r in rotations]
+            quaternionic_quaternions = [
+                _scipy_quaternion_to_quaternionic(q) for q in scipy_quaternions
             ]
             wigner_D_matrices_complex = [
-                self.wigner.D(R) for R in quaternionic_rotations
+                self.wigner.D(q) for q in quaternionic_quaternions
             ]
             for target_name in targets.keys():
                 target_info = self.target_info_dict[target_name]
                 if target_info.is_spherical:
                     for block in target_info.layout.blocks():
                         ell = (len(block.components[0]) - 1) // 2
-                        if ell not in wigner_D_matrices:
+                        if ell not in wigner_D_matrices:  # skip if already computed
                             wigner_D_matrices_l = []
                             for wigner_D_matrix_complex in wigner_D_matrices_complex:
                                 wigner_D_matrix = np.zeros(
@@ -93,15 +92,15 @@ class RotationalAugmenter:
                                 )
                                 for mp in range(-ell, ell + 1):
                                     for m in range(-ell, ell + 1):
-                                        wigner_D_matrix[mp + ell, m + ell] = (
+                                        wigner_D_matrix[m + ell, mp + ell] = (
                                             wigner_D_matrix_complex[
-                                                self.wigner.Dindex(ell, mp, m)
+                                                self.wigner.Dindex(ell, m, mp)
                                             ]
-                                        )
+                                        ).conj()
                                 U = self.complex_to_real_spherical_harmonics_transforms[
                                     ell
                                 ]
-                                wigner_D_matrix = U @ wigner_D_matrix @ U.T.conj()
+                                wigner_D_matrix = U.conj() @ wigner_D_matrix @ U.T
                                 assert np.allclose(wigner_D_matrix.imag, 0.0)
                                 wigner_D_matrix = wigner_D_matrix.real
                                 wigner_D_matrices_l.append(
@@ -160,8 +159,7 @@ def _apply_wigner_D_matrices(
     )
 
 
-# script for speed
-@torch.jit.script
+@torch.jit.script  # script for speed
 def _apply_random_augmentations(
     systems: List[System],
     targets: Dict[str, TensorMap],
@@ -302,31 +300,39 @@ def _apply_random_augmentations(
 
 
 def _complex_to_real_spherical_harmonics_transform(ell: int):
-    """
-    Generate the transformation matrix from complex spherical harmonics
-    to real spherical harmonics for a given l.
-    Returns a transformation matrix of shape ((2l+1), (2l+1)).
-    """
+    # Generates the transformation matrix from complex spherical harmonics
+    # to real spherical harmonics for a given l.
+    # Returns a transformation matrix of shape ((2l+1), (2l+1)).
+
     if ell < 0 or not isinstance(ell, int):
         raise ValueError("l must be a non-negative integer.")
 
     # The size of the transformation matrix is (2l+1) x (2l+1)
     size = 2 * ell + 1
-    T = np.zeros((size, size), dtype=complex)
+    U = np.zeros((size, size), dtype=complex)
 
     for m in range(-ell, ell + 1):
         m_index = m + ell  # Index in the matrix
         if m > 0:
             # Real part of Y_{l}^{m}
-            T[m_index, ell + m] = 1 / np.sqrt(2)
-            T[m_index, ell - m] = 1 / np.sqrt(2) * (-1) ** m
+            U[m_index, ell + m] = 1 / np.sqrt(2) * (-1) ** m
+            U[m_index, ell - m] = 1 / np.sqrt(2)
         elif m < 0:
             # Imaginary part of Y_{l}^{|m|}
-            T[m_index, ell + abs(m)] = 1j / np.sqrt(2)
-            T[m_index, ell - abs(m)] = -1j / np.sqrt(2) * (-1)**abs(m)
+            U[m_index, ell + abs(m)] = -1j / np.sqrt(2) * (-1) ** m
+            U[m_index, ell - abs(m)] = 1j / np.sqrt(2)
         else:  # m == 0
             # Y_{l}^{0} remains unchanged
-            T[m_index, ell] = 1
+            U[m_index, ell] = 1
 
-    # Return the transformation matrix to convert complex to real spherical harmonics
-    return T
+    return U
+
+
+def _scipy_quaternion_to_quaternionic(q_scipy):
+    # This function convert a quaternion obtained from the scipy library to the format
+    # used by the quaternionic library.
+    # Note: 'xyzw' is the format used by scipy.spatial.transform.Rotation
+    # while 'wxyz' is the format used by quaternionic.
+    qx, qy, qz, qw = q_scipy
+    q_quaternion = np.array([qw, qx, qy, qz])
+    return q_quaternion

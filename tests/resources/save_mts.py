@@ -4,35 +4,33 @@ import torch
 from metatensor.torch import Labels, TensorBlock, TensorMap
 
 
-def _complex_to_real_spherical_harmonics_transform(ell: int):
-    """
-    Generate the transformation matrix from complex spherical harmonics
-    to real spherical harmonics for a given l.
-    Returns a transformation matrix of shape ((2l+1), (2l+1)).
-    """
+def complex_to_real_spherical_harmonics_transform(ell: int):
+    # Generates the transformation matrix from complex spherical harmonics
+    # to real spherical harmonics for a given l.
+    # Returns a transformation matrix of shape ((2l+1), (2l+1)).
+
     if ell < 0 or not isinstance(ell, int):
         raise ValueError("l must be a non-negative integer.")
 
     # The size of the transformation matrix is (2l+1) x (2l+1)
     size = 2 * ell + 1
-    T = np.zeros((size, size), dtype=complex)
+    U = np.zeros((size, size), dtype=complex)
 
     for m in range(-ell, ell + 1):
         m_index = m + ell  # Index in the matrix
         if m > 0:
             # Real part of Y_{l}^{m}
-            T[m_index, ell + m] = 1 / np.sqrt(2)
-            T[m_index, ell - m] = 1 / np.sqrt(2) * (-1) ** m
+            U[m_index, ell + m] = 1 / np.sqrt(2) * (-1) ** m
+            U[m_index, ell - m] = 1 / np.sqrt(2)
         elif m < 0:
             # Imaginary part of Y_{l}^{|m|}
-            T[m_index, ell + abs(m)] = 1j / np.sqrt(2)
-            T[m_index, ell - abs(m)] = -1j / np.sqrt(2) * (-1)**abs(m)
+            U[m_index, ell + abs(m)] = -1j / np.sqrt(2) * (-1) ** m
+            U[m_index, ell - abs(m)] = 1j / np.sqrt(2)
         else:  # m == 0
             # Y_{l}^{0} remains unchanged
-            T[m_index, ell] = 1
+            U[m_index, ell] = 1
 
-    # Return the transformation matrix to convert complex to real spherical harmonics
-    return T
+    return U
 
 
 structures = ase.io.read("qm7x_reduced_100.xyz", ":")
@@ -65,7 +63,7 @@ l2_transformation_matrix = np.array(
 polarizabilities_l0 = polarizabilities_xx_xy_xz_yy_yz_zz @ l0_transformation_matrix
 polarizabilities_l2 = polarizabilities_xx_xy_xz_yy_yz_zz @ l2_transformation_matrix
 
-complex_to_real = _complex_to_real_spherical_harmonics_transform(2)
+complex_to_real = complex_to_real_spherical_harmonics_transform(2)
 polarizabilities_l2 = polarizabilities_l2 @ complex_to_real.T
 
 assert polarizabilities_l2.imag.max() < 1e-10
