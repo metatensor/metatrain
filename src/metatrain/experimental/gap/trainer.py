@@ -122,6 +122,8 @@ class Trainer:
                 f"should be smaller than the number of environments ({lens})"
             )
         sparse_points = model._sampler.fit_transform(train_tensor)
+        print(f'{sparse_points=}')
+        print(f'{model._sampler.selected_idx=}')
         sparse_points = metatensor.operations.remove_gradients(sparse_points)
         alpha_energy = self.hypers["regularizer"]
         if self.hypers["regularizer_forces"] is None:

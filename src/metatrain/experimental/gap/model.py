@@ -364,6 +364,7 @@ class _SorKernelSolver:
         regularizer: float = 1.0,
         jitter: float = 0.0,
         solver: str = "RKHS",
+        error_matrix: Optional[np.ndarray] = None,
         relative_jitter: bool = True,
     ):
         self.solver = solver
@@ -371,6 +372,7 @@ class _SorKernelSolver:
         self.relative_jitter = relative_jitter
 
         self._nM = len(KMM)
+        self.error_matrix = error_matrix
         if self.solver == "RKHS" or self.solver == "RKHS-QR":
             self._vk, self._Uk = scipy.linalg.eigh(KMM)
             self._vk = self._vk[::-1]
@@ -421,9 +423,17 @@ class _SorKernelSolver:
                 assume_a="pos",
             )
         elif self.solver == "RKHS-QR":
-            A = np.vstack(
+            if self.error_matrix is None:
+                A = np.vstack(
                 [KNM @ self._PKPhi, np.sqrt(self.regularizer) * np.eye(self._nM)]
-            )
+                )
+            else:
+                A = np.vstack(
+                    [
+                        KNM @ self._PKPhi,
+                        self.error_matrix,
+                    ]
+                )
             Q, R = np.linalg.qr(A)
             self._weights = self._PKPhi @ scipy.linalg.solve_triangular(
                 R, Q.T @ np.vstack([Y, np.zeros((self._nM, Y.shape[1]))])
@@ -827,10 +837,13 @@ class GreedySelector:
             raise ValueError("Only blocks with no components are supported.")
 
         blocks = []
+        print('block in X',X.keys)
         for _, block in X.items():
             selector = self.selector_class(**self.selector_arguments)
             selector.fit(block.values, warm_start=warm_start)
             mask = selector.get_support()
+            self.selected_idx = np.sort(selector.selected_idx_)
+            print('mask',mask,np.where(mask),np.sort(selector.selected_idx_))
 
             if self._selection_type == "feature":
                 samples = Labels.single()
@@ -855,6 +868,8 @@ class GreedySelector:
         self._support = TensorMap(X.keys, blocks)
 
         return self
+    def get_selected_idx(self):
+        return self.selected_idx
 
     def transform(self, X: TensorMap) -> TensorMap:
         """Reduce X to the selected features.
@@ -1074,6 +1089,7 @@ class SubsetOfRegressors:
         alpha_forces: Optional[float] = None,
         solver: str = "RKHS-QR",
         rcond: Optional[float] = None,
+        error_matrix= None # if none use eye
     ):
         r"""
         :param X:
@@ -1130,7 +1146,7 @@ class SubsetOfRegressors:
         else:
             if not isinstance(alpha_forces, float):
                 raise ValueError("alpha must either be a float")
-
+            
         X = X.to(arrays="numpy")
         X_pseudo = X_pseudo.to(arrays="numpy")
         y = y.to(arrays="numpy")
@@ -1153,6 +1169,7 @@ class SubsetOfRegressors:
             structures = metatensor.operations._dispatch.unique(
                 k_nm_block.samples["system"]
             )
+            print('$$$$structures',structures)
             n_atoms_per_structure = []
             for structure in structures:
                 n_atoms = np.sum(X_block.samples["system"] == structure)
@@ -1161,9 +1178,14 @@ class SubsetOfRegressors:
             n_atoms_per_structure = np.array(n_atoms_per_structure)
             normalization = metatensor.operations._dispatch.sqrt(n_atoms_per_structure)
 
+            nstructures = len(structures)
+            #TODO: error matrix
+            error_matrix = np.vstack((error_matrix, np.ones(int(n_atoms_per_structure.sum())*3,k_nm_block.values.shape[-1]))) 
+
             if not (np.allclose(alpha_energy, 0.0)):
                 normalization /= alpha_energy
             normalization = normalization[:, None]
+            print('normalization',normalization,k_nm_block.values.shape)
 
             k_nm_reg = k_nm_block.values * normalization
             y_reg = (y_block.values) * normalization
@@ -1191,7 +1213,7 @@ class SubsetOfRegressors:
                     ]
                 )
             self._solver = _SorKernelSolver(
-                k_mm_block.values, regularizer=1, jitter=0, solver=solver
+                k_mm_block.values, regularizer=1, jitter=0, solver=solver,error_matrix=error_matrix
             )
 
             if rcond is None:
