@@ -41,7 +41,7 @@ capabilities of the architectures in metatrain.
    * - NanoPET
      - Energy, forces, stress/virial
      - Yes
-     - No
+     - Yes
      - Only with ``rank=1`` (vectors)
 
 
