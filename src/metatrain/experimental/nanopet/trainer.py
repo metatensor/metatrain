@@ -220,10 +220,8 @@ class Trainer:
         # Create a scheduler:
         lr_scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
             optimizer,
-            mode="min",
             factor=self.hypers["scheduler_factor"],
             patience=self.hypers["scheduler_patience"],
-            threshold=0.001,
         )
         if self.scheduler_state_dict is not None:
             # same as the optimizer, try to load the scheduler state dict
@@ -434,20 +432,25 @@ class Trainer:
                 else:
                     logger.info(f"Changing learning rate from {old_lr} to {new_lr}")
                     old_lr = new_lr
+                    # load best model and optimizer state dict, re-initialize scheduler
+                    (model.module if is_distributed else model).load_state_dict(
+                        self.best_model_state_dict
+                    )
+                    optimizer.load_state_dict(self.best_optimizer_state_dict)
+                    for param_group in optimizer.param_groups:
+                        param_group["lr"] = new_lr
                     lr_scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
                         optimizer,
-                        mode="min",
                         factor=self.hypers["scheduler_factor"],
                         patience=self.hypers["scheduler_patience"],
-                        threshold=0.001,
                     )
 
             if val_loss < self.best_loss:
                 self.best_loss = val_loss
-                self.best_model_state_dict = (
-                    model.module if is_distributed else model
-                ).state_dict()
-                self.best_optimizer_state_dict = optimizer.state_dict()
+                self.best_model_state_dict = copy.deepcopy(
+                    (model.module if is_distributed else model).state_dict()
+                )
+                self.best_optimizer_state_dict = copy.deepcopy(optimizer.state_dict())
 
             if epoch % self.hypers["checkpoint_interval"] == 0:
                 if is_distributed:
@@ -467,6 +470,7 @@ class Trainer:
 
     def save_checkpoint(self, model, path: Union[str, Path]):
         checkpoint = {
+            "architecture_name": "experimental.nanopet",
             "model_hypers": {
                 "model_hypers": model.hypers,
                 "dataset_info": model.dataset_info,

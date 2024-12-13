@@ -40,7 +40,6 @@ class GAP(torch.nn.Module):
             if not (
                 target.is_scalar
                 and target.quantity == "energy"
-                and "atom" not in target.layout.block(0).samples.names
                 and len(target.layout.block(0).properties) == 1
             ):
                 raise ValueError(
@@ -222,12 +221,16 @@ class GAP(torch.nn.Module):
         if not self.training:
             # at evaluation, we also add the additive contributions
             for additive_model in self.additive_models:
+                outputs_for_additive_model: Dict[str, ModelOutput] = {}
+                for name, output in outputs.items():
+                    if name in additive_model.outputs:
+                        outputs_for_additive_model[name] = output
                 additive_contributions = additive_model(
-                    systems, outputs, selected_atoms
+                    systems,
+                    outputs_for_additive_model,
+                    selected_atoms,
                 )
-                for name in return_dict:
-                    if name.startswith("mtt::aux::"):
-                        continue  # skip auxiliary outputs (not targets)
+                for name in additive_contributions:
                     return_dict[name] = metatensor.torch.add(
                         return_dict[name],
                         additive_contributions[name],

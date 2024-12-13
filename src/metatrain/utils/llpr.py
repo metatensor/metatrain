@@ -12,6 +12,8 @@ from metatensor.torch.atomistic import (
 )
 from torch.utils.data import DataLoader
 
+from metatrain.utils.data.target_info import is_auxiliary_output
+
 from .data import DatasetInfo, TargetInfo, get_atomic_types
 from .evaluate_model import evaluate_model
 from .per_atom import average_by_num_atoms
@@ -42,7 +44,7 @@ class LLPRUncertaintyModel(torch.nn.Module):
         additional_capabilities = {}
         self.uncertainty_multipliers = {}
         for name, output in old_capabilities.outputs.items():
-            if name.startswith("mtt::aux"):
+            if is_auxiliary_output(name):
                 continue  # auxiliary output
             uncertainty_name = f"mtt::aux::{name.replace('mtt::', '')}_uncertainty"
             additional_capabilities[uncertainty_name] = ModelOutput(
@@ -207,10 +209,11 @@ class LLPRUncertaintyModel(torch.nn.Module):
                 requested_ensembles.append(name)
 
         for name in requested_ensembles:
-            ll_features = return_dict[
-                "mtt::aux::"
-                + name.replace("mtt::", "").replace("_ensemble", "_last_layer_features")
-            ]
+            ll_features_name = name.replace("_ensemble", "_last_layer_features")
+            if ll_features_name == "energy_last_layer_features":
+                # special case for energy_ensemble
+                ll_features_name = "mtt::aux::energy_last_layer_features"
+            ll_features = return_dict[ll_features_name]
             # get the ensemble weights (getattr not supported by torchscript)
             ensemble_weights = torch.tensor(0.0)
             for buffer_name, buffer in self.named_buffers():
@@ -223,6 +226,7 @@ class LLPRUncertaintyModel(torch.nn.Module):
                 ll_features.block().values,
                 ensemble_weights,
             )
+            property_name = "energy" if name == "energy_ensemble" else "ensemble_member"
             ensemble = TensorMap(
                 keys=Labels(
                     names=["_"],
@@ -236,7 +240,7 @@ class LLPRUncertaintyModel(torch.nn.Module):
                         samples=ll_features.block().samples,
                         components=ll_features.block().components,
                         properties=Labels(
-                            names=["ensemble_member"],
+                            names=[property_name],
                             values=torch.arange(
                                 ensemble_values.shape[1], device=ensemble_values.device
                             ).unsqueeze(1),
@@ -271,7 +275,15 @@ class LLPRUncertaintyModel(torch.nn.Module):
                 [len(system.positions) for system in systems], device=device
             )
             systems = [system.to(device=device, dtype=dtype) for system in systems]
-            outputs = {
+            options_for_targets = {
+                name: ModelOutput(
+                    quantity="",
+                    unit="",
+                    per_atom=False,
+                )
+                for name in targets.keys()
+            }
+            outputs_for_features = {
                 f"mtt::aux::{name.replace('mtt::', '')}_last"
                 "_layer_features": ModelOutput(
                     quantity="",
@@ -282,7 +294,7 @@ class LLPRUncertaintyModel(torch.nn.Module):
             }
             options = ModelEvaluationOptions(
                 length_unit="",
-                outputs=outputs,
+                outputs={**options_for_targets, **outputs_for_features},
             )
             output = self.model(systems, options, check_consistency=False)
             for name in targets.keys():
@@ -552,9 +564,7 @@ class LLPRUncertaintyModel(torch.nn.Module):
         # with mean given by the input weights and covariance given by the inverse
         # covariance matrix
         for name, weights in weight_tensors.items():
-            uncertainty_name = (
-                "mtt::aux::" + name.replace("_ensemble", "") + "_uncertainty"
-            )
+            uncertainty_name = "mtt::aux::" + name.replace("mtt::", "") + "_uncertainty"
             device = self.inv_covariances[uncertainty_name].device
             dtype = self.inv_covariances[uncertainty_name].dtype
             rng = np.random.default_rng()
@@ -568,12 +578,13 @@ class LLPRUncertaintyModel(torch.nn.Module):
             ensemble_weights = torch.tensor(
                 ensemble_weights, device=device, dtype=dtype
             )
-            if not name.startswith("mtt::"):
-                mtt_name = "mtt::" + name
-            else:
-                mtt_name = name
+            ensemble_weights_name = (
+                "mtt::aux::" + name.replace("mtt::", "") + "_ensemble_weights"
+            )
+            if ensemble_weights_name == "mtt::aux::energy_ensemble_weights":
+                ensemble_weights_name = "energy_ensemble_weights"
             self.register_buffer(
-                mtt_name + "_ensemble_weights",
+                ensemble_weights_name,
                 ensemble_weights,
             )
 
@@ -581,12 +592,10 @@ class LLPRUncertaintyModel(torch.nn.Module):
         old_outputs = self.capabilities.outputs
         new_outputs = {}
         for name in weight_tensors.keys():
-            if not name.startswith("mtt::"):
-                mtt_name = "mtt::" + name
-            else:
-                mtt_name = name
-            new_name = f"{mtt_name}_ensemble"
-            new_outputs[new_name] = ModelOutput(
+            ensemble_name = "mtt::aux::" + name.replace("mtt::", "") + "_ensemble"
+            if ensemble_name == "mtt::aux::energy_ensemble":
+                ensemble_name = "energy_ensemble"
+            new_outputs[ensemble_name] = ModelOutput(
                 quantity=old_outputs[name].quantity,
                 unit=old_outputs[name].unit,
                 per_atom=old_outputs[name].per_atom,

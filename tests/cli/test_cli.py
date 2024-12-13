@@ -149,13 +149,11 @@ def test_run_information(capfd, monkeypatch, tmp_path):
     monkeypatch.chdir(tmp_path)
 
     with pytest.raises(CalledProcessError):
-        subprocess.check_call(["mtt", "export", "experimental.soap_bpnn", "model.ckpt"])
+        subprocess.check_call(["mtt", "export", "model.ckpt"])
 
     stdout_log = capfd.readouterr().out
 
     assert f"Package directory: {PACKAGE_ROOT}" in stdout_log
     assert f"Working directory: {Path('.').absolute()}" in stdout_log
     assert f"Metatrain version: {__version__}" in stdout_log
-    assert (
-        "Executed command: mtt export experimental.soap_bpnn model.ckpt" in stdout_log
-    )
+    assert "Executed command: mtt export model.ckpt" in stdout_log
