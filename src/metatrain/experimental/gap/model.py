@@ -70,7 +70,12 @@ class GAP(torch.nn.Module):
 
         self.atomic_types = dataset_info.atomic_types
         self.hypers = model_hypers
-        self.filename = self.hypers["training"]["filename"]
+        print(f"hypers: {self.hypers.keys()}")
+        self.filename = self.hypers["filename"]
+        print(f"filename: {self.filename}")
+        noise = np.loadtxt(self.filename)
+        print(f"noise: {noise}")
+        
 
         # creates a composition weight tensor that can be directly indexed by species,
         # this can be left as a tensor of zero or set from the outside using

@@ -90,6 +90,9 @@
         },
         "zbl": {
           "type": "boolean"
+        },
+        "filename": {
+          "type": "string"
         }
       },
       "additionalProperties": false
