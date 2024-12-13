@@ -31,7 +31,7 @@ class GAP(torch.nn.Module):
 
     def __init__(self, model_hypers: Dict, dataset_info: DatasetInfo) -> None:
         super().__init__()
-
+        
         if len(dataset_info.targets) > 1:
             raise NotImplementedError("GAP only supports a single output")
 
@@ -70,6 +70,7 @@ class GAP(torch.nn.Module):
 
         self.atomic_types = dataset_info.atomic_types
         self.hypers = model_hypers
+        self.filename = self.hypers["training"]["filename"]
 
         # creates a composition weight tensor that can be directly indexed by species,
         # this can be left as a tensor of zero or set from the outside using
