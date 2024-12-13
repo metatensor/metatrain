@@ -64,9 +64,6 @@ model.
       Positions (SOAP).
   * - SOAP BPNN
     - A Behler-Parrinello neural network with SOAP features
-  * - Alchemical Model
-    - A Behler-Parrinello neural network with SOAP features and Alchemical Compression
-      of the composition space
   * - PET
     - Point Edge Transformer (PET), interatomic machine learning potential
 
