@@ -8,6 +8,10 @@ from metatensor.torch.atomistic import ModelOutput, System
 
 from ..data import Dataset, DatasetInfo, TargetInfo, get_all_targets, get_atomic_types
 from ..jsonschema import validate
+import logging
+
+
+logger = logging.getLogger(__name__)
 
 
 class CompositionModel(torch.nn.Module):
@@ -36,8 +40,8 @@ class CompositionModel(torch.nn.Module):
         self.dataset_info = dataset_info
         self.atomic_types = sorted(dataset_info.atomic_types)
 
-        for target_info in dataset_info.targets.values():
-            if not self.is_valid_target(target_info):
+        for target_name, target_info in dataset_info.targets.items():
+            if not self.is_valid_target(target_name, target_info):
                 raise ValueError(
                     f"Composition model does not support target quantity "
                     f"{target_info.quantity}. This is an architecture bug. "
@@ -193,11 +197,15 @@ class CompositionModel(torch.nn.Module):
                         regularizer *= 10.0
 
     def restart(self, dataset_info: DatasetInfo) -> "CompositionModel":
-        for target_info in dataset_info.targets.values():
-            if not self.is_valid_target(target_info):
+        """Restart the model with a new dataset info.
+
+        :param dataset_info: New dataset information to be used.
+        """
+        for target_name, target_info in dataset_info.targets.items():
+            if not self.is_valid_target(target_name, target_info):
                 raise ValueError(
-                    f"Composition model does not support target quantity "
-                    f"{target_info.quantity}. This is an architecture bug. "
+                    f"Composition model does not support target "
+                    f"{target_name}. This is an architecture bug. "
                     "Please report this issue and help us improve!"
                 )
 
@@ -330,15 +338,23 @@ class CompositionModel(torch.nn.Module):
             self.output_name_to_output_index[target_name] = len(self.weights) - 1
 
     @staticmethod
-    def is_valid_target(target_info: TargetInfo) -> bool:
+    def is_valid_target(target_name: str, target_info: TargetInfo) -> bool:
         """Finds if a ``TargetInfo`` object is compatible with a composition model.
 
         :param target_info: The ``TargetInfo`` object to be checked.
         """
         # only scalars can have composition contributions
         if not target_info.is_scalar:
+            logger.debug(
+                f"Composition model does not support target {target_name} "
+                "since it is not an energy."
+            )
             return False
         # for now, we also require that only one property is present
         if len(target_info.layout.block().properties) != 1:
+            logger.debug(
+                f"Composition model does not support target {target_name} "
+                "since it has more than one property."
+            )
             return False
         return True

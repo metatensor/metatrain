@@ -68,7 +68,20 @@ class AlchemicalModel(torch.nn.Module):
 
         additive_models = []
         if self.hypers["zbl"]:
-            additive_models.append(ZBL(model_hypers, dataset_info))
+            additive_models.append(
+                ZBL(
+                    {},
+                    dataset_info=DatasetInfo(
+                        length_unit=dataset_info.length_unit,
+                        atomic_types=self.atomic_types,
+                        targets={
+                            target_name: target_info
+                            for target_name, target_info in dataset_info.targets.items()
+                            if ZBL.is_valid_target(target_name, target_info)
+                        },
+                    ),
+                )
+            )
         self.additive_models = torch.nn.ModuleList(additive_models)
 
         self.cutoff = self.hypers["soap"]["cutoff"]
