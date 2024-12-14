@@ -1,3 +1,4 @@
+import logging
 import warnings
 from typing import Dict, List, Optional
 
@@ -9,7 +10,6 @@ from metatensor.torch.atomistic import ModelOutput, NeighborListOptions, System
 
 from ..data import DatasetInfo, TargetInfo
 from ..jsonschema import validate
-import logging
 
 
 logger = logging.getLogger(__name__)
@@ -269,7 +269,7 @@ class ZBL(torch.nn.Module):
                 strict=True,
             )
         ]
-    
+
     @staticmethod
     def is_valid_target(target_name: str, target_info: TargetInfo) -> bool:
         """Finds if a ``TargetInfo`` object is compatible with a composition model.

@@ -1,3 +1,4 @@
+import logging
 import warnings
 from typing import Dict, List, Optional, Union
 
@@ -8,7 +9,6 @@ from metatensor.torch.atomistic import ModelOutput, System
 
 from ..data import Dataset, DatasetInfo, TargetInfo, get_all_targets, get_atomic_types
 from ..jsonschema import validate
-import logging
 
 
 logger = logging.getLogger(__name__)

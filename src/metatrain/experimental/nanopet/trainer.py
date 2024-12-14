@@ -1,12 +1,10 @@
 import copy
 import logging
 from pathlib import Path
-from typing import Dict, List, Tuple, Union
+from typing import List, Union
 
 import torch
 import torch.distributed
-from metatensor.torch import TensorMap
-from metatensor.torch.atomistic import System
 from torch.utils.data import DataLoader, DistributedSampler
 
 from ...utils.additive import remove_additive
@@ -25,6 +23,10 @@ from ...utils.neighbor_lists import (
 )
 from ...utils.per_atom import average_by_num_atoms
 from ...utils.scaler import remove_scale
+from ...utils.transfer import (
+    systems_and_targets_to_device,
+    systems_and_targets_to_dtype,
+)
 from .model import NanoPET
 from .modules.augmentation import apply_random_augmentations
 
@@ -236,24 +238,6 @@ class Trainer:
         logger.info(f"Initial learning rate: {old_lr}")
 
         start_epoch = 0 if self.epoch is None else self.epoch + 1
-
-        @torch.jit.script
-        def systems_and_targets_to_device(
-            systems: List[System], targets: Dict[str, TensorMap], device: torch.device
-        ) -> Tuple[List[System], Dict[str, TensorMap]]:
-            return (
-                [system.to(device=device) for system in systems],
-                {key: value.to(device=device) for key, value in targets.items()},
-            )
-
-        @torch.jit.script
-        def systems_and_targets_to_dtype(
-            systems: List[System], targets: Dict[str, TensorMap], dtype: torch.dtype
-        ) -> Tuple[List[System], Dict[str, TensorMap]]:
-            return (
-                [system.to(dtype=dtype) for system in systems],
-                {key: value.to(dtype=dtype) for key, value in targets.items()},
-            )
 
         # Train the model:
         if self.best_loss is None:
