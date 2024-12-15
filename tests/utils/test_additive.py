@@ -1,3 +1,4 @@
+import logging
 from pathlib import Path
 
 import metatensor.torch
@@ -272,9 +273,9 @@ def test_remove_additive():
     assert std_after < 100.0 * std_before
 
 
-def test_composition_model_missing_types():
+def test_composition_model_missing_types(caplog):
     """
-    Test the error when there are too many or too types in the dataset
+    Test the error when there are too many types in the dataset
     compared to those declared at initialization.
     """
 
@@ -355,11 +356,10 @@ def test_composition_model_missing_types():
             targets={"energy": get_energy_target_info({"unit": "eV"})},
         ),
     )
-    with pytest.warns(
-        UserWarning,
-        match="do not contain atomic types",
-    ):
+    # need to capture the warning from the logger
+    with caplog.at_level(logging.WARNING):
         composition_model.train_model(dataset, [])
+    assert "do not contain atomic types" in caplog.text
 
 
 def test_composition_model_wrong_target():

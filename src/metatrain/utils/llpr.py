@@ -226,6 +226,25 @@ class LLPRUncertaintyModel(torch.nn.Module):
                 ll_features.block().values,
                 ensemble_weights,
             )
+
+            # since we know the exact mean of the ensemble from the model's prediction,
+            # it should be mathematically correct to use it to re-center the ensemble.
+            # Besides making sure that the average is always correct (so that results
+            # will always be consistent between LLPR ensembles and the original model),
+            # this also takes care of additive contributions that are not present in the
+            # last layer, which can be composition, short-range models, a bias in the
+            # last layer, etc.
+            original_name = (
+                name.replace("_ensemble", "").replace("aux::", "")
+                if name.replace("_ensemble", "").replace("aux::", "") in outputs
+                else name.replace("_ensemble", "").replace("mtt::aux::", "")
+            )
+            ensemble_values = (
+                ensemble_values
+                - ensemble_values.mean(dim=1, keepdim=True)
+                + return_dict[original_name].block().values
+            )
+
             property_name = "energy" if name == "energy_ensemble" else "ensemble_member"
             ensemble = TensorMap(
                 keys=Labels(

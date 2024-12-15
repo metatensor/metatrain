@@ -278,11 +278,20 @@ def test_llpr_covariance_as_pseudo_hessian(tmpdir):
     assert "mtt::aux::energy_uncertainty" in outputs
     assert "energy_ensemble" in outputs
 
+    predictions = outputs["energy"].block().values
     analytical_uncertainty = outputs["mtt::aux::energy_uncertainty"].block().values
+    ensemble_mean = torch.mean(
+        outputs["energy_ensemble"].block().values, dim=1, keepdim=True
+    )
     ensemble_uncertainty = torch.var(
         outputs["energy_ensemble"].block().values, dim=1, keepdim=True
     )
 
+    print(predictions)
+    print(ensemble_mean)
+    print(predictions - ensemble_mean)
+
+    torch.testing.assert_close(predictions, ensemble_mean, rtol=5e-3, atol=0.0)
     torch.testing.assert_close(
         analytical_uncertainty, ensemble_uncertainty, rtol=5e-3, atol=0.0
     )
