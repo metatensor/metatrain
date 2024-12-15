@@ -8,6 +8,7 @@ import torch
 import torch.distributed
 from torch.utils.data import DataLoader, DistributedSampler
 
+from ...utils.additive import remove_additive
 from ...utils.data import CombinedDataLoader, Dataset, collate_fn
 from ...utils.distributed.distributed_data_parallel import DistributedDataParallel
 from ...utils.distributed.slurm import DistributedEnvironment
@@ -19,13 +20,12 @@ from ...utils.loss import TensorMapDictLoss
 from ...utils.metrics import MAEAccumulator, RMSEAccumulator
 from ...utils.neighbor_lists import get_system_with_neighbor_lists
 from ...utils.per_atom import average_by_num_atoms
-from .model import PhACE
 from ...utils.scaler import remove_scale
 from ...utils.transfer import (
     systems_and_targets_to_device,
     systems_and_targets_to_dtype,
 )
-from ...utils.additive import remove_additive
+from .model import PhACE
 
 
 logger = logging.getLogger(__name__)
@@ -255,9 +255,10 @@ class Trainer:
 
         for epoch in range(self.hypers["num_epochs"]):
             train_rmse_calculator = RMSEAccumulator()
-            train_mae_calculator = MAEAccumulator()
             val_rmse_calculator = RMSEAccumulator()
-            val_mae_calculator = MAEAccumulator()
+            if self.hypers["log_mae"]:
+                train_mae_calculator = MAEAccumulator()
+                val_mae_calculator = MAEAccumulator()
 
             train_loss = 0.0
             for batch in train_dataloader:
@@ -274,9 +275,9 @@ class Trainer:
                     targets = remove_additive(
                         systems, targets, additive_model, train_targets
                     )
-                targets = remove_scale(targets, (
-                    model.module if is_distributed else model
-                ).scaler)
+                targets = remove_scale(
+                    targets, (model.module if is_distributed else model).scaler
+                )
                 systems, targets = systems_and_targets_to_dtype(systems, targets, dtype)
                 predictions = evaluate_model(
                     scripted_model,
@@ -296,16 +297,22 @@ class Trainer:
                 train_loss_batch.backward()
                 optimizer.step()
                 train_rmse_calculator.update(predictions, targets)
-                train_mae_calculator.update(predictions, targets)
+                if self.hypers["log_mae"]:
+                    train_mae_calculator.update(predictions, targets)
 
-            finalized_train_info = {
-                **train_rmse_calculator.finalize(
-                    not_per_atom=["positions_gradients"] + per_structure_targets
-                ),
-                **train_mae_calculator.finalize(
-                    not_per_atom=["positions_gradients"] + per_structure_targets
-                ),
-            }
+            finalized_train_info = train_rmse_calculator.finalize(
+                not_per_atom=["positions_gradients"] + per_structure_targets,
+                is_distributed=is_distributed,
+                device=device,
+            )
+            if self.hypers["log_mae"]:
+                finalized_train_info.update(
+                    train_mae_calculator.finalize(
+                        not_per_atom=["positions_gradients"] + per_structure_targets,
+                        is_distributed=is_distributed,
+                        device=device,
+                    )
+                )
 
             val_loss = 0.0
             for batch in val_dataloader:
@@ -319,9 +326,9 @@ class Trainer:
                     targets = remove_additive(
                         systems, targets, additive_model, train_targets
                     )
-                targets = remove_scale(targets, (
-                    model.module if is_distributed else model
-                ).scaler)
+                targets = remove_scale(
+                    targets, (model.module if is_distributed else model).scaler
+                )
                 systems, targets = systems_and_targets_to_dtype(systems, targets, dtype)
                 predictions = evaluate_model(
                     scripted_model,
@@ -339,16 +346,22 @@ class Trainer:
                 val_loss_batch = loss_fn(predictions, targets)
                 val_loss += val_loss_batch.item()
                 val_rmse_calculator.update(predictions, targets)
-                val_mae_calculator.update(predictions, targets)
+                if self.hypers["log_mae"]:
+                    val_mae_calculator.update(predictions, targets)
 
-            finalized_val_info = {
-                **val_rmse_calculator.finalize(
-                    not_per_atom=["positions_gradients"] + per_structure_targets
-                ),
-                **val_mae_calculator.finalize(
-                    not_per_atom=["positions_gradients"] + per_structure_targets
-                ),
-            }
+            finalized_val_info = val_rmse_calculator.finalize(
+                not_per_atom=["positions_gradients"] + per_structure_targets,
+                is_distributed=is_distributed,
+                device=device,
+            )
+            if self.hypers["log_mae"]:
+                finalized_val_info.update(
+                    val_mae_calculator.finalize(
+                        not_per_atom=["positions_gradients"] + per_structure_targets,
+                        is_distributed=is_distributed,
+                        device=device,
+                    )
+                )
 
             # Now we log the information:
             finalized_train_info = {"loss": train_loss, **finalized_train_info}

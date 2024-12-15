@@ -17,6 +17,7 @@ from ...utils.additive import ZBL, CompositionModel
 from ...utils.data.dataset import DatasetInfo, TargetInfo
 from ...utils.dtype import dtype_to_str
 from ...utils.io import check_file_extension
+from ...utils.scaler import Scaler
 from .modules.center_embedding import embed_centers
 from .modules.cg import cgs_to_sparse, get_cg_coefficients
 from .modules.initial_features import get_initial_features
@@ -24,7 +25,6 @@ from .modules.layers import InvariantLinear, InvariantMLP
 from .modules.message_passing import InvariantMessagePasser
 from .modules.precomputations import Precomputer
 from .utils import systems_to_batch
-from ...utils.scaler import Scaler
 
 
 class PhACE(torch.nn.Module):

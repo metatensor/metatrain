@@ -280,9 +280,9 @@ class Trainer:
                     targets = remove_additive(
                         systems, targets, additive_model, train_targets
                     )
-                targets = remove_scale(targets, (
-                    model.module if is_distributed else model
-                ).scaler)
+                targets = remove_scale(
+                    targets, (model.module if is_distributed else model).scaler
+                )
                 systems, targets = systems_and_targets_to_dtype(systems, targets, dtype)
                 predictions = evaluate_model(
                     model,
@@ -336,9 +336,9 @@ class Trainer:
                     targets = remove_additive(
                         systems, targets, additive_model, train_targets
                     )
-                targets = remove_scale(targets, (
-                    model.module if is_distributed else model
-                ).scaler)
+                targets = remove_scale(
+                    targets, (model.module if is_distributed else model).scaler
+                )
                 systems, targets = systems_and_targets_to_dtype(systems, targets, dtype)
                 predictions = evaluate_model(
                     model,
