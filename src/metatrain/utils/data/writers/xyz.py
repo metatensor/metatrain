@@ -49,7 +49,7 @@ def write_xyz(
         info = {}
         arrays = {}
         for target_name, target_map in system_predictions.items():
-            if len(target_map.keys.names) != 1:
+            if len(target_map.keys) != 1:
                 raise ValueError(
                     "Only single-block `TensorMap`s can be "
                     "written to xyz files for the moment."
