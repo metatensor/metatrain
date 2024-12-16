@@ -24,6 +24,7 @@ from ...utils.neighbor_lists import (
     get_system_with_neighbor_lists,
 )
 from ...utils.per_atom import average_by_num_atoms
+from ...utils.scaler import remove_scale
 from .model import NanoPET
 from .modules.augmentation import apply_random_augmentations
 
@@ -106,6 +107,10 @@ class Trainer:
         model.additive_models[0].train_model(  # this is the composition model
             train_datasets, self.hypers["fixed_composition_weights"]
         )
+
+        if self.hypers["scale_targets"]:
+            logger.info("Calculating scaling weights")
+            model.scaler.train_model(train_datasets, model.additive_models)
 
         if is_distributed:
             model = DistributedDataParallel(model, device_ids=[device])
@@ -207,7 +212,10 @@ class Trainer:
             model.parameters(), lr=self.hypers["learning_rate"]
         )
         if self.optimizer_state_dict is not None:
-            optimizer.load_state_dict(self.optimizer_state_dict)
+            # try to load the optimizer state dict, but this is only possible
+            # if there are no new targets in the model (new parameters)
+            if not model.has_new_targets:
+                optimizer.load_state_dict(self.optimizer_state_dict)
 
         # Create a scheduler:
         lr_scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
@@ -216,7 +224,9 @@ class Trainer:
             patience=self.hypers["scheduler_patience"],
         )
         if self.scheduler_state_dict is not None:
-            lr_scheduler.load_state_dict(self.scheduler_state_dict)
+            # same as the optimizer, try to load the scheduler state dict
+            if not model.has_new_targets:
+                lr_scheduler.load_state_dict(self.scheduler_state_dict)
 
         # per-atom targets:
         per_structure_targets = self.hypers["per_structure_targets"]
@@ -274,6 +284,9 @@ class Trainer:
                     targets = remove_additive(
                         systems, targets, additive_model, train_targets
                     )
+                targets = remove_scale(
+                    targets, (model.module if is_distributed else model).scaler
+                )
                 systems, targets = systems_and_targets_to_dtype(systems, targets, dtype)
                 predictions = evaluate_model(
                     model,
@@ -330,6 +343,9 @@ class Trainer:
                     targets = remove_additive(
                         systems, targets, additive_model, train_targets
                     )
+                targets = remove_scale(
+                    targets, (model.module if is_distributed else model).scaler
+                )
                 systems = [system.to(dtype=dtype) for system in systems]
                 targets = {key: value.to(dtype=dtype) for key, value in targets.items()}
                 predictions = evaluate_model(
@@ -377,6 +393,9 @@ class Trainer:
             }
 
             if epoch == start_epoch:
+                scaler_scales = (
+                    model.module if is_distributed else model
+                ).scaler.get_scales_dict()
                 metric_logger = MetricLogger(
                     log_obj=logger,
                     dataset_info=(
@@ -384,6 +403,14 @@ class Trainer:
                     ).dataset_info,
                     initial_metrics=[finalized_train_info, finalized_val_info],
                     names=["training", "validation"],
+                    scales={
+                        key: (
+                            scaler_scales[key.split(" ")[0]]
+                            if ("MAE" in key or "RMSE" in key)
+                            else 1.0
+                        )
+                        for key in finalized_train_info.keys()
+                    },
                 )
             if epoch % self.hypers["log_interval"] == 0:
                 metric_logger.log(

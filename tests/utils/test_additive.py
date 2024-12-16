@@ -93,7 +93,7 @@ def test_composition_model_train():
     composition_model.train_model(dataset)
     assert composition_model.weights.shape[0] == 1
     assert composition_model.weights.shape[1] == 2
-    assert composition_model.output_to_output_index == {"energy": 0}
+    assert composition_model.output_name_to_output_index == {"energy": 0}
     assert composition_model.atomic_types == [1, 8]
     torch.testing.assert_close(
         composition_model.weights, torch.tensor([[2.0, 1.0]], dtype=torch.float64)
@@ -102,7 +102,7 @@ def test_composition_model_train():
     composition_model.train_model([dataset])
     assert composition_model.weights.shape[0] == 1
     assert composition_model.weights.shape[1] == 2
-    assert composition_model.output_to_output_index == {"energy": 0}
+    assert composition_model.output_name_to_output_index == {"energy": 0}
     assert composition_model.atomic_types == [1, 8]
     torch.testing.assert_close(
         composition_model.weights, torch.tensor([[2.0, 1.0]], dtype=torch.float64)
@@ -111,7 +111,7 @@ def test_composition_model_train():
     composition_model.train_model([dataset, dataset, dataset])
     assert composition_model.weights.shape[0] == 1
     assert composition_model.weights.shape[1] == 2
-    assert composition_model.output_to_output_index == {"energy": 0}
+    assert composition_model.output_name_to_output_index == {"energy": 0}
     assert composition_model.atomic_types == [1, 8]
     torch.testing.assert_close(
         composition_model.weights, torch.tensor([[2.0, 1.0]], dtype=torch.float64)
