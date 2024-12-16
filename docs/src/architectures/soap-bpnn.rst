@@ -69,8 +69,8 @@ hyperparameters to tune are (in decreasing order of importance):
   ``huber``. ``huber`` is a subsection of its own, and it requires the user to specify
   the ``deltas`` parameters in a similar way to how the ``weights`` are specified (e.g.,
   ``deltas: {"energy": 0.1, "forces": 0.01}``). 3. ``reduction``. This controls how the
-  loss is reduced over batches. The default value is ``sum``, and the other allowed
-  option is ``mean``.
+  loss is reduced over batches. The default value is ``mean``, and the other allowed
+  option is ``sum``.
 
 
 All Hyperparameters
