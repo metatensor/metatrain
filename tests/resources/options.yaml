@@ -5,6 +5,10 @@ architecture:
   training:
     batch_size: 16
     num_epochs: 1
+  model:
+    soap:
+      max_radial: 4
+      max_angular: 2
 
 training_set:
   systems:
