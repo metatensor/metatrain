@@ -97,7 +97,7 @@ def tensor_map_with_grad_4():
 @pytest.mark.parametrize("type", ["mse", {"huber": {"deltas": {"values": 3.0}}}])
 def test_tmap_loss_no_gradients(type):
     """Test that the loss is computed correctly when there are no gradients."""
-    loss = TensorMapLoss(type=type)
+    loss = TensorMapLoss(type=type, reduction="sum")
 
     tensor_map_1 = TensorMap(
         keys=Labels.single(),
@@ -138,7 +138,7 @@ def test_tmap_loss_no_gradients(type):
 )
 def test_tmap_loss_with_gradients(tensor_map_with_grad_1, tensor_map_with_grad_2, type):
     """Test that the loss is computed correctly when there are gradients."""
-    loss = TensorMapLoss(type=type, gradient_weights={"gradient": 0.5})
+    loss = TensorMapLoss(type=type, gradient_weights={"gradient": 0.5}, reduction="sum")
 
     loss_value = loss(tensor_map_with_grad_1, tensor_map_with_grad_1)
     torch.testing.assert_close(loss_value, torch.tensor(0.0))
@@ -166,7 +166,8 @@ def test_tmap_dict_loss(
             "output_2": 1.0,
             "output_1_gradient_gradients": 0.5,
             "output_2_gradient_gradients": 0.5,
-        }
+        },
+        reduction="sum",
     )
     loss_huber = TensorMapDictLoss(
         weights={
@@ -185,6 +186,7 @@ def test_tmap_dict_loss(
                 }
             }
         },
+        reduction="sum",
     )
 
     output_dict = {
@@ -248,7 +250,8 @@ def test_tmap_dict_loss_subset(tensor_map_with_grad_1, tensor_map_with_grad_3):
             "output_2": 1.0,
             "output_1_gradient_gradients": 0.5,
             "output_2_gradient_gradients": 0.5,
-        }
+        },
+        reduction="sum",
     )
 
     output_dict = {
