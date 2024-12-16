@@ -186,9 +186,9 @@ class PET(torch.nn.Module):
             # at evaluation, we also add the additive contributions
             for additive_model in self.additive_models:
                 outputs_for_additive_model: Dict[str, ModelOutput] = {}
-                for name, output in outputs.items():
-                    if name in additive_model.outputs:
-                        outputs_for_additive_model[name] = output
+                for output_name, output_options in outputs.items():
+                    if output_name in additive_model.outputs:
+                        outputs_for_additive_model[output_name] = output_options
                 additive_contributions = additive_model(
                     systems,
                     outputs_for_additive_model,
