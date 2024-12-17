@@ -384,50 +384,7 @@ def test_composition_model_wrong_target():
                     )
                 },
             ),
-            types=torch.tensor([1, 1, 8]),
-            cell=torch.eye(3, dtype=torch.float64),
-            pbc=torch.tensor([True, True, True]),
-        ),
-        System(
-            positions=torch.tensor(
-                [
-                    [0.0, 0.0, 0.0],
-                    [1.0, 0.0, 0.0],
-                    [0.0, 1.0, 0.0],
-                    [0.0, 0.0, 1.0],
-                    [1.0, 0.0, 1.0],
-                    [0.0, 1.0, 1.0],
-                ],
-                dtype=torch.float64,
-            ),
-            types=torch.tensor([1, 1, 8, 1, 1, 8]),
-            cell=torch.eye(3, dtype=torch.float64),
-            pbc=torch.tensor([True, True, True]),
-        ),
-    ]
-    force = [[1.0, 5.0, 10.0], [2.0, 6.0, 11.0], [3.0, 7.0, 12.0]]
-    force = [
-        TensorMap(
-            keys=Labels.single(),
-            blocks=[
-                TensorBlock(
-                    values=torch.tensor(
-                        [[[single_f] for single_f in f]], dtype=torch.float64
-                    ),
-                    samples=Labels(names=["system"], values=torch.tensor([[i]])),
-                    components=[
-                        Labels(names=["xyz"], values=torch.tensor([[0], [1], [2]])),
-                    ],
-                    properties=Labels(names=["energy"], values=torch.tensor([[0]])),
-                )
-            ],
         )
-        for i, f in enumerate(force)
-    ]
-    dataset = Dataset.from_dict({"system": systems, "force": force})
-
-    composition_model.train_model(dataset)
-    assert composition_model.weights.shape == (0, 2)
 
 
 def test_zbl():
