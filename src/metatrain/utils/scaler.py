@@ -42,6 +42,7 @@ class Scaler(torch.nn.Module):
 
         self.new_targets: Dict[str, TargetInfo] = dataset_info.targets
         self.outputs: Dict[str, ModelOutput] = {}
+
         # Initially, the scales are empty. They will be expanded as new outputs
         # are registered with `_add_output`.
         self.register_buffer("scales", torch.ones((0,), dtype=torch.float64))

@@ -27,26 +27,30 @@ class RMSEAccumulator:
                 self.information[key] = (0.0, 0)
             prediction = predictions[key]
 
-            self.information[key] = (
-                self.information[key][0]
-                + ((prediction.block().values - target.block().values) ** 2)
-                .sum()
-                .item(),
-                self.information[key][1] + prediction.block().values.numel(),
-            )
+            for prediction_block, target_block in zip(
+                prediction.blocks(), target.blocks()
+            ):
 
-            for gradient_name, target_gradient in target.block().gradients():
-                if f"{key}_{gradient_name}_gradients" not in self.information:
-                    self.information[f"{key}_{gradient_name}_gradients"] = (0.0, 0)
-                prediction_gradient = prediction.block().gradient(gradient_name)
-                self.information[f"{key}_{gradient_name}_gradients"] = (
-                    self.information[f"{key}_{gradient_name}_gradients"][0]
-                    + ((prediction_gradient.values - target_gradient.values) ** 2)
+                self.information[key] = (
+                    self.information[key][0]
+                    + ((prediction_block.values - target_block.values) ** 2)
                     .sum()
                     .item(),
-                    self.information[f"{key}_{gradient_name}_gradients"][1]
-                    + prediction_gradient.values.numel(),
+                    self.information[key][1] + prediction_block.values.numel(),
                 )
+
+                for gradient_name, target_gradient in target_block.gradients():
+                    if f"{key}_{gradient_name}_gradients" not in self.information:
+                        self.information[f"{key}_{gradient_name}_gradients"] = (0.0, 0)
+                    prediction_gradient = prediction_block.gradient(gradient_name)
+                    self.information[f"{key}_{gradient_name}_gradients"] = (
+                        self.information[f"{key}_{gradient_name}_gradients"][0]
+                        + ((prediction_gradient.values - target_gradient.values) ** 2)
+                        .sum()
+                        .item(),
+                        self.information[f"{key}_{gradient_name}_gradients"][1]
+                        + prediction_gradient.values.numel(),
+                    )
 
     def finalize(
         self,
@@ -110,28 +114,32 @@ class MAEAccumulator:
                 self.information[key] = (0.0, 0)
             prediction = predictions[key]
 
-            self.information[key] = (
-                self.information[key][0]
-                + (prediction.block().values - target.block().values)
-                .abs()
-                .sum()
-                .item(),
-                self.information[key][1] + prediction.block().values.numel(),
-            )
+            for prediction_block, target_block in zip(
+                prediction.blocks(), target.blocks()
+            ):
 
-            for gradient_name, target_gradient in target.block().gradients():
-                if f"{key}_{gradient_name}_gradients" not in self.information:
-                    self.information[f"{key}_{gradient_name}_gradients"] = (0.0, 0)
-                prediction_gradient = prediction.block().gradient(gradient_name)
-                self.information[f"{key}_{gradient_name}_gradients"] = (
-                    self.information[f"{key}_{gradient_name}_gradients"][0]
-                    + (prediction_gradient.values - target_gradient.values)
+                self.information[key] = (
+                    self.information[key][0]
+                    + (prediction_block.values - target_block.values)
                     .abs()
                     .sum()
                     .item(),
-                    self.information[f"{key}_{gradient_name}_gradients"][1]
-                    + prediction_gradient.values.numel(),
+                    self.information[key][1] + prediction_block.values.numel(),
                 )
+
+                for gradient_name, target_gradient in target_block.gradients():
+                    if f"{key}_{gradient_name}_gradients" not in self.information:
+                        self.information[f"{key}_{gradient_name}_gradients"] = (0.0, 0)
+                    prediction_gradient = prediction_block.gradient(gradient_name)
+                    self.information[f"{key}_{gradient_name}_gradients"] = (
+                        self.information[f"{key}_{gradient_name}_gradients"][0]
+                        + (prediction_gradient.values - target_gradient.values)
+                        .abs()
+                        .sum()
+                        .item(),
+                        self.information[f"{key}_{gradient_name}_gradients"][1]
+                        + prediction_gradient.values.numel(),
+                    )
 
     def finalize(
         self,
