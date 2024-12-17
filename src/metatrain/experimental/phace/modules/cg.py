@@ -88,7 +88,7 @@ def cg_combine_l1l2L(tensor12, cg_tensor):
     )
     return out_tensor.swapaxes(
         1, 2
-    )  # / (cg_tensor.shape[0]*cg_tensor.shape[1]*cg_tensor.shape[2])
+    )
 
 
 def get_cg_coefficients(l_max):

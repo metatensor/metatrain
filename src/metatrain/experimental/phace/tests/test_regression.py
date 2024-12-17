@@ -30,6 +30,7 @@ def test_regression_init():
         length_unit="Angstrom", atomic_types=[1, 6, 7, 8], targets=targets
     )
     model = PhACE(MODEL_HYPERS, dataset_info)
+    model = torch.jit.script(model)
 
     # Predict on the first five systems
     systems = read_systems(DATASET_PATH)[:5]
@@ -106,6 +107,7 @@ def test_regression_train():
     systems = [system.to(torch.float32) for system in systems]
     for system in systems:
         get_system_with_neighbor_lists(system, model.requested_neighbor_lists())
+    model = torch.jit.script(model)
     output = model(
         systems[:5],
         {"mtt::U0": ModelOutput(quantity="energy", unit="", per_atom=False)},
