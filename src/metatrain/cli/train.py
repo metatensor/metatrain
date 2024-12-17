@@ -466,6 +466,16 @@ def train_model(
     )
     mts_atomistic_model = mts_atomistic_model.to(final_device)
 
+    batch_size = _get_batch_size_from_hypers(hypers)
+    if batch_size is None:
+        logger.warning(
+            "Could not find batch size in hypers dictionary. "
+            "Using default value of 1 for final evaluation."
+        )
+        batch_size = 1
+    else:
+        logger.info(f"Running final evaluation with batch size {batch_size}")
+
     for i, train_dataset in enumerate(train_datasets):
         if len(train_datasets) == 1:
             extra_log_message = ""
@@ -478,6 +488,7 @@ def train_model(
             train_dataset,
             dataset_info.targets,
             return_predictions=False,
+            batch_size=batch_size,
         )
 
     for i, val_dataset in enumerate(val_datasets):
@@ -492,6 +503,7 @@ def train_model(
             val_dataset,
             dataset_info.targets,
             return_predictions=False,
+            batch_size=batch_size,
         )
 
     for i, test_dataset in enumerate(test_datasets):
@@ -506,4 +518,23 @@ def train_model(
             test_dataset,
             dataset_info.targets,
             return_predictions=False,
+            batch_size=batch_size,
         )
+
+
+def _get_batch_size_from_hypers(hypers: Union[Dict, DictConfig]) -> Optional[int]:
+    # Recursively searches for "batch_size", "batch-size", "batch size", "batchsize",
+    # or their upper-case equivalents in the hypers dictionary and returns the value.
+    # If not found, it returns None.
+    for key in hypers.keys():
+        value = hypers[key]
+        if isinstance(value, dict) or isinstance(value, DictConfig):
+            batch_size = _get_batch_size_from_hypers(value)
+            if batch_size is not None:
+                return batch_size
+        if (
+            key.lower().replace("_", "").replace("-", "").replace(" ", "")
+            == "batchsize"
+        ):
+            return value
+    return None

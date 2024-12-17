@@ -133,9 +133,7 @@ class EquivariantLastLayer(torch.nn.Module):
         self.single_label = Labels.single()
         self.keys = Labels(
             names=["o3_lambda", "o3_sigma"],
-            values=torch.tensor(
-                [[L, S] for L, S in irreps], dtype=torch.int32
-            ),
+            values=torch.tensor([[L, S] for L, S in irreps], dtype=torch.int32),
         )
 
     def forward(self, features: TensorMap) -> TensorMap:
