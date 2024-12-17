@@ -103,6 +103,7 @@ def test_train(capfd, monkeypatch, tmp_path, output):
     assert "train" in stdout_log
     assert "energy" in stdout_log
     assert "with index" not in stdout_log  # index only printed for more than 1 dataset
+    assert "Running final evaluation with batch size 2" in stdout_log
 
 
 @pytest.mark.parametrize(
