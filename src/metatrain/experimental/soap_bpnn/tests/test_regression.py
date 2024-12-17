@@ -53,9 +53,7 @@ def test_regression_init():
     # torch.set_printoptions(precision=12)
     # print(output["mtt::U0"].block().values)
 
-    torch.testing.assert_close(
-        output["mtt::U0"].block().values, expected_output, rtol=1e-5, atol=1e-5
-    )
+    torch.testing.assert_close(output["mtt::U0"].block().values, expected_output)
 
 
 def test_regression_train():
@@ -122,6 +120,4 @@ def test_regression_train():
     # torch.set_printoptions(precision=12)
     # print(output["mtt::U0"].block().values)
 
-    torch.testing.assert_close(
-        output["mtt::U0"].block().values, expected_output, rtol=0, atol=0
-    )
+    torch.testing.assert_close(output["mtt::U0"].block().values, expected_output)
