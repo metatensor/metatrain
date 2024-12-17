@@ -145,6 +145,5 @@ def test_regression_train():
     # print(output["mtt::U0"].block().values)
 
     torch.testing.assert_close(
-        output["mtt::U0"].block().values,
-        expected_output,
+        output["mtt::U0"].block().values, expected_output, rtol=0, atol=0
     )

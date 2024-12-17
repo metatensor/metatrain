@@ -30,7 +30,7 @@ class TensorMapLoss:
 
     def __init__(
         self,
-        reduction: str = "sum",
+        reduction: str = "mean",
         weight: float = 1.0,
         gradient_weights: Optional[Dict[str, float]] = None,
         type: Union[str, dict] = "mse",
@@ -152,7 +152,7 @@ class TensorMapDictLoss:
     def __init__(
         self,
         weights: Dict[str, float],
-        reduction: str = "sum",
+        reduction: str = "mean",
         type: Union[str, dict] = "mse",
     ):
         outputs = [key for key in weights.keys() if "gradients" not in key]

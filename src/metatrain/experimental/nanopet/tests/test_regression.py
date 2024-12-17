@@ -115,11 +115,11 @@ def test_regression_train():
 
     expected_output = torch.tensor(
         [
-            [0.999483227730],
-            [0.587706327438],
-            [0.266740173101],
-            [0.535432994366],
-            [0.255621850491],
+            [-0.016902115196],
+            [0.100093543530],
+            [0.038387011737],
+            [0.097679324448],
+            [0.118228666484],
         ]
     )
 
@@ -128,5 +128,5 @@ def test_regression_train():
     print(output["mtt::U0"].block().values)
 
     torch.testing.assert_close(
-        output["mtt::U0"].block().values, expected_output, rtol=1e-5, atol=1e-5
+        output["mtt::U0"].block().values, expected_output, rtol=0, atol=0
     )
