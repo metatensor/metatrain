@@ -17,6 +17,7 @@ architecture:
     disable_nu_0: True
     use_sphericart: False
     use_mops: False
+    heads: {}
     zbl: False
 
   training:

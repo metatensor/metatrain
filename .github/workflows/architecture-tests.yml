@@ -16,6 +16,7 @@ jobs:
           - architecture-name: soap-bpnn
           - architecture-name: pet
           - architecture-name: nanopet
+          - architecture-name: phace
 
     runs-on: ubuntu-22.04
 

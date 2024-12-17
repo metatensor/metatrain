@@ -2,11 +2,23 @@ seed: 21
 base_precision: 32
 
 architecture:
-  name: experimental.nanopet
+  name: experimental.phace
+  model:
+    nu_max: 3
+    n_message_passing_layers: 2
+    cutoff: 5.0
+    n_element_channels: 128
+    radial_basis:
+      mlp: true
+      type: physical
+      E_max: 30.0
+    nu_scaling: 0.3
+    mp_scaling: 0.3
   training:
     batch_size: 32
     num_epochs: 2000
     log_mae: true
+    log_interval: 1
 
 training_set:
   systems:
