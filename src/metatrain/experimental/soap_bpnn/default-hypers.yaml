@@ -41,4 +41,4 @@ architecture:
     loss:
       type: mse
       weights: {}
-      reduction: sum
+      reduction: mean

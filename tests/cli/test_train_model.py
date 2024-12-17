@@ -18,11 +18,13 @@ from metatrain.utils.errors import ArchitectureError
 from . import (
     DATASET_PATH_CARBON,
     DATASET_PATH_ETHANOL,
+    DATASET_PATH_QM7X,
     DATASET_PATH_QM9,
     MODEL_PATH_64_BIT,
     OPTIONS_PATH,
     RESOURCES_PATH,
 )
+from .dump_spherical_targets import dump_spherical_targets
 
 
 @pytest.fixture
@@ -101,6 +103,7 @@ def test_train(capfd, monkeypatch, tmp_path, output):
     assert "train" in stdout_log
     assert "energy" in stdout_log
     assert "with index" not in stdout_log  # index only printed for more than 1 dataset
+    assert "Running final evaluation with batch size 2" in stdout_log
 
 
 @pytest.mark.parametrize(
@@ -626,5 +629,26 @@ def test_train_generic_target(monkeypatch, tmp_path):
     }
     options["training_set"]["targets"]["energy"]["per_atom"] = True
     options["training_set"]["targets"]["energy"]["key"] = "forces"
+
+    train_model(options)
+
+
+def test_train_generic_target_metatensor(monkeypatch, tmp_path):
+    """Test training on a spherical rank-2 tensor target in metatensor format"""
+    monkeypatch.chdir(tmp_path)
+    shutil.copy(DATASET_PATH_QM7X, "qm7x_reduced_100.xyz")
+
+    dump_spherical_targets("qm7x_reduced_100.xyz", "qm7x_reduced_100.npz")
+
+    # run training with original options
+    options = OmegaConf.load(OPTIONS_PATH)
+    options["architecture"]["name"] = "experimental.nanopet"
+    options["training_set"]["systems"]["read_from"] = "qm7x_reduced_100.xyz"
+    options["training_set"]["targets"] = {
+        "mtt::polarizability": {
+            "read_from": "qm7x_reduced_100.npz",
+            "type": {"spherical": {"irreps": [{"o3_lambda": 2, "o3_sigma": 1}]}},
+        }
+    }
 
     train_model(options)
