@@ -69,8 +69,8 @@ hyperparameters to tune are (in decreasing order of importance):
   ``huber``. ``huber`` is a subsection of its own, and it requires the user to specify
   the ``deltas`` parameters in a similar way to how the ``weights`` are specified (e.g.,
   ``deltas: {"energy": 0.1, "forces": 0.01}``). 3. ``reduction``. This controls how the
-  loss is reduced over batches. The default value is ``sum``, and the other allowed
-  option is ``mean``.
+  loss is reduced over batches. The default value is ``mean``, and the other allowed
+  option is ``sum``.
 
 
 All Hyperparameters
@@ -79,6 +79,10 @@ All Hyperparameters
 
 model
 #####
+
+:param heads: The type of head (linear or mlp) to use for each target
+:param zbl: Whether to use the ZBL short-range repulsion as the baseline for the model
+
 soap
 ^^^^
 :param cutoff: Spherical cutoff (Å) to use for atomic environments

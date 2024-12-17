@@ -13,6 +13,9 @@ def update_hypers(
     hypers = hypers.copy()
     hypers["ARCHITECTURAL_HYPERS"] = model_hypers
     hypers["ARCHITECTURAL_HYPERS"]["DTYPE"] = "float32"
+    hypers["ARCHITECTURAL_HYPERS"]["D_OUTPUT"] = 1
+    hypers["ARCHITECTURAL_HYPERS"]["TARGET_TYPE"] = "structural"
+    hypers["ARCHITECTURAL_HYPERS"]["TARGET_AGGREGATION"] = "sum"
 
     # set MLIP_SETTINGS
     hypers["MLIP_SETTINGS"] = {

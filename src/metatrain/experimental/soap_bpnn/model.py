@@ -283,7 +283,15 @@ class SoapBpnn(torch.nn.Module):
         # time, and they are added to the output at evaluation time
         composition_model = CompositionModel(
             model_hypers={},
-            dataset_info=dataset_info,
+            dataset_info=DatasetInfo(
+                length_unit=dataset_info.length_unit,
+                atomic_types=self.atomic_types,
+                targets={
+                    target_name: target_info
+                    for target_name, target_info in dataset_info.targets.items()
+                    if CompositionModel.is_valid_target(target_info)
+                },
+            ),
         )
         additive_models = [composition_model]
         if self.hypers["zbl"]:
@@ -375,7 +383,7 @@ class SoapBpnn(torch.nn.Module):
                 and base_name not in features_by_output
             ):
                 raise ValueError(
-                    f"Features {output_name} can only be requested, "
+                    f"Features {output_name} can only be requested "
                     f"if the corresponding output {base_name} is also requested."
                 )
             if f"mtt::{base_name}" in features_by_output:
@@ -412,18 +420,16 @@ class SoapBpnn(torch.nn.Module):
             # at evaluation, we also introduce the scaler and additive contributions
             return_dict = self.scaler(return_dict)
             for additive_model in self.additive_models:
-                # some of the outputs might not be present in the additive model
-                # (e.g. the composition model only provides outputs for scalar targets)
                 outputs_for_additive_model: Dict[str, ModelOutput] = {}
-                for output_name in outputs:
-                    if output_name in additive_model.outputs:
-                        outputs_for_additive_model[output_name] = outputs[output_name]
+                for name, output in outputs.items():
+                    if name in additive_model.outputs:
+                        outputs_for_additive_model[name] = output
                 additive_contributions = additive_model(
-                    systems, outputs_for_additive_model, selected_atoms
+                    systems,
+                    outputs_for_additive_model,
+                    selected_atoms,
                 )
                 for name in additive_contributions:
-                    if name.startswith("mtt::aux::"):
-                        continue  # skip auxiliary outputs (not targets)
                     return_dict[name] = metatensor.torch.add(
                         return_dict[name],
                         additive_contributions[name],

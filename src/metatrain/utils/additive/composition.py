@@ -20,9 +20,9 @@ class CompositionModel(torch.nn.Module):
         target quantities and atomic types.
     """
 
+    weights: torch.Tensor
     outputs: Dict[str, ModelOutput]
     output_name_to_output_index: Dict[str, int]
-    weights: torch.Tensor
 
     def __init__(self, model_hypers: Dict, dataset_info: DatasetInfo):
         super().__init__()
@@ -36,16 +36,24 @@ class CompositionModel(torch.nn.Module):
         self.dataset_info = dataset_info
         self.atomic_types = sorted(dataset_info.atomic_types)
 
+        for target_info in dataset_info.targets.values():
+            if not self.is_valid_target(target_info):
+                raise ValueError(
+                    f"Composition model does not support target quantity "
+                    f"{target_info.quantity}. This is an architecture bug. "
+                    "Please report this issue and help us improve!"
+                )
+
         self.new_targets = {
             target_name: target_info
             for target_name, target_info in dataset_info.targets.items()
-            if target_info.is_scalar and len(target_info.layout.block().properties) == 1
         }
-        self.outputs = {}
+
         self.register_buffer(
             "weights", torch.zeros((0, len(self.atomic_types)), dtype=torch.float64)
         )
-        self.output_name_to_output_index = {}
+        self.output_name_to_output_index: Dict[str, int] = {}
+        self.outputs: Dict[str, ModelOutput] = {}
         for target_name, target_info in self.dataset_info.targets.items():
             self._add_output(target_name, target_info)
 
@@ -117,10 +125,13 @@ class CompositionModel(torch.nn.Module):
                     if target_key in get_all_targets(dataset):
                         datasets_with_target.append(dataset)
                 if len(datasets_with_target) == 0:
-                    raise ValueError(
+                    # this is a possibility when transfer learning
+                    warnings.warn(
                         f"Target {target_key} in the model's new capabilities is not "
-                        "present in any of the training datasets."
+                        "present in any of the training datasets.",
+                        stacklevel=2,
                     )
+                    continue
 
                 targets = torch.stack(
                     [
@@ -182,6 +193,14 @@ class CompositionModel(torch.nn.Module):
                         regularizer *= 10.0
 
     def restart(self, dataset_info: DatasetInfo) -> "CompositionModel":
+        for target_info in dataset_info.targets.values():
+            if not self.is_valid_target(target_info):
+                raise ValueError(
+                    f"Composition model does not support target quantity "
+                    f"{target_info.quantity}. This is an architecture bug. "
+                    "Please report this issue and help us improve!"
+                )
+
         # merge old and new dataset info
         merged_info = self.dataset_info.union(dataset_info)
         new_atomic_types = [
@@ -198,8 +217,6 @@ class CompositionModel(torch.nn.Module):
             target_name: target_info
             for target_name, target_info in merged_info.targets.items()
             if target_name not in self.dataset_info.targets
-            and target_info.is_scalar
-            and len(target_info.layout.block().properties) == 1
         }
 
         # register new outputs
@@ -237,9 +254,7 @@ class CompositionModel(torch.nn.Module):
             self.properties_label = self.properties_label.to(device)
 
         for output_name in outputs:
-            if output_name.startswith("mtt::aux::") or output_name == "features":
-                continue
-            if output_name not in self.outputs.keys():
+            if output_name not in self.output_name_to_output_index:
                 raise ValueError(
                     f"output key {output_name} is not supported by this composition "
                     "model."
@@ -253,11 +268,6 @@ class CompositionModel(torch.nn.Module):
         # number of atoms per atomic type.
         targets_out: Dict[str, TensorMap] = {}
         for target_key, target in outputs.items():
-            if target_key.startswith("mtt::aux::") or target_key == "features":
-                continue
-            if target_key not in self.outputs.keys():
-                # non-scalar
-                continue
             weights = self.weights[self.output_name_to_output_index[target_key]]
 
             concatenated_types = torch.concatenate([system.types for system in systems])
@@ -318,3 +328,17 @@ class CompositionModel(torch.nn.Module):
                 [self.weights, torch.zeros((1, n_types), dtype=self.weights.dtype)]
             )
             self.output_name_to_output_index[target_name] = len(self.weights) - 1
+
+    @staticmethod
+    def is_valid_target(target_info: TargetInfo) -> bool:
+        """Finds if a ``TargetInfo`` object is compatible with a composition model.
+
+        :param target_info: The ``TargetInfo`` object to be checked.
+        """
+        # only scalars can have composition contributions
+        if not target_info.is_scalar:
+            return False
+        # for now, we also require that only one property is present
+        if len(target_info.layout.block().properties) != 1:
+            return False
+        return True

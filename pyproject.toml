@@ -12,7 +12,7 @@ dependencies = [
     "ase < 3.23.0",
     "metatensor-learn==0.3.0",
     "metatensor-operations==0.3.0",
-    "metatensor-torch==0.6.1",
+    "metatensor-torch==0.6.3",
     "jsonschema",
     "omegaconf",
     "python-hostlist",
@@ -65,7 +65,7 @@ alchemical-model = [
   "torch_alchemical @ git+https://github.com/abmazitov/torch_alchemical.git@51ff519",
 ]
 pet = [
-  "pet @ git+https://github.com/lab-cosmo/pet@ee90692",
+  "pet @ git+https://github.com/lab-cosmo/pet@5d40710",
 ]
 nanopet = []
 gap = [

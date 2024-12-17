@@ -366,35 +366,23 @@ def test_composition_model_wrong_target():
     """
     Test the error when a non-scalar is fed to the composition model.
     """
-    composition_model = CompositionModel(
-        model_hypers={},
-        dataset_info=DatasetInfo(
-            length_unit="angstrom",
-            atomic_types=[1, 8],
-            targets={
-                "force": get_generic_target_info(
-                    {
-                        "quantity": "force",
-                        "unit": "",
-                        "type": {"cartesian": {"rank": 1}},
-                        "num_subtargets": 1,
-                        "per_atom": False,
-                    }
-                )
-            },
-        ),
-    )
-
-    systems = [
-        System(
-            positions=torch.tensor([[0.0, 0.0, 0.0]], dtype=torch.float64),
-            types=torch.tensor([8]),
-            cell=torch.eye(3, dtype=torch.float64),
-            pbc=torch.tensor([True, True, True]),
-        ),
-        System(
-            positions=torch.tensor(
-                [[0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [0.0, 1.0, 0.0]], dtype=torch.float64
+    with pytest.raises(ValueError, match="does not support target quantity force"):
+        CompositionModel(
+            model_hypers={},
+            dataset_info=DatasetInfo(
+                length_unit="angstrom",
+                atomic_types=[1],
+                targets={
+                    "force": get_generic_target_info(
+                        {
+                            "quantity": "force",
+                            "unit": "",
+                            "type": {"cartesian": {"rank": 1}},
+                            "num_subtargets": 1,
+                            "per_atom": True,
+                        }
+                    )
+                },
             ),
             types=torch.tensor([1, 1, 8]),
             cell=torch.eye(3, dtype=torch.float64),

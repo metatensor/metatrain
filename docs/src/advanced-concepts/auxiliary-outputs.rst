@@ -1,13 +1,14 @@
 Auxiliary outputs
 =================
 
-These outputs, which are idenfified by the ``mtt::aux::`` prefix,
+These outputs, which are generally idenfified by the ``mtt::aux::`` prefix,
 represent additional information that the model may provide. They are not
-conventional trainable outputs, and they often correspond to internal
-information that the model is capable of providing, such as its internal
-representation.
+conventional trainable outputs, in the sense that they do not correspond to
+training targets. For example, such quantities might be the internal
+representation of the model, uncertainty estimates, or non-trainable
+quantities.
 
-The following auxiliary outputs that are currently supported
+The following auxiliary outputs are currently supported
 by one or more architectures in the library:
 
 - ``mtt::aux::{target}_last_layer_features``: The representation
@@ -16,6 +17,16 @@ by one or more architectures in the library:
    the corresponding representations might be different. This output
    differs from the ``features`` output which is the same for all targets
    of a model.
+- ``features``: A common representation of the model for all targets.
+  Generally, this will correspond to the last representation before the
+  decoder(s), or heads, of the model.
+- ``mtt::aux::{target}_uncertainty`` and ``mtt::aux::{target}_ensemble``:
+  Auxiliary outputs related to uncertainty estimation. For the energy
+  output, ``mtt::aux::energy_ensemble`` is instead named
+  ``energy_uncertainty``. For the moment, these are only accessible
+  through the LLPR module, which itself requires the use of the
+  ``mtt::aux::{target}_last_layer_features`` output.
+
 
 The following table shows the architectures that support each of the
 auxiliary outputs:
@@ -23,7 +34,9 @@ auxiliary outputs:
 +--------------------------------------------+-----------+------------------+-----+-----+---------+
 | Auxiliary output                           | SOAP-BPNN | Alchemical Model | PET | GAP | NanoPET |
 +--------------------------------------------+-----------+------------------+-----+-----+---------+
-| ``mtt::aux::{target}_last_layer_features`` |    Yes    |       No         | No  | No  |   Yes   |
+| ``mtt::aux::{target}_last_layer_features`` |    Yes    |       No         | Yes | No  |   Yes   |
++--------------------------------------------+-----------+------------------+-----+-----+---------+
+| ``features``                               |    Yes    |       No         | Yes | No  |   Yes   |
 +--------------------------------------------+-----------+------------------+-----+-----+---------+
 
 The following tables show the metadata that will be provided for each of the
@@ -67,3 +80,10 @@ mtt::aux::{target}_last_layer_features
     - the last-layer features have a single property dimension named
       ``"properties"``, with entries ranging from 0 to the number of features
       in the last layer.
+
+features
+^^^^^^^^
+
+See the
+`feature output <https://docs.metatensor.org/latest/atomistic/outputs/features.html>`_
+in ``metatensor.torch.atomistic``.
