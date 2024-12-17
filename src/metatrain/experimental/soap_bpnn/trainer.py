@@ -449,6 +449,7 @@ class Trainer:
                     )
 
         # prepare for the checkpoint that will be saved outside the function
+        self.epoch = epoch
         self.optimizer_state_dict = optimizer.state_dict()
         self.scheduler_state_dict = lr_scheduler.state_dict()
 

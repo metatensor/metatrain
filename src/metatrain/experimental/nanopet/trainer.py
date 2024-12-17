@@ -314,8 +314,6 @@ class Trainer:
                 if self.hypers["log_mae"]:
                     train_mae_calculator.update(predictions, targets)
 
-                # count += 1
-
             finalized_train_info = train_rmse_calculator.finalize(
                 not_per_atom=["positions_gradients"] + per_structure_targets,
                 is_distributed=is_distributed,
@@ -461,6 +459,7 @@ class Trainer:
                     )
 
         # prepare for the checkpoint that will be saved outside the function
+        self.epoch = epoch
         self.optimizer_state_dict = optimizer.state_dict()
         self.scheduler_state_dict = lr_scheduler.state_dict()
 
