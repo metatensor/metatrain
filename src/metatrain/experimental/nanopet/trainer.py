@@ -259,6 +259,7 @@ class Trainer:
         if self.best_loss is None:
             self.best_loss = float("inf")
         logger.info("Starting training")
+        epoch = start_epoch
         for epoch in range(start_epoch, start_epoch + self.hypers["num_epochs"]):
             if is_distributed:
                 sampler.set_epoch(epoch)
