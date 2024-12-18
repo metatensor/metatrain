@@ -86,7 +86,10 @@ class RMSEAccumulator:
                 out_key = f"{key} RMSE"
             else:
                 out_key = f"{key} RMSE (per atom)"
-            finalized_info[out_key] = (value[0] / value[1]) ** 0.5
+            if value[1] == 0:
+                finalized_info[out_key] = 0.00000001
+            else:
+                finalized_info[out_key] = (value[0] / value[1]) ** 0.5
 
         return finalized_info
 

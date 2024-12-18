@@ -273,12 +273,8 @@ def _eval_targets(
             torch.cuda.synchronize()
         end_time = time.time()
 
-        batch_predictions_per_atom = average_by_num_atoms(
-            batch_predictions, systems, per_structure_keys=[]
-        )
-        batch_targets_per_atom = average_by_num_atoms(
-            batch_targets, systems, per_structure_keys=[]
-        )
+        batch_predictions_per_atom = batch_predictions
+        batch_targets_per_atom = batch_targets
         rmse_accumulator.update(batch_predictions_per_atom, batch_targets_per_atom)
         mae_accumulator.update(batch_predictions_per_atom, batch_targets_per_atom)
         if return_predictions:

@@ -2,6 +2,7 @@ import copy
 import logging
 from pathlib import Path
 from typing import Dict, List, Tuple, Union
+import metatensor.torch
 
 import torch
 import torch.distributed
@@ -67,7 +68,7 @@ class Trainer:
             if len(devices) > 1:
                 raise ValueError(
                     "Requested distributed training with the `multi-gpu` device. "
-                    " If you want to run distributed training with nanoPET, please "
+                    " If you want to run distributed training with SOAP-BPNN, please "
                     "set `device` to cuda."
                 )
             # the calculation of the device number works both when GPUs on different
@@ -98,7 +99,7 @@ class Trainer:
 
         # Move the model to the device and dtype:
         model.to(device=device, dtype=dtype)
-        # The additive models of nanoPET are always in float64 (to avoid
+        # The additive models of the SOAP-BPNN are always in float64 (to avoid
         # numerical errors in the composition weights, which can be very large).
         for additive_model in model.additive_models:
             additive_model.to(dtype=torch.float64)
@@ -306,6 +307,20 @@ class Trainer:
                 )
                 targets = average_by_num_atoms(targets, systems, per_structure_targets)
 
+                for prediction_name in list(predictions.keys()):
+                    predictions[prediction_name] = metatensor.torch.sort(predictions[prediction_name], axes="samples")
+                for target_name in list(targets.keys()):
+                    targets[target_name] = metatensor.torch.sort(targets[target_name], axes="samples")
+
+                # for (p_n, p_tmap), (t_n, t_tmap) in zip(predictions.items(), targets.items()):
+                #     for p_block, t_block in zip(p_tmap.blocks(), t_tmap.blocks()):
+                #         if "6_6" in p_n:
+                #             torch.set_printoptions(threshold=torch.inf)
+                #             print(p_n, t_n, p_block.samples.names, t_block.samples.names)
+                #             print(p_n, t_n, p_block.samples.values.shape, t_block.samples.values.shape)
+                #             print(p_n, t_n, p_block.samples.values, t_block.samples.values)
+                #             exit()
+
                 train_loss_batch = loss_fn(predictions, targets)
                 train_loss_batch.backward()
                 torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
@@ -363,6 +378,11 @@ class Trainer:
                     predictions, systems, per_structure_targets
                 )
                 targets = average_by_num_atoms(targets, systems, per_structure_targets)
+
+                for prediction_name in list(predictions.keys()):
+                    predictions[prediction_name] = metatensor.torch.sort(predictions[prediction_name], axes="samples")
+                for target_name in list(targets.keys()):
+                    targets[target_name] = metatensor.torch.sort(targets[target_name], axes="samples")
 
                 val_loss_batch = loss_fn(predictions, targets)
 

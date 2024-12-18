@@ -231,26 +231,6 @@ class NanoPET(torch.nn.Module):
             ],
         )
 
-        sample_values = torch.stack(
-            [
-                system_indices,
-                torch.concatenate(
-                    [
-                        torch.arange(
-                            len(system),
-                            device=device,
-                        )
-                        for system in systems
-                    ],
-                ),
-            ],
-            dim=1,
-        )
-        sample_labels = Labels(
-            names=["system", "atom"],
-            values=sample_values,
-        )
-
         (
             positions,
             centers,
@@ -343,89 +323,83 @@ class NanoPET(torch.nn.Module):
 
         edge_features = features * radial_mask[:, :, None]
         node_features = torch.sum(edge_features, dim=1)
+        
+        edge_features = nef_array_to_edges(edge_features, centers, nef_to_edges_neighbor)
+
+        ######### HAMILTONIAN CODE ##########
+
+        species_centers = species[centers]
+        species_neighbors = species[neighbors]
+
+        systems_per_species_pair: Dict[str, torch.Tensor] = {}
+        features_per_species_pair: Dict[str, torch.Tensor] = {}
+        centers_per_species_pair: Dict[str, torch.Tensor] = {}
+        neighbors_per_species_pair: Dict[str, torch.Tensor] = {}
+        cell_shifts_per_species_pair: Dict[str, torch.Tensor] = {}
+        for ai in self.atomic_types:
+            for aj in self.atomic_types:
+                if ai > aj:
+                    continue
+                mask = (
+                    (species_centers == ai)
+                    & (species_neighbors == aj)
+                )
+                systems_per_species_pair[f"{ai}_{aj}"] = system_indices[centers[mask]]
+                features_per_species_pair[f"{ai}_{aj}"] = edge_features[mask]
+                centers_per_species_pair[f"{ai}_{aj}"] = centers[mask]
+                neighbors_per_species_pair[f"{ai}_{aj}"] = neighbors[mask]
+                cell_shifts_per_species_pair[f"{ai}_{aj}"] = cell_shifts[mask]
+                if ai == aj:
+                    mask = (species == ai)
+                    systems_per_species_pair[f"{ai}_{aj}_self"] = system_indices[mask]
+                    features_per_species_pair[f"{ai}_{ai}_self"] = node_features[mask]
+                    centers_per_species_pair[f"{ai}_{ai}_self"] = torch.arange(len(node_features), dtype=torch.int32, device=device)[mask]
 
         return_dict: Dict[str, TensorMap] = {}
-
-        # output the hidden features, if requested:
-        if "features" in outputs:
-            feature_tmap = TensorMap(
-                keys=self.single_label,
-                blocks=[
-                    TensorBlock(
-                        values=node_features,
-                        samples=sample_labels,
-                        components=[],
-                        properties=Labels(
-                            names=["properties"],
-                            values=torch.arange(
-                                node_features.shape[-1], device=node_features.device
-                            ).reshape(-1, 1),
-                        ),
-                    )
-                ],
-            )
-            features_options = outputs["features"]
-            if features_options.per_atom:
-                return_dict["features"] = feature_tmap
-            else:
-                return_dict["features"] = metatensor.torch.sum_over_samples(
-                    feature_tmap, ["atom"]
-                )
-
-        atomic_features_dict: Dict[str, torch.Tensor] = {}
-        for output_name, head in self.heads.items():
-            atomic_features_dict[output_name] = head(node_features)
-
-        # output the last-layer features for the outputs, if requested:
-        for output_name in outputs.keys():
-            if not (
-                output_name.startswith("mtt::aux::")
-                and output_name.endswith("_last_layer_features")
-            ):
-                continue
-            base_name = output_name.replace("mtt::aux::", "").replace(
-                "_last_layer_features", ""
-            )
-            # the corresponding output could be base_name or mtt::base_name
-            if (
-                f"mtt::{base_name}" not in atomic_features_dict
-                and base_name not in atomic_features_dict
-            ):
-                raise ValueError(
-                    f"Features {output_name} can only be requested "
-                    f"if the corresponding output {base_name} is also requested."
-                )
-            if f"mtt::{base_name}" in atomic_features_dict:
-                base_name = f"mtt::{base_name}"
-            last_layer_feature_tmap = TensorMap(
-                keys=self.single_label,
-                blocks=[
-                    TensorBlock(
-                        values=atomic_features_dict[base_name],
-                        samples=sample_labels,
-                        components=[],
-                        properties=Labels(
-                            names=["properties"],
-                            values=torch.arange(
-                                atomic_features_dict[base_name].shape[-1],
-                                device=atomic_features_dict[base_name].device,
-                            ).reshape(-1, 1),
-                        ),
-                    )
-                ],
-            )
-            last_layer_features_options = outputs[output_name]
-            if last_layer_features_options.per_atom:
-                return_dict[output_name] = last_layer_feature_tmap
-            else:
-                return_dict[output_name] = metatensor.torch.sum_over_samples(
-                    last_layer_feature_tmap, ["atom"]
-                )
-
-        atomic_properties_tmap_dict: Dict[str, TensorMap] = {}
         for output_name, last_layer in self.last_layers.items():
-            if output_name in outputs:
-                atomic_features = atomic_features_dict[output_name]
+            if output_name.endswith("_self"):
+                species_pair_key = output_name.split("ham")[1][1:].replace("_self", "")
+                atomic_features = features_per_species_pair[species_pair_key+"_self"]
+                atomic_properties = last_layer(atomic_features)
+                split_atomic_properties_by_block = torch.split(
+                    atomic_properties,
+                    [manual_prod(shape) for shape in self.output_shapes[output_name.replace("_self", "")]],
+                    dim=-1,
+                )
+                blocks = [
+                    TensorBlock(
+                        values=atomic_property.reshape([-1] + shape),
+                        samples=Labels(
+                            names=["system", "first_atom", "second_atom", "cell_shift_a", "cell_shift_b", "cell_shift_c"],
+                            values=torch.stack(
+                                [
+                                    systems_per_species_pair[species_pair_key+"_self"],
+                                    centers_per_species_pair[species_pair_key+"_self"],
+                                    centers_per_species_pair[species_pair_key+"_self"],
+                                    torch.zeros_like(centers_per_species_pair[species_pair_key+"_self"]),
+                                    torch.zeros_like(centers_per_species_pair[species_pair_key+"_self"]),
+                                    torch.zeros_like(centers_per_species_pair[species_pair_key+"_self"]),
+                                ],
+                                dim=-1,
+                            ),
+                        ),
+                        components=components,
+                        properties=properties,
+                    )
+                    for atomic_property, shape, components, properties in zip(
+                        split_atomic_properties_by_block,
+                        self.output_shapes[output_name.replace("_self", "")],
+                        self.component_labels[output_name.replace("_self", "")],
+                        self.property_labels[output_name.replace("_self", "")],
+                    )
+                ]
+                return_dict[output_name] = TensorMap(
+                    keys=self.key_labels[output_name.replace("_self", "")],
+                    blocks=blocks,
+                )
+            else:
+                species_pair_key = output_name.split("ham")[1][1:]
+                atomic_features = features_per_species_pair[species_pair_key]
                 atomic_properties = last_layer(atomic_features)
                 split_atomic_properties_by_block = torch.split(
                     atomic_properties,
@@ -435,7 +409,18 @@ class NanoPET(torch.nn.Module):
                 blocks = [
                     TensorBlock(
                         values=atomic_property.reshape([-1] + shape),
-                        samples=sample_labels,
+                        samples=Labels(
+                            names=["system", "first_atom", "second_atom", "cell_shift_a", "cell_shift_b", "cell_shift_c"],
+                            values=torch.concatenate(
+                                [
+                                    systems_per_species_pair[species_pair_key].unsqueeze(-1),
+                                    centers_per_species_pair[species_pair_key].unsqueeze(-1),
+                                    neighbors_per_species_pair[species_pair_key].unsqueeze(-1),
+                                    cell_shifts_per_species_pair[species_pair_key],
+                                ],
+                                dim=-1,
+                            ),
+                        ),
                         components=components,
                         properties=properties,
                     )
@@ -446,24 +431,30 @@ class NanoPET(torch.nn.Module):
                         self.property_labels[output_name],
                     )
                 ]
-                atomic_properties_tmap_dict[output_name] = TensorMap(
+                return_dict[output_name] = TensorMap(
                     keys=self.key_labels[output_name],
                     blocks=blocks,
                 )
 
-        if selected_atoms is not None:
-            for output_name, tmap in atomic_properties_tmap_dict.items():
-                atomic_properties_tmap_dict[output_name] = metatensor.torch.slice(
-                    tmap, axis="samples", selection=selected_atoms
+        for output_name in return_dict:
+            if output_name.endswith("_self"):
+                # join self to the corresponding pair block
+                output_name_pairs = output_name.split("_self")[0]
+                return_dict[output_name_pairs] = metatensor.torch.join(
+                    [
+                        return_dict[output_name_pairs],
+                        return_dict[output_name],
+                    ],
+                    axis="samples",
+                    remove_tensor_name=True,
                 )
 
-        for output_name, atomic_property in atomic_properties_tmap_dict.items():
-            if outputs[output_name].per_atom:
-                return_dict[output_name] = atomic_property
-            else:
-                return_dict[output_name] = metatensor.torch.sum_over_samples(
-                    atomic_property, ["atom"]
-                )
+        for key in list(return_dict.keys()):
+            if key.endswith("_self"):
+                del return_dict[key]
+
+        ######### END OF HAMILTONIAN CODE ##########
+
 
         if not self.training:
             # at evaluation, we also introduce the scaler and additive contributions
@@ -558,8 +549,17 @@ class NanoPET(torch.nn.Module):
                 torch.nn.Linear(4 * self.hypers["d_pet"], self.hypers["d_pet"]),
                 torch.nn.SiLU(),
             )
+            if target_name.split("_")[1] == target_name.split("_")[2]:
+                self.heads[target_name+"_self"] = torch.nn.Sequential(
+                    torch.nn.Linear(self.hypers["d_pet"], 4 * self.hypers["d_pet"]),
+                    torch.nn.SiLU(),
+                    torch.nn.Linear(4 * self.hypers["d_pet"], self.hypers["d_pet"]),
+                    torch.nn.SiLU(),
+                )
         elif self.head_types[target_name] == "linear":
             self.heads[target_name] = torch.nn.Sequential()
+            if target_name.split("_")[1] == target_name.split("_")[2]:
+                self.heads[target_name+"_self"] = torch.nn.Sequential()
         else:
             raise ValueError(
                 f"Unsupported head type {self.head_types[target_name]} "
@@ -571,6 +571,12 @@ class NanoPET(torch.nn.Module):
             sum(prod(shape) for shape in self.output_shapes[target_name]),
             bias=False,
         )
+        if target_name.split("_")[1] == target_name.split("_")[2]:
+            self.last_layers[target_name+"_self"] = torch.nn.Linear(
+                self.hypers["d_pet"],
+                sum(prod(shape) for shape in self.output_shapes[target_name]),
+                bias=False,
+            )
 
         self.key_labels[target_name] = target_info.layout.keys
         self.component_labels[target_name] = [

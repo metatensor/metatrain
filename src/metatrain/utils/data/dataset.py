@@ -4,12 +4,14 @@ from typing import Any, Dict, List, Tuple, Union
 
 import numpy as np
 from metatensor.learn.data import Dataset, group_and_join
-from metatensor.torch import TensorMap
+from metatensor.torch import TensorMap, TensorBlock, Labels
 from torch.utils.data import Subset
 
 from ..external_naming import to_external_name
 from ..units import get_gradient_units
 from .target_info import TargetInfo
+import metatensor.torch
+import torch
 
 
 class DatasetInfo:
@@ -226,9 +228,34 @@ def collate_fn(batch: List[Dict[str, Any]]) -> Tuple[List, Dict[str, TensorMap]]
     targets.
     """
 
-    collated_targets = group_and_join(batch)
-    collated_targets = collated_targets._asdict()
-    systems = collated_targets.pop("system")
+    systems = []
+    targets_dict = {key: [] for key in batch[0]._asdict().keys() if key != "system"}
+
+    for i, targets in enumerate(batch):
+        for name, target in targets._asdict().items():
+            if hasattr(target, "positions"):
+                systems.append(target)
+            else:
+                new_blocks = []
+                for key, block in target.items():
+                    new_blocks.append(
+                        TensorBlock(
+                            values=block.values,
+                            samples=Labels(
+                                names=block.samples.names,
+                                values=torch.concatenate([torch.tensor([i]*len(block.samples), dtype=torch.int32).unsqueeze(1), block.samples.values[:, 1:]], dim=1)
+                            ),
+                            components=block.components,
+                            properties=block.properties,
+                        )
+                    )
+                new_target = TensorMap(keys=target.keys, blocks=new_blocks)
+                targets_dict[name].append(new_target)
+
+    collated_targets = {}
+    for key, target in targets_dict.items():
+        collated_targets[key] = metatensor.torch.join(target, axis="samples", remove_tensor_name=True)
+
     return systems, collated_targets
 
 
