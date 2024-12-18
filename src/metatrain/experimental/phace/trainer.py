@@ -1,12 +1,10 @@
 import copy
 import logging
 from pathlib import Path
-from typing import Dict, List, Tuple, Union
+from typing import List, Union
 
 import torch
 import torch.distributed
-from metatensor.torch import TensorMap
-from metatensor.torch.atomistic import System
 from torch.utils.data import DataLoader, DistributedSampler
 
 from ...utils.additive import remove_additive
@@ -25,8 +23,11 @@ from ...utils.neighbor_lists import (
 )
 from ...utils.per_atom import average_by_num_atoms
 from ...utils.scaler import remove_scale
-from .model import NanoPET
-from .modules.augmentation import RotationalAugmenter
+from ...utils.transfer import (
+    systems_and_targets_to_device,
+    systems_and_targets_to_dtype,
+)
+from .model import PhACE
 
 
 logger = logging.getLogger(__name__)
@@ -44,14 +45,14 @@ class Trainer:
 
     def train(
         self,
-        model: NanoPET,
+        model: PhACE,
         dtype: torch.dtype,
         devices: List[torch.device],
         train_datasets: List[Union[Dataset, torch.utils.data.Subset]],
         val_datasets: List[Union[Dataset, torch.utils.data.Subset]],
         checkpoint_dir: str,
     ):
-        assert dtype in NanoPET.__supported_dtypes__
+        assert dtype in PhACE.__supported_dtypes__
 
         is_distributed = self.hypers["distributed"]
 
@@ -67,7 +68,7 @@ class Trainer:
             if len(devices) > 1:
                 raise ValueError(
                     "Requested distributed training with the `multi-gpu` device. "
-                    " If you want to run distributed training with nanoPET, please "
+                    " If you want to run distributed training with PhACE, please "
                     "set `device` to cuda."
                 )
             # the calculation of the device number works both when GPUs on different
@@ -98,7 +99,7 @@ class Trainer:
 
         # Move the model to the device and dtype:
         model.to(device=device, dtype=dtype)
-        # The additive models of nanoPET are always in float64 (to avoid
+        # The additive models of the PhACE are always in float64 (to avoid
         # numerical errors in the composition weights, which can be very large).
         for additive_model in model.additive_models:
             additive_model.to(dtype=torch.float64)
@@ -207,9 +208,16 @@ class Trainer:
             **loss_hypers,
         )
 
+        torch.jit.set_fusion_strategy([("DYNAMIC", 0)])
+        scripted_model = torch.jit.script(model)
+        if is_distributed:
+            scripted_model = DistributedDataParallel(
+                scripted_model, device_ids=[device], find_unused_parameters=False
+            )
+
         # Create an optimizer:
         optimizer = torch.optim.Adam(
-            model.parameters(), lr=self.hypers["learning_rate"]
+            model.parameters(), lr=self.hypers["learning_rate"], amsgrad=True
         )
         if self.optimizer_state_dict is not None:
             # try to load the optimizer state dict, but this is only possible
@@ -237,26 +245,6 @@ class Trainer:
 
         start_epoch = 0 if self.epoch is None else self.epoch + 1
 
-        @torch.jit.script
-        def systems_and_targets_to_device(
-            systems: List[System], targets: Dict[str, TensorMap], device: torch.device
-        ) -> Tuple[List[System], Dict[str, TensorMap]]:
-            return (
-                [system.to(device=device) for system in systems],
-                {key: value.to(device=device) for key, value in targets.items()},
-            )
-
-        @torch.jit.script
-        def systems_and_targets_to_dtype(
-            systems: List[System], targets: Dict[str, TensorMap], dtype: torch.dtype
-        ) -> Tuple[List[System], Dict[str, TensorMap]]:
-            return (
-                [system.to(dtype=dtype) for system in systems],
-                {key: value.to(dtype=dtype) for key, value in targets.items()},
-            )
-
-        rotational_augmenter = RotationalAugmenter(train_targets)
-
         # Train the model:
         if self.best_loss is None:
             self.best_loss = float("inf")
@@ -277,9 +265,7 @@ class Trainer:
                 optimizer.zero_grad()
 
                 systems, targets = batch
-                systems, targets = rotational_augmenter.apply_random_augmentations(
-                    systems, targets
-                )
+                systems, targets = batch
                 systems, targets = systems_and_targets_to_device(
                     systems, targets, device
                 )
@@ -294,7 +280,7 @@ class Trainer:
                 )
                 systems, targets = systems_and_targets_to_dtype(systems, targets, dtype)
                 predictions = evaluate_model(
-                    model,
+                    scripted_model,
                     systems,
                     {key: train_targets[key] for key in targets.keys()},
                     is_training=True,
@@ -307,8 +293,8 @@ class Trainer:
                 targets = average_by_num_atoms(targets, systems, per_structure_targets)
 
                 train_loss_batch = loss_fn(predictions, targets)
+                train_loss += train_loss_batch.item()
                 train_loss_batch.backward()
-                torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
                 optimizer.step()
 
                 if is_distributed:
@@ -336,10 +322,9 @@ class Trainer:
             val_loss = 0.0
             for batch in val_dataloader:
                 systems, targets = batch
-                systems = [system.to(device=device) for system in systems]
-                targets = {
-                    key: value.to(device=device) for key, value in targets.items()
-                }
+                systems, targets = systems_and_targets_to_device(
+                    systems, targets, device
+                )
                 for additive_model in (
                     model.module if is_distributed else model
                 ).additive_models:
@@ -349,10 +334,9 @@ class Trainer:
                 targets = remove_scale(
                     targets, (model.module if is_distributed else model).scaler
                 )
-                systems = [system.to(dtype=dtype) for system in systems]
-                targets = {key: value.to(dtype=dtype) for key, value in targets.items()}
+                systems, targets = systems_and_targets_to_dtype(systems, targets, dtype)
                 predictions = evaluate_model(
-                    model,
+                    scripted_model,
                     systems,
                     {key: train_targets[key] for key in targets.keys()},
                     is_training=False,
@@ -365,10 +349,6 @@ class Trainer:
                 targets = average_by_num_atoms(targets, systems, per_structure_targets)
 
                 val_loss_batch = loss_fn(predictions, targets)
-
-                if is_distributed:
-                    # sum the loss over all processes
-                    torch.distributed.all_reduce(val_loss_batch)
                 val_loss += val_loss_batch.item()
                 val_rmse_calculator.update(predictions, targets)
                 if self.hypers["log_mae"]:
@@ -470,7 +450,7 @@ class Trainer:
 
     def save_checkpoint(self, model, path: Union[str, Path]):
         checkpoint = {
-            "architecture_name": "experimental.nanopet",
+            "architecture_name": "experimental.phace",
             "model_hypers": {
                 "model_hypers": model.hypers,
                 "dataset_info": model.dataset_info,

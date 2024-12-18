@@ -71,6 +71,10 @@ gap = [
     "metatensor-learn",
     "scipy",
 ]
+phace = [
+    "physical_basis",
+    "wigners",
+]
 
 [tool.setuptools.packages.find]
 where = ["src"]
