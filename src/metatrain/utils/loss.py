@@ -30,7 +30,7 @@ class TensorMapLoss:
 
     def __init__(
         self,
-        reduction: str = "sum",
+        reduction: str = "mean",
         weight: float = 1.0,
         gradient_weights: Optional[Dict[str, float]] = None,
         type: Union[str, dict] = "mse",
@@ -71,65 +71,62 @@ class TensorMapLoss:
             raise ValueError(
                 "TensorMapLoss requires the two TensorMaps to have the same keys."
             )
-        if tensor_map_1.block().properties != tensor_map_2.block().properties:
-            raise ValueError(
-                "TensorMapLoss requires the two TensorMaps to have the same properties."
-            )
-        if tensor_map_1.block().components != tensor_map_2.block().components:
-            raise ValueError(
-                "TensorMapLoss requires the two TensorMaps to have the same components."
-            )
-        if len(tensor_map_1.block().samples) != len(tensor_map_2.block().samples):
-            raise ValueError(
-                "TensorMapLoss requires the two TensorMaps "
-                "to have the same number of samples."
-            )
-        for gradient_name in self.gradient_weights.keys():
-            if len(tensor_map_1.block().gradient(gradient_name).samples) != len(
-                tensor_map_2.block().gradient(gradient_name).samples
-            ):
+        for block_1, block_2 in zip(tensor_map_1.blocks(), tensor_map_2.blocks()):
+            if block_1.properties != block_2.properties:
+                raise ValueError(
+                    "TensorMapLoss requires the two TensorMaps to have the same "
+                    "properties."
+                )
+            if block_1.components != block_2.components:
+                raise ValueError(
+                    "TensorMapLoss requires the two TensorMaps to have the same "
+                    "components."
+                )
+            if len(block_1.samples) != len(block_2.samples):
                 raise ValueError(
                     "TensorMapLoss requires the two TensorMaps "
-                    "to have the same number of gradient samples."
+                    "to have the same number of samples."
                 )
-            if (
-                tensor_map_1.block().gradient(gradient_name).properties
-                != tensor_map_2.block().gradient(gradient_name).properties
-            ):
-                raise ValueError(
-                    "TensorMapLoss requires the two TensorMaps "
-                    "to have the same gradient properties."
-                )
-            if (
-                tensor_map_1.block().gradient(gradient_name).components
-                != tensor_map_2.block().gradient(gradient_name).components
-            ):
-                raise ValueError(
-                    "TensorMapLoss requires the two TensorMaps "
-                    "to have the same gradient components."
-                )
-
-        # If the two TensorMaps have different symmetry keys:
-        if len(tensor_map_1) != 1:
-            raise NotImplementedError(
-                "TensorMapLoss does not yet support multiple symmetry keys."
-            )
+            for gradient_name in self.gradient_weights.keys():
+                if len(block_1.gradient(gradient_name).samples) != len(
+                    block_2.gradient(gradient_name).samples
+                ):
+                    raise ValueError(
+                        "TensorMapLoss requires the two TensorMaps "
+                        "to have the same number of gradient samples."
+                    )
+                if (
+                    block_1.gradient(gradient_name).properties
+                    != block_2.gradient(gradient_name).properties
+                ):
+                    raise ValueError(
+                        "TensorMapLoss requires the two TensorMaps "
+                        "to have the same gradient properties."
+                    )
+                if (
+                    block_1.gradient(gradient_name).components
+                    != block_2.gradient(gradient_name).components
+                ):
+                    raise ValueError(
+                        "TensorMapLoss requires the two TensorMaps "
+                        "to have the same gradient components."
+                    )
 
         # Compute the loss:
         loss = torch.zeros(
             (),
-            dtype=tensor_map_1.block().values.dtype,
-            device=tensor_map_1.block().values.device,
+            dtype=tensor_map_1.block(0).values.dtype,
+            device=tensor_map_1.block(0).values.device,
         )
 
-        values_1 = tensor_map_1.block().values
-        values_2 = tensor_map_2.block().values
-        loss += self.weight * self.losses["values"](values_1, values_2)
-
-        for gradient_name, gradient_weight in self.gradient_weights.items():
-            values_1 = tensor_map_1.block().gradient(gradient_name).values
-            values_2 = tensor_map_2.block().gradient(gradient_name).values
-            loss += gradient_weight * self.losses[gradient_name](values_1, values_2)
+        for block_1, block_2 in zip(tensor_map_1.blocks(), tensor_map_2.blocks()):
+            values_1 = block_1.values
+            values_2 = block_2.values
+            loss += self.weight * self.losses["values"](values_1, values_2)
+            for gradient_name, gradient_weight in self.gradient_weights.items():
+                values_1 = block_1.gradient(gradient_name).values
+                values_2 = block_2.gradient(gradient_name).values
+                loss += gradient_weight * self.losses[gradient_name](values_1, values_2)
 
         return loss
 
@@ -155,7 +152,7 @@ class TensorMapDictLoss:
     def __init__(
         self,
         weights: Dict[str, float],
-        reduction: str = "sum",
+        reduction: str = "mean",
         type: Union[str, dict] = "mse",
     ):
         outputs = [key for key in weights.keys() if "gradients" not in key]

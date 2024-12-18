@@ -23,11 +23,6 @@ capabilities of the architectures in metatrain.
      - Yes
      - Only with ``o3_lambda=1, o3_sigma=1``
      - No
-   * - Alchemical Model
-     - Energy, forces, stress/virial
-     - No
-     - No
-     - No
    * - GAP
      - Energy, forces
      - No
@@ -41,7 +36,7 @@ capabilities of the architectures in metatrain.
    * - NanoPET
      - Energy, forces, stress/virial
      - Yes
-     - No
+     - Yes
      - Only with ``rank=1`` (vectors)
 
 
