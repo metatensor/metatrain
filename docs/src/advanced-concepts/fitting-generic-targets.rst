@@ -38,6 +38,11 @@ capabilities of the architectures in metatrain.
      - Yes
      - Yes
      - Only with ``rank=1`` (vectors)
+   * - PhACE
+     - Energy, forces, stress/virial
+     - Yes
+     - Only proper tensors (``o3_sigma=1``)
+     - No
 
 
 Preparing generic targets for reading by metatrain
