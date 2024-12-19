@@ -4,7 +4,7 @@ import hostlist
 
 
 def is_slurm():
-    return "SLURM_JOB_ID" in os.environ
+    return ("SLURM_JOB_ID" in os.environ) and ("SLURM_PROCID" in os.environ)
 
 
 def is_slurm_main_process():
