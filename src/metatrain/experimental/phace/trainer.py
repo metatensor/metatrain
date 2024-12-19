@@ -175,7 +175,7 @@ class Trainer:
         val_dataloader = CombinedDataLoader(val_dataloaders, shuffle=False)
 
         # Extract all the possible outputs and their gradients:
-        train_targets = (model.module if is_distributed else model).dataset_info.targets
+        train_targets = model.dataset_info.targets
         outputs_list = []
         for target_name, target_info in train_targets.items():
             outputs_list.append(target_name)
