@@ -30,7 +30,7 @@ jobs:
       if: startsWith(matrix.os, 'ubuntu')
       run: |
         sudo apt-get update
-        sudo apt-get install -y zsh fftw-dev
+        sudo apt-get install -y zsh libfftw3-dev
         touch ~/.zshrc
 
     - name: Set up Python ${{ matrix.python-version }}
