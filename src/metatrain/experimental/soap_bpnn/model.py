@@ -340,7 +340,17 @@ class SoapBpnn(torch.nn.Module):
         self.dataset_info = merged_info
 
         # restart the composition and scaler models
-        self.additive_models[0].restart(dataset_info)
+        self.additive_models[0].restart(
+            dataset_info=DatasetInfo(
+                length_unit=dataset_info.length_unit,
+                atomic_types=self.atomic_types,
+                targets={
+                    target_name: target_info
+                    for target_name, target_info in dataset_info.targets.items()
+                    if CompositionModel.is_valid_target(target_info)
+                },
+            ),
+        )
         self.scaler.restart(dataset_info)
 
         return self
