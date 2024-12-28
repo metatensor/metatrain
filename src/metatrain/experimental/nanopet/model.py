@@ -206,7 +206,7 @@ class NanoPET(torch.nn.Module):
                 targets={
                     target_name: target_info
                     for target_name, target_info in dataset_info.targets.items()
-                    if CompositionModel.is_valid_target(target_info)
+                    if CompositionModel.is_valid_target(target_name, target_info)
                 },
             ),
         )
