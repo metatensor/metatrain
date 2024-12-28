@@ -1,5 +1,7 @@
 from .dataset import (  # noqa: F401
     Dataset,
+    DiskDataset,
+    DiskDatasetWriter,
     DatasetInfo,
     get_atomic_types,
     get_all_targets,

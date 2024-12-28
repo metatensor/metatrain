@@ -8,10 +8,11 @@ architecture:
 
 training_set:
   systems:
-    read_from: qm9_reduced_100.xyz
+    read_from: qm9_reduced_100.zip
     length_unit: angstrom
   targets:
     energy:
+      read_from: qm9_reduced_100.xyz
       key: U0
       unit: eV
 

@@ -1,15 +1,23 @@
 import math
 import warnings
+import zipfile
+from pathlib import Path
 from typing import Any, Dict, List, Tuple, Union
 
 import numpy as np
+import torch
 from metatensor.learn.data import Dataset, group_and_join
-from metatensor.torch import TensorMap
+from metatensor.learn.data._namedtuple import namedtuple
+from metatensor.torch import TensorMap, load_buffer
+from metatensor.torch import save_buffer as mts_save_buffer
+from metatensor.torch.atomistic import System, load_system
+from metatensor.torch.atomistic import save as mta_save
+from omegaconf import DictConfig
 from torch.utils.data import Subset
 
 from ..external_naming import to_external_name
 from ..units import get_gradient_units
-from .target_info import TargetInfo
+from .target_info import TargetInfo, get_energy_target_info, get_generic_target_info
 
 
 class DatasetInfo:
@@ -339,3 +347,71 @@ def _train_test_random_split(
         Subset(train_dataset, train_indices),
         Subset(train_dataset, test_indices),
     ]
+
+
+class DiskDataset(torch.utils.data.Dataset):
+    def __init__(self, path: Union[str, Path]):
+        self.zip_file = zipfile.ZipFile(path, "r")
+        self._field_names = ["system"]
+        for file_name in self.zip_file.namelist():
+            if file_name.startswith("0/") and file_name.endswith(".npy"):
+                self._field_names.append(file_name[2:-4])
+        self._sample_class = namedtuple("Sample", self._field_names)
+        self._len = len(
+            [f for f in self.zip_file.filelist if f.filename.endswith(".mta")]
+        )
+
+    def __len__(self):
+        return self._len
+
+    def __getitem__(self, index):
+        system_and_targets = []
+        for field_name in self._field_names:
+            if field_name == "system":
+                with self.zip_file.open(f"{index}/system.mta", "r") as file:
+                    system = load_system(file)
+                    system_and_targets.append(system)
+            else:
+                with self.zip_file.open(f"{index}/{field_name}.npy", "r") as file:
+                    numpy_buffer = np.load(file)
+                    tensor_buffer = torch.from_numpy(numpy_buffer)
+                    tensor_map = load_buffer(tensor_buffer)
+                    system_and_targets.append(tensor_map)
+        return self._sample_class(*system_and_targets)
+
+    def __del__(self):
+        self.zip_file.close()
+
+    def get_target_info(self, target_config: DictConfig) -> Dict[str, TargetInfo]:
+        target_info = {}
+        for target_key, target in target_config.items():
+            is_energy = (
+                (target["quantity"] == "energy")
+                and (not target["per_atom"])
+                and target["num_subtargets"] == 1
+                and target["type"] == "scalar"
+            )
+            if is_energy:
+                target_info[target_key] = get_energy_target_info(target)
+            else:
+                target_info[target_key] = get_generic_target_info(target)
+        return target_info
+
+
+class DiskDatasetWriter:
+    def __init__(self, path: Union[str, Path]):
+        self.zip_file = zipfile.ZipFile(path, "w")
+        self.index = 0
+
+    def write_sample(self, system: System, targets: Dict[str, TensorMap]):
+        with self.zip_file.open(f"{self.index}/system.mta", "w") as file:
+            mta_save(file, system)
+        for target_name, target in targets.items():
+            with self.zip_file.open(f"{self.index}/{target_name}.npy", "w") as file:
+                tensor_buffer = mts_save_buffer(target)
+                numpy_buffer = tensor_buffer.numpy()
+                np.save(file, numpy_buffer)
+        self.index += 1
+
+    def __del__(self):
+        self.zip_file.close()
