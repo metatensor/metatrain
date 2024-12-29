@@ -23,7 +23,7 @@ class RotationalAugmenter:
         # checks on targets
         for target_info in target_info_dict.values():
             if target_info.is_cartesian:
-                if len(target_info.layout.components) != 1:
+                if len(target_info.layout.block(0).components) != 1:
                     raise ValueError(
                         "RotationalAugmenter only supports Cartesian targets "
                         "with `rank=1`."
