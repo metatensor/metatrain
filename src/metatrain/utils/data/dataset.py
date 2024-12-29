@@ -17,6 +17,7 @@ from torch.utils.data import Subset
 
 from ..external_naming import to_external_name
 from ..units import get_gradient_units
+from .readers.metatensor import _check_tensor_map_metadata, _empty_tensor_map_like
 from .target_info import TargetInfo, get_energy_target_info, get_generic_target_info
 
 
@@ -353,13 +354,18 @@ class DiskDataset(torch.utils.data.Dataset):
     def __init__(self, path: Union[str, Path]):
         self.zip_file = zipfile.ZipFile(path, "r")
         self._field_names = ["system"]
+        # check that we have at least one sample:
+        if "0/system.mta" not in self.zip_file.namelist():
+            raise ValueError(
+                "Could not find `0/system.mta` in the zip file. "
+                "The dataset format might be wrong, or the dataset might be empty. "
+                "Empty disk datasets are not supported."
+            )
         for file_name in self.zip_file.namelist():
             if file_name.startswith("0/") and file_name.endswith(".npy"):
                 self._field_names.append(file_name[2:-4])
         self._sample_class = namedtuple("Sample", self._field_names)
-        self._len = len(
-            [f for f in self.zip_file.filelist if f.filename.endswith(".mta")]
-        )
+        self._len = len([f for f in self.zip_file.namelist() if f.endswith(".mta")])
 
     def __len__(self):
         return self._len
@@ -383,7 +389,7 @@ class DiskDataset(torch.utils.data.Dataset):
         self.zip_file.close()
 
     def get_target_info(self, target_config: DictConfig) -> Dict[str, TargetInfo]:
-        target_info = {}
+        target_info_dict = {}
         for target_key, target in target_config.items():
             is_energy = (
                 (target["quantity"] == "energy")
@@ -391,11 +397,19 @@ class DiskDataset(torch.utils.data.Dataset):
                 and target["num_subtargets"] == 1
                 and target["type"] == "scalar"
             )
+            tensor_map = self[0][target_key]  # always > 0 samples, see above
             if is_energy:
-                target_info[target_key] = get_energy_target_info(target)
+                target_info = get_energy_target_info(target)
+                _check_tensor_map_metadata(tensor_map, target_info.layout)
+                target_info_dict[target_key] = target_info
             else:
-                target_info[target_key] = get_generic_target_info(target)
-        return target_info
+                target_info = get_generic_target_info(target)
+                _check_tensor_map_metadata(tensor_map, target_info.layout)
+                # make sure that the properties of the target_info.layout also match the
+                # actual properties of the tensor maps
+                target_info.layout = _empty_tensor_map_like(tensor_map)
+                target_info_dict[target_key] = target_info
+        return target_info_dict
 
 
 class DiskDatasetWriter:
