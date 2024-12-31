@@ -73,8 +73,10 @@ class GAP(torch.nn.Module):
         print(f"hypers: {self.hypers.keys()}")
         self.filename = self.hypers["filename"]
         print(f"filename: {self.filename}")
+        # Read noise from file
         noise = np.loadtxt(self.filename)
         print(f"noise: {noise}")
+        self.noise_vars = np.diag([(0.5 * err) ** 2 for err in noise])
         
 
         # creates a composition weight tensor that can be directly indexed by species,
@@ -372,7 +374,14 @@ class _SorKernelSolver:
         self.relative_jitter = relative_jitter
 
         self._nM = len(KMM)
+
+        noise = np.loadtxt(PATH)
+        print(f"noise shape: {len(noise)}")
+        noise_vars = np.diag([(0.5 * err) ** 2 for err in noise])
+        self.inv_noise_vars = np.diag([1.0 / s for s in noise_vars])
+
         self.error_matrix = error_matrix
+        
         if self.solver == "RKHS" or self.solver == "RKHS-QR":
             self._vk, self._Uk = scipy.linalg.eigh(KMM)
             self._vk = self._vk[::-1]
@@ -423,6 +432,12 @@ class _SorKernelSolver:
                 assume_a="pos",
             )
         elif self.solver == "RKHS-QR":
+            print(f"KNM shape: {KNM.shape}")
+            print(f"PKPhi shape: {self._PKPhi.shape}")
+            print(f"Y shape: {Y.shape}")
+            print(f"regularizer: {self.regularizer}")
+            print(f"_nM shape: {self._nM}")
+            print(f"inv_noise_vars shape: {self.inv_noise_vars.shape}")
             if self.error_matrix is None:
                 A = np.vstack(
                 [KNM @ self._PKPhi, np.sqrt(self.regularizer) * np.eye(self._nM)]
@@ -431,7 +446,7 @@ class _SorKernelSolver:
                 A = np.vstack(
                     [
                         KNM @ self._PKPhi,
-                        self.error_matrix,
+                        np.sqrt(self.regularizer) * np.eye(self._nM), #self.error_matrix,
                     ]
                 )
             Q, R = np.linalg.qr(A)
@@ -1043,6 +1058,7 @@ def core_labels_to_torch(core_labels: Labels):
     """
     return TorchLabels(core_labels.names, torch.tensor(core_labels.values))
 
+PATH = "/home/apaulish/Documents/code/metatrain/experiments/si_tiny/xyz_datasets/dft_energy_error.dat"
 
 class SubsetOfRegressors:
     def __init__(
@@ -1169,7 +1185,7 @@ class SubsetOfRegressors:
             structures = metatensor.operations._dispatch.unique(
                 k_nm_block.samples["system"]
             )
-            print('$$$$structures',structures)
+            print('structures',structures)
             n_atoms_per_structure = []
             for structure in structures:
                 n_atoms = np.sum(X_block.samples["system"] == structure)
@@ -1179,16 +1195,28 @@ class SubsetOfRegressors:
             normalization = metatensor.operations._dispatch.sqrt(n_atoms_per_structure)
 
             nstructures = len(structures)
+
+            print("alpha_energy",alpha_energy)
+            print("normalization",normalization)
+            print('nstructures',nstructures)
+
+            for i, structure in enumerate(structures):
+                print('n_atoms_per_structure',n_atoms_per_structure[i])
             #TODO: error matrix
-            error_matrix = np.vstack((error_matrix, np.ones(int(n_atoms_per_structure.sum())*3,k_nm_block.values.shape[-1]))) 
+            error_matrix = error_matrix #np.vstack((error_matrix, np.ones(int(n_atoms_per_structure.sum())*3,k_nm_block.values.shape[-1]))) 
 
             if not (np.allclose(alpha_energy, 0.0)):
                 normalization /= alpha_energy
             normalization = normalization[:, None]
-            print('normalization',normalization,k_nm_block.values.shape)
+            print('normalization after division', normalization, k_nm_block.values.shape)
+
+            print("y_block",y_block.values)
 
             k_nm_reg = k_nm_block.values * normalization
             y_reg = (y_block.values) * normalization
+
+            print("y_reg", y_reg)
+            print("y_reg shape", y_reg.shape)
             if len(k_nm_block.gradients_list()) > 0:
                 grad_shape = k_nm_block.gradient("positions").values.shape
                 k_nm_reg = np.vstack(

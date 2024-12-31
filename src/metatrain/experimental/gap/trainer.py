@@ -114,6 +114,12 @@ class Trainer:
         train_tensor = torch_tensor_map_to_core(train_tensor)
         train_y = torch_tensor_map_to_core(train_y)
 
+        y_np = train_y.to(arrays="numpy")
+        print('train_y = ', y_np)
+
+        for key, y_block in y_np.items():
+            print("y_np_block = ", y_block.values)
+
         logger.info("Selecting sparse points")
         lens = len(train_tensor[0].values)
         if model._sampler._n_to_select > lens:
@@ -121,6 +127,7 @@ class Trainer:
                 f"Number of sparse points ({model._sampler._n_to_select}) "
                 f"should be smaller than the number of environments ({lens})"
             )
+        model._sampler._n_to_select = lens # remove this line
         sparse_points = model._sampler.fit_transform(train_tensor)
         print(f'{sparse_points=}')
         print(f'{model._sampler.selected_idx=}')
@@ -138,6 +145,7 @@ class Trainer:
             train_y,
             alpha=alpha_energy,
             alpha_forces=alpha_forces,
+            error_matrix=None,
         )
 
         model._subset_of_regressors_torch = (

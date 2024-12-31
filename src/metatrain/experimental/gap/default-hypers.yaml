@@ -20,10 +20,10 @@ architecture:
           exponent: 7.0
     krr:
       degree: 2
-      num_sparse_points: 500
+      num_sparse_points: 146
     zbl: false
     filename: error.dat
 
   training:
-    regularizer: 0.001
+    regularizer: 1.0 #0.001
     regularizer_forces: null
