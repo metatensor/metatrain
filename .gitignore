@@ -170,3 +170,7 @@ examples/basic_usage/*.xyz
 # sphinx gallery
 docs/src/examples
 *execution_times*
+
+conv-xyz/
+gap-env/
+rascaline/

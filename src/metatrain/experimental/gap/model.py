@@ -74,9 +74,9 @@ class GAP(torch.nn.Module):
         self.filename = self.hypers["filename"]
         print(f"filename: {self.filename}")
         # Read noise from file
-        noise = np.loadtxt(self.filename)
-        print(f"noise: {noise}")
-        self.noise_vars = np.diag([(0.5 * err) ** 2 for err in noise])
+        # noise = np.loadtxt(self.filename)
+        # print(f"noise: {noise}")
+        # self.noise_vars = np.diag([(0.5 * err) ** 2 for err in noise])
         
 
         # creates a composition weight tensor that can be directly indexed by species,
@@ -115,6 +115,7 @@ class GAP(torch.nn.Module):
         self._subset_of_regressors = SubsetOfRegressors(
             kernel_type=model_hypers["krr"].get("kernel", "polynomial"),
             kernel_kwargs=kernel_kwargs,
+            error_file=self.filename,
         )
 
         self._sampler = FPS(n_to_select=model_hypers["krr"]["num_sparse_points"])
@@ -366,8 +367,8 @@ class _SorKernelSolver:
         regularizer: float = 1.0,
         jitter: float = 0.0,
         solver: str = "RKHS",
-        error_matrix: Optional[np.ndarray] = None,
         relative_jitter: bool = True,
+        error_file: Optional[str] = None,
     ):
         self.solver = solver
         self.KMM = KMM
@@ -375,12 +376,17 @@ class _SorKernelSolver:
 
         self._nM = len(KMM)
 
-        noise = np.loadtxt(PATH)
-        print(f"noise shape: {len(noise)}")
-        noise_vars = np.diag([(0.5 * err) ** 2 for err in noise])
-        self.inv_noise_vars = np.diag([1.0 / s for s in noise_vars])
+        if error_file is None:
+            self.inv_noise_vars = None
+        else:    
+            print(f"error_file: {error_file}")
+            noise = np.loadtxt(PATH)
+            print(f"noise shape: {len(noise)}")
+            noise_vars = np.diag([(0.5 * err) ** 2 for err in noise])
+            epsilon = 1e-10  # Small constant to avoid division by zero
+            self.inv_noise_vars = np.diag([1.0 / (s + epsilon) for s in noise_vars])
 
-        self.error_matrix = error_matrix
+        #self.error_matrix = error_matrix
         
         if self.solver == "RKHS" or self.solver == "RKHS-QR":
             self._vk, self._Uk = scipy.linalg.eigh(KMM)
@@ -437,21 +443,27 @@ class _SorKernelSolver:
             print(f"Y shape: {Y.shape}")
             print(f"regularizer: {self.regularizer}")
             print(f"_nM shape: {self._nM}")
-            print(f"inv_noise_vars shape: {self.inv_noise_vars.shape}")
-            if self.error_matrix is None:
+            #print(f"inv_noise_vars shape: {self.inv_noise_vars.shape}")
+            if self.inv_noise_vars is None: #error_matrix is None
+                print("Homoscedastic GPR model...")
                 A = np.vstack(
                 [KNM @ self._PKPhi, np.sqrt(self.regularizer) * np.eye(self._nM)]
                 )
+                B = np.vstack([Y, np.zeros((self._nM, Y.shape[1]))])
             else:
-                A = np.vstack(
-                    [
-                        KNM @ self._PKPhi,
-                        np.sqrt(self.regularizer) * np.eye(self._nM), #self.error_matrix,
-                    ]
-                )
+               print("Heteroscedastic GPR model...")
+               A = np.vstack([
+                    np.sqrt(self.inv_noise_vars) @ (KNM @ self._PKPhi),  # Scale design matrix
+                    np.eye(self._nM)  # Regularization term
+                ])
+               B = np.vstack([
+                    np.sqrt(self.inv_noise_vars) @ Y, # Scale target vector
+                    np.zeros((self._nM, Y.shape[1])) # Regularization zeros
+                ])
+
             Q, R = np.linalg.qr(A)
             self._weights = self._PKPhi @ scipy.linalg.solve_triangular(
-                R, Q.T @ np.vstack([Y, np.zeros((self._nM, Y.shape[1]))])
+                R, Q.T @ B
             )
         elif self.solver == "QR":
             A = np.vstack([KNM, self._VMM])
@@ -852,13 +864,13 @@ class GreedySelector:
             raise ValueError("Only blocks with no components are supported.")
 
         blocks = []
-        print('block in X',X.keys)
+        #print('block in X',X.keys)
         for _, block in X.items():
             selector = self.selector_class(**self.selector_arguments)
             selector.fit(block.values, warm_start=warm_start)
             mask = selector.get_support()
             self.selected_idx = np.sort(selector.selected_idx_)
-            print('mask',mask,np.where(mask),np.sort(selector.selected_idx_))
+            #print('mask',mask,np.where(mask),np.sort(selector.selected_idx_))
 
             if self._selection_type == "feature":
                 samples = Labels.single()
@@ -1065,6 +1077,7 @@ class SubsetOfRegressors:
         self,
         kernel_type: Union[str, AggregateKernel] = "linear",
         kernel_kwargs: Optional[dict] = None,
+        error_file: Optional[str] = None,
     ):
         if kernel_kwargs is None:
             kernel_kwargs = {}
@@ -1073,6 +1086,7 @@ class SubsetOfRegressors:
         self._kernel_kwargs = kernel_kwargs
         self._X_pseudo = None
         self._weights = None
+        self.error_file = error_file
 
     def _set_kernel(self, kernel: Union[str, AggregateKernel], **kernel_kwargs):
         val_kernels = ["linear", "polynomial", "precomputed"]
@@ -1185,7 +1199,7 @@ class SubsetOfRegressors:
             structures = metatensor.operations._dispatch.unique(
                 k_nm_block.samples["system"]
             )
-            print('structures',structures)
+            # print('structures',structures)
             n_atoms_per_structure = []
             for structure in structures:
                 n_atoms = np.sum(X_block.samples["system"] == structure)
@@ -1197,25 +1211,25 @@ class SubsetOfRegressors:
             nstructures = len(structures)
 
             print("alpha_energy",alpha_energy)
-            print("normalization",normalization)
-            print('nstructures',nstructures)
+            # print("normalization",normalization)
+            # print('nstructures',nstructures)
 
-            for i, structure in enumerate(structures):
-                print('n_atoms_per_structure',n_atoms_per_structure[i])
-            #TODO: error matrix
-            error_matrix = error_matrix #np.vstack((error_matrix, np.ones(int(n_atoms_per_structure.sum())*3,k_nm_block.values.shape[-1]))) 
+            # for i, structure in enumerate(structures):
+            #     print('n_atoms_per_structure',n_atoms_per_structure[i])
+            # #TODO: error matrix
+            # error_matrix = error_matrix #np.vstack((error_matrix, np.ones(int(n_atoms_per_structure.sum())*3,k_nm_block.values.shape[-1]))) 
 
             if not (np.allclose(alpha_energy, 0.0)):
                 normalization /= alpha_energy
             normalization = normalization[:, None]
-            print('normalization after division', normalization, k_nm_block.values.shape)
+            # print('normalization after division', normalization, k_nm_block.values.shape)
 
-            print("y_block",y_block.values)
+            # print("y_block",y_block.values)
 
             k_nm_reg = k_nm_block.values * normalization
             y_reg = (y_block.values) * normalization
 
-            print("y_reg", y_reg)
+            # print("y_reg", y_reg)
             print("y_reg shape", y_reg.shape)
             if len(k_nm_block.gradients_list()) > 0:
                 grad_shape = k_nm_block.gradient("positions").values.shape
@@ -1241,7 +1255,7 @@ class SubsetOfRegressors:
                     ]
                 )
             self._solver = _SorKernelSolver(
-                k_mm_block.values, regularizer=1, jitter=0, solver=solver,error_matrix=error_matrix
+                k_mm_block.values, regularizer=1, jitter=0, solver=solver,error_file=self.error_file
             )
 
             if rcond is None:

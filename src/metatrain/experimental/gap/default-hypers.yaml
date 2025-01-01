@@ -22,8 +22,8 @@ architecture:
       degree: 2
       num_sparse_points: 146
     zbl: false
-    filename: error.dat
+    filename: None
 
   training:
-    regularizer: 1.0 #0.001
+    regularizer: 1.0 #0.001 #1.0
     regularizer_forces: null

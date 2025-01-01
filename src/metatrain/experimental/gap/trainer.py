@@ -115,10 +115,10 @@ class Trainer:
         train_y = torch_tensor_map_to_core(train_y)
 
         y_np = train_y.to(arrays="numpy")
-        print('train_y = ', y_np)
+        #print('train_y = ', y_np)
 
-        for key, y_block in y_np.items():
-            print("y_np_block = ", y_block.values)
+        # for key, y_block in y_np.items():
+        #     print("y_np_block = ", y_block.values)
 
         logger.info("Selecting sparse points")
         lens = len(train_tensor[0].values)
@@ -129,8 +129,8 @@ class Trainer:
             )
         model._sampler._n_to_select = lens # remove this line
         sparse_points = model._sampler.fit_transform(train_tensor)
-        print(f'{sparse_points=}')
-        print(f'{model._sampler.selected_idx=}')
+        # print(f'{sparse_points=}')
+        # print(f'{model._sampler.selected_idx=}')
         sparse_points = metatensor.operations.remove_gradients(sparse_points)
         alpha_energy = self.hypers["regularizer"]
         if self.hypers["regularizer_forces"] is None:
