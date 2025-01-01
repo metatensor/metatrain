@@ -376,15 +376,17 @@ class _SorKernelSolver:
 
         self._nM = len(KMM)
 
-        if error_file is None:
+        # print(error_file=='None')
+        if error_file=='None':
             self.inv_noise_vars = None
         else:    
             print(f"error_file: {error_file}")
             noise = np.loadtxt(PATH)
             print(f"noise shape: {len(noise)}")
-            noise_vars = np.diag([(0.5 * err) ** 2 for err in noise])
+            noise_vars = np.diag([(0.5 * err)  for err in noise]) #** 2
             epsilon = 1e-10  # Small constant to avoid division by zero
             self.inv_noise_vars = np.diag([1.0 / (s + epsilon) for s in noise_vars])
+            print(f"inv_noise_vars: {self.inv_noise_vars}")
 
         #self.error_matrix = error_matrix
         
@@ -451,15 +453,19 @@ class _SorKernelSolver:
                 )
                 B = np.vstack([Y, np.zeros((self._nM, Y.shape[1]))])
             else:
-               print("Heteroscedastic GPR model...")
-               A = np.vstack([
-                    np.sqrt(self.inv_noise_vars) @ (KNM @ self._PKPhi),  # Scale design matrix
-                    np.eye(self._nM)  # Regularization term
-                ])
-               B = np.vstack([
-                    np.sqrt(self.inv_noise_vars) @ Y, # Scale target vector
-                    np.zeros((self._nM, Y.shape[1])) # Regularization zeros
-                ])
+                print("Heteroscedastic GPR model...")
+                A = np.vstack(
+                [KNM @ self._PKPhi, np.sqrt(self.regularizer) * np.eye(self._nM)]
+                )
+                B = np.vstack([Y, np.zeros((self._nM, Y.shape[1]))])
+                # A = np.vstack([
+                #         self.inv_noise_vars @ (KNM @ self._PKPhi),  # np.sqrt Scale design matrix
+                #         np.eye(self._nM)  # Regularization term
+                #     ])
+                # B = np.vstack([
+                #     self.inv_noise_vars @ Y, #np.sqrt  Scale target vector 
+                #     np.zeros((self._nM, Y.shape[1])) # Regularization zeros
+                # ])
 
             Q, R = np.linalg.qr(A)
             self._weights = self._PKPhi @ scipy.linalg.solve_triangular(
@@ -1222,12 +1228,33 @@ class SubsetOfRegressors:
             if not (np.allclose(alpha_energy, 0.0)):
                 normalization /= alpha_energy
             normalization = normalization[:, None]
-            # print('normalization after division', normalization, k_nm_block.values.shape)
+            print('normalization after division', normalization)
+            print('normalization shape', normalization.shape)
 
             # print("y_block",y_block.values)
 
-            k_nm_reg = k_nm_block.values * normalization
-            y_reg = (y_block.values) * normalization
+            # Heteroscedastic GPR model
+            #print(f"error_file: {error_file}")
+            if self.error_file=='None':
+                self.inv_noise_vars = None
+            else:    
+                print("Computing noise covariance matrix...")
+                print(f"error_file: {self.error_file}")
+                noise = np.loadtxt(PATH)
+                print(f"noise shape: {len(noise)}")
+                noise_vars = np.diag([(0.5 * err) ** 2   for err in noise]) 
+                epsilon = 1e-10  # Small constant to avoid division by zero
+                self.inv_noise_vars = np.diag([1.0 / (s + epsilon) for s in noise_vars])
+                print(f"inv_noise_vars: {self.inv_noise_vars}")
+                normalization = np.sqrt(self.inv_noise_vars) 
+                normalization = normalization[:, None]
+
+            
+            print('normalization', normalization)
+            print('normalization shape', normalization.shape)
+            print('k_nm_block shape', k_nm_block.values.shape)
+            k_nm_reg = normalization * k_nm_block.values
+            y_reg = normalization * (y_block.values) #* normalization
 
             # print("y_reg", y_reg)
             print("y_reg shape", y_reg.shape)

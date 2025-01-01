@@ -25,5 +25,5 @@ architecture:
     filename: None
 
   training:
-    regularizer: 1.0 #0.001 #1.0
+    regularizer: 0.001 #0.001 #1.0
     regularizer_forces: null
