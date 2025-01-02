@@ -122,12 +122,14 @@ class Trainer:
 
         logger.info("Selecting sparse points")
         lens = len(train_tensor[0].values)
+
+        model._sampler._n_to_select = lens # remove this line
         if model._sampler._n_to_select > lens:
             raise ValueError(
                 f"Number of sparse points ({model._sampler._n_to_select}) "
                 f"should be smaller than the number of environments ({lens})"
             )
-        model._sampler._n_to_select = lens # remove this line
+        
         sparse_points = model._sampler.fit_transform(train_tensor)
         # print(f'{sparse_points=}')
         # print(f'{model._sampler.selected_idx=}')

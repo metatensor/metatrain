@@ -440,11 +440,11 @@ class _SorKernelSolver:
                 assume_a="pos",
             )
         elif self.solver == "RKHS-QR":
-            print(f"KNM shape: {KNM.shape}")
-            print(f"PKPhi shape: {self._PKPhi.shape}")
-            print(f"Y shape: {Y.shape}")
-            print(f"regularizer: {self.regularizer}")
-            print(f"_nM shape: {self._nM}")
+            # print(f"KNM shape: {KNM.shape}")
+            # print(f"PKPhi shape: {self._PKPhi.shape}")
+            # print(f"Y shape: {Y.shape}")
+            # print(f"regularizer: {self.regularizer}")
+            # print(f"_nM shape: {self._nM}")
             #print(f"inv_noise_vars shape: {self.inv_noise_vars.shape}")
             if self.inv_noise_vars is None: #error_matrix is None
                 print("Homoscedastic GPR model...")
@@ -1228,7 +1228,7 @@ class SubsetOfRegressors:
             if not (np.allclose(alpha_energy, 0.0)):
                 normalization /= alpha_energy
             normalization = normalization[:, None]
-            print('normalization after division', normalization)
+            #print('normalization after division', normalization)
             print('normalization shape', normalization.shape)
 
             # print("y_block",y_block.values)
@@ -1250,7 +1250,7 @@ class SubsetOfRegressors:
                 normalization = normalization[:, None]
 
             
-            print('normalization', normalization)
+            #print('normalization', normalization)
             print('normalization shape', normalization.shape)
             print('k_nm_block shape', k_nm_block.values.shape)
             k_nm_reg = normalization * k_nm_block.values

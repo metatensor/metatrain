@@ -1,0 +1,33 @@
+# architecture used to train the model
+architecture:
+  name: experimental.gap
+  # model:
+  #   filename: energy_noise.txt
+    # num_epochs: 100 # a very short training run
+  training:
+    regularizer: 0.001
+
+# Mandatory section defining the parameters for system and target data of the
+# training set
+training_set:
+  systems: "data/dia_gap.xyz" # file where the positions are stored "dia-gap-si-18-noisy.xyz"
+  targets:
+    energy:
+      key: "energy" # name of the target value
+      unit: "eV" # unit of the target value
+      forces: on
+      #key: "dft_force" # name of the target value
+
+test_set: 
+  systems: "data/si_tiny_ecut26.xyz" # 10 % of the training_set are randomly split and taken for test set
+  targets:
+    energy:
+        key: "dft_energy" 
+        unit: "eV"
+validation_set: 
+  systems: "data/gap_ecut26.xyz" # 10 % of the training_set are randomly split and for validation
+  targets:
+    energy:
+      key: "dft_energy"
+      unit: "eV"
+
