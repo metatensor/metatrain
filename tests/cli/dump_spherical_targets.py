@@ -4,33 +4,17 @@ import torch
 from metatensor.torch import Labels, TensorBlock, TensorMap
 
 
-def complex_to_real_spherical_harmonics_transform(ell: int):
-    # Generates the transformation matrix from complex spherical harmonics
-    # to real spherical harmonics for a given l.
-    # Returns a transformation matrix of shape ((2l+1), (2l+1)).
+def l2_components_from_matrix(A):
+    A = A.reshape(3, 3)
 
-    if ell < 0 or not isinstance(ell, int):
-        raise ValueError("l must be a non-negative integer.")
+    l2_A = np.empty((5,))
+    l2_A[0] = (A[0, 1] + A[1, 0]) / 2.0
+    l2_A[1] = (A[1, 2] + A[2, 1]) / 2.0
+    l2_A[2] = (2.0 * A[2, 2] - A[0, 0] - A[1, 1]) / ((2.0) * np.sqrt(3.0))
+    l2_A[3] = (A[0, 2] + A[2, 0]) / 2.0
+    l2_A[4] = (A[0, 0] - A[1, 1]) / 2.0
 
-    # The size of the transformation matrix is (2l+1) x (2l+1)
-    size = 2 * ell + 1
-    U = np.zeros((size, size), dtype=complex)
-
-    for m in range(-ell, ell + 1):
-        m_index = m + ell  # Index in the matrix
-        if m > 0:
-            # Real part of Y_{l}^{m}
-            U[m_index, ell + m] = 1 / np.sqrt(2) * (-1) ** m
-            U[m_index, ell - m] = 1 / np.sqrt(2)
-        elif m < 0:
-            # Imaginary part of Y_{l}^{|m|}
-            U[m_index, ell + abs(m)] = -1j / np.sqrt(2) * (-1) ** m
-            U[m_index, ell - abs(m)] = 1j / np.sqrt(2)
-        else:  # m == 0
-            # Y_{l}^{0} remains unchanged
-            U[m_index, ell] = 1
-
-    return U
+    return l2_A
 
 
 def dump_spherical_targets(path_in, path_out):
@@ -40,33 +24,12 @@ def dump_spherical_targets(path_in, path_out):
 
     structures = ase.io.read(path_in, ":")
 
-    polarizabilities = np.array(
-        [structure.info["polarizability"] for structure in structures]
-    )
-
-    # conversion to spherical from here
-    # https://journals.aps.org/prl/supplemental/10.1103/PhysRevLett.120.036002/SI.pdf
-
-    polarizabilities_xx_xy_xz_yy_yz_zz = polarizabilities[:, [0, 1, 2, 4, 5, 8]]
-
-    l2_transformation_matrix = np.array(
+    polarizabilities_l2 = np.array(
         [
-            [1.0 / 2.0, 0.0, -1.0 / np.sqrt(6.0), 0.0, 1.0 / 2.0],
-            [-1.0j / 2.0, 0.0, 0.0, 0.0, 1.0j / 2.0],
-            [0.0, 1.0 / 2.0, 0.0, -1.0 / 2.0, 0.0],
-            [-1.0 / 2.0, 0.0, -1.0 / np.sqrt(6.0), 0.0, -1.0 / 2.0],
-            [0.0, -1.0j / 2.0, 0.0, -1.0j / 2.0, 0.0],
-            [0.0, 0.0, 2.0 / np.sqrt(6.0), 0.0, 0.0],
+            l2_components_from_matrix(structure.info["polarizability"])
+            for structure in structures
         ]
     )
-
-    polarizabilities_l2 = polarizabilities_xx_xy_xz_yy_yz_zz @ l2_transformation_matrix
-
-    complex_to_real = complex_to_real_spherical_harmonics_transform(2)
-    polarizabilities_l2 = polarizabilities_l2 @ complex_to_real.T
-
-    assert polarizabilities_l2.imag.max() < 1e-10
-    polarizabilities_l2 = polarizabilities_l2.real
 
     samples = Labels(
         names=["system"],
