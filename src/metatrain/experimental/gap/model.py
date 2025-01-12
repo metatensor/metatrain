@@ -1076,7 +1076,7 @@ def core_labels_to_torch(core_labels: Labels):
     """
     return TorchLabels(core_labels.names, torch.tensor(core_labels.values))
 
-PATH = "/home/apaulish/Documents/code/metatrain/experiments/si_tiny/xyz_datasets/dft_energy_error.dat"
+PATH = "/home/apaulish/Documents/code/metatrain/experiments/si_tiny/xyz_datasets/ext_error_18_26.dat" #dft_energy_error.dat"
 
 class SubsetOfRegressors:
     def __init__(
@@ -1240,7 +1240,7 @@ class SubsetOfRegressors:
             else:    
                 print("Computing noise covariance matrix...")
                 print(f"error_file: {self.error_file}")
-                noise = np.loadtxt(PATH)
+                noise = np.loadtxt(self.error_file)
                 print(f"noise shape: {len(noise)}")
                 noise_vars = np.diag([(0.5 * err) ** 2   for err in noise]) 
                 epsilon = 1e-10  # Small constant to avoid division by zero

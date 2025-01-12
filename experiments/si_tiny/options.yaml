@@ -2,7 +2,7 @@
 architecture:
   name: experimental.gap
   model:
-    filename: /home/apaulish/Documents/code/metatrain/experiments/si_tiny/xyz_datasets/dft_energy_error.dat
+    filename: None #/home/apaulish/Documents/code/metatrain/experiments/data/gap_vac1_sp8_dia5_ecut18_errors.txt #gap_ecut18_errors.txt #/home/apaulish/Documents/code/metatrain/experiments/si_tiny/xyz_datasets/ext_error_18_26.dat #dft_energy_error.dat
     # krr:
     #   degree: 2
     #   num_sparse_points: 84
@@ -11,9 +11,9 @@ architecture:
     # num_epochs: 100 # a very short training run
 
 # Mandatory section defining the parameters for system and target data of the
-# training set
+# training set train_si_tiny26_gap_vac1_sp8_ecut18
 training_set:
-  systems: "xyz_datasets/si_tiny_ecut18_energy_force_errors_CLEAN.xyz" # file where the positions are stored
+  systems: "xyz_datasets/si_tiny_ecut26.xyz"  #"../data/train_si_tiny26_gap_vac1_sp8_dia5_ecut18.xyz" # train_si_tiny26_gap_n46_ecut18 #"xyz_datasets/si_tiny_ecut26.xyz" 
   targets:
     energy:
       key: "dft_energy" # name of the target value
@@ -21,17 +21,17 @@ training_set:
       forces: off
 
 test_set: 
-  systems: "data/dia-gap-si-18.xyz" # 10 % of the training_set are randomly split and taken for test set
+  systems: "../data/test_gap_n132_ecut26.xyz" # 10 % of the training_set are randomly split and taken for test set
   targets:
     energy:
-      key: "energy" # name of the target value
+      key: "dft_energy" # name of the target value
       unit: "eV" # unit of the target value
       forces: off
 
 validation_set: 
-  systems: "data/vacancy_gap.xyz" # 10 % of the training_set are randomly split and for validation
+  systems: "../data/test_gap_n132_ecut26.xyz" # 10 % of the training_set are randomly split and for validation
   targets:
     energy:
-      key: "energy" # name of the target value
+      key: "dft_energy" # name of the target value
       unit: "eV" # unit of the target value
       forces: off
