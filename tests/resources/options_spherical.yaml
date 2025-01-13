@@ -1,0 +1,25 @@
+seed: 42
+
+architecture:
+  name: experimental.soap_bpnn
+  training:
+    batch_size: 8
+    num_epochs: 1000
+
+training_set:
+  systems:
+    read_from: ethanol_reduced_100_spherical.xyz
+    length_unit: angstrom
+  targets:
+    mtt::forces:
+      quantity: ""
+      key: forces_spherical
+      per_atom: True
+      unit: eV/A
+      type:
+        spherical:
+          irreps:
+            - {"o3_lambda": 1, "o3_sigma": 1}
+
+test_set: 0.1
+validation_set: 0.1
