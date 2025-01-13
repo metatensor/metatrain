@@ -44,11 +44,11 @@ def test_regression_init():
 
     expected_output = torch.tensor(
         [
-            [0.146335646510],
-            [0.066624015570],
-            [0.077747359872],
-            [0.071314528584],
-            [0.013672338799],
+            [-0.031101370230],
+            [0.057578764856],
+            [0.023473259062],
+            [-0.040009934455],
+            [0.019827004522],
         ]
     )
 
@@ -113,16 +113,16 @@ def test_regression_train():
 
     expected_output = torch.tensor(
         [
-            [0.99948340654373168945],
-            [0.58770644664764404297],
-            [0.26674023270606994629],
-            [0.53543293476104736328],
-            [0.25562191009521484375],
+            [0.197110801935],
+            [0.129495143890],
+            [0.037004686892],
+            [0.096805259585],
+            [0.037616107613],
         ]
     )
 
     # if you need to change the hardcoded values:
-    torch.set_printoptions(precision=12)
-    print(output["mtt::U0"].block().values)
+    # torch.set_printoptions(precision=12)
+    # print(output["mtt::U0"].block().values)
 
     torch.testing.assert_close(output["mtt::U0"].block().values, expected_output)

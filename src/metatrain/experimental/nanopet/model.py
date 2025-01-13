@@ -119,7 +119,7 @@ class NanoPET(torch.nn.Module):
         self.heads = torch.nn.ModuleDict()
         self.head_types = self.hypers["heads"]
         self.last_layers = torch.nn.ModuleDict()
-        self.output_shapes: Dict[str, List[List[int]]] = {}
+        self.output_shapes: Dict[str, Dict[str, List[int]]] = {}
         self.key_labels: Dict[str, Labels] = {}
         self.component_labels: Dict[str, List[List[Labels]]] = {}
         self.property_labels: Dict[str, List[Labels]] = {}
@@ -436,12 +436,11 @@ class NanoPET(torch.nn.Module):
         for output_name, last_layer in self.last_layers.items():
             if output_name in outputs:
                 atomic_features = atomic_features_dict[output_name]
-                atomic_properties = last_layer(atomic_features)
-                split_atomic_properties_by_block = torch.split(
-                    atomic_properties,
-                    [manual_prod(shape) for shape in self.output_shapes[output_name]],
-                    dim=-1,
-                )
+                atomic_properties_by_block = []
+                for last_layer_by_block in last_layer.values():
+                    atomic_properties_by_block.append(
+                        last_layer_by_block(atomic_features)
+                    )
                 blocks = [
                     TensorBlock(
                         values=atomic_property.reshape([-1] + shape),
@@ -450,8 +449,8 @@ class NanoPET(torch.nn.Module):
                         properties=properties,
                     )
                     for atomic_property, shape, components, properties in zip(
-                        split_atomic_properties_by_block,
-                        self.output_shapes[output_name],
+                        atomic_properties_by_block,
+                        self.output_shapes[output_name].values(),
                         self.component_labels[output_name],
                         self.property_labels[output_name],
                     )
@@ -547,12 +546,16 @@ class NanoPET(torch.nn.Module):
 
     def _add_output(self, target_name: str, target_info: TargetInfo) -> None:
 
-        # one output shape for each tensor block
-        self.output_shapes[target_name] = [
-            [len(comp.values) for comp in block.components]
-            + [len(block.properties.values)]
-            for block in target_info.layout.blocks()
-        ]
+        # one output shape for each tensor block, grouped by target (i.e. tensormap)
+        self.output_shapes[target_name] = {}
+        for key, block in target_info.layout.items():
+            dict_key = target_name
+            for n, k in zip(key.names, key.values):
+                dict_key += f"_{n}_{int(k)}"
+            self.output_shapes[target_name][dict_key] = [
+                len(comp.values) for comp in block.components
+            ] + [len(block.properties.values)]
+
         self.outputs[target_name] = ModelOutput(
             quantity=target_info.quantity,
             unit=target_info.unit,
@@ -576,10 +579,15 @@ class NanoPET(torch.nn.Module):
                 f"for target {target_name}"
             )
 
-        self.last_layers[target_name] = torch.nn.Linear(
-            self.hypers["d_pet"],
-            sum(prod(shape) for shape in self.output_shapes[target_name]),
-            bias=False,
+        self.last_layers[target_name] = torch.nn.ModuleDict(
+            {
+                key: torch.nn.Linear(
+                    self.hypers["d_pet"],
+                    prod(shape),
+                    bias=False,
+                )
+                for key, shape in self.output_shapes[target_name].items()
+            }
         )
 
         self.key_labels[target_name] = target_info.layout.keys
