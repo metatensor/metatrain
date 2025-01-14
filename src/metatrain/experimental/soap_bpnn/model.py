@@ -21,7 +21,7 @@ from metatrain.utils.data.dataset import DatasetInfo
 from ...utils.additive import ZBL, CompositionModel
 from ...utils.dtype import dtype_to_str
 from ...utils.scaler import Scaler
-from .spherical import ScalarBasis, TensorBasis, VectorBasis
+from .spherical import TensorBasis
 
 
 class Identity(torch.nn.Module):
@@ -350,7 +350,7 @@ class SoapBpnn(torch.nn.Module):
                     invariant_coefficients = invariant_coefficients.keys_to_samples(
                         "center_type"
                     )
-                    tensor_basis = torch.Tensor()
+                    tensor_basis = torch.Tensor([0])
                     for (
                         output_name_basis,
                         basis_calculators_by_block,
@@ -363,47 +363,37 @@ class SoapBpnn(torch.nn.Module):
                             ) in basis_calculators_by_block.items():
                                 if basis_calculator_key == layer_key:
                                     tensor_basis = basis_calculator(systems)
-                    if tensor_basis.shape == torch.Size([0]):  # torch.Tensor()
-                        # scalar
-                        blocks.append(
-                            TensorBlock(
-                                invariant_coefficients.block().values,
-                                invariant_coefficients.block().samples.remove(
-                                    "center_type"
-                                ),
-                                components,
-                                properties,
+                    # multiply the invariant coefficients by the elements of the
+                    # tensor basis
+                    invariant_coefficients_tensor = (
+                        invariant_coefficients.block().values.reshape(
+                            (
+                                invariant_coefficients.block().values.shape[0],
+                                len(properties),
+                                -1,
                             )
                         )
-                    else:
-                        # multiply the invariant coefficients by the elements of the
-                        # tensor basis
-                        invariant_coefficients_tensor = (
-                            invariant_coefficients.block().values.reshape(
-                                (
-                                    invariant_coefficients.block().values.shape[0],
-                                    len(properties),
-                                    -1,
-                                )
-                            )
+                    )
+                    # [sample, property, basis], [sample, component, property] to
+                    # [sample. component, property]
+                    atomic_property_tensor = torch.einsum(
+                        "spb, scb -> scp",
+                        invariant_coefficients_tensor,
+                        tensor_basis,
+                    )
+                    if len(components) == 0:
+                        # "scalar", i.e. no components
+                        atomic_property_tensor = atomic_property_tensor.squeeze(1)
+                    blocks.append(
+                        TensorBlock(
+                            atomic_property_tensor,
+                            invariant_coefficients.block().samples.remove(
+                                "center_type"
+                            ),
+                            components,
+                            properties,
                         )
-                        # [sample, property, basis], [sample, component, property] to
-                        # [sample. component, property]
-                        atomic_property_tensor = torch.einsum(
-                            "spb, scb -> scp",
-                            invariant_coefficients_tensor,
-                            tensor_basis,
-                        )
-                        blocks.append(
-                            TensorBlock(
-                                atomic_property_tensor,
-                                invariant_coefficients.block().samples.remove(
-                                    "center_type"
-                                ),
-                                components,
-                                properties,
-                            )
-                        )
+                    )
                 atomic_properties[output_name] = TensorMap(
                     self.key_labels[output_name], blocks
                 )
@@ -482,7 +472,7 @@ class SoapBpnn(torch.nn.Module):
 
     def _add_output(self, target_name: str, target: TargetInfo) -> None:
 
-        # register bases of spherical tensors (ScalarBasis, VectorBasis, TensorBasis)
+        # register bases of spherical tensors (TensorBasis)
         self.num_properties[target_name] = {}
         self.basis_calculators[target_name] = torch.nn.ModuleDict({})
         if target.is_scalar:
@@ -493,7 +483,9 @@ class SoapBpnn(torch.nn.Module):
                 self.num_properties[target_name][dict_key] = len(
                     block.properties.values
                 )
-                self.basis_calculators[target_name][dict_key] = ScalarBasis()
+                self.basis_calculators[target_name][dict_key] = TensorBasis(
+                    self.atomic_types, self.hypers["soap"], o3_lambda=0, o3_sigma=1
+                )
         elif target.is_spherical:
             for key, block in target.layout.items():
                 dict_key = target_name
@@ -504,19 +496,9 @@ class SoapBpnn(torch.nn.Module):
                 )
                 o3_lambda = int(key[0])
                 o3_sigma = int(key[1])
-                if o3_lambda == 0 and o3_sigma == 1:
-                    self.basis_calculators[target_name][dict_key] = ScalarBasis()
-                elif o3_lambda == 1 and o3_sigma == 1:
-                    self.basis_calculators[target_name][dict_key] = VectorBasis(
-                        self.atomic_types, self.hypers["soap"]
-                    )
-                elif o3_sigma == 1:
-                    self.basis_calculators[target_name] = TensorBasis()
-                else:
-                    raise ValueError(
-                        f"Unsupported spherical tensor basis: {o3_lambda} {o3_sigma}, "
-                        "pseudo-tensors are not supported yet."
-                    )
+                self.basis_calculators[target_name][dict_key] = TensorBasis(
+                    self.atomic_types, self.hypers["soap"], o3_lambda, o3_sigma
+                )
         else:
             raise ValueError("SOAP-BPNN only supports scalar and spherical targets.")
 
