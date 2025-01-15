@@ -1,7 +1,7 @@
 """Modules to allow SOAP-BPNN to fit arbitrary spherical tensor targets."""
 
 import copy
-from typing import Dict, List
+from typing import Dict, List, Optional
 
 import metatensor.torch
 import numpy as np
@@ -51,12 +51,16 @@ class VectorBasis(torch.nn.Module):
         )
         # this optimizable basis seems to work much better than a fixed one
 
-    def forward(self, systems: List[System]) -> torch.Tensor:
+    def forward(
+        self, systems: List[System], selected_atoms: Optional[Labels]
+    ) -> torch.Tensor:
         device = systems[0].positions.device
         if self.neighbor_species_labels.device != device:
             self.neighbor_species_labels = self.neighbor_species_labels.to(device)
 
-        spherical_expansion = self.soap_calculator(systems)
+        spherical_expansion = self.soap_calculator(
+            systems, selected_samples=selected_atoms
+        )
 
         # by calling keys_to_samples and keys_to_properties in the same order as they
         # are called in the main model, we should ensure that the order of the samples
@@ -137,7 +141,9 @@ class TensorBasis(torch.nn.Module):
             # needed to make torchscript work
             self.cgs = {}  # type: ignore
 
-    def forward(self, systems: List[System]) -> torch.Tensor:
+    def forward(
+        self, systems: List[System], selected_atoms: Optional[Labels]
+    ) -> torch.Tensor:
         # transfer cg dict to device and dtype if needed
         device = systems[0].positions.device
         dtype = systems[0].positions.dtype
@@ -145,21 +151,27 @@ class TensorBasis(torch.nn.Module):
             if v.device != device or v.dtype != dtype:
                 self.cgs[k] = v.to(device, dtype)
 
+        if selected_atoms is None:
+            num_atoms = sum(len(system) for system in systems)
+        else:
+            num_atoms = len(selected_atoms)
+
         if self.o3_lambda == 0:
             basis = torch.ones(
-                (sum(len(system) for system in systems), 1, 1),
+                (num_atoms, 1, 1),
                 device=device,
                 dtype=dtype,
             )
         elif self.o3_lambda == 1:
-            basis = self.vector_basis(systems)
+            basis = self.vector_basis(systems, selected_atoms)
         elif self.o3_lambda == 2:
             basis = torch.empty(
-                (sum(len(system) for system in systems), 5, 5),
+                (num_atoms, 5, 5),
                 device=device,
                 dtype=dtype,
             )
-            vector_basis = self.vector_basis(systems)  # [n_atoms, 3(yzx), 3]
+            vector_basis = self.vector_basis(systems, selected_atoms)
+            # vector_basis is [n_atoms, 3(yzx), 3]
             vector_1_xyz = vector_basis[:, [2, 0, 1], 0]
             vector_2_xyz = vector_basis[:, [2, 0, 1], 1]
             basis[:, :, 0] = self.spherical_hamonics_calculator(vector_1_xyz)[:, 4:]
@@ -188,14 +200,15 @@ class TensorBasis(torch.nn.Module):
         else:  # self.o3_lambda > 2
             basis = torch.empty(
                 (
-                    sum(len(system) for system in systems),
+                    num_atoms,
                     2 * self.o3_lambda + 1,
                     2 * self.o3_lambda + 1,
                 ),
                 device=device,
                 dtype=dtype,
             )
-            vector_basis = self.vector_basis(systems)  # [n_atoms, 3(yzx), 3]
+            vector_basis = self.vector_basis(systems, selected_atoms)
+            # vector_basis is [n_atoms, 3(yzx), 3]
             vector_1_xyz = vector_basis[:, [2, 0, 1], 0]
             vector_2_xyz = vector_basis[:, [2, 0, 1], 1]
             vector_3_spherical = vector_basis[:, :, 2]
@@ -222,7 +235,7 @@ class TensorBasis(torch.nn.Module):
                     ],
                 )
             for lam in range(self.o3_lambda):
-                basis[:, :, self.o3_lambda + lam] = cg_combine(
+                basis[:, :, self.o3_lambda + 1 + lam] = cg_combine(
                     cg_combine(
                         sh_1[:, lam * lam : (lam + 1) * (lam + 1)],
                         sh_2[
@@ -247,7 +260,9 @@ class TensorBasis(torch.nn.Module):
 
         if self.o3_sigma == -1:
             # multiply by pseudotensor
-            vector_basis_pseudotensor = self.vector_basis_pseudotensor(systems)
+            vector_basis_pseudotensor = self.vector_basis_pseudotensor(
+                systems, selected_atoms
+            )
             vector_1_spherical = vector_basis_pseudotensor[:, :, 0]
             vector_2_spherical = vector_basis_pseudotensor[:, :, 1]
             vector_3_spherical = vector_basis_pseudotensor[:, :, 2]
@@ -379,8 +394,8 @@ def _complex_clebsch_gordan_matrix(l1, l2, L):
 
 class FakeVectorBasis(torch.nn.Module):
     # fake class to make torchscript work
-    # def __init__(self, *args, **kwargs):
-    #     super().__init__(*args, **kwargs)
 
-    def forward(self, systems: List[System]) -> torch.Tensor:
+    def forward(
+        self, systems: List[System], selected_atoms: Optional[Labels]
+    ) -> torch.Tensor:
         return torch.tensor(0)

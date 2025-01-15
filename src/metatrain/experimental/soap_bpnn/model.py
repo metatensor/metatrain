@@ -364,7 +364,9 @@ class SoapBpnn(torch.nn.Module):
                                 basis_calculator,
                             ) in basis_calculators_by_block.items():
                                 if basis_calculator_key == layer_key:
-                                    tensor_basis = basis_calculator(systems)
+                                    tensor_basis = basis_calculator(
+                                        systems, selected_atoms
+                                    )
                     # multiply the invariant coefficients by the elements of the
                     # tensor basis
                     invariant_coefficients_tensor = (
@@ -372,7 +374,7 @@ class SoapBpnn(torch.nn.Module):
                             (
                                 invariant_coefficients.block().values.shape[0],
                                 len(properties),
-                                -1,
+                                tensor_basis.shape[2],
                             )
                         )
                     )
