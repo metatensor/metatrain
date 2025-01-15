@@ -1,7 +1,7 @@
 """Modules to allow SOAP-BPNN to fit arbitrary spherical tensor targets."""
 
 import copy
-from typing import List
+from typing import Dict, List
 
 import metatensor.torch
 import numpy as np
@@ -95,6 +95,8 @@ class TensorBasis(torch.nn.Module):
     build a basis of 3 vectors.
     """
 
+    cgs: Dict[str, torch.Tensor]  # torchscript needs this
+
     def __init__(self, atomic_types, soap_hypers, o3_lambda, o3_sigma) -> None:
         super().__init__()
 
@@ -103,11 +105,11 @@ class TensorBasis(torch.nn.Module):
         if self.o3_lambda > 0:
             self.vector_basis = VectorBasis(atomic_types, soap_hypers)
         else:
-            self.vector_basis = None  # type: ignore
+            self.vector_basis = FakeVectorBasis()  # needed to make torchscript work
         if self.o3_sigma == -1:
             self.vector_basis_pseudotensor = VectorBasis(atomic_types, soap_hypers)
         else:
-            self.vector_basis_pseudotensor = None  # type: ignore
+            self.vector_basis_pseudotensor = FakeVectorBasis()  # make torchscript work
 
         if self.o3_lambda > 1:
             try:
@@ -121,26 +123,27 @@ class TensorBasis(torch.nn.Module):
                 l_max=self.o3_lambda
             )
         else:
-            self.spherical_hamonics_calculator = None
+            # needed to make torchscript work
+            self.spherical_hamonics_calculator = torch.nn.Identity()
 
         if self.o3_lambda > 1 or self.o3_sigma == -1:
             self.cgs = {
-                f"{l1}_{l2}_{L}": torch.tensor(array)
-                for (l1, l2, L), array in get_cg_coefficients(
+                f"{l1}_{l2}_{L}": cg_tensor
+                for (l1, l2, L), cg_tensor in get_cg_coefficients(
                     max(self.o3_lambda, 1)  # need at least 1 for pseudoscalar case
                 )._cgs.items()
             }
         else:
-            self.cgs = None  # type: ignore
+            # needed to make torchscript work
+            self.cgs = {}  # type: ignore
 
     def forward(self, systems: List[System]) -> torch.Tensor:
         # transfer cg dict to device and dtype if needed
         device = systems[0].positions.device
         dtype = systems[0].positions.dtype
-        if self.cgs is not None:
-            for k, v in self.cgs.items():
-                if v.device != device or v.dtype != dtype:
-                    self.cgs[k] = v.to(device, dtype)
+        for k, v in self.cgs.items():
+            if v.device != device or v.dtype != dtype:
+                self.cgs[k] = v.to(device, dtype)
 
         if self.o3_lambda == 0:
             basis = torch.ones(
@@ -182,7 +185,7 @@ class TensorBasis(torch.nn.Module):
             basis[:, :, 4] = cg_combine(
                 vector_2_spherical, vector_3_spherical, self.cgs["1_1_2"]
             )
-        elif self.o3_lambda > 2:
+        else:  # self.o3_lambda > 2
             basis = torch.empty(
                 (
                     sum(len(system) for system in systems),
@@ -203,10 +206,12 @@ class TensorBasis(torch.nn.Module):
             sh_2 = self.spherical_hamonics_calculator(vector_2_xyz)
             for lam in range(self.o3_lambda + 1):
                 basis[:, :, lam] = cg_combine(
-                    sh_1[:, lam**2 : (lam + 1) ** 2],
+                    sh_1[:, lam * lam : (lam + 1) * (lam + 1)],
                     sh_2[
                         :,
-                        (self.o3_lambda - lam) ** 2 : ((self.o3_lambda - lam) + 1) ** 2,
+                        (self.o3_lambda - lam)
+                        * (self.o3_lambda - lam) : ((self.o3_lambda - lam) + 1)
+                        * ((self.o3_lambda - lam) + 1),
                     ],
                     self.cgs[
                         str(lam)
@@ -219,12 +224,14 @@ class TensorBasis(torch.nn.Module):
             for lam in range(self.o3_lambda):
                 basis[:, :, self.o3_lambda + lam] = cg_combine(
                     cg_combine(
-                        sh_1[:, lam**2 : (lam + 1) ** 2],
+                        sh_1[:, lam * lam : (lam + 1) * (lam + 1)],
                         sh_2[
                             :,
                             (self.o3_lambda - lam - 1)
-                            ** 2 : ((self.o3_lambda - lam - 1) + 1)
-                            ** 2,
+                            * (self.o3_lambda - lam - 1) : (
+                                (self.o3_lambda - lam - 1) + 1
+                            )
+                            * ((self.o3_lambda - lam - 1) + 1),
                         ],
                         self.cgs[
                             str(lam)
@@ -368,3 +375,12 @@ def _complex_clebsch_gordan_matrix(l1, l2, L):
         return np.zeros((2 * l1 + 1, 2 * l2 + 1, 2 * L + 1), dtype=np.double)
     else:
         return wigners.clebsch_gordan_array(l1, l2, L)
+
+
+class FakeVectorBasis(torch.nn.Module):
+    # fake class to make torchscript work
+    # def __init__(self, *args, **kwargs):
+    #     super().__init__(*args, **kwargs)
+
+    def forward(self, systems: List[System]) -> torch.Tensor:
+        return torch.tensor(0)

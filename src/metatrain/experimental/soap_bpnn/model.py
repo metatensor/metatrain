@@ -123,6 +123,8 @@ class SoapBpnn(torch.nn.Module):
     __supported_devices__ = ["cuda", "cpu"]
     __supported_dtypes__ = [torch.float64, torch.float32]
 
+    component_labels: Dict[str, List[List[Labels]]]  # torchscript needs this
+
     def __init__(self, model_hypers: Dict, dataset_info: DatasetInfo) -> None:
         super().__init__()
         self.hypers = model_hypers
@@ -339,18 +341,18 @@ class SoapBpnn(torch.nn.Module):
         for output_name, output_layers in self.last_layers.items():
             if output_name in outputs:
                 blocks: List[TensorBlock] = []
-                for (layer_key, output_layer), components, properties in zip(
-                    output_layers.items(),
-                    self.component_labels[output_name],
-                    self.property_labels[output_name],
+                for layer_idx, (layer_key, output_layer) in enumerate(
+                    output_layers.items()
                 ):
+                    components = self.component_labels[output_name][layer_idx]
+                    properties = self.property_labels[output_name][layer_idx]
                     invariant_coefficients = output_layer(
                         features_by_output[output_name]
                     )
                     invariant_coefficients = invariant_coefficients.keys_to_samples(
                         "center_type"
                     )
-                    tensor_basis = torch.Tensor([0])
+                    tensor_basis = torch.tensor(0)
                     for (
                         output_name_basis,
                         basis_calculators_by_block,
