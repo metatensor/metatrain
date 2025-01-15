@@ -2,18 +2,22 @@
 architecture:
   name: experimental.gap
   model:
-    filename: None #/home/apaulish/Documents/code/metatrain/experiments/data/gap_vac1_sp8_dia5_ecut18_errors.txt #gap_ecut18_errors.txt #/home/apaulish/Documents/code/metatrain/experiments/si_tiny/xyz_datasets/ext_error_18_26.dat #dft_energy_error.dat
+    filename: None #/home/apaulish/Documents/code/metatrain/experiments/data/si_tiny_ecut10_gap_vac1_sp8_dia5_ecut10_errors.txt #gap_ecut18_errors.txt #/home/apaulish/Documents/code/metatrain/experiments/si_tiny/xyz_datasets/ext_error_18_26.dat #dft_energy_error.dat
+    # si_tiny_ecut18_gap_vac1_sp8_dia5_ecut18_errors
+    # gap_vac1_sp8_dia5_ecut18_errors
     # krr:
     #   degree: 2
     #   num_sparse_points: 84
   training:
-    regularizer: 0.001 # used only in homoscedastic noise model
+    regularizer: 0.005 # used only in homoscedastic noise model
     # num_epochs: 100 # a very short training run
 
 # Mandatory section defining the parameters for system and target data of the
 # training set train_si_tiny26_gap_vac1_sp8_ecut18
 training_set:
-  systems: "xyz_datasets/si_tiny_ecut26.xyz"  #"../data/train_si_tiny26_gap_vac1_sp8_dia5_ecut18.xyz" # train_si_tiny26_gap_n46_ecut18 #"xyz_datasets/si_tiny_ecut26.xyz" 
+  systems: "xyz_datasets/si_tiny_ecut18.xyz" #../data/train_si_tiny10_gap_vac1_sp8_dia5_ecut10
+  # train_si_tiny26_dia3_ecut18 
+  #train_si_tiny26_gap_vac1_sp8_dia5_ecut18.xyz" #  train_si_tiny26_dia3_ecut18 #"xyz_datasets/si_tiny_ecut26.xyz" 
   targets:
     energy:
       key: "dft_energy" # name of the target value

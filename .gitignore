@@ -174,3 +174,11 @@ docs/src/examples
 conv-xyz/
 gap-env/
 rascaline/
+
+experiments/dia_si/
+experiments/data
+
+experiments/si_tiny_het/
+experiments/si_tiny/data/
+experiments/si_tiny/images/
+experiments/si_tiny/xyz_datasets/
