@@ -551,7 +551,7 @@ class SoapBpnn(torch.nn.Module):
                     values=torch.tensor(self.atomic_types).reshape(-1, 1),
                 ),
                 "in_features": self.n_inputs_last_layer,
-                "out_features": len(target.layout.block().properties.values)
+                "out_features": len(block.properties.values)
                 * (1 if target.is_scalar else len(block.components[0])),
                 "bias": False,
                 "out_properties": [out_properties for _ in self.atomic_types],

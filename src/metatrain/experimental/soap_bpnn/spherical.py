@@ -120,14 +120,17 @@ class TensorBasis(torch.nn.Module):
             self.spherical_hamonics_calculator = sphericart.torch.SphericalHarmonics(
                 l_max=self.o3_lambda
             )
+        else:
+            self.spherical_hamonics_calculator = None
+
+        if self.o3_lambda > 1 or self.o3_sigma == -1:
             self.cgs = {
                 f"{l1}_{l2}_{L}": torch.tensor(array)
                 for (l1, l2, L), array in get_cg_coefficients(
-                    self.o3_lambda
+                    max(self.o3_lambda, 1)  # need at least 1 for pseudoscalar case
                 )._cgs.items()
             }
         else:
-            self.spherical_hamonics_calculator = None
             self.cgs = None  # type: ignore
 
     def forward(self, systems: List[System]) -> torch.Tensor:
@@ -148,7 +151,11 @@ class TensorBasis(torch.nn.Module):
         elif self.o3_lambda == 1:
             basis = self.vector_basis(systems)
         elif self.o3_lambda == 2:
-            basis = torch.empty((len(systems), 5, 5), device=device, dtype=dtype)
+            basis = torch.empty(
+                (sum(len(system) for system in systems), 5, 5),
+                device=device,
+                dtype=dtype,
+            )
             vector_basis = self.vector_basis(systems)  # [n_atoms, 3(yzx), 3]
             vector_1_xyz = vector_basis[:, [2, 0, 1], 0]
             vector_2_xyz = vector_basis[:, [2, 0, 1], 1]
@@ -206,7 +213,7 @@ class TensorBasis(torch.nn.Module):
                         + "_"
                         + str(self.o3_lambda - lam)
                         + "_"
-                        + self.o3_lambda
+                        + str(self.o3_lambda)
                     ],
                 )
             for lam in range(self.o3_lambda):
@@ -224,14 +231,14 @@ class TensorBasis(torch.nn.Module):
                             + "_"
                             + str(self.o3_lambda - lam - 1)
                             + "_"
-                            + self.o3_lambda
+                            + str(self.o3_lambda - 1)
                         ],
                     ),
                     vector_3_spherical,
-                    self.cgs[str(self.o3_lambda - 1) + "_1_" + self.o3_lambda],
+                    self.cgs[str(self.o3_lambda - 1) + "_1_" + str(self.o3_lambda)],
                 )
 
-        if self.o3_sigma == 0:
+        if self.o3_sigma == -1:
             # multiply by pseudotensor
             vector_basis_pseudotensor = self.vector_basis_pseudotensor(systems)
             vector_1_spherical = vector_basis_pseudotensor[:, :, 0]
