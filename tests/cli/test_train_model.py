@@ -1,5 +1,6 @@
 import glob
 import logging
+import os
 import re
 import shutil
 import subprocess
@@ -81,7 +82,7 @@ def test_train(capfd, monkeypatch, tmp_path, output):
 
     # Test if training indices are saved
     for subset in ["training", "validation", "test"]:
-        subset_glob = glob.glob(f"outputs/*/*/indices/{subset}.npy")
+        subset_glob = glob.glob(f"outputs/*/*/indices/{subset}.txt")
         assert len(subset_glob) == 1
 
     # Open the log file and check if the logging is correct
@@ -149,8 +150,9 @@ def test_train_from_options_restart_yaml(monkeypatch, tmp_path):
     train_model(options)
 
     # run training with options_restart.yaml
+    os.mkdir("outputs/")
     options_restart = OmegaConf.load("options_restart.yaml")
-    train_model(options_restart)
+    train_model(options_restart, checkpoint_dir="outputs/")
 
 
 def test_train_unknonw_arch_options(monkeypatch, tmp_path):
@@ -510,12 +512,14 @@ def test_model_consistency_with_seed(options, monkeypatch, tmp_path, seed):
     if seed is not None:
         options["seed"] = seed
 
-    train_model(options, output="model1.pt")
+    os.mkdir("outputs_1/")
+    train_model(options, output="model1.pt", checkpoint_dir="outputs_1/")
 
     if seed is None:
         options["seed"] = RANDOM_SEED + 1
 
-    train_model(options, output="model2.pt")
+    os.mkdir("outputs_2/")
+    train_model(options, output="model2.pt", checkpoint_dir="outputs_2/")
 
     m1 = torch.load("model1.ckpt", weights_only=False)
     m2 = torch.load("model2.ckpt", weights_only=False)
