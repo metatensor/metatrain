@@ -1,6 +1,8 @@
 import math
+import os
 import warnings
-from typing import Any, Dict, List, Tuple, Union
+from pathlib import Path
+from typing import Any, Dict, List, Optional, Tuple, Union
 
 import numpy as np
 from metatensor.learn.data import Dataset, group_and_join
@@ -339,3 +341,58 @@ def _train_test_random_split(
         Subset(train_dataset, train_indices),
         Subset(train_dataset, test_indices),
     ]
+
+
+def _save_indices(
+    train_indices: List[Optional[List[int]]],
+    val_indices: List[Optional[List[int]]],
+    test_indices: List[Optional[List[int]]],
+    checkpoint_dir: Union[str, Path],
+) -> None:
+    # Save the indices of the training, validation, and test sets to the checkpoint
+    # directory. This is useful for plotting errors and similar.
+
+    # case 1: all indices are None (i.e. all datasets were user-provided explicitly)
+    if all(indices is None for indices in train_indices):
+        return
+
+    # case 2: there is only one dataset
+    elif len(train_indices) == 1:  # val and test are the same length
+        os.mkdir(os.path.join(checkpoint_dir, "indices/"))
+        if train_indices is not None:
+            np.save(
+                os.path.join(checkpoint_dir, "indices/training.npy"),
+                train_indices[0],
+            )
+        if val_indices is not None:
+            np.save(
+                os.path.join(checkpoint_dir, "indices/validation.npy"),
+                val_indices[0],
+            )
+        if test_indices is not None:
+            np.save(
+                os.path.join(checkpoint_dir, "indices/test.npy"),
+                test_indices[0],
+            )
+
+    # case 3: there are multiple datasets
+    else:
+        os.mkdir(os.path.join(checkpoint_dir, "indices/"))
+        for i, (train, val, test) in enumerate(
+            zip(train_indices, val_indices, test_indices)
+        ):
+            if train is not None:
+                np.save(
+                    os.path.join(checkpoint_dir, f"indices/training_{i}.npy"),
+                    train,
+                )
+            if val is not None:
+                np.save(
+                    os.path.join(checkpoint_dir, f"indices/validation_{i}.npy"),
+                    val,
+                )
+            if test is not None:
+                np.save(
+                    os.path.join(checkpoint_dir, f"indices/test_{i}.npy"),
+                    test,
+                )

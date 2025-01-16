@@ -69,20 +69,12 @@ class VectorBasis(torch.nn.Module):
             self.neighbor_species_labels
         )
 
-        # drop all l=0 blocks
-        keys_to_drop_list: List[List[int]] = []
-        for key in spherical_expansion.keys.values:
-            o3_lambda = int(key[0])
-            o3_sigma = int(key[1])
-            center_species = int(key[2])
-            if o3_lambda == 0 and o3_sigma == 1:
-                keys_to_drop_list.append([o3_lambda, o3_sigma, center_species])
-        keys_to_drop = Labels(
-            names=["o3_lambda", "o3_sigma", "center_type"],
-            values=torch.tensor(keys_to_drop_list, device=device),
-        )
+        # drop all L=0 blocks
         spherical_expansion = metatensor.torch.drop_blocks(
-            spherical_expansion, keys=keys_to_drop
+            spherical_expansion,
+            keys=Labels(
+                ["o3_lambda", "o3_sigma"], torch.tensor([[0, 1]], device=device)
+            ),
         )
 
         basis_vectors = self.contraction(spherical_expansion)
