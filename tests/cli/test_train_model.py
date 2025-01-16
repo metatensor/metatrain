@@ -82,7 +82,7 @@ def test_train(capfd, monkeypatch, tmp_path, output):
 
     # Test if training indices are saved
     for subset in ["training", "validation", "test"]:
-        subset_glob = glob.glob(f"outputs/*/*/indices/{subset}.npy")
+        subset_glob = glob.glob(f"outputs/*/*/indices/{subset}.txt")
         assert len(subset_glob) == 1
 
     # Open the log file and check if the logging is correct

@@ -360,18 +360,18 @@ def _save_indices(
     elif len(train_indices) == 1:  # val and test are the same length
         os.mkdir(os.path.join(checkpoint_dir, "indices/"))
         if train_indices is not None:
-            np.save(
-                os.path.join(checkpoint_dir, "indices/training.npy"),
+            np.savetxt(
+                os.path.join(checkpoint_dir, "indices/training.txt"),
                 train_indices[0],
             )
         if val_indices is not None:
-            np.save(
-                os.path.join(checkpoint_dir, "indices/validation.npy"),
+            np.savetxt(
+                os.path.join(checkpoint_dir, "indices/validation.txt"),
                 val_indices[0],
             )
         if test_indices is not None:
-            np.save(
-                os.path.join(checkpoint_dir, "indices/test.npy"),
+            np.savetxt(
+                os.path.join(checkpoint_dir, "indices/test.txt"),
                 test_indices[0],
             )
 
@@ -382,17 +382,17 @@ def _save_indices(
             zip(train_indices, val_indices, test_indices)
         ):
             if train is not None:
-                np.save(
-                    os.path.join(checkpoint_dir, f"indices/training_{i}.npy"),
+                np.savetxt(
+                    os.path.join(checkpoint_dir, f"indices/training_{i}.txt"),
                     train,
                 )
             if val is not None:
-                np.save(
-                    os.path.join(checkpoint_dir, f"indices/validation_{i}.npy"),
+                np.savetxt(
+                    os.path.join(checkpoint_dir, f"indices/validation_{i}.txt"),
                     val,
                 )
             if test is not None:
-                np.save(
-                    os.path.join(checkpoint_dir, f"indices/test_{i}.npy"),
+                np.savetxt(
+                    os.path.join(checkpoint_dir, f"indices/test_{i}.txt"),
                     test,
                 )
