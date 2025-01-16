@@ -151,8 +151,8 @@ def test_train_from_options_restart_yaml(monkeypatch, tmp_path):
 
     # run training with options_restart.yaml
     os.mkdir("outputs/")
-    options_restart = OmegaConf.load("options_restart.yaml", checkpoint_dir="outputs/")
-    train_model(options_restart)
+    options_restart = OmegaConf.load("options_restart.yaml")
+    train_model(options_restart, checkpoint_dir="outputs/")
 
 
 def test_train_unknonw_arch_options(monkeypatch, tmp_path):
