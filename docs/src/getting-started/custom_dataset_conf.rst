@@ -26,7 +26,8 @@ Below is the simplest form of these sections:
     validation_set: 0.1
 
 This configuration parses all information from ``dataset.xyz``, with 20% of the training
-set randomly selected for testing and validation (10% each).
+set randomly selected for testing and validation (10% each). The selected indices for
+the training, validation and test subset will be available in the ``outputs`` directory.
 
 Expanded Configuration Format
 -----------------------------
