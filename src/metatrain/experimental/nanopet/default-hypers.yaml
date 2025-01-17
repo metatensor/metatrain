@@ -26,6 +26,7 @@ architecture:
     fixed_composition_weights: {}
     per_structure_targets: []
     log_mae: False
+    log_separate_blocks: False
     loss:
       type: mse
       weights: {}

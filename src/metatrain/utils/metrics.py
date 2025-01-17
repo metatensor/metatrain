@@ -25,7 +25,7 @@ class RMSEAccumulator:
 
         for key, target in targets.items():
             prediction = predictions[key]
-            for block_key in target.keys():
+            for block_key in target.keys:
                 target_block = prediction.block(block_key)
                 prediction_block = prediction.block(block_key)
 
@@ -123,7 +123,7 @@ class MAEAccumulator:
 
         for key, target in targets.items():
             prediction = predictions[key]
-            for block_key in target.keys():
+            for block_key in target.keys:
                 target_block = prediction.block(block_key)
                 prediction_block = prediction.block(block_key)
 

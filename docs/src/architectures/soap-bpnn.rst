@@ -160,18 +160,21 @@ The parameters for training are
 :param log_interval: number of epochs that elapse between reporting new training results
 :param checkpoint_interval: Interval to save a checkpoint to disk.
 :param scale_targets: Whether to scale the targets to have unit standard deviation
-    across the training set during training.
+  across the training set during training.
 :param fixed_composition_weights: allows to set fixed isolated atom energies from
-    outside. These are per target name and per (integer) atom type. For example,
-    ``fixed_composition_weights: {"energy": {1: -396.0, 6: -500.0}, "mtt::U0": {1: 0.0,
-    6: 0.0}}`` sets the isolated atom energies for H (``1``) and O (``6``) to different
-    values for the two distinct targets.
+  outside. These are per target name and per (integer) atom type. For example,
+  ``fixed_composition_weights: {"energy": {1: -396.0, 6: -500.0}, "mtt::U0": {1: 0.0,
+  6: 0.0}}`` sets the isolated atom energies for H (``1``) and O (``6``) to different
+  values for the two distinct targets.
 :param per_atom_targets: specifies whether the model should be trained on a per-atom
-    loss. In that case, the logger will also output per-atom metrics for that target. In
-    any case, the final summary will be per-structure.
+  loss. In that case, the logger will also output per-atom metrics for that target. In
+  any case, the final summary will be per-structure.
+:param log_mae: Also logs MAEs in addition to RMSEs.
+:param log_separate_blocks: Whether to log the errors each block of the targets
+  separately.
 :param loss_weights: specifies the weights to be used in the loss for each target. The
-    weights should be a dictionary of floats, one for each target. All missing targets
-    are assigned a weight of 1.0.
+  weights should be a dictionary of floats, one for each target. All missing targets
+  are assigned a weight of 1.0.
 
 
 References
