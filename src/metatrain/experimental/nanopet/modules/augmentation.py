@@ -137,8 +137,8 @@ def _apply_wigner_D_matrices(
         ):
             is_inverted = torch.det(transformation) < 0
             new_v = v.clone()
-            if is_inverted and sigma == -1:  # inversion
-                new_v = -new_v
+            if is_inverted:  # inversion
+                new_v = new_v * (-1) ** ell * sigma
             # fold property dimension in, apply transformation, unfold property dim
             new_v = new_v.transpose(1, 2)
             new_v = new_v @ wigner_D_matrix.T
