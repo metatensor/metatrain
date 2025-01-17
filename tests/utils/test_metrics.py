@@ -81,3 +81,34 @@ def test_mae_accumulator(tensor_map_with_grad_1, tensor_map_with_grad_2):
 
     assert "energy MAE (per atom)" in maes
     assert "energy_gradient_gradients MAE" in maes
+
+
+@pytest.mark.parametrize("accumulator_class", [RMSEAccumulator, MAEAccumulator])
+def test_per_block(accumulator_class, tensor_map_with_grad_1, tensor_map_with_grad_2):
+    """Tests that separate errors per block works."""
+
+    tensor_1 = TensorMap(
+        keys=Labels.range("label_name", 2),
+        blocks=[tensor_map_with_grad_1.block(), tensor_map_with_grad_1.block()],
+    )
+    tensor_2 = TensorMap(
+        keys=Labels.range("label_name", 2),
+        blocks=[tensor_map_with_grad_2.block(), tensor_map_with_grad_2.block()],
+    )
+
+    accumulator = accumulator_class(separate_blocks=True)
+    for _ in range(10):
+        accumulator.update({"energy": tensor_1}, {"energy": tensor_2})
+
+    assert accumulator.information["energy_label_name_0"][1] == 30
+    assert accumulator.information["energy_label_name_1"][1] == 30
+    assert accumulator.information["energy_label_name_0_gradient_gradients"][1] == 30
+    assert accumulator.information["energy_label_name_1_gradient_gradients"][1] == 30
+
+    metrics = accumulator.finalize(not_per_atom=["gradient_gradients"])
+
+    rmse_or_mae = "RMSE" if accumulator_class == RMSEAccumulator else "MAE"
+    assert f"energy_label_name_0 {rmse_or_mae} (per atom)" in metrics
+    assert f"energy_label_name_0_gradient_gradients {rmse_or_mae}" in metrics
+    assert f"energy_label_name_1 {rmse_or_mae} (per atom)" in metrics
+    assert f"energy_label_name_1_gradient_gradients {rmse_or_mae}" in metrics
