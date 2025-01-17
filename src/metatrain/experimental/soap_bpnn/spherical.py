@@ -251,7 +251,7 @@ class TensorBasis(torch.nn.Module):
                 )
 
         if self.o3_sigma == -1:
-            # multiply by pseudotensor
+            # multiply by pseudoscalar
             vector_basis_pseudotensor = self.vector_basis_pseudotensor(
                 systems, selected_atoms
             )
