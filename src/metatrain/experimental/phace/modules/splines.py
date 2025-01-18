@@ -73,10 +73,12 @@ class DynamicSpliner(torch.nn.Module):
         self.register_buffer("spline_values", values_fn(positions))
         self.register_buffer("spline_derivatives", derivatives_fn(positions))
 
-        self.number_of_custom_dimensions = len(self.spline_values.shape) - 1
+        self.number_of_custom_dimensions = (
+            len(self.spline_values.shape) - 1  # type: ignore
+        )
 
         while True:
-            n_intermediate_positions = len(self.spline_positions) - 1
+            n_intermediate_positions = len(self.spline_positions) - 1  # type: ignore
 
             if n_intermediate_positions >= 50000:
                 raise ValueError(
@@ -84,7 +86,9 @@ class DynamicSpliner(torch.nn.Module):
                     There might be a problem with the functions to be splined"
                 )
 
-            half_step = (self.spline_positions[1] - self.spline_positions[0]) / 2
+            half_step = (
+                self.spline_positions[1] - self.spline_positions[0]  # type: ignore
+            ) / 2
             intermediate_positions = torch.linspace(
                 self.start + half_step,
                 self.stop - half_step,
@@ -109,11 +113,13 @@ class DynamicSpliner(torch.nn.Module):
             new_derivatives = derivatives_fn(intermediate_positions)
 
             concatenated_positions = torch.cat(
-                [self.spline_positions, intermediate_positions], dim=0
+                [self.spline_positions, intermediate_positions], dim=0  # type: ignore
             )
-            concatenated_values = torch.cat([self.spline_values, new_values], dim=0)
+            concatenated_values = torch.cat(
+                [self.spline_values, new_values], dim=0  # type: ignore
+            )
             concatenated_derivatives = torch.cat(
-                [self.spline_derivatives, new_derivatives], dim=0
+                [self.spline_derivatives, new_derivatives], dim=0  # type: ignore
             )
 
             sort_indices = torch.argsort(concatenated_positions, dim=0)

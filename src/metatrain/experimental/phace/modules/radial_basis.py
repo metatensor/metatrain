@@ -1,4 +1,3 @@
-import metatensor.torch
 import numpy as np
 import torch
 from ase.data import covalent_radii
@@ -17,7 +16,7 @@ class RadialBasis(torch.nn.Module):
         for species in all_species:
             lengthscales[species] = np.log(hypers["scale"] * covalent_radii[species])
         self.n_max_l, self.spliner = get_physical_basis_spliner(
-            hypers["E_max"], hypers["r_cut"], normalize=True
+            hypers["E_max"], hypers["cutoff"], normalize=True
         )
         self.register_buffer("lengthscales", lengthscales)
         # self.lengthscales = torch.nn.Parameter(lengthscales)
@@ -50,16 +49,18 @@ class RadialBasis(torch.nn.Module):
                             self.n_max_l[l] * self.n_channels,
                         ),
                     )
-                    for l in range(self.l_max + 1)
+                    for l in range(self.l_max + 1)  # noqa: E741
                 }
             )
         else:  # make torchscript happy
             self.radial_mlps = torch.nn.ModuleDict({})
 
         self.k_max_l = [
-            self.n_max_l[l] * self.n_channels for l in range(self.l_max + 1)
+            self.n_max_l[l] * self.n_channels
+            for l in range(self.l_max + 1)  # noqa: E741
         ]
-        self.r_cut = hypers["r_cut"]
+        self.r_cut = hypers["cutoff"]
+        self.cutoff_width = hypers["cutoff_width"]
 
     def forward(self, r, samples_metadata: Labels):
 
@@ -74,7 +75,7 @@ class RadialBasis(torch.nn.Module):
             x.unsqueeze(1) < 10.0, self.spliner.compute(capped_x), 0.0
         )
 
-        cutoff_multiplier = cutoff_fn(r, self.r_cut)
+        cutoff_multiplier = cutoff_fn(r, self.r_cut, self.cutoff_width)
         radial_functions = radial_functions * cutoff_multiplier.unsqueeze(1)
 
         radial_basis = torch.split(radial_functions, self.n_max_l, dim=1)
@@ -82,7 +83,7 @@ class RadialBasis(torch.nn.Module):
         if self.apply_mlp:
             radial_basis_after_mlp = []
             for l_string, radial_mlp_l in self.radial_mlps.items():
-                l = int(l_string)
+                l = int(l_string)  # noqa: E741
                 radial_basis_after_mlp.append(radial_mlp_l(radial_basis[l]))
             radial_basis = radial_basis_after_mlp
         else:
@@ -91,9 +92,9 @@ class RadialBasis(torch.nn.Module):
         return radial_basis
 
 
-def cutoff_fn(r, r_cut: float):  # TODO: make 1.0 a parameter?
+def cutoff_fn(r, r_cut: float, cutoff_width: float):
     return torch.where(
-        r < r_cut - 1.0,
+        r < r_cut - cutoff_width,
         1.0,
-        1.0 + 1.0 * torch.cos((r - (r_cut - 1.0)) * torch.pi / 1.0),
+        1.0 + 1.0 * torch.cos((r - (r_cut - cutoff_width)) * torch.pi / cutoff_width),
     )

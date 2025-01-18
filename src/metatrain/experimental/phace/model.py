@@ -20,10 +20,11 @@ from ...utils.dtype import dtype_to_str
 from ...utils.io import check_file_extension
 from ...utils.scaler import Scaler
 from .modules.center_embedding import embed_centers
-from .modules.cg import cgs_to_sparse, get_cg_coefficients
+from .modules.cg import get_cg_coefficients
+from .modules.cg_iterator import CGIterator
 from .modules.initial_features import get_initial_features
 from .modules.layers import EquivariantLastLayer, InvariantMLP, NothingLayer
-from .modules.message_passing import InvariantMessagePasser
+from .modules.message_passing import EquivariantMessagePasser, InvariantMessagePasser
 from .modules.precomputations import Precomputer
 from .utils import systems_to_batch
 
@@ -49,8 +50,6 @@ class PhACE(torch.nn.Module):
         self.new_outputs = list(dataset_info.targets.keys())
         self.atomic_types = sorted(dataset_info.atomic_types)
 
-        model_hypers["normalize"] = True
-
         self.cutoff_radius = model_hypers["cutoff"]
         self.dataset_info = dataset_info
         self.model_hypers = model_hypers
@@ -64,6 +63,7 @@ class PhACE(torch.nn.Module):
 
         n_channels = model_hypers["num_element_channels"]
 
+        # A buffer that maps atomic types to indices in the embeddings
         species_to_species_index = torch.zeros(
             (max(self.atomic_types) + 1,), dtype=torch.int
         )
@@ -71,14 +71,16 @@ class PhACE(torch.nn.Module):
             len(self.atomic_types), dtype=torch.int
         )
         self.register_buffer("species_to_species_index", species_to_species_index)
-        print("species_to_species_index", self.species_to_species_index)
-        self.embeddings = torch.nn.Embedding(len(self.atomic_types), n_channels)
 
         self.nu_max = model_hypers["nu_max"]
         self.num_message_passing_layers = model_hypers["num_message_passing_layers"]
         if self.num_message_passing_layers < 1:
             raise ValueError("Number of message-passing layers must be at least 1")
 
+        # Embedding of the atomic types
+        self.embeddings = torch.nn.Embedding(len(self.atomic_types), n_channels)
+
+        # The message passing is invariant for the first layer
         self.invariant_message_passer = InvariantMessagePasser(
             model_hypers,
             self.atomic_types,
@@ -89,46 +91,34 @@ class PhACE(torch.nn.Module):
         self.atomic_types = self.atomic_types
         n_max = self.invariant_message_passer.n_max_l
         self.l_max = len(n_max) - 1
-        self.k_max_l = [n_channels * n_max[l] for l in range(self.l_max + 1)]
-
-        print()
-        print("l_max", self.l_max)
-        print("n_max_l", n_max)
-        print("num_element_channels", n_channels)
-        print("k_max_l", self.k_max_l)
-        print()
+        self.k_max_l = [
+            n_channels * n_max[l] for l in range(self.l_max + 1)  # noqa: E741
+        ]
 
         cgs = get_cg_coefficients(self.l_max)
         cgs = {
             str(l1) + "_" + str(l2) + "_" + str(L): tensor
             for (l1, l2, L), tensor in cgs._cgs.items()
         }
-        model_hypers["use_mops"] = False
-        if model_hypers["use_mops"]:
-            cgs = cgs_to_sparse(cgs, self.l_max)
 
+        # A module that precomputes quantities that are useful in all message-passing
+        # steps (spherical harmonics, distances)
         self.precomputer = Precomputer(
             self.l_max, use_sphericart=model_hypers["use_sphericart"]
         )
-
-        if model_hypers["use_mops"]:
-            from .modules.cg_iterator_mops import CGIterator
-            from .modules.message_passing_mops import EquivariantMessagePasser
-        else:
-            from .modules.cg_iterator import CGIterator
-            from .modules.message_passing import EquivariantMessagePasser
 
         self.cg_iterator = CGIterator(
             self.k_max_l,
             self.nu_max - 1,
             cgs,
-            irreps_in=[(l, 1) for l in range(self.l_max + 1)],
-            # TODO: speed up with something like this?
+            irreps_in=[(l, 1) for l in range(self.l_max + 1)],  # noqa: E741
+            # TODO: speed up with something like this when there is only 1 layer?
             # requested_LS_string="0_1"
         )
 
-        equivariant_message_passers = []
-        generalized_cg_iterators = []
+        # Subsequent message-passing layers
+        equivariant_message_passers: List[EquivariantMessagePasser] = []
+        generalized_cg_iterators: List[CGIterator] = []
         for idx in range(self.num_message_passing_layers - 1):
             if idx == 0:
                 irreps_equiv_mp = self.cg_iterator.irreps_out
@@ -138,7 +128,7 @@ class PhACE(torch.nn.Module):
                 model_hypers,
                 self.atomic_types,
                 irreps_equiv_mp,
-                [1, self.nu_max, self.nu_max + 1],
+                (1, self.nu_max, self.nu_max + 1),
                 cgs,
                 self.mp_scaling,
             )
@@ -154,7 +144,6 @@ class PhACE(torch.nn.Module):
                 # ),
             )
             generalized_cg_iterators.append(generalized_cg_iterator)
-
         self.equivariant_message_passers = torch.nn.ModuleList(
             equivariant_message_passers
         )
@@ -221,7 +210,7 @@ class PhACE(torch.nn.Module):
         if len(new_atomic_types) > 0:
             raise ValueError(
                 f"New atomic types found in the dataset: {new_atomic_types}. "
-                "The nanoPET model does not support adding new atomic types."
+                "The PhACE model does not support adding new atomic types."
             )
 
         # register new outputs as new last layers
@@ -231,7 +220,17 @@ class PhACE(torch.nn.Module):
         self.dataset_info = merged_info
 
         # restart the composition and scaler models
-        self.additive_models[0].restart(dataset_info)
+        self.additive_models[0].restart(
+            dataset_info=DatasetInfo(
+                length_unit=dataset_info.length_unit,
+                atomic_types=self.atomic_types,
+                targets={
+                    target_name: target_info
+                    for target_name, target_info in dataset_info.targets.items()
+                    if CompositionModel.is_valid_target(target_info)
+                },
+            ),
+        )
         self.scaler.restart(dataset_info)
 
         return self
@@ -242,14 +241,13 @@ class PhACE(torch.nn.Module):
         outputs: Dict[str, ModelOutput],
         selected_atoms: Optional[Labels] = None,
     ) -> Dict[str, TensorMap]:
-        if selected_atoms is not None:
-            raise NotImplementedError("PhACE does not support selected atoms.")
 
-        options = self.requested_neighbor_lists()[0]
-        structures = systems_to_batch(systems, options)
+        neighbor_list_options = self.requested_neighbor_lists()[0]  # there is only one
+        structures = systems_to_batch(systems, neighbor_list_options)
 
         n_atoms = len(structures["positions"])
 
+        # precomputation of distances and spherical harmonics
         r, sh = self.precomputer(
             positions=structures["positions"],
             cells=structures["cells"],
@@ -259,8 +257,12 @@ class PhACE(torch.nn.Module):
             structure_pairs=structures["structure_pairs"],
             structure_offsets=structures["structure_offsets"],
         )
+
+        # scaling the spherical harmonics in this way makes sure that each successive
+        # body-order is scaled by the same factor
         sh = metatensor.torch.multiply(sh, self.nu_scaling)
 
+        # compute sample labels
         samples_values = torch.stack(
             (
                 structures["structure_centers"],
@@ -273,6 +275,8 @@ class PhACE(torch.nn.Module):
             names=["system", "atom", "center_type"],
             values=samples_values,
         )
+
+        # calculate the center embeddings; these are shared across all layers
         center_species_indices = self.species_to_species_index[structures["species"]]
         center_embeddings = self.embeddings(center_species_indices)
 
@@ -282,9 +286,11 @@ class PhACE(torch.nn.Module):
             structures["species"],
             structures["positions"].dtype,
             self.k_max_l[0],
-        )
+        )  # these features are all one
         initial_element_embedding = embed_centers(initial_features, center_embeddings)
+        # now they are all the same as the center embeddings
 
+        # ACE-like features
         spherical_expansion = self.invariant_message_passer(
             r,
             sh,
@@ -296,7 +302,6 @@ class PhACE(torch.nn.Module):
             initial_element_embedding,
             samples,
         )
-
         features = self.cg_iterator(spherical_expansion)
 
         # message passing
@@ -319,6 +324,11 @@ class PhACE(torch.nn.Module):
             features = iterated_features
 
         features = embed_centers(features, center_embeddings)
+
+        if selected_atoms is not None:
+            features = metatensor.torch.slice(
+                features, axis="samples", selection=selected_atoms
+            )
 
         return_dict: Dict[str, TensorMap] = {}
 
@@ -457,7 +467,7 @@ class PhACE(torch.nn.Module):
         if target_info.is_cartesian:
             raise NotImplementedError("PhACE does not support Cartesian targets.")
 
-        if not target_name in self.head_types:
+        if target_name not in self.head_types:
             if target_info.is_scalar:
                 use_mlp = True  # default to MLP for scalars
             else:

@@ -23,22 +23,23 @@ class DummyAdder(torch.nn.Module):
 
 
 class InvariantMessagePasser(torch.nn.Module):
-
+    # performs invariant message passing with linear contractions
     def __init__(
         self, hypers: Dict, all_species: List[int], mp_scaling, disable_nu_0
     ) -> None:
         super().__init__()
 
         self.all_species = all_species
-        hypers["radial_basis"]["r_cut"] = hypers["cutoff"]
+        hypers["radial_basis"]["cutoff"] = hypers["cutoff"]
         hypers["radial_basis"]["num_element_channels"] = hypers["num_element_channels"]
+        hypers["radial_basis"]["cutoff_width"] = hypers["cutoff_width"]
         self.radial_basis_calculator = RadialBasis(hypers["radial_basis"], all_species)
         self.n_max_l = self.radial_basis_calculator.n_max_l
         self.k_max_l = [
             hypers["num_element_channels"] * n_max for n_max in self.n_max_l
         ]
         self.l_max = len(self.n_max_l) - 1
-        self.irreps_out = [(l, 1) for l in range(self.l_max + 1)]
+        self.irreps_out = [(l, 1) for l in range(self.l_max + 1)]  # noqa: E741
 
         self.mp_scaling = mp_scaling
 
@@ -65,7 +66,7 @@ class InvariantMessagePasser(torch.nn.Module):
 
         labels: List[List[int]] = []
         blocks: List[TensorBlock] = []
-        for l in range(self.l_max + 1):
+        for l in range(self.l_max + 1):  # noqa: E741
             spherical_harmonics_l = sh.block({"o3_lambda": l}).values
             radial_basis_l = radial_basis[l]
             densities_l = torch.zeros(
@@ -114,7 +115,7 @@ class InvariantMessagePasser(torch.nn.Module):
 
 
 class EquivariantMessagePasser(torch.nn.Module):
-
+    # performs equivariant message passing with linear contractions
     def __init__(
         self,
         hypers: Dict,
@@ -130,8 +131,9 @@ class EquivariantMessagePasser(torch.nn.Module):
         # sparing us the need for all_species
 
         self.all_species = all_species
-        hypers["radial_basis"]["r_cut"] = hypers["cutoff"]
+        hypers["radial_basis"]["cutoff"] = hypers["cutoff"]
         hypers["radial_basis"]["num_element_channels"] = hypers["num_element_channels"]
+        hypers["radial_basis"]["cutoff_width"] = hypers["cutoff_width"]
         self.radial_basis_calculator = RadialBasis(hypers["radial_basis"], all_species)
         self.n_max_l = self.radial_basis_calculator.n_max_l
         self.k_max_l = [
@@ -140,8 +142,10 @@ class EquivariantMessagePasser(torch.nn.Module):
         self.l_max = len(self.n_max_l) - 1
 
         self.cgs = cgs
-        self.irreps_out = []
-        self.irreps_in_vector_expansion = [(l, 1) for l in range(self.l_max + 1)]
+        self.irreps_out: List[Tuple[int, int]] = []
+        self.irreps_in_vector_expansion = [
+            (l, 1) for l in range(self.l_max + 1)  # noqa: E741
+        ]
         self.irreps_in_features = irreps_in_features
 
         self.sizes_by_lam_sig: Dict[str, int] = {}
@@ -205,7 +209,7 @@ class EquivariantMessagePasser(torch.nn.Module):
 
         vector_expansion = [
             sh.block({"o3_lambda": l}).values * radial_basis[l].unsqueeze(1)
-            for l in range(self.l_max + 1)
+            for l in range(self.l_max + 1)  # noqa: E741
         ]
 
         results_by_lam_sig: Dict[str, List[torch.Tensor]] = {}

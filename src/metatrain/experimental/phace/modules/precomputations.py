@@ -10,6 +10,7 @@ from metatensor.torch import Labels, TensorBlock, TensorMap
 
 
 class SphericalHarmonicsNoSphericart(torch.nn.Module):
+    # uses the sphericart algorithm in pytorch
     def __init__(self, l_max):
         super(SphericalHarmonicsNoSphericart, self).__init__()
         self.l_max = l_max
@@ -17,7 +18,7 @@ class SphericalHarmonicsNoSphericart(torch.nn.Module):
         self.register_buffer(
             "F", torch.empty(((self.l_max + 1) * (self.l_max + 2) // 2,))
         )
-        for l in range(l_max + 1):
+        for l in range(l_max + 1):  # noqa: E741
             for m in range(0, l + 1):
                 self.F[l * (l + 1) // 2 + m] = (-1) ** m * np.sqrt(
                     (2 * l + 1) / (2 * np.pi) * factorial(l - m) / factorial(l + m)
@@ -37,7 +38,7 @@ class SphericalHarmonicsNoSphericart(torch.nn.Module):
             dtype=dtype,
         )
         Q[:, 0] = 1.0
-        for l in range(1, self.l_max + 1):
+        for l in range(1, self.l_max + 1):  # noqa: E741
             Q[:, (l + 1) * (l + 2) // 2 - 1] = (
                 -(2 * l - 1) * Q[:, l * (l + 1) // 2 - 1].clone()
             )
@@ -64,7 +65,7 @@ class SphericalHarmonicsNoSphericart(torch.nn.Module):
             device=device,
             dtype=dtype,
         )
-        for l in range(self.l_max + 1):
+        for l in range(self.l_max + 1):  # noqa: E741
             for m in range(-l, 0):
                 Y[:, l * l + l + m] = (
                     self.F[l * (l + 1) // 2 - m] * Q[:, l * (l + 1) // 2 - m] * s[:, -m]
@@ -96,7 +97,9 @@ class SphericalHarmonicsSphericart(torch.nn.Module):
 class Precomputer(torch.nn.Module):
     def __init__(self, l_max, use_sphericart):
         super().__init__()
-        self.spherical_harmonics_split_list = [(2 * l + 1) for l in range(l_max + 1)]
+        self.spherical_harmonics_split_list = [
+            (2 * l + 1) for l in range(l_max + 1)  # noqa: E741
+        ]
         if use_sphericart:
             self.spherical_harmonics = SphericalHarmonicsSphericart(l_max)
         else:
@@ -154,7 +157,7 @@ class Precomputer(torch.nn.Module):
                     ),
                 ),
             )
-            for l, spherical_harmonics_l in enumerate(spherical_harmonics)
+            for l, spherical_harmonics_l in enumerate(spherical_harmonics)  # noqa: E741
         ]
         spherical_harmonics_map = TensorMap(
             keys=Labels(

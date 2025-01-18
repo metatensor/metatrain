@@ -1,13 +1,12 @@
 from typing import List
 
-import metatensor.torch
 import torch
 from metatensor.torch import Labels, TensorBlock, TensorMap
 
-from .layers import Linear
-
 
 def embed_centers(equivariants: TensorMap, center_embeddings: torch.Tensor):
+    # multiplies arbitrary equivariant features by the provided center embeddings
+
     n_channels = center_embeddings.shape[-1]
 
     keys: List[torch.Tensor] = []

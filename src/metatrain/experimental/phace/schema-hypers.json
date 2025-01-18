@@ -18,6 +18,9 @@
         "cutoff": {
           "type": "number"
         },
+        "cutoff_width": {
+          "type": "number"
+        },
         "num_element_channels": {
           "type": "integer"
         },

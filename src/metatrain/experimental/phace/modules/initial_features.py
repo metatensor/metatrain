@@ -5,7 +5,7 @@ from metatensor.torch import Labels, TensorBlock, TensorMap
 def get_initial_features(
     structures, centers, species, dtype: torch.dtype, n_features: int
 ):
-
+    # returns all ones, with the correct metadata
     n_atoms = structures.shape[0]
     block = TensorBlock(
         values=torch.ones(

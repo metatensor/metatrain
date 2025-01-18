@@ -9,6 +9,7 @@ from .tensor_sum import EquivariantTensorAdd
 
 
 class CGIterator(torch.nn.Module):
+    # A high-level CG iterator, doing multiple iterations
     def __init__(
         self,
         k_max_l: List[int],
@@ -27,7 +28,6 @@ class CGIterator(torch.nn.Module):
         cg_iterations = []
         irreps_in_1 = irreps_in
         irreps_in_2 = irreps_in
-        irreps_final = {}
         for n_iteration in range(self.number_of_iterations):
             if n_iteration == self.number_of_iterations - 1:
                 requested_LS_string_now = requested_LS_string
@@ -71,6 +71,7 @@ class CGIterator(torch.nn.Module):
 
 
 class CGIterationAdd(torch.nn.Module):
+    # A single Clebsch-Gordan iteration, including a skip connection
     def __init__(
         self,
         k_max_l: List[int],
@@ -89,7 +90,6 @@ class CGIterationAdd(torch.nn.Module):
 
         common_irreps = [irrep for irrep in irreps_in_1 if irrep in self.irreps_out]
         self.adder = EquivariantTensorAdd(common_irreps, k_max_l)
-        # self.adder = EquivariantTensorAdd()
 
     def forward(self, features_1: TensorMap, features_2: TensorMap):
         features_out = self.cg_iteration(features_1, features_2)
@@ -98,7 +98,7 @@ class CGIterationAdd(torch.nn.Module):
 
 
 class CGIteration(torch.nn.Module):
-
+    # A single Clebsch-Gordan iteration (with contraction layers)
     def __init__(
         self,
         k_max_l: List[int],
@@ -112,7 +112,7 @@ class CGIteration(torch.nn.Module):
         self.k_max_l = k_max_l
         self.l_max = len(k_max_l) - 1
         self.cgs = cgs
-        self.irreps_out = []
+        self.irreps_out: List[Tuple[int, int]] = []
         self.requested_LS_string = requested_LS_string
 
         self.sizes_by_lam_sig: Dict[str, int] = {}
@@ -197,7 +197,6 @@ class CGIteration(torch.nn.Module):
             )
             compressed_tensor = linear_LS(concatenated_tensor)
             compressed_results_by_lam_sig[(str(L) + "_" + str(S))] = compressed_tensor
-            # print(L, S, torch.mean(compressed_tensor).item(), torch.std(compressed_tensor).item())
 
         keys: List[List[int]] = []
         blocks: List[TensorBlock] = []
