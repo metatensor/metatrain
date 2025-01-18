@@ -227,7 +227,7 @@ class Trainer:
         if self.optimizer_state_dict is not None:
             # try to load the optimizer state dict, but this is only possible
             # if there are no new targets in the model (new parameters)
-            if not model.has_new_targets:
+            if not (model.module if is_distributed else model).has_new_targets:
                 optimizer.load_state_dict(self.optimizer_state_dict)
 
         # Create a scheduler:
@@ -239,7 +239,7 @@ class Trainer:
         )
         if self.scheduler_state_dict is not None:
             # same as the optimizer, try to load the scheduler state dict
-            if not model.has_new_targets:
+            if not (model.module if is_distributed else model).has_new_targets:
                 lr_scheduler.load_state_dict(self.scheduler_state_dict)
 
         # per-atom targets:
