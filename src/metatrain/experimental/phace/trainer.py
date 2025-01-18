@@ -70,7 +70,7 @@ class Trainer:
             if len(devices) > 1:
                 raise ValueError(
                     "Requested distributed training with the `multi-gpu` device. "
-                    " If you want to run distributed training with PhACE, please "
+                    "If you want to run distributed training with PhACE, please "
                     "set `device` to cuda."
                 )
             # the calculation of the device number works both when GPUs on different
@@ -367,6 +367,9 @@ class Trainer:
                 targets = average_by_num_atoms(targets, systems, per_structure_targets)
 
                 val_loss_batch = loss_fn(predictions, targets)
+                if is_distributed:
+                    # sum the loss over all processes
+                    torch.distributed.all_reduce(val_loss_batch)
                 val_loss += val_loss_batch.item()
                 val_rmse_calculator.update(predictions, targets)
                 if self.hypers["log_mae"]:

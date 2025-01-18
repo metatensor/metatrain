@@ -67,7 +67,7 @@ class Trainer:
             if len(devices) > 1:
                 raise ValueError(
                     "Requested distributed training with the `multi-gpu` device. "
-                    " If you want to run distributed training with nanoPET, please "
+                    "If you want to run distributed training with nanoPET, please "
                     "set `device` to cuda."
                 )
             # the calculation of the device number works both when GPUs on different
