@@ -62,7 +62,7 @@ class PhACE(torch.nn.Module):
         # buffer so it can be reloaded from a saved model
         self.register_buffer("overall_scaling", torch.tensor(1.0))
 
-        n_channels = model_hypers["n_element_channels"]
+        n_channels = model_hypers["num_element_channels"]
 
         species_to_species_index = torch.zeros(
             (max(self.atomic_types) + 1,), dtype=torch.int
@@ -75,8 +75,8 @@ class PhACE(torch.nn.Module):
         self.embeddings = torch.nn.Embedding(len(self.atomic_types), n_channels)
 
         self.nu_max = model_hypers["nu_max"]
-        self.n_message_passing_layers = model_hypers["n_message_passing_layers"]
-        if self.n_message_passing_layers < 1:
+        self.num_message_passing_layers = model_hypers["num_message_passing_layers"]
+        if self.num_message_passing_layers < 1:
             raise ValueError("Number of message-passing layers must be at least 1")
 
         self.invariant_message_passer = InvariantMessagePasser(
@@ -94,7 +94,7 @@ class PhACE(torch.nn.Module):
         print()
         print("l_max", self.l_max)
         print("n_max_l", n_max)
-        print("n_element_channels", n_channels)
+        print("num_element_channels", n_channels)
         print("k_max_l", self.k_max_l)
         print()
 
@@ -103,6 +103,7 @@ class PhACE(torch.nn.Module):
             str(l1) + "_" + str(l2) + "_" + str(L): tensor
             for (l1, l2, L), tensor in cgs._cgs.items()
         }
+        model_hypers["use_mops"] = False
         if model_hypers["use_mops"]:
             cgs = cgs_to_sparse(cgs, self.l_max)
 
@@ -128,7 +129,7 @@ class PhACE(torch.nn.Module):
 
         equivariant_message_passers = []
         generalized_cg_iterators = []
-        for idx in range(self.n_message_passing_layers - 1):
+        for idx in range(self.num_message_passing_layers - 1):
             if idx == 0:
                 irreps_equiv_mp = self.cg_iterator.irreps_out
             else:
@@ -149,7 +150,7 @@ class PhACE(torch.nn.Module):
                 irreps_in=equivariant_message_passer.irreps_out,
                 # TODO: speed up with something like this?
                 # requested_LS_string=(
-                #     "0_1" if idx == self.n_message_passing_layers - 2 else None
+                #     "0_1" if idx == self.num_message_passing_layers - 2 else None
                 # ),
             )
             generalized_cg_iterators.append(generalized_cg_iterator)
@@ -433,7 +434,7 @@ class PhACE(torch.nn.Module):
         self.to(dtype)
 
         interaction_ranges = [
-            self.hypers["cutoff"] * self.hypers["n_message_passing_layers"]
+            self.hypers["cutoff"] * self.hypers["num_message_passing_layers"]
         ]
         for additive_model in self.additive_models:
             if hasattr(additive_model, "cutoff_radius"):

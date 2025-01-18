@@ -1,0 +1,178 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "type": "object",
+  "properties": {
+    "name": {
+      "type": "string",
+      "enum": ["experimental.phace"]
+    },
+    "model": {
+      "type": "object",
+      "properties": {
+        "nu_max": {
+          "type": "integer"
+        },
+        "num_message_passing_layers": {
+          "type": "integer"
+        },
+        "cutoff": {
+          "type": "number"
+        },
+        "num_element_channels": {
+          "type": "integer"
+        },
+        "radial_basis": {
+          "type": "object",
+          "properties": {
+            "mlp": {
+              "type": "boolean"
+            },
+            "E_max": {
+              "type": "number"
+            },
+            "scale": {
+              "type": "number"
+            }
+          },
+          "additionalProperties": false
+        },
+        "nu_scaling": {
+          "type": "number"
+        },
+        "mp_scaling": {
+          "type": "number"
+        },
+        "disable_nu_0": {
+          "type": "boolean"
+        },
+        "use_sphericart": {
+          "type": "boolean"
+        },
+        "heads": {
+          "type": "object",
+          "patternProperties": {
+            ".*": {
+              "type": "string",
+              "enum": ["linear", "mlp"]
+            }
+          },
+          "additionalProperties": false
+        },
+        "zbl": {
+          "type": "boolean"
+        }
+      },
+      "additionalProperties": false
+    },
+    "training": {
+      "type": "object",
+      "properties": {
+        "distributed": {
+          "type": "boolean"
+        },
+        "distributed_port": {
+          "type": "integer"
+        },
+        "batch_size": {
+          "type": "integer"
+        },
+        "num_epochs": {
+          "type": "integer"
+        },
+        "learning_rate": {
+          "type": "number"
+        },
+        "scheduler_patience": {
+          "type": "integer"
+        },
+        "scheduler_factor": {
+          "type": "number"
+        },
+        "log_interval": {
+          "type": "integer"
+        },
+        "checkpoint_interval": {
+          "type": "integer"
+        },
+        "scale_targets": {
+          "type": "boolean"
+        },
+        "fixed_composition_weights": {
+          "type": "object",
+          "patternProperties": {
+            "^.*$": {
+              "type": "object",
+              "propertyNames": {
+                "pattern": "^[0-9]+$"
+              },
+              "additionalProperties": {
+                "type": "number"
+              }
+            }
+          },
+          "additionalProperties": false
+        },
+        "per_structure_targets": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "log_mae": {
+          "type": "boolean"
+        },
+        "loss": {
+          "type": "object",
+          "properties": {
+            "weights": {
+              "type": "object",
+              "patternProperties": {
+                ".*": {
+                  "type": "number"
+                }
+              },
+              "additionalProperties": false
+            },
+            "reduction": {
+              "type": "string",
+              "enum": ["sum", "mean", "none"]
+            },
+            "type": {
+              "oneOf": [
+                {
+                  "type": "string",
+                  "enum": ["mse", "mae"]
+                },
+                {
+                  "type": "object",
+                  "properties": {
+                    "huber": {
+                      "type": "object",
+                      "properties": {
+                        "deltas": {
+                          "type": "object",
+                          "patternProperties": {
+                            ".*": {
+                              "type": "number"
+                            }
+                          },
+                          "additionalProperties": false
+                        }
+                      },
+                      "required": ["deltas"],
+                      "additionalProperties": false
+                    }
+                  },
+                  "additionalProperties": false
+                }
+              ]
+            }
+          },
+          "additionalProperties": false
+        }
+      },
+      "additionalProperties": false
+    }
+  },
+  "additionalProperties": false
+}

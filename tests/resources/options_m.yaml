@@ -6,12 +6,11 @@ architecture:
   name: experimental.phace
   model:
     nu_max: 3
-    n_message_passing_layers: 2
+    num_message_passing_layers: 2
     cutoff: 5.0
-    n_element_channels: 128
+    num_element_channels: 128
     radial_basis:
       mlp: true
-      type: physical
       E_max: 30.0
     nu_scaling: 0.3
     mp_scaling: 0.3
@@ -21,7 +20,6 @@ architecture:
     num_epochs: 3000
     log_interval: 1
     scheduler_patience: 100
-    early_stopping_patience: 200
 
 training_set:
   systems:

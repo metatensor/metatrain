@@ -6,9 +6,9 @@ architecture:
   name: experimental.phace
   model:
     nu_max: 4
-    n_message_passing_layers: 1
+    num_message_passing_layers: 1
     cutoff: 5.0
-    n_element_channels: 128
+    num_element_channels: 128
     radial_basis:
       mlp: true
       type: physical

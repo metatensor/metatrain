@@ -25,7 +25,7 @@ class RadialBasis(torch.nn.Module):
         self.all_species = all_species
         self.n_max_l = list(self.n_max_l)
         self.l_max = len(self.n_max_l) - 1
-        self.n_channels = hypers["n_element_channels"]
+        self.n_channels = hypers["num_element_channels"]
 
         self.apply_mlp = False
         if hypers["mlp"]:

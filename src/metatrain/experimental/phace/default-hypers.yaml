@@ -3,19 +3,17 @@ architecture:
   
   model:
     nu_max: 3
-    n_message_passing_layers: 2
+    num_message_passing_layers: 2
     cutoff: 5.0
-    n_element_channels: 8
+    num_element_channels: 8
     radial_basis:
       mlp: true
-      type: physical
       E_max: 70.0
       scale: 0.7
     nu_scaling: 1.0
     mp_scaling: 1.0
     disable_nu_0: True
     use_sphericart: False
-    use_mops: False
     heads: {}
     zbl: False
 
@@ -25,7 +23,6 @@ architecture:
     batch_size: 8
     num_epochs: 100
     learning_rate: 0.001
-    early_stopping_patience: 100
     scheduler_patience: 10
     scheduler_factor: 0.8
     log_interval: 10

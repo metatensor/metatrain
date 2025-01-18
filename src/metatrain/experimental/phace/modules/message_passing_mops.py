@@ -31,10 +31,12 @@ class InvariantMessagePasser(torch.nn.Module):
 
         self.all_species = all_species
         hypers["radial_basis"]["r_cut"] = hypers["cutoff"]
-        hypers["radial_basis"]["n_element_channels"] = hypers["n_element_channels"]
+        hypers["radial_basis"]["num_element_channels"] = hypers["num_element_channels"]
         self.radial_basis_calculator = RadialBasis(hypers["radial_basis"], all_species)
         self.n_max_l = self.radial_basis_calculator.n_max_l
-        self.k_max_l = [hypers["n_element_channels"] * n_max for n_max in self.n_max_l]
+        self.k_max_l = [
+            hypers["num_element_channels"] * n_max for n_max in self.n_max_l
+        ]
         self.l_max = len(self.n_max_l) - 1
         self.irreps_out = [(l, 1) for l in range(self.l_max + 1)]
 
@@ -129,10 +131,12 @@ class EquivariantMessagePasser(torch.nn.Module):
 
         self.all_species = all_species
         hypers["radial_basis"]["r_cut"] = hypers["cutoff"]
-        hypers["radial_basis"]["n_element_channels"] = hypers["n_element_channels"]
+        hypers["radial_basis"]["num_element_channels"] = hypers["num_element_channels"]
         self.radial_basis_calculator = RadialBasis(hypers["radial_basis"], all_species)
         self.n_max_l = self.radial_basis_calculator.n_max_l
-        self.k_max_l = [hypers["n_element_channels"] * n_max for n_max in self.n_max_l]
+        self.k_max_l = [
+            hypers["num_element_channels"] * n_max for n_max in self.n_max_l
+        ]
         self.l_max = len(self.n_max_l) - 1
 
         self.cgs = cgs
