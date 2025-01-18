@@ -5,6 +5,7 @@ from typing import List, Union
 
 import torch
 import torch.distributed
+import torch.nn.grad
 from torch.utils.data import DataLoader, DistributedSampler
 
 from ...utils.additive import remove_additive
@@ -28,6 +29,7 @@ from ...utils.transfer import (
     systems_and_targets_to_dtype,
 )
 from .model import PhACE
+from .modules.automatic_scaling import get_automatic_scaling
 
 
 logger = logging.getLogger(__name__)
@@ -212,6 +214,20 @@ class Trainer:
                 scripted_model, device_ids=[device], find_unused_parameters=False
             )
 
+        # Calculate and set model scale, but only if the model is not restarted
+        if self.epoch is None:
+            model_scale = get_automatic_scaling(
+                train_dataloader,
+                scripted_model,
+                train_targets,
+                device,
+                dtype,
+                is_distributed,
+            )
+            (scripted_model.module if is_distributed else scripted_model).set_scale(
+                model_scale
+            )
+
         # Create an optimizer:
         optimizer = torch.optim.Adam(
             scripted_model.parameters(), lr=self.hypers["learning_rate"], amsgrad=True
@@ -262,7 +278,6 @@ class Trainer:
                 optimizer.zero_grad()
 
                 systems, targets = batch
-                systems, targets = batch
                 systems, targets = systems_and_targets_to_device(
                     systems, targets, device
                 )
@@ -273,7 +288,10 @@ class Trainer:
                         systems, targets, additive_model, train_targets
                     )
                 targets = remove_scale(
-                    targets, (scripted_model.module if is_distributed else scripted_model).scaler
+                    targets,
+                    (
+                        scripted_model.module if is_distributed else scripted_model
+                    ).scaler,
                 )
                 systems, targets = systems_and_targets_to_dtype(systems, targets, dtype)
                 predictions = evaluate_model(
@@ -329,7 +347,10 @@ class Trainer:
                         systems, targets, additive_model, train_targets
                     )
                 targets = remove_scale(
-                    targets, (scripted_model.module if is_distributed else scripted_model).scaler
+                    targets,
+                    (
+                        scripted_model.module if is_distributed else scripted_model
+                    ).scaler,
                 )
                 systems, targets = systems_and_targets_to_dtype(systems, targets, dtype)
                 predictions = evaluate_model(
@@ -405,9 +426,9 @@ class Trainer:
                     logger.info(f"Changing learning rate from {old_lr} to {new_lr}")
                     old_lr = new_lr
                     # load best model and optimizer state dict, re-initialize scheduler
-                    (scripted_model.module if is_distributed else scripted_model).load_state_dict(
-                        self.best_model_state_dict
-                    )
+                    (
+                        scripted_model.module if is_distributed else scripted_model
+                    ).load_state_dict(self.best_model_state_dict)
                     optimizer.load_state_dict(self.best_optimizer_state_dict)
                     for param_group in optimizer.param_groups:
                         param_group["lr"] = new_lr
@@ -420,7 +441,9 @@ class Trainer:
             if val_loss < self.best_loss:
                 self.best_loss = val_loss
                 self.best_model_state_dict = copy.deepcopy(
-                    (scripted_model.module if is_distributed else scripted_model).state_dict()
+                    (
+                        scripted_model.module if is_distributed else scripted_model
+                    ).state_dict()
                 )
                 self.best_optimizer_state_dict = copy.deepcopy(optimizer.state_dict())
 
@@ -431,7 +454,11 @@ class Trainer:
                 self.scheduler_state_dict = lr_scheduler.state_dict()
                 self.epoch = epoch
                 if rank == 0:
-                    model.load_state_dict((scripted_model.module if is_distributed else scripted_model).state_dict())
+                    model.load_state_dict(
+                        (
+                            scripted_model.module if is_distributed else scripted_model
+                        ).state_dict()
+                    )
                     self.save_checkpoint(
                         model,
                         Path(checkpoint_dir) / f"model_{epoch}.ckpt",

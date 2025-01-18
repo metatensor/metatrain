@@ -2,7 +2,7 @@ from typing import List, Tuple
 
 import metatensor.torch
 import torch
-from metatensor.torch import Labels, TensorBlock, TensorMap
+from metatensor.torch import Labels
 
 from .layers import EquivariantLinear
 
@@ -125,7 +125,8 @@ class EquivariantTensorAdd(torch.nn.Module):
 #     def forward(
 #         self, tmap_1: metatensor.torch.TensorMap, tmap_2: metatensor.torch.TensorMap
 #     ):
-#         # for now, this assumes that each of the two tensor maps have the same "nu" keys
+#         # for now, this assumes that each of the two tensor maps have the same "nu"
+#         # keys
 #         # actually, we take the maximum
 #         nu_1 = int(torch.max(tmap_1.keys.column("nu")))
 #         nu_2 = int(torch.max(tmap_2.keys.column("nu")))

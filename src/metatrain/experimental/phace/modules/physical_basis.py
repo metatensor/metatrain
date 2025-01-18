@@ -31,14 +31,16 @@ def get_physical_basis_spliner(E_max, r_cut, normalize):
     def function_for_splining(n, l, x):
         ret = physical_basis.compute(n, l, x)
         if normalize:
-            # normalize by square root of sphere volume, excluding sqrt(4pi) which is included in the SH
+            # normalize by square root of sphere volume, excluding sqrt(4pi) which is
+            # included in the SH
             ret *= np.sqrt((1 / 3) * r_cut**3)
         return ret
 
     def function_for_splining_derivative(n, l, x):
         ret = physical_basis.compute_derivative(n, l, x)
         if normalize:
-            # normalize by square root of sphere volume, excluding sqrt(4pi) which is included in the SH
+            # normalize by square root of sphere volume, excluding sqrt(4pi) which is
+            # included in the SH
             ret *= np.sqrt((1 / 3) * r_cut**3)
         return ret
 

@@ -1,6 +1,6 @@
 try:
     import sphericart.torch
-except:
+except ImportError:
     pass
 from math import factorial
 

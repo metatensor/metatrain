@@ -57,7 +57,10 @@ class PhACE(torch.nn.Module):
 
         self.nu_scaling = model_hypers["nu_scaling"]
         self.mp_scaling = model_hypers["mp_scaling"]
-        self.overall_scaling = model_hypers["overall_scaling"]
+
+        # this will be calculated and set by the trainer
+        # buffer so it can be reloaded from a saved model
+        self.register_buffer("overall_scaling", torch.tensor(1.0))
 
         n_channels = model_hypers["n_element_channels"]
 
@@ -372,7 +375,8 @@ class PhACE(torch.nn.Module):
         for output_name, output_layer in self.last_layers.items():
             if output_name in outputs:
                 return_dict[output_name] = metatensor.torch.multiply(
-                    output_layer(return_dict[output_name]), self.overall_scaling
+                    output_layer(return_dict[output_name]),
+                    float(self.overall_scaling.item()),
                 )
 
         for output_name in self.last_layers:
@@ -523,3 +527,7 @@ class PhACE(torch.nn.Module):
             },
             check_file_extension(path, ".ckpt"),
         )
+
+    @torch.jit.export
+    def set_scale(self, scale: float) -> None:
+        self.overall_scaling.fill_(scale)
