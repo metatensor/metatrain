@@ -1,3 +1,4 @@
+import copy
 from typing import Dict, List, Tuple
 
 import metatensor.torch
@@ -30,10 +31,11 @@ class InvariantMessagePasser(torch.nn.Module):
         super().__init__()
 
         self.all_species = all_species
-        hypers["radial_basis"]["cutoff"] = hypers["cutoff"]
-        hypers["radial_basis"]["num_element_channels"] = hypers["num_element_channels"]
-        hypers["radial_basis"]["cutoff_width"] = hypers["cutoff_width"]
-        self.radial_basis_calculator = RadialBasis(hypers["radial_basis"], all_species)
+        radial_basis_hypers = copy.deepcopy(hypers["radial_basis"])
+        radial_basis_hypers["cutoff"] = hypers["cutoff"]
+        radial_basis_hypers["num_element_channels"] = hypers["num_element_channels"]
+        radial_basis_hypers["cutoff_width"] = hypers["cutoff_width"]
+        self.radial_basis_calculator = RadialBasis(radial_basis_hypers, all_species)
         self.n_max_l = self.radial_basis_calculator.n_max_l
         self.k_max_l = [
             hypers["num_element_channels"] * n_max for n_max in self.n_max_l
@@ -131,10 +133,11 @@ class EquivariantMessagePasser(torch.nn.Module):
         # sparing us the need for all_species
 
         self.all_species = all_species
-        hypers["radial_basis"]["cutoff"] = hypers["cutoff"]
-        hypers["radial_basis"]["num_element_channels"] = hypers["num_element_channels"]
-        hypers["radial_basis"]["cutoff_width"] = hypers["cutoff_width"]
-        self.radial_basis_calculator = RadialBasis(hypers["radial_basis"], all_species)
+        radial_basis_hypers = copy.deepcopy(hypers["radial_basis"])
+        radial_basis_hypers["cutoff"] = hypers["cutoff"]
+        radial_basis_hypers["num_element_channels"] = hypers["num_element_channels"]
+        radial_basis_hypers["cutoff_width"] = hypers["cutoff_width"]
+        self.radial_basis_calculator = RadialBasis(radial_basis_hypers, all_species)
         self.n_max_l = self.radial_basis_calculator.n_max_l
         self.k_max_l = [
             hypers["num_element_channels"] * n_max for n_max in self.n_max_l

@@ -4,7 +4,7 @@ from typing import Dict, List, Optional, Union
 
 import metatensor.torch
 import torch
-from metatensor.torch import Labels, TensorMap
+from metatensor.torch import Labels, TensorBlock, TensorMap
 from metatensor.torch.atomistic import (
     MetatensorAtomisticModel,
     ModelCapabilities,
@@ -42,6 +42,8 @@ class PhACE(torch.nn.Module):
 
     __supported_devices__ = ["cuda", "cpu"]
     __supported_dtypes__ = [torch.float64, torch.float32]
+
+    component_labels: Dict[str, List[List[Labels]]]
 
     def __init__(self, model_hypers: Dict, dataset_info: DatasetInfo) -> None:
         super().__init__()
@@ -241,6 +243,25 @@ class PhACE(torch.nn.Module):
         outputs: Dict[str, ModelOutput],
         selected_atoms: Optional[Labels] = None,
     ) -> Dict[str, TensorMap]:
+        # transfer labels, if needed
+        device = systems[0].device
+        if self.single_label.values.device != device:
+            self.single_label = self.single_label.to(device)
+            self.key_labels = {
+                output_name: label.to(device)
+                for output_name, label in self.key_labels.items()
+            }
+            self.component_labels = {
+                output_name: [
+                    [label.to(device) for label in component]
+                    for component in components
+                ]
+                for output_name, components in self.component_labels.items()
+            }
+            self.property_labels = {
+                output_name: [label.to(device) for label in labels]
+                for output_name, labels in self.property_labels.items()
+            }
 
         neighbor_list_options = self.requested_neighbor_lists()[0]  # there is only one
         structures = systems_to_batch(systems, neighbor_list_options)
@@ -325,6 +346,9 @@ class PhACE(torch.nn.Module):
 
         features = embed_centers(features, center_embeddings)
 
+        # remove the center_type dimension
+        features = metatensor.torch.remove_dimension(features, "samples", "center_type")
+
         if selected_atoms is not None:
             features = metatensor.torch.slice(
                 features, axis="samples", selection=selected_atoms
@@ -332,19 +356,22 @@ class PhACE(torch.nn.Module):
 
         return_dict: Dict[str, TensorMap] = {}
 
-        # output the `features`, if requested:
-        if "features" in outputs:
-            last_layer_features_options = outputs["features"]
-            out_features = features
-            if not last_layer_features_options.per_atom:
-                out_features = metatensor.torch.sum_over_samples(out_features, ["atom"])
-            return_dict["features"] = out_features
-
         # output the hidden features, if requested (invariant only):
         if "features" in outputs:
             feature_tmap = TensorMap(
                 keys=self.single_label,
-                blocks=[features.block({"o3_lambda": 0, "o3_sigma": 1})],
+                blocks=[
+                    TensorBlock(
+                        values=features.block(
+                            {"o3_lambda": 0, "o3_sigma": 1}
+                        ).values.squeeze(1),
+                        samples=features.block({"o3_lambda": 0, "o3_sigma": 1}).samples,
+                        components=[],
+                        properties=features.block(
+                            {"o3_lambda": 0, "o3_sigma": 1}
+                        ).properties,
+                    )
+                ],
             )
             features_options = outputs["features"]
             if features_options.per_atom:
@@ -436,7 +463,7 @@ class PhACE(torch.nn.Module):
     def export(self) -> MetatensorAtomisticModel:
         dtype = next(self.parameters()).dtype
         if dtype not in self.__supported_dtypes__:
-            raise ValueError(f"unsupported dtype {self.dtype} for SoapBpnn")
+            raise ValueError(f"unsupported dtype {self.dtype} for PhACE")
 
         # Make sure the model is all in the same dtype
         # For example, after training, the additive models could still be in

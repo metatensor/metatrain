@@ -70,7 +70,6 @@ def get_physical_basis_spliner(E_max, r_cut, normalize):
         np.sum(n_max_l),
         a,
     )
-    print("Number of spline points:", len(spliner.spline_positions))
 
     n_max_l = [int(n_max) for n_max in n_max_l]
     return n_max_l, spliner

@@ -160,7 +160,7 @@ class EquivariantLastLayer(torch.nn.Module):
                 new_values = new_values.squeeze(1)  # remove component dimension
             new_block = TensorBlock(
                 values=new_values,
-                samples=block.samples.remove("center_type"),
+                samples=block.samples,
                 components=self.output_components[irrep_name],
                 properties=self.output_properties[irrep_name],
             )
