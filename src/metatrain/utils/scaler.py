@@ -5,6 +5,7 @@ import numpy as np
 import torch
 from metatensor.torch import TensorMap
 from metatensor.torch.atomistic import ModelOutput
+from .per_atom import average_by_num_atoms
 
 from .additive import remove_additive
 from .data import Dataset, DatasetInfo, TargetInfo, get_all_targets
@@ -98,6 +99,13 @@ class Scaler(torch.nn.Module):
                             additive_model,
                             target_info_dict,
                         )
+
+                    # calculate standard deviations on per-atom quantities
+                    targets = average_by_num_atoms(
+                        targets,
+                        systems,
+                        per_structure_keys=[],
+                    )
 
                     target_info = self.new_targets[target_key]
                     if (

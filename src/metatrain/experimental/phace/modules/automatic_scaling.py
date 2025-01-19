@@ -27,7 +27,7 @@ def get_automatic_scaling(
             scripted_model,
             systems,
             {key: train_targets[key] for key in targets.keys()},
-            is_training=True,
+            is_training=False,
         )
         # average by the number of atoms (will only happen to per-structure outputs)
         predictions = average_by_num_atoms(predictions, systems, per_structure_keys=[])
@@ -43,13 +43,14 @@ def get_automatic_scaling(
                         # if there is a mixture of energy-only and energy+forces
                         # targets, we ignore the energy-only targets
                         sum_of_squares += (
-                            block.gradient("positions").values ** 2
+                            block.gradient("positions").values.detach() ** 2
                         ).sum()
                         num_elements += block.gradient("positions").values.numel()
                 else:
-                    sum_of_squares += (block.values**2).sum()
+                    sum_of_squares += (block.values.detach()**2).sum()
                     num_elements += block.values.numel()
     if is_distributed:
         torch.distributed.all_reduce(sum_of_squares)
         torch.distributed.all_reduce(num_elements)
-    return 1.0 / torch.sqrt(sum_of_squares / num_elements).item()
+    scaling = 1.0 / torch.sqrt(sum_of_squares / num_elements).item()
+    return scaling

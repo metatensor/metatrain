@@ -216,6 +216,7 @@ class Trainer:
 
         # Calculate and set model scale, but only if the model is not restarted
         if self.epoch is None:
+            logger.info("Calculating model scale")
             model_scale = get_automatic_scaling(
                 train_dataloader,
                 scripted_model,
