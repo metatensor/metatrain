@@ -19,8 +19,8 @@ def test_scaler_train():
 
     # Here we use three synthetic structures:
     # - O atom, with an energy of 3.0
-    # - H2O molecule, with an energy of 4.0
-    # - H4O2 molecule, with an energy of 12.0
+    # - H2O molecule, with an energy of 4.0 * 3
+    # - H4O2 molecule, with an energy of 12.0 * 6
     # The expected standard deviation is 13/sqrt(3).
 
     systems = [
@@ -55,7 +55,7 @@ def test_scaler_train():
             pbc=torch.tensor([True, True, True]),
         ),
     ]
-    energies = [3.0, 4.0, 12.0]
+    energies = [3.0, 4.0 * 3, 12.0 * 6]
     energies = [
         TensorMap(
             keys=Labels(names=["_"], values=torch.tensor([[0]])),

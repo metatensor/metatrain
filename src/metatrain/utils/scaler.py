@@ -9,6 +9,7 @@ from metatensor.torch.atomistic import ModelOutput
 from .additive import remove_additive
 from .data import Dataset, DatasetInfo, TargetInfo, get_all_targets
 from .jsonschema import validate
+from .per_atom import average_by_num_atoms
 
 
 class Scaler(torch.nn.Module):
@@ -19,6 +20,10 @@ class Scaler(torch.nn.Module):
     In most cases, this should be used in conjunction with a composition model
     (that removes the multi-dimensional "mean" across the composition space) and/or
     other additive models. See the `train_model` method for more details.
+
+    The scaling is performed per-atom, i.e., in cases where the targets are
+    per-structure, the standard deviation is calculated on the targets divided by
+    the number of atoms in each structure.
 
     :param model_hypers: A dictionary of model hyperparameters. The paramater is ignored
         and is only present to be consistent with the general model API.
@@ -98,6 +103,13 @@ class Scaler(torch.nn.Module):
                             additive_model,
                             target_info_dict,
                         )
+
+                    # calculate standard deviations on per-atom quantities
+                    targets = average_by_num_atoms(
+                        targets,
+                        systems,
+                        per_structure_keys=[],
+                    )
 
                     target_info = self.new_targets[target_key]
                     if (
