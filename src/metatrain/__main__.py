@@ -97,6 +97,7 @@ def main():
                         break
                     except FileExistsError:
                         i += 1
+                checkpoint_dir = Path(checkpoint_dir)
         args.checkpoint_dir = checkpoint_dir
 
         log_file = checkpoint_dir / "train.log"
