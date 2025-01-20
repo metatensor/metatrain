@@ -83,7 +83,20 @@ def main():
         # define and create `checkpoint_dir` based on current directory, date and time
         checkpoint_dir = _datetime_output_path(now=datetime.now())
         if is_main_process():
-            os.makedirs(checkpoint_dir)
+            try:
+                os.makedirs(checkpoint_dir)
+            except FileExistsError:
+                # directory already exists from a different run, add a suffix
+                # (.1, .2, ...) to the directory name
+                initial_checkpoint_dir = checkpoint_dir
+                i = 1
+                while True:
+                    try:
+                        checkpoint_dir = f"{initial_checkpoint_dir}.{i}"
+                        os.makedirs(checkpoint_dir)
+                        break
+                    except FileExistsError:
+                        i += 1
         args.checkpoint_dir = checkpoint_dir
 
         log_file = checkpoint_dir / "train.log"

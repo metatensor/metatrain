@@ -26,7 +26,7 @@ from ..utils.data import (
     get_dataset,
     get_stats,
 )
-from ..utils.data.dataset import _train_test_random_split
+from ..utils.data.dataset import _save_indices, _train_test_random_split
 from ..utils.devices import pick_devices
 from ..utils.distributed.logging import is_main_process
 from ..utils.errors import ArchitectureError
@@ -250,6 +250,8 @@ def train_model(
 
     logger.info("Setting up validation set")
     val_datasets = []
+    train_indices = []
+    val_indices = []
     if isinstance(options["validation_set"], float):
         val_size = options["validation_set"]
         train_size -= val_size
@@ -260,9 +262,10 @@ def train_model(
                 train_size=train_size,
                 test_size=val_size,
             )
-
             train_datasets[i_dataset] = train_dataset_new
             val_datasets.append(val_dataset)
+            train_indices.append(train_dataset_new.indices)
+            val_indices.append(val_dataset.indices)
     else:
         options["validation_set"] = expand_dataset_config(options["validation_set"])
 
@@ -281,6 +284,8 @@ def train_model(
         for valid_options in options["validation_set"]:
             dataset, _ = get_dataset(valid_options)
             val_datasets.append(dataset)
+            train_indices.append(None)
+            val_indices.append(None)
 
     ############################
     # SET UP TEST SET ##########
@@ -288,6 +293,7 @@ def train_model(
 
     logger.info("Setting up test set")
     test_datasets = []
+    test_indices = []
     if isinstance(options["test_set"], float):
         test_size = options["test_set"]
         train_size -= test_size
@@ -301,6 +307,18 @@ def train_model(
 
             train_datasets[i_dataset] = train_dataset_new
             test_datasets.append(test_dataset)
+            there_was_no_validation_split = train_indices[i_dataset] is None
+            new_train_indices = (
+                train_dataset_new.indices
+                if there_was_no_validation_split
+                else [train_indices[i_dataset][i] for i in train_dataset_new.indices]
+            )
+            test_indices.append(
+                test_dataset.indices
+                if there_was_no_validation_split
+                else [train_indices[i_dataset][i] for i in test_dataset.indices]
+            )
+            train_indices[i_dataset] = new_train_indices
     else:
         options["test_set"] = expand_dataset_config(options["test_set"])
 
@@ -319,6 +337,14 @@ def train_model(
         for test_options in options["test_set"]:
             dataset, _ = get_dataset(test_options)
             test_datasets.append(dataset)
+            test_indices.append(None)
+
+    ############################################
+    # SAVE TRAIN, VALIDATION, TEST INDICES #####
+    ############################################
+
+    if is_main_process():
+        _save_indices(train_indices, val_indices, test_indices, checkpoint_dir)
 
     ###########################
     # CREATE DATASET_INFO #####
