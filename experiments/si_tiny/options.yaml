@@ -2,22 +2,25 @@
 architecture:
   name: experimental.gap
   model:
-    filename: None #/home/apaulish/Documents/code/metatrain/experiments/data/si_tiny_ecut10_gap_vac1_sp8_dia5_ecut10_errors.txt #gap_ecut18_errors.txt #/home/apaulish/Documents/code/metatrain/experiments/si_tiny/xyz_datasets/ext_error_18_26.dat #dft_energy_error.dat
+    filename: None # /home/apaulish/Documents/code/metatrain/experiments/data/errors/train_si_tiny_bt25_dia25_gap5_errors.txt
+    # si_tiny_ecut18_gap_vac1_sp8_dia5_ecut18_errors.txt #gap_ecut18_errors.txt #/home/apaulish/Documents/code/metatrain/experiments/si_tiny/xyz_datasets/ext_error_18_26.dat #dft_energy_error.dat
     # si_tiny_ecut18_gap_vac1_sp8_dia5_ecut18_errors
     # gap_vac1_sp8_dia5_ecut18_errors
-    # krr:
-    #   degree: 2
-    #   num_sparse_points: 84
+    krr:
+      degree: 2
+      num_sparse_points: 52
   training:
-    regularizer: 0.005 # used only in homoscedastic noise model
+    regularizer: 0.001 # used only in homoscedastic noise model
     # num_epochs: 100 # a very short training run
 
 # Mandatory section defining the parameters for system and target data of the
 # training set train_si_tiny26_gap_vac1_sp8_ecut18
 training_set:
-  systems: "xyz_datasets/si_tiny_ecut18.xyz" #../data/train_si_tiny10_gap_vac1_sp8_dia5_ecut10
-  # train_si_tiny26_dia3_ecut18 
-  #train_si_tiny26_gap_vac1_sp8_dia5_ecut18.xyz" #  train_si_tiny26_dia3_ecut18 #"xyz_datasets/si_tiny_ecut26.xyz" 
+  systems: "../data/si_tiny/si_tiny_ecut26.xyz" #train_hom/train_si_tiny_bt25_dia5_ecut26.xyz" 
+  # train_si_tiny_bt25_dia25_ecut18_gap5_e18
+  #train_hom/train_si_tiny_bt25_dia25_ecut18.xyz" #train_si_tiny18_gap_vac1_sp8_dia5_ecut18.xyz"  # "xyz_datasets/si_tiny_ecut18.xyz"
+  # Heteroschedastic GPR: ../data/train_si_tiny18_gap_vac1_sp8_dia5_ecut18
+  # Homoscedastic GPR: "../data/si_tiny/si_tiny_ecut26.xyz"
   targets:
     energy:
       key: "dft_energy" # name of the target value
@@ -25,7 +28,7 @@ training_set:
       forces: off
 
 test_set: 
-  systems: "../data/test_gap_n132_ecut26.xyz" # 10 % of the training_set are randomly split and taken for test set
+  systems: "../data/test_gap_n132_ecut26.xyz" # test_gap_n163_ecut26 
   targets:
     energy:
       key: "dft_energy" # name of the target value
