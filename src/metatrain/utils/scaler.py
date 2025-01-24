@@ -5,11 +5,11 @@ import numpy as np
 import torch
 from metatensor.torch import TensorMap
 from metatensor.torch.atomistic import ModelOutput
-from .per_atom import average_by_num_atoms
 
 from .additive import remove_additive
 from .data import Dataset, DatasetInfo, TargetInfo, get_all_targets
 from .jsonschema import validate
+from .per_atom import average_by_num_atoms
 
 
 class Scaler(torch.nn.Module):

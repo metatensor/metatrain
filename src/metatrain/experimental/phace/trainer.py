@@ -29,7 +29,6 @@ from ...utils.transfer import (
     systems_and_targets_to_dtype,
 )
 from .model import PhACE
-from .modules.automatic_scaling import get_automatic_scaling
 
 
 logger = logging.getLogger(__name__)
@@ -212,21 +211,6 @@ class Trainer:
         if is_distributed:
             scripted_model = DistributedDataParallel(
                 scripted_model, device_ids=[device], find_unused_parameters=False
-            )
-
-        # Calculate and set model scale, but only if the model is not restarted
-        if self.epoch is None:
-            logger.info("Calculating model scale")
-            model_scale = get_automatic_scaling(
-                train_dataloader,
-                scripted_model,
-                train_targets,
-                device,
-                dtype,
-                is_distributed,
-            )
-            (scripted_model.module if is_distributed else scripted_model).set_scale(
-                model_scale
             )
 
         # Create an optimizer:

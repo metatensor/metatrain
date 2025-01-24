@@ -58,12 +58,12 @@ class PhACE(torch.nn.Module):
 
         self.nu_scaling = model_hypers["nu_scaling"]
         self.mp_scaling = model_hypers["mp_scaling"]
-
-        # this will be calculated and set by the trainer
-        # buffer so it can be reloaded from a saved model
-        self.register_buffer("overall_scaling", torch.tensor(1.0))
+        self.overall_scaling = model_hypers["overall_scaling"]
 
         n_channels = model_hypers["num_element_channels"]
+
+        # Embedding of the atomic types
+        self.embeddings = torch.nn.Embedding(len(self.atomic_types), n_channels)
 
         # A buffer that maps atomic types to indices in the embeddings
         species_to_species_index = torch.zeros(
@@ -78,9 +78,6 @@ class PhACE(torch.nn.Module):
         self.num_message_passing_layers = model_hypers["num_message_passing_layers"]
         if self.num_message_passing_layers < 1:
             raise ValueError("Number of message-passing layers must be at least 1")
-
-        # Embedding of the atomic types
-        self.embeddings = torch.nn.Embedding(len(self.atomic_types), n_channels)
 
         # The message passing is invariant for the first layer
         self.invariant_message_passer = InvariantMessagePasser(

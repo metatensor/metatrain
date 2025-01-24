@@ -45,6 +45,9 @@
         "mp_scaling": {
           "type": "number"
         },
+        "overall_scaling": {
+          "type": "number"
+        },
         "disable_nu_0": {
           "type": "boolean"
         },

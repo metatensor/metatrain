@@ -13,6 +13,7 @@ architecture:
       scale: 0.7
     nu_scaling: 1.0
     mp_scaling: 1.0
+    overall_scaling: 1.0
     disable_nu_0: True
     use_sphericart: False
     heads: {}
