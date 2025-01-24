@@ -411,7 +411,7 @@ class PhACE(torch.nn.Module):
             if output_name in outputs:
                 return_dict[output_name] = metatensor.torch.multiply(
                     output_layer(return_dict[output_name]),
-                    float(self.overall_scaling.item()),
+                    self.overall_scaling,
                 )
 
         for output_name in self.last_layers:
@@ -562,7 +562,3 @@ class PhACE(torch.nn.Module):
             },
             check_file_extension(path, ".ckpt"),
         )
-
-    @torch.jit.export
-    def set_scale(self, scale: float) -> None:
-        self.overall_scaling.fill_(scale)
