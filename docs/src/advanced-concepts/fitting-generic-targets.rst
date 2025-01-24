@@ -21,7 +21,7 @@ capabilities of the architectures in metatrain.
    * - SOAP-BPNN
      - Energy, forces, stress/virial
      - Yes
-     - Only with ``o3_lambda=1, o3_sigma=1``
+     - Yes
      - No
    * - GAP
      - Energy, forces
