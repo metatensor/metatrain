@@ -12,8 +12,6 @@ class AttentionBlock(torch.nn.Module):
         self,
         hidden_size: int,
         num_heads: int,
-        dropout_rate: float,
-        attention_dropout_rate: float,
     ):
         super().__init__()
 
@@ -21,7 +19,6 @@ class AttentionBlock(torch.nn.Module):
         self.in_proj = torch.nn.Linear(hidden_size, 3 * hidden_size, bias=False)
         self.out_proj = torch.nn.Linear(hidden_size, hidden_size, bias=False)
         self.layernorm = torch.nn.LayerNorm(normalized_shape=hidden_size)
-        self.attention_dropout_rate = attention_dropout_rate
 
     def forward(
         self,
@@ -42,21 +39,14 @@ class AttentionBlock(torch.nn.Module):
         q = q.transpose(1, 2)
         k = k.transpose(1, 2)
         v = v.transpose(1, 2)
+
+        # Trick to be able to use scaled_dot_product_attention
+        q = q**2 + 1e-6
+        k = k + torch.log(radial_mask[:, None, :, None])
+
         # Attention
-        attention_weights = torch.matmul(q, k.transpose(-2, -1)) / (k.size(-1) ** 0.5)
-        attention_weights = attention_weights.softmax(dim=-1)
-        attention_weights = torch.nn.functional.dropout(
-            attention_weights, p=self.attention_dropout_rate, training=self.training
-        )
+        attention_output = torch.nn.functional.scaled_dot_product_attention(q, k, v)
 
-        # Radial mask
-        attention_weights = attention_weights * radial_mask[:, None, None, :]
-        attention_weights = attention_weights / (
-            attention_weights.sum(dim=-1, keepdim=True) + 1e-6
-        )
-
-        # Attention output
-        attention_output = torch.matmul(attention_weights, v)
         attention_output = attention_output.transpose(1, 2)
         attention_output = attention_output.reshape(
             attention_output.size(0),

@@ -8,7 +8,6 @@ class FeedForwardBlock(torch.nn.Module):
         self,
         hidden_size: int,
         intermediate_size: int,
-        dropout_rate: float,
     ):
         super().__init__()
 
@@ -18,9 +17,7 @@ class FeedForwardBlock(torch.nn.Module):
         self.output = torch.nn.Linear(
             in_features=intermediate_size, out_features=hidden_size, bias=False
         )
-
         self.layernorm = torch.nn.LayerNorm(normalized_shape=hidden_size)
-        self.dropout = torch.nn.Dropout(dropout_rate)
 
     def forward(
         self,
@@ -36,9 +33,6 @@ class FeedForwardBlock(torch.nn.Module):
 
         # Project back to input size
         outputs = self.output(hidden)
-
-        # Apply dropout
-        outputs = self.dropout(outputs)
 
         # Residual connection
         outputs = (outputs + inputs) * 0.5**0.5

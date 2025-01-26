@@ -12,21 +12,16 @@ class TransformerLayer(torch.nn.Module):
         hidden_size: int,
         intermediate_size: int,
         num_heads: int,
-        dropout_rate: float,
-        attention_dropout_rate: float,
     ):
         super().__init__()
 
         self.attention_block = AttentionBlock(
             hidden_size=hidden_size,
             num_heads=num_heads,
-            dropout_rate=dropout_rate,
-            attention_dropout_rate=attention_dropout_rate,
         )
         self.ff_block = FeedForwardBlock(
             hidden_size=hidden_size,
             intermediate_size=intermediate_size,
-            dropout_rate=dropout_rate,
         )
 
     def forward(
@@ -50,8 +45,6 @@ class Transformer(torch.nn.Module):
         intermediate_size: int,
         num_heads: int,
         num_layers: int,
-        dropout_rate: float,
-        attention_dropout_rate: float,
     ):
         super().__init__()
 
@@ -61,8 +54,6 @@ class Transformer(torch.nn.Module):
                     hidden_size=hidden_size,
                     intermediate_size=intermediate_size,
                     num_heads=num_heads,
-                    dropout_rate=dropout_rate,
-                    attention_dropout_rate=attention_dropout_rate,
                 )
                 for _ in range(num_layers)
             ]

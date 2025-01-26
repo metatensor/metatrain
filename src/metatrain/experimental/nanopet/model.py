@@ -77,10 +77,7 @@ class NanoPET(torch.nn.Module):
             4 * self.hypers["d_pet"],
             self.hypers["num_heads"],
             self.hypers["num_attention_layers"],
-            0.0,  # MLP dropout rate
-            0.0,  # attention dropout rate
         )
-        # empirically, the model seems to perform better without dropout
 
         self.num_mp_layers = self.hypers["num_gnn_layers"] - 1
         gnn_contractions = []
@@ -97,8 +94,6 @@ class NanoPET(torch.nn.Module):
                     4 * self.hypers["d_pet"],
                     self.hypers["num_heads"],
                     self.hypers["num_attention_layers"],
-                    0.0,  # MLP dropout rate
-                    0.0,  # attention dropout rate
                 )
             )
         self.gnn_contractions = torch.nn.ModuleList(gnn_contractions)
