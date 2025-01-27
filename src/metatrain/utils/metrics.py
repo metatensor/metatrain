@@ -178,3 +178,24 @@ class MAEAccumulator:
             finalized_info[out_key] = value[0] / value[1]
 
         return finalized_info
+
+
+def get_selected_metric(metric_dict: Dict[str, float], selected_metric: str) -> float:
+    if selected_metric == "loss":
+        metric = metric_dict["loss"]
+    elif selected_metric == "rmse_prod":
+        metric = 1
+        for key in metric_dict:
+            if "RMSE" in key:
+                metric *= metric_dict[key]
+    elif selected_metric == "mae_prod":
+        metric = 1
+        for key in metric_dict:
+            if "MAE" in key:
+                metric *= metric_dict[key]
+    else:
+        raise ValueError(
+            f"Selected metric {selected_metric} not recognized. "
+            "Please select from 'loss', 'rmse_prod', or 'mae_prod'."
+        )
+    return metric

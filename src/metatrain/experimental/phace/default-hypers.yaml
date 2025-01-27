@@ -39,3 +39,4 @@ architecture:
       type: mse
       weights: {}
       reduction: sum
+    best_model_metric: "rmse_prod"

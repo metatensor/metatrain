@@ -133,6 +133,10 @@
         "log_mae": {
           "type": "boolean"
         },
+        "best_model_metric": {
+          "type": "string",
+          "enum": ["rmse_prod", "mae_prod", "loss"]
+        },
         "loss": {
           "type": "object",
           "properties": {

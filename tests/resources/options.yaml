@@ -1,15 +1,10 @@
 seed: 42
 
 architecture:
-  name: experimental.phace
-  # model:
-  #   radial_basis:
-  #     optimizable_lengthscales: true
+  name: experimental.soap_bpnn
   training:
-    batch_size: 8
-    num_epochs: 10
-    gradient_clipping: 10
-    log_interval: 1
+    batch_size: 2
+    num_epochs: 1
 
 training_set:
   systems:

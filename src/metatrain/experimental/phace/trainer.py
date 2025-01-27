@@ -17,7 +17,7 @@ from ...utils.external_naming import to_external_name
 from ...utils.io import check_file_extension
 from ...utils.logging import MetricLogger
 from ...utils.loss import TensorMapDictLoss
-from ...utils.metrics import MAEAccumulator, RMSEAccumulator
+from ...utils.metrics import MAEAccumulator, RMSEAccumulator, get_selected_metric
 from ...utils.neighbor_lists import (
     get_requested_neighbor_lists,
     get_system_with_neighbor_lists,
@@ -430,8 +430,11 @@ class Trainer:
                         patience=self.hypers["scheduler_patience"],
                     )
 
-            if val_loss < self.best_loss:
-                self.best_loss = val_loss
+            metric = get_selected_metric(
+                finalized_val_info, self.hypers["best_model_metric"]
+            )
+            if metric < self.best_loss:
+                self.best_loss = metric
                 self.best_model_state_dict = copy.deepcopy(
                     (
                         scripted_model.module if is_distributed else scripted_model
