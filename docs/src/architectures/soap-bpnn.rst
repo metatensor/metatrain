@@ -172,6 +172,9 @@ The parameters for training are
 :param loss_weights: specifies the weights to be used in the loss for each target. The
     weights should be a dictionary of floats, one for each target. All missing targets
     are assigned a weight of 1.0.
+:param best_model_metric: specifies the validation set metric to use to select the best
+    model. The default is ``rmse_prod``, i.e., the product of the RMSEs for each target.
+    Other options are ``mae_prod`` and ``loss``.
 
 
 References
