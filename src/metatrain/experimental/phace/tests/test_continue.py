@@ -84,9 +84,6 @@ def test_continue(monkeypatch, tmp_path):
     for system in systems:
         get_system_with_neighbor_lists(system, model.requested_neighbor_lists())
 
-    # This is set during training, which didn't take place for model_before
-    scripted_model_before.set_scale(scripted_model_after.overall_scaling.item())
-
     # Predict on the first five systems
     output_before = scripted_model_before(
         systems[:5], {"mtt::U0": model_before.outputs["mtt::U0"]}

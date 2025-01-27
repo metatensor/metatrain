@@ -35,6 +35,9 @@
             },
             "scale": {
               "type": "number"
+            },
+            "optimizable_lengthscales": {
+              "type": "boolean"
             }
           },
           "additionalProperties": false
@@ -87,6 +90,9 @@
         },
         "learning_rate": {
           "type": "number"
+        },
+        "gradient_clipping": {
+          "type": ["number", "null"]
         },
         "scheduler_patience": {
           "type": "integer"

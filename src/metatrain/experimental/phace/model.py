@@ -1,6 +1,6 @@
 import warnings
 from pathlib import Path
-from typing import Dict, List, Optional, Union
+from typing import Dict, List, Optional, Tuple, Union
 
 import metatensor.torch
 import torch
@@ -100,6 +100,26 @@ class PhACE(torch.nn.Module):
             for (l1, l2, L), tensor in cgs._cgs.items()
         }
 
+        self.outputs = {
+            "features": ModelOutput(unit="", per_atom=True)
+        }  # the model is always capable of outputting the internal features
+        for target_name in dataset_info.targets.keys():
+            # the model can always output the last-layer features for the targets
+            ll_features_name = (
+                f"mtt::aux::{target_name.replace('mtt::', '')}_last_layer_features"
+            )
+            self.outputs[ll_features_name] = ModelOutput(per_atom=True)
+
+        self.requested_LS_tuples: List[Tuple[int, int]] = []
+        self.heads = torch.nn.ModuleDict()
+        self.head_types = self.hypers["heads"]
+        self.last_layers = torch.nn.ModuleDict()
+        self.key_labels: Dict[str, Labels] = {}
+        self.component_labels: Dict[str, List[List[Labels]]] = {}
+        self.property_labels: Dict[str, List[Labels]] = {}
+        for target_name, target_info in dataset_info.targets.items():
+            self._add_output(target_name, target_info)
+
         # A module that precomputes quantities that are useful in all message-passing
         # steps (spherical harmonics, distances)
         self.precomputer = Precomputer(
@@ -111,8 +131,11 @@ class PhACE(torch.nn.Module):
             self.nu_max - 1,
             cgs,
             irreps_in=[(l, 1) for l in range(self.l_max + 1)],  # noqa: E741
-            # TODO: speed up with something like this when there is only 1 layer?
-            # requested_LS_string="0_1"
+            requested_LS=(
+                self.requested_LS_tuples
+                if self.num_message_passing_layers == 1
+                else None
+            ),
         )
 
         # Subsequent message-passing layers
@@ -138,9 +161,11 @@ class PhACE(torch.nn.Module):
                 cgs,
                 irreps_in=equivariant_message_passer.irreps_out,
                 # TODO: speed up with something like this?
-                # requested_LS_string=(
-                #     "0_1" if idx == self.num_message_passing_layers - 2 else None
-                # ),
+                requested_LS=(
+                    self.requested_LS_tuples
+                    if idx == self.num_message_passing_layers - 2
+                    else None
+                ),
             )
             generalized_cg_iterators.append(generalized_cg_iterator)
         self.equivariant_message_passers = torch.nn.ModuleList(
@@ -149,25 +174,6 @@ class PhACE(torch.nn.Module):
         self.generalized_cg_iterators = torch.nn.ModuleList(generalized_cg_iterators)
 
         self.last_layer_feature_size = self.k_max_l[0]
-
-        self.outputs = {
-            "features": ModelOutput(unit="", per_atom=True)
-        }  # the model is always capable of outputting the internal features
-        for target_name in dataset_info.targets.keys():
-            # the model can always output the last-layer features for the targets
-            ll_features_name = (
-                f"mtt::aux::{target_name.replace('mtt::', '')}_last_layer_features"
-            )
-            self.outputs[ll_features_name] = ModelOutput(per_atom=True)
-
-        self.heads = torch.nn.ModuleDict()
-        self.head_types = self.hypers["heads"]
-        self.last_layers = torch.nn.ModuleDict()
-        self.key_labels: Dict[str, Labels] = {}
-        self.component_labels: Dict[str, List[List[Labels]]] = {}
-        self.property_labels: Dict[str, List[Labels]] = {}
-        for target_name, target_info in dataset_info.targets.items():
-            self._add_output(target_name, target_info)
 
         # additive models: these are handled by the trainer at training
         # time, and they are added to the output at evaluation time
@@ -518,6 +524,8 @@ class PhACE(torch.nn.Module):
             self.last_layers[target_name] = EquivariantLastLayer(
                 [(0, 1)], self.k_max_l, [[]], [target_info.layout.block(0).properties]
             )
+            if [(0, 1)] not in self.requested_LS_tuples:
+                self.requested_LS_tuples.append((0, 1))
         else:  # spherical equivariant
             irreps = []
             for key in target_info.layout.keys:
@@ -531,6 +539,9 @@ class PhACE(torch.nn.Module):
                 [block.components for block in target_info.layout.blocks()],
                 [block.properties for block in target_info.layout.blocks()],
             )
+            for irrep in irreps:
+                if irrep not in self.requested_LS_tuples:
+                    self.requested_LS_tuples.append(irrep)
 
         self.key_labels[target_name] = target_info.layout.keys
         self.component_labels[target_name] = [

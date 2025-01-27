@@ -11,6 +11,7 @@ architecture:
       mlp: true
       E_max: 70.0
       scale: 0.7
+      optimizable_lengthscales: false
     nu_scaling: 1.0
     mp_scaling: 1.0
     overall_scaling: 1.0
@@ -25,6 +26,7 @@ architecture:
     batch_size: 8
     num_epochs: 100
     learning_rate: 0.001
+    gradient_clipping: null
     scheduler_patience: 10
     scheduler_factor: 0.8
     log_interval: 10

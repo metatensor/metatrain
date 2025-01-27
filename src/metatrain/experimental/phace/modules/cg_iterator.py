@@ -1,4 +1,4 @@
-from typing import Dict, List, Tuple
+from typing import Dict, List, Optional, Tuple
 
 import torch
 from metatensor.torch import Labels, TensorBlock, TensorMap
@@ -16,23 +16,27 @@ class CGIterator(torch.nn.Module):
         number_of_iterations,
         cgs,
         irreps_in,
-        requested_LS_string=None,
+        requested_LS: Optional[List[Tuple[int, int]]],
     ):
         super().__init__()
         self.k_max_l = k_max_l
         self.l_max = len(k_max_l) - 1
         self.number_of_iterations = number_of_iterations
         self.cgs = cgs
-        self.requested_LS_string = requested_LS_string
+        self.requested_LS_strings: Optional[List[str]] = None
+        if requested_LS is not None:
+            self.requested_LS_strings = [
+                str(lam) + "_" + str(sig) for lam, sig in requested_LS
+            ]
 
         cg_iterations = []
         irreps_in_1 = irreps_in
         irreps_in_2 = irreps_in
         for n_iteration in range(self.number_of_iterations):
             if n_iteration == self.number_of_iterations - 1:
-                requested_LS_string_now = requested_LS_string
+                requested_LS_strings_iteration = self.requested_LS_strings
             else:
-                requested_LS_string_now = None
+                requested_LS_strings_iteration = None
             cg_iterations.append(
                 CGIterationAdd(
                     self.k_max_l,
@@ -40,7 +44,7 @@ class CGIterator(torch.nn.Module):
                     irreps_in_1,
                     irreps_in_2,
                     (n_iteration + 1, 1, n_iteration + 2),
-                    requested_LS_string_now,
+                    requested_LS_strings_iteration,
                 )
             )
             irreps_out = cg_iterations[-1].irreps_out
@@ -79,12 +83,12 @@ class CGIterationAdd(torch.nn.Module):
         irreps_in_1,
         irreps_in_2,
         nu_triplet,
-        requested_LS_string=None,
+        requested_LS_strings: Optional[List[str]],
     ):
         super().__init__()
         self.l_max = len(k_max_l) - 1
         self.cg_iteration = CGIteration(
-            k_max_l, irreps_in_1, irreps_in_2, nu_triplet, cgs, requested_LS_string
+            k_max_l, irreps_in_1, irreps_in_2, nu_triplet, cgs, requested_LS_strings
         )
         self.irreps_out = self.cg_iteration.irreps_out
 
@@ -99,6 +103,9 @@ class CGIterationAdd(torch.nn.Module):
 
 class CGIteration(torch.nn.Module):
     # A single Clebsch-Gordan iteration (with contraction layers)
+
+    requested_LS_strings: Optional[List[str]]  # torchscript
+
     def __init__(
         self,
         k_max_l: List[int],
@@ -106,14 +113,14 @@ class CGIteration(torch.nn.Module):
         irreps_in_2: List[Tuple[int, int]],
         nu_triplet: Tuple[int, int, int],
         cgs,
-        requested_LS_string=None,
+        requested_LS_strings,
     ):
         super().__init__()
         self.k_max_l = k_max_l
         self.l_max = len(k_max_l) - 1
         self.cgs = cgs
         self.irreps_out: List[Tuple[int, int]] = []
-        self.requested_LS_string = requested_LS_string
+        self.requested_LS_strings = requested_LS_strings
 
         self.sizes_by_lam_sig: Dict[str, int] = {}
         for l1, s1 in irreps_in_1:
@@ -122,8 +129,8 @@ class CGIteration(torch.nn.Module):
                     S = s1 * s2 * (-1) ** (l1 + l2 + L)
                     if S == -1:
                         continue
-                    if self.requested_LS_string is not None:
-                        if str(L) + "_" + str(S) != self.requested_LS_string:
+                    if self.requested_LS_strings is not None:
+                        if str(L) + "_" + str(S) not in self.requested_LS_strings:
                             continue
                     if (L, S) not in self.irreps_out:
                         self.irreps_out.append((L, S))
@@ -176,8 +183,11 @@ class CGIteration(torch.nn.Module):
                 tensor12 = tensor12.reshape(tensor12.shape[0], tensor12.shape[1], -1)
                 for L in range(abs(l1 - l2), min(l1 + l2, self.l_max) + 1):
                     S = int(s1 * s2 * (-1) ** (l1 + l2 + L))
-                    if self.requested_LS_string is not None:
-                        if str(L) + "_" + str(S) != self.requested_LS_string:
+                    requested_LS_strings: Optional[List[str]] = (
+                        self.requested_LS_strings
+                    )
+                    if requested_LS_strings is not None:
+                        if str(L) + "_" + str(S) not in requested_LS_strings:
                             continue
                     result = cg_combine_l1l2L(
                         tensor12, self.cgs[str(l1) + "_" + str(l2) + "_" + str(L)]

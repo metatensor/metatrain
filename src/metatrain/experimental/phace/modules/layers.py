@@ -23,11 +23,8 @@ class InvariantMLP(torch.nn.Module):
         self.mlp = torch.nn.Sequential(
             Linear(n_inputs, 4 * n_inputs),
             torch.nn.SiLU(),
-            # Linear(4*n_inputs, 4*n_inputs),
-            # torch.nn.SiLU(),
-            # Linear(4*n_inputs, 4*n_inputs),
-            # torch.nn.SiLU(),
             Linear(4 * n_inputs, n_inputs),
+            torch.nn.SiLU(),
         )
 
     def forward(self, features: TensorMap) -> TensorMap:
