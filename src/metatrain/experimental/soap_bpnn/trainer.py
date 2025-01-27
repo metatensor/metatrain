@@ -118,7 +118,9 @@ class Trainer:
 
         logger.info("Calculating composition weights")
         model.additive_models[0].train_model(  # this is the composition model
-            train_datasets, self.hypers["fixed_composition_weights"]
+            train_datasets,
+            model.additive_models[1:],
+            self.hypers["fixed_composition_weights"],
         )
 
         if self.hypers["scale_targets"]:
