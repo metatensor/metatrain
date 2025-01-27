@@ -60,6 +60,7 @@ build-backend = "setuptools.build_meta"
 [project.optional-dependencies]
 soap-bpnn = [
     "rascaline-torch @ git+https://github.com/luthaf/rascaline@5326b6e#subdirectory=python/rascaline-torch",
+    "wigners",
 ]
 pet = [
   "pet @ git+https://github.com/lab-cosmo/pet@5d40710",
@@ -90,7 +91,8 @@ exclude_lines = [
 ]
 omit = [
     "*/site-packages/*",
-    "*/metatrain/experimental/*"
+    "*/metatrain/experimental/*",
+    "*/metatrain/utils/testing/*"
 ]
 
 [tool.coverage.paths]
