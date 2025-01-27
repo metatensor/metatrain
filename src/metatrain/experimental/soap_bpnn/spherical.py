@@ -157,7 +157,7 @@ class TensorBasis(torch.nn.Module):
         elif self.o3_lambda == 1:
             basis = self.vector_basis(systems, selected_atoms)
             basis = basis / torch.sqrt(
-                torch.sum(torch.square(basis), dim=-1, keepdim=True)
+                torch.sum(torch.square(basis), dim=1, keepdim=True)
             )
         elif self.o3_lambda == 2:
             basis = torch.empty(
