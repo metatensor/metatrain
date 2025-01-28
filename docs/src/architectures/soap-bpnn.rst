@@ -80,7 +80,9 @@ All Hyperparameters
 model
 #####
 
-:param heads: The type of head (linear or mlp) to use for each target
+:param heads: The type of head ("linear" or "mlp") to use for each target (e.g.
+  ``heads: {"energy": "linear", "mtt::dipole": "mlp"}``). All omitted targets will use a
+  MLP (multi-layer perceptron) head.
 :param zbl: Whether to use the ZBL short-range repulsion as the baseline for the model
 
 soap
