@@ -173,8 +173,10 @@ The parameters for training are
     weights should be a dictionary of floats, one for each target. All missing targets
     are assigned a weight of 1.0.
 :param best_model_metric: specifies the validation set metric to use to select the best
-    model. The default is ``rmse_prod``, i.e., the product of the RMSEs for each target.
-    Other options are ``mae_prod`` and ``loss``.
+    model, i.e. the model that will be saved as ``model.ckpt`` and ``model.pt`` both in
+    the current directory and in the checkpoint directory. The default is ``rmse_prod``,
+    i.e., the product of the RMSEs for each target. Other options are ``mae_prod`` and
+    ``loss``.
 
 
 References

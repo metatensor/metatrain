@@ -93,8 +93,8 @@ def test_get_selected_metric():
         "mtt::target RMSE": 4,
         "mtt::target MAE": 5,
     }
-    selected_metric = "foo"
 
+    selected_metric = "foo"
     with pytest.raises(ValueError, match="Please select from"):
         get_selected_metric(metrics, selected_metric)
 
