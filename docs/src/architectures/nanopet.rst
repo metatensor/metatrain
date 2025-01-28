@@ -86,7 +86,10 @@ The model-related hyperparameters are
 :param num_heads: Number of attention heads
 :param num_attention_layers: Number of attention layers in each GNN layer
 :param num_gnn_layers: Number of GNN layers
-:param heads: The type of head (linear or mlp) to use for each target
+:param heads: The type of head ("linear" or "mlp") to use for each target (e.g.
+  ``heads: {"energy": "linear", "mtt::dipole": "mlp"}``). All omitted targets will use a
+  MLP (multi-layer perceptron) head. MLP heads consist of two hidden layers with
+  dimensionality ``d_pet``.
 :param zbl: Whether to use the ZBL short-range repulsion as the baseline for the model
 
 training
