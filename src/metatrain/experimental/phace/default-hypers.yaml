@@ -9,7 +9,7 @@ architecture:
     num_element_channels: 64
     radial_basis:
       mlp: true
-      E_max: 30.0
+      E_max: 50.0
       scale: 0.7
       optimizable_lengthscales: false
     nu_scaling: 0.1
