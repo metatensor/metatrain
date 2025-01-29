@@ -262,11 +262,13 @@ class Trainer:
             if is_distributed:
                 sampler.set_epoch(epoch)
 
-            train_rmse_calculator = RMSEAccumulator()
-            val_rmse_calculator = RMSEAccumulator()
+            train_rmse_calculator = RMSEAccumulator(self.hypers["log_separate_blocks"])
+            val_rmse_calculator = RMSEAccumulator(self.hypers["log_separate_blocks"])
             if self.hypers["log_mae"]:
-                train_mae_calculator = MAEAccumulator()
-                val_mae_calculator = MAEAccumulator()
+                train_mae_calculator = MAEAccumulator(
+                    self.hypers["log_separate_blocks"]
+                )
+                val_mae_calculator = MAEAccumulator(self.hypers["log_separate_blocks"])
 
             train_loss = 0.0
             for batch in train_dataloader:
