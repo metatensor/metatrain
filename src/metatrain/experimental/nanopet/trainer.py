@@ -110,7 +110,9 @@ class Trainer:
 
         if self.hypers["scale_targets"]:
             logger.info("Calculating scaling weights")
-            model.scaler.train_model(train_datasets, model.additive_models)
+            model.scaler.train_model(
+                train_datasets, model.additive_models, treat_as_additive=True
+            )
 
         if is_distributed:
             model = DistributedDataParallel(model, device_ids=[device])

@@ -81,21 +81,23 @@ def test_scaler_train():
         ),
     )
 
-    scaler.train_model(dataset, additive_models=[])
+    scaler.train_model(dataset, additive_models=[], treat_as_additive=True)
     assert scaler.scales.shape == (1,)
     assert scaler.output_name_to_output_index == {"energy": 0}
     torch.testing.assert_close(
         scaler.scales, torch.tensor([13.0 / 3**0.5], dtype=torch.float64)
     )
 
-    scaler.train_model([dataset], additive_models=[])
+    scaler.train_model([dataset], additive_models=[], treat_as_additive=True)
     assert scaler.scales.shape == (1,)
     assert scaler.output_name_to_output_index == {"energy": 0}
     torch.testing.assert_close(
         scaler.scales, torch.tensor([13.0 / 3**0.5], dtype=torch.float64)
     )
 
-    scaler.train_model([dataset, dataset, dataset], additive_models=[])
+    scaler.train_model(
+        [dataset, dataset, dataset], additive_models=[], treat_as_additive=True
+    )
     assert scaler.scales.shape == (1,)
     assert scaler.output_name_to_output_index == {"energy": 0}
     torch.testing.assert_close(
@@ -138,7 +140,7 @@ def test_scale():
         ),
     )
 
-    scaler.train_model(dataset, additive_models=[])
+    scaler.train_model(dataset, additive_models=[], treat_as_additive=True)
     scale = scaler.scales[0].item()
 
     fake_output_or_target = TensorMap(

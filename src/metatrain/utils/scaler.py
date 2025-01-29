@@ -59,6 +59,7 @@ class Scaler(torch.nn.Module):
         self,
         datasets: List[Union[Dataset, torch.utils.data.Subset]],
         additive_models: List[torch.nn.Module],
+        treat_as_additive: bool,
     ) -> None:
         """
         Calculate the scaling weights for all the targets in the datasets.
@@ -70,6 +71,12 @@ class Scaler(torch.nn.Module):
         :raises ValueError: If the provided datasets contain targets unknown
             to the scaler.
         """
+        if not treat_as_additive:
+            raise ValueError(
+                "The Scaler class can currently only be trained by treating targets "
+                "as additive."
+            )
+
         if not isinstance(datasets, list):
             datasets = [datasets]
 
