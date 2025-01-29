@@ -117,6 +117,7 @@ class PhACE(torch.nn.Module):
         self.key_labels: Dict[str, Labels] = {}
         self.component_labels: Dict[str, List[List[Labels]]] = {}
         self.property_labels: Dict[str, List[Labels]] = {}
+        self.head_num_layers = self.hypers["head_num_layers"]
         for target_name, target_info in dataset_info.targets.items():
             self._add_output(target_name, target_info)
 
@@ -516,7 +517,9 @@ class PhACE(torch.nn.Module):
         if use_mlp:
             if target_info.is_spherical:
                 raise ValueError("MLP heads are not supported for spherical targets.")
-            self.heads[target_name] = InvariantMLP(self.k_max_l[0])
+            self.heads[target_name] = InvariantMLP(
+                self.k_max_l[0], self.head_num_layers
+            )
         else:
             self.heads[target_name] = NothingLayer()
 

@@ -57,6 +57,9 @@
         "use_sphericart": {
           "type": "boolean"
         },
+        "head_num_layers": {
+          "type": "integer"
+        },
         "heads": {
           "type": "object",
           "patternProperties": {

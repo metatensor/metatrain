@@ -18,12 +18,20 @@ class Linear(torch.nn.Module):
 
 class InvariantMLP(torch.nn.Module):
 
-    def __init__(self, n_inputs: int) -> None:
+    def __init__(self, n_inputs: int, n_layers: int) -> None:
         super().__init__()
-        self.mlp = torch.nn.Sequential(
-            Linear(n_inputs, n_inputs),
-            torch.nn.SiLU(),
+        # the last linear layer is applied outside of the MLP
+
+        # if there is more than one layer, expand the input dimension to 4 times its
+        # size and then reduce it back to the original size
+        layers = (
+            [Linear(n_inputs, n_inputs), torch.nn.SiLU()]
+            if n_layers == 1
+            else [Linear(n_inputs, 4 * n_inputs), torch.nn.SiLU()]
+            + [Linear(4 * n_inputs, 4 * n_inputs), torch.nn.SiLU()] * (n_layers - 2)
+            + [Linear(4 * n_inputs, n_inputs), torch.nn.SiLU()]
         )
+        self.mlp = torch.nn.Sequential(*layers)
 
     def forward(self, features: TensorMap) -> TensorMap:
 

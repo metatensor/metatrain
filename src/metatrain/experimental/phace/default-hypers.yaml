@@ -17,6 +17,7 @@ architecture:
     overall_scaling: 1.0
     disable_nu_0: True
     use_sphericart: False
+    head_num_layers: 1
     heads: {}
     zbl: False
 
