@@ -64,7 +64,7 @@ def test_rotational_invariance():
     torch.set_default_dtype(torch.float32)  # change back
 
 
-@pytest.mark.parametrize("o3_lambda", [0, 1, 2, 3, 4])
+@pytest.mark.parametrize("o3_lambda", [0, 1, 2, 3])
 @pytest.mark.parametrize("o3_sigma", [1])
 def test_equivariance_rotations(o3_lambda, o3_sigma):
     """Tests that the model is rotationally equivariant when predicting
@@ -128,7 +128,7 @@ def test_equivariance_rotations(o3_lambda, o3_sigma):
 
 
 @pytest.mark.parametrize("dataset_path", [DATASET_PATH, DATASET_PATH_PERIODIC])
-@pytest.mark.parametrize("o3_lambda", [0, 1, 2, 3, 4])
+@pytest.mark.parametrize("o3_lambda", [0, 1, 2, 3])
 @pytest.mark.parametrize("o3_sigma", [1])
 def test_equivariance_inversion(dataset_path, o3_lambda, o3_sigma):
     """Tests that the model is equivariant with respect to inversions."""

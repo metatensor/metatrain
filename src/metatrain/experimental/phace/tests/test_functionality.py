@@ -164,7 +164,7 @@ def test_output_last_layer_features():
     ]
     assert features.values.shape == (
         4,
-        32,
+        192,
     )
     assert features.properties.names == [
         "properties",
@@ -178,7 +178,7 @@ def test_output_last_layer_features():
     assert last_layer_features.values.shape == (
         4,
         1,
-        32,
+        192,
     )
     assert last_layer_features.properties.names == [
         "properties",
@@ -208,7 +208,7 @@ def test_output_last_layer_features():
     ]
     assert features.values.shape == (
         1,
-        32,
+        192,
     )
     assert features.properties.names == [
         "properties",
@@ -220,7 +220,7 @@ def test_output_last_layer_features():
     assert outputs["mtt::aux::energy_last_layer_features"].block().values.shape == (
         1,
         1,
-        32,
+        192,
     )
     assert outputs["mtt::aux::energy_last_layer_features"].block().properties.names == [
         "properties",
