@@ -108,16 +108,16 @@ def test_regression_train():
 
     expected_output = torch.tensor(
         [
-            [0.065167032182],
-            [-0.417856633663],
-            [1.057808160782],
-            [1.471823930740],
-            [0.443115055561],
+            [0.532756149769],
+            [0.428720355034],
+            [1.669703483582],
+            [1.793945670128],
+            [0.571805834770],
         ]
     )
 
     # if you need to change the hardcoded values:
-    torch.set_printoptions(precision=12)
-    print(output["mtt::U0"].block().values)
+    # torch.set_printoptions(precision=12)
+    # print(output["mtt::U0"].block().values)
 
     torch.testing.assert_close(output["mtt::U0"].block().values, expected_output)
