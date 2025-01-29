@@ -67,9 +67,11 @@ class Scaler(torch.nn.Module):
         :param datasets: Dataset(s) to calculate the scaling weights for.
         :param additive_models: Additive models to be removed from the targets
             before calculating the statistics.
+        :param treat_as_additive: If True, all per-structure targets (i.e. those that)
+            do not contain an ``atom`` label name, are treated as additive.
 
         :raises ValueError: If the provided datasets contain targets unknown
-            to the scaler.
+            to the scaler or if the targets are not treated as additive.
         """
         if not treat_as_additive:
             raise ValueError(
