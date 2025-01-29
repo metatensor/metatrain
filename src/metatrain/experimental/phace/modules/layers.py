@@ -21,9 +21,7 @@ class InvariantMLP(torch.nn.Module):
     def __init__(self, n_inputs: int) -> None:
         super().__init__()
         self.mlp = torch.nn.Sequential(
-            Linear(n_inputs, 4 * n_inputs),
-            torch.nn.SiLU(),
-            Linear(4 * n_inputs, n_inputs),
+            Linear(n_inputs, n_inputs),
             torch.nn.SiLU(),
         )
 
