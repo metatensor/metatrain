@@ -21,6 +21,10 @@ class Scaler(torch.nn.Module):
     (that removes the multi-dimensional "mean" across the composition space) and/or
     other additive models. See the `train_model` method for more details.
 
+    The scaling is performed per-atom, i.e., in cases where the targets are
+    per-structure, the standard deviation is calculated on the targets divided by
+    the number of atoms in each structure.
+
     :param model_hypers: A dictionary of model hyperparameters. The paramater is ignored
         and is only present to be consistent with the general model API.
     :param dataset_info: An object containing information about the dataset, including
@@ -55,6 +59,7 @@ class Scaler(torch.nn.Module):
         self,
         datasets: List[Union[Dataset, torch.utils.data.Subset]],
         additive_models: List[torch.nn.Module],
+        treat_as_additive: bool,
     ) -> None:
         """
         Calculate the scaling weights for all the targets in the datasets.
@@ -62,10 +67,18 @@ class Scaler(torch.nn.Module):
         :param datasets: Dataset(s) to calculate the scaling weights for.
         :param additive_models: Additive models to be removed from the targets
             before calculating the statistics.
+        :param treat_as_additive: If True, all per-structure targets (i.e. those that)
+            do not contain an ``atom`` label name, are treated as additive.
 
         :raises ValueError: If the provided datasets contain targets unknown
-            to the scaler.
+            to the scaler or if the targets are not treated as additive.
         """
+        if not treat_as_additive:
+            raise ValueError(
+                "The Scaler class can currently only be trained by treating targets "
+                "as additive."
+            )
+
         if not isinstance(datasets, list):
             datasets = [datasets]
 
