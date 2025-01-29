@@ -112,7 +112,7 @@ def _prepare_eval_model_args(args: argparse.Namespace) -> None:
 
 
 def _concatenate_tensormaps(
-    tensormap_dict_list: List[Dict[str, TensorMap]]
+    tensormap_dict_list: List[Dict[str, TensorMap]],
 ) -> Dict[str, TensorMap]:
     # Concatenating TensorMaps is tricky, because the model does not know the
     # "number" of the system it is predicting. For example, if a model predicts
