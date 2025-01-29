@@ -108,7 +108,7 @@ def test_per_block(accumulator_class, tensor_map_with_grad_1, tensor_map_with_gr
     metrics = accumulator.finalize(not_per_atom=["gradient_gradients"])
 
     rmse_or_mae = "RMSE" if accumulator_class == RMSEAccumulator else "MAE"
-    assert f"energy_label_name_0 {rmse_or_mae} (per atom)" in metrics
-    assert f"energy_label_name_0_gradient_gradients {rmse_or_mae}" in metrics
-    assert f"energy_label_name_1 {rmse_or_mae} (per atom)" in metrics
-    assert f"energy_label_name_1_gradient_gradients {rmse_or_mae}" in metrics
+    assert f"energy(label_name=0) {rmse_or_mae} (per atom)" in metrics
+    assert f"energy(label_name=0)_gradient_gradients {rmse_or_mae}" in metrics
+    assert f"energy(label_name=1) {rmse_or_mae} (per atom)" in metrics
+    assert f"energy(label_name=1)_gradient_gradients {rmse_or_mae}" in metrics

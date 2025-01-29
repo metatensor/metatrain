@@ -219,7 +219,7 @@ def _strain_gradients_to_block(gradients_list):
 
 
 def _get_outputs(
-    model: Union[torch.nn.Module, torch.jit._script.RecursiveScriptModule]
+    model: Union[torch.nn.Module, torch.jit._script.RecursiveScriptModule],
 ):
     if is_atomistic_model(model):
         return model.capabilities().outputs

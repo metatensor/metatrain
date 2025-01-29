@@ -6,7 +6,11 @@ from metatensor.torch import TensorMap
 
 class RMSEAccumulator:
     """Accumulates the RMSE between predictions and targets for an arbitrary
-    number of keys, each corresponding to one target."""
+    number of keys, each corresponding to one target.
+
+    :param separate_blocks: if true, the RMSE will be computed separately for each
+        block in the target and prediction ``TensorMap`` objects.
+    """
 
     def __init__(self, separate_blocks: bool = False) -> None:
         """Initialize the accumulator."""
@@ -31,8 +35,11 @@ class RMSEAccumulator:
 
                 key_to_write = key
                 if self.separate_blocks:
+                    key += "("
                     for name, value in zip(block_key.names, block_key.values):
-                        key_to_write += f"_{name}_{int(value)}"
+                        key_to_write += f"{name}={int(value)},"
+                    key = key[:-1]
+                    key += ")"
 
                 if key_to_write not in self.information:  # create key if not present
                     self.information[key_to_write] = (0.0, 0)
@@ -104,7 +111,11 @@ class RMSEAccumulator:
 
 class MAEAccumulator:
     """Accumulates the MAE between predictions and targets for an arbitrary
-    number of keys, each corresponding to one target."""
+    number of keys, each corresponding to one target.
+
+    :param separate_blocks: if true, the RMSE will be computed separately for each
+        block in the target and prediction ``TensorMap`` objects.
+    """
 
     def __init__(self, separate_blocks: bool = False) -> None:
         """Initialize the accumulator."""
@@ -129,8 +140,11 @@ class MAEAccumulator:
 
                 key_to_write = key
                 if self.separate_blocks:
+                    key += "("
                     for name, value in zip(block_key.names, block_key.values):
-                        key_to_write += f"_{name}_{int(value)}"
+                        key_to_write += f"{name}={int(value)},"
+                    key = key[:-1]
+                    key += ")"
 
                 if key_to_write not in self.information:  # create key if not present
                     self.information[key_to_write] = (0.0, 0)
