@@ -181,6 +181,18 @@ class MAEAccumulator:
 
 
 def get_selected_metric(metric_dict: Dict[str, float], selected_metric: str) -> float:
+    """
+    Selects and/or calculates a (user-)selected metric from a dictionary of metrics.
+
+    This is useful when choosing the best model from a training run.
+
+    :param metric_dict: A dictionary of metrics, where the keys are the names of the
+        metrics and the values are the corresponding values.
+    :param selected_metric: The metric to return. This can be one of the following:
+        - "loss": return the loss value
+        - "rmse_prod": return the product of all RMSEs
+        - "mae_prod": return the product of all MAEs
+    """
     if selected_metric == "loss":
         metric = metric_dict["loss"]
     elif selected_metric == "rmse_prod":
