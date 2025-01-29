@@ -1,3 +1,4 @@
+import copy
 from typing import Dict, List, Tuple
 
 import torch.distributed
@@ -6,11 +7,16 @@ from metatensor.torch import TensorMap
 
 class RMSEAccumulator:
     """Accumulates the RMSE between predictions and targets for an arbitrary
-    number of keys, each corresponding to one target."""
+    number of keys, each corresponding to one target.
 
-    def __init__(self) -> None:
+    :param separate_blocks: if true, the RMSE will be computed separately for each
+        block in the target and prediction ``TensorMap`` objects.
+    """
+
+    def __init__(self, separate_blocks: bool = False) -> None:
         """Initialize the accumulator."""
         self.information: Dict[str, Tuple[float, int]] = {}
+        self.separate_blocks = separate_blocks
 
     def update(self, predictions: Dict[str, TensorMap], targets: Dict[str, TensorMap]):
         """Updates the accumulator with new predictions and targets.
@@ -23,32 +29,45 @@ class RMSEAccumulator:
         """
 
         for key, target in targets.items():
-            if key not in self.information:
-                self.information[key] = (0.0, 0)
             prediction = predictions[key]
+            for block_key in target.keys:
+                target_block = target.block(block_key)
+                prediction_block = prediction.block(block_key)
 
-            for prediction_block, target_block in zip(
-                prediction.blocks(), target.blocks()
-            ):
+                key_to_write = copy.deepcopy(key)
+                if self.separate_blocks:
+                    key_to_write += "("
+                    for name, value in zip(block_key.names, block_key.values):
+                        key_to_write += f"{name}={int(value)},"
+                    key_to_write = key_to_write[:-1]
+                    key_to_write += ")"
 
-                self.information[key] = (
-                    self.information[key][0]
+                if key_to_write not in self.information:  # create key if not present
+                    self.information[key_to_write] = (0.0, 0)
+
+                self.information[key_to_write] = (
+                    self.information[key_to_write][0]
                     + ((prediction_block.values - target_block.values) ** 2)
                     .sum()
                     .item(),
-                    self.information[key][1] + prediction_block.values.numel(),
+                    self.information[key_to_write][1] + prediction_block.values.numel(),
                 )
 
                 for gradient_name, target_gradient in target_block.gradients():
-                    if f"{key}_{gradient_name}_gradients" not in self.information:
-                        self.information[f"{key}_{gradient_name}_gradients"] = (0.0, 0)
+                    if (
+                        f"{key_to_write}_{gradient_name}_gradients"
+                        not in self.information
+                    ):
+                        self.information[
+                            f"{key_to_write}_{gradient_name}_gradients"
+                        ] = (0.0, 0)
                     prediction_gradient = prediction_block.gradient(gradient_name)
-                    self.information[f"{key}_{gradient_name}_gradients"] = (
-                        self.information[f"{key}_{gradient_name}_gradients"][0]
+                    self.information[f"{key_to_write}_{gradient_name}_gradients"] = (
+                        self.information[f"{key_to_write}_{gradient_name}_gradients"][0]
                         + ((prediction_gradient.values - target_gradient.values) ** 2)
                         .sum()
                         .item(),
-                        self.information[f"{key}_{gradient_name}_gradients"][1]
+                        self.information[f"{key_to_write}_{gradient_name}_gradients"][1]
                         + prediction_gradient.values.numel(),
                     )
 
@@ -93,11 +112,16 @@ class RMSEAccumulator:
 
 class MAEAccumulator:
     """Accumulates the MAE between predictions and targets for an arbitrary
-    number of keys, each corresponding to one target."""
+    number of keys, each corresponding to one target.
 
-    def __init__(self) -> None:
+    :param separate_blocks: if true, the RMSE will be computed separately for each
+        block in the target and prediction ``TensorMap`` objects.
+    """
+
+    def __init__(self, separate_blocks: bool = False) -> None:
         """Initialize the accumulator."""
         self.information: Dict[str, Tuple[float, int]] = {}
+        self.separate_blocks = separate_blocks
 
     def update(self, predictions: Dict[str, TensorMap], targets: Dict[str, TensorMap]):
         """Updates the accumulator with new predictions and targets.
@@ -110,34 +134,47 @@ class MAEAccumulator:
         """
 
         for key, target in targets.items():
-            if key not in self.information:
-                self.information[key] = (0.0, 0)
             prediction = predictions[key]
+            for block_key in target.keys:
+                target_block = target.block(block_key)
+                prediction_block = prediction.block(block_key)
 
-            for prediction_block, target_block in zip(
-                prediction.blocks(), target.blocks()
-            ):
+                key_to_write = copy.deepcopy(key)
+                if self.separate_blocks:
+                    key_to_write += "("
+                    for name, value in zip(block_key.names, block_key.values):
+                        key_to_write += f"{name}={int(value)},"
+                    key_to_write = key_to_write[:-1]
+                    key_to_write += ")"
 
-                self.information[key] = (
-                    self.information[key][0]
+                if key_to_write not in self.information:  # create key if not present
+                    self.information[key_to_write] = (0.0, 0)
+
+                self.information[key_to_write] = (
+                    self.information[key_to_write][0]
                     + (prediction_block.values - target_block.values)
                     .abs()
                     .sum()
                     .item(),
-                    self.information[key][1] + prediction_block.values.numel(),
+                    self.information[key_to_write][1] + prediction_block.values.numel(),
                 )
 
                 for gradient_name, target_gradient in target_block.gradients():
-                    if f"{key}_{gradient_name}_gradients" not in self.information:
-                        self.information[f"{key}_{gradient_name}_gradients"] = (0.0, 0)
+                    if (
+                        f"{key_to_write}_{gradient_name}_gradients"
+                        not in self.information
+                    ):
+                        self.information[
+                            f"{key_to_write}_{gradient_name}_gradients"
+                        ] = (0.0, 0)
                     prediction_gradient = prediction_block.gradient(gradient_name)
-                    self.information[f"{key}_{gradient_name}_gradients"] = (
-                        self.information[f"{key}_{gradient_name}_gradients"][0]
+                    self.information[f"{key_to_write}_{gradient_name}_gradients"] = (
+                        self.information[f"{key_to_write}_{gradient_name}_gradients"][0]
                         + (prediction_gradient.values - target_gradient.values)
                         .abs()
                         .sum()
                         .item(),
-                        self.information[f"{key}_{gradient_name}_gradients"][1]
+                        self.information[f"{key_to_write}_{gradient_name}_gradients"][1]
                         + prediction_gradient.values.numel(),
                     )
 

@@ -106,12 +106,13 @@ The hyperparameters for training are
 :param log_interval: Interval at which to log training metrics
 :param checkpoint_interval: Interval at which to save model checkpoints
 :param scale_targets: Whether to scale the targets to have unit standard deviation
-    across the training set during training.
+  across the training set during training.
 :param fixed_composition_weights: Weights for fixed atomic contributions to scalar
   targets
 :param per_structure_targets: Targets to calculate per-structure losses for
-:param log_mae: Whether to log the MAE (mean absolute error) of the model in addition
-  to the RMSE
+:param log_mae: Also logs MAEs in addition to RMSEs.
+:param log_separate_blocks: Whether to log the errors each block of the targets
+  separately.
 :param loss: The loss function to use, with the subfields described in the previous
   section
 :param best_model_metric: specifies the validation set metric to use to select the best
