@@ -228,7 +228,7 @@ def collate_fn(batch: List[Dict[str, Any]]) -> Tuple[List, Dict[str, TensorMap]]
     targets.
     """
 
-    collated_targets = group_and_join(batch)
+    collated_targets = group_and_join(batch, join_kwargs={"remove_tensor_name": True})
     collated_targets = collated_targets._asdict()
     systems = collated_targets.pop("system")
     return systems, collated_targets
