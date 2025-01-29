@@ -80,7 +80,10 @@ All Hyperparameters
 model
 #####
 
-:param heads: The type of head (linear or mlp) to use for each target
+:param heads: The type of head ("linear" or "mlp") to use for each target (e.g.
+  ``heads: {"energy": "linear", "mtt::dipole": "mlp"}``). All omitted targets will use a
+  MLP (multi-layer perceptron) head. MLP heads consists of one hidden layer with as
+  many neurons as the SOAP-BPNN (i.e. ``num_neurons_per_layer`` below).
 :param zbl: Whether to use the ZBL short-range repulsion as the baseline for the model
 
 soap
@@ -172,6 +175,11 @@ The parameters for training are
 :param loss_weights: specifies the weights to be used in the loss for each target. The
     weights should be a dictionary of floats, one for each target. All missing targets
     are assigned a weight of 1.0.
+:param best_model_metric: specifies the validation set metric to use to select the best
+    model, i.e. the model that will be saved as ``model.ckpt`` and ``model.pt`` both in
+    the current directory and in the checkpoint directory. The default is ``rmse_prod``,
+    i.e., the product of the RMSEs for each target. Other options are ``mae_prod`` and
+    ``loss``.
 
 
 References

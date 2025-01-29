@@ -38,6 +38,7 @@ architecture:
     fixed_composition_weights: {}
     per_structure_targets: []
     log_mae: False
+    best_model_metric: rmse_prod
     loss:
       type: mse
       weights: {}

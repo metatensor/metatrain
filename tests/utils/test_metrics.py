@@ -2,7 +2,7 @@ import pytest
 import torch
 from metatensor.torch import Labels, TensorBlock, TensorMap
 
-from metatrain.utils.metrics import MAEAccumulator, RMSEAccumulator
+from metatrain.utils.metrics import MAEAccumulator, RMSEAccumulator, get_selected_metric
 
 
 @pytest.fixture
@@ -81,3 +81,28 @@ def test_mae_accumulator(tensor_map_with_grad_1, tensor_map_with_grad_2):
 
     assert "energy MAE (per atom)" in maes
     assert "energy_gradient_gradients MAE" in maes
+
+
+def test_get_selected_metric():
+    """Tests the get_selected_metric function."""
+
+    metrics = {
+        "loss": 1,
+        "energy RMSE": 2,
+        "energy MAE": 3,
+        "mtt::target RMSE": 4,
+        "mtt::target MAE": 5,
+    }
+
+    selected_metric = "foo"
+    with pytest.raises(ValueError, match="Please select from"):
+        get_selected_metric(metrics, selected_metric)
+
+    selected_metric = "rmse_prod"
+    assert get_selected_metric(metrics, selected_metric) == 8
+
+    selected_metric = "mae_prod"
+    assert get_selected_metric(metrics, selected_metric) == 15
+
+    selected_metric = "loss"
+    assert get_selected_metric(metrics, selected_metric) == 1
