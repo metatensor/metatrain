@@ -100,10 +100,12 @@ def test_per_block(accumulator_class, tensor_map_with_grad_1, tensor_map_with_gr
     for _ in range(10):
         accumulator.update({"energy": tensor_1}, {"energy": tensor_2})
 
-    assert accumulator.information["energy_label_name_0"][1] == 30
-    assert accumulator.information["energy_label_name_1"][1] == 30
-    assert accumulator.information["energy_label_name_0_gradient_gradients"][1] == 30
-    assert accumulator.information["energy_label_name_1_gradient_gradients"][1] == 30
+    print(accumulator.information)
+
+    assert accumulator.information["energy(label_name=0)"][1] == 30
+    assert accumulator.information["energy(label_name=1)"][1] == 30
+    assert accumulator.information["energy(label_name=0)_gradient_gradients"][1] == 30
+    assert accumulator.information["energy(label_name=1)_gradient_gradients"][1] == 30
 
     metrics = accumulator.finalize(not_per_atom=["gradient_gradients"])
 

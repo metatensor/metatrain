@@ -1,3 +1,4 @@
+import copy
 from typing import Dict, List, Tuple
 
 import torch.distributed
@@ -33,13 +34,13 @@ class RMSEAccumulator:
                 target_block = target.block(block_key)
                 prediction_block = prediction.block(block_key)
 
-                key_to_write = key
+                key_to_write = copy.deepcopy(key)
                 if self.separate_blocks:
-                    key += "("
+                    key_to_write += "("
                     for name, value in zip(block_key.names, block_key.values):
                         key_to_write += f"{name}={int(value)},"
-                    key = key[:-1]
-                    key += ")"
+                    key_to_write = key_to_write[:-1]
+                    key_to_write += ")"
 
                 if key_to_write not in self.information:  # create key if not present
                     self.information[key_to_write] = (0.0, 0)
@@ -138,13 +139,13 @@ class MAEAccumulator:
                 target_block = target.block(block_key)
                 prediction_block = prediction.block(block_key)
 
-                key_to_write = key
+                key_to_write = copy.deepcopy(key)
                 if self.separate_blocks:
-                    key += "("
+                    key_to_write += "("
                     for name, value in zip(block_key.names, block_key.values):
                         key_to_write += f"{name}={int(value)},"
-                    key = key[:-1]
-                    key += ")"
+                    key_to_write = key_to_write[:-1]
+                    key_to_write += ")"
 
                 if key_to_write not in self.information:  # create key if not present
                     self.information[key_to_write] = (0.0, 0)
