@@ -459,7 +459,7 @@ class PhACE(torch.nn.Module):
 
         # Create the model
         model = cls(**model_hypers)
-        dtype = next(iter(model_state_dict.values())).dtype
+        dtype = next(iter(model_state_dict["embeddings.weight"])).dtype
         model.to(dtype).load_state_dict(model_state_dict)
 
         return model
