@@ -422,17 +422,14 @@ def train_model(
     ###########################
 
     logger.info("Calling trainer")
-    try:
-        trainer.train(
-            model=model,
-            dtype=dtype,
-            devices=devices,
-            train_datasets=train_datasets,
-            val_datasets=val_datasets,
-            checkpoint_dir=str(checkpoint_dir),
-        )
-    except Exception as e:
-        raise ArchitectureError(e)
+    trainer.train(
+        model=model,
+        dtype=dtype,
+        devices=devices,
+        train_datasets=train_datasets,
+        val_datasets=val_datasets,
+        checkpoint_dir=str(checkpoint_dir),
+    )
 
     if not is_main_process():
         return  # only save and evaluate on the main process

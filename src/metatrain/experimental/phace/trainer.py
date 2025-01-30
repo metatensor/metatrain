@@ -1,11 +1,11 @@
 import copy
 import logging
-import warnings
 from pathlib import Path
 from typing import List, Union
 
 import torch
 import torch.distributed
+import torch.nn.grad
 from torch.utils.data import DataLoader, DistributedSampler
 
 from ...utils.additive import remove_additive
@@ -28,7 +28,7 @@ from ...utils.transfer import (
     systems_and_targets_to_device,
     systems_and_targets_to_dtype,
 )
-from .model import SoapBpnn
+from .model import PhACE
 
 
 logger = logging.getLogger(__name__)
@@ -40,31 +40,20 @@ class Trainer:
         self.optimizer_state_dict = None
         self.scheduler_state_dict = None
         self.epoch = None
-        self.best_metric = None
+        self.best_loss = None
         self.best_model_state_dict = None
         self.best_optimizer_state_dict = None
 
     def train(
         self,
-        model: SoapBpnn,
+        model: PhACE,
         dtype: torch.dtype,
         devices: List[torch.device],
         train_datasets: List[Union[Dataset, torch.utils.data.Subset]],
         val_datasets: List[Union[Dataset, torch.utils.data.Subset]],
         checkpoint_dir: str,
     ):
-        # Filter out the second derivative and device warnings from rascaline
-        warnings.filterwarnings(action="ignore", message="Systems data is on device")
-        warnings.filterwarnings(
-            action="ignore",
-            message="second derivatives with respect to positions are not implemented",
-        )
-        warnings.filterwarnings(
-            action="ignore",
-            message="second derivatives with respect to cell matrix",
-        )
-
-        assert dtype in SoapBpnn.__supported_dtypes__
+        assert dtype in PhACE.__supported_dtypes__
 
         is_distributed = self.hypers["distributed"]
 
@@ -80,7 +69,7 @@ class Trainer:
             if len(devices) > 1:
                 raise ValueError(
                     "Requested distributed training with the `multi-gpu` device. "
-                    "If you want to run distributed training with SOAP-BPNN, please "
+                    "If you want to run distributed training with PhACE, please "
                     "set `device` to cuda."
                 )
             # the calculation of the device number works both when GPUs on different
@@ -111,7 +100,7 @@ class Trainer:
 
         # Move the model to the device and dtype:
         model.to(device=device, dtype=dtype)
-        # The additive models of the SOAP-BPNN are always in float64 (to avoid
+        # The additive models of the PhACE are always in float64 (to avoid
         # numerical errors in the composition weights, which can be very large).
         for additive_model in model.additive_models:
             additive_model.to(dtype=torch.float64)
@@ -126,9 +115,6 @@ class Trainer:
             model.scaler.train_model(
                 train_datasets, model.additive_models, treat_as_additive=True
             )
-
-        if is_distributed:
-            model = DistributedDataParallel(model, device_ids=[device])
 
         logger.info("Setting up data loaders")
 
@@ -192,7 +178,7 @@ class Trainer:
         val_dataloader = CombinedDataLoader(val_dataloaders, shuffle=False)
 
         # Extract all the possible outputs and their gradients:
-        train_targets = (model.module if is_distributed else model).dataset_info.targets
+        train_targets = model.dataset_info.targets
         outputs_list = []
         for target_name, target_info in train_targets.items():
             outputs_list.append(target_name)
@@ -222,14 +208,21 @@ class Trainer:
             **loss_hypers,
         )
 
+        torch.jit.set_fusion_strategy([("DYNAMIC", 0)])
+        scripted_model = torch.jit.script(model)
+        if is_distributed:
+            scripted_model = DistributedDataParallel(
+                scripted_model, device_ids=[device], find_unused_parameters=False
+            )
+
         # Create an optimizer:
         optimizer = torch.optim.Adam(
-            model.parameters(), lr=self.hypers["learning_rate"]
+            scripted_model.parameters(), lr=self.hypers["learning_rate"], amsgrad=True
         )
         if self.optimizer_state_dict is not None:
             # try to load the optimizer state dict, but this is only possible
             # if there are no new targets in the model (new parameters)
-            if not (model.module if is_distributed else model).has_new_targets:
+            if not model.has_new_targets:
                 optimizer.load_state_dict(self.optimizer_state_dict)
 
         # Create a scheduler:
@@ -237,11 +230,10 @@ class Trainer:
             optimizer,
             factor=self.hypers["scheduler_factor"],
             patience=self.hypers["scheduler_patience"],
-            threshold=0.001,
         )
         if self.scheduler_state_dict is not None:
             # same as the optimizer, try to load the scheduler state dict
-            if not (model.module if is_distributed else model).has_new_targets:
+            if not model.has_new_targets:
                 lr_scheduler.load_state_dict(self.scheduler_state_dict)
 
         # per-atom targets:
@@ -254,21 +246,19 @@ class Trainer:
         start_epoch = 0 if self.epoch is None else self.epoch + 1
 
         # Train the model:
-        if self.best_metric is None:
-            self.best_metric = float("inf")
+        if self.best_loss is None:
+            self.best_loss = float("inf")
         logger.info("Starting training")
         epoch = start_epoch
         for epoch in range(start_epoch, start_epoch + self.hypers["num_epochs"]):
             if is_distributed:
                 sampler.set_epoch(epoch)
 
-            train_rmse_calculator = RMSEAccumulator(self.hypers["log_separate_blocks"])
-            val_rmse_calculator = RMSEAccumulator(self.hypers["log_separate_blocks"])
+            train_rmse_calculator = RMSEAccumulator()
+            val_rmse_calculator = RMSEAccumulator()
             if self.hypers["log_mae"]:
-                train_mae_calculator = MAEAccumulator(
-                    self.hypers["log_separate_blocks"]
-                )
-                val_mae_calculator = MAEAccumulator(self.hypers["log_separate_blocks"])
+                train_mae_calculator = MAEAccumulator()
+                val_mae_calculator = MAEAccumulator()
 
             train_loss = 0.0
             for batch in train_dataloader:
@@ -279,17 +269,20 @@ class Trainer:
                     systems, targets, device
                 )
                 for additive_model in (
-                    model.module if is_distributed else model
+                    scripted_model.module if is_distributed else scripted_model
                 ).additive_models:
                     targets = remove_additive(
                         systems, targets, additive_model, train_targets
                     )
                 targets = remove_scale(
-                    targets, (model.module if is_distributed else model).scaler
+                    targets,
+                    (
+                        scripted_model.module if is_distributed else scripted_model
+                    ).scaler,
                 )
                 systems, targets = systems_and_targets_to_dtype(systems, targets, dtype)
                 predictions = evaluate_model(
-                    model,
+                    scripted_model,
                     systems,
                     {key: train_targets[key] for key in targets.keys()},
                     is_training=True,
@@ -302,8 +295,12 @@ class Trainer:
                 targets = average_by_num_atoms(targets, systems, per_structure_targets)
 
                 train_loss_batch = loss_fn(predictions, targets)
-
+                train_loss += train_loss_batch.item()
                 train_loss_batch.backward()
+                if self.hypers["gradient_clipping"] is not None:
+                    torch.nn.utils.clip_grad_norm_(
+                        scripted_model.parameters(), self.hypers["gradient_clipping"]
+                    )
                 optimizer.step()
 
                 if is_distributed:
@@ -335,17 +332,20 @@ class Trainer:
                     systems, targets, device
                 )
                 for additive_model in (
-                    model.module if is_distributed else model
+                    scripted_model.module if is_distributed else scripted_model
                 ).additive_models:
                     targets = remove_additive(
                         systems, targets, additive_model, train_targets
                     )
                 targets = remove_scale(
-                    targets, (model.module if is_distributed else model).scaler
+                    targets,
+                    (
+                        scripted_model.module if is_distributed else scripted_model
+                    ).scaler,
                 )
                 systems, targets = systems_and_targets_to_dtype(systems, targets, dtype)
                 predictions = evaluate_model(
-                    model,
+                    scripted_model,
                     systems,
                     {key: train_targets[key] for key in targets.keys()},
                     is_training=False,
@@ -358,7 +358,6 @@ class Trainer:
                 targets = average_by_num_atoms(targets, systems, per_structure_targets)
 
                 val_loss_batch = loss_fn(predictions, targets)
-
                 if is_distributed:
                     # sum the loss over all processes
                     torch.distributed.all_reduce(val_loss_batch)
@@ -383,17 +382,16 @@ class Trainer:
 
             # Now we log the information:
             finalized_train_info = {"loss": train_loss, **finalized_train_info}
-            finalized_val_info = {"loss": val_loss, **finalized_val_info}
+            finalized_val_info = {
+                "loss": val_loss,
+                **finalized_val_info,
+            }
 
             if epoch == start_epoch:
-                scaler_scales = (
-                    model.module if is_distributed else model
-                ).scaler.get_scales_dict()
+                scaler_scales = model.scaler.get_scales_dict()
                 metric_logger = MetricLogger(
                     log_obj=logger,
-                    dataset_info=(
-                        model.module if is_distributed else model
-                    ).dataset_info,
+                    dataset_info=model.dataset_info,
                     initial_metrics=[finalized_train_info, finalized_val_info],
                     names=["training", "validation"],
                     scales={
@@ -422,9 +420,9 @@ class Trainer:
                     logger.info(f"Changing learning rate from {old_lr} to {new_lr}")
                     old_lr = new_lr
                     # load best model and optimizer state dict, re-initialize scheduler
-                    (model.module if is_distributed else model).load_state_dict(
-                        self.best_model_state_dict
-                    )
+                    (
+                        scripted_model.module if is_distributed else scripted_model
+                    ).load_state_dict(self.best_model_state_dict)
                     optimizer.load_state_dict(self.best_optimizer_state_dict)
                     for param_group in optimizer.param_groups:
                         param_group["lr"] = new_lr
@@ -434,13 +432,15 @@ class Trainer:
                         patience=self.hypers["scheduler_patience"],
                     )
 
-            val_metric = get_selected_metric(
+            metric = get_selected_metric(
                 finalized_val_info, self.hypers["best_model_metric"]
             )
-            if val_metric < self.best_metric:
-                self.best_metric = val_metric
+            if metric < self.best_loss:
+                self.best_loss = metric
                 self.best_model_state_dict = copy.deepcopy(
-                    (model.module if is_distributed else model).state_dict()
+                    (
+                        scripted_model.module if is_distributed else scripted_model
+                    ).state_dict()
                 )
                 self.best_optimizer_state_dict = copy.deepcopy(optimizer.state_dict())
 
@@ -451,8 +451,13 @@ class Trainer:
                 self.scheduler_state_dict = lr_scheduler.state_dict()
                 self.epoch = epoch
                 if rank == 0:
+                    model.load_state_dict(
+                        (
+                            scripted_model.module if is_distributed else scripted_model
+                        ).state_dict()
+                    )
                     self.save_checkpoint(
-                        (model.module if is_distributed else model),
+                        model,
                         Path(checkpoint_dir) / f"model_{epoch}.ckpt",
                     )
 
@@ -463,7 +468,7 @@ class Trainer:
 
     def save_checkpoint(self, model, path: Union[str, Path]):
         checkpoint = {
-            "architecture_name": "experimental.soap_bpnn",
+            "architecture_name": "experimental.phace",
             "model_hypers": {
                 "model_hypers": model.hypers,
                 "dataset_info": model.dataset_info,
@@ -473,7 +478,7 @@ class Trainer:
             "epoch": self.epoch,
             "optimizer_state_dict": self.optimizer_state_dict,
             "scheduler_state_dict": self.scheduler_state_dict,
-            "best_metric": self.best_metric,
+            "best_loss": self.best_loss,
             "best_model_state_dict": self.best_model_state_dict,
             "best_optimizer_state_dict": self.best_optimizer_state_dict,
         }
@@ -486,11 +491,11 @@ class Trainer:
     def load_checkpoint(cls, path: Union[str, Path], train_hypers) -> "Trainer":
 
         # Load the checkpoint
-        checkpoint = torch.load(path, weights_only=False, map_location="cpu")
+        checkpoint = torch.load(path, weights_only=False)
         epoch = checkpoint["epoch"]
         optimizer_state_dict = checkpoint["optimizer_state_dict"]
         scheduler_state_dict = checkpoint["scheduler_state_dict"]
-        best_metric = checkpoint["best_metric"]
+        best_loss = checkpoint["best_loss"]
         best_model_state_dict = checkpoint["best_model_state_dict"]
         best_optimizer_state_dict = checkpoint["best_optimizer_state_dict"]
 
@@ -499,7 +504,7 @@ class Trainer:
         trainer.optimizer_state_dict = optimizer_state_dict
         trainer.scheduler_state_dict = scheduler_state_dict
         trainer.epoch = epoch
-        trainer.best_metric = best_metric
+        trainer.best_loss = best_loss
         trainer.best_model_state_dict = best_model_state_dict
         trainer.best_optimizer_state_dict = best_optimizer_state_dict
 
