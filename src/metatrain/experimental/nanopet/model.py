@@ -499,11 +499,11 @@ class NanoPET(torch.nn.Module):
 
         # Load the checkpoint
         checkpoint = torch.load(path, weights_only=False, map_location="cpu")
-        model_hypers = checkpoint["model_hypers"]
+        model_data = checkpoint["model_data"]
         model_state_dict = checkpoint["model_state_dict"]
 
         # Create the model
-        model = cls(**model_hypers)
+        model = cls(**model_data)
         state_dict_iter = iter(model_state_dict.values())
         next(state_dict_iter)  # skip `species_to_species_index` buffer (int)
         dtype = next(state_dict_iter).dtype
