@@ -1,8 +1,8 @@
+from pathlib import Path
 from typing import List, Optional
 
-from pathlib import Path
 from metatensor.torch import TensorMap
-from metatensor.torch.atomistic import System, ModelCapabilities
+from metatensor.torch.atomistic import ModelCapabilities, System
 
 from .xyz import write_xyz
 

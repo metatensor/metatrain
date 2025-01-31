@@ -9,7 +9,6 @@ RESOURCES_PATH = Path(__file__).parents[2] / "resources"
 
 
 def test_get_dataset():
-
     options = {
         "systems": {
             "read_from": RESOURCES_PATH / "qm9_reduced_100.xyz",

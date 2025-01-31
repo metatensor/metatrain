@@ -28,7 +28,6 @@ class AttentionBlock(torch.nn.Module):
         inputs: torch.Tensor,  # seq_len hidden_size
         radial_mask: torch.Tensor,  # seq_len
     ) -> torch.Tensor:  # seq_len hidden_size
-
         # Pre-layer normalization
         normed_inputs = self.layernorm(inputs)
 

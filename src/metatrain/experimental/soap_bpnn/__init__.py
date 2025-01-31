@@ -1,6 +1,7 @@
 from .model import SoapBpnn
 from .trainer import Trainer
 
+
 __model__ = SoapBpnn
 __trainer__ = Trainer
 
