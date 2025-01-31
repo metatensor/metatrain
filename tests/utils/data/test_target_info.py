@@ -72,7 +72,6 @@ def spherical_target_config() -> DictConfig:
 
 
 def test_layout_energy(energy_target_config):
-
     target_info = get_energy_target_info(energy_target_config)
     assert target_info.quantity == "energy"
     assert target_info.unit == "eV"

@@ -433,7 +433,6 @@ Units of the Energy and Forces are the same units given in input"""
                         FITTING_SCHEME.USE_SHIFT_AGNOSTIC_LOSS,
                     )
                 if MLIP_SETTINGS.USE_FORCES:
-
                     if FITTING_SCHEME.MULTI_GPU:
                         forces_list = [el.forces for el in batch]
                         batch_forces = torch.cat(forces_list, dim=0).to(device)

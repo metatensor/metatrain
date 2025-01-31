@@ -104,7 +104,6 @@ class CompositionModel(torch.nn.Module):
         # Fill the weights for each "new" target (i.e. those that do not already
         # have composition weights from a previous training run)
         for target_key in self.new_targets:
-
             if target_key in fixed_weights:
                 # The fixed weights are provided for this target. Use them:
                 if not sorted(fixed_weights[target_key].keys()) == self.atomic_types:

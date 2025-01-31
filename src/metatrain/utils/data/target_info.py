@@ -154,8 +154,9 @@ class TargetInfo:
                     f"Found '{layout.keys.names}' instead."
                 )
             for key, block in layout.items():
-                o3_lambda, o3_sigma = int(key.values[0].item()), int(
-                    key.values[1].item()
+                o3_lambda, o3_sigma = (
+                    int(key.values[0].item()),
+                    int(key.values[1].item()),
                 )
                 if o3_sigma not in [-1, 1]:
                     raise ValueError(
@@ -223,7 +224,6 @@ def get_energy_target_info(
     add_position_gradients: bool = False,
     add_strain_gradients: bool = False,
 ) -> TargetInfo:
-
     block = TensorBlock(
         # float64: otherwise metatensor can't serialize
         values=torch.empty(0, 1, dtype=torch.float64),

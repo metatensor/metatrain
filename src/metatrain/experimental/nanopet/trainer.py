@@ -498,7 +498,6 @@ class Trainer:
 
     @classmethod
     def load_checkpoint(cls, path: Union[str, Path], train_hypers) -> "Trainer":
-
         # Load the checkpoint
         checkpoint = torch.load(path, weights_only=False)
         epoch = checkpoint["epoch"]

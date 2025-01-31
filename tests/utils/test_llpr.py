@@ -22,7 +22,6 @@ torch.manual_seed(42)
 
 
 def test_llpr(tmpdir):
-
     model = load_model(
         str(RESOURCES_PATH / "model-64-bit.pt"),
         extensions_directory=str(RESOURCES_PATH / "extensions/"),
@@ -148,7 +147,6 @@ def test_llpr(tmpdir):
 
 
 def test_llpr_covariance_as_pseudo_hessian(tmpdir):
-
     model = load_model(
         str(RESOURCES_PATH / "model-64-bit.pt"),
         extensions_directory=str(RESOURCES_PATH / "extensions/"),

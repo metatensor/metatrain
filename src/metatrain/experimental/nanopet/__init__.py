@@ -1,6 +1,7 @@
 from .model import NanoPET
 from .trainer import Trainer
 
+
 __model__ = NanoPET
 __trainer__ = Trainer
 

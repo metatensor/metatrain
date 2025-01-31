@@ -85,7 +85,6 @@ class Scaler(torch.nn.Module):
         # Fill the scales for each "new" target (i.e. those that do not already
         # have scales from a previous training run)
         for target_key in self.new_targets:
-
             datasets_with_target = []
             for dataset in datasets:
                 if target_key in get_all_targets(dataset):
@@ -197,7 +196,6 @@ class Scaler(torch.nn.Module):
         return scaled_outputs
 
     def _add_output(self, target_name: str, target_info: TargetInfo) -> None:
-
         self.outputs[target_name] = ModelOutput(
             quantity=target_info.quantity,
             unit=target_info.unit,
