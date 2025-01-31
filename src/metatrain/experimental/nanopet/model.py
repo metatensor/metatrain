@@ -558,9 +558,13 @@ class NanoPET(torch.nn.Module):
             or self.head_types[target_name] == "mlp"
         ):
             self.heads[target_name] = torch.nn.Sequential(
-                torch.nn.Linear(self.hypers["d_pet"], 4 * self.hypers["d_pet"]),
+                torch.nn.Linear(
+                    self.hypers["d_pet"], 4 * self.hypers["d_pet"], bias=False
+                ),
                 torch.nn.SiLU(),
-                torch.nn.Linear(4 * self.hypers["d_pet"], self.hypers["d_pet"]),
+                torch.nn.Linear(
+                    4 * self.hypers["d_pet"], self.hypers["d_pet"], bias=False
+                ),
                 torch.nn.SiLU(),
             )
         elif self.head_types[target_name] == "linear":
