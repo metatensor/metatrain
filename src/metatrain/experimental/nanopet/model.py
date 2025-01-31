@@ -48,7 +48,7 @@ class NanoPET(torch.nn.Module):
     """
 
     __supported_devices__ = ["cuda", "cpu"]
-    __supported_dtypes__ = [torch.float64, torch.float32]
+    __supported_dtypes__ = [torch.float32, torch.float64]
 
     component_labels: Dict[str, List[List[Labels]]]
 
