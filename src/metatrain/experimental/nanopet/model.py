@@ -104,12 +104,6 @@ class NanoPET(torch.nn.Module):
         self.outputs = {
             "features": ModelOutput(unit="", per_atom=True)
         }  # the model is always capable of outputting the internal features
-        for target_name in dataset_info.targets.keys():
-            # the model can always output the last-layer features for the targets
-            ll_features_name = (
-                f"mtt::aux::{target_name.replace('mtt::', '')}_last_layer_features"
-            )
-            self.outputs[ll_features_name] = ModelOutput(per_atom=True)
 
         self.heads = torch.nn.ModuleDict()
         self.head_types = self.hypers["heads"]
@@ -573,6 +567,11 @@ class NanoPET(torch.nn.Module):
                 f"Unsupported head type {self.head_types[target_name]} "
                 f"for target {target_name}"
             )
+
+        ll_features_name = (
+            f"mtt::aux::{target_name.replace('mtt::', '')}_last_layer_features"
+        )
+        self.outputs[ll_features_name] = ModelOutput(per_atom=True)
 
         self.last_layers[target_name] = torch.nn.ModuleDict(
             {
