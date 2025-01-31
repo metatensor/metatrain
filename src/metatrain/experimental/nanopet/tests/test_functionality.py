@@ -21,10 +21,6 @@ def test_nanopet_padding():
     """Tests that the model predicts the same energy independently of the
     padding size."""
 
-    # we need float64 for this test, then we will change it back at the end
-    default_dtype_before = torch.get_default_dtype()
-    torch.set_default_dtype(torch.float64)
-
     dataset_info = DatasetInfo(
         length_unit="Angstrom",
         atomic_types=[1, 6, 7, 8],
@@ -69,9 +65,7 @@ def test_nanopet_padding():
     lone_energy = lone_output["energy"].block().values.squeeze(-1)[0]
     padded_energy = padded_output["energy"].block().values.squeeze(-1)[0]
 
-    assert torch.allclose(lone_energy, padded_energy)
-
-    torch.set_default_dtype(default_dtype_before)
+    assert torch.allclose(lone_energy, padded_energy, atol=1e-6, rtol=1e-6)
 
 
 def test_prediction_subset_elements():
