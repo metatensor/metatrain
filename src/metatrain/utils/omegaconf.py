@@ -282,9 +282,9 @@ def expand_dataset_config(conf: Union[str, DictConfig, ListConfig]) -> ListConfi
                             if gradient_conf["key"] is None:
                                 gradient_conf["key"] = gradient_key
 
-                            conf_element["targets"][target_key][
-                                gradient_key
-                            ] = gradient_conf
+                            conf_element["targets"][target_key][gradient_key] = (
+                                gradient_conf
+                            )
 
                 # If user sets the virial gradient and leaves the stress gradient
                 # untouched, we disable the by default enabled stress gradient section.

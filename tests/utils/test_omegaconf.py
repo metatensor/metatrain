@@ -421,8 +421,7 @@ def test_check_dataset_options_target_unit(list_conf):
     list_conf[2]["targets"]["new_target"] = OmegaConf.create({"unit": "bar"})
 
     match = (
-        "Units of target section 'new_target' are inconsistent. Found "
-        "'bar' and 'foo'"
+        "Units of target section 'new_target' are inconsistent. Found 'bar' and 'foo'"
     )
 
     with pytest.raises(ValueError, match=match):

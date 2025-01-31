@@ -307,8 +307,8 @@ def _eval_targets(
     std_per_atom = np.std(timings_per_atom)
     logger.info(
         f"evaluation time: {total_time:.2f} s "
-        f"[{1000.0*mean_per_atom:.4f} ± "
-        f"{1000.0*std_per_atom:.4f} ms per atom]"
+        f"[{1000.0 * mean_per_atom:.4f} ± "
+        f"{1000.0 * std_per_atom:.4f} ms per atom]"
     )
 
     if return_predictions:

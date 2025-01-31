@@ -29,7 +29,6 @@ the :ref:`label_basic_usage` tutorial.
 # First, we start by importing the necessary libraries, including the integration of ASE
 # calculators for metatensor atomistic models.
 
-
 import ase.md
 import ase.md.velocitydistribution
 import ase.units
