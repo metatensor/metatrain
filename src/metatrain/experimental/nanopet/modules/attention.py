@@ -40,12 +40,13 @@ class AttentionBlock(torch.nn.Module):
         k = k.transpose(1, 2)
         v = v.transpose(1, 2)
 
-        # Trick to be able to use scaled_dot_product_attention
-        q = q**2 + 1e-6
-        k = k + torch.log(radial_mask[:, None, :, None])
-
         # Attention
-        attention_output = torch.nn.functional.scaled_dot_product_attention(q, k, v)
+        attention_output = torch.nn.functional.scaled_dot_product_attention(
+            q,
+            k,
+            v,
+            attn_mask=torch.log(radial_mask[:, None, None, :]),
+        )
 
         attention_output = attention_output.transpose(1, 2)
         attention_output = attention_output.reshape(

@@ -6,7 +6,7 @@ from metatensor.torch.atomistic import NeighborListOptions, System
 
 
 def collate_graph_dicts(
-    graph_dicts: List[Dict[str, torch.Tensor]]
+    graph_dicts: List[Dict[str, torch.Tensor]],
 ) -> Dict[str, torch.Tensor]:
     """
     Collates a list of graphs into a single graph.
