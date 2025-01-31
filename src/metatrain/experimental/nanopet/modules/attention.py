@@ -24,6 +24,7 @@ class AttentionBlock(torch.nn.Module):
         self,
         inputs: torch.Tensor,  # seq_len hidden_size
         radial_mask: torch.Tensor,  # seq_len
+        use_manual_attention: bool,
     ) -> torch.Tensor:  # seq_len hidden_size
 
         # Pre-layer normalization
@@ -41,12 +42,16 @@ class AttentionBlock(torch.nn.Module):
         v = v.transpose(1, 2)
 
         # Attention
-        attention_output = torch.nn.functional.scaled_dot_product_attention(
-            q,
-            k,
-            v,
-            attn_mask=torch.log(radial_mask[:, None, None, :]),
-        )
+        attn_mask = torch.log(radial_mask[:, None, None, :])
+        if use_manual_attention:
+            attention_output = manual_attention(q, k, v, attn_mask)
+        else:
+            attention_output = torch.nn.functional.scaled_dot_product_attention(
+                q,
+                k,
+                v,
+                attn_mask=attn_mask,
+            )
 
         attention_output = attention_output.transpose(1, 2)
         attention_output = attention_output.reshape(
@@ -62,3 +67,12 @@ class AttentionBlock(torch.nn.Module):
         outputs = (outputs + inputs) * 0.5**0.5
 
         return outputs
+
+
+def manual_attention(q, k, v, attn_mask):
+    attention_weights = (
+        torch.matmul(q, k.transpose(-2, -1)) / (k.size(-1) ** 0.5)
+    ) + attn_mask
+    attention_weights = attention_weights.softmax(dim=-1)
+    attention_output = torch.matmul(attention_weights, v)
+    return attention_output

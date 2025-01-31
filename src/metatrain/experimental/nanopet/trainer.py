@@ -1,12 +1,10 @@
 import copy
 import logging
 from pathlib import Path
-from typing import Dict, List, Tuple, Union
+from typing import List, Union
 
 import torch
 import torch.distributed
-from metatensor.torch import TensorMap
-from metatensor.torch.atomistic import System
 from torch.utils.data import DataLoader, DistributedSampler
 
 from ...utils.additive import remove_additive
@@ -25,6 +23,10 @@ from ...utils.neighbor_lists import (
 )
 from ...utils.per_atom import average_by_num_atoms
 from ...utils.scaler import remove_scale
+from ...utils.transfer import (
+    systems_and_targets_to_device,
+    systems_and_targets_to_dtype,
+)
 from .model import NanoPET
 from .modules.augmentation import RotationalAugmenter
 
@@ -238,27 +240,7 @@ class Trainer:
         logger.info(f"Initial learning rate: {old_lr}")
 
         start_epoch = 0 if self.epoch is None else self.epoch + 1
-
-        @torch.jit.script
-        def systems_and_targets_to_device(
-            systems: List[System], targets: Dict[str, TensorMap], device: torch.device
-        ) -> Tuple[List[System], Dict[str, TensorMap]]:
-            return (
-                [system.to(device=device) for system in systems],
-                {key: value.to(device=device) for key, value in targets.items()},
-            )
-
-        @torch.jit.script
-        def systems_and_targets_to_dtype(
-            systems: List[System], targets: Dict[str, TensorMap], dtype: torch.dtype
-        ) -> Tuple[List[System], Dict[str, TensorMap]]:
-            return (
-                [system.to(dtype=dtype) for system in systems],
-                {key: value.to(dtype=dtype) for key, value in targets.items()},
-            )
-
         rotational_augmenter = RotationalAugmenter(train_targets)
-
         # Train the model:
         if self.best_metric is None:
             self.best_metric = float("inf")
@@ -276,6 +258,7 @@ class Trainer:
                 )
                 val_mae_calculator = MAEAccumulator(self.hypers["log_separate_blocks"])
 
+            model.train()
             train_loss = 0.0
             for batch in train_dataloader:
                 optimizer.zero_grad()
@@ -337,24 +320,16 @@ class Trainer:
                     )
                 )
 
+            model.eval()
             val_loss = 0.0
             for batch in val_dataloader:
                 systems, targets = batch
-                systems = [system.to(device=device) for system in systems]
-                targets = {
-                    key: value.to(device=device) for key, value in targets.items()
-                }
-                for additive_model in (
-                    model.module if is_distributed else model
-                ).additive_models:
-                    targets = remove_additive(
-                        systems, targets, additive_model, train_targets
-                    )
-                targets = remove_scale(
-                    targets, (model.module if is_distributed else model).scaler
+                # we don't need to remove scale/additive models since
+                # we're in eval mode
+                systems, targets = systems_and_targets_to_device(
+                    systems, targets, device
                 )
-                systems = [system.to(dtype=dtype) for system in systems]
-                targets = {key: value.to(dtype=dtype) for key, value in targets.items()}
+                systems, targets = systems_and_targets_to_dtype(systems, targets, dtype)
                 predictions = evaluate_model(
                     model,
                     systems,

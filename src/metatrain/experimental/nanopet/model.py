@@ -273,6 +273,10 @@ class NanoPET(torch.nn.Module):
 
         edge_vectors = positions[neighbors] - positions[centers] + cell_contributions
 
+        # the scaled_dot_product_attention function from torch cannot do
+        # double backward, so we will use manual attention if needed
+        use_manual_attention = edge_vectors.requires_grad and self.training
+
         bincount = torch.bincount(centers)
         if bincount.numel() == 0:  # no edges
             max_edges_per_node = 0
@@ -315,7 +319,7 @@ class NanoPET(torch.nn.Module):
         features = self.encoder(features)
 
         # Transformer
-        features = self.transformer(features, radial_mask)
+        features = self.transformer(features, radial_mask, use_manual_attention)
 
         # GNN
         if self.num_mp_layers > 0:
@@ -337,7 +341,9 @@ class NanoPET(torch.nn.Module):
                 )
                 new_features = contraction(new_features)
                 new_features = edge_array_to_nef(new_features, nef_indices)
-                new_features = transformer(new_features, radial_mask)
+                new_features = transformer(
+                    new_features, radial_mask, use_manual_attention
+                )
                 features = (features + new_features) * 0.5**0.5
 
         edge_features = features * radial_mask[:, :, None]
