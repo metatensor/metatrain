@@ -112,13 +112,9 @@ def test_llpr(tmpdir):
         llpr_model.capabilities,
     )
 
-    exported_model.save(
-        file=str(tmpdir / "llpr_model.pt"),
-        collect_extensions=str(tmpdir / "extensions"),
-    )
-    llpr_model = load_model(
-        str(tmpdir / "llpr_model.pt"), extensions_directory=str(tmpdir / "extensions")
-    )
+    with tmpdir.as_cwd():
+        exported_model.save(file="llpr_model.pt", collect_extensions="extensions")
+        llpr_model = load_model("llpr_model.pt", extensions_directory="extensions")
 
     evaluation_options = ModelEvaluationOptions(
         length_unit="angstrom",
@@ -252,13 +248,9 @@ def test_llpr_covariance_as_pseudo_hessian(tmpdir):
         llpr_model.capabilities,
     )
 
-    exported_model.save(
-        file=str(tmpdir / "llpr_model.pt"),
-        collect_extensions=str(tmpdir / "extensions"),
-    )
-    llpr_model = load_model(
-        str(tmpdir / "llpr_model.pt"), extensions_directory=str(tmpdir / "extensions")
-    )
+    with tmpdir.as_cwd():
+        exported_model.save(file="llpr_model.pt", collect_extensions="extensions")
+        llpr_model = load_model("llpr_model.pt", extensions_directory="extensions")
 
     evaluation_options = ModelEvaluationOptions(
         length_unit="angstrom",

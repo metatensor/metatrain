@@ -81,17 +81,17 @@ def test_export_cli(monkeypatch, tmp_path, output, dtype):
     assert next(model.parameters()).device.type == "cpu"
 
 
-def test_export_cli_unknown_architecture(monkeypatch, tmp_path):
-    monkeypatch.chdir(tmp_path)
-    torch.save({"architecture_name": "foo"}, "fake.ckpt")
+def test_export_cli_unknown_architecture(tmpdir):
+    with tmpdir.as_cwd():
+        torch.save({"architecture_name": "foo"}, "fake.ckpt")
 
-    stdout = str(
-        subprocess.run(["mtt", "export", "fake.ckpt"], capture_output=True).stdout
-    )
+        stdout = str(
+            subprocess.run(["mtt", "export", "fake.ckpt"], capture_output=True).stdout
+        )
 
-    assert "architecture 'foo' not found in the available architectures" in stdout
-    for architecture_name in find_all_architectures():
-        assert architecture_name in stdout
+        assert "architecture 'foo' not found in the available architectures" in stdout
+        for architecture_name in find_all_architectures():
+            assert architecture_name in stdout
 
 
 def test_reexport(monkeypatch, tmp_path):
