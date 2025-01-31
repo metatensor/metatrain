@@ -258,7 +258,6 @@ class Trainer:
                 )
                 val_mae_calculator = MAEAccumulator(self.hypers["log_separate_blocks"])
 
-            model.train()
             train_loss = 0.0
             for batch in train_dataloader:
                 optimizer.zero_grad()
@@ -320,14 +319,20 @@ class Trainer:
                     )
                 )
 
-            model.eval()
             val_loss = 0.0
             for batch in val_dataloader:
                 systems, targets = batch
-                # we don't need to remove scale/additive models since
-                # we're in eval mode
                 systems, targets = systems_and_targets_to_device(
                     systems, targets, device
+                )
+                for additive_model in (
+                    model.module if is_distributed else model
+                ).additive_models:
+                    targets = remove_additive(
+                        systems, targets, additive_model, train_targets
+                    )
+                targets = remove_scale(
+                    targets, (model.module if is_distributed else model).scaler
                 )
                 systems, targets = systems_and_targets_to_dtype(systems, targets, dtype)
                 predictions = evaluate_model(
