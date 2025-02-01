@@ -10,7 +10,7 @@ from metatensor.torch.atomistic import System
 from torch.utils.data import DataLoader, DistributedSampler
 
 from ...utils.additive import remove_additive
-from ...utils.data import CombinedDataLoader, Dataset, collate_fn
+from ...utils.data import CombinedDataLoader, Dataset, _is_disk_dataset, collate_fn
 from ...utils.distributed.distributed_data_parallel import DistributedDataParallel
 from ...utils.distributed.slurm import DistributedEnvironment
 from ...utils.evaluate_model import evaluate_model
@@ -90,11 +90,24 @@ class Trainer:
         logger.info("Calculating neighbor lists for the datasets")
         requested_neighbor_lists = get_requested_neighbor_lists(model)
         for dataset in train_datasets + val_datasets:
-            for i in range(len(dataset)):
-                system = dataset[i]["system"]
-                # The following line attaches the neighbors lists to the system,
-                # and doesn't require to reassign the system to the dataset:
-                _ = get_system_with_neighbor_lists(system, requested_neighbor_lists)
+            # If the dataset is a disk dataset, the NLs are already attached, we will
+            # just check the first system
+            if _is_disk_dataset(dataset):
+                system = dataset[0]["system"]
+                for options in requested_neighbor_lists:
+                    if options not in system.known_neighbor_lists():
+                        raise ValueError(
+                            "The requested neighbor lists are not attached to the "
+                            f"system. Neighbor list {options} is missing from the "
+                            "first system in the disk dataset. Make sure you save "
+                            "the neighbor lists in the systems when saving the dataset."
+                        )
+            else:
+                for sample in dataset:
+                    system = sample["system"]
+                    # The following line attaches the neighbors lists to the system,
+                    # and doesn't require to reassign the system to the dataset:
+                    get_system_with_neighbor_lists(system, requested_neighbor_lists)
 
         # Move the model to the device and dtype:
         model.to(device=device, dtype=dtype)

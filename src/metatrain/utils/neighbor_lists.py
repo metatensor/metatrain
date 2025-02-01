@@ -74,10 +74,6 @@ def get_system_with_neighbor_lists(
 
     :return: The `System` object with the neighbor lists added.
     """
-    # If the neighbor lists are already present, return the system as is
-    if all(options in system.known_neighbor_lists() for options in neighbor_lists):
-        return system
-
     # Convert the system to an ASE atoms object
     atoms = system_to_ase(system)
 

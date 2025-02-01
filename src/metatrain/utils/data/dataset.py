@@ -433,6 +433,16 @@ class DiskDataset(torch.utils.data.Dataset):
         return target_info_dict
 
 
+def _is_disk_dataset(dataset: Any) -> bool:
+    # this also needs to detect if it's a ``torch.nn.utils.data.Subset`` object
+    # with a ``DiskDataset`` object as its dataset, recursively
+    if isinstance(dataset, DiskDataset):
+        return True
+    if isinstance(dataset, torch.utils.data.Subset):
+        return _is_disk_dataset(dataset.dataset)
+    return False
+
+
 class DiskDatasetWriter:
     """
     A class for writing a dataset to disk, to be read by the :py:class:`DiskDataset`
