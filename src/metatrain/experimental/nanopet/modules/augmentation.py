@@ -119,7 +119,6 @@ def _apply_wigner_D_matrices(
     transformations: List[torch.Tensor],
     wigner_D_matrices: Dict[int, List[torch.Tensor]],
 ) -> TensorMap:
-
     new_blocks: List[TensorBlock] = []
     for key, block in target_tmap.items():
         ell, sigma = int(key[0]), int(key[1])
@@ -166,7 +165,6 @@ def _apply_random_augmentations(
     transformations: List[torch.Tensor],
     wigner_D_matrices: Dict[int, List[torch.Tensor]],
 ) -> Tuple[List[System], Dict[str, TensorMap]]:
-
     # Apply the transformations to the systems
     new_systems: List[System] = []
     for system, transformation in zip(systems, transformations):

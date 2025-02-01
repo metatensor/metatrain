@@ -19,8 +19,8 @@ def test_scaler_train():
 
     # Here we use three synthetic structures:
     # - O atom, with an energy of 3.0
-    # - H2O molecule, with an energy of 4.0
-    # - H4O2 molecule, with an energy of 12.0
+    # - H2O molecule, with an energy of 4.0 * 3
+    # - H4O2 molecule, with an energy of 12.0 * 6
     # The expected standard deviation is 13/sqrt(3).
 
     systems = [
@@ -55,7 +55,7 @@ def test_scaler_train():
             pbc=torch.tensor([True, True, True]),
         ),
     ]
-    energies = [3.0, 4.0, 12.0]
+    energies = [3.0, 4.0 * 3, 12.0 * 6]
     energies = [
         TensorMap(
             keys=Labels(names=["_"], values=torch.tensor([[0]])),
@@ -81,21 +81,23 @@ def test_scaler_train():
         ),
     )
 
-    scaler.train_model(dataset, additive_models=[])
+    scaler.train_model(dataset, additive_models=[], treat_as_additive=True)
     assert scaler.scales.shape == (1,)
     assert scaler.output_name_to_output_index == {"energy": 0}
     torch.testing.assert_close(
         scaler.scales, torch.tensor([13.0 / 3**0.5], dtype=torch.float64)
     )
 
-    scaler.train_model([dataset], additive_models=[])
+    scaler.train_model([dataset], additive_models=[], treat_as_additive=True)
     assert scaler.scales.shape == (1,)
     assert scaler.output_name_to_output_index == {"energy": 0}
     torch.testing.assert_close(
         scaler.scales, torch.tensor([13.0 / 3**0.5], dtype=torch.float64)
     )
 
-    scaler.train_model([dataset, dataset, dataset], additive_models=[])
+    scaler.train_model(
+        [dataset, dataset, dataset], additive_models=[], treat_as_additive=True
+    )
     assert scaler.scales.shape == (1,)
     assert scaler.output_name_to_output_index == {"energy": 0}
     torch.testing.assert_close(
@@ -138,7 +140,7 @@ def test_scale():
         ),
     )
 
-    scaler.train_model(dataset, additive_models=[])
+    scaler.train_model(dataset, additive_models=[], treat_as_additive=True)
     scale = scaler.scales[0].item()
 
     fake_output_or_target = TensorMap(
@@ -203,6 +205,9 @@ def test_scaler_torchscript(tmpdir):
 
     scaler = torch.jit.script(scaler)
     scaler(fake_output)
-    torch.jit.save(scaler, tmpdir / "scaler.pt")
-    scaler = torch.jit.load(tmpdir / "scaler.pt")
+
+    with tmpdir.as_cwd():
+        torch.jit.save(scaler, tmpdir / "scaler.pt")
+        scaler = torch.jit.load(tmpdir / "scaler.pt")
+
     scaler(fake_output)

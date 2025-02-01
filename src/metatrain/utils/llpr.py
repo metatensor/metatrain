@@ -304,7 +304,7 @@ class LLPRUncertaintyModel(torch.nn.Module):
                 ll_feats = ll_feat_tmap.block().values.detach() / n_atoms.unsqueeze(1)
                 self.covariances[
                     f"mtt::aux::{name.replace('mtt::', '')}_uncertainty"
-                ] += (ll_feats.T @ ll_feats)
+                ] += ll_feats.T @ ll_feats
 
         self.covariance_computed = True
 
@@ -401,7 +401,7 @@ class LLPRUncertaintyModel(torch.nn.Module):
                 grads = torch.cat(grads, dim=1)
                 self.covariances[
                     "mtt::aux::" + output_name.replace("mtt::", "") + "_uncertainty"
-                ] += (grads.T @ grads)
+                ] += grads.T @ grads
 
             for parameter in all_parameters_that_require_grad:
                 parameter.grad = None  # reset the gradients

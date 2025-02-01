@@ -109,12 +109,6 @@ class NanoPET(torch.nn.Module):
         self.outputs = {
             "features": ModelOutput(unit="", per_atom=True)
         }  # the model is always capable of outputting the internal features
-        for target_name in dataset_info.targets.keys():
-            # the model can always output the last-layer features for the targets
-            ll_features_name = (
-                f"mtt::aux::{target_name.replace('mtt::', '')}_last_layer_features"
-            )
-            self.outputs[ll_features_name] = ModelOutput(per_atom=True)
 
         self.heads = torch.nn.ModuleDict()
         self.head_types = self.hypers["heads"]
@@ -502,14 +496,13 @@ class NanoPET(torch.nn.Module):
 
     @classmethod
     def load_checkpoint(cls, path: Union[str, Path]) -> "NanoPET":
-
         # Load the checkpoint
         checkpoint = torch.load(path, weights_only=False, map_location="cpu")
-        model_hypers = checkpoint["model_hypers"]
+        model_data = checkpoint["model_data"]
         model_state_dict = checkpoint["model_state_dict"]
 
         # Create the model
-        model = cls(**model_hypers)
+        model = cls(**model_data)
         state_dict_iter = iter(model_state_dict.values())
         next(state_dict_iter)  # skip `species_to_species_index` buffer (int)
         dtype = next(state_dict_iter).dtype
@@ -545,7 +538,6 @@ class NanoPET(torch.nn.Module):
         return MetatensorAtomisticModel(self.eval(), ModelMetadata(), capabilities)
 
     def _add_output(self, target_name: str, target_info: TargetInfo) -> None:
-
         # one output shape for each tensor block, grouped by target (i.e. tensormap)
         self.output_shapes[target_name] = {}
         for key, block in target_info.layout.items():
@@ -578,6 +570,11 @@ class NanoPET(torch.nn.Module):
                 f"Unsupported head type {self.head_types[target_name]} "
                 f"for target {target_name}"
             )
+
+        ll_features_name = (
+            f"mtt::aux::{target_name.replace('mtt::', '')}_last_layer_features"
+        )
+        self.outputs[ll_features_name] = ModelOutput(per_atom=True)
 
         self.last_layers[target_name] = torch.nn.ModuleDict(
             {

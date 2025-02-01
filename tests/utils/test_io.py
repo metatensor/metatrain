@@ -73,18 +73,19 @@ def test_load_model_yaml(suffix):
         load_model(f"foo{suffix}")
 
 
-def test_load_model_unknown_model(monkeypatch, tmpdir):
-    monkeypatch.chdir(tmpdir)
+def test_load_model_unknown_model(tmpdir):
     architecture_name = "experimental.soap_bpnn"
     path = "fake.ckpt"
-    torch.save({"architecture_name": architecture_name}, path)
 
-    match = (
-        f"path '{path}' is not a valid checkpoint for the {architecture_name} "
-        "architecture"
-    )
-    with pytest.raises(ValueError, match=match):
-        load_model(path, architecture_name=architecture_name)
+    with tmpdir.as_cwd():
+        torch.save({"architecture_name": architecture_name}, path)
+
+        match = (
+            f"path '{path}' is not a valid checkpoint for the {architecture_name} "
+            "architecture"
+        )
+        with pytest.raises(ValueError, match=match):
+            load_model(path, architecture_name=architecture_name)
 
 
 def test_load_model_no_architecture_name(monkeypatch, tmpdir):

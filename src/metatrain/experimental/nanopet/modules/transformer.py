@@ -34,7 +34,6 @@ class TransformerLayer(torch.nn.Module):
         inputs: torch.Tensor,
         radial_mask: torch.Tensor,
     ) -> torch.Tensor:
-
         attention_output = self.attention_block(inputs, radial_mask)
         output = self.ff_block(attention_output)
 
@@ -73,7 +72,6 @@ class Transformer(torch.nn.Module):
         inputs,
         radial_mask,
     ):
-
         x = inputs
         for layer in self.layers:
             x = layer(x, radial_mask)
