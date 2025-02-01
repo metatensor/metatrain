@@ -10,11 +10,15 @@ import ase.io
 import pytest
 import torch
 from jsonschema.exceptions import ValidationError
+from metatensor.torch import Labels, TensorBlock, TensorMap
+from metatensor.torch.atomistic import NeighborListOptions, systems_to_torch
 from omegaconf import OmegaConf
 
 from metatrain import RANDOM_SEED
 from metatrain.cli.train import _process_continue_from, train_model
+from metatrain.utils.data import DiskDatasetWriter
 from metatrain.utils.errors import ArchitectureError
+from metatrain.utils.neighbor_lists import get_system_with_neighbor_lists
 
 from . import (
     DATASET_PATH_CARBON,
@@ -155,7 +159,7 @@ def test_train_from_options_restart_yaml(monkeypatch, tmp_path):
     train_model(options_restart, checkpoint_dir="outputs/")
 
 
-def test_train_unknonw_arch_options(monkeypatch, tmp_path):
+def test_train_unknown_arch_options(monkeypatch, tmp_path):
     monkeypatch.chdir(tmp_path)
     shutil.copy(DATASET_PATH_QM9, "qm9_reduced_100.xyz")
 
@@ -660,4 +664,39 @@ def test_train_generic_target_metatensor(monkeypatch, tmp_path):
         }
     }
 
+    train_model(options)
+
+
+def test_train_disk_dataset(monkeypatch, tmp_path, options):
+    """Test that training via the training cli runs without an error raise
+    when learning from a `DiskDataset`."""
+    monkeypatch.chdir(tmp_path)
+    shutil.copy(DATASET_PATH_QM9, "qm9_reduced_100.xyz")
+
+    disk_dataset_writer = DiskDatasetWriter("qm9_reduced_100.zip")
+    for i in range(100):
+        frame = ase.io.read("qm9_reduced_100.xyz", index=i)
+        system = systems_to_torch(frame, dtype=torch.float64)
+        system = get_system_with_neighbor_lists(
+            system,
+            [NeighborListOptions(cutoff=5.0, full_list=True, strict=True)],
+        )
+        energy = TensorMap(
+            keys=Labels.single(),
+            blocks=[
+                TensorBlock(
+                    values=torch.tensor([[frame.info["U0"]]], dtype=torch.float64),
+                    samples=Labels(
+                        names=["system"],
+                        values=torch.tensor([[i]]),
+                    ),
+                    components=[],
+                    properties=Labels("energy", torch.tensor([[0]])),
+                )
+            ],
+        )
+        disk_dataset_writer.write_sample(system, {"energy": energy})
+    del disk_dataset_writer
+
+    options["training_set"]["systems"]["read_from"] = "qm9_reduced_100.zip"
     train_model(options)
