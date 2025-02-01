@@ -352,6 +352,20 @@ def _train_test_random_split(
 
 
 class DiskDataset(torch.utils.data.Dataset):
+    """A class representing a dataset stored on disk.
+
+    The dataset is stored in a zip file, where each sample is stored in a separate
+    directory. The directory's name is the index of the sample (e.g. ``0/``), and the
+    files in the directory are the system (``system.mta``) and the targets
+    (each named ``<target_name>.mts``). These are ``metatensor.torch.atomistic.System``
+    and ``metatensor.torch.TensorMap`` objects, respectively.
+
+    Such a dataset can be created conveniently using the :py:class:`DiskDatasetWriter`
+    class.
+
+    :param path: Path to the zip file containing the dataset.
+    """
+
     def __init__(self, path: Union[str, Path]):
         self.zip_file = zipfile.ZipFile(path, "r")
         self._field_names = ["system"]
@@ -363,7 +377,7 @@ class DiskDataset(torch.utils.data.Dataset):
                 "Empty disk datasets are not supported."
             )
         for file_name in self.zip_file.namelist():
-            if file_name.startswith("0/") and file_name.endswith(".npy"):
+            if file_name.startswith("0/") and file_name.endswith(".mts"):
                 self._field_names.append(file_name[2:-4])
         self._sample_class = namedtuple("Sample", self._field_names)
         self._len = len([f for f in self.zip_file.namelist() if f.endswith(".mta")])
@@ -379,7 +393,7 @@ class DiskDataset(torch.utils.data.Dataset):
                     system = load_system(file)
                     system_and_targets.append(system)
             else:
-                with self.zip_file.open(f"{index}/{field_name}.npy", "r") as file:
+                with self.zip_file.open(f"{index}/{field_name}.mts", "r") as file:
                     numpy_buffer = np.load(file)
                     tensor_buffer = torch.from_numpy(numpy_buffer)
                     tensor_map = load_buffer(tensor_buffer)
@@ -390,6 +404,12 @@ class DiskDataset(torch.utils.data.Dataset):
         self.zip_file.close()
 
     def get_target_info(self, target_config: DictConfig) -> Dict[str, TargetInfo]:
+        """
+        Get information about the targets in the dataset.
+
+        :param target_config: The user-provided (through the yaml file) target
+            configuration.
+        """
         target_info_dict = {}
         for target_key, target in target_config.items():
             is_energy = (
@@ -414,15 +434,32 @@ class DiskDataset(torch.utils.data.Dataset):
 
 
 class DiskDatasetWriter:
+    """
+    A class for writing a dataset to disk, to be read by the :py:class:`DiskDataset`
+    class.
+
+    The class is initialized with a path to a zip file, and samples can be written to
+    the zip file using the :py:meth:`write_sample` method.
+
+    :param path: Path to the zip file to write the dataset to.
+    """
+
     def __init__(self, path: Union[str, Path]):
         self.zip_file = zipfile.ZipFile(path, "w")
         self.index = 0
 
     def write_sample(self, system: System, targets: Dict[str, TensorMap]):
+        """
+        Write a sample to the zip file.
+
+        :param system: The system to write.
+        :param targets: A dictionary of targets to write, where each value is
+            a :py:class:`TensorMap`.
+        """
         with self.zip_file.open(f"{self.index}/system.mta", "w") as file:
             mta_save(file, system)
         for target_name, target in targets.items():
-            with self.zip_file.open(f"{self.index}/{target_name}.npy", "w") as file:
+            with self.zip_file.open(f"{self.index}/{target_name}.mts", "w") as file:
                 tensor_buffer = mts_save_buffer(target)
                 numpy_buffer = tensor_buffer.numpy()
                 np.save(file, numpy_buffer)
