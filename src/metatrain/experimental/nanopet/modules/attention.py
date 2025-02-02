@@ -12,8 +12,6 @@ class AttentionBlock(torch.nn.Module):
         self,
         hidden_size: int,
         num_heads: int,
-        dropout_rate: float,
-        attention_dropout_rate: float,
     ):
         super().__init__()
 
@@ -21,12 +19,12 @@ class AttentionBlock(torch.nn.Module):
         self.in_proj = torch.nn.Linear(hidden_size, 3 * hidden_size, bias=False)
         self.out_proj = torch.nn.Linear(hidden_size, hidden_size, bias=False)
         self.layernorm = torch.nn.LayerNorm(normalized_shape=hidden_size)
-        self.attention_dropout_rate = attention_dropout_rate
 
     def forward(
         self,
         inputs: torch.Tensor,  # seq_len hidden_size
         radial_mask: torch.Tensor,  # seq_len
+        use_manual_attention: bool,
     ) -> torch.Tensor:  # seq_len hidden_size
         # Pre-layer normalization
         normed_inputs = self.layernorm(inputs)
@@ -41,21 +39,19 @@ class AttentionBlock(torch.nn.Module):
         q = q.transpose(1, 2)
         k = k.transpose(1, 2)
         v = v.transpose(1, 2)
+
         # Attention
-        attention_weights = torch.matmul(q, k.transpose(-2, -1)) / (k.size(-1) ** 0.5)
-        attention_weights = attention_weights.softmax(dim=-1)
-        attention_weights = torch.nn.functional.dropout(
-            attention_weights, p=self.attention_dropout_rate, training=self.training
-        )
+        attn_mask = torch.log(radial_mask[:, None, None, :])
+        if use_manual_attention:
+            attention_output = manual_attention(q, k, v, attn_mask)
+        else:
+            attention_output = torch.nn.functional.scaled_dot_product_attention(
+                q,
+                k,
+                v,
+                attn_mask=attn_mask,
+            )
 
-        # Radial mask
-        attention_weights = attention_weights * radial_mask[:, None, None, :]
-        attention_weights = attention_weights / (
-            attention_weights.sum(dim=-1, keepdim=True) + 1e-6
-        )
-
-        # Attention output
-        attention_output = torch.matmul(attention_weights, v)
         attention_output = attention_output.transpose(1, 2)
         attention_output = attention_output.reshape(
             attention_output.size(0),
@@ -70,3 +66,12 @@ class AttentionBlock(torch.nn.Module):
         outputs = (outputs + inputs) * 0.5**0.5
 
         return outputs
+
+
+def manual_attention(q, k, v, attn_mask):
+    attention_weights = (
+        torch.matmul(q, k.transpose(-2, -1)) / (k.size(-1) ** 0.5)
+    ) + attn_mask
+    attention_weights = attention_weights.softmax(dim=-1)
+    attention_output = torch.matmul(attention_weights, v)
+    return attention_output

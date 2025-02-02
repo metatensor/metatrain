@@ -12,29 +12,27 @@ class TransformerLayer(torch.nn.Module):
         hidden_size: int,
         intermediate_size: int,
         num_heads: int,
-        dropout_rate: float,
-        attention_dropout_rate: float,
     ):
         super().__init__()
 
         self.attention_block = AttentionBlock(
             hidden_size=hidden_size,
             num_heads=num_heads,
-            dropout_rate=dropout_rate,
-            attention_dropout_rate=attention_dropout_rate,
         )
         self.ff_block = FeedForwardBlock(
             hidden_size=hidden_size,
             intermediate_size=intermediate_size,
-            dropout_rate=dropout_rate,
         )
 
     def forward(
         self,
         inputs: torch.Tensor,
         radial_mask: torch.Tensor,
+        use_manual_attention: bool,
     ) -> torch.Tensor:
-        attention_output = self.attention_block(inputs, radial_mask)
+        attention_output = self.attention_block(
+            inputs, radial_mask, use_manual_attention
+        )
         output = self.ff_block(attention_output)
 
         return output
@@ -49,8 +47,6 @@ class Transformer(torch.nn.Module):
         intermediate_size: int,
         num_heads: int,
         num_layers: int,
-        dropout_rate: float,
-        attention_dropout_rate: float,
     ):
         super().__init__()
 
@@ -60,8 +56,6 @@ class Transformer(torch.nn.Module):
                     hidden_size=hidden_size,
                     intermediate_size=intermediate_size,
                     num_heads=num_heads,
-                    dropout_rate=dropout_rate,
-                    attention_dropout_rate=attention_dropout_rate,
                 )
                 for _ in range(num_layers)
             ]
@@ -71,8 +65,9 @@ class Transformer(torch.nn.Module):
         self,
         inputs,
         radial_mask,
+        use_manual_attention: bool,
     ):
         x = inputs
         for layer in self.layers:
-            x = layer(x, radial_mask)
+            x = layer(x, radial_mask, use_manual_attention)
         return x
