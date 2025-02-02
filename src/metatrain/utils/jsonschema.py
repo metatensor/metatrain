@@ -21,7 +21,6 @@ def validate(instance, schema, cls=None, *args, **kwargs) -> None:
         jsonschema.validate(instance, schema, cls=cls, *args, **kwargs)  # noqa: B026
     except ValidationError as error:
         if error.validator == "additionalProperties":
-
             # Change error message to be clearer for users
             error.message = error.message.replace(
                 "Additional properties are not allowed", "Unrecognized options"

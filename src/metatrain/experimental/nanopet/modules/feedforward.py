@@ -23,7 +23,6 @@ class FeedForwardBlock(torch.nn.Module):
         self,
         inputs: torch.Tensor,  # hidden_size
     ) -> torch.Tensor:  # hidden_size
-
         # Pre-layer normalization
         normed_inputs = self.layernorm(inputs)
 

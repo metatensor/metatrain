@@ -107,7 +107,7 @@ def test_torchscript_spherical(o3_lambda, o3_sigma):
     )
 
 
-def test_torchscript_save_load():
+def test_torchscript_save_load(tmpdir):
     """Tests that the model can be jitted and saved."""
 
     dataset_info = DatasetInfo(
@@ -116,8 +116,7 @@ def test_torchscript_save_load():
         targets={"energy": get_energy_target_info({"unit": "eV"})},
     )
     model = SoapBpnn(MODEL_HYPERS, dataset_info)
-    torch.jit.save(
-        torch.jit.script(model),
-        "model.pt",
-    )
-    torch.jit.load("model.pt")
+
+    with tmpdir.as_cwd():
+        torch.jit.save(torch.jit.script(model), "model.pt")
+        torch.jit.load("model.pt")

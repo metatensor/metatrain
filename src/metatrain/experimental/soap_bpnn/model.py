@@ -100,7 +100,6 @@ class MLPHeadMap(ModuleMap):
     def __init__(
         self, in_keys: Labels, num_features: int, out_properties: List[Labels]
     ) -> None:
-
         # hardcoded for now, but could be a hyperparameter
         activation_function = torch.nn.SiLU()
 
@@ -119,7 +118,6 @@ class MLPHeadMap(ModuleMap):
 
 
 class SoapBpnn(torch.nn.Module):
-
     __supported_devices__ = ["cuda", "cpu"]
     __supported_dtypes__ = [torch.float64, torch.float32]
 
@@ -428,14 +426,13 @@ class SoapBpnn(torch.nn.Module):
 
     @classmethod
     def load_checkpoint(cls, path: Union[str, Path]) -> "SoapBpnn":
-
         # Load the checkpoint
         checkpoint = torch.load(path, weights_only=False, map_location="cpu")
-        model_hypers = checkpoint["model_hypers"]
+        model_data = checkpoint["model_data"]
         model_state_dict = checkpoint["model_state_dict"]
 
         # Create the model
-        model = cls(**model_hypers)
+        model = cls(**model_data)
         dtype = next(iter(model_state_dict.values())).dtype
         model.to(dtype).load_state_dict(model_state_dict)
 
@@ -469,7 +466,6 @@ class SoapBpnn(torch.nn.Module):
         return MetatensorAtomisticModel(self.eval(), ModelMetadata(), capabilities)
 
     def _add_output(self, target_name: str, target: TargetInfo) -> None:
-
         # register bases of spherical tensors (TensorBasis)
         self.num_properties[target_name] = {}
         self.basis_calculators[target_name] = torch.nn.ModuleDict({})

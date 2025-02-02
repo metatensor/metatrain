@@ -497,14 +497,13 @@ class NanoPET(torch.nn.Module):
 
     @classmethod
     def load_checkpoint(cls, path: Union[str, Path]) -> "NanoPET":
-
         # Load the checkpoint
         checkpoint = torch.load(path, weights_only=False, map_location="cpu")
-        model_hypers = checkpoint["model_hypers"]
+        model_data = checkpoint["model_data"]
         model_state_dict = checkpoint["model_state_dict"]
 
         # Create the model
-        model = cls(**model_hypers)
+        model = cls(**model_data)
         state_dict_iter = iter(model_state_dict.values())
         next(state_dict_iter)  # skip `species_to_species_index` buffer (int)
         dtype = next(state_dict_iter).dtype
@@ -540,7 +539,6 @@ class NanoPET(torch.nn.Module):
         return MetatensorAtomisticModel(self.eval(), ModelMetadata(), capabilities)
 
     def _add_output(self, target_name: str, target_info: TargetInfo) -> None:
-
         # one output shape for each tensor block, grouped by target (i.e. tensormap)
         self.output_shapes[target_name] = {}
         for key, block in target_info.layout.items():

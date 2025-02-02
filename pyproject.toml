@@ -53,6 +53,7 @@ mtt = "metatrain.__main__:main"
 [build-system]
 requires = [
     "setuptools >= 68",
+    "setuptools_scm>=8",
     "wheel",
 ]
 build-backend = "setuptools.build_meta"
@@ -73,11 +74,14 @@ gap = [
     "scipy",
 ]
 
+[tool.check-manifest]
+ignore = ["src/metatrain/_version.py"]
+
 [tool.setuptools.packages.find]
 where = ["src"]
 
-[tool.setuptools.dynamic]
-version = {attr = "metatrain.__version__"}
+[tool.setuptools_scm]
+version_file = "src/metatrain/_version.py"
 
 [tool.coverage.report]
 skip_covered = true
@@ -97,17 +101,21 @@ source = [
     ".tox/*/lib/python*/site-packages/metatrain"
 ]
 
-[tool.black]
-exclude = 'docs/src/examples'
+[tool.ruff]
+exclude = ["docs/src/examples/**", "src/metatrain/_version.py"]
+line-length = 88
 
-[tool.isort]
-skip = "__init__.py"
-profile = "black"
-line_length = 88
-indent = 4
-include_trailing_comma = true
-lines_after_imports = 2
-known_first_party = "metatrain"
+[tool.ruff.lint]
+select = ["E", "F", "B", "I"]
+ignore = ["B018", "B904"]
+
+[tool.ruff.lint.isort]
+lines-after-imports = 2
+known-first-party = ["metatrain"]
+known-third-party = ["torch"]
+
+[tool.ruff.format]
+docstring-code-format = true
 
 [tool.mypy]
 exclude = [

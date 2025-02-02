@@ -458,7 +458,7 @@ class Trainer:
     def save_checkpoint(self, model, path: Union[str, Path]):
         checkpoint = {
             "architecture_name": "experimental.nanopet",
-            "model_hypers": {
+            "model_data": {
                 "model_hypers": model.hypers,
                 "dataset_info": model.dataset_info,
             },
@@ -478,7 +478,6 @@ class Trainer:
 
     @classmethod
     def load_checkpoint(cls, path: Union[str, Path], train_hypers) -> "Trainer":
-
         # Load the checkpoint
         checkpoint = torch.load(path, weights_only=False)
         epoch = checkpoint["epoch"]

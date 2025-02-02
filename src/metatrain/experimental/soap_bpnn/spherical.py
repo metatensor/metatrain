@@ -217,8 +217,9 @@ class TensorBasis(torch.nn.Module):
                     sh_1[:, lam * lam : (lam + 1) * (lam + 1)],
                     sh_2[
                         :,
-                        (self.o3_lambda - lam)
-                        * (self.o3_lambda - lam) : ((self.o3_lambda - lam) + 1)
+                        (self.o3_lambda - lam) * (self.o3_lambda - lam) : (
+                            (self.o3_lambda - lam) + 1
+                        )
                         * ((self.o3_lambda - lam) + 1),
                     ],
                     self.cgs[
@@ -235,8 +236,7 @@ class TensorBasis(torch.nn.Module):
                         sh_1[:, lam * lam : (lam + 1) * (lam + 1)],
                         sh_2[
                             :,
-                            (self.o3_lambda - lam - 1)
-                            * (self.o3_lambda - lam - 1) : (
+                            (self.o3_lambda - lam - 1) * (self.o3_lambda - lam - 1) : (
                                 (self.o3_lambda - lam - 1) + 1
                             )
                             * ((self.o3_lambda - lam - 1) + 1),
@@ -294,7 +294,6 @@ def get_cg_coefficients(l_max):
 
 
 class ClebschGordanReal:
-
     def __init__(self):
         self._cgs = {}
 

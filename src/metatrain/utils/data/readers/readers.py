@@ -103,7 +103,6 @@ def read_targets(
     standard_outputs_list = ["energy"]
 
     for target_key, target in conf.items():
-
         is_standard_target = target_key in standard_outputs_list
         if not is_standard_target and not target_key.startswith("mtt::"):
             if target_key.lower() in ["force", "forces", "virial", "stress"]:

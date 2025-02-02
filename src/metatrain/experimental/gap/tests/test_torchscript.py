@@ -64,7 +64,7 @@ def test_torchscript():
     )
 
 
-def test_torchscript_save():
+def test_torchscript_save_load(tmpdir):
     """Tests that the model can be jitted and saved."""
     targets = {}
     targets["mtt::U0"] = get_energy_target_info({"unit": "eV"})
@@ -73,8 +73,7 @@ def test_torchscript_save():
         length_unit="Angstrom", atomic_types=[1, 6, 7, 8], targets=targets
     )
     gap = GAP(DEFAULT_HYPERS["model"], dataset_info)
-    torch.jit.save(
-        torch.jit.script(gap),
-        "gap.pt",
-    )
-    torch.jit.load("gap.pt")
+
+    with tmpdir.as_cwd():
+        torch.jit.save(torch.jit.script(gap), "gap.pt")
+        torch.jit.load("gap.pt")
