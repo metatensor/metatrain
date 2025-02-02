@@ -1,4 +1,4 @@
-from typing import Dict
+from typing import Dict, Optional
 
 import torch
 
@@ -15,6 +15,7 @@ class Encoder(torch.nn.Module):
         self,
         n_species: int,
         hidden_size: int,
+        incoming_message: bool = True,
     ):
         super().__init__()
 
@@ -36,12 +37,15 @@ class Encoder(torch.nn.Module):
             num_embeddings=n_species, embedding_dim=hidden_size
         )
         self.compressor = torch.nn.Linear(
-            in_features=3 * hidden_size, out_features=hidden_size, bias=False
+            in_features=(4 if incoming_message else 3) * hidden_size,
+            out_features=hidden_size,
+            bias=False,
         )
 
     def forward(
         self,
         features: Dict[str, torch.Tensor],
+        incoming_message_tensor: Optional[torch.Tensor] = None,
     ):
         # Encode cartesian coordinates
         cartesian_features = self.cartesian_encoder(features["cartesian"])
@@ -53,9 +57,14 @@ class Encoder(torch.nn.Module):
         neighbor_features = self.neighbor_encoder(features["neighbor"])
 
         # Concatenate
-        encoded_features = torch.concatenate(
-            [cartesian_features, center_features, neighbor_features], dim=-1
-        )
+        features_to_concatenate = [
+            cartesian_features,
+            center_features,
+            neighbor_features,
+        ]
+        if incoming_message_tensor is not None:
+            features_to_concatenate.append(incoming_message_tensor)
+        encoded_features = torch.concatenate(features_to_concatenate, dim=-1)
 
         # Compress
         compressed_features = self.compressor(encoded_features)

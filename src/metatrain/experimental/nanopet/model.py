@@ -70,7 +70,9 @@ class NanoPET(torch.nn.Module):
         self.cutoff = self.hypers["cutoff"]
         self.cutoff_width = self.hypers["cutoff_width"]
 
-        self.encoder = Encoder(len(self.atomic_types), self.hypers["d_pet"])
+        self.encoder = Encoder(
+            len(self.atomic_types), self.hypers["d_pet"], incoming_message=False
+        )
 
         self.transformer = Transformer(
             self.hypers["d_pet"],
@@ -83,12 +85,20 @@ class NanoPET(torch.nn.Module):
         # empirically, the model seems to perform better without dropout
 
         self.num_mp_layers = self.hypers["num_gnn_layers"] - 1
-        gnn_contractions = []
+        # gnn_contractions = []
+        gnn_encoders = []
         gnn_transformers = []
         for _ in range(self.num_mp_layers):
-            gnn_contractions.append(
-                torch.nn.Linear(
-                    2 * self.hypers["d_pet"], self.hypers["d_pet"], bias=False
+            # gnn_contractions.append(
+            #     torch.nn.Linear(
+            #         2 * self.hypers["d_pet"], self.hypers["d_pet"], bias=False
+            #     )
+            # )
+            gnn_encoders.append(
+                Encoder(
+                    len(self.atomic_types),
+                    self.hypers["d_pet"],
+                    incoming_message=True,
                 )
             )
             gnn_transformers.append(
@@ -101,7 +111,8 @@ class NanoPET(torch.nn.Module):
                     0.0,  # attention dropout rate
                 )
             )
-        self.gnn_contractions = torch.nn.ModuleList(gnn_contractions)
+        # self.gnn_contractions = torch.nn.ModuleList(gnn_contractions)
+        self.gnn_encoders = torch.nn.ModuleList(gnn_encoders)
         self.gnn_transformers = torch.nn.ModuleList(gnn_transformers)
 
         self.last_layer_feature_size = self.hypers["d_pet"]
@@ -310,14 +321,14 @@ class NanoPET(torch.nn.Module):
             element_indices_neighbors, nef_indices
         )
 
-        features = {
+        features_to_embed = {
             "cartesian": edge_vectors,
             "center": element_indices_centers,
             "neighbor": element_indices_neighbors,
         }
 
         # Encode
-        features = self.encoder(features)
+        features = self.encoder(features_to_embed)
 
         # Transformer
         features = self.transformer(features, radial_mask)
@@ -330,18 +341,18 @@ class NanoPET(torch.nn.Module):
                     dim=-1,
                 )
             )
-            for contraction, transformer in zip(
-                self.gnn_contractions, self.gnn_transformers
-            ):
+            for encoder, transformer in zip(self.gnn_encoders, self.gnn_transformers):
                 new_features = nef_array_to_edges(
                     features, centers, nef_to_edges_neighbor
                 )
                 corresponding_new_features = new_features[corresponding_edges]
-                new_features = torch.concatenate(
-                    [new_features, corresponding_new_features], dim=-1
+                # TODO: missing skip here?
+                new_features = edge_array_to_nef(
+                    corresponding_new_features, nef_indices
                 )
-                new_features = contraction(new_features)
-                new_features = edge_array_to_nef(new_features, nef_indices)
+                new_features = encoder(
+                    features_to_embed, incoming_message_tensor=new_features
+                )
                 new_features = transformer(new_features, radial_mask)
                 features = (features + new_features) * 0.5**0.5
 
