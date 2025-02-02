@@ -23,7 +23,7 @@ from .modules.center_embedding import embed_centers
 from .modules.cg import get_cg_coefficients
 from .modules.cg_iterator import CGIterator
 from .modules.initial_features import get_initial_features
-from .modules.layers import EquivariantLastLayer, InvariantMLP, NothingLayer
+from .modules.layers import EquivariantLastLayer, Identity, InvariantMLP
 from .modules.message_passing import EquivariantMessagePasser, InvariantMessagePasser
 from .modules.precomputations import Precomputer
 from .utils import systems_to_batch
@@ -74,7 +74,7 @@ class PhACE(torch.nn.Module):
         )
         self.register_buffer("species_to_species_index", species_to_species_index)
 
-        self.nu_max = model_hypers["nu_max"]
+        self.nu_max = model_hypers["max_correlation_order_per_layer"]
         self.num_message_passing_layers = model_hypers["num_message_passing_layers"]
         if self.num_message_passing_layers < 1:
             raise ValueError("Number of message-passing layers must be at least 1")
@@ -521,7 +521,7 @@ class PhACE(torch.nn.Module):
                 self.k_max_l[0], self.head_num_layers
             )
         else:
-            self.heads[target_name] = NothingLayer()
+            self.heads[target_name] = Identity()
 
         if target_info.is_scalar:
             self.last_layers[target_name] = EquivariantLastLayer(

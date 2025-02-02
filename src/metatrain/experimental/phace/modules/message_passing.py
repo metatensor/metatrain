@@ -15,10 +15,8 @@ class DummyAdder(torch.nn.Module):
     def __init__(self):
         super().__init__()
 
-    def forward(
-        self, tmap_1: metatensor.torch.TensorMap, tmap_2: metatensor.torch.TensorMap
-    ) -> metatensor.torch.TensorMap:
-        return metatensor.torch.TensorMap(
+    def forward(self, tmap_1: TensorMap, tmap_2: TensorMap) -> TensorMap:
+        return TensorMap(
             keys=Labels(names=["dummy"], values=torch.empty(1, 1)), blocks=[]
         )
 

@@ -16,7 +16,7 @@ class RadialBasis(torch.nn.Module):
         for species in all_species:
             lengthscales[species] = np.log(hypers["scale"] * covalent_radii[species])
         self.n_max_l, self.spliner = get_physical_basis_spliner(
-            hypers["E_max"], hypers["cutoff"], normalize=True
+            hypers["max_eigenvalue"], hypers["cutoff"], normalize=True
         )
         if hypers["optimizable_lengthscales"]:
             self.lengthscales = torch.nn.Parameter(lengthscales)

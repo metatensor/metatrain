@@ -29,7 +29,7 @@ def get_physical_basis_spliner(E_max, r_cut, normalize):
     for l in range(l_max + 1):  # noqa: E741
         n_max_l.append(np.where(E_nl[:, l] <= E_max)[0][-1] + 1)
     if n_max_l[0] > n_max:
-        raise ValueError("n_max too large, try decreasing E_max")
+        raise ValueError("n_max too large, try decreasing max_eigenvalue")
 
     def function_for_splining(n, l, x):  # noqa: E741
         ret = physical_basis.compute(n, l, x)

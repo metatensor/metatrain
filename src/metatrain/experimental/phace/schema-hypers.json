@@ -9,7 +9,7 @@
     "model": {
       "type": "object",
       "properties": {
-        "nu_max": {
+        "max_correlation_order_per_layer": {
           "type": "integer"
         },
         "num_message_passing_layers": {
@@ -30,7 +30,7 @@
             "mlp": {
               "type": "boolean"
             },
-            "E_max": {
+            "max_eigenvalue": {
               "type": "number"
             },
             "scale": {

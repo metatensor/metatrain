@@ -1,7 +1,7 @@
 from typing import List
 
 import torch
-from metatensor.torch import Labels, TensorBlock, TensorMap
+from metatensor.torch import TensorBlock, TensorMap
 
 
 def embed_centers(equivariants: TensorMap, center_embeddings: torch.Tensor):
@@ -29,9 +29,6 @@ def embed_centers(equivariants: TensorMap, center_embeddings: torch.Tensor):
         )
 
     return TensorMap(
-        keys=Labels(
-            names=["nu", "o3_lambda", "o3_sigma"],
-            values=torch.stack(keys).to(equivariants.keys.values.device),
-        ),
+        keys=equivariants.keys,
         blocks=blocks,
     )

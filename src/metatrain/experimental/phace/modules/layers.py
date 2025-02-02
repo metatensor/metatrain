@@ -179,7 +179,7 @@ class EquivariantLastLayer(torch.nn.Module):
         return TensorMap(keys=new_keys, blocks=new_blocks)
 
 
-class NothingLayer(torch.nn.Module):
+class Identity(torch.nn.Module):
     # useful when the head for an output is a simple linear layer
 
     def forward(self, features: TensorMap) -> TensorMap:
