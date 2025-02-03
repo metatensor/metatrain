@@ -1,4 +1,3 @@
-import warnings
 from typing import Dict, List, Union
 
 import metatensor.torch
@@ -15,15 +14,6 @@ from metatensor.torch.atomistic import (
 
 from .data import TargetInfo
 from .output_gradient import compute_gradient
-
-
-# Ignore metatensor-torch warning due to the fact that positions/cell
-# already require grad when registering the NL
-warnings.filterwarnings(
-    "ignore",
-    category=UserWarning,
-    message="neighbor",
-)  # TODO: this is not filtering out the warning for some reason, therefore:
 
 
 def evaluate_model(
@@ -261,6 +251,7 @@ def _get_model_outputs(
         )
 
 
+@torch.jit.script
 def _prepare_system(
     system: System, positions_grad: bool, strain_grad: bool, check_consistency: bool
 ):
@@ -270,10 +261,9 @@ def _prepare_system(
     if strain_grad:
         strain = torch.eye(
             3,
-            requires_grad=True,
             dtype=system.cell.dtype,
             device=system.cell.device,
-        )
+        ).requires_grad_(True)
         new_system = System(
             positions=system.positions @ strain,
             cell=system.cell @ strain,
@@ -301,6 +291,7 @@ def _prepare_system(
     for nl_options in system.known_neighbor_lists():
         nl = system.get_neighbor_list(nl_options)
         nl = metatensor.torch.detach_block(nl)
+        nl.values.requires_grad_(new_system.positions.requires_grad)
         register_autograd_neighbors(new_system, nl, check_consistency)
         new_system.add_neighbor_list(nl_options, nl)
 
