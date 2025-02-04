@@ -89,10 +89,15 @@ method.
 
 .. code-block:: python
 
+    from metatensor.torch.atomistic import MetatensorAtomisticModel, ModelMetadata
+
     class ModelInterface:
 
         __supported_devices__ = ["cuda", "cpu"]
         __supported_dtypes__ = [torch.float64, torch.float32]
+        __default_metadata__ = ModelMetadata(
+            references = {"implementation": ["ref1"], "architecture": ["ref2"]}
+        )
 
         def __init__(self, model_hypers: Dict, dataset_info: DatasetInfo):
             self.hypers = model_hypers
@@ -113,7 +118,9 @@ method.
             """
             pass
 
-        def export(self) -> MetatensorAtomisticModel:
+            def export(
+        self, metadata: Optional[ModelMetadata] = None
+    ) -> MetatensorAtomisticModel:
             pass
 
 Note that the ``ModelInterface`` does not necessarily inherit from
@@ -122,6 +129,12 @@ Note that the ``ModelInterface`` does not necessarily inherit from
 capabilities of the model. These two lists should be sorted in order of preference since
 ``metatrain`` will use these to determine, based on the user request and
 machines' availability, the optimal ``dtype`` and ``device`` for training.
+
+The ``__default_metadata__`` is a class attribute that can be used to provide references
+that will be stored in the exported model. The references are stored in a dictionary
+with keys ``implementation`` and ``architecture``. The ``implementation`` key should
+contain references to the software used in the implementation of the architecture, while
+the ``architecture`` key should contain references about the general architecture.
 
 The ``export()`` method is required to transform a trained model into a standalone file
 to be used in combination with molecular dynamic engines to run simulations. We provide
