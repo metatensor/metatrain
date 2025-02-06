@@ -97,7 +97,6 @@ training
 The hyperparameters for training are
 
 :param distributed: Whether to use distributed training
-:param distributed_port: Port to use for distributed training
 :param batch_size: Batch size for training
 :param num_epochs: Number of epochs to train for
 :param learning_rate: Learning rate for the optimizer

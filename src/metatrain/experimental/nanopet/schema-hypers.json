@@ -49,9 +49,6 @@
         "distributed": {
           "type": "boolean"
         },
-        "distributed_port": {
-          "type": "integer"
-        },
         "batch_size": {
           "type": "integer"
         },

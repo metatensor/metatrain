@@ -69,7 +69,7 @@ class Trainer:
         is_distributed = self.hypers["distributed"]
 
         if is_distributed:
-            distr_env = DistributedEnvironment(self.hypers["distributed_port"])
+            distr_env = DistributedEnvironment()
             torch.distributed.init_process_group(backend="nccl")
             world_size = torch.distributed.get_world_size()
             rank = torch.distributed.get_rank()

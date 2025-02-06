@@ -24,18 +24,19 @@ class DistributedEnvironment:
         environment.
     """  # noqa: E501, E262
 
-    def __init__(self, port: int):
-        self._setup_distr_env(port)
+    def __init__(self):
+        self._setup_distr_env()
         self.master_addr = os.environ["MASTER_ADDR"]
         self.master_port = os.environ["MASTER_PORT"]
         self.world_size = int(os.environ["WORLD_SIZE"])
         self.rank = int(os.environ["RANK"])
         self.local_rank = int(os.environ["LOCAL_RANK"])
 
-    def _setup_distr_env(self, port: int):
+    def _setup_distr_env(self):
         hostnames = hostlist.expand_hostlist(os.environ["SLURM_JOB_NODELIST"])
         os.environ["MASTER_ADDR"] = hostnames[0]  # set first node as master
-        os.environ["MASTER_PORT"] = str(port)  # set port for communication
+        # set port for communication to 0 (picks the first available port)
+        os.environ["MASTER_PORT"] = 0
         os.environ["WORLD_SIZE"] = os.environ["SLURM_NTASKS"]
         os.environ["RANK"] = os.environ["SLURM_PROCID"]
         os.environ["LOCAL_RANK"] = os.environ["SLURM_LOCALID"]

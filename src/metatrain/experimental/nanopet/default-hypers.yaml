@@ -14,7 +14,6 @@ architecture:
 
   training:
     distributed: False
-    distributed_port: 39591
     batch_size: 16
     num_epochs: 10000
     learning_rate: 3e-4
