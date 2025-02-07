@@ -291,7 +291,6 @@ def _prepare_system(
     for nl_options in system.known_neighbor_lists():
         nl = system.get_neighbor_list(nl_options)
         nl = metatensor.torch.detach_block(nl)
-        nl.values.requires_grad_(new_system.positions.requires_grad)
         register_autograd_neighbors(new_system, nl, check_consistency)
         new_system.add_neighbor_list(nl_options, nl)
 
