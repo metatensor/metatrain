@@ -5,9 +5,10 @@ from metatensor.torch import TensorMap
 from metatensor.torch.atomistic import ModelCapabilities, System
 
 from .xyz import write_xyz
+from .metatensor import write_mts
 
 
-PREDICTIONS_WRITERS = {".xyz": write_xyz}
+PREDICTIONS_WRITERS = {".xyz": write_xyz, ".mts": write_mts}
 """:py:class:`dict`: dictionary mapping file suffixes to a prediction writers"""
 
 
