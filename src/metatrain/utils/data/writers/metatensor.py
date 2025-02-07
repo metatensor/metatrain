@@ -1,6 +1,7 @@
 from pathlib import Path
 from typing import Dict, List
 
+import torch
 from metatensor.torch import TensorMap, save
 from metatensor.torch.atomistic import ModelCapabilities, System
 
@@ -23,4 +24,7 @@ def write_mts(
 
     filename_base = Path(filename).stem
     for prediction_name, prediction_tmap in predictions.items():
-        save(filename_base + "_" + prediction_name + ".mts", prediction_tmap)
+        save(
+            filename_base + "_" + prediction_name + ".mts",
+            prediction_tmap.to(torch.float64),
+        )
