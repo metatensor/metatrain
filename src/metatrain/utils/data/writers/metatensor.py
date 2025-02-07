@@ -1,8 +1,8 @@
-from typing import Dict
+from pathlib import Path
+from typing import Dict, List
 
 from metatensor.torch import TensorMap, save
-from typing import List
-from metatensor.torch.atomistic import System, ModelCapabilities
+from metatensor.torch.atomistic import ModelCapabilities, System
 
 
 # note that, although we don't use `systems` and `capabilities`, we need them to
@@ -21,5 +21,6 @@ def write_mts(
     :param predictions: prediction values to be written to the file.
     """
 
-    for prediction_name, prediction_tmap in predictions:
-        save(filename, prediction_tmap)
+    filename_base = Path(filename).stem
+    for prediction_name, prediction_tmap in predictions.items():
+        save(filename_base + "_" + prediction_name + ".mts", prediction_tmap)
