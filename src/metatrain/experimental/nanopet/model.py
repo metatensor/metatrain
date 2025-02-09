@@ -18,7 +18,7 @@ from ...utils.additive import ZBL, CompositionModel
 from ...utils.data import DatasetInfo, TargetInfo
 from ...utils.dtype import dtype_to_str
 from ...utils.scaler import Scaler
-from .modules.encoder import Encoder
+from .modules.encoder import Encoder, NodeEncoder
 from .modules.nef import (
     edge_array_to_nef,
     get_corresponding_edges,
@@ -70,7 +70,8 @@ class NanoPET(torch.nn.Module):
         self.cutoff = self.hypers["cutoff"]
         self.cutoff_width = self.hypers["cutoff_width"]
 
-        self.encoder = Encoder(len(self.atomic_types), self.hypers["d_pet"])
+        self.node_encoder = NodeEncoder(len(self.atomic_types), self.hypers["d_pet"])
+        self.edge_encoder = Encoder(len(self.atomic_types), self.hypers["d_pet"])
 
         self.transformer = Transformer(
             self.hypers["d_pet"],
@@ -153,6 +154,20 @@ class NanoPET(torch.nn.Module):
         self.scaler = Scaler(model_hypers={}, dataset_info=dataset_info)
 
         self.single_label = Labels.single()
+
+        self.node_readout = torch.nn.Sequential(
+            torch.nn.Linear(self.hypers["d_pet"], 4 * self.hypers["d_pet"]),
+            torch.nn.SiLU(),
+            torch.nn.Linear(4 * self.hypers["d_pet"], self.hypers["d_pet"]),
+            torch.nn.SiLU(),
+        )
+
+        self.edge_readout = torch.nn.Sequential(
+            torch.nn.Linear(self.hypers["d_pet"], 4 * self.hypers["d_pet"]),
+            torch.nn.SiLU(),
+            torch.nn.Linear(4 * self.hypers["d_pet"], self.hypers["d_pet"]),
+            torch.nn.SiLU(),
+        )
 
     def restart(self, dataset_info: DatasetInfo) -> "NanoPET":
         # merge old and new dataset info
@@ -310,17 +325,31 @@ class NanoPET(torch.nn.Module):
             element_indices_neighbors, nef_indices
         )
 
-        features = {
-            "cartesian": edge_vectors,
-            "center": element_indices_centers,
-            "neighbor": element_indices_neighbors,
-        }
-
         # Encode
-        features = self.encoder(features)
+        node_features = self.node_encoder(element_indices_nodes)
+        edge_features = self.edge_encoder(
+            {
+                "cartesian": edge_vectors,
+                "neighbor": element_indices_neighbors,
+            }
+        )
+        features = torch.cat([node_features.unsqueeze(1), edge_features], dim=1)
 
         # Transformer
+        radial_mask = torch.cat(
+            [
+                torch.ones(
+                    (len(node_features), 1),
+                    device=radial_mask.device,
+                    dtype=radial_mask.dtype,
+                ),
+                radial_mask,
+            ],
+            dim=-1,
+        )
         features = self.transformer(features, radial_mask)
+
+        node_features, edge_features = features[:, 0], features[:, 1:]
 
         # GNN
         if self.num_mp_layers > 0:
@@ -333,20 +362,30 @@ class NanoPET(torch.nn.Module):
             for contraction, transformer in zip(
                 self.gnn_contractions, self.gnn_transformers
             ):
-                new_features = nef_array_to_edges(
-                    features, centers, nef_to_edges_neighbor
+                new_edge_features = nef_array_to_edges(
+                    edge_features, centers, nef_to_edges_neighbor
                 )
-                corresponding_new_features = new_features[corresponding_edges]
-                new_features = torch.concatenate(
-                    [new_features, corresponding_new_features], dim=-1
+                corresponding_new_edge_features = new_edge_features[corresponding_edges]
+                new_edge_features = torch.concatenate(
+                    [new_edge_features, corresponding_new_edge_features], dim=-1
                 )
-                new_features = contraction(new_features)
-                new_features = edge_array_to_nef(new_features, nef_indices)
+                new_edge_features = contraction(new_edge_features)
+                new_edge_features = edge_array_to_nef(new_edge_features, nef_indices)
+                new_features = torch.cat(
+                    [node_features.unsqueeze(1), new_edge_features], dim=1
+                )
                 new_features = transformer(new_features, radial_mask)
-                features = (features + new_features) * 0.5**0.5
+                new_node_features, new_edge_features = (
+                    new_features[:, 0],
+                    new_features[:, 1:],
+                )
+                node_features = (node_features + new_node_features) * 0.5**0.5
+                edge_features = (edge_features + new_edge_features) * 0.5**0.5
 
         edge_features = features * radial_mask[:, :, None]
-        node_features = torch.sum(edge_features, dim=1)
+        node_features = torch.sum(
+            self.edge_readout(edge_features), dim=1
+        ) + self.node_readout(node_features)
 
         return_dict: Dict[str, TensorMap] = {}
 
