@@ -166,9 +166,13 @@ class CompositionModel(torch.nn.Module):
                             )
                         structure_index += 1
 
-                regularizer = 1e-20
+                compf_t_at_compf = composition_features.T @ composition_features
+                compf_t_at_targets = composition_features.T @ targets
+                trace_magnitude = float(torch.diag(compf_t_at_compf).abs().mean())
+                regularizer = 1e-14 * trace_magnitude
+                max_regularizer = 1e5 * trace_magnitude
                 while regularizer:
-                    if regularizer > 1e5:
+                    if regularizer > max_regularizer:
                         raise RuntimeError(
                             "Failed to solve the linear system to calculate the "
                             "composition weights. The dataset is probably too small or "
@@ -177,14 +181,14 @@ class CompositionModel(torch.nn.Module):
                     try:
                         self.weights[self.output_name_to_output_index[target_key]] = (
                             torch.linalg.solve(
-                                composition_features.T @ composition_features
+                                compf_t_at_compf
                                 + regularizer
                                 * torch.eye(
                                     composition_features.shape[1],
                                     dtype=composition_features.dtype,
                                     device=composition_features.device,
                                 ),
-                                composition_features.T @ targets,
+                                compf_t_at_targets,
                             ).to(self.weights.dtype)
                         )
                         break
