@@ -376,6 +376,54 @@ class NanoPET(torch.nn.Module):
                     feature_tmap, ["atom"]
                 )
 
+            # Edge features
+            non_zero_padded_edge_features = nef_array_to_edges(
+                edge_features, centers, nef_to_edges_neighbor
+            )
+            all_samples = []
+            for i, system in zip(range(len(systems)), systems):
+                samples = system.get_neighbor_list(
+                    system.known_neighbor_lists()[0]
+                ).samples
+                all_samples.append(
+                    samples.insert(
+                        torch.tensor(0),
+                        "system",
+                        torch.tensor([int(i)] * samples.values.shape[0]),
+                    )
+                )
+
+            joint_samples = all_samples[0]
+            for samples in all_samples[1:]:
+                joint_samples = joint_samples.union(samples)
+
+            edge_feature_tmap = TensorMap(
+                keys=self.single_label,
+                blocks=[
+                    TensorBlock(
+                        values=non_zero_padded_edge_features,
+                        samples=joint_samples,
+                        components=[],
+                        properties=Labels(
+                            names=["properties"],
+                            values=torch.arange(
+                                edge_features.shape[-1], device=edge_features.device
+                            ).reshape(-1, 1),
+                        ),
+                    )
+                ],
+            )
+            features_options = outputs["features"]
+            if features_options.per_atom:
+                return_dict["features"] = {
+                    "node": feature_tmap,
+                    "edge": edge_feature_tmap,
+                }
+            else:
+                return_dict["features"] = metatensor.torch.sum_over_samples(
+                    feature_tmap, ["atom"]
+                )
+
         atomic_features_dict: Dict[str, torch.Tensor] = {}
         for output_name, head in self.heads.items():
             atomic_features_dict[output_name] = head(node_features)
