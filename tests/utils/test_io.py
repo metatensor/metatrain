@@ -1,6 +1,7 @@
 from pathlib import Path
 
 import pytest
+import torch
 from metatensor.torch.atomistic import MetatensorAtomisticModel
 
 from metatrain.experimental.soap_bpnn.model import SoapBpnn
@@ -45,8 +46,11 @@ def test_is_exported_file():
     ],
 )
 def test_load_model_checkpoint(path):
-    model = load_model(path, architecture_name="experimental.soap_bpnn")
+    model = load_model(path)
     assert type(model) is SoapBpnn
+    if str(path).startswith("file:"):
+        # test that the checkpoint is also copied to the current directory
+        assert Path("model-32-bit.ckpt").exists()
 
 
 @pytest.mark.parametrize(
@@ -58,38 +62,38 @@ def test_load_model_checkpoint(path):
     ],
 )
 def test_load_model_exported(path):
-    model = load_model(path, architecture_name="experimental.soap_bpnn")
+    model = load_model(path)
     assert type(model) is MetatensorAtomisticModel
 
 
 @pytest.mark.parametrize("suffix", [".yml", ".yaml"])
 def test_load_model_yaml(suffix):
-    match = f"path 'foo{suffix}' seems to be a YAML option file and no model"
+    match = f"path 'foo{suffix}' seems to be a YAML option file and not a model"
     with pytest.raises(ValueError, match=match):
-        load_model(
-            f"foo{suffix}",
-            architecture_name="experimental.soap_bpnn",
+        load_model(f"foo{suffix}")
+
+
+def test_load_model_unknown_model(tmpdir):
+    architecture_name = "experimental.soap_bpnn"
+    path = "fake.ckpt"
+
+    with tmpdir.as_cwd():
+        torch.save({"architecture_name": architecture_name}, path)
+
+        match = (
+            f"path '{path}' is not a valid checkpoint for the {architecture_name} "
+            "architecture"
         )
+        with pytest.raises(ValueError, match=match):
+            load_model(path, architecture_name=architecture_name)
 
 
-def test_load_model_unknown_model():
-    architecture_name = "experimental.pet"
-    path = RESOURCES_PATH / "model-32-bit.ckpt"
+def test_load_model_no_architecture_name(monkeypatch, tmpdir):
+    monkeypatch.chdir(tmpdir)
+    architecture_name = "experimental.soap_bpnn"
+    path = "fake.ckpt"
+    torch.save({"not_architecture_name": architecture_name}, path)
 
-    match = (
-        f"path '{path}' is not a valid model file for the {architecture_name} "
-        "architecture"
-    )
+    match = "No architecture name found in the checkpoint"
     with pytest.raises(ValueError, match=match):
         load_model(path, architecture_name=architecture_name)
-
-
-def test_extensions_directory_and_architecture_name():
-    match = (
-        r"Both ``extensions_directory`` \('.'\) and ``architecture_name`` \('foo'\) "
-        r"are given which are mutually exclusive. An ``extensions_directory`` is only "
-        r"required for \*exported\* models while an ``architecture_name`` is only "
-        r"needed for model \*checkpoints\*."
-    )
-    with pytest.raises(ValueError, match=match):
-        load_model("model.pt", extensions_directory=".", architecture_name="foo")

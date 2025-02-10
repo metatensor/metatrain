@@ -1,8 +1,9 @@
 import math
+import os
 import warnings
-from typing import Any, Dict, List, Tuple, Union
+from pathlib import Path
+from typing import Any, Dict, List, Optional, Tuple, Union
 
-import metatensor.torch
 import numpy as np
 from metatensor.learn.data import Dataset, group_and_join
 from metatensor.torch import TensorMap
@@ -10,202 +11,7 @@ from torch.utils.data import Subset
 
 from ..external_naming import to_external_name
 from ..units import get_gradient_units
-
-
-class TargetInfo:
-    """A class that contains information about a target.
-
-    :param quantity: The physical quantity of the target (e.g., "energy").
-    :param layout: The layout of the target, as a ``TensorMap`` with 0 samples.
-        This ``TensorMap`` will be used to retrieve the names of
-        the ``samples``, as well as the ``components`` and ``properties`` of the
-        target and their gradients. For example, this allows to infer the type of
-        the target (scalar, Cartesian tensor, spherical tensor), whether it is per
-        atom, the names of its gradients, etc.
-    :param unit: The unit of the target. If :py:obj:`None` the ``unit`` will be set to
-        an empty string ``""``.
-    """
-
-    def __init__(
-        self,
-        quantity: str,
-        layout: TensorMap,
-        unit: Union[None, str] = "",
-    ):
-        # one of these will be set to True inside the _check_layout method
-        self._is_scalar = False
-        self._is_cartesian = False
-        self._is_spherical = False
-
-        self._check_layout(layout)
-
-        self.quantity = quantity  # float64: otherwise metatensor can't serialize
-        self.layout = layout
-        self.unit = unit if unit is not None else ""
-
-    @property
-    def is_scalar(self) -> bool:
-        """Whether the target is a scalar."""
-        return self._is_scalar
-
-    @property
-    def is_cartesian(self) -> bool:
-        """Whether the target is a Cartesian tensor."""
-        return self._is_cartesian
-
-    @property
-    def is_spherical(self) -> bool:
-        """Whether the target is a spherical tensor."""
-        return self._is_spherical
-
-    @property
-    def gradients(self) -> List[str]:
-        """Sorted and unique list of gradient names."""
-        if self._is_scalar:
-            return sorted(self.layout.block().gradients_list())
-        else:
-            return []
-
-    @property
-    def per_atom(self) -> bool:
-        """Whether the target is per atom."""
-        return "atom" in self.layout.block(0).samples.names
-
-    def __repr__(self):
-        return (
-            f"TargetInfo(quantity={self.quantity!r}, unit={self.unit!r}, "
-            f"layout={self.layout!r})"
-        )
-
-    def __eq__(self, other):
-        if not isinstance(other, TargetInfo):
-            raise NotImplementedError(
-                "Comparison between a TargetInfo instance and a "
-                f"{type(other).__name__} instance is not implemented."
-            )
-        return (
-            self.quantity == other.quantity
-            and self.unit == other.unit
-            and metatensor.torch.equal(self.layout, other.layout)
-        )
-
-    def _check_layout(self, layout: TensorMap) -> None:
-        """Check that the layout is a valid layout."""
-
-        # examine basic properties of all blocks
-        for block in layout.blocks():
-            for sample_name in block.samples.names:
-                if sample_name not in ["system", "atom"]:
-                    raise ValueError(
-                        "The layout ``TensorMap`` of a target should only have samples "
-                        "named 'system' or 'atom', but found "
-                        f"'{sample_name}' instead."
-                    )
-            if len(block.values) != 0:
-                raise ValueError(
-                    "The layout ``TensorMap`` of a target should have 0 "
-                    f"samples, but found {len(block.values)} samples."
-                )
-
-        # examine the components of the first block to decide whether this is
-        # a scalar, a Cartesian tensor or a spherical tensor
-
-        if len(layout) == 0:
-            raise ValueError(
-                "The layout ``TensorMap`` of a target should have at least one "
-                "block, but found 0 blocks."
-            )
-        components_first_block = layout.block(0).components
-        if len(components_first_block) == 0:
-            self._is_scalar = True
-        elif components_first_block[0].names[0].startswith("xyz"):
-            self._is_cartesian = True
-        elif (
-            len(components_first_block) == 1
-            and components_first_block[0].names[0] == "o3_mu"
-        ):
-            self._is_spherical = True
-        else:
-            raise ValueError(
-                "The layout ``TensorMap`` of a target should be "
-                "either scalars, Cartesian tensors or spherical tensors. The type of "
-                "the target could not be determined."
-            )
-
-        if self._is_scalar:
-            if layout.keys.names != ["_"]:
-                raise ValueError(
-                    "The layout ``TensorMap`` of a scalar target should have "
-                    "a single key sample named '_'."
-                )
-            if len(layout.blocks()) != 1:
-                raise ValueError(
-                    "The layout ``TensorMap`` of a scalar target should have "
-                    "a single block."
-                )
-            gradients_names = layout.block(0).gradients_list()
-            for gradient_name in gradients_names:
-                if gradient_name not in ["positions", "strain"]:
-                    raise ValueError(
-                        "Only `positions` and `strain` gradients are supported for "
-                        "scalar targets. "
-                        f"Found '{gradient_name}' instead."
-                    )
-        if self._is_cartesian:
-            if layout.keys.names != ["_"]:
-                raise ValueError(
-                    "The layout ``TensorMap`` of a Cartesian tensor target should have "
-                    "a single key sample named '_'."
-                )
-            if len(layout.blocks()) != 1:
-                raise ValueError(
-                    "The layout ``TensorMap`` of a Cartesian tensor target should have "
-                    "a single block."
-                )
-            if len(layout.block(0).gradients_list()) > 0:
-                raise ValueError(
-                    "Gradients of Cartesian tensor targets are not supported."
-                )
-
-        if self._is_spherical:
-            if layout.keys.names != ["o3_lambda", "o3_sigma"]:
-                raise ValueError(
-                    "The layout ``TensorMap`` of a spherical tensor target "
-                    "should have  two keys named 'o3_lambda' and 'o3_sigma'."
-                    f"Found '{layout.keys.names}' instead."
-                )
-            for key, block in layout.items():
-                o3_lambda, o3_sigma = int(key.values[0].item()), int(
-                    key.values[1].item()
-                )
-                if o3_sigma not in [-1, 1]:
-                    raise ValueError(
-                        "The layout ``TensorMap`` of a spherical tensor target should "
-                        "have a key sample 'o3_sigma' that is either -1 or 1."
-                        f"Found '{o3_sigma}' instead."
-                    )
-                if o3_lambda < 0:
-                    raise ValueError(
-                        "The layout ``TensorMap`` of a spherical tensor target should "
-                        "have a key sample 'o3_lambda' that is non-negative."
-                        f"Found '{o3_lambda}' instead."
-                    )
-                components = block.components
-                if len(components) != 1:
-                    raise ValueError(
-                        "The layout ``TensorMap`` of a spherical tensor target should "
-                        "have a single component."
-                    )
-                if len(components[0]) != 2 * o3_lambda + 1:
-                    raise ValueError(
-                        "Each ``TensorBlock`` of a spherical tensor target should have "
-                        "a component with 2*o3_lambda + 1 elements."
-                        f"Found '{len(components[0])}' elements instead."
-                    )
-                if len(block.gradients_list()) > 0:
-                    raise ValueError(
-                        "Gradients of spherical tensor targets are not supported."
-                    )
+from .target_info import TargetInfo
 
 
 class DatasetInfo:
@@ -279,10 +85,13 @@ class DatasetInfo:
 
         intersecting_target_keys = self.targets.keys() & other.targets.keys()
         for key in intersecting_target_keys:
-            if self.targets[key] != other.targets[key]:
+            if not self.targets[key].is_compatible_with(other.targets[key]):
                 raise ValueError(
                     f"Can't update DatasetInfo with different target information for "
-                    f"target '{key}': {self.targets[key]} != {other.targets[key]}"
+                    f"target '{key}': {self.targets[key]} is not compatible with "
+                    f"{other.targets[key]}. If the units, quantity and keys of the two "
+                    "targets are the same, this must be due to a mismatch in the "
+                    "internal metadata of the layout."
                 )
         self.targets.update(other.targets)
 
@@ -381,8 +190,8 @@ def get_atomic_types(datasets: Union[Dataset, List[Dataset]]) -> List[int]:
 
     types = set()
     for dataset in datasets:
-        for index in range(len(dataset)):
-            system = dataset[index]["system"]
+        for sample in dataset:
+            system = sample["system"]
             types.update(set(system.types.tolist()))
 
     return sorted(types)
@@ -419,7 +228,7 @@ def collate_fn(batch: List[Dict[str, Any]]) -> Tuple[List, Dict[str, TensorMap]]
     targets.
     """
 
-    collated_targets = group_and_join(batch)
+    collated_targets = group_and_join(batch, join_kwargs={"remove_tensor_name": True})
     collated_targets = collated_targets._asdict()
     systems = collated_targets.pop("system")
     return systems, collated_targets
@@ -532,3 +341,64 @@ def _train_test_random_split(
         Subset(train_dataset, train_indices),
         Subset(train_dataset, test_indices),
     ]
+
+
+def _save_indices(
+    train_indices: List[Optional[List[int]]],
+    val_indices: List[Optional[List[int]]],
+    test_indices: List[Optional[List[int]]],
+    checkpoint_dir: Union[str, Path],
+) -> None:
+    # Save the indices of the training, validation, and test sets to the checkpoint
+    # directory. This is useful for plotting errors and similar.
+
+    # case 1: all indices are None (i.e. all datasets were user-provided explicitly)
+    if all(indices is None for indices in train_indices):
+        pass
+
+    # case 2: there is only one dataset
+    elif len(train_indices) == 1:  # val and test are the same length
+        os.mkdir(os.path.join(checkpoint_dir, "indices/"))
+        if train_indices[0] is not None:
+            np.savetxt(
+                os.path.join(checkpoint_dir, "indices/training.txt"),
+                train_indices[0],
+                fmt="%d",
+            )
+        if val_indices[0] is not None:
+            np.savetxt(
+                os.path.join(checkpoint_dir, "indices/validation.txt"),
+                val_indices[0],
+                fmt="%d",
+            )
+        if test_indices[0] is not None:
+            np.savetxt(
+                os.path.join(checkpoint_dir, "indices/test.txt"),
+                test_indices[0],
+                fmt="%d",
+            )
+
+    # case 3: there are multiple datasets
+    else:
+        os.mkdir(os.path.join(checkpoint_dir, "indices/"))
+        for i, (train, val, test) in enumerate(
+            zip(train_indices, val_indices, test_indices)
+        ):
+            if train is not None:
+                np.savetxt(
+                    os.path.join(checkpoint_dir, f"indices/training_{i}.txt"),
+                    train,
+                    fmt="%d",
+                )
+            if val is not None:
+                np.savetxt(
+                    os.path.join(checkpoint_dir, f"indices/validation_{i}.txt"),
+                    val,
+                    fmt="%d",
+                )
+            if test is not None:
+                np.savetxt(
+                    os.path.join(checkpoint_dir, f"indices/test_{i}.txt"),
+                    test,
+                    fmt="%d",
+                )

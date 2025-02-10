@@ -64,9 +64,6 @@ model.
       Positions (SOAP).
   * - SOAP BPNN
     - A Behler-Parrinello neural network with SOAP features
-  * - Alchemical Model
-    - A Behler-Parrinello neural network with SOAP features and Alchemical Compression
-      of the composition space
   * - PET
     - Point Edge Transformer (PET), interatomic machine learning potential
 
@@ -129,16 +126,16 @@ Contributors
 Thanks goes to all people that make ``metatrain`` possible:
 
 .. image:: https://contrib.rocks/image?repo=lab-cosmo/metatrain
-  :target: https://github.com/lab-cosmo/metatrain/graphs/contributors
+  :target: https://github.com/metatensor/metatrain/graphs/contributors
 
 .. |tests| image:: https://github.com/lab-cosmo/metatrain/workflows/Tests/badge.svg
   :alt: Github Actions Tests Job Status
-  :target: https://github.com/lab-cosmo/metatrain/actions?query=branch%3Amain
+  :target: https://github.com/metatensor/metatrain/actions?query=branch%3Amain
 
 .. |codecov| image:: https://codecov.io/gh/lab-cosmo/metatrain/branch/main/graph/badge.svg
   :alt: Code coverage
-  :target: https://codecov.io/gh/lab-cosmo/metatrain
+  :target: https://codecov.io/gh/metatensor/metatrain
 
 .. |docs| image:: https://img.shields.io/badge/documentation-latest-sucess
   :alt: Documentation
-  :target: https://lab-cosmo.github.io/metatrain/latest/
+  :target: https://metatensor.github.io/metatrain/latest

@@ -1,6 +1,7 @@
 from .model import PET
 from .trainer import Trainer
 
+
 __model__ = PET
 __trainer__ = Trainer
 __capabilities__ = {
@@ -15,6 +16,5 @@ __authors__ = [
 ]
 
 __maintainers__ = [
-    ("Sergey Pozdnyakov <sergey.pozdnyakov@epfl.ch>", "@spozdn"),
     ("Arslan Mazitov <arslan.mazitov@epfl.ch>", "@abmazitov"),
 ]

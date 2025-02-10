@@ -85,6 +85,15 @@ def _add_eval_model_parser(subparser: argparse._SubParsersAction) -> None:
         help="filename of the predictions (default: %(default)s)",
     )
     parser.add_argument(
+        "-b",
+        "--batch-size",
+        dest="batch_size",
+        required=False,
+        type=int,
+        default=1,
+        help="batch size for evaluation (default: %(default)s)",
+    )
+    parser.add_argument(
         "--check-consistency",
         dest="check_consistency",
         action="store_true",
@@ -103,7 +112,7 @@ def _prepare_eval_model_args(args: argparse.Namespace) -> None:
 
 
 def _concatenate_tensormaps(
-    tensormap_dict_list: List[Dict[str, TensorMap]]
+    tensormap_dict_list: List[Dict[str, TensorMap]],
 ) -> Dict[str, TensorMap]:
     # Concatenating TensorMaps is tricky, because the model does not know the
     # "number" of the system it is predicting. For example, if a model predicts
@@ -162,6 +171,7 @@ def _eval_targets(
     dataset: Union[Dataset, torch.utils.data.Subset],
     options: Dict[str, TargetInfo],
     return_predictions: bool,
+    batch_size: int = 1,
     check_consistency: bool = False,
 ) -> Optional[Dict[str, TensorMap]]:
     """Evaluates an exported model on a dataset and prints the RMSEs for each target.
@@ -192,10 +202,21 @@ def _eval_targets(
     logger.info(f"Running on device {device} with dtype {dtype}")
     model.to(dtype=dtype, device=device)
 
+    if len(dataset) % batch_size != 0:
+        # debug level: we don't want to clutter the output at the end of training
+        # gross issues will still show up in the standard deviation of the timings
+        logger.debug(
+            f"The dataset size ({len(dataset)}) is not a multiple of the batch size "
+            f"({batch_size}). {len(dataset) // batch_size} batches will be "
+            f"constructed with a batch size of {batch_size}, and the last batch will "
+            f"have a size of {len(dataset) % batch_size}. This might lead to "
+            "inaccurate average timings."
+        )
+
     # Create a dataloader
     dataloader = torch.utils.data.DataLoader(
         dataset,
-        batch_size=1,  # TODO: allow to set from outside!!
+        batch_size=batch_size,
         collate_fn=collate_fn,
         shuffle=False,
     )
@@ -212,11 +233,15 @@ def _eval_targets(
     total_time = 0.0
     timings_per_atom = []
 
-    # Warm up with a single batch 5 times (to get accurate timings later)
-    batch = next(iter(dataloader))
-    systems = batch[0]
-    systems = [system.to(dtype=dtype, device=device) for system in systems]
-    for _ in range(5):
+    # Warm up with a single batch 10 times (to get accurate timings later).
+    # We use different batches to warm up torch potentially with different
+    # tensor sizes, so dynamic shape compilation happens. We have to cycle
+    # the dataloader in case there are few batches.
+    cycled_dataloader = itertools.cycle(dataloader)
+    for _ in range(10):
+        batch = next(cycled_dataloader)
+        systems = batch[0]
+        systems = [system.to(dtype=dtype, device=device) for system in systems]
         evaluate_model(
             model,
             systems,
@@ -282,8 +307,8 @@ def _eval_targets(
     std_per_atom = np.std(timings_per_atom)
     logger.info(
         f"evaluation time: {total_time:.2f} s "
-        f"[{1000.0*mean_per_atom:.2f} ± "
-        f"{1000.0*std_per_atom:.2f} ms per atom]"
+        f"[{1000.0 * mean_per_atom:.4f} ± "
+        f"{1000.0 * std_per_atom:.4f} ms per atom]"
     )
 
     if return_predictions:
@@ -298,6 +323,7 @@ def eval_model(
     model: Union[MetatensorAtomisticModel, torch.jit._script.RecursiveScriptModule],
     options: DictConfig,
     output: Union[Path, str] = "output.xyz",
+    batch_size: int = 1,
     check_consistency: bool = False,
 ) -> None:
     """Evaluate an exported model on a given data set.
@@ -362,6 +388,7 @@ def eval_model(
                 dataset=eval_dataset,
                 options=eval_info_dict,
                 return_predictions=True,
+                batch_size=batch_size,
                 check_consistency=check_consistency,
             )
         except Exception as e:

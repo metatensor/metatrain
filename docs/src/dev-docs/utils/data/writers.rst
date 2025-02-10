@@ -15,3 +15,4 @@ Implemented Writers
 -------------------
 
 .. autofunction:: metatrain.utils.data.writers.write_xyz
+.. autofunction:: metatrain.utils.data.writers.write_mts

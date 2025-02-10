@@ -9,7 +9,6 @@ RESOURCES_PATH = Path(__file__).parents[2] / "resources"
 
 
 def test_get_dataset():
-
     options = {
         "systems": {
             "read_from": RESOURCES_PATH / "qm9_reduced_100.xyz",
@@ -22,6 +21,9 @@ def test_get_dataset():
                 "reader": "ase",
                 "key": "U0",
                 "unit": "eV",
+                "type": "scalar",
+                "per_atom": False,
+                "num_subtargets": 1,
                 "forces": False,
                 "stress": False,
                 "virial": False,

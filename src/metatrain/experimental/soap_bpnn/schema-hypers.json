@@ -391,6 +391,16 @@
           },
           "additionalProperties": false
         },
+        "heads": {
+          "type": "object",
+          "patternProperties": {
+            ".*": {
+              "type": "string",
+              "enum": ["linear", "mlp"]
+            }
+          },
+          "additionalProperties": false
+        },
         "zbl": {
           "type": "boolean"
         }
@@ -430,6 +440,9 @@
         "checkpoint_interval": {
           "type": "integer"
         },
+        "scale_targets": {
+          "type": "boolean"
+        },
         "fixed_composition_weights": {
           "type": "object",
           "patternProperties": {
@@ -453,6 +466,13 @@
         },
         "log_mae": {
           "type": "boolean"
+        },
+        "log_separate_blocks": {
+          "type": "boolean"
+        },
+        "best_model_metric": {
+          "type": "string",
+          "enum": ["rmse_prod", "mae_prod", "loss"]
         },
         "loss": {
           "type": "object",

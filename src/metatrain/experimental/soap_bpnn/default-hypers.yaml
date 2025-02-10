@@ -27,6 +27,7 @@ architecture:
       layernorm: true
       num_hidden_layers: 2
       num_neurons_per_layer: 32
+    heads: {}
     zbl: false
 
   training:
@@ -40,10 +41,13 @@ architecture:
     scheduler_factor: 0.8
     log_interval: 5
     checkpoint_interval: 25
+    scale_targets: true
     fixed_composition_weights: {}
     per_structure_targets: []
     log_mae: False
+    log_separate_blocks: false
+    best_model_metric: rmse_prod
     loss:
       type: mse
       weights: {}
-      reduction: sum
+      reduction: mean

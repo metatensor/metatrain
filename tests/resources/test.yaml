@@ -1,0 +1,21 @@
+seed: 42
+
+architecture:
+  name: experimental.soap_bpnn
+  training:
+    batch_size: 2
+    num_epochs: 1
+
+training_set:
+  systems:
+    read_from: ethanol_reduced_100.xyz
+    length_unit: angstrom
+  targets:
+    forces:
+      quantity: force
+      key: forces
+      per_atom: true
+      num_subtargets: 3
+
+test_set: 0.5
+validation_set: 0.1

@@ -12,7 +12,7 @@ dependencies = [
     "ase < 3.23.0",
     "metatensor-learn==0.3.0",
     "metatensor-operations==0.3.0",
-    "metatensor-torch==0.6.1",
+    "metatensor-torch==0.6.3",
     "jsonschema",
     "omegaconf",
     "python-hostlist",
@@ -53,32 +53,34 @@ mtt = "metatrain.__main__:main"
 [build-system]
 requires = [
     "setuptools >= 68",
+    "setuptools_scm>=8",
     "wheel",
 ]
 build-backend = "setuptools.build_meta"
 
 [project.optional-dependencies]
 soap-bpnn = [
-    "featomic-torch @ git+https://github.com/luthaf/featomic@9ba64f6#subdirectory=python/featomic-torch",
-]
-alchemical-model = [
-  "torch_alchemical @ git+https://github.com/abmazitov/torch_alchemical.git@51ff519",
+    "featomic-torch",
+    "wigners",
 ]
 pet = [
-  "pet @ git+https://github.com/lab-cosmo/pet@ee90692",
+  "pet @ git+https://github.com/lab-cosmo/pet@5d40710",
 ]
+nanopet = []
 gap = [
-    "featomic-torch @ git+https://github.com/luthaf/featomic@9ba64f6#subdirectory=python/featomic-torch",
+    "featomic-torch",
     "skmatter",
-    "metatensor-learn",
     "scipy",
 ]
+
+[tool.check-manifest]
+ignore = ["src/metatrain/_version.py"]
 
 [tool.setuptools.packages.find]
 where = ["src"]
 
-[tool.setuptools.dynamic]
-version = {attr = "metatrain.__version__"}
+[tool.setuptools_scm]
+version_file = "src/metatrain/_version.py"
 
 [tool.coverage.report]
 skip_covered = true
@@ -88,7 +90,8 @@ exclude_lines = [
 ]
 omit = [
     "*/site-packages/*",
-    "*/metatrain/experimental/*"
+    "*/metatrain/experimental/*",
+    "*/metatrain/utils/testing/*"
 ]
 
 [tool.coverage.paths]
@@ -97,17 +100,21 @@ source = [
     ".tox/*/lib/python*/site-packages/metatrain"
 ]
 
-[tool.black]
-exclude = 'docs/src/examples'
+[tool.ruff]
+exclude = ["docs/src/examples/**", "src/metatrain/_version.py"]
+line-length = 88
 
-[tool.isort]
-skip = "__init__.py"
-profile = "black"
-line_length = 88
-indent = 4
-include_trailing_comma = true
-lines_after_imports = 2
-known_first_party = "metatrain"
+[tool.ruff.lint]
+select = ["E", "F", "B", "I"]
+ignore = ["B018", "B904"]
+
+[tool.ruff.lint.isort]
+lines-after-imports = 2
+known-first-party = ["metatrain"]
+known-third-party = ["torch"]
+
+[tool.ruff.format]
+docstring-code-format = true
 
 [tool.mypy]
 exclude = [

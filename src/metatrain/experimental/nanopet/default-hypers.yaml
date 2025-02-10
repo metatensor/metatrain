@@ -1,0 +1,34 @@
+architecture:
+
+  name: experimental.nanopet
+
+  model:
+    cutoff: 5.0
+    cutoff_width: 0.5
+    d_pet: 128
+    num_heads: 4
+    num_attention_layers: 2
+    num_gnn_layers: 2
+    heads: {}
+    zbl: False
+
+  training:
+    distributed: False
+    distributed_port: 39591
+    batch_size: 16
+    num_epochs: 10000
+    learning_rate: 3e-4
+    scheduler_patience: 100
+    scheduler_factor: 0.8
+    log_interval: 10
+    checkpoint_interval: 100
+    scale_targets: true
+    fixed_composition_weights: {}
+    per_structure_targets: []
+    log_mae: False
+    log_separate_blocks: false
+    best_model_metric: rmse_prod
+    loss:
+      type: mse
+      weights: {}
+      reduction: mean

@@ -8,9 +8,9 @@ import torch
 from omegaconf import OmegaConf
 
 from metatrain.experimental.gap import GAP, Trainer
-from metatrain.utils.data import Dataset, DatasetInfo, TargetInfo
+from metatrain.utils.data import Dataset, DatasetInfo
 from metatrain.utils.data.readers import read_systems, read_targets
-from metatrain.utils.testing import energy_force_layout, energy_layout
+from metatrain.utils.data.target_info import get_energy_target_info
 
 from . import DATASET_ETHANOL_PATH, DATASET_PATH, DEFAULT_HYPERS
 
@@ -27,7 +27,7 @@ torch.manual_seed(0)
 def test_regression_init():
     """Perform a regression test on the model at initialization"""
     targets = {}
-    targets["mtt::U0"] = TargetInfo(quantity="energy", unit="eV", layout=energy_layout)
+    targets["mtt::U0"] = get_energy_target_info({"unit": "eV"})
 
     dataset_info = DatasetInfo(
         length_unit="Angstrom", atomic_types=[1, 6, 7, 8], targets=targets
@@ -50,6 +50,9 @@ def test_regression_train_and_invariance():
             "reader": "ase",
             "key": "U0",
             "unit": "kcal/mol",
+            "type": "scalar",
+            "per_atom": False,
+            "num_subtargets": 1,
             "forces": False,
             "stress": False,
             "virial": False,
@@ -59,9 +62,7 @@ def test_regression_train_and_invariance():
     dataset = Dataset.from_dict({"system": systems, "mtt::U0": targets["mtt::U0"]})
 
     target_info_dict = {}
-    target_info_dict["mtt::U0"] = TargetInfo(
-        quantity="energy", unit="eV", layout=energy_layout
-    )
+    target_info_dict["mtt::U0"] = get_energy_target_info({"unit": "eV"})
 
     dataset_info = DatasetInfo(
         length_unit="Angstrom", atomic_types=[1, 6, 7, 8], targets=target_info_dict
@@ -124,6 +125,9 @@ def test_ethanol_regression_train_and_invariance():
             "read_from": DATASET_ETHANOL_PATH,
             "reader": "ase",
             "key": "energy",
+            "type": "scalar",
+            "per_atom": False,
+            "num_subtargets": 1,
             "forces": {
                 "read_from": DATASET_ETHANOL_PATH,
                 "reader": "ase",
@@ -142,9 +146,7 @@ def test_ethanol_regression_train_and_invariance():
     hypers["model"]["krr"]["num_sparse_points"] = 900
 
     target_info_dict = {
-        "energy": TargetInfo(
-            quantity="energy", unit="kcal/mol", layout=energy_force_layout
-        )
+        "energy": get_energy_target_info({"unit": "eV"}, add_position_gradients=True)
     }
 
     dataset_info = DatasetInfo(

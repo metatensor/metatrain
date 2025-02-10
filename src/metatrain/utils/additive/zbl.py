@@ -42,6 +42,14 @@ class ZBL(torch.nn.Module):
                     "ZBL only supports energy-like outputs, but a "
                     f"{target.quantity} output was provided."
                 )
+            if not target.is_scalar:
+                raise ValueError("ZBL only supports scalar outputs")
+            if len(target.layout.block(0).properties) > 1:
+                raise ValueError(
+                    "ZBL only supports outputs with one property, but "
+                    f"{len(target.layout.block(0).properties)} "
+                    "properties were provided."
+                )
             if target.unit != "eV":
                 raise ValueError(
                     "ZBL only supports eV units, but a "
@@ -160,8 +168,6 @@ class ZBL(torch.nn.Module):
         # Set the outputs as the ZBL energies
         targets_out: Dict[str, TensorMap] = {}
         for target_key, target in outputs.items():
-            if target_key.startswith("mtt::aux::"):
-                continue
             sample_values: List[List[int]] = []
 
             for i_system, system in enumerate(systems):

@@ -160,7 +160,9 @@ methods for ``train()``, ``save_checkpoint()`` and ``load_checkpoint()``.
 
 The format of checkpoints is not defined by ``metatrain`` and can be any format that
 can be loaded by the trainer (to restart training) and by the model (to export the
-checkpoint).
+checkpoint). The only requirements are that the checkpoint must be loadable with
+``torch.load()``, it must be a dictionary, and it must contain the name of the
+architecture under the ``architecture_name`` key.
 
 Init file (``__init__.py``)
 ---------------------------
@@ -227,3 +229,12 @@ passed to the architecture model and trainer as is.
 To create such a schema start by using `online tools <https://jsonformatter.org>`_ that
 convert the ``default-hypers.yaml`` into a JSON schema. Besides online tools, we also
 had success using ChatGPT/LLM for this for conversion.
+
+Documentation
+-------------
+
+Each new architecture should be added to ``metatrain``'s documentation. A short page
+describing the architecture and its default hyperparameters will be sufficient. You
+can take inspiration from existing architectures. The various targets that the
+architecture can fit should be added to the table in the "Fitting generic targets"
+section.

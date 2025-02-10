@@ -24,10 +24,10 @@ def test_find_all_architectures():
     all_arches = find_all_architectures()
     assert len(all_arches) == 4
 
-    assert "experimental.alchemical_model" in all_arches
     assert "experimental.gap" in all_arches
     assert "experimental.pet" in all_arches
     assert "experimental.soap_bpnn" in all_arches
+    assert "experimental.nanopet" in all_arches
 
 
 def test_get_architecture_path():

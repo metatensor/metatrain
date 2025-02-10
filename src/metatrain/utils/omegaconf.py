@@ -96,6 +96,9 @@ CONF_TARGET_FIELDS = OmegaConf.create(
         "reader": None,
         "key": None,
         "unit": None,
+        "per_atom": False,
+        "type": "scalar",
+        "num_subtargets": 1,
     }
 )
 
@@ -108,7 +111,7 @@ CONF_GRADIENT = OmegaConf.create(
     }
 )
 
-KNWON_GRADIENTS = list(CONF_GRADIENTS.keys())
+KNOWN_GRADIENTS = list(CONF_GRADIENTS.keys())
 
 # Merge configs to get default configs for energies and other targets
 CONF_TARGET = OmegaConf.merge(CONF_TARGET_FIELDS, CONF_GRADIENTS)
@@ -131,10 +134,12 @@ def check_dataset_options(dataset_config: ListConfig) -> None:
     - For unknown quantities a warning is given.
     - If the names of the ``"targets"`` sections are the same between the elements of
        the list of datasets also the units must be the same.
+    - Two targets with the names `{target}` and `mtt::{target}` are not allowed.
 
     :param dataset_config: A List of configuration to be checked. In the list contains
         only one element no checks are performed.
-    :raises ValueError: If for a known quantity the units are not known.
+    :raises ValueError: If the units are not consistent between the dataset options or
+        if two different targets have the `{target}` and `mtt::{target}` names.
     """
     desired_config = dataset_config[0]
 
@@ -176,6 +181,16 @@ def check_dataset_options(dataset_config: ListConfig) -> None:
                     raise ValueError(
                         f"Units of target section {target_key!r} are inconsistent. "
                         f"Found {unit!r} and {unit_dict[target_key]!r}!"
+                    )
+
+        # `target` and `mtt::target` are not allowed to be present at the same time
+        if hasattr(actual_config, "targets"):
+            for target_key in actual_config["targets"].keys():
+                if f"mtt::{target_key}" in actual_config["targets"].keys():
+                    raise ValueError(
+                        f"Two targets with the names `{target_key}` and "
+                        f"`mtt::{target_key}` are not allowed to be present "
+                        "at the same time."
                     )
 
 
@@ -253,7 +268,7 @@ def expand_dataset_config(conf: Union[str, DictConfig, ListConfig]) -> ListConfi
                 for gradient_key, gradient_conf in conf_element["targets"][
                     target_key
                 ].items():
-                    if gradient_key in KNWON_GRADIENTS:
+                    if gradient_key in KNOWN_GRADIENTS:
                         if gradient_conf is True:
                             gradient_conf = CONF_GRADIENT.copy()
                         elif type(gradient_conf) is str:
@@ -267,9 +282,9 @@ def expand_dataset_config(conf: Union[str, DictConfig, ListConfig]) -> ListConfi
                             if gradient_conf["key"] is None:
                                 gradient_conf["key"] = gradient_key
 
-                            conf_element["targets"][target_key][
-                                gradient_key
-                            ] = gradient_conf
+                            conf_element["targets"][target_key][gradient_key] = (
+                                gradient_conf
+                            )
 
                 # If user sets the virial gradient and leaves the stress gradient
                 # untouched, we disable the by default enabled stress gradient section.

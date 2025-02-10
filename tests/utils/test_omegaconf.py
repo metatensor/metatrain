@@ -336,6 +336,32 @@ def test_check_units():
         check_units(actual_options=test_options3, desired_options=train_options)
 
 
+def test_error_target_and_mtt_target():
+    file_name = "foo.xyz"
+    system_section = {"read_from": file_name, "length_unit": "angstrom"}
+
+    energy_section = {
+        "quantity": "energy",
+        "forces": file_name,
+        "unit": "eV",
+        "virial": {"read_from": "my_grad.dat", "key": "foo"},
+    }
+
+    conf = {
+        "systems": system_section,
+        "targets": {"energy": energy_section, "mtt::energy": energy_section},
+    }
+
+    with pytest.raises(
+        ValueError,
+        match=(
+            "Two targets with the names `energy` and `mtt::energy` "
+            "are not allowed to be present at the same time."
+        ),
+    ):
+        expand_dataset_config(OmegaConf.create(conf))
+
+
 def test_missing_targets_section():
     conf = {"systems": "foo.xyz"}
     conf_expanded_list = expand_dataset_config(OmegaConf.create(conf))
@@ -395,8 +421,7 @@ def test_check_dataset_options_target_unit(list_conf):
     list_conf[2]["targets"]["new_target"] = OmegaConf.create({"unit": "bar"})
 
     match = (
-        "Units of target section 'new_target' are inconsistent. Found "
-        "'bar' and 'foo'"
+        "Units of target section 'new_target' are inconsistent. Found 'bar' and 'foo'"
     )
 
     with pytest.raises(ValueError, match=match):

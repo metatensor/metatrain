@@ -9,11 +9,11 @@ import pytest
 import torch
 
 from metatrain.utils.data.readers.ase import (
-    read_energy_ase,
-    read_forces_ase,
-    read_stress_ase,
-    read_systems_ase,
-    read_virial_ase,
+    _read_energy_ase,
+    _read_forces_ase,
+    _read_stress_ase,
+    _read_virial_ase,
+    read_systems,
 )
 
 
@@ -40,7 +40,7 @@ def test_read_ase(monkeypatch, tmp_path):
     systems = ase_system()
     ase.io.write(filename, systems)
 
-    result = read_systems_ase(filename)
+    result = read_systems(filename)
 
     assert isinstance(result, list)
     assert len(result) == 1
@@ -59,15 +59,13 @@ def ase_systems() -> List[ase.Atoms]:
     return [ase_system(), ase_system()]
 
 
-def test_read_energy_ase(monkeypatch, tmp_path):
-    monkeypatch.chdir(tmp_path)
-
+def test_read_energy_ase(tmpdir):
     filename = "systems.xyz"
-
     systems = ase_systems()
-    ase.io.write(filename, systems)
 
-    results = read_energy_ase(filename=filename, key="true_energy")
+    with tmpdir.as_cwd():
+        ase.io.write(filename, systems)
+        results = _read_energy_ase(filename=filename, key="true_energy")
 
     for result, atoms in zip(results, systems):
         expected = torch.tensor([[atoms.info["true_energy"]]], dtype=torch.float64)
@@ -77,10 +75,10 @@ def test_read_energy_ase(monkeypatch, tmp_path):
 @pytest.mark.parametrize(
     "func, target_name",
     [
-        (read_energy_ase, "energy"),
-        (read_forces_ase, "forces"),
-        (read_virial_ase, "virial"),
-        (read_stress_ase, "stress"),
+        (_read_energy_ase, "energy"),
+        (_read_forces_ase, "forces"),
+        (_read_virial_ase, "virial"),
+        (_read_stress_ase, "stress"),
     ],
 )
 def test_ase_key_errors(func, target_name, monkeypatch, tmp_path):
@@ -105,7 +103,7 @@ def test_read_forces_ase(monkeypatch, tmp_path):
     systems = ase_systems()
     ase.io.write(filename, systems)
 
-    results = read_forces_ase(filename=filename, key="forces")
+    results = _read_forces_ase(filename=filename, key="forces")
 
     for result, atoms in zip(results, systems):
         expected = -torch.tensor(atoms.get_array("forces"), dtype=torch.float64)
@@ -121,7 +119,7 @@ def test_read_stress_ase(monkeypatch, tmp_path):
     systems = ase_systems()
     ase.io.write(filename, systems)
 
-    results = read_stress_ase(filename=filename, key="stress-3x3")
+    results = _read_stress_ase(filename=filename, key="stress-3x3")
 
     for result, atoms in zip(results, systems):
         expected = atoms.cell.volume * torch.tensor(
@@ -143,7 +141,7 @@ def test_no_cell_error(monkeypatch, tmp_path):
     ase.io.write(filename, systems)
 
     with pytest.raises(ValueError, match="system 0 has zero cell vectors."):
-        read_stress_ase(filename=filename, key="stress-3x3")
+        _read_stress_ase(filename=filename, key="stress-3x3")
 
 
 def test_read_virial_ase(monkeypatch, tmp_path):
@@ -154,7 +152,7 @@ def test_read_virial_ase(monkeypatch, tmp_path):
     systems = ase_systems()
     ase.io.write(filename, systems)
 
-    results = read_virial_ase(filename=filename, key="stress-3x3")
+    results = _read_virial_ase(filename=filename, key="stress-3x3")
 
     for result, atoms in zip(results, systems):
         expected = -torch.tensor(atoms.info["stress-3x3"], dtype=torch.float64)
@@ -171,7 +169,7 @@ def test_read_virial_warn(monkeypatch, tmp_path):
     ase.io.write(filename, systems)
 
     with pytest.warns(match="Found 9-long numerical vector"):
-        results = read_virial_ase(filename=filename, key="stress-9")
+        results = _read_virial_ase(filename=filename, key="stress-9")
 
     expected = -torch.tensor(systems.info["stress-9"], dtype=torch.float64)
     expected = expected.reshape(-1, 3, 3, 1)
@@ -188,4 +186,4 @@ def test_read_virial_error(monkeypatch, tmp_path):
     ase.io.write(filename, systems)
 
     with pytest.raises(ValueError, match="Stress/virial must be a 3 x 3 matrix"):
-        read_virial_ase(filename=filename, key="stress-9")
+        _read_virial_ase(filename=filename, key="stress-9")

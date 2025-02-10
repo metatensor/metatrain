@@ -11,7 +11,6 @@ import numpy as np
 import torch
 from pet.analysis import adapt_hypers
 from pet.data_preparation import (
-    get_all_species,
     get_corrected_energies,
     get_forces,
     get_pyg_graphs,
@@ -19,13 +18,7 @@ from pet.data_preparation import (
     update_pyg_graphs,
 )
 from pet.hypers import Hypers, save_hypers
-from pet.pet import (
-    PET,
-    FlagsWrapper,
-    PETMLIPWrapper,
-    PETUtilityWrapper,
-    SelfContributionsWrapper,
-)
+from pet.pet import PET, FlagsWrapper, PETMLIPWrapper, PETUtilityWrapper
 from pet.utilities import (
     FullLogger,
     ModelKeeper,
@@ -36,7 +29,6 @@ from pet.utilities import (
     get_optimizer,
     get_rmse,
     get_scheduler,
-    load_checkpoint,
     log_epoch_stats,
     set_reproducibility,
     string2dtype,
@@ -44,8 +36,9 @@ from pet.utilities import (
 from torch_geometric.nn import DataParallel
 
 from ...utils.data import Dataset, check_datasets
+from ...utils.io import check_file_extension
 from . import PET as WrappedPET
-from .utils import dataset_to_ase, update_hypers, update_state_dict
+from .utils import dataset_to_ase, load_raw_pet_model, update_hypers
 from .utils.fine_tuning import LoRAWrapper
 
 
@@ -56,7 +49,10 @@ class Trainer:
     def __init__(self, train_hypers):
         self.hypers = {"FITTING_SCHEME": train_hypers}
         self.pet_dir = None
-        self.pet_checkpoint = None
+        self.pet_trainer_state = None
+        self.epoch = None
+        self.best_metric = None
+        self.best_model_state_dict = None
 
     def train(
         self,
@@ -106,18 +102,8 @@ class Trainer:
 
         device = devices[0]  # only one device, as we don't support multi-gpu for now
 
-        if self.pet_checkpoint is not None:
-            # save the checkpoint to a temporary file, so that fit_pet can load it
-            checkpoint_path = Path(checkpoint_dir) / "checkpoint.temp"
-            torch.save(
-                self.pet_checkpoint,
-                checkpoint_path,
-            )
-        else:
-            checkpoint_path = None
-
         ########################################
-        # STARTNG THE PURE PET TRAINING SCRIPT #
+        # STARTING THE PURE PET TRAINING SCRIPT #
         ########################################
 
         logging.info("Initializing PET training...")
@@ -140,16 +126,16 @@ class Trainer:
         MLIP_SETTINGS = hypers.MLIP_SETTINGS
         ARCHITECTURAL_HYPERS = hypers.ARCHITECTURAL_HYPERS
 
+        if model.is_lora_applied and not FITTING_SCHEME.USE_LORA_PEFT:
+            raise ValueError(
+                "LoRA is applied to the model, but the USE_LORA_PEFT is False"
+                " in the training hyperparameters. Please set USE_LORA_PEFT to True"
+            )
+
         if FITTING_SCHEME.USE_SHIFT_AGNOSTIC_LOSS:
             raise ValueError(
                 "shift agnostic loss is intended only for general target training"
             )
-
-        ARCHITECTURAL_HYPERS.D_OUTPUT = 1  # energy is a single scalar
-        ARCHITECTURAL_HYPERS.TARGET_TYPE = "structural"  # energy is structural property
-        ARCHITECTURAL_HYPERS.TARGET_AGGREGATION = (
-            "sum"  # energy is a sum of atomic energies
-        )
 
         training_configuration_log += (
             f"Output dimensionality: {ARCHITECTURAL_HYPERS.D_OUTPUT}\n"
@@ -165,6 +151,20 @@ class Trainer:
             f"CUDA is deterministic: {FITTING_SCHEME.CUDA_DETERMINISTIC}"
         )
 
+        st = """
+Legend: LR          -> Learning Rate
+        MAE         -> Mean Absolute Error
+        RMSE        -> Root Mean Square Error
+        V-E-MAE/at  -> MAE of the Energy per atom on the Validation set
+        V-E-RMSE/at -> RMSE of the Energy per atom on the Validation set
+        V-F-MAE     -> MAE of the Forces on the Validation set
+        V-F-RMSE    -> RMSE of the Forces on the Validation set
+        T-E-MAE/at  -> MAE of the Energy per atom on the Training set
+        T-E-RMSE/at -> RMSE of the Energy per atom on the Training set
+        T-F-MAE     -> MAE of the Forces on the Training set
+        T-F-RMSE    -> RMSE of the Forces on the Training set
+Units of the Energy and Forces are the same units given in input"""
+        training_configuration_log += st
         logging.info(training_configuration_log)
 
         set_reproducibility(
@@ -172,24 +172,8 @@ class Trainer:
         )
 
         adapt_hypers(FITTING_SCHEME, ase_train_dataset)
-        dataset = ase_train_dataset + ase_val_dataset
 
-        all_dataset_species = get_all_species(dataset)
-
-        if FITTING_SCHEME.ALL_SPECIES_PATH is not None:
-            logging.info(f"Loading all species from: {FITTING_SCHEME.ALL_SPECIES_PATH}")
-            all_species = np.load(FITTING_SCHEME.ALL_SPECIES_PATH)
-            if not np.all(np.isin(all_dataset_species, all_species)):
-                raise ValueError(
-                    "For the model fine-tuning, the set of species in the dataset "
-                    "must be a subset of the set of species in the pre-trained model. "
-                    "Please check, if the ALL_SPECIES_PATH is file contains all the "
-                    "elements from the fine-tuning dataset."
-                )
-            model.atomic_types = all_species.tolist()
-            model.dataset_info.atomic_types = all_species.tolist()
-        else:
-            all_species = all_dataset_species
+        all_species = model.atomic_types
 
         name_to_load, NAME_OF_CALCULATION = get_calc_names(
             os.listdir(checkpoint_dir), name_of_calculation
@@ -225,12 +209,8 @@ class Trainer:
 
         logging.info("Pre-processing training data...")
         if MLIP_SETTINGS.USE_ENERGIES:
-            if FITTING_SCHEME.SELF_CONTRIBUTIONS_PATH is not None:
-                self_contributions_path = FITTING_SCHEME.SELF_CONTRIBUTIONS_PATH
-                logging.info(
-                    f"Loading self contributions from: {self_contributions_path}"
-                )
-                self_contributions = np.load(FITTING_SCHEME.SELF_CONTRIBUTIONS_PATH)
+            if model.pet is not None:
+                self_contributions = model.pet.self_contributions
             else:
                 self_contributions = get_self_contributions(
                     MLIP_SETTINGS.ENERGY_KEY, ase_train_dataset, all_species
@@ -268,44 +248,39 @@ class Trainer:
         )
 
         logging.info("Initializing the model...")
-        pet_model = PET(ARCHITECTURAL_HYPERS, 0.0, len(all_species)).to(device)
+        if model.pet is not None:
+            pet_model = model.pet.model
+            if model.is_lora_applied:
+                pet_model.model.hypers.TARGET_TYPE = "structural"
+                pet_model.model.TARGET_TYPE = "structural"
+            else:
+                pet_model.hypers.TARGET_TYPE = "structural"
+                pet_model.TARGET_TYPE = "structural"
+        else:
+            pet_model = PET(ARCHITECTURAL_HYPERS, 0.0, len(all_species))
         num_params = sum([p.numel() for p in pet_model.parameters()])
         logging.info(f"Number of parameters: {num_params}")
 
-        if FITTING_SCHEME.MODEL_TO_START_WITH is not None:
-            logging.info(f"Loading model from: {FITTING_SCHEME.MODEL_TO_START_WITH}")
-            state_dict = torch.load(
-                FITTING_SCHEME.MODEL_TO_START_WITH, weights_only=True
-            )
-            new_state_dict = update_state_dict(state_dict)
-            loaded_keys = set(new_state_dict.keys())
-            current_keys = set(pet_model.state_dict().keys())
-            if not loaded_keys == current_keys:
-                raise ValueError(
-                    "The keys of the loaded model do not match the keys of the "
-                    "current model. Please check, if the current model hypers are "
-                    "compatible with the loaded model."
-                )
-            pet_model.load_state_dict(new_state_dict)
-            pet_model = pet_model.to(dtype=dtype)
-            if ARCHITECTURAL_HYPERS.USE_LORA_PEFT:
-                for param in pet_model.parameters():
-                    param.requires_grad = False
-                lora_rank = ARCHITECTURAL_HYPERS.LORA_RANK
-                lora_alpha = ARCHITECTURAL_HYPERS.LORA_ALPHA
-                pet_model = LoRAWrapper(pet_model, lora_rank, lora_alpha).to(device)
-                num_trainable_params = sum(
-                    [p.numel() for p in pet_model.parameters() if p.requires_grad]
-                )
-                fraction = num_trainable_params / num_params * 100
-                logging.info(
-                    f"Using LoRA PEFT with rank {lora_rank} and alpha {lora_alpha}"
-                )
-                logging.info(
-                    "Number of trainable parameters: "
-                    + f"{num_trainable_params} [{fraction:.2f}%]"
-                )
+        if FITTING_SCHEME.USE_LORA_PEFT:
+            if not model.is_lora_applied:
+                lora_rank = FITTING_SCHEME.LORA_RANK
+                lora_alpha = FITTING_SCHEME.LORA_ALPHA
+                pet_model = LoRAWrapper(pet_model, lora_rank, lora_alpha)
+                model.is_lora_applied = True
 
+            num_trainable_params = sum(
+                [p.numel() for p in pet_model.parameters() if p.requires_grad]
+            )
+            fraction = num_trainable_params / num_params * 100
+            logging.info(
+                f"Using LoRA PEFT with rank {FITTING_SCHEME.LORA_RANK} "
+                + f"and alpha {FITTING_SCHEME.LORA_ALPHA}"
+            )
+            logging.info(
+                "Number of trainable parameters: "
+                + f"{num_trainable_params} [{fraction:.2f}%]"
+            )
+        pet_model = pet_model.to(device=device, dtype=dtype)
         pet_model = PETUtilityWrapper(pet_model, FITTING_SCHEME.GLOBAL_AUG)
 
         pet_model = PETMLIPWrapper(
@@ -321,17 +296,30 @@ class Trainer:
         optim = get_optimizer(pet_model, FITTING_SCHEME)
         scheduler = get_scheduler(optim, FITTING_SCHEME)
 
-        if checkpoint_path is not None:
-            logging.info(f"Loading model and checkpoint from: {checkpoint_path}\n")
-            load_checkpoint(pet_model, optim, scheduler, checkpoint_path)
-        elif name_to_load is not None:
-            path = f"{checkpoint_dir}/{name_to_load}/checkpoint"
-            logging.info(f"Loading model and checkpoint from: {path}\n")
-            load_checkpoint(
-                pet_model,
-                optim,
-                scheduler,
-                f"{checkpoint_dir}/{name_to_load}/checkpoint",
+        if self.pet_trainer_state is not None:
+            for i, param_group in enumerate(optim.param_groups):
+                if len(param_group["params"]) != len(
+                    self.pet_trainer_state["optim_state_dict"]["param_groups"][i][
+                        "params"
+                    ]
+                ):
+                    raise RuntimeError(
+                        "The number of parameters in the optimizer state dict "
+                        "from the loaded checkpoint does not match the current "
+                        "optimizer state. This means the model architecture has "
+                        "changed since the last checkpoint. If you are using LoRA "
+                        "PEFT, you should use the best model chekpoint from the "
+                        "pre-training step. If you still need to use the current "
+                        "checkpoint, set the trainer_state_dict in the checkpoint "
+                        "to None and restart the training."
+                    )
+
+            optim.load_state_dict(self.pet_trainer_state["optim_state_dict"])
+            scheduler.load_state_dict(self.pet_trainer_state["scheduler_state_dict"])
+        else:
+            logging.info(
+                "No optimizer and scheduler state found in the "
+                "checkpoint, starting from scratch"
             )
 
         history = []
@@ -395,7 +383,10 @@ class Trainer:
         )
         TIME_TRAINING_STARTED = time.time()
         last_elapsed_time = 0
-        for epoch in range(1, FITTING_SCHEME.EPOCH_NUM + 1):
+        if self.best_metric is None:
+            self.best_metric = float("inf")
+        start_epoch = 1 if self.epoch is None else self.epoch + 1
+        for epoch in range(start_epoch, start_epoch + FITTING_SCHEME.EPOCH_NUM):
             pet_model.train(True)
             for batch in train_loader:
                 if not FITTING_SCHEME.MULTI_GPU:
@@ -420,8 +411,6 @@ class Trainer:
                     batch_n_atoms = torch.tensor(
                         n_atoms_list, dtype=torch.get_default_dtype(), device=device
                     )
-                    # print('batch_y: ', batch_y.shape)
-                    # print('batch_n_atoms: ', batch_n_atoms.shape)
 
                 else:
                     batch_y = batch.y
@@ -444,7 +433,6 @@ class Trainer:
                         FITTING_SCHEME.USE_SHIFT_AGNOSTIC_LOSS,
                     )
                 if MLIP_SETTINGS.USE_FORCES:
-
                     if FITTING_SCHEME.MULTI_GPU:
                         forces_list = [el.forces for el in batch]
                         batch_forces = torch.cat(forces_list, dim=0).to(device)
@@ -501,9 +489,6 @@ class Trainer:
                     batch_n_atoms = torch.tensor(
                         n_atoms_list, dtype=torch.get_default_dtype(), device=device
                     )
-
-                    # print('batch_y: ', batch_y.shape)
-                    # print('batch_n_atoms: ', batch_n_atoms.shape)
                 else:
                     batch_y = batch.y
                     batch_n_atoms = batch.n_atoms
@@ -600,25 +585,43 @@ class Trainer:
             scheduler.step()
             elapsed = time.time() - TIME_SCRIPT_STARTED
             if epoch > 0 and epoch % FITTING_SCHEME.CHECKPOINT_INTERVAL == 0:
-                checkpoint_dict = {
+                self.epoch = epoch
+                pet_checkpoint = {
                     "model_state_dict": pet_model.state_dict(),
                     "optim_state_dict": optim.state_dict(),
                     "scheduler_state_dict": scheduler.state_dict(),
                     "dtype_used": dtype2string(dtype),
                 }
                 torch.save(
-                    checkpoint_dict,
+                    pet_checkpoint,
                     f"{checkpoint_dir}/{NAME_OF_CALCULATION}/checkpoint_{epoch}",
                 )
+                trainer_state_dict = {
+                    "optim_state_dict": pet_checkpoint["optim_state_dict"],
+                    "scheduler_state_dict": pet_checkpoint["scheduler_state_dict"],
+                }
+                last_model_state_dict = pet_checkpoint["model_state_dict"]
+                if model.is_lora_applied:
+                    lora_state_dict = {
+                        "lora_rank": FITTING_SCHEME.LORA_RANK,
+                        "lora_alpha": FITTING_SCHEME.LORA_ALPHA,
+                    }
+                else:
+                    lora_state_dict = None
+                last_model_checkpoint = {
+                    "architecture_name": "experimental.pet",
+                    "trainer_state_dict": trainer_state_dict,
+                    "model_state_dict": last_model_state_dict,
+                    "best_model_state_dict": self.best_model_state_dict,
+                    "best_metric": self.best_metric,
+                    "hypers": self.hypers,
+                    "epoch": self.epoch,
+                    "dataset_info": model.dataset_info,
+                    "self_contributions": self_contributions,
+                    "lora_state_dict": lora_state_dict,
+                }
                 torch.save(
-                    {
-                        "checkpoint": checkpoint_dict,
-                        "hypers": self.hypers,
-                        "dataset_info": model.dataset_info,
-                        "self_contributions": np.load(
-                            self.pet_dir / "self_contributions.npy"  # type: ignore
-                        ),
-                    },
+                    last_model_checkpoint,
                     f"{checkpoint_dir}/model.ckpt_{epoch}",
                 )
 
@@ -662,6 +665,12 @@ class Trainer:
             summary += f"{energies_rmse_model_keeper.best_error} "
             summary += f"at epoch {energies_rmse_model_keeper.best_epoch}\n"
 
+            if energies_mae_model_keeper.best_error < self.best_metric:
+                self.best_metric = energies_mae_model_keeper.best_error
+                self.best_model_state_dict = (
+                    energies_mae_model_keeper.best_model.state_dict()
+                )
+
         if MLIP_SETTINGS.USE_FORCES:
             save_model("best_val_mae_forces_model", forces_mae_model_keeper)
             summary += f"best val mae in forces: {forces_mae_model_keeper.best_error} "
@@ -672,6 +681,12 @@ class Trainer:
                 f"best val rmse in forces: {forces_rmse_model_keeper.best_error} "
             )
             summary += f"at epoch {forces_rmse_model_keeper.best_epoch}\n"
+
+            if forces_mae_model_keeper.best_error < self.best_metric:
+                self.best_metric = forces_mae_model_keeper.best_error
+                self.best_model_state_dict = (
+                    forces_mae_model_keeper.best_model.state_dict()
+                )
 
         if MLIP_SETTINGS.USE_ENERGIES and MLIP_SETTINGS.USE_FORCES:
             save_model("best_val_mae_both_model", multiplication_mae_model_keeper)
@@ -692,6 +707,12 @@ class Trainer:
             )
             summary += f"{multiplication_rmse_model_keeper.best_epoch}\n"
 
+            if multiplication_mae_model_keeper.best_error < self.best_metric:
+                self.best_metric = multiplication_mae_model_keeper.best_error
+                self.best_model_state_dict = (
+                    multiplication_mae_model_keeper.best_model.state_dict()
+                )
+
         with open(f"{checkpoint_dir}/{NAME_OF_CALCULATION}/summary.txt", "wb") as f:
             f.write(summary.encode())
         logging.info(f"Total elapsed time: {time.time() - TIME_SCRIPT_STARTED}")
@@ -699,49 +720,69 @@ class Trainer:
         ##########################################
         # FINISHING THE PURE PET TRAINING SCRIPT #
         ##########################################
-
-        if self.pet_checkpoint is not None:
-            # remove the temporary file
-            os.remove(Path(checkpoint_dir) / "checkpoint.temp")
-
-        if do_forces:
-            load_path = self.pet_dir / "best_val_mae_forces_model_state_dict"
-        else:
-            load_path = self.pet_dir / "best_val_mae_both_model_state_dict"
-
-        state_dict = torch.load(load_path, weights_only=True)
-        ARCHITECTURAL_HYPERS = Hypers(model.hypers)
-        raw_pet = PET(ARCHITECTURAL_HYPERS, 0.0, len(all_species))
-        if ARCHITECTURAL_HYPERS.USE_LORA_PEFT:
-            lora_rank = ARCHITECTURAL_HYPERS.LORA_RANK
-            lora_alpha = ARCHITECTURAL_HYPERS.LORA_ALPHA
-            raw_pet = LoRAWrapper(raw_pet, lora_rank, lora_alpha)
-
-        new_state_dict = update_state_dict(state_dict)
-        raw_pet.load_state_dict(new_state_dict)
-
-        self_contributions_path = self.pet_dir / "self_contributions.npy"
-        self_contributions = np.load(self_contributions_path)
-        wrapper = SelfContributionsWrapper(raw_pet, self_contributions)
-
+        self.epoch = epoch
+        wrapper = load_raw_pet_model(
+            self.best_model_state_dict,
+            model.hypers,
+            all_species,
+            self_contributions,
+            use_lora_peft=FITTING_SCHEME.USE_LORA_PEFT,
+            lora_rank=FITTING_SCHEME.LORA_RANK,
+            lora_alpha=FITTING_SCHEME.LORA_ALPHA,
+        )
         model.set_trained_model(wrapper)
 
     def save_checkpoint(self, model, path: Union[str, Path]):
         # This function takes a checkpoint from the PET folder and saves it
         # together with the hypers inside a file that will act as a metatrain
         # checkpoint
-        checkpoint_path = self.pet_dir / "checkpoint"  # type: ignore
-        checkpoint = torch.load(checkpoint_path, weights_only=False, map_location="cpu")
+        pet_checkpoint = torch.load(
+            self.pet_dir / "checkpoint", weights_only=False, map_location="cpu"
+        )
+        trainer_state_dict = {
+            "optim_state_dict": pet_checkpoint["optim_state_dict"],
+            "scheduler_state_dict": pet_checkpoint["scheduler_state_dict"],
+        }
+        last_model_state_dict = pet_checkpoint["model_state_dict"]
+        if model.is_lora_applied:
+            lora_state_dict = {
+                "lora_rank": model.pet.model.rank,
+                "lora_alpha": model.pet.model.alpha,
+            }
+        else:
+            lora_state_dict = None
+        last_model_checkpoint = {
+            "architecture_name": "experimental.pet",
+            "trainer_state_dict": trainer_state_dict,
+            "model_state_dict": last_model_state_dict,
+            "best_model_state_dict": self.best_model_state_dict,
+            "best_metric": self.best_metric,
+            "hypers": self.hypers,
+            "epoch": self.epoch,
+            "dataset_info": model.dataset_info,
+            "self_contributions": model.pet.self_contributions.numpy(),
+            "lora_state_dict": lora_state_dict,
+        }
+        best_model_checkpoint = {
+            "architecture_name": "experimental.pet",
+            "trainer_state_dict": None,
+            "model_state_dict": self.best_model_state_dict,
+            "best_model_state_dict": None,
+            "best_metric": None,
+            "hypers": self.hypers,
+            "epoch": None,
+            "dataset_info": model.dataset_info,
+            "self_contributions": model.pet.self_contributions.numpy(),
+            "lora_state_dict": lora_state_dict,
+        }
+
         torch.save(
-            {
-                "checkpoint": checkpoint,
-                "hypers": self.hypers,
-                "dataset_info": model.dataset_info,
-                "self_contributions": np.load(
-                    self.pet_dir / "self_contributions.npy"  # type: ignore
-                ),
-            },
-            path,
+            last_model_checkpoint,
+            check_file_extension(f"last_checkpoint_{str(path)}", ".ckpt"),
+        )
+
+        torch.save(
+            best_model_checkpoint, check_file_extension("best_" + str(path), ".ckpt")
         )
 
     @classmethod
@@ -751,5 +792,28 @@ class Trainer:
         # class
         checkpoint = torch.load(path, weights_only=False, map_location="cpu")
         trainer = cls(train_hypers)
-        trainer.pet_checkpoint = checkpoint["checkpoint"]
+        trainer.pet_trainer_state = checkpoint["trainer_state_dict"]
+        trainer.epoch = checkpoint["epoch"]
+        old_fitting_scheme = checkpoint["hypers"]["FITTING_SCHEME"]
+        new_fitting_scheme = train_hypers
+        best_metric = checkpoint["best_metric"]
+        best_model_state_dict = checkpoint["best_model_state_dict"]
+        # The following code is not reached in the current implementation
+        # because the check for the train targets is done earlier in the
+        # training process, and changing the training targets between the
+        # runs is forbidden. However, this code is kept here for future reference.
+        for key in new_fitting_scheme:
+            if key in ["USE_ENERGIES", "USE_FORCES"]:
+                if new_fitting_scheme[key] != old_fitting_scheme[key]:
+                    logger.warning(
+                        f"The {key} training hyperparameter was changed from "
+                        f"{old_fitting_scheme[key]} to {new_fitting_scheme[key]} "
+                        "inbetween the last checkpoint and the current training. "
+                        "The `best model` and the `best loss` parts of the checkpoint "
+                        "will be reset to avoid inconsistencies."
+                    )
+                    best_metric = None
+                    best_model_state_dict = None
+        trainer.best_metric = best_metric
+        trainer.best_model_state_dict = best_model_state_dict
         return trainer

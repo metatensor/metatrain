@@ -10,8 +10,8 @@ from omegaconf import OmegaConf
 
 from metatrain.cli.eval import eval_model
 from metatrain.experimental.soap_bpnn import __model__
-from metatrain.utils.data import DatasetInfo, TargetInfo
-from metatrain.utils.testing import energy_layout
+from metatrain.utils.data import DatasetInfo
+from metatrain.utils.data.target_info import get_energy_target_info
 
 from . import EVAL_OPTIONS_PATH, MODEL_HYPERS, MODEL_PATH, RESOURCES_PATH
 
@@ -78,15 +78,45 @@ def test_eval(monkeypatch, tmp_path, caplog, model_name, options):
     frames[0].info["energy"]
 
 
+@pytest.mark.parametrize("model_name", ["model-32-bit.pt", "model-64-bit.pt"])
+def test_eval_batch_size(monkeypatch, tmp_path, caplog, model_name, options):
+    """Test that eval via python API runs without an error raise."""
+    monkeypatch.chdir(tmp_path)
+    caplog.set_level(logging.DEBUG)
+
+    shutil.copy(RESOURCES_PATH / "qm9_reduced_100.xyz", "qm9_reduced_100.xyz")
+
+    model = torch.jit.load(RESOURCES_PATH / model_name)
+
+    eval_model(
+        model=model,
+        options=options,
+        output="foo.xyz",
+        batch_size=13,
+        check_consistency=True,
+    )
+
+    # Test target predictions
+    log = "".join([rec.message for rec in caplog.records])
+    assert "energy RMSE (per atom)" in log
+    assert "energy MAE (per atom)" in log
+    assert "dataset with index" not in log
+    assert "evaluation time" in log
+    assert "ms per atom" in log
+    assert "inaccurate average timings" in log
+
+    # Test file is written predictions
+    frames = ase.io.read("foo.xyz", ":")
+    frames[0].info["energy"]
+
+
 def test_eval_export(monkeypatch, tmp_path, options):
     """Test evaluation of a trained model exported but not saved to disk."""
     monkeypatch.chdir(tmp_path)
     dataset_info = DatasetInfo(
         length_unit="angstrom",
         atomic_types={1, 6, 7, 8},
-        targets={
-            "energy": TargetInfo(quantity="energy", unit="eV", layout=energy_layout)
-        },
+        targets={"energy": get_energy_target_info({"unit": "eV"})},
     )
     model = __model__(model_hypers=MODEL_HYPERS, dataset_info=dataset_info)
 

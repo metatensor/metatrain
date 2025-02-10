@@ -1,6 +1,7 @@
 from .model import GAP
 from .trainer import Trainer
 
+
 __model__ = GAP
 __trainer__ = Trainer
 

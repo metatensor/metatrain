@@ -30,7 +30,7 @@ jobs:
       if: startsWith(matrix.os, 'ubuntu')
       run: |
         sudo apt-get update
-        sudo apt-get install -y zsh
+        sudo apt-get install -y zsh libfftw3-dev
         touch ~/.zshrc
 
     - name: Set up Python ${{ matrix.python-version }}
@@ -46,9 +46,10 @@ jobs:
       env:
         # Use the CPU only version of torch when building/running the code
         PIP_EXTRA_INDEX_URL: https://download.pytorch.org/whl/cpu
+        HUGGINGFACE_TOKEN_METATRAIN: ${{ secrets.HUGGINGFACE_TOKEN }}
 
     - name: upload to codecov.io
-      uses: codecov/codecov-action@v4
+      uses: codecov/codecov-action@v5
       with:
         fail_ci_if_error: true
         files: tests/coverage.xml
