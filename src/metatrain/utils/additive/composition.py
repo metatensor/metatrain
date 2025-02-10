@@ -169,7 +169,7 @@ class CompositionModel(torch.nn.Module):
                 compf_t_at_compf = composition_features.T @ composition_features
                 compf_t_at_targets = composition_features.T @ targets
                 trace_magnitude = float(torch.diag(compf_t_at_compf).abs().mean())
-                regularizer = 1e-20 * trace_magnitude
+                regularizer = 1e-14 * trace_magnitude
                 max_regularizer = 1e5 * trace_magnitude
                 while regularizer:
                     if regularizer > max_regularizer:
