@@ -338,6 +338,9 @@ class CompositionModel(torch.nn.Module):
         if not target_info.is_scalar:
             return False
         # for now, we also require that only one property is present
+        # and that the target is not per atom
         if len(target_info.layout.block().properties) != 1:
+            return False
+        if target_info.per_atom:
             return False
         return True
