@@ -53,6 +53,8 @@ class PET(torch.nn.Module):
         model_hypers["D_OUTPUT"] = 1
         model_hypers["TARGET_TYPE"] = "atomic"
         model_hypers["TARGET_AGGREGATION"] = "sum"
+        for key in ["R_CUT", "CUTOFF_DELTA", "RESIDUAL_FACTOR"]:
+            model_hypers[key] = float(model_hypers[key])
         self.hypers = model_hypers
         self.cutoff = float(self.hypers["R_CUT"])
         self.atomic_types: List[int] = dataset_info.atomic_types
