@@ -114,7 +114,7 @@ class NanoPetOnBasis(torch.torch.nn.Module):
         if self.predict_edges:
             predictions_edge = symmetrize_predictions_edge(
                 pet_features["edge"],
-                self.in_keys_node,
+                self.in_keys_edge,
                 systems=systems,
             )
             predictions_edge = self.edge_heads(predictions_edge)
