@@ -378,4 +378,6 @@ class CompositionModel(torch.nn.Module):
             return False
         if target_info.per_atom:
             return False
+        if target_info.per_atom:
+            return False
         return True
