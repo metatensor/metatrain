@@ -166,8 +166,9 @@ def get_neighbor_list(
 
 # ===== Metadata from basis sets =====
 
+
 def get_one_center_metadata(
-    basis_set: dict
+    basis_set: dict,
 ) -> Tuple[mts.Labels, List[mts.Labels], mts.Labels, List[mts.Labels]]:
     """
     Parses the basis set definition and returns the metadata for one-center targets.
@@ -175,14 +176,18 @@ def get_one_center_metadata(
     Return the keys and out properties of the node features, in a dict
     """
     o3_sigma = 1  # by definition for now
-    
+
     # Node keys
     keys_values_node = []
     for center_symbol, atom_basis in basis_set.items():
         for o3_lambda, radial_basis in basis_set[center_symbol].items():
 
             # Node key
-            keys_value_node = [o3_lambda, o3_sigma, ATOMIC_SYMBOLS_TO_NUMBERS[center_symbol]]
+            keys_value_node = [
+                o3_lambda,
+                o3_sigma,
+                ATOMIC_SYMBOLS_TO_NUMBERS[center_symbol],
+            ]
             if keys_value_node not in keys_values_node:
                 keys_values_node.append(keys_value_node)
 
@@ -193,7 +198,7 @@ def get_one_center_metadata(
     # Node properties
     out_properties_node = []
     for key in in_keys_node:
-                
+
         o3_lambda, o3_sigma, center_type = key
 
         radial_basis = basis_set[ATOMIC_NUMBERS_TO_SYMBOLS[center_type]][o3_lambda]
@@ -202,19 +207,18 @@ def get_one_center_metadata(
 
         out_properties_node.append(
             mts.Labels(
-                ["n"],
-                torch.tensor(radial_basis, dtype=torch.int64).reshape(-1, 1)
+                ["n"], torch.tensor(radial_basis, dtype=torch.int64).reshape(-1, 1)
             )
         )
 
     return {
-        "in_keys_node": in_keys_node, 
+        "in_keys_node": in_keys_node,
         "out_properties_node": out_properties_node,
     }
 
 
 def get_two_center_metadata(
-    basis_set: dict
+    basis_set: dict,
 ) -> Tuple[mts.Labels, List[mts.Labels], mts.Labels, List[mts.Labels]]:
     """
     Parses the basis set definition and returns the metadata for two-center targets.
@@ -231,7 +235,7 @@ def get_two_center_metadata(
 
                 if isinstance(radial_basis_1, int):
                     radial_basis_1 = list(range(radial_basis_1))
-                
+
                 for o3_lambda_2, radial_basis_2 in basis_set[center_2_symbol].items():
 
                     if isinstance(radial_basis_2, int):
@@ -239,13 +243,13 @@ def get_two_center_metadata(
 
                     for o3_lambda in range(
                         abs(o3_lambda_1 - o3_lambda_2),
-                        abs(o3_lambda_1 + o3_lambda_2) + 1
+                        abs(o3_lambda_1 + o3_lambda_2) + 1,
                     ):
-                        
+
                         o3_sigma = (-1) ** (o3_lambda_1 + o3_lambda_2 + o3_lambda)
-                        
-                        # Create the edge properties for this block. This doesn't depend on
-                        # the block type
+
+                        # Create the edge properties for this block. This doesn't depend
+                        #  on the block type
                         out_properties_values_edge = []
                         for n_1 in radial_basis_1:
                             for n_2 in radial_basis_2:
@@ -256,14 +260,19 @@ def get_two_center_metadata(
                                     n_2,
                                     o3_lambda_2,
                                 ]
-                                if out_properties_value_edge not in out_properties_values_edge:
-                                    out_properties_values_edge.append(out_properties_value_edge)
+                                if (
+                                    out_properties_value_edge
+                                    not in out_properties_values_edge
+                                ):
+                                    out_properties_values_edge.append(
+                                        out_properties_value_edge
+                                    )
 
                         out_properties = mts.Labels(
                             ["n_1", "l_1", "n_2", "l_2"],
-                            torch.tensor(out_properties_values_edge, dtype=torch.int64)
+                            torch.tensor(out_properties_values_edge, dtype=torch.int64),
                         )
-                        
+
                         # Edge keys, taking care of block types
                         if center_1_symbol == center_2_symbol:
 
@@ -281,7 +290,7 @@ def get_two_center_metadata(
                                     o3_sigma,
                                     ATOMIC_SYMBOLS_TO_NUMBERS[center_1_symbol],
                                     ATOMIC_SYMBOLS_TO_NUMBERS[center_2_symbol],
-                                    block_type
+                                    block_type,
                                 ]
                                 if keys_value_edge not in keys_values_edge:
                                     keys_values_edge.append(keys_value_edge)
@@ -295,13 +304,14 @@ def get_two_center_metadata(
                                 ATOMIC_SYMBOLS_TO_NUMBERS[center_2_symbol],
                                 block_type,
                             ]
-                                
+
                             if keys_value_edge not in keys_values_edge:
                                 keys_values_edge.append(keys_value_edge)
                                 out_properties_edge.append(out_properties)
 
     in_keys_edge = mts.Labels(
-        ["o3_lambda", "o3_sigma", "first_atom_type", "second_atom_type", "block_type"], torch.tensor(keys_values_edge)
+        ["o3_lambda", "o3_sigma", "first_atom_type", "second_atom_type", "block_type"],
+        torch.tensor(keys_values_edge),
     )
 
     # Extract node keys and properties
@@ -319,9 +329,9 @@ def get_two_center_metadata(
     )
 
     return {
-        "in_keys_node": in_keys_node, 
-        "out_properties_node": out_properties_node, 
-        "in_keys_edge": in_keys_edge, 
+        "in_keys_node": in_keys_node,
+        "out_properties_node": out_properties_node,
+        "in_keys_edge": in_keys_edge,
         "out_properties_edge": out_properties_edge,
     }
 
