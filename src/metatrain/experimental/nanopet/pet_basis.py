@@ -83,10 +83,13 @@ class NanoPetOnBasis(torch.torch.nn.Module):
                 head_hidden_layer_widths,
             )
 
-    def forward(self, systems) -> Tuple[TensorMap, Union[TensorMap, None]]:
+    def forward(
+        self, systems, system_id: List[int] = None
+    ) -> Tuple[TensorMap, Union[TensorMap, None]]:
         """
         Predicts the node and edge (if applicable) targets on a basis.
         """
+
         # Get the neighbor lists required for PET
         systems = [
             get_system_with_neighbor_lists(
@@ -111,6 +114,9 @@ class NanoPetOnBasis(torch.torch.nn.Module):
         predictions_node = self.node_heads(predictions_node)
         predictions_node = self._reshape_predictions(predictions_node, "node")
 
+        if system_id is not None:
+            predictions_node = reindex_tensormap(predictions_node, system_id)
+
         # Next handle edges, if applicable
         if self.predict_edges:
             predictions_edge = symmetrize_predictions_edge(
@@ -120,6 +126,8 @@ class NanoPetOnBasis(torch.torch.nn.Module):
             )
             predictions_edge = self.edge_heads(predictions_edge)
             predictions_edge = self._reshape_predictions(predictions_edge, "edge")
+            if system_id is not None:
+                predictions_edge = reindex_tensormap(predictions_edge, system_id)
         else:
             predictions_edge = None
 
@@ -168,6 +176,8 @@ class NanoPetOnBasis(torch.torch.nn.Module):
         predicted_blocks = []
         for key, out_props in zip(in_keys, out_properties):
 
+            if key not in predicted_features.keys:
+                continue
             predicted_block = predicted_features[key]
             reshaped_block = TensorBlock(
                 values=predicted_block.values.reshape(
@@ -266,49 +276,40 @@ class MLPModel(torch.nn.Module):
 def symmetrize_predictions_node(
     predictions_node: TensorMap,
     in_keys_node: Labels,
-    slice_nodes=None,
-    systems=None,
+    systems,
 ) -> TensorMap:
     """
     Symmetrize PET node predictions
     """
 
-    if slice_nodes is None:
-        assert systems is not None
-        slice_nodes = {}
-        for A, system in enumerate(systems):
-            for i, Z in enumerate(system.types):
-                Z = int(Z)
-                if Z not in slice_nodes:
-                    slice_nodes[Z] = []
-                slice_nodes[Z].append([A, i])
+    slice_nodes = {}
+    for key in in_keys_node:
+        Z = int(key["center_type"])
+        if Z not in slice_nodes:
+            slice_nodes[Z] = []
+    for A, system in enumerate(systems):
+        for i, Z in enumerate(system.types):
+            Z = int(Z)
+            slice_nodes[Z].append([A, i])
 
     # Nodes
-    node_keys = []
     node_blocks = []
-    for Z in slice_nodes:
+    for key in in_keys_node:
+
+        Z = int(key["center_type"])
+
         block = mts.slice(
             predictions_node,
             "samples",
-            Labels(["system", "atom"], torch.tensor(slice_nodes[Z])),
+            Labels(
+                ["system", "atom"],
+                torch.tensor(slice_nodes[Z], dtype=torch.int32).reshape(-1, 2),
+            ),
         )[0]
 
-        for key_value in in_keys_node.values[
-            torch.where(
-                torch.all(
-                    in_keys_node.view(["center_type"]).values == torch.tensor([Z]),
-                    dim=1,
-                )
-            )
-        ]:
+        node_blocks.append(block)
 
-            node_keys.append(key_value)
-            node_blocks.append(block)
-
-    return TensorMap(
-        Labels(["o3_lambda", "o3_sigma", "center_type"], torch.stack(node_keys)),
-        node_blocks,
-    )
+    return TensorMap(in_keys_node, node_blocks)
 
 
 def symmetrize_predictions_edge(
@@ -337,16 +338,10 @@ def symmetrize_predictions_edge(
 
     # Edges (properly symmetrized)
     edge_blocks = []
-    # for Z1, Z2 in slice_edges:
     for key in in_keys_edge:
 
         Z1 = int(key["first_atom_type"])
         Z2 = int(key["second_atom_type"])
-
-        # Keep the blocks where the first atom type is less than or equal to the second
-        # atom type
-        # if Z1 > Z2:
-        #     continue
 
         # Slice to the relevant types, which could leave a block with zero samples
         block = mts.slice(
@@ -361,7 +356,6 @@ def symmetrize_predictions_edge(
         # Symmetrize
         if Z1 == Z2:
             block_plus, block_minus = symmetrize_samples(block)
-            # edge_keys.append(key_value)
             if key["block_type"] == 1:
                 edge_blocks.append(block_plus)
             elif key["block_type"] == -1:
@@ -371,17 +365,41 @@ def symmetrize_predictions_edge(
         else:
             edge_blocks.append(block)
 
-    return TensorMap(
-        in_keys_edge,
-        # Labels(
-        #     [
-        #         "o3_lambda",
-        #         "o3_sigma",
-        #         "first_atom_type",
-        #         "second_atom_type",
-        #         "block_type",
-        #     ],
-        #     torch.stack(edge_keys),
-        # ),
-        edge_blocks,
-    )
+    return TensorMap(in_keys_edge, edge_blocks)
+
+
+def reindex_tensormap(
+    tensor: TensorMap,
+    system_ids: List[int],
+) -> TensorMap:
+    """
+    Takes a single TensorMap `tensor` containing data on multiple systems and re-indexes
+    the "system" dimension of the samples. Assumes input has numeric system indices from
+    {0, ..., N_system - 1} (inclusive), and maps these indices one-to-one with those
+    passed in ``system_ids``.
+    """
+    assert tensor.sample_names[0] == "system"
+
+    index_mapping = {i: A for i, A in enumerate(system_ids)}
+
+    def new_row(row):
+        return [index_mapping[row[0].item()]] + [i for i in row[1:]]
+
+    new_blocks = []
+    for block in tensor.blocks():
+        new_samples = mts.Labels(
+            names=block.samples.names,
+            values=torch.tensor(
+                [new_row(row) for row in block.samples.values],
+                dtype=torch.int32,
+            ).reshape(-1, len(block.samples.names)),
+        )
+        new_block = mts.TensorBlock(
+            values=block.values,
+            samples=new_samples,
+            components=block.components,
+            properties=block.properties,
+        )
+        new_blocks.append(new_block)
+
+    return mts.TensorMap(tensor.keys, new_blocks)
