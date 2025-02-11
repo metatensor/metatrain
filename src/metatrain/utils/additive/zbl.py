@@ -270,7 +270,7 @@ class ZBL(torch.nn.Module):
 
     @staticmethod
     def is_valid_target(target_name: str, target_info: TargetInfo) -> bool:
-        """Finds if a ``TargetInfo`` object is compatible with a composition model.
+        """Finds if a ``TargetInfo`` object is compatible with the ZBL model.
 
         :param target_info: The ``TargetInfo`` object to be checked.
         """
