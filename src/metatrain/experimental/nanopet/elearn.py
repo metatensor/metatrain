@@ -279,9 +279,11 @@ def get_two_center_metadata(
                             for block_type in [-1, 0, 1]:
 
                                 # Skip blocks that are zero by symmetry
-                                if o3_sigma == -1 and block_type in [0, 1]:
-                                    continue
-                                if o3_sigma == 1 and block_type == -1:
+                                same_orbital = (n_1 == n_2 and o3_lambda_1 == o3_lambda_2)
+                                if same_orbital and (
+                                    (o3_sigma == -1 and block_type in [0, 1])
+                                    or (o3_sigma == 1 and block_type == -1)
+                                ):
                                     continue
 
                                 # Create the edge key values
