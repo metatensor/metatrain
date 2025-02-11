@@ -36,20 +36,24 @@ class NanoPetOnBasis(torch.torch.nn.Module):
 
         # Extract node target metadata
         self.in_keys_node = node_metadata.keys
-        self.out_properties_node = [node_metadata[key].properties for key in self.in_keys_node]
+        self.out_properties_node = [
+            node_metadata[key].properties for key in self.in_keys_node
+        ]
         self.atom_types = torch.unique(self.in_keys_node.column("center_type"))
-        
+
         # Extract edge target metadata
         if edge_metadata is not None:
             self.in_keys_edge = edge_metadata.keys
-            self.out_properties_edge = [edge_metadata[key].properties for key in self.in_keys_edge]
+            self.out_properties_edge = [
+                edge_metadata[key].properties for key in self.in_keys_edge
+            ]
             self.predict_edges = True
         else:
             self.predict_edges = False
-        
 
         # TODO: should this belong here?
-        # self.in_keys_edge, self.out_properties_edge = elearn.keys_triu_center_type(self.in_keys_edge, self.out_properties_edge)
+        # self.in_keys_edge, self.out_properties_edge =
+        # elearn.keys_triu_center_type(self.in_keys_edge, self.out_properties_edge)
 
         # Instantiate NanoPET model
         if pet_hypers is None:
@@ -119,7 +123,7 @@ class NanoPetOnBasis(torch.torch.nn.Module):
             predictions_edge = None
 
         return predictions_node, predictions_edge
-    
+
     def _instantiate_heads(
         self,
         in_keys: Labels,
@@ -140,7 +144,6 @@ class NanoPetOnBasis(torch.torch.nn.Module):
                 for key, out_props in zip(in_keys, out_properties)
             ],
         )
-    
 
     def _reshape_predictions(
         self,
@@ -160,9 +163,7 @@ class NanoPetOnBasis(torch.torch.nn.Module):
 
         # Reshape each block in turn
         predicted_blocks = []
-        for key, out_props in zip(
-            predicted_features.keys, out_properties
-        ):
+        for key, out_props in zip(predicted_features.keys, out_properties):
             predicted_block = predicted_features[key]
             reshaped_block = TensorBlock(
                 values=predicted_block.values.reshape(
@@ -175,7 +176,8 @@ class NanoPetOnBasis(torch.torch.nn.Module):
                     Labels(
                         ["o3_mu"],
                         torch.arange(
-                            -key["o3_lambda"], key["o3_lambda"] + 1,
+                            -key["o3_lambda"],
+                            key["o3_lambda"] + 1,
                             dtype=torch.int64,
                         ).reshape(-1, 1),
                     ),
@@ -183,12 +185,12 @@ class NanoPetOnBasis(torch.torch.nn.Module):
                 properties=out_props,
             )
             predicted_blocks.append(reshaped_block)
-        
+
         return TensorMap(predicted_features.keys, predicted_blocks)
 
 
-
 # ===== HEAD MODULES ===== #
+
 
 class ResidualBlock(torch.nn.Module):
     """
@@ -239,18 +241,23 @@ class MLPModel(torch.nn.Module):
         layers = [ResidualBlock(in_features, hidden_layer_widths[0], device=device)]
         for layer_i, hidden_layer_width in enumerate(hidden_layer_widths[1:], start=1):
             layers.append(
-                ResidualBlock(hidden_layer_widths[layer_i - 1], hidden_layer_width, device=device)
+                ResidualBlock(
+                    hidden_layer_widths[layer_i - 1], hidden_layer_width, device=device
+                )
             )
-        layers.append(torch.nn.Linear(hidden_layer_widths[-1], out_features, device=device))
+        layers.append(
+            torch.nn.Linear(hidden_layer_widths[-1], out_features, device=device)
+        )
 
         # Build the sequential
         self.model = torch.nn.Sequential(*layers)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         return self.model(x)
-    
+
 
 # ===== HELPER FUNCTIONS ===== #
+
 
 def symmetrize_predictions_node(
     predictions_node: TensorMap,
@@ -294,14 +301,11 @@ def symmetrize_predictions_node(
             node_keys.append(key_value)
             node_blocks.append(block)
 
-
     return TensorMap(
-        Labels(
-            ["o3_lambda", "o3_sigma", "center_type"],
-            torch.stack(node_keys)
-        ),
+        Labels(["o3_lambda", "o3_sigma", "center_type"], torch.stack(node_keys)),
         node_blocks,
     )
+
 
 def symmetrize_predictions_edge(
     predictions_edge: dict,
@@ -312,7 +316,7 @@ def symmetrize_predictions_edge(
     """
     Symmetrize PET edge predictions
     """
-    
+
     if slice_edges is None:
         assert systems is not None
         slice_edges = {}
