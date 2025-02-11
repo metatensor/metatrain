@@ -314,18 +314,27 @@ def get_two_center_metadata(
         torch.tensor(keys_values_edge),
     )
 
-    # Extract node keys and properties
+    # Finally treat the special case of node, where block_type == 0
     in_keys_values_node = []
     out_properties_node = []
+    in_keys_values_edge = []
+    out_properties_edge_new = []
     for key_i, key in enumerate(in_keys_edge):
-        if key["block_type"] != 0:
-            continue
-        assert key["first_atom_type"] == key["second_atom_type"]
-        in_keys_values_node.append(key.values[:3])
-        out_properties_node.append(out_properties_edge[key_i])
+        if key["block_type"] == 0:  # this is a node
+            assert key["first_atom_type"] == key["second_atom_type"]
+            in_keys_values_node.append(key.values[:3])
+            out_properties_node.append(out_properties_edge[key_i])
+        else:
+            in_keys_values_edge.append(key.values)
+            out_properties_edge_new.append(out_properties_edge[key_i])
+        
 
     in_keys_node = mts.Labels(
         ["o3_lambda", "o3_sigma", "center_type"], torch.stack(in_keys_values_node)
+    )
+    in_keys_edge = mts.Labels(
+        ["o3_lambda", "o3_sigma", "first_atom_type", "second_atom_type", "block_type"],
+        torch.stack(in_keys_values_edge)
     )
 
     return {
