@@ -1,6 +1,8 @@
+from typing import List, Tuple, Optional
+
 import torch
-from typing import Tuple, Optional
-from metatensor.torch import Labels, TensorBlock
+import metatensor.torch as mts
+from metatensor.torch import Labels, TensorBlock, TensorMap
 
 
 def symmetrize_samples(
@@ -76,3 +78,22 @@ def symmetrize_samples(
     )
 
     return block_plus, block_minus
+
+
+def keys_triu_center_type(
+    in_keys_edge: Labels, out_properties_edge: List[Labels]
+) -> TensorMap:
+    
+    idxs_to_keep = []
+    for key_i, key in enumerate(in_keys_edge):
+        # Keep blocks where the first atom type is less than the second atom type
+        if key["first_atom_type"] <= key["second_atom_type"]:
+            idxs_to_keep.append(key_i)
+
+    in_keys_edge_sliced = Labels(
+        in_keys_edge.names,
+        in_keys_edge.values[idxs_to_keep],
+    )
+    out_properties_edge_sliced = out_properties_edge[idxs_to_keep]
+
+    return in_keys_edge_sliced, out_properties_edge_sliced
