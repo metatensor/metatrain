@@ -43,16 +43,17 @@ class NanoPetOnBasis(torch.torch.nn.Module):
 
         # Extract edge target metadata
         if in_keys_edge is not None:
+            # Triangularize the edge keys and keep the corresponding properties
+            self.in_keys_edge, self.out_properties_edge = keys_triu_center_type(
+                in_keys_edge, out_properties_edge
+            )
             self.in_keys_edge = in_keys_edge
             self.out_properties_edge = out_properties_edge
             self.predict_edges = True
         else:
             self.predict_edges = False
 
-        # Triangularize the edge keys and keep the corresponding properties
-        self.in_keys_edge, self.out_properties_edge = keys_triu_center_type(
-            self.in_keys_edge, self.out_properties_edge
-        )
+        
 
         # Instantiate NanoPET model
         if pet_hypers is None:
