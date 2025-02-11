@@ -1,6 +1,9 @@
 from typing import List, Tuple, Optional
 
+import numpy as np
 import torch
+import vesin
+
 import metatensor.torch as mts
 from metatensor.torch import Labels, TensorBlock, TensorMap
 
@@ -83,7 +86,7 @@ def symmetrize_samples(
 def keys_triu_center_type(
     in_keys_edge: Labels, out_properties_edge: List[Labels]
 ) -> TensorMap:
-    
+
     idxs_to_keep = []
     for key_i, key in enumerate(in_keys_edge):
         # Keep blocks where the first atom type is less than the second atom type
@@ -94,6 +97,68 @@ def keys_triu_center_type(
         in_keys_edge.names,
         in_keys_edge.values[idxs_to_keep],
     )
-    out_properties_edge_sliced = out_properties_edge[idxs_to_keep]
+    out_properties_edge_sliced = [
+        out_props
+        for i, out_props in enumerate(out_properties_edge)
+        if i in idxs_to_keep
+    ]
 
     return in_keys_edge_sliced, out_properties_edge_sliced
+
+
+def get_neighbor_list(
+    frames,
+    frame_idxs: List[int],
+    cutoff: float,
+) -> mts.Labels:
+    """
+    Computes the neighbour list for each frame in ``frames`` and returns a
+    :py:class:`metatensor
+    """
+    nl = vesin.NeighborList(cutoff=cutoff, full_list=True)
+
+    labels_values = []
+    for A, frame in zip(frame_idxs, frames):
+
+        # Compute the neighbor list
+        if np.any([d == 0 for d in frame.cell]):  # for ase
+            # if np.any([d == 0 for d in frame.cell]):  # for chemfiles
+            box = np.zeros((3, 3))
+            periodic = False
+        else:
+            box = frame.cell.matrix
+            periodic = True
+
+        i_list, j_list, S_list = nl.compute(
+            points=frame.positions,
+            box=box,
+            periodic=periodic,
+            quantities="ijS",
+        )
+
+        # Now add in the self terms as vesin does not include them
+        i_list = np.concatenate([i_list, np.arange(len(frame.positions), dtype=int)])
+        j_list = np.concatenate([j_list, np.arange(len(frame.positions), dtype=int)])
+        S_list = np.concatenate(
+            [S_list, np.array([0, 0, 0] * len(frame.positions)).reshape(-1, 3)],
+            dtype=int,
+        )
+
+        # Add dimension for system index
+        for i, j, S in zip(i_list, j_list, S_list):
+            a, b, c = S
+            label = [A, i, j, a, b, c]
+            if label not in labels_values:
+                labels_values.append(label)
+
+    return mts.Labels(
+        names=[
+            "system",
+            "first_atom",
+            "second_atom",
+            "cell_shift_a",
+            "cell_shift_b",
+            "cell_shift_c",
+        ],
+        values=torch.tensor(labels_values, dtype=torch.int32),
+    )

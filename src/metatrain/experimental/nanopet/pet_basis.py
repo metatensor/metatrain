@@ -15,7 +15,7 @@ from metatrain.utils.neighbor_lists import (
     get_system_with_neighbor_lists,
 )
 
-from .elearn import symmetrize_samples
+from .elearn import symmetrize_samples, keys_triu_center_type
 from metatensor.torch.learn import ModuleMap
 
 
@@ -51,9 +51,10 @@ class NanoPetOnBasis(torch.torch.nn.Module):
         else:
             self.predict_edges = False
 
-        # TODO: should this belong here?
-        # self.in_keys_edge, self.out_properties_edge =
-        # elearn.keys_triu_center_type(self.in_keys_edge, self.out_properties_edge)
+        # Triangularize the edge keys and keep the corresponding properties
+        self.in_keys_edge, self.out_properties_edge = keys_triu_center_type(
+            self.in_keys_edge, self.out_properties_edge
+        )
 
         # Instantiate NanoPET model
         if pet_hypers is None:
@@ -157,13 +158,16 @@ class NanoPetOnBasis(torch.torch.nn.Module):
         # Get the target properties metadata
         if feature_type == "node":
             out_properties = self.out_properties_node
+            in_keys = self.in_keys_node
         else:
             assert feature_type == "edge"
             out_properties = self.out_properties_edge
+            in_keys = self.in_keys_edge
 
         # Reshape each block in turn
         predicted_blocks = []
-        for key, out_props in zip(predicted_features.keys, out_properties):
+        for key, out_props in zip(in_keys, out_properties):
+
             predicted_block = predicted_features[key]
             reshaped_block = TensorBlock(
                 values=predicted_block.values.reshape(
@@ -308,87 +312,76 @@ def symmetrize_predictions_node(
 
 
 def symmetrize_predictions_edge(
-    predictions_edge: dict,
-    in_keys_edge: Labels = None,
-    slice_edges=None,
-    systems=None,
+    predictions_edge: TensorMap,
+    in_keys_edge: Labels,
+    systems,
 ) -> TensorMap:
     """
     Symmetrize PET edge predictions
     """
 
-    if slice_edges is None:
-        assert systems is not None
-        slice_edges = {}
-        for A, system in enumerate(systems):
-            for i, Z1 in enumerate(system.types):
-                Z1 = int(Z1)
-                for j, Z2 in enumerate(system.types):
-                    Z2 = int(Z2)
-                    if (Z1, Z2) not in slice_edges:
-                        slice_edges[(Z1, Z2)] = []
-                    slice_edges[(Z1, Z2)].append([A, i, j])
+    slice_edges = {}
+    for key in in_keys_edge:
+        Z1 = int(key["first_atom_type"])
+        Z2 = int(key["second_atom_type"])
+        if (Z1, Z2) not in slice_edges:
+            slice_edges[(Z1, Z2)] = []
+    for A, system in enumerate(systems):
+        for i, Z1 in enumerate(system.types):
+            Z1 = int(Z1)
+            for j, Z2 in enumerate(system.types):
+                if Z1 > Z2:
+                    continue
+                Z2 = int(Z2)
+                slice_edges[(Z1, Z2)].append([A, i, j])
 
     # Edges (properly symmetrized)
-    edge_keys = []
     edge_blocks = []
-    for Z1, Z2 in slice_edges:
+    # for Z1, Z2 in slice_edges:
+    for key in in_keys_edge:
+
+        Z1 = int(key["first_atom_type"])
+        Z2 = int(key["second_atom_type"])
+
+        # Keep the blocks where the first atom type is less than or equal to the second
+        # atom type
+        # if Z1 > Z2:
+        #     continue
+
+        # Slice to the relevant types, which could leave a block with zero samples
         block = mts.slice(
             predictions_edge,
             "samples",
             Labels(
                 ["system", "first_atom", "second_atom"],
-                torch.tensor(slice_edges[Z1, Z2]),
+                torch.tensor(slice_edges[Z1, Z2], dtype=torch.int32).reshape(-1, 3),
             ),
         )[0]
 
         # Symmetrize
         if Z1 == Z2:
             block_plus, block_minus = symmetrize_samples(block)
-
-            for key_value in in_keys_edge.values[
-                torch.where(
-                    torch.all(
-                        in_keys_edge.view(
-                            ["first_atom_type", "second_atom_type"]
-                        ).values
-                        == torch.tensor([Z1, Z2]),
-                        dim=1,
-                    )
-                )
-            ]:
-                edge_keys.append(key_value)
-                if key_value[-1] == 1:
-                    edge_blocks.append(block_plus)
-                elif key_value[-1] == -1:
-                    edge_blocks.append(block_minus)
-                else:
-                    raise ValueError("Block type must be 1 or -1 for Z1=Z2={Z1}")
+            # edge_keys.append(key_value)
+            if key["block_type"] == 1:
+                edge_blocks.append(block_plus)
+            elif key["block_type"] == -1:
+                edge_blocks.append(block_minus)
+            else:
+                raise ValueError("Block type must be 1 or -1 for Z1=Z2={Z1}")
         else:
-            for key_value in in_keys_edge.values[
-                torch.where(
-                    torch.all(
-                        in_keys_edge.view(
-                            ["first_atom_type", "second_atom_type"]
-                        ).values
-                        == torch.tensor([Z1, Z2]),
-                        dim=1,
-                    )
-                )
-            ]:
-                edge_keys.append(key_value)
-                edge_blocks.append(block)
+            edge_blocks.append(block)
 
     return TensorMap(
-        Labels(
-            [
-                "o3_lambda",
-                "o3_sigma",
-                "first_atom_type",
-                "second_atom_type",
-                "block_type",
-            ],
-            torch.stack(edge_keys),
-        ),
+        in_keys_edge,
+        # Labels(
+        #     [
+        #         "o3_lambda",
+        #         "o3_sigma",
+        #         "first_atom_type",
+        #         "second_atom_type",
+        #         "block_type",
+        #     ],
+        #     torch.stack(edge_keys),
+        # ),
         edge_blocks,
     )
