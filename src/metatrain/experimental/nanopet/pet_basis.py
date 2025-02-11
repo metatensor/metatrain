@@ -26,8 +26,10 @@ class NanoPetOnBasis(torch.torch.nn.Module):
 
     def __init__(
         self,
-        node_metadata,
-        edge_metadata=None,
+        in_keys_node: Labels,
+        out_properties_node: List[Labels],
+        in_keys_edge: Labels = None,
+        out_properties_edge: List[Labels] = None,
         pet_hypers=None,
         head_hidden_layer_widths=[64, 64, 64],
     ) -> None:
@@ -35,18 +37,14 @@ class NanoPetOnBasis(torch.torch.nn.Module):
         super().__init__()
 
         # Extract node target metadata
-        self.in_keys_node = node_metadata.keys
-        self.out_properties_node = [
-            node_metadata[key].properties for key in self.in_keys_node
-        ]
+        self.in_keys_node = in_keys_node
+        self.out_properties_node = out_properties_node
         self.atom_types = torch.unique(self.in_keys_node.column("center_type"))
 
         # Extract edge target metadata
-        if edge_metadata is not None:
-            self.in_keys_edge = edge_metadata.keys
-            self.out_properties_edge = [
-                edge_metadata[key].properties for key in self.in_keys_edge
-            ]
+        if in_keys_edge is not None:
+            self.in_keys_edge = in_keys_edge
+            self.out_properties_edge = out_properties_edge
             self.predict_edges = True
         else:
             self.predict_edges = False
