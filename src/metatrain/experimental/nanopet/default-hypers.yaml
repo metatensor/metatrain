@@ -9,6 +9,7 @@ architecture:
     num_heads: 4
     num_attention_layers: 2
     num_gnn_layers: 2
+    heads: {}
     zbl: False
 
   training:
@@ -21,10 +22,13 @@ architecture:
     scheduler_factor: 0.8
     log_interval: 10
     checkpoint_interval: 100
+    scale_targets: true
     fixed_composition_weights: {}
     per_structure_targets: []
     log_mae: False
+    log_separate_blocks: false
+    best_model_metric: rmse_prod
     loss:
       type: mse
       weights: {}
-      reduction: sum
+      reduction: mean

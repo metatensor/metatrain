@@ -28,7 +28,7 @@ def test_torchscript():
     torch.jit.script(model)
 
 
-def test_torchscript_save_load():
+def test_torchscript_save_load(tmpdir):
     """Tests that the model can be jitted and saved."""
 
     dataset_info = DatasetInfo(
@@ -41,11 +41,9 @@ def test_torchscript_save_load():
     raw_pet = PET(ARCHITECTURAL_HYPERS, 0.0, len(model.atomic_types))
     model.set_trained_model(raw_pet)
     torch.jit.script(model)
-    torch.jit.save(
-        torch.jit.script(model),
-        "pet.pt",
-    )
-    torch.jit.load("pet.pt")
+    with tmpdir.as_cwd():
+        torch.jit.save(torch.jit.script(model), "pet.pt")
+        torch.jit.load("pet.pt")
 
 
 def test_torchscript_integers():

@@ -1,5 +1,6 @@
 import glob
 import logging
+import os
 import re
 import shutil
 import subprocess
@@ -18,11 +19,13 @@ from metatrain.utils.errors import ArchitectureError
 from . import (
     DATASET_PATH_CARBON,
     DATASET_PATH_ETHANOL,
+    DATASET_PATH_QM7X,
     DATASET_PATH_QM9,
     MODEL_PATH_64_BIT,
     OPTIONS_PATH,
     RESOURCES_PATH,
 )
+from .dump_spherical_targets import dump_spherical_targets
 
 
 @pytest.fixture
@@ -77,6 +80,11 @@ def test_train(capfd, monkeypatch, tmp_path, output):
     extensions_glob = glob.glob("extensions/")
     assert len(extensions_glob) == 1
 
+    # Test if training indices are saved
+    for subset in ["training", "validation", "test"]:
+        subset_glob = glob.glob(f"outputs/*/*/indices/{subset}.txt")
+        assert len(subset_glob) == 1
+
     # Open the log file and check if the logging is correct
     with open(log_glob[0]) as f:
         file_log = f.read()
@@ -101,13 +109,14 @@ def test_train(capfd, monkeypatch, tmp_path, output):
     assert "train" in stdout_log
     assert "energy" in stdout_log
     assert "with index" not in stdout_log  # index only printed for more than 1 dataset
+    assert "Running final evaluation with batch size 2" in stdout_log
 
 
 @pytest.mark.parametrize(
     "overrides",
     [
-        "architecture.training.num_epochs=2",
-        "architecture.training.num_epochs=2 architecture.training.batch_size=3",
+        ["architecture.training.num_epochs=2"],
+        ["architecture.training.num_epochs=2", "architecture.training.batch_size=3"],
     ],
 )
 def test_command_line_override(monkeypatch, tmp_path, overrides):
@@ -116,7 +125,9 @@ def test_command_line_override(monkeypatch, tmp_path, overrides):
     shutil.copy(DATASET_PATH_QM9, "qm9_reduced_100.xyz")
     shutil.copy(OPTIONS_PATH, "options.yaml")
 
-    command = ["mtt", "train", "options.yaml", "-r", overrides]
+    command = ["mtt", "train", "options.yaml"]
+    for override in overrides:
+        command += ["-r", override]
 
     subprocess.check_call(command)
 
@@ -126,7 +137,7 @@ def test_command_line_override(monkeypatch, tmp_path, overrides):
     restart_options = OmegaConf.load(restart_glob[0])
     assert restart_options["architecture"]["training"]["num_epochs"] == 2
 
-    if len(overrides.split()) == 2:
+    if len(overrides) == 2:
         assert restart_options["architecture"]["training"]["batch_size"] == 3
 
 
@@ -139,8 +150,9 @@ def test_train_from_options_restart_yaml(monkeypatch, tmp_path):
     train_model(options)
 
     # run training with options_restart.yaml
+    os.mkdir("outputs/")
     options_restart = OmegaConf.load("options_restart.yaml")
-    train_model(options_restart)
+    train_model(options_restart, checkpoint_dir="outputs/")
 
 
 def test_train_unknonw_arch_options(monkeypatch, tmp_path):
@@ -487,7 +499,6 @@ def test_continue_different_dataset(options, monkeypatch, tmp_path):
 
     options["training_set"]["systems"]["read_from"] = "ethanol_reduced_100.xyz"
     options["training_set"]["targets"]["energy"]["key"] = "energy"
-    options["training_set"]["targets"]["energy"]["forces"] = False
 
     train_model(options, continue_from=MODEL_PATH_64_BIT)
 
@@ -501,12 +512,14 @@ def test_model_consistency_with_seed(options, monkeypatch, tmp_path, seed):
     if seed is not None:
         options["seed"] = seed
 
-    train_model(options, output="model1.pt")
+    os.mkdir("outputs_1/")
+    train_model(options, output="model1.pt", checkpoint_dir="outputs_1/")
 
     if seed is None:
         options["seed"] = RANDOM_SEED + 1
 
-    train_model(options, output="model2.pt")
+    os.mkdir("outputs_2/")
+    train_model(options, output="model2.pt", checkpoint_dir="outputs_2/")
 
     m1 = torch.load("model1.ckpt", weights_only=False)
     m2 = torch.load("model2.ckpt", weights_only=False)
@@ -625,5 +638,26 @@ def test_train_generic_target(monkeypatch, tmp_path):
     }
     options["training_set"]["targets"]["energy"]["per_atom"] = True
     options["training_set"]["targets"]["energy"]["key"] = "forces"
+
+    train_model(options)
+
+
+def test_train_generic_target_metatensor(monkeypatch, tmp_path):
+    """Test training on a spherical rank-2 tensor target in metatensor format"""
+    monkeypatch.chdir(tmp_path)
+    shutil.copy(DATASET_PATH_QM7X, "qm7x_reduced_100.xyz")
+
+    dump_spherical_targets("qm7x_reduced_100.xyz", "qm7x_reduced_100.npz")
+
+    # run training with original options
+    options = OmegaConf.load(OPTIONS_PATH)
+    options["architecture"]["name"] = "experimental.nanopet"
+    options["training_set"]["systems"]["read_from"] = "qm7x_reduced_100.xyz"
+    options["training_set"]["targets"] = {
+        "mtt::polarizability": {
+            "read_from": "qm7x_reduced_100.npz",
+            "type": {"spherical": {"irreps": [{"o3_lambda": 2, "o3_sigma": 1}]}},
+        }
+    }
 
     train_model(options)

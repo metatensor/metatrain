@@ -59,15 +59,13 @@ def ase_systems() -> List[ase.Atoms]:
     return [ase_system(), ase_system()]
 
 
-def test_read_energy_ase(monkeypatch, tmp_path):
-    monkeypatch.chdir(tmp_path)
-
+def test_read_energy_ase(tmpdir):
     filename = "systems.xyz"
-
     systems = ase_systems()
-    ase.io.write(filename, systems)
 
-    results = _read_energy_ase(filename=filename, key="true_energy")
+    with tmpdir.as_cwd():
+        ase.io.write(filename, systems)
+        results = _read_energy_ase(filename=filename, key="true_energy")
 
     for result, atoms in zip(results, systems):
         expected = torch.tensor([[atoms.info["true_energy"]]], dtype=torch.float64)

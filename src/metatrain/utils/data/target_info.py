@@ -154,8 +154,9 @@ class TargetInfo:
                     f"Found '{layout.keys.names}' instead."
                 )
             for key, block in layout.items():
-                o3_lambda, o3_sigma = int(key.values[0].item()), int(
-                    key.values[1].item()
+                o3_lambda, o3_sigma = (
+                    int(key.values[0].item()),
+                    int(key.values[1].item()),
                 )
                 if o3_sigma not in [-1, 1]:
                     raise ValueError(
@@ -186,13 +187,43 @@ class TargetInfo:
                         "Gradients of spherical tensor targets are not supported."
                     )
 
+    def is_compatible_with(self, other: "TargetInfo") -> bool:
+        """Check if two targets are compatible.
+
+        Two target infos are compatible if they have the same quantity, unit,
+        and layout, except for gradients. This method can be used to check if two
+        target infos with the same name can correspond to the same output
+        in a model.
+
+        :param other: The target info to compare with.
+        :return: :py:obj:`True` if the two target infos are compatible,
+            :py:obj:`False` otherwise.
+        """
+        if self.quantity != other.quantity:
+            return False
+        if self.unit != other.unit:
+            return False
+        if self.layout.keys.names != other.layout.keys.names:
+            return False
+        for key, block in self.layout.items():
+            if key not in other.layout.keys:
+                return False
+            other_block = other.layout[key]
+            if not block.samples == other_block.samples:
+                return False
+            if not block.components == other_block.components:
+                return False
+            if not block.properties == other_block.properties:
+                return False
+            # gradients are not checked on purpose
+        return True
+
 
 def get_energy_target_info(
     target: DictConfig,
     add_position_gradients: bool = False,
     add_strain_gradients: bool = False,
 ) -> TargetInfo:
-
     block = TensorBlock(
         # float64: otherwise metatensor can't serialize
         values=torch.empty(0, 1, dtype=torch.float64),
@@ -390,3 +421,10 @@ def _get_spherical_target_info(target: DictConfig) -> TargetInfo:
         layout=layout,
     )
     return target_info
+
+
+def is_auxiliary_output(name: str) -> bool:
+    is_auxiliary = (
+        name == "features" or name == "energy_ensemble" or name.startswith("mtt::aux::")
+    )
+    return is_auxiliary

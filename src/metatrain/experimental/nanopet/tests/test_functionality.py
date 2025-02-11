@@ -21,10 +21,6 @@ def test_nanopet_padding():
     """Tests that the model predicts the same energy independently of the
     padding size."""
 
-    # we need float64 for this test, then we will change it back at the end
-    default_dtype_before = torch.get_default_dtype()
-    torch.set_default_dtype(torch.float64)
-
     dataset_info = DatasetInfo(
         length_unit="Angstrom",
         atomic_types=[1, 6, 7, 8],
@@ -69,9 +65,7 @@ def test_nanopet_padding():
     lone_energy = lone_output["energy"].block().values.squeeze(-1)[0]
     padded_energy = padded_output["energy"].block().values.squeeze(-1)[0]
 
-    assert torch.allclose(lone_energy, padded_energy)
-
-    torch.set_default_dtype(default_dtype_before)
+    assert torch.allclose(lone_energy, padded_energy, atol=1e-6, rtol=1e-6)
 
 
 def test_prediction_subset_elements():
@@ -217,12 +211,28 @@ def test_output_last_layer_features():
         [system],
         {
             "energy": model.outputs["energy"],
-            "mtt::aux::last_layer_features": ll_output_options,
+            "features": ll_output_options,
+            "mtt::aux::energy_last_layer_features": ll_output_options,
         },
     )
     assert "energy" in outputs
-    assert "mtt::aux::last_layer_features" in outputs
-    last_layer_features = outputs["mtt::aux::last_layer_features"].block()
+    assert "features" in outputs
+    assert "mtt::aux::energy_last_layer_features" in outputs
+
+    features = outputs["features"].block()
+    assert features.samples.names == [
+        "system",
+        "atom",
+    ]
+    assert features.values.shape == (
+        4,
+        128,
+    )
+    assert features.properties.names == [
+        "properties",
+    ]
+
+    last_layer_features = outputs["mtt::aux::energy_last_layer_features"].block()
     assert last_layer_features.samples.names == [
         "system",
         "atom",
@@ -245,17 +255,31 @@ def test_output_last_layer_features():
         [system],
         {
             "energy": model.outputs["energy"],
-            "mtt::aux::last_layer_features": ll_output_options,
+            "features": ll_output_options,
+            "mtt::aux::energy_last_layer_features": ll_output_options,
         },
     )
     assert "energy" in outputs
-    assert "mtt::aux::last_layer_features" in outputs
-    assert outputs["mtt::aux::last_layer_features"].block().samples.names == ["system"]
-    assert outputs["mtt::aux::last_layer_features"].block().values.shape == (
+    assert "features" in outputs
+    assert "mtt::aux::energy_last_layer_features" in outputs
+
+    features = outputs["features"].block()
+    assert features.samples.names == [
+        "system",
+    ]
+    assert features.values.shape == (
         1,
         128,
     )
-    assert outputs["mtt::aux::last_layer_features"].block().properties.names == [
+
+    assert outputs["mtt::aux::energy_last_layer_features"].block().samples.names == [
+        "system"
+    ]
+    assert outputs["mtt::aux::energy_last_layer_features"].block().values.shape == (
+        1,
+        128,
+    )
+    assert outputs["mtt::aux::energy_last_layer_features"].block().properties.names == [
         "properties",
     ]
 
@@ -323,7 +347,7 @@ def test_fixed_composition_weights_error():
 
 @pytest.mark.parametrize("per_atom", [True, False])
 def test_vector_output(per_atom):
-    """Tests that the model can predict a (spherical) vector output."""
+    """Tests that the model can predict a Cartesian vector output."""
 
     dataset_info = DatasetInfo(
         length_unit="Angstrom",
@@ -354,3 +378,110 @@ def test_vector_output(per_atom):
         [system],
         {"force": model.outputs["forces"]},
     )
+
+
+@pytest.mark.parametrize("per_atom", [True, False])
+def test_spherical_output(per_atom):
+    """Tests that the model can predict a spherical tensor output."""
+
+    dataset_info = DatasetInfo(
+        length_unit="Angstrom",
+        atomic_types=[1, 6, 7, 8],
+        targets={
+            "spherical_tensor": get_generic_target_info(
+                {
+                    "quantity": "spherical_tensor",
+                    "unit": "",
+                    "type": {
+                        "spherical": {"irreps": [{"o3_lambda": 2, "o3_sigma": 1}]}
+                    },
+                    "num_subtargets": 100,
+                    "per_atom": per_atom,
+                }
+            )
+        },
+    )
+
+    model = NanoPET(MODEL_HYPERS, dataset_info)
+
+    system = System(
+        types=torch.tensor([6, 6]),
+        positions=torch.tensor([[0.0, 0.0, 0.0], [0.0, 0.0, 1.0]]),
+        cell=torch.zeros(3, 3),
+        pbc=torch.tensor([False, False, False]),
+    )
+    system = get_system_with_neighbor_lists(system, model.requested_neighbor_lists())
+    model(
+        [system],
+        {"spherical_tensor": model.outputs["spherical_tensor"]},
+    )
+
+
+@pytest.mark.parametrize("per_atom", [True, False])
+def test_spherical_output_multi_block(per_atom):
+    """Tests that the model can predict a spherical tensor output
+    with multiple irreps."""
+
+    dataset_info = DatasetInfo(
+        length_unit="Angstrom",
+        atomic_types=[1, 6, 7, 8],
+        targets={
+            "spherical_tensor": get_generic_target_info(
+                {
+                    "quantity": "spherical_tensor",
+                    "unit": "",
+                    "type": {
+                        "spherical": {
+                            "irreps": [
+                                {"o3_lambda": 2, "o3_sigma": 1},
+                                {"o3_lambda": 1, "o3_sigma": 1},
+                                {"o3_lambda": 0, "o3_sigma": 1},
+                            ]
+                        }
+                    },
+                    "num_subtargets": 100,
+                    "per_atom": per_atom,
+                }
+            )
+        },
+    )
+
+    model = NanoPET(MODEL_HYPERS, dataset_info)
+
+    system = System(
+        types=torch.tensor([6, 6]),
+        positions=torch.tensor([[0.0, 0.0, 0.0], [0.0, 0.0, 1.0]]),
+        cell=torch.zeros(3, 3),
+        pbc=torch.tensor([False, False, False]),
+    )
+    system = get_system_with_neighbor_lists(system, model.requested_neighbor_lists())
+    outputs = model(
+        [system],
+        {"spherical_tensor": model.outputs["spherical_tensor"]},
+    )
+    assert len(outputs["spherical_tensor"]) == 3
+
+
+def test_nanopet_single_atom():
+    """Tests that the model predicts zero energies on a single atom."""
+    # (note that no composition energies are supplied or calculated here)
+
+    dataset_info = DatasetInfo(
+        length_unit="Angstrom",
+        atomic_types=[1, 6, 7, 8],
+        targets={
+            "energy": get_energy_target_info({"quantity": "energy", "unit": "eV"})
+        },
+    )
+    model = NanoPET(MODEL_HYPERS, dataset_info)
+
+    system = System(
+        types=torch.tensor([6]),
+        positions=torch.tensor([[0.0, 0.0, 1.0]]),
+        cell=torch.zeros(3, 3),
+        pbc=torch.tensor([False, False, False]),
+    )
+    system = get_system_with_neighbor_lists(system, model.requested_neighbor_lists())
+    outputs = {"energy": ModelOutput(per_atom=False)}
+    energy = model([system], outputs)["energy"].block().values.item()
+    assert energy == 0.0

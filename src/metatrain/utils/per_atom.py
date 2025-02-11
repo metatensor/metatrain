@@ -9,7 +9,7 @@ def average_by_num_atoms(
     tensor_map_dict: Dict[str, TensorMap],
     systems: List[System],
     per_structure_keys: List[str],
-):
+) -> Dict[str, TensorMap]:
     """
     Averages a dictionary of ``TensorMap`` objects by the number of
     atoms in each system.

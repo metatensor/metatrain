@@ -4,6 +4,7 @@ from omegaconf import DictConfig
 from metatrain.utils.data.target_info import (
     get_energy_target_info,
     get_generic_target_info,
+    is_auxiliary_output,
 )
 
 
@@ -71,7 +72,6 @@ def spherical_target_config() -> DictConfig:
 
 
 def test_layout_energy(energy_target_config):
-
     target_info = get_energy_target_info(energy_target_config)
     assert target_info.quantity == "energy"
     assert target_info.unit == "eV"
@@ -117,3 +117,28 @@ def test_layout_spherical(spherical_target_config):
     assert target_info.unit == ""
     assert target_info.per_atom is False
     assert target_info.gradients == []
+
+
+def test_is_auxiliary_output():
+    assert is_auxiliary_output("mtt::aux::energy_uncertainty")
+    assert is_auxiliary_output("mtt::aux::energy_last_layer_features")
+    assert not is_auxiliary_output("energy")
+    assert not is_auxiliary_output("foo")
+    assert is_auxiliary_output("mtt::aux::foo")
+    assert is_auxiliary_output("features")
+    assert is_auxiliary_output("energy_ensemble")
+    assert is_auxiliary_output("mtt::aux::energy_ensemble")
+
+
+def test_is_compatible_with(energy_target_config, spherical_target_config):
+    energy_target_info = get_energy_target_info(energy_target_config)
+    spherical_target_config = get_generic_target_info(spherical_target_config)
+    energy_target_info_with_forces = get_energy_target_info(
+        energy_target_config, add_position_gradients=True
+    )
+    assert energy_target_info.is_compatible_with(energy_target_info)
+    assert energy_target_info_with_forces.is_compatible_with(energy_target_info)
+    assert not energy_target_info.is_compatible_with(spherical_target_config)
+    assert not (
+        energy_target_info_with_forces.is_compatible_with(spherical_target_config)
+    )

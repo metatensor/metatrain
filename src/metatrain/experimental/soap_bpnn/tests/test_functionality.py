@@ -139,12 +139,28 @@ def test_output_last_layer_features():
         [system],
         {
             "energy": model.outputs["energy"],
-            "mtt::aux::last_layer_features": ll_output_options,
+            "features": ll_output_options,
+            "mtt::aux::energy_last_layer_features": ll_output_options,
         },
     )
     assert "energy" in outputs
-    assert "mtt::aux::last_layer_features" in outputs
-    last_layer_features = outputs["mtt::aux::last_layer_features"].block()
+    assert "features" in outputs
+    assert "mtt::aux::energy_last_layer_features" in outputs
+
+    features = outputs["features"].block()
+    assert features.samples.names == [
+        "system",
+        "atom",
+    ]
+    assert features.values.shape == (
+        4,
+        128,
+    )
+    assert features.properties.names == [
+        "properties",
+    ]
+
+    last_layer_features = outputs["mtt::aux::energy_last_layer_features"].block()
     assert last_layer_features.samples.names == [
         "system",
         "atom",
@@ -167,17 +183,34 @@ def test_output_last_layer_features():
         [system],
         {
             "energy": model.outputs["energy"],
-            "mtt::aux::last_layer_features": ll_output_options,
+            "features": ll_output_options,
+            "mtt::aux::energy_last_layer_features": ll_output_options,
         },
     )
     assert "energy" in outputs
-    assert "mtt::aux::last_layer_features" in outputs
-    assert outputs["mtt::aux::last_layer_features"].block().samples.names == ["system"]
-    assert outputs["mtt::aux::last_layer_features"].block().values.shape == (
+    assert "features" in outputs
+    assert "mtt::aux::energy_last_layer_features" in outputs
+
+    features = outputs["features"].block()
+    assert features.samples.names == [
+        "system",
+    ]
+    assert features.values.shape == (
         1,
         128,
     )
-    assert outputs["mtt::aux::last_layer_features"].block().properties.names == [
+    assert features.properties.names == [
+        "properties",
+    ]
+
+    assert outputs["mtt::aux::energy_last_layer_features"].block().samples.names == [
+        "system"
+    ]
+    assert outputs["mtt::aux::energy_last_layer_features"].block().values.shape == (
+        1,
+        128,
+    )
+    assert outputs["mtt::aux::energy_last_layer_features"].block().properties.names == [
         "properties",
     ]
 
@@ -274,3 +307,45 @@ def test_vector_output(per_atom):
         [system],
         {"force": model.outputs["forces"]},
     )
+
+
+@pytest.mark.parametrize("per_atom", [True, False])
+def test_spherical_outputs(per_atom):
+    """Tests that the model can predict a spherical target with multiple blocks."""
+
+    dataset_info = DatasetInfo(
+        length_unit="Angstrom",
+        atomic_types=[1, 6, 7, 8],
+        targets={
+            "spherical_target": get_generic_target_info(
+                {
+                    "quantity": "",
+                    "unit": "",
+                    "type": {
+                        "spherical": {
+                            "irreps": [
+                                {"o3_lambda": 0, "o3_sigma": 1},
+                                {"o3_lambda": 2, "o3_sigma": 1},
+                            ]
+                        }
+                    },
+                    "num_subtargets": 100,
+                    "per_atom": per_atom,
+                }
+            )
+        },
+    )
+
+    model = SoapBpnn(MODEL_HYPERS, dataset_info)
+
+    system = System(
+        types=torch.tensor([6, 6]),
+        positions=torch.tensor([[0.0, 0.0, 0.0], [0.0, 0.0, 1.0]]),
+        cell=torch.zeros(3, 3),
+        pbc=torch.tensor([False, False, False]),
+    )
+    outputs = model(
+        [system],
+        {"spherical_target": model.outputs["spherical_target"]},
+    )
+    assert len(outputs["spherical_target"]) == 2

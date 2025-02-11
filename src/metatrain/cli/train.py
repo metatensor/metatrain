@@ -26,7 +26,7 @@ from ..utils.data import (
     get_dataset,
     get_stats,
 )
-from ..utils.data.dataset import _train_test_random_split
+from ..utils.data.dataset import _save_indices, _train_test_random_split
 from ..utils.devices import pick_devices
 from ..utils.distributed.logging import is_main_process
 from ..utils.errors import ArchitectureError
@@ -83,8 +83,9 @@ def _add_train_model_parser(subparser: argparse._SubParsersAction) -> None:
         "-r",
         "--override",
         dest="override_options",
-        type=lambda string: OmegaConf.from_dotlist(string.split()),
-        help="Command line override flags.",
+        action="append",
+        help="Command-line override flags.",
+        default=[],
     )
 
 
@@ -93,8 +94,7 @@ def _prepare_train_model_args(args: argparse.Namespace) -> None:
     args.options = OmegaConf.load(args.options)
     # merge/override file options with command line options
     override_options = args.__dict__.pop("override_options")
-    if override_options is None:
-        override_options = {}
+    override_options = OmegaConf.from_dotlist(override_options)
 
     args.options = OmegaConf.merge(args.options, override_options)
 
@@ -250,6 +250,8 @@ def train_model(
 
     logger.info("Setting up validation set")
     val_datasets = []
+    train_indices = []
+    val_indices = []
     if isinstance(options["validation_set"], float):
         val_size = options["validation_set"]
         train_size -= val_size
@@ -260,9 +262,10 @@ def train_model(
                 train_size=train_size,
                 test_size=val_size,
             )
-
             train_datasets[i_dataset] = train_dataset_new
             val_datasets.append(val_dataset)
+            train_indices.append(train_dataset_new.indices)
+            val_indices.append(val_dataset.indices)
     else:
         options["validation_set"] = expand_dataset_config(options["validation_set"])
 
@@ -281,6 +284,8 @@ def train_model(
         for valid_options in options["validation_set"]:
             dataset, _ = get_dataset(valid_options)
             val_datasets.append(dataset)
+            train_indices.append(None)
+            val_indices.append(None)
 
     ############################
     # SET UP TEST SET ##########
@@ -288,6 +293,7 @@ def train_model(
 
     logger.info("Setting up test set")
     test_datasets = []
+    test_indices = []
     if isinstance(options["test_set"], float):
         test_size = options["test_set"]
         train_size -= test_size
@@ -301,6 +307,18 @@ def train_model(
 
             train_datasets[i_dataset] = train_dataset_new
             test_datasets.append(test_dataset)
+            there_was_no_validation_split = train_indices[i_dataset] is None
+            new_train_indices = (
+                train_dataset_new.indices
+                if there_was_no_validation_split
+                else [train_indices[i_dataset][i] for i in train_dataset_new.indices]
+            )
+            test_indices.append(
+                test_dataset.indices
+                if there_was_no_validation_split
+                else [train_indices[i_dataset][i] for i in test_dataset.indices]
+            )
+            train_indices[i_dataset] = new_train_indices
     else:
         options["test_set"] = expand_dataset_config(options["test_set"])
 
@@ -319,6 +337,14 @@ def train_model(
         for test_options in options["test_set"]:
             dataset, _ = get_dataset(test_options)
             test_datasets.append(dataset)
+            test_indices.append(None)
+
+    ############################################
+    # SAVE TRAIN, VALIDATION, TEST INDICES #####
+    ############################################
+
+    if is_main_process():
+        _save_indices(train_indices, val_indices, test_indices, checkpoint_dir)
 
     ###########################
     # CREATE DATASET_INFO #####
@@ -464,6 +490,16 @@ def train_model(
     )
     mts_atomistic_model = mts_atomistic_model.to(final_device)
 
+    batch_size = _get_batch_size_from_hypers(hypers)
+    if batch_size is None:
+        logger.warning(
+            "Could not find batch size in hypers dictionary. "
+            "Using default value of 1 for final evaluation."
+        )
+        batch_size = 1
+    else:
+        logger.info(f"Running final evaluation with batch size {batch_size}")
+
     for i, train_dataset in enumerate(train_datasets):
         if len(train_datasets) == 1:
             extra_log_message = ""
@@ -476,6 +512,7 @@ def train_model(
             train_dataset,
             dataset_info.targets,
             return_predictions=False,
+            batch_size=batch_size,
         )
 
     for i, val_dataset in enumerate(val_datasets):
@@ -490,6 +527,7 @@ def train_model(
             val_dataset,
             dataset_info.targets,
             return_predictions=False,
+            batch_size=batch_size,
         )
 
     for i, test_dataset in enumerate(test_datasets):
@@ -504,4 +542,23 @@ def train_model(
             test_dataset,
             dataset_info.targets,
             return_predictions=False,
+            batch_size=batch_size,
         )
+
+
+def _get_batch_size_from_hypers(hypers: Union[Dict, DictConfig]) -> Optional[int]:
+    # Recursively searches for "batch_size", "batch-size", "batch size", "batchsize",
+    # or their upper-case equivalents in the hypers dictionary and returns the value.
+    # If not found, it returns None.
+    for key in hypers.keys():
+        value = hypers[key]
+        if isinstance(value, dict) or isinstance(value, DictConfig):
+            batch_size = _get_batch_size_from_hypers(value)
+            if batch_size is not None:
+                return batch_size
+        if (
+            key.lower().replace("_", "").replace("-", "").replace(" ", "")
+            == "batchsize"
+        ):
+            return value
+    return None

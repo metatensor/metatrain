@@ -22,7 +22,7 @@ def write_xyz(
     to each atom are saved inside atoms.arrays, while any other arrays are
     saved inside atoms.info.
 
-    :param filename: name of the file to read.
+    :param filename: name of the file to save to.
     :param systems: structures to be written to the file.
     :param: capabilities: capabilities of the model.
     :param predictions: prediction values to be written to the file.
@@ -49,7 +49,7 @@ def write_xyz(
         info = {}
         arrays = {}
         for target_name, target_map in system_predictions.items():
-            if len(target_map.keys.names) != 1:
+            if len(target_map.keys) != 1:
                 raise ValueError(
                     "Only single-block `TensorMap`s can be "
                     "written to xyz files for the moment."
@@ -76,10 +76,7 @@ def write_xyz(
                 if "forces" in external_name:
                     arrays[external_name] = (
                         # squeeze the property dimension
-                        -gradient_block.values.detach()
-                        .cpu()
-                        .squeeze(-1)
-                        .numpy()
+                        -gradient_block.values.detach().cpu().squeeze(-1).numpy()
                     )
                 elif "virial" in external_name:
                     # in this case, we write both the virial and the stress
@@ -87,10 +84,7 @@ def write_xyz(
                     external_name_stress = external_name.replace("virial", "stress")
                     strain_derivatives = (
                         # squeeze the property dimension
-                        gradient_block.values.detach()
-                        .cpu()
-                        .squeeze(-1)
-                        .numpy()
+                        gradient_block.values.detach().cpu().squeeze(-1).numpy()
                     )
                     if not torch.any(system.cell != 0):
                         raise ValueError(
@@ -99,18 +93,14 @@ def write_xyz(
                     cell_volume = torch.det(system.cell).item()
                     if cell_volume == 0:
                         raise ValueError(
-                            "stresses cannot be written for "
-                            "systems with zero volume."
+                            "stresses cannot be written for systems with zero volume."
                         )
                     info[external_name_virial] = -strain_derivatives
                     info[external_name_stress] = strain_derivatives / cell_volume
                 else:
                     info[external_name] = (
                         # squeeze the property dimension
-                        gradient_block.values.detach()
-                        .cpu()
-                        .squeeze(-1)
-                        .numpy()
+                        gradient_block.values.detach().cpu().squeeze(-1).numpy()
                     )
 
         atoms = ase.Atoms(

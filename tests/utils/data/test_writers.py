@@ -1,6 +1,7 @@
 from typing import Dict, List, Tuple
 
 import ase.io
+import metatensor.torch
 import pytest
 import torch
 from metatensor.torch import Labels, TensorBlock, TensorMap
@@ -197,26 +198,41 @@ def test_write_xyz_cell(monkeypatch, tmp_path):
         assert atoms.info["virial"].shape == (3, 3)
 
 
-@pytest.mark.parametrize("fileformat", (None, ".xyz"))
+@pytest.mark.parametrize("filename", ("test_output.xyz", "test_output.mts"))
+@pytest.mark.parametrize("fileformat", (None, "same_as_filename"))
 @pytest.mark.parametrize("cell", (None, torch.eye(3)))
-def test_write_predictions(fileformat, cell, monkeypatch, tmp_path):
+def test_write_predictions(filename, fileformat, cell, monkeypatch, tmp_path):
     monkeypatch.chdir(tmp_path)
 
     systems, capabilities, predictions = systems_capabilities_predictions(cell=cell)
 
-    filename = "test_output.xyz"
+    if fileformat == "same_as_filename":
+        fileformat = "." + filename.split(".")[1]
 
     write_predictions(
         filename, systems, capabilities, predictions, fileformat=fileformat
     )
 
-    frames = ase.io.read(filename, index=":")
-    assert len(frames) == len(systems)
-    for i, frame in enumerate(frames):
-        assert frame.info["energy"] == float(predictions["energy"].block().values[i, 0])
-        assert frame.arrays["forces"].shape == (2, 3)
+    if filename.endswith(".xyz"):
+        frames = ase.io.read(filename, index=":")
+        assert len(frames) == len(systems)
+        for i, frame in enumerate(frames):
+            assert frame.info["energy"] == float(
+                predictions["energy"].block().values[i, 0]
+            )
+            assert frame.arrays["forces"].shape == (2, 3)
+            if cell is not None:
+                assert frame.info["stress"].shape == (3, 3)
+
+    elif filename.endswith(".mts"):
+        tensormap = metatensor.torch.load(filename.split(".")[0] + "_energy.mts")
+        assert tensormap.block().values.shape == (2, 1)
+        assert tensormap.block().gradient("positions").values.shape == (4, 3, 1)
         if cell is not None:
-            assert frame.info["stress"].shape == (3, 3)
+            assert tensormap.block().gradient("strain").values.shape == (2, 3, 3, 1)
+
+    else:
+        ValueError("This test only does `.xyz` and `.mts`")
 
 
 def test_write_predictions_unknown_fileformat():

@@ -1,6 +1,8 @@
 import math
+import os
 import warnings
-from typing import Any, Dict, List, Tuple, Union
+from pathlib import Path
+from typing import Any, Dict, List, Optional, Tuple, Union
 
 import numpy as np
 from metatensor.learn.data import Dataset, group_and_join
@@ -83,10 +85,13 @@ class DatasetInfo:
 
         intersecting_target_keys = self.targets.keys() & other.targets.keys()
         for key in intersecting_target_keys:
-            if self.targets[key] != other.targets[key]:
+            if not self.targets[key].is_compatible_with(other.targets[key]):
                 raise ValueError(
                     f"Can't update DatasetInfo with different target information for "
-                    f"target '{key}': {self.targets[key]} != {other.targets[key]}"
+                    f"target '{key}': {self.targets[key]} is not compatible with "
+                    f"{other.targets[key]}. If the units, quantity and keys of the two "
+                    "targets are the same, this must be due to a mismatch in the "
+                    "internal metadata of the layout."
                 )
         self.targets.update(other.targets)
 
@@ -185,8 +190,8 @@ def get_atomic_types(datasets: Union[Dataset, List[Dataset]]) -> List[int]:
 
     types = set()
     for dataset in datasets:
-        for index in range(len(dataset)):
-            system = dataset[index]["system"]
+        for sample in dataset:
+            system = sample["system"]
             types.update(set(system.types.tolist()))
 
     return sorted(types)
@@ -223,7 +228,7 @@ def collate_fn(batch: List[Dict[str, Any]]) -> Tuple[List, Dict[str, TensorMap]]
     targets.
     """
 
-    collated_targets = group_and_join(batch)
+    collated_targets = group_and_join(batch, join_kwargs={"remove_tensor_name": True})
     collated_targets = collated_targets._asdict()
     systems = collated_targets.pop("system")
     return systems, collated_targets
@@ -336,3 +341,64 @@ def _train_test_random_split(
         Subset(train_dataset, train_indices),
         Subset(train_dataset, test_indices),
     ]
+
+
+def _save_indices(
+    train_indices: List[Optional[List[int]]],
+    val_indices: List[Optional[List[int]]],
+    test_indices: List[Optional[List[int]]],
+    checkpoint_dir: Union[str, Path],
+) -> None:
+    # Save the indices of the training, validation, and test sets to the checkpoint
+    # directory. This is useful for plotting errors and similar.
+
+    # case 1: all indices are None (i.e. all datasets were user-provided explicitly)
+    if all(indices is None for indices in train_indices):
+        pass
+
+    # case 2: there is only one dataset
+    elif len(train_indices) == 1:  # val and test are the same length
+        os.mkdir(os.path.join(checkpoint_dir, "indices/"))
+        if train_indices[0] is not None:
+            np.savetxt(
+                os.path.join(checkpoint_dir, "indices/training.txt"),
+                train_indices[0],
+                fmt="%d",
+            )
+        if val_indices[0] is not None:
+            np.savetxt(
+                os.path.join(checkpoint_dir, "indices/validation.txt"),
+                val_indices[0],
+                fmt="%d",
+            )
+        if test_indices[0] is not None:
+            np.savetxt(
+                os.path.join(checkpoint_dir, "indices/test.txt"),
+                test_indices[0],
+                fmt="%d",
+            )
+
+    # case 3: there are multiple datasets
+    else:
+        os.mkdir(os.path.join(checkpoint_dir, "indices/"))
+        for i, (train, val, test) in enumerate(
+            zip(train_indices, val_indices, test_indices)
+        ):
+            if train is not None:
+                np.savetxt(
+                    os.path.join(checkpoint_dir, f"indices/training_{i}.txt"),
+                    train,
+                    fmt="%d",
+                )
+            if val is not None:
+                np.savetxt(
+                    os.path.join(checkpoint_dir, f"indices/validation_{i}.txt"),
+                    val,
+                    fmt="%d",
+                )
+            if test is not None:
+                np.savetxt(
+                    os.path.join(checkpoint_dir, f"indices/test_{i}.txt"),
+                    test,
+                    fmt="%d",
+                )

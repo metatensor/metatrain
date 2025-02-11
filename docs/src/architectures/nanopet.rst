@@ -67,8 +67,8 @@ hyperparameters to tune are (in decreasing order of importance):
   ``huber``. ``huber`` is a subsection of its own, and it requires the user to specify
   the ``deltas`` parameters in a similar way to how the ``weights`` are specified (e.g.,
   ``deltas: {"energy": 0.1, "forces": 0.01}``). 3. ``reduction``. This controls how the
-  loss is reduced over batches. The default value is ``sum``, and the other allowed
-  option is ``mean``.
+  loss is reduced over batches. The default value is ``mean``, and the other allowed
+  option is ``sum``.
 
 
 All Hyperparameters
@@ -86,6 +86,10 @@ The model-related hyperparameters are
 :param num_heads: Number of attention heads
 :param num_attention_layers: Number of attention layers in each GNN layer
 :param num_gnn_layers: Number of GNN layers
+:param heads: The type of head ("linear" or "mlp") to use for each target (e.g.
+  ``heads: {"energy": "linear", "mtt::dipole": "mlp"}``). All omitted targets will use a
+  MLP (multi-layer perceptron) head. MLP heads consist of two hidden layers with
+  dimensionality ``d_pet``.
 :param zbl: Whether to use the ZBL short-range repulsion as the baseline for the model
 
 training
@@ -101,10 +105,18 @@ The hyperparameters for training are
 :param scheduler_factor: Factor to reduce the learning rate by
 :param log_interval: Interval at which to log training metrics
 :param checkpoint_interval: Interval at which to save model checkpoints
+:param scale_targets: Whether to scale the targets to have unit standard deviation
+  across the training set during training.
 :param fixed_composition_weights: Weights for fixed atomic contributions to scalar
   targets
 :param per_structure_targets: Targets to calculate per-structure losses for
-:param log_mae: Whether to log the MAE (mean absolute error) of the model in addition
-  to the RMSE
+:param log_mae: Also logs MAEs in addition to RMSEs.
+:param log_separate_blocks: Whether to log the errors each block of the targets
+  separately.
 :param loss: The loss function to use, with the subfields described in the previous
   section
+:param best_model_metric: specifies the validation set metric to use to select the best
+    model, i.e. the model that will be saved as ``model.ckpt`` and ``model.pt`` both in
+    the current directory and in the checkpoint directory. The default is ``rmse_prod``,
+    i.e., the product of the RMSEs for each target. Other options are ``mae_prod`` and
+    ``loss``.

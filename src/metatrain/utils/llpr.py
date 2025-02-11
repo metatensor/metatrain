@@ -12,6 +12,8 @@ from metatensor.torch.atomistic import (
 )
 from torch.utils.data import DataLoader
 
+from metatrain.utils.data.target_info import is_auxiliary_output
+
 from .data import DatasetInfo, TargetInfo, get_atomic_types
 from .evaluate_model import evaluate_model
 from .per_atom import average_by_num_atoms
@@ -42,7 +44,7 @@ class LLPRUncertaintyModel(torch.nn.Module):
         additional_capabilities = {}
         self.uncertainty_multipliers = {}
         for name, output in old_capabilities.outputs.items():
-            if name.startswith("mtt::aux"):
+            if is_auxiliary_output(name):
                 continue  # auxiliary output
             uncertainty_name = f"mtt::aux::{name.replace('mtt::', '')}_uncertainty"
             additional_capabilities[uncertainty_name] = ModelOutput(
@@ -61,22 +63,24 @@ class LLPRUncertaintyModel(torch.nn.Module):
         )
 
         # register covariance and inverse covariance buffers
-        self.register_buffer(
-            "covariance",
-            torch.zeros(
+        device = next(self.model.parameters()).device
+        dtype = getattr(torch, old_capabilities.dtype)
+        self.covariances = {
+            uncertainty_name: torch.zeros(
                 (self.ll_feat_size, self.ll_feat_size),
-                device=next(self.model.parameters()).device,
-                dtype=next(self.model.parameters()).dtype,
-            ),
-        )
-        self.register_buffer(
-            "inv_covariance",
-            torch.zeros(
+                device=device,
+                dtype=dtype,
+            )
+            for uncertainty_name in self.uncertainty_multipliers.keys()
+        }
+        self.inv_covariances = {
+            uncertainty_name: torch.zeros(
                 (self.ll_feat_size, self.ll_feat_size),
-                device=next(self.model.parameters()).device,
-                dtype=next(self.model.parameters()).dtype,
-            ),
-        )
+                device=device,
+                dtype=dtype,
+            )
+            for uncertainty_name in self.uncertainty_multipliers.keys()
+        }
 
         # flags
         self.covariance_computed = False
@@ -89,6 +93,13 @@ class LLPRUncertaintyModel(torch.nn.Module):
         outputs: Dict[str, ModelOutput],
         selected_atoms: Optional[Labels] = None,
     ) -> Dict[str, TensorMap]:
+        device = systems[0].positions.device
+        if list(self.covariances.values())[0].device != device:
+            for name in self.covariances.keys():
+                self.covariances[name] = self.covariances[name].to(device=device)
+                self.inv_covariances[name] = self.inv_covariances[name].to(
+                    device=device
+                )
 
         if not self.inv_covariance_computed:
             raise ValueError(
@@ -113,13 +124,24 @@ class LLPRUncertaintyModel(torch.nn.Module):
                 "atom or not per atom with LLPR."
             )
         per_atom = per_atom_all_targets[0]
-        outputs_for_model = {
-            "mtt::aux::last_layer_features": ModelOutput(
-                quantity="",
-                unit="",
-                per_atom=per_atom,
-            ),
-        }
+        outputs_for_model: Dict[str, ModelOutput] = {}
+        for name in outputs.keys():
+            if name.endswith("_uncertainty"):
+                base_name = name.replace("_uncertainty", "").replace("mtt::aux::", "")
+                if base_name not in outputs and f"mtt::{base_name}" not in outputs:
+                    raise ValueError(
+                        f"Requested uncertainty '{name}' without corresponding "
+                        f"output `{base_name}` (or `mtt::{base_name}`)."
+                    )
+                # request corresponding features
+                target_name = name.replace("mtt::aux::", "").replace("_uncertainty", "")
+                outputs_for_model[f"mtt::aux::{target_name}_last_layer_features"] = (
+                    ModelOutput(
+                        quantity="",
+                        unit="",
+                        per_atom=per_atom,
+                    )
+                )
         for name, output in outputs.items():
             # remove uncertainties from the requested outputs for the
             # wrapped model
@@ -136,41 +158,46 @@ class LLPRUncertaintyModel(torch.nn.Module):
         )
         return_dict = self.model(systems, options, check_consistency=False)
 
-        ll_features = return_dict["mtt::aux::last_layer_features"]
-
-        # the code is the same for PR and LPR
-        one_over_pr_values = torch.einsum(
-            "ij, jk, ik -> i",
-            ll_features.block().values,
-            self.inv_covariance,
-            ll_features.block().values,
-        ).unsqueeze(1)
-        one_over_pr = TensorMap(
-            keys=Labels(
-                names=["_"],
-                values=torch.tensor([[0]], device=ll_features.block().values.device),
-            ),
-            blocks=[
-                TensorBlock(
-                    values=one_over_pr_values,
-                    samples=ll_features.block().samples,
-                    components=ll_features.block().components,
-                    properties=Labels(
-                        names=["_"],
-                        values=torch.tensor(
-                            [[0]], device=ll_features.block().values.device
-                        ),
-                    ),
-                )
-            ],
-        )
-
         requested_uncertainties: List[str] = []
         for name in outputs.keys():
-            if name.startswith("mtt::aux") and name.endswith("_uncertainty"):
+            if name.startswith("mtt::aux::") and name.endswith("_uncertainty"):
                 requested_uncertainties.append(name)
 
         for name in requested_uncertainties:
+            ll_features = return_dict[
+                name.replace("_uncertainty", "_last_layer_features")
+            ]
+
+            # compute PRs
+            # the code is the same for PR and LPR
+            one_over_pr_values = torch.einsum(
+                "ij, jk, ik -> i",
+                ll_features.block().values,
+                self.inv_covariances[name],
+                ll_features.block().values,
+            ).unsqueeze(1)
+            one_over_pr = TensorMap(
+                keys=Labels(
+                    names=["_"],
+                    values=torch.tensor(
+                        [[0]], device=ll_features.block().values.device
+                    ),
+                ),
+                blocks=[
+                    TensorBlock(
+                        values=one_over_pr_values,
+                        samples=ll_features.block().samples,
+                        components=ll_features.block().components,
+                        properties=Labels(
+                            names=["_"],
+                            values=torch.tensor(
+                                [[0]], device=ll_features.block().values.device
+                            ),
+                        ),
+                    )
+                ],
+            )
+
             return_dict[name] = metatensor.torch.multiply(
                 one_over_pr, self.uncertainty_multipliers[name]
             )
@@ -182,6 +209,11 @@ class LLPRUncertaintyModel(torch.nn.Module):
                 requested_ensembles.append(name)
 
         for name in requested_ensembles:
+            ll_features_name = name.replace("_ensemble", "_last_layer_features")
+            if ll_features_name == "energy_last_layer_features":
+                # special case for energy_ensemble
+                ll_features_name = "mtt::aux::energy_last_layer_features"
+            ll_features = return_dict[ll_features_name]
             # get the ensemble weights (getattr not supported by torchscript)
             ensemble_weights = torch.tensor(0.0)
             for buffer_name, buffer in self.named_buffers():
@@ -194,6 +226,7 @@ class LLPRUncertaintyModel(torch.nn.Module):
                 ll_features.block().values,
                 ensemble_weights,
             )
+            property_name = "energy" if name == "energy_ensemble" else "ensemble_member"
             ensemble = TensorMap(
                 keys=Labels(
                     names=["_"],
@@ -207,7 +240,7 @@ class LLPRUncertaintyModel(torch.nn.Module):
                         samples=ll_features.block().samples,
                         components=ll_features.block().components,
                         properties=Labels(
-                            names=["ensemble_member"],
+                            names=[property_name],
                             values=torch.arange(
                                 ensemble_values.shape[1], device=ensemble_values.device
                             ).unsqueeze(1),
@@ -218,8 +251,10 @@ class LLPRUncertaintyModel(torch.nn.Module):
             return_dict[name] = ensemble
 
         # remove the last-layer features from return_dict if they were not requested
-        if "mtt::aux::last_layer_features" not in outputs:
-            return_dict.pop("mtt::aux::last_layer_features")
+        for key in list(return_dict.keys()):
+            if key.endswith("_last_layer_features"):
+                if key not in outputs:
+                    return_dict.pop(key)
 
         return return_dict
 
@@ -232,29 +267,45 @@ class LLPRUncertaintyModel(torch.nn.Module):
             The individual samples need to be compatible with the ``Dataset``
             class in ``metatrain``.
         """
-        device = self.covariance.device
-        dtype = self.covariance.dtype
+        device = next(iter(self.covariances.values())).device
+        dtype = next(iter(self.covariances.values())).dtype
         for batch in train_loader:
-            systems, _ = batch
+            systems, targets = batch
             n_atoms = torch.tensor(
                 [len(system.positions) for system in systems], device=device
             )
             systems = [system.to(device=device, dtype=dtype) for system in systems]
-            outputs = {
-                "mtt::aux::last_layer_features": ModelOutput(
+            options_for_targets = {
+                name: ModelOutput(
                     quantity="",
                     unit="",
                     per_atom=False,
                 )
+                for name in targets.keys()
+            }
+            outputs_for_features = {
+                f"mtt::aux::{name.replace('mtt::', '')}_last"
+                "_layer_features": ModelOutput(
+                    quantity="",
+                    unit="",
+                    per_atom=False,
+                )
+                for name in targets.keys()
             }
             options = ModelEvaluationOptions(
                 length_unit="",
-                outputs=outputs,
+                outputs={**options_for_targets, **outputs_for_features},
             )
             output = self.model(systems, options, check_consistency=False)
-            ll_feat_tmap = output["mtt::aux::last_layer_features"]
-            ll_feats = ll_feat_tmap.block().values.detach() / n_atoms.unsqueeze(1)
-            self.covariance += ll_feats.T @ ll_feats
+            for name in targets.keys():
+                ll_feat_tmap = output[
+                    f"mtt::aux::{name.replace('mtt::', '')}_last_layer_features"
+                ]
+                ll_feats = ll_feat_tmap.block().values.detach() / n_atoms.unsqueeze(1)
+                self.covariances[
+                    f"mtt::aux::{name.replace('mtt::', '')}_uncertainty"
+                ] += ll_feats.T @ ll_feats
+
         self.covariance_computed = True
 
     def compute_covariance_as_pseudo_hessian(
@@ -262,7 +313,7 @@ class LLPRUncertaintyModel(torch.nn.Module):
         train_loader: DataLoader,
         target_infos: Dict[str, TargetInfo],
         loss_fn: Callable,
-        parameters: List[torch.nn.Parameter],
+        parameters: Dict[str, List[torch.nn.Parameter]],
     ) -> None:
         """A function to compute the covariance matrix for a training set
         as the pseudo-Hessian of the loss function.
@@ -295,8 +346,13 @@ class LLPRUncertaintyModel(torch.nn.Module):
         # disable gradients for all parameters that are not in the list
         for parameter in self.model.parameters():
             parameter.requires_grad = False
-        for parameter in parameters:
-            parameter.requires_grad = True
+        all_parameters_that_require_grad = []
+        all_output_names = []
+        for output_name, output_parameters in parameters.items():
+            for parameter in output_parameters:
+                all_parameters_that_require_grad.append(parameter)
+                all_output_names.append(output_name)
+                parameter.requires_grad = True
 
         dataset = train_loader.dataset
         dataset_info = DatasetInfo(
@@ -305,8 +361,8 @@ class LLPRUncertaintyModel(torch.nn.Module):
             targets=target_infos,
         )
         train_targets = dataset_info.targets
-        device = self.covariance.device
-        dtype = self.covariance.dtype
+        device = next(iter(self.covariances.values())).device
+        dtype = next(iter(self.covariances.values())).dtype
         for batch in train_loader:
             systems, targets = batch
             systems = [system.to(device=device, dtype=dtype) for system in systems]
@@ -329,22 +385,32 @@ class LLPRUncertaintyModel(torch.nn.Module):
 
             grads = torch.autograd.grad(
                 loss,
-                parameters,
+                all_parameters_that_require_grad,
                 create_graph=False,
                 retain_graph=False,
                 allow_unused=True,  # if there are multiple last-layers
                 materialize_grads=True,  # avoid Nones
             )
 
-            grads = torch.cat(grads, dim=1)
-            self.covariance += grads.T @ grads
-            for parameter in parameters:
+            for output_name in np.unique(all_output_names):
+                grads = [
+                    grad
+                    for grad, name in zip(grads, all_output_names)
+                    if name == output_name
+                ]
+                grads = torch.cat(grads, dim=1)
+                self.covariances[
+                    "mtt::aux::" + output_name.replace("mtt::", "") + "_uncertainty"
+                ] += grads.T @ grads
+
+            for parameter in all_parameters_that_require_grad:
                 parameter.grad = None  # reset the gradients
 
         self.covariance_computed = True
 
         for parameter in self.model.parameters():
             parameter.requires_grad = True
+
         self.model = self.model.eval()  # restore the model to evaluation mode
 
     def compute_inverse_covariance(self, regularizer: Optional[float] = None):
@@ -357,33 +423,39 @@ class LLPRUncertaintyModel(torch.nn.Module):
             inverse without regularization and increase the regularization
             parameter until the matrix is invertible.
         """
-        if regularizer is not None:
-            self.inv_covariance = torch.inverse(
-                self.covariance
-                + regularizer
-                * torch.eye(self.ll_feat_size, device=self.covariance.device)
-            )
-        else:
-            # Try with an increasingly high regularization parameter until
-            # the matrix is invertible
-            def is_psd(x):
-                return torch.all(torch.linalg.eigvalsh(x) >= 0.0)
+        for name in self.covariances.keys():
+            if regularizer is not None:
+                self.inv_covariances[name] = torch.inverse(
+                    self.covariances[name]
+                    + regularizer
+                    * torch.eye(self.ll_feat_size, device=self.covariances[name].device)
+                )
+            else:
+                # Try with an increasingly high regularization parameter until
+                # the matrix is invertible
+                def is_psd(x):
+                    return torch.all(torch.linalg.eigvalsh(x) >= 0.0)
 
-            for log10_sigma_squared in torch.linspace(-20.0, 16.0, 33):
-                if not is_psd(
-                    self.covariance
-                    + 10**log10_sigma_squared
-                    * torch.eye(self.ll_feat_size, device=self.covariance.device)
-                ):
-                    continue
-                else:
-                    inverse = torch.inverse(
-                        self.covariance
-                        + 10 ** (log10_sigma_squared + 0.0)
-                        * torch.eye(self.ll_feat_size, device=self.covariance.device)
-                    )
-                    self.inv_covariance = (inverse + inverse.T) / 2.0
-                    break
+                for log10_sigma_squared in torch.linspace(-20.0, 16.0, 33):
+                    if not is_psd(
+                        self.covariances[name]
+                        + 10**log10_sigma_squared
+                        * torch.eye(
+                            self.ll_feat_size, device=self.covariances[name].device
+                        )
+                    ):
+                        continue
+                    else:
+                        inverse = torch.inverse(
+                            self.covariances[name]
+                            + 10 ** (log10_sigma_squared + 0.0)
+                            * torch.eye(
+                                self.ll_feat_size, device=self.covariances[name].device
+                            )
+                        )
+                        self.inv_covariances[name] = (inverse + inverse.T) / 2.0
+                        break
+
         self.inv_covariance_computed = True
 
     def calibrate(self, valid_loader: DataLoader):
@@ -401,8 +473,10 @@ class LLPRUncertaintyModel(torch.nn.Module):
             ``Dataset`` class in ``metatrain.utils.data``.
         """
         # calibrate the LLPR
-        device = self.covariance.device
-        dtype = self.covariance.dtype
+        # TODO: in the future, we might want to have one calibration factor per
+        # property for outputs with multiple properties
+        device = next(iter(self.covariances.values())).device
+        dtype = next(iter(self.covariances.values())).dtype
         all_predictions = {}  # type: ignore
         all_targets = {}  # type: ignore
         all_uncertainties = {}  # type: ignore
@@ -489,28 +563,28 @@ class LLPRUncertaintyModel(torch.nn.Module):
         # sampling; each member is sampled from a multivariate normal distribution
         # with mean given by the input weights and covariance given by the inverse
         # covariance matrix
-        device = self.inv_covariance.device
-        dtype = self.inv_covariance.dtype
         for name, weights in weight_tensors.items():
+            uncertainty_name = "mtt::aux::" + name.replace("mtt::", "") + "_uncertainty"
+            device = self.inv_covariances[uncertainty_name].device
+            dtype = self.inv_covariances[uncertainty_name].dtype
             rng = np.random.default_rng()
             ensemble_weights = rng.multivariate_normal(
                 weights.clone().detach().cpu().numpy(),
-                self.inv_covariance.clone().detach().cpu().numpy()
-                * self.uncertainty_multipliers[
-                    "mtt::aux::" + name.replace("_ensemble", "") + "_uncertainty"
-                ],
+                self.inv_covariances[uncertainty_name].clone().detach().cpu().numpy()
+                * self.uncertainty_multipliers[uncertainty_name],
                 size=n_members,
                 method="svd",
             ).T
             ensemble_weights = torch.tensor(
                 ensemble_weights, device=device, dtype=dtype
             )
-            if not name.startswith("mtt::"):
-                mtt_name = "mtt::" + name
-            else:
-                mtt_name = name
+            ensemble_weights_name = (
+                "mtt::aux::" + name.replace("mtt::", "") + "_ensemble_weights"
+            )
+            if ensemble_weights_name == "mtt::aux::energy_ensemble_weights":
+                ensemble_weights_name = "energy_ensemble_weights"
             self.register_buffer(
-                mtt_name + "_ensemble_weights",
+                ensemble_weights_name,
                 ensemble_weights,
             )
 
@@ -518,12 +592,10 @@ class LLPRUncertaintyModel(torch.nn.Module):
         old_outputs = self.capabilities.outputs
         new_outputs = {}
         for name in weight_tensors.keys():
-            if not name.startswith("mtt::"):
-                mtt_name = "mtt::" + name
-            else:
-                mtt_name = name
-            new_name = f"{mtt_name}_ensemble"
-            new_outputs[new_name] = ModelOutput(
+            ensemble_name = "mtt::aux::" + name.replace("mtt::", "") + "_ensemble"
+            if ensemble_name == "mtt::aux::energy_ensemble":
+                ensemble_name = "energy_ensemble"
+            new_outputs[ensemble_name] = ModelOutput(
                 quantity=old_outputs[name].quantity,
                 unit=old_outputs[name].unit,
                 per_atom=old_outputs[name].per_atom,

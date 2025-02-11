@@ -221,12 +221,16 @@ class GAP(torch.nn.Module):
         if not self.training:
             # at evaluation, we also add the additive contributions
             for additive_model in self.additive_models:
+                outputs_for_additive_model: Dict[str, ModelOutput] = {}
+                for name, output in outputs.items():
+                    if name in additive_model.outputs:
+                        outputs_for_additive_model[name] = output
                 additive_contributions = additive_model(
-                    systems, outputs, selected_atoms
+                    systems,
+                    outputs_for_additive_model,
+                    selected_atoms,
                 )
-                for name in return_dict:
-                    if name.startswith("mtt::aux::"):
-                        continue  # skip auxiliary outputs (not targets)
+                for name in additive_contributions:
                     return_dict[name] = metatensor.torch.add(
                         return_dict[name],
                         additive_contributions[name],
@@ -235,7 +239,6 @@ class GAP(torch.nn.Module):
         return return_dict
 
     def export(self) -> MetatensorAtomisticModel:
-
         interaction_ranges = [self.hypers["soap"]["cutoff"]]
         for additive_model in self.additive_models:
             if hasattr(additive_model, "cutoff_radius"):
@@ -454,8 +457,7 @@ class _SorKernelSolver:
                 Phi = KNM
             else:
                 raise ValueError(
-                    "Partial fit can only be realized with "
-                    "solver = 'RKHS' or 'solve'"
+                    "Partial fit can only be realized with solver = 'RKHS' or 'solve'"
                 )
             if self._KY is None:
                 self._KY = np.zeros((self._nM, Y.shape[1]))

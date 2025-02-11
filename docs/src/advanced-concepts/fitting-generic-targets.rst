@@ -21,12 +21,7 @@ capabilities of the architectures in metatrain.
    * - SOAP-BPNN
      - Energy, forces, stress/virial
      - Yes
-     - Only with ``o3_lambda=1, o3_sigma=1``
-     - No
-   * - Alchemical Model
-     - Energy, forces, stress/virial
-     - No
-     - No
+     - Yes
      - No
    * - GAP
      - Energy, forces
@@ -41,7 +36,7 @@ capabilities of the architectures in metatrain.
    * - NanoPET
      - Energy, forces, stress/virial
      - Yes
-     - No
+     - Yes
      - Only with ``rank=1`` (vectors)
 
 
