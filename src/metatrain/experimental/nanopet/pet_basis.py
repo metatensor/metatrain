@@ -359,7 +359,7 @@ def symmetrize_predictions_edge(
             elif key["block_type"] == -1:
                 edge_blocks.append(block_minus)
             else:
-                raise ValueError("Block type must be 1 or -1 for Z1=Z2={Z1}")
+                raise ValueError(f"Block type must be 1 or -1 for Z1=Z2={Z1}")
         else:
             edge_blocks.append(block)
 
