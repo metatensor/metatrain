@@ -10,6 +10,7 @@ from .additive import remove_additive
 from .data import Dataset, DatasetInfo, TargetInfo, get_all_targets
 from .jsonschema import validate
 from .per_atom import average_by_num_atoms
+from .transfer import systems_and_targets_to_device
 
 
 class Scaler(torch.nn.Module):
@@ -82,6 +83,8 @@ class Scaler(torch.nn.Module):
         if not isinstance(datasets, list):
             datasets = [datasets]
 
+        device = self.scales.device
+
         # Fill the scales for each "new" target (i.e. those that do not already
         # have scales from a previous training run)
         for target_key in self.new_targets:
@@ -97,11 +100,14 @@ class Scaler(torch.nn.Module):
 
             sum_of_squared_targets = 0.0
             total_num_elements = 0
-
             for dataset in datasets_with_target:
                 for sample in dataset:
                     systems = [sample["system"]]
                     targets = {target_key: sample[target_key]}
+
+                    systems, targets = systems_and_targets_to_device(
+                        systems, targets, device
+                    )
 
                     for additive_model in additive_models:
                         target_info_dict = {target_key: self.new_targets[target_key]}

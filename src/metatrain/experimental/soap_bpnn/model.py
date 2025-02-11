@@ -195,13 +195,26 @@ class SoapBpnn(torch.nn.Module):
                 targets={
                     target_name: target_info
                     for target_name, target_info in dataset_info.targets.items()
-                    if CompositionModel.is_valid_target(target_info)
+                    if CompositionModel.is_valid_target(target_name, target_info)
                 },
             ),
         )
         additive_models = [composition_model]
         if self.hypers["zbl"]:
-            additive_models.append(ZBL(model_hypers, dataset_info))
+            additive_models.append(
+                ZBL(
+                    {},
+                    dataset_info=DatasetInfo(
+                        length_unit=dataset_info.length_unit,
+                        atomic_types=self.atomic_types,
+                        targets={
+                            target_name: target_info
+                            for target_name, target_info in dataset_info.targets.items()
+                            if ZBL.is_valid_target(target_name, target_info)
+                        },
+                    ),
+                )
+            )
         self.additive_models = torch.nn.ModuleList(additive_models)
 
         # scaler: this is also handled by the trainer at training time
@@ -240,7 +253,7 @@ class SoapBpnn(torch.nn.Module):
                 targets={
                     target_name: target_info
                     for target_name, target_info in dataset_info.targets.items()
-                    if CompositionModel.is_valid_target(target_info)
+                    if CompositionModel.is_valid_target(target_name, target_info)
                 },
             ),
         )

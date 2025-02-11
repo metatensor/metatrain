@@ -1,3 +1,4 @@
+import logging
 from pathlib import Path
 
 import metatensor.torch
@@ -90,7 +91,7 @@ def test_composition_model_train():
         ),
     )
 
-    composition_model.train_model(dataset)
+    composition_model.train_model(dataset, [])
     assert composition_model.weights.shape[0] == 1
     assert composition_model.weights.shape[1] == 2
     assert composition_model.output_name_to_output_index == {"energy": 0}
@@ -99,7 +100,7 @@ def test_composition_model_train():
         composition_model.weights, torch.tensor([[2.0, 1.0]], dtype=torch.float64)
     )
 
-    composition_model.train_model([dataset])
+    composition_model.train_model([dataset], [])
     assert composition_model.weights.shape[0] == 1
     assert composition_model.weights.shape[1] == 2
     assert composition_model.output_name_to_output_index == {"energy": 0}
@@ -108,7 +109,7 @@ def test_composition_model_train():
         composition_model.weights, torch.tensor([[2.0, 1.0]], dtype=torch.float64)
     )
 
-    composition_model.train_model([dataset, dataset, dataset])
+    composition_model.train_model([dataset, dataset, dataset], [])
     assert composition_model.weights.shape[0] == 1
     assert composition_model.weights.shape[1] == 2
     assert composition_model.output_name_to_output_index == {"energy": 0}
@@ -152,7 +153,7 @@ def test_composition_model_predict():
         ),
     )
 
-    composition_model.train_model(dataset)
+    composition_model.train_model(dataset, [])
 
     # per_atom = False
     output = composition_model(
@@ -261,7 +262,7 @@ def test_remove_additive():
             targets=target_info,
         ),
     )
-    composition_model.train_model(dataset)
+    composition_model.train_model(dataset, [])
 
     # concatenate all targets
     targets["mtt::U0"] = metatensor.torch.join(targets["mtt::U0"], axis="samples")
@@ -275,9 +276,9 @@ def test_remove_additive():
     assert std_after < 100.0 * std_before
 
 
-def test_composition_model_missing_types():
+def test_composition_model_missing_types(caplog):
     """
-    Test the error when there are too many or too types in the dataset
+    Test the error when there are too many types in the dataset
     compared to those declared at initialization.
     """
 
@@ -348,7 +349,7 @@ def test_composition_model_missing_types():
         ValueError,
         match="unknown atomic types",
     ):
-        composition_model.train_model(dataset)
+        composition_model.train_model(dataset, [])
 
     composition_model = CompositionModel(
         model_hypers={},
@@ -358,11 +359,10 @@ def test_composition_model_missing_types():
             targets={"energy": get_energy_target_info({"unit": "eV"})},
         ),
     )
-    with pytest.warns(
-        UserWarning,
-        match="do not contain atomic types",
-    ):
-        composition_model.train_model(dataset)
+    # need to capture the warning from the logger
+    with caplog.at_level(logging.WARNING):
+        composition_model.train_model(dataset, [])
+    assert "do not contain atomic types" in caplog.text
 
 
 def test_composition_model_wrong_target():

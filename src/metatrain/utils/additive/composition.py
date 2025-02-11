@@ -1,4 +1,4 @@
-import warnings
+import logging
 from typing import Dict, List, Optional, Union
 
 import metatensor.torch
@@ -8,6 +8,11 @@ from metatensor.torch.atomistic import ModelOutput, System
 
 from ..data import Dataset, DatasetInfo, TargetInfo, get_all_targets, get_atomic_types
 from ..jsonschema import validate
+from ..transfer import systems_and_targets_to_device
+from .remove import remove_additive
+
+
+logger = logging.getLogger(__name__)
 
 
 class CompositionModel(torch.nn.Module):
@@ -36,8 +41,8 @@ class CompositionModel(torch.nn.Module):
         self.dataset_info = dataset_info
         self.atomic_types = sorted(dataset_info.atomic_types)
 
-        for target_info in dataset_info.targets.values():
-            if not self.is_valid_target(target_info):
+        for target_name, target_info in dataset_info.targets.items():
+            if not self.is_valid_target(target_name, target_info):
                 raise ValueError(
                     f"Composition model does not support target quantity "
                     f"{target_info.quantity}. This is an architecture bug. "
@@ -64,6 +69,7 @@ class CompositionModel(torch.nn.Module):
     def train_model(
         self,
         datasets: List[Union[Dataset, torch.utils.data.Subset]],
+        additive_models: List[torch.nn.Module],
         fixed_weights: Optional[Dict[str, Dict[int, str]]] = None,
     ) -> None:
         """Train/fit the composition weights for the datasets.
@@ -71,6 +77,8 @@ class CompositionModel(torch.nn.Module):
         :param datasets: Dataset(s) to calculate the composition weights for.
         :param fixed_weights: Optional fixed weights to use for the composition model,
             for one or more target quantities.
+        :param additive_models: Additive models to be removed from the targets
+            before calculating the statistics.
 
         :raises ValueError: If the provided datasets contain unknown targets.
         :raises ValueError: If the provided datasets contain unknown atomic types.
@@ -95,11 +103,12 @@ class CompositionModel(torch.nn.Module):
 
         missing_types = sorted(set(self.atomic_types) - set(get_atomic_types(datasets)))
         if missing_types:
-            warnings.warn(
+            logger.warning(
                 f"Provided `datasets` do not contain atomic types {missing_types}. "
-                f"Known types from initialization are {self.atomic_types}.",
-                stacklevel=2,
+                f"Known types from initialization are {self.atomic_types}."
             )
+
+        device = self.weights.device
 
         # Fill the weights for each "new" target (i.e. those that do not already
         # have composition weights from a previous training run)
@@ -125,23 +134,11 @@ class CompositionModel(torch.nn.Module):
                         datasets_with_target.append(dataset)
                 if len(datasets_with_target) == 0:
                     # this is a possibility when transfer learning
-                    warnings.warn(
+                    logger.warning(
                         f"Target {target_key} in the model's new capabilities is not "
-                        "present in any of the training datasets.",
-                        stacklevel=2,
+                        "present in any of the training datasets."
                     )
                     continue
-
-                targets = torch.stack(
-                    [
-                        sample[target_key].block().values
-                        for dataset in datasets_with_target
-                        for sample in dataset
-                    ]
-                )
-
-                # remove component and property dimensions
-                targets = targets.squeeze(dim=(1, 2))
 
                 total_num_structures = sum(
                     [len(dataset) for dataset in datasets_with_target]
@@ -154,20 +151,42 @@ class CompositionModel(torch.nn.Module):
                     )
 
                 composition_features = torch.zeros(
-                    (total_num_structures, len(self.atomic_types)), dtype=dtype
+                    (total_num_structures, len(self.atomic_types)),
+                    dtype=dtype,
+                    device=device,
                 )
-                structure_index = 0
+                system_index = 0
+                targets_list = []
+
                 for dataset in datasets_with_target:
                     for sample in dataset:
-                        structure = sample["system"]
-                        for j, t in enumerate(self.atomic_types):
-                            composition_features[structure_index, j] = torch.sum(
-                                structure.types == t
+                        systems = [sample["system"]]
+                        targets = {target_key: sample[target_key]}
+                        systems, targets = systems_and_targets_to_device(
+                            systems, targets, device
+                        )
+                        for additive_model in additive_models:
+                            target_info_dict = {
+                                target_key: self.new_targets[target_key]
+                            }
+                            targets = remove_additive(  # remove other additive models
+                                systems,
+                                targets,
+                                additive_model,
+                                target_info_dict,
                             )
-                        structure_index += 1
+                        for j, t in enumerate(self.atomic_types):
+                            composition_features[system_index, j] = torch.sum(
+                                systems[0].types == t
+                            )
+                        system_index += 1
+                        targets_list.append(targets[target_key].block().values)
+
+                all_targets = torch.concatenate(targets_list)  # concatenate samples
+                all_targets = all_targets.squeeze(dim=-1)  # remove property dimension
 
                 compf_t_at_compf = composition_features.T @ composition_features
-                compf_t_at_targets = composition_features.T @ targets
+                compf_t_at_targets = composition_features.T @ all_targets
                 trace_magnitude = float(torch.diag(compf_t_at_compf).abs().mean())
                 regularizer = 1e-14 * trace_magnitude
                 max_regularizer = 1e5 * trace_magnitude
@@ -196,11 +215,15 @@ class CompositionModel(torch.nn.Module):
                         regularizer *= 10.0
 
     def restart(self, dataset_info: DatasetInfo) -> "CompositionModel":
-        for target_info in dataset_info.targets.values():
-            if not self.is_valid_target(target_info):
+        """Restart the model with a new dataset info.
+
+        :param dataset_info: New dataset information to be used.
+        """
+        for target_name, target_info in dataset_info.targets.items():
+            if not self.is_valid_target(target_name, target_info):
                 raise ValueError(
-                    f"Composition model does not support target quantity "
-                    f"{target_info.quantity}. This is an architecture bug. "
+                    f"Composition model does not support target "
+                    f"{target_name}. This is an architecture bug. "
                     "Please report this issue and help us improve!"
                 )
 
@@ -333,17 +356,27 @@ class CompositionModel(torch.nn.Module):
             self.output_name_to_output_index[target_name] = len(self.weights) - 1
 
     @staticmethod
-    def is_valid_target(target_info: TargetInfo) -> bool:
+    def is_valid_target(target_name: str, target_info: TargetInfo) -> bool:
         """Finds if a ``TargetInfo`` object is compatible with a composition model.
 
         :param target_info: The ``TargetInfo`` object to be checked.
         """
         # only scalars can have composition contributions
         if not target_info.is_scalar:
+            logger.debug(
+                f"Composition model does not support target {target_name} "
+                "since it is not an energy."
+            )
             return False
         # for now, we also require that only one property is present
         # and that the target is not per atom
         if len(target_info.layout.block().properties) != 1:
+            logger.debug(
+                f"Composition model does not support target {target_name} "
+                "since it has more than one property."
+            )
+            return False
+        if target_info.per_atom:
             return False
         if target_info.per_atom:
             return False
