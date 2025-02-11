@@ -15,7 +15,7 @@ from metatrain.utils.neighbor_lists import (
     get_system_with_neighbor_lists,
 )
 
-from elearn import symmetrize_samples
+from .elearn import symmetrize_samples
 from metatensor.torch.learn import ModuleMap
 
 
