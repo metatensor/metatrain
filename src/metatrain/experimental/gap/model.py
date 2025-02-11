@@ -252,7 +252,6 @@ class GAP(torch.nn.Module):
         return return_dict
 
     def export(self) -> MetatensorAtomisticModel:
-
         interaction_ranges = [self.hypers["soap"]["cutoff"]]
         for additive_model in self.additive_models:
             if hasattr(additive_model, "cutoff_radius"):
@@ -471,8 +470,7 @@ class _SorKernelSolver:
                 Phi = KNM
             else:
                 raise ValueError(
-                    "Partial fit can only be realized with "
-                    "solver = 'RKHS' or 'solve'"
+                    "Partial fit can only be realized with solver = 'RKHS' or 'solve'"
                 )
             if self._KY is None:
                 self._KY = np.zeros((self._nM, Y.shape[1]))

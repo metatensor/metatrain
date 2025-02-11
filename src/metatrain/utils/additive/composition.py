@@ -113,7 +113,6 @@ class CompositionModel(torch.nn.Module):
         # Fill the weights for each "new" target (i.e. those that do not already
         # have composition weights from a previous training run)
         for target_key in self.new_targets:
-
             if target_key in fixed_weights:
                 # The fixed weights are provided for this target. Use them:
                 if not sorted(fixed_weights[target_key].keys()) == self.atomic_types:
@@ -186,9 +185,13 @@ class CompositionModel(torch.nn.Module):
                 all_targets = torch.concatenate(targets_list)  # concatenate samples
                 all_targets = all_targets.squeeze(dim=-1)  # remove property dimension
 
-                regularizer = 1e-20
+                compf_t_at_compf = composition_features.T @ composition_features
+                compf_t_at_targets = composition_features.T @ all_targets
+                trace_magnitude = float(torch.diag(compf_t_at_compf).abs().mean())
+                regularizer = 1e-14 * trace_magnitude
+                max_regularizer = 1e5 * trace_magnitude
                 while regularizer:
-                    if regularizer > 1e5:
+                    if regularizer > max_regularizer:
                         raise RuntimeError(
                             "Failed to solve the linear system to calculate the "
                             "composition weights. The dataset is probably too small or "
@@ -197,14 +200,14 @@ class CompositionModel(torch.nn.Module):
                     try:
                         self.weights[self.output_name_to_output_index[target_key]] = (
                             torch.linalg.solve(
-                                composition_features.T @ composition_features
+                                compf_t_at_compf
                                 + regularizer
                                 * torch.eye(
                                     composition_features.shape[1],
                                     dtype=composition_features.dtype,
                                     device=composition_features.device,
                                 ),
-                                composition_features.T @ all_targets,
+                                compf_t_at_targets,
                             ).to(self.weights.dtype)
                         )
                         break
@@ -366,10 +369,13 @@ class CompositionModel(torch.nn.Module):
             )
             return False
         # for now, we also require that only one property is present
+        # and that the target is not per atom
         if len(target_info.layout.block().properties) != 1:
             logger.debug(
                 f"Composition model does not support target {target_name} "
                 "since it has more than one property."
             )
+            return False
+        if target_info.per_atom:
             return False
         return True

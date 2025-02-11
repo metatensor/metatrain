@@ -219,8 +219,11 @@ def test_composition_model_torchscript(tmpdir):
     composition_model(
         [system], {"energy": ModelOutput(quantity="energy", unit="", per_atom=False)}
     )
-    torch.jit.save(composition_model, tmpdir / "composition_model.pt")
-    composition_model = torch.jit.load(tmpdir / "composition_model.pt")
+
+    with tmpdir.as_cwd():
+        torch.jit.save(composition_model, "composition_model.pt")
+        composition_model = torch.jit.load("composition_model.pt")
+
     composition_model(
         [system], {"energy": ModelOutput(quantity="energy", unit="", per_atom=False)}
     )

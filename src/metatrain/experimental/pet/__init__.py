@@ -1,6 +1,7 @@
 from .model import PET
 from .trainer import Trainer
 
+
 __model__ = PET
 __trainer__ = Trainer
 __capabilities__ = {

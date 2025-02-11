@@ -23,7 +23,7 @@ class RotationalAugmenter:
         # checks on targets
         for target_info in target_info_dict.values():
             if target_info.is_cartesian:
-                if len(target_info.layout.components) != 1:
+                if len(target_info.layout.block(0).components) != 1:
                     raise ValueError(
                         "RotationalAugmenter only supports Cartesian targets "
                         "with `rank=1`."
@@ -119,7 +119,6 @@ def _apply_wigner_D_matrices(
     transformations: List[torch.Tensor],
     wigner_D_matrices: Dict[int, List[torch.Tensor]],
 ) -> TensorMap:
-
     new_blocks: List[TensorBlock] = []
     for key, block in target_tmap.items():
         ell, sigma = int(key[0]), int(key[1])
@@ -137,8 +136,8 @@ def _apply_wigner_D_matrices(
         ):
             is_inverted = torch.det(transformation) < 0
             new_v = v.clone()
-            if is_inverted and sigma == -1:  # inversion
-                new_v = -new_v
+            if is_inverted:  # inversion
+                new_v = new_v * (-1) ** ell * sigma
             # fold property dimension in, apply transformation, unfold property dim
             new_v = new_v.transpose(1, 2)
             new_v = new_v @ wigner_D_matrix.T
@@ -166,7 +165,6 @@ def _apply_random_augmentations(
     transformations: List[torch.Tensor],
     wigner_D_matrices: Dict[int, List[torch.Tensor]],
 ) -> Tuple[List[System], Dict[str, TensorMap]]:
-
     # Apply the transformations to the systems
     new_systems: List[System] = []
     for system, transformation in zip(systems, transformations):

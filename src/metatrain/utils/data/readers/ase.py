@@ -78,7 +78,6 @@ def _read_forces_ase(filename: str, key: str = "energy") -> List[TensorBlock]:
 
     blocks = []
     for i_system, atoms in enumerate(frames):
-
         if key not in atoms.arrays:
             raise ValueError(
                 f"forces key {key!r} was not found in system {filename!r} at index "
@@ -300,7 +299,6 @@ def read_generic(target: DictConfig) -> Tuple[List[TensorMap], TargetInfo]:
 
     tensor_maps = []
     for i_system, atoms in enumerate(frames):
-
         if not per_atom and target_key not in atoms.info:
             raise ValueError(
                 f"Target key {target_key!r} was not found in system {filename!r} at "

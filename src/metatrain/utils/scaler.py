@@ -9,6 +9,7 @@ from metatensor.torch.atomistic import ModelOutput
 from .additive import remove_additive
 from .data import Dataset, DatasetInfo, TargetInfo, get_all_targets
 from .jsonschema import validate
+from .per_atom import average_by_num_atoms
 from .transfer import systems_and_targets_to_device
 
 
@@ -20,6 +21,10 @@ class Scaler(torch.nn.Module):
     In most cases, this should be used in conjunction with a composition model
     (that removes the multi-dimensional "mean" across the composition space) and/or
     other additive models. See the `train_model` method for more details.
+
+    The scaling is performed per-atom, i.e., in cases where the targets are
+    per-structure, the standard deviation is calculated on the targets divided by
+    the number of atoms in each structure.
 
     :param model_hypers: A dictionary of model hyperparameters. The paramater is ignored
         and is only present to be consistent with the general model API.
@@ -55,6 +60,7 @@ class Scaler(torch.nn.Module):
         self,
         datasets: List[Union[Dataset, torch.utils.data.Subset]],
         additive_models: List[torch.nn.Module],
+        treat_as_additive: bool,
     ) -> None:
         """
         Calculate the scaling weights for all the targets in the datasets.
@@ -62,10 +68,18 @@ class Scaler(torch.nn.Module):
         :param datasets: Dataset(s) to calculate the scaling weights for.
         :param additive_models: Additive models to be removed from the targets
             before calculating the statistics.
+        :param treat_as_additive: If True, all per-structure targets (i.e. those that)
+            do not contain an ``atom`` label name, are treated as additive.
 
         :raises ValueError: If the provided datasets contain targets unknown
-            to the scaler.
+            to the scaler or if the targets are not treated as additive.
         """
+        if not treat_as_additive:
+            raise ValueError(
+                "The Scaler class can currently only be trained by treating targets "
+                "as additive."
+            )
+
         if not isinstance(datasets, list):
             datasets = [datasets]
 
@@ -74,7 +88,6 @@ class Scaler(torch.nn.Module):
         # Fill the scales for each "new" target (i.e. those that do not already
         # have scales from a previous training run)
         for target_key in self.new_targets:
-
             datasets_with_target = []
             for dataset in datasets:
                 if target_key in get_all_targets(dataset):
@@ -104,6 +117,13 @@ class Scaler(torch.nn.Module):
                             additive_model,
                             target_info_dict,
                         )
+
+                    # calculate standard deviations on per-atom quantities
+                    targets = average_by_num_atoms(
+                        targets,
+                        systems,
+                        per_structure_keys=[],
+                    )
 
                     target_info = self.new_targets[target_key]
                     if (
@@ -182,7 +202,6 @@ class Scaler(torch.nn.Module):
         return scaled_outputs
 
     def _add_output(self, target_name: str, target_info: TargetInfo) -> None:
-
         self.outputs[target_name] = ModelOutput(
             quantity=target_info.quantity,
             unit=target_info.unit,

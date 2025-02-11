@@ -17,7 +17,7 @@ from ...utils.external_naming import to_external_name
 from ...utils.io import check_file_extension
 from ...utils.logging import MetricLogger
 from ...utils.loss import TensorMapDictLoss
-from ...utils.metrics import MAEAccumulator, RMSEAccumulator
+from ...utils.metrics import MAEAccumulator, RMSEAccumulator, get_selected_metric
 from ...utils.neighbor_lists import (
     get_requested_neighbor_lists,
     get_system_with_neighbor_lists,
@@ -40,7 +40,7 @@ class Trainer:
         self.optimizer_state_dict = None
         self.scheduler_state_dict = None
         self.epoch = None
-        self.best_loss = None
+        self.best_metric = None
         self.best_model_state_dict = None
         self.best_optimizer_state_dict = None
 
@@ -125,7 +125,9 @@ class Trainer:
 
         if self.hypers["scale_targets"]:
             logger.info("Calculating scaling weights")
-            model.scaler.train_model(train_datasets, model.additive_models)
+            model.scaler.train_model(
+                train_datasets, model.additive_models, treat_as_additive=True
+            )
 
         if is_distributed:
             model = DistributedDataParallel(model, device_ids=[device])
@@ -229,7 +231,7 @@ class Trainer:
         if self.optimizer_state_dict is not None:
             # try to load the optimizer state dict, but this is only possible
             # if there are no new targets in the model (new parameters)
-            if not model.has_new_targets:
+            if not (model.module if is_distributed else model).has_new_targets:
                 optimizer.load_state_dict(self.optimizer_state_dict)
 
         # Create a scheduler:
@@ -241,7 +243,7 @@ class Trainer:
         )
         if self.scheduler_state_dict is not None:
             # same as the optimizer, try to load the scheduler state dict
-            if not model.has_new_targets:
+            if not (model.module if is_distributed else model).has_new_targets:
                 lr_scheduler.load_state_dict(self.scheduler_state_dict)
 
         # per-atom targets:
@@ -254,19 +256,21 @@ class Trainer:
         start_epoch = 0 if self.epoch is None else self.epoch + 1
 
         # Train the model:
-        if self.best_loss is None:
-            self.best_loss = float("inf")
+        if self.best_metric is None:
+            self.best_metric = float("inf")
         logger.info("Starting training")
         epoch = start_epoch
         for epoch in range(start_epoch, start_epoch + self.hypers["num_epochs"]):
             if is_distributed:
                 sampler.set_epoch(epoch)
 
-            train_rmse_calculator = RMSEAccumulator()
-            val_rmse_calculator = RMSEAccumulator()
+            train_rmse_calculator = RMSEAccumulator(self.hypers["log_separate_blocks"])
+            val_rmse_calculator = RMSEAccumulator(self.hypers["log_separate_blocks"])
             if self.hypers["log_mae"]:
-                train_mae_calculator = MAEAccumulator()
-                val_mae_calculator = MAEAccumulator()
+                train_mae_calculator = MAEAccumulator(
+                    self.hypers["log_separate_blocks"]
+                )
+                val_mae_calculator = MAEAccumulator(self.hypers["log_separate_blocks"])
 
             train_loss = 0.0
             for batch in train_dataloader:
@@ -432,8 +436,11 @@ class Trainer:
                         patience=self.hypers["scheduler_patience"],
                     )
 
-            if val_loss < self.best_loss:
-                self.best_loss = val_loss
+            val_metric = get_selected_metric(
+                finalized_val_info, self.hypers["best_model_metric"]
+            )
+            if val_metric < self.best_metric:
+                self.best_metric = val_metric
                 self.best_model_state_dict = copy.deepcopy(
                     (model.module if is_distributed else model).state_dict()
                 )
@@ -459,7 +466,7 @@ class Trainer:
     def save_checkpoint(self, model, path: Union[str, Path]):
         checkpoint = {
             "architecture_name": "experimental.soap_bpnn",
-            "model_hypers": {
+            "model_data": {
                 "model_hypers": model.hypers,
                 "dataset_info": model.dataset_info,
             },
@@ -468,7 +475,7 @@ class Trainer:
             "epoch": self.epoch,
             "optimizer_state_dict": self.optimizer_state_dict,
             "scheduler_state_dict": self.scheduler_state_dict,
-            "best_loss": self.best_loss,
+            "best_metric": self.best_metric,
             "best_model_state_dict": self.best_model_state_dict,
             "best_optimizer_state_dict": self.best_optimizer_state_dict,
         }
@@ -479,13 +486,12 @@ class Trainer:
 
     @classmethod
     def load_checkpoint(cls, path: Union[str, Path], train_hypers) -> "Trainer":
-
         # Load the checkpoint
         checkpoint = torch.load(path, weights_only=False, map_location="cpu")
         epoch = checkpoint["epoch"]
         optimizer_state_dict = checkpoint["optimizer_state_dict"]
         scheduler_state_dict = checkpoint["scheduler_state_dict"]
-        best_loss = checkpoint["best_loss"]
+        best_metric = checkpoint["best_metric"]
         best_model_state_dict = checkpoint["best_model_state_dict"]
         best_optimizer_state_dict = checkpoint["best_optimizer_state_dict"]
 
@@ -494,7 +500,7 @@ class Trainer:
         trainer.optimizer_state_dict = optimizer_state_dict
         trainer.scheduler_state_dict = scheduler_state_dict
         trainer.epoch = epoch
-        trainer.best_loss = best_loss
+        trainer.best_metric = best_metric
         trainer.best_model_state_dict = best_model_state_dict
         trainer.best_optimizer_state_dict = best_optimizer_state_dict
 
