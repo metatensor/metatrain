@@ -9,7 +9,6 @@ linear combinations of the elements of a tensorial basis with neural networks
 
 # %%
 #
-
 from glob import glob
 
 import ase.io
@@ -56,8 +55,8 @@ spherical_tensormap = mts.remove_dimension(
 
 # %%
 #
-# We drop the block with sigma=-1, as polarizability should be symmetric and therefore
-# any non-zero pseudo-vector component is spurious.
+# We drop the block with ``o3_sigma=-1``, as polarizability should be symmetric and
+# therefore any non-zero pseudo-vector component is spurious.
 
 spherical_tensormap = mts.drop_blocks(
     spherical_tensormap, mts.Labels(["o3_sigma"], torch.tensor([[-1]]))
@@ -91,78 +90,79 @@ mts.save(
     "polarizability_lambda_2.npz",
     mts.drop_blocks(spherical_tensormap, mts.Labels("o3_lambda", torch.tensor([[0]]))),
 )
+
 # %%
 #
-# Write the ``metatrain`` ``options.yaml`` file for the training of the polarizability
+# Write the metatrain ``options.yaml`` file for the training of the polarizability
 # model
 #
-# ```yaml
-# device: cuda
-# base_precision: 32
-# seed: 42
-
-# architecture:
-#   name: experimental.soap_bpnn
-#   model:
-#     soap:
-#       cutoff: 5.0
-#       max_radial: 9
-#       max_angular: 5
-#       atomic_gaussian_width: 0.3
-#       center_atom_weight: 1.0
-#       cutoff_function:
-#         ShiftedCosine:
-#           width: 1.0
-#       radial_scaling:
-#         Willatt2018:
-#           rate: 1.0
-#           scale: 2.0
-#           exponent: 7.0
-#     bpnn:
-#       layernorm: true
-#       num_hidden_layers: 2
-#       num_neurons_per_layer: 64
-#     heads: {}
-#     zbl: false
-
-#   training:
-#     learning_rate: 1e-3
-#     batch_size: 10
-#     distributed: false
-#     scheduler_patience: 50
-#     scheduler_factor: 0.8
-#     log_interval: 1
-#     log_mae: true
-#     checkpoint_interval: 10
-#     num_epochs: 100
-
-# training_set:
-#   systems:
-#     read_from: bulk_water_100.xyz
-#     length_unit: angstrom
-#   targets:
-#     mtt::polarizability_scalar:
-#       quantity: energy
-#       read_from: polarizability_lambda_0.npz
-#       per_atom: False
-#     mtt::polarizability:
-#       quantity: polarizability
-#       read_from: polarizability_lambda_2.npz
-#       per_atom: False
-#       type:
-#         spherical:
-#           irreps:
-#             - {"o3_lambda": 2, "o3_sigma": 1}
-
-# test_set: 0.1
-# validation_set: 0.1
-# ```
+# .. code-block:: yaml
+#   device: cuda
+#   base_precision: 32
+#   seed: 42
 #
-# The most relevant parts here are the `architecture` and `training_set` sections.
-# The `architecture` section specifies the neural network architecture (SOAP-BPNN, in
+#   architecture:
+#       name: experimental.soap_bpnn
+#       model:
+#           soap:
+#               cutoff: 5.0
+#               max_radial: 9
+#               max_angular: 5
+#               atomic_gaussian_width: 0.3
+#               center_atom_weight: 1.0
+#               cutoff_function:
+#                   ShiftedCosine:
+#                        width: 1.0
+#               radial_scaling:
+#                   Willatt2018:
+#                       rate: 1.0
+#                       scale: 2.0
+#                       exponent: 7.0
+#           bpnn:
+#               layernorm: true
+#               num_hidden_layers: 2
+#               num_neurons_per_layer: 64
+#           heads: {}
+#           zbl: false
+#
+#       training:
+#           learning_rate: 1e-3
+#           batch_size: 10
+#           distributed: false
+#           scheduler_patience: 50
+#           scheduler_factor: 0.8
+#           log_interval: 1
+#           log_mae: true
+#           checkpoint_interval: 10
+#           num_epochs: 100
+#
+#   training_set:
+#       systems:
+#           read_from: bulk_water_100.xyz
+#           length_unit: angstrom
+#       targets:
+#           mtt::polarizability_scalar:
+#               quantity: energy
+#               read_from: polarizability_lambda_0.npz
+#               per_atom: False
+#           mtt::polarizability:
+#               quantity: polarizability
+#               read_from: polarizability_lambda_2.npz
+#               per_atom: False
+#               type:
+#                   spherical:
+#                       irreps:
+#                           - {"o3_lambda": 2, "o3_sigma": 1}
+#
+#   test_set: 0.1
+#   validation_set: 0.1
+#
+#
+# The most relevant parts here are the ``architecture`` and ``training_set`` sections.
+# The ``architecture`` section specifies the neural network architecture (SOAP-BPNN, in
 # this case), the SOAP hyperparameters, and the architecture of the used multi-layer
 # perceptron.
-# The `training_set` section specifies the training data and the target tensorial
+# The ``training_set`` section specifies the training data and the target tensorial
 # properties. Each spherical component of the target tensorial property is specified by
 # a dictionary enumerating the irreps of the SO(3) group that the target tensorial
 # property transforms under. These should match the keys of the ``TensorMap`` object
@@ -173,9 +173,9 @@ mts.save(
 #
 # Train the model using the command:
 #
-# ```bash
-# mtt train options.yaml 2> err.log
-# ```
+# .. code-block:: bash
+#   mtt train options.yaml 2> err.log
+#
 # The ``stderr`` output will be redirected to the ``err.log`` file to avoid seeing too
 # many warnings.
 
@@ -191,27 +191,27 @@ mts.save(
 #
 # Checkpoints can be exported using:
 #
-# ```bash
-# mtt export model.ckpt -o model.pt
-# ```
+# .. code-block:: bash
+#   mtt export model.ckpt -o model.pt
+#
 
 # %%
 #
 # To evaluate the model, we can write the following ``eval.yaml`` file:
 #
-# ```yaml
-# systems:
-#   read_from: bulk_water_100.xyz
-#   length_unit: angstrom
-# ```
+# .. code-block:: yaml
+#   systems:
+#       read_from: bulk_water_100.xyz
+#       length_unit: angstrom
+#
 
 # %%
 #
 # And then evaluate the model using the command:
 #
-# ```bash
-# mtt eval model.pt eval.yaml -e extensions/ -o outputs.mts 2> err.log
-# ```
+# .. code-block:: bash
+#   mtt eval model.pt eval.yaml -e extensions/ -o outputs.mts 2> err.log
+#
 # The ``stderr`` output will be redirected to the ``err.log`` file to avoid seeing too
 # many warnings.
 
