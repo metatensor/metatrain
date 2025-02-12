@@ -17,13 +17,16 @@ sphinx_gallery_conf = {
         os.path.join(ROOT, "examples", "ase"),
         os.path.join(ROOT, "examples", "programmatic", "llpr"),
         os.path.join(ROOT, "examples", "zbl"),
-        os.path.join(ROOT, "examples", "programmatic", "use_architectures_outside")
+        os.path.join(ROOT, "examples", "programmatic", "use_architectures_outside"),
     ],
     "gallery_dirs": [
         os.path.join(ROOT, "docs", "src", "examples", "ase"),
         os.path.join(ROOT, "docs", "src", "examples", "programmatic", "llpr"),
         os.path.join(ROOT, "docs", "src", "examples", "zbl"),
-        os.path.join(ROOT, "docs", "src", "examples", "programmatic", "use_architectures_outside")
+        os.path.join(
+            ROOT, "docs", "src", "examples", "programmatic", "use_architectures_outside"
+        ),
+        os.path.join(ROOT, "docs", "src", "examples", "programmatic", "tensor_basis"),
     ],
     "min_reported_time": 5,
     "matplotlib_animations": True,
