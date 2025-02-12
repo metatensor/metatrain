@@ -13,6 +13,7 @@ from metatensor.torch.atomistic import (
     NeighborListOptions,
     System,
 )
+import numpy as np
 
 from ...utils.additive import ZBL, CompositionModel
 from ...utils.data.dataset import DatasetInfo, TargetInfo
@@ -38,12 +39,33 @@ warnings.filterwarnings(
 )
 
 
+def uncouple_features(features: List[torch.Tensor], U, padded_l_max: int):
+    # features is a list of [..., 2*l+1, n_features] for l = 0, 1, ..., padded_l_max
+    # U is dense and [(padded_l_max+1)**2, (padded_l_max+1)**2]
+    if len(features) < padded_l_max+1:
+        features.append(torch.zeros((features[0].shape[0], 2*padded_l_max+1, features[0].shape[2]), dtype=features[0].dtype, device=features[0].device))
+    stacked_features = torch.cat(features, dim=1)
+    stacked_features = stacked_features.swapaxes(1, 2)
+    return (stacked_features @ U.T).reshape(stacked_features.shape[:-1] + (padded_l_max+1, padded_l_max+1))
+
+def combine_uncoupled_features(uncoupled_features):
+    return uncoupled_features @ uncoupled_features
+
+def couple_features(features, U, padded_l_max: int):
+    # features is [..., (padded_l_max+1, padded_l_max+1)]
+    # U is dense and [(padded_l_max+1)**2, (padded_l_max+1)**2]
+    stacked_features = features.reshape(features.shape[:-2] + ((padded_l_max+1)*(padded_l_max+1),)) @ U
+    stacked_features = stacked_features.swapaxes(1, 2)
+    split_sizes = [2*l+1 for l in range(padded_l_max+1)]
+    return torch.split(stacked_features, split_sizes, dim=1)
+
 class PhACE(torch.nn.Module):
 
     __supported_devices__ = ["cuda", "cpu"]
     __supported_dtypes__ = [torch.float64, torch.float32]
 
     component_labels: Dict[str, List[List[Labels]]]
+    U_dict: Dict[int, torch.Tensor]
 
     def __init__(self, model_hypers: Dict, dataset_info: DatasetInfo) -> None:
         super().__init__()
@@ -200,6 +222,17 @@ class PhACE(torch.nn.Module):
 
         self.single_label = Labels.single()
 
+        cg_calculator = get_cg_coefficients(2*((self.l_max+1)//2))
+        print(self.l_max)
+        self.padded_l_list = [2*((l+1)//2) for l in range(self.l_max+1)]
+        self.U_dict = {}
+        for padded_l in np.unique(self.padded_l_list):
+            cg_tensors = [cg_calculator._cgs[(padded_l//2, padded_l//2, L)] for L in range(padded_l+1)]
+            U = torch.concatenate([cg_tensor for cg_tensor in cg_tensors], dim=2).reshape((padded_l+1)**2, (padded_l+1)**2)
+            assert torch.allclose(U @ U.T, torch.eye((padded_l+1)**2, dtype=U.dtype))
+            assert torch.allclose(U.T @ U, torch.eye((padded_l+1)**2, dtype=U.dtype))
+            self.U_dict[padded_l] = U
+
     def restart(self, dataset_info: DatasetInfo) -> "PhACE":
         # merge old and new dataset info
         merged_info = self.dataset_info.union(dataset_info)
@@ -247,6 +280,7 @@ class PhACE(torch.nn.Module):
         outputs: Dict[str, ModelOutput],
         selected_atoms: Optional[Labels] = None,
     ) -> Dict[str, TensorMap]:
+
         # transfer labels, if needed
         device = systems[0].device
         if self.single_label.values.device != device:
@@ -265,6 +299,18 @@ class PhACE(torch.nn.Module):
             self.property_labels = {
                 output_name: [label.to(device) for label in labels]
                 for output_name, labels in self.property_labels.items()
+            }
+        if self.U_dict[0].device != device:
+            self.U_dict = {
+                padded_l: U.to(device)
+                for padded_l, U in self.U_dict.items()
+            }
+
+        dtype = systems[0].dtype
+        if self.U_dict[0].dtype != dtype:
+            self.U_dict = {
+                padded_l: U.to(dtype)
+                for padded_l, U in self.U_dict.items()
             }
 
         neighbor_list_options = self.requested_neighbor_lists()[0]  # there is only one
@@ -327,26 +373,70 @@ class PhACE(torch.nn.Module):
             initial_element_embedding,
             samples,
         )
-        features = self.cg_iterator(spherical_expansion)
 
-        # message passing
-        for message_passer, generalized_cg_iterator in zip(
-            self.equivariant_message_passers, self.generalized_cg_iterators
-        ):
-            embedded_features = embed_centers(features, center_embeddings)
-            mp_features = message_passer(
-                r,
-                sh,
-                structures["structure_offsets"][structures["structure_pairs"]]
-                + structures["pairs"][:, 0],
-                structures["structure_offsets"][structures["structure_pairs"]]
-                + structures["pairs"][:, 1],
-                n_atoms,
-                embedded_features,
-                samples,
+        split_features: Dict[int, List[torch.Tensor]] = {}
+        past_idx = 0
+        current_idx = 0
+        for l in range(self.l_max, -1, -1):
+            current_idx = self.k_max_l[l]
+            split_features[l] = [spherical_expansion.block({"o3_lambda": lp}).values[:, :, past_idx:current_idx] for lp in range(l+1)]
+            past_idx = current_idx
+
+
+        uncoupled_features: Dict[int, torch.Tensor] = {}
+        for l in range(self.l_max+1):
+            uncoupled_features[l] = uncouple_features(split_features[l], self.U_dict[self.padded_l_list[l]], self.padded_l_list[l])
+
+        for l in range(self.l_max+1):
+            uncoupled_features[l] = combine_uncoupled_features(uncoupled_features[l]) + uncoupled_features[l]
+            uncoupled_features[l] = combine_uncoupled_features(uncoupled_features[l]) + uncoupled_features[l]
+            uncoupled_features[l] = combine_uncoupled_features(uncoupled_features[l]) + uncoupled_features[l]
+
+        coupled_features: Dict[int, List[torch.Tensor]] = {}
+        for l in range(self.l_max+1):
+            coupled_features[l] = couple_features(uncoupled_features[l], self.U_dict[self.padded_l_list[l]], self.padded_l_list[l])
+
+        # features = self.cg_iterator(spherical_expansion)
+
+        # # message passing
+        # for message_passer, generalized_cg_iterator in zip(
+        #     self.equivariant_message_passers, self.generalized_cg_iterators
+        # ):
+        #     embedded_features = embed_centers(features, center_embeddings)
+        #     mp_features = message_passer(
+        #         r,
+        #         sh,
+        #         structures["structure_offsets"][structures["structure_pairs"]]
+        #         + structures["pairs"][:, 0],
+        #         structures["structure_offsets"][structures["structure_pairs"]]
+        #         + structures["pairs"][:, 1],
+        #         n_atoms,
+        #         embedded_features,
+        #         samples,
+        #     )
+        #     iterated_features = generalized_cg_iterator(mp_features)
+        #     features = iterated_features
+
+        # print(features.keys.values)
+
+        concatenated_coupled_features = []
+        for l in range(self.l_max+1):
+            concatenated_coupled_features.append(
+                torch.concatenate([coupled_features[lp][l] for lp in range(l, self.l_max+1)], dim=-1)
             )
-            iterated_features = generalized_cg_iterator(mp_features)
-            features = iterated_features
+
+        features = TensorMap(
+            keys=spherical_expansion.keys,
+            blocks=[
+                TensorBlock(
+                    values=concatenated_coupled_features[l],
+                    samples=spherical_expansion.block({"o3_lambda": l}).samples,
+                    components=spherical_expansion.block({"o3_lambda": l}).components,
+                    properties=spherical_expansion.block({"o3_lambda": l}).properties,
+                )
+                for l in range(self.l_max+1)
+            ]
+        )
 
         features = embed_centers(features, center_embeddings)
 
