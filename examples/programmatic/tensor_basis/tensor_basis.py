@@ -115,8 +115,9 @@ mts.save(
 #
 # Train the model using the command:
 #
-# .. code-block:: bash
-#   mtt train options.yaml 2> err.log
+# .. code:: bash
+# 
+#    mtt train options.yaml 2> err.log
 #
 # The ``stderr`` output will be redirected to the ``err.log`` file to avoid seeing too
 # many warnings.
@@ -133,26 +134,29 @@ mts.save(
 #
 # Checkpoints can be exported using:
 #
-# .. code-block:: bash
-#   mtt export model.ckpt -o model.pt
+# .. code:: bash
+#
+#    mtt export model.ckpt -o model.pt
 #
 
 # %%
 #
 # To evaluate the model, we can write the following ``eval.yaml`` file:
 #
-# .. code-block:: yaml
-#   systems:
-#       read_from: bulk_water_100.xyz
-#       length_unit: angstrom
+# .. code:: yaml
+#
+#    systems:
+#        read_from: bulk_water_100.xyz
+#        length_unit: angstrom
 #
 
 # %%
 #
 # And then evaluate the model using the command:
 #
-# .. code-block:: bash
-#   mtt eval model.pt eval.yaml -e extensions/ -o outputs.mts 2> err.log
+# .. code:: bash
+#
+#    mtt eval model.pt eval.yaml -e extensions/ -o outputs.mts 2> err.log
 #
 # The ``stderr`` output will be redirected to the ``err.log`` file to avoid seeing too
 # many warnings.
