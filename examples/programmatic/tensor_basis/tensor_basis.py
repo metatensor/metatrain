@@ -16,7 +16,6 @@ import matplotlib.pyplot as plt
 import metatensor.torch as mts
 import numpy as np
 import torch
-import yaml
 from featomic.torch.clebsch_gordan import cartesian_to_spherical
 
 
@@ -97,65 +96,8 @@ mts.save(
 # Write the metatrain ``options.yaml`` file for the training of the polarizability
 # model
 #
-options = {
-    "device": "cuda",
-    "base_precision": 32,
-    "seed": 42,
-    "architecture": {
-        "name": "experimental.soap_bpnn",
-        "model": {
-            "soap": {
-                "cutoff": 5.0,
-                "max_radial": 9,
-                "max_angular": 5,
-                "atomic_gaussian_width": 0.3,
-                "center_atom_weight": 1.0,
-                "cutoff_function": {"ShiftedCosine": {"width": 1.0}},
-                "radial_scaling": {
-                    "Willatt2018": {"rate": 1.0, "scale": 2.0, "exponent": 7.0}
-                },
-            },
-            "bpnn": {
-                "layernorm": True,
-                "num_hidden_layers": 2,
-                "num_neurons_per_layer": 64,
-            },
-            "heads": {},
-            "zbl": False,
-        },
-        "training": {
-            "learning_rate": "1e-3",
-            "batch_size": 10,
-            "distributed": False,
-            "scheduler_patience": 50,
-            "scheduler_factor": 0.8,
-            "log_interval": 1,
-            "log_mae": True,
-            "checkpoint_interval": 10,
-            "num_epochs": 100,
-        },
-    },
-    "training_set": {
-        "systems": {"read_from": "bulk_water_100.xyz", "length_unit": "angstrom"},
-        "targets": {
-            "mtt::polarizability_scalar": {
-                "quantity": "energy",
-                "read_from": "polarizability_lambda_0.npz",
-                "per_atom": False,
-            },
-            "mtt::polarizability": {
-                "quantity": "polarizability",
-                "read_from": "polarizability_lambda_2.npz",
-                "per_atom": False,
-                "type": {"spherical": {"irreps": [{"o3_lambda": 2, "o3_sigma": 1}]}},
-            },
-        },
-    },
-    "test_set": 0.1,
-    "validation_set": 0.1,
-}
-
-yaml.dump(options, open("options.yaml", "w"))
+# .. literalinclude:: options.yaml
+#   :language: yaml
 #
 #
 # The most relevant parts here are the ``architecture`` and ``training_set`` sections.
