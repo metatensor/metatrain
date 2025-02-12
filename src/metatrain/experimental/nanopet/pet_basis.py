@@ -127,10 +127,10 @@ class NanoPetOnBasis(torch.torch.nn.Module):
             predictions_edge = self._reshape_predictions(predictions_edge, "edge")
             if system_id is not None:
                 predictions_edge = reindex_tensormap(predictions_edge, system_id)
-        else:
-            predictions_edge = None
 
-        return predictions_node, predictions_edge
+            return predictions_node, predictions_edge
+        
+        return predictions_node
 
     def _instantiate_heads(
         self,
