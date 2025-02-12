@@ -329,7 +329,7 @@ def get_one_center_metadata(
 #         else:
 #             in_keys_values_edge.append(key.values)
 #             out_properties_edge_new.append(out_properties_edge[key_i])
-        
+
 
 #     in_keys_node = mts.Labels(
 #         ["o3_lambda", "o3_sigma", "center_type"], torch.stack(in_keys_values_node)
@@ -345,6 +345,7 @@ def get_one_center_metadata(
 #         "in_keys_edge": in_keys_edge,
 #         "out_properties_edge": out_properties_edge,
 #     }
+
 
 def get_two_center_metadata(
     basis_set: dict,
