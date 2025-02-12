@@ -390,7 +390,6 @@ class PhACE(torch.nn.Module):
         for l in range(self.l_max+1):
             uncoupled_features[l] = combine_uncoupled_features(uncoupled_features[l]) + uncoupled_features[l]
             uncoupled_features[l] = combine_uncoupled_features(uncoupled_features[l]) + uncoupled_features[l]
-            uncoupled_features[l] = combine_uncoupled_features(uncoupled_features[l]) + uncoupled_features[l]
 
         coupled_features: Dict[int, List[torch.Tensor]] = {}
         for l in range(self.l_max+1):
