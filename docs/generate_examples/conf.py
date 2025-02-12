@@ -18,6 +18,7 @@ sphinx_gallery_conf = {
         os.path.join(ROOT, "examples", "programmatic", "llpr"),
         os.path.join(ROOT, "examples", "zbl"),
         os.path.join(ROOT, "examples", "programmatic", "use_architectures_outside"),
+        os.path.join(ROOT, "examples", "programmatic", "tensor_basis"),
     ],
     "gallery_dirs": [
         os.path.join(ROOT, "docs", "src", "examples", "ase"),
