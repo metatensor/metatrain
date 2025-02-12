@@ -55,8 +55,6 @@ class NanoPetOnBasis(torch.torch.nn.Module):
         else:
             self.predict_edges = False
 
-        
-
         # Instantiate NanoPET model
         if pet_hypers is None:
             pet_hypers = get_default_hypers("experimental.nanopet")["model"]
@@ -169,15 +167,20 @@ class NanoPetOnBasis(torch.torch.nn.Module):
                 predictions_edge = reindex_tensormap(predictions_edge, system_id)
 
             if self.standardizer_node is not None:
-                predictions_node = unstandardize_tensor(predictions_node, self.standardizer_node)
+                predictions_node = unstandardize_tensor(
+                    predictions_node, self.standardizer_node
+                )
             if self.standardizer_edge is not None:
-                predictions_edge = unstandardize_tensor(predictions_edge, self.standardizer_edge)
-            
+                predictions_edge = unstandardize_tensor(
+                    predictions_edge, self.standardizer_edge
+                )
+
             return predictions_node, predictions_edge
-        
 
         if self.standardizer_node is not None:
-            predictions_node = unstandardize_tensor(predictions_node, self.standardizer_node)
+            predictions_node = unstandardize_tensor(
+                predictions_node, self.standardizer_node
+            )
         return predictions_node
 
     def _instantiate_heads(
@@ -453,9 +456,7 @@ def reindex_tensormap(
     return mts.TensorMap(tensor.keys, new_blocks)
 
 
-def unstandardize_tensor(
-    tensor: TensorMap, standardizer: TensorMap
-) -> TensorMap:
+def unstandardize_tensor(tensor: TensorMap, standardizer: TensorMap) -> TensorMap:
     """
     Standardizes the input ``tensor`` using the ``standardizer`` layer.
     """
