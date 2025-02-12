@@ -72,6 +72,10 @@ gap = [
     "skmatter",
     "scipy",
 ]
+phace = [
+    "physical_basis",
+    "wigners",
+]
 
 [tool.check-manifest]
 ignore = ["src/metatrain/_version.py"]
