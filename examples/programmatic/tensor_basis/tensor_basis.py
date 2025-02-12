@@ -116,7 +116,7 @@ mts.save(
 # Train the model using the command:
 #
 # .. code:: bash
-# 
+#
 #    mtt train options.yaml 2> err.log
 #
 # The ``stderr`` output will be redirected to the ``err.log`` file to avoid seeing too
