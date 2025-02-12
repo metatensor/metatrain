@@ -1,4 +1,4 @@
-from typing import List, Tuple, Union
+from typing import List, Tuple, Union, Optional
 
 import torch
 
@@ -15,7 +15,7 @@ from metatrain.utils.neighbor_lists import (
     get_system_with_neighbor_lists,
 )
 
-from .elearn import symmetrize_samples, keys_triu_center_type
+from elearn import symmetrize_samples, keys_triu_center_type
 from metatensor.torch.learn import ModuleMap
 
 
@@ -32,6 +32,8 @@ class NanoPetOnBasis(torch.torch.nn.Module):
         out_properties_edge: List[Labels] = None,
         pet_hypers=None,
         head_hidden_layer_widths=[64, 64, 64],
+        standardizer_node: Optional[TensorMap] = None,
+        standardizer_edge: Optional[TensorMap] = None,
     ) -> None:
 
         super().__init__()
@@ -58,6 +60,20 @@ class NanoPetOnBasis(torch.torch.nn.Module):
         # Instantiate NanoPET model
         if pet_hypers is None:
             pet_hypers = get_default_hypers("experimental.nanopet")["model"]
+        # TODO: separate PET for each block!
+        # self.nanopet = torch.nn.ModuleList(
+        #     [
+        #         NanoPET(
+        #             pet_hypers,
+        #             DatasetInfo(
+        #                 length_unit="angstrom",
+        #                 atomic_types=self.atom_types,
+        #                 targets={},
+        #             ),
+        #         )
+        #         for _ in self.in_keys_node
+        #     ]
+        # )
         self.nanopet = NanoPET(
             pet_hypers,
             DatasetInfo(
@@ -81,6 +97,30 @@ class NanoPetOnBasis(torch.torch.nn.Module):
                 self.out_properties_edge,
                 head_hidden_layer_widths,
             )
+
+        # Set the prediction (un)standardizer
+        self._set_standardizers(standardizer_node, standardizer_edge)
+
+    def _set_standardizers(self, standardizer_node, standardizer_edge):
+        """
+        Set the standardizers for the node and edge targets.
+        Turns off gradients for the standardizer values.
+        """
+        # Node standardizer
+        if standardizer_node is not None:
+            for block in standardizer_node:
+                block.values.requires_grad = False
+                self.standardizer_node = standardizer_node
+        else:
+            self.standardizer_node = None
+
+        # Edge standardizer
+        if standardizer_edge is not None:
+            for block in standardizer_edge:
+                block.values.requires_grad = False
+            self.standardizer_edge = standardizer_edge
+        else:
+            self.standardizer_edge = None
 
     def forward(
         self, systems, system_id: List[int] = None
@@ -128,8 +168,16 @@ class NanoPetOnBasis(torch.torch.nn.Module):
             if system_id is not None:
                 predictions_edge = reindex_tensormap(predictions_edge, system_id)
 
+            if self.standardizer_node is not None:
+                predictions_node = unstandardize_tensor(predictions_node, self.standardizer_node)
+            if self.standardizer_edge is not None:
+                predictions_edge = unstandardize_tensor(predictions_edge, self.standardizer_edge)
+            
             return predictions_node, predictions_edge
         
+
+        if self.standardizer_node is not None:
+            predictions_node = unstandardize_tensor(predictions_node, self.standardizer_node)
         return predictions_node
 
     def _instantiate_heads(
@@ -213,10 +261,10 @@ class ResidualBlock(torch.nn.Module):
 
     def __init__(self, input_dim, output_dim, device=None):
         super().__init__()
-        self.norm = torch.nn.LayerNorm(input_dim, device=device)
+        # self.norm = torch.nn.LayerNorm(input_dim, device=device)
         self.linear = torch.nn.Linear(input_dim, output_dim, device=device)
         self.activation = torch.nn.SiLU()
-        self.dropout = torch.nn.Dropout(0.5)
+        # self.dropout = torch.nn.Dropout(0.5)
 
         if input_dim != output_dim:
             self.projection = torch.nn.Linear(input_dim, output_dim, device=device)
@@ -225,10 +273,11 @@ class ResidualBlock(torch.nn.Module):
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         residual = x
-        out = self.norm(x)
+        # out = self.norm(x)
+        out = x
         out = self.linear(out)
         out = self.activation(out)
-        out = self.dropout(out)
+        # out = self.dropout(out)
 
         if self.projection is not None:
             residual = self.projection(residual)
@@ -402,3 +451,15 @@ def reindex_tensormap(
         new_blocks.append(new_block)
 
     return mts.TensorMap(tensor.keys, new_blocks)
+
+
+def unstandardize_tensor(
+    tensor: TensorMap, standardizer: TensorMap
+) -> TensorMap:
+    """
+    Standardizes the input ``tensor`` using the ``standardizer`` layer.
+    """
+    for key, block in tensor.items():
+        block.values[:] *= standardizer.block(key).values
+
+    return tensor
