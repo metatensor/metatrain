@@ -26,5 +26,5 @@ def write_mts(
     for prediction_name, prediction_tmap in predictions.items():
         save(
             filename_base + "_" + prediction_name + ".mts",
-            prediction_tmap.to(torch.float64),
+            prediction_tmap.to("cpu").to(torch.float64),
         )
