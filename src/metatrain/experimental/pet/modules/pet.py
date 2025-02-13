@@ -1,12 +1,13 @@
-import torch
-import numpy as np
-import torch_geometric
-from torch import nn
 from typing import Dict, Optional
 
-from .transformer import TransformerLayer, Transformer
+import numpy as np
+import torch
+import torch_geometric
+from torch import nn
+
 from .molecule import batch_to_dict
-from .utilities import get_rotations, NeverRun
+from .transformer import Transformer, TransformerLayer
+from .utilities import NeverRun, get_rotations
 
 
 class CentralSplitter(torch.nn.Module):
@@ -45,7 +46,7 @@ class CentralUniter(torch.nn.Module):
 
         device = None
         for specie in all_species:
-            for key, value in features[specie].items():
+            for key, _value in features[specie].items():
                 num = features[specie][key].shape[0]
                 device = features[specie][key].device
                 shapes[key][0] += num
@@ -56,7 +57,7 @@ class CentralUniter(torch.nn.Module):
         }
 
         for specie in features.keys():
-            for key, value in features[specie].items():
+            for key, _value in features[specie].items():
                 mask = int(specie) == central_species
                 result[key][mask] = features[specie][key]
 
@@ -95,7 +96,6 @@ class CartesianTransformer(torch.nn.Module):
         add_central_token,
         is_first,
     ):
-
         super(CartesianTransformer, self).__init__()
         self.hypers = hypers
         self.is_first = is_first
@@ -184,7 +184,6 @@ class CartesianTransformer(torch.nn.Module):
         self.CUTOFF_DELTA = hypers.CUTOFF_DELTA
 
     def forward(self, batch_dict: Dict[str, torch.Tensor]):
-
         x = batch_dict["x"]
 
         if self.USE_LENGTH:
@@ -198,7 +197,6 @@ class CartesianTransformer(torch.nn.Module):
         neighbor_species = batch_dict["neighbor_species"]
         input_messages = batch_dict["input_messages"]
         mask = batch_dict["mask"]
-        batch = batch_dict["batch"]
         nums = batch_dict["nums"]
 
         if self.BLEND_NEIGHBOR_SPECIES and (not self.is_first):
@@ -286,7 +284,6 @@ class CartesianTransformer(torch.nn.Module):
                 "central_token": output_messages[:, 0, :],
             }
         else:
-
             lengths = torch.sqrt(torch.sum(x * x, dim=2) + 1e-16)
 
             multipliers = cutoff_func(lengths, self.R_CUT, self.CUTOFF_DELTA)
@@ -491,7 +488,7 @@ class PET(torch.nn.Module):
                         add_central_tokens[layer_index],
                         is_first,
                     )
-                    for i in range(len(all_species))
+                    for i in range(n_atomic_species)
                 }
 
                 gnn_layers.append(CentralSpecificModel(models))
@@ -521,13 +518,13 @@ class PET(torch.nn.Module):
             for _ in range(n_gnn_layers):
                 models = {
                     str(i): Head(hypers, transformer_d_model, head_n_neurons)
-                    for i in range(len(all_species))
+                    for i in range(n_atomic_species)
                 }
                 heads.append(CentralSpecificModel(models))
 
             models = {
                 str(i): Head(hypers, transformer_d_model, head_n_neurons)
-                for i in range(len(all_species))
+                for i in range(n_atomic_species)
             }
         else:
             for _ in range(n_gnn_layers):
@@ -547,13 +544,13 @@ class PET(torch.nn.Module):
                 for _ in range(n_gnn_layers):
                     models = {
                         str(i): Head(hypers, transformer_d_model, head_n_neurons)
-                        for i in range(len(all_species))
+                        for i in range(n_atomic_species)
                     }
                     bond_heads.append(CentralSpecificModel(models))
 
                 models = {
                     str(i): Head(hypers, transformer_d_model, head_n_neurons)
-                    for i in range(len(all_species))
+                    for i in range(n_atomic_species)
                 }
             else:
                 for _ in range(n_gnn_layers):
@@ -577,11 +574,9 @@ class PET(torch.nn.Module):
         self.RESIDUAL_FACTOR = hypers.RESIDUAL_FACTOR
 
     def get_predictions(self, batch_dict: Dict[str, torch.Tensor]):
-
         x = batch_dict["x"]
         central_species = batch_dict["central_species"]
         neighbor_species = batch_dict["neighbor_species"]
-        batch = batch_dict["batch"]
         mask = batch_dict["mask"]
         nums = batch_dict["nums"]
 
@@ -596,7 +591,7 @@ class PET(torch.nn.Module):
         atomic_predictions = torch.zeros(1, dtype=x.dtype, device=x.device)
         last_layer_features = []
 
-        for layer_index, (
+        for _layer_index, (
             central_tokens_predictor,
             messages_predictor,
             gnn_layer,
@@ -609,11 +604,9 @@ class PET(torch.nn.Module):
                 self.messages_bonds_predictors,
             )
         ):
-
             result = gnn_layer(batch_dict)
             output_messages = result["output_messages"]
 
-            # batch_dict['input_messages'] = output_messages[neighbors_index, neighbors_pos]
             new_input_messages = output_messages[neighbors_index, neighbors_pos]
             batch_dict["input_messages"] = self.RESIDUAL_FACTOR * (
                 batch_dict["input_messages"] + new_input_messages
@@ -661,8 +654,7 @@ class PET(torch.nn.Module):
                 }
             if self.TARGET_AGGREGATION == "mean":
                 raise NotImplementedError(
-                    "mean aggregation not implemented in the last-layer "
-                    "feature branch."
+                    "mean aggregation not implemented in the last-layer feature branch."
                 )
                 return torch_geometric.nn.global_mean_pool(
                     atomic_predictions, batch=batch_dict["batch"]
@@ -736,7 +728,6 @@ class PETMLIPWrapper(torch.nn.Module):
         }
 
     def forward(self, batch, augmentation, create_graph):
-
         if self.use_forces:
             batch.x.requires_grad = True
             predictions = self.get_predictions(batch, augmentation)["prediction"]
@@ -817,7 +808,8 @@ class SelfContributionsWrapper(torch.nn.Module):
             self.TARGET_TYPE = "structural"  # for TorchScript
             if self.model.hypers.TARGET_AGGREGATION == "mean":
                 raise ValueError(
-                    "self contributions wrapper is made only for sum aggregation, not for mean"
+                    "self contributions wrapper is made only for sum "
+                    "aggregation, not for mean"
                 )
         else:
             self.TARGET_TYPE = "atomic"

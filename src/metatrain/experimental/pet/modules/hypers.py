@@ -1,11 +1,10 @@
-import yaml
-import warnings
 import re
-import inspect
+import warnings
+
+import yaml  # type: ignore
 
 
 def propagate_duplicated_params(provided_hypers, default_hypers, first_key, second_key):
-
     if (first_key in provided_hypers.keys()) and (second_key in provided_hypers.keys()):
         raise ValueError(f"only one of {first_key} and {second_key} should be provided")
 
@@ -87,33 +86,40 @@ def combine_hypers(provided_hypers, default_hypers):
     ):
         if result["FITTING_SCHEME"]["ENERGY_WEIGHT"] is not None:
             warnings.warn(
-                "ENERGY_WEIGHT was provided, but in the current calculation, it doesn't affect anything since only one target of energies and forces is used"
+                "ENERGY_WEIGHT was provided, but in the current calculation, "
+                + "it doesn't ffect anything since only one target of energies and "
+                + "forces is used",
+                stacklevel=2,
             )
 
     if result["ARCHITECTURAL_HYPERS"]["USE_ADDITIONAL_SCALAR_ATTRIBUTES"]:
         if result["ARCHITECTURAL_HYPERS"]["SCALAR_ATTRIBUTES_SIZE"] is None:
             raise ValueError(
-                "scalar attributes size must be provided if use_additional_scalar_attributes == True"
+                "scalar attributes size must be provided if "
+                "use_additional_scalar_attributes == True"
             )
 
     if result["FITTING_SCHEME"]["DO_GRADIENT_CLIPPING"]:
         if result["FITTING_SCHEME"]["GRADIENT_CLIPPING_MAX_NORM"] is None:
             raise ValueError(
-                "gradient clipping max_norm must be provided if do_gradient_clipping == True"
+                "gradient clipping max_norm must be provided if "
+                "do_gradient_clipping == True"
             )
 
     if result["FITTING_SCHEME"]["BALANCED_DATA_LOADER"]:
         if "STRUCTURAL_BATCH_SIZE" in result["FITTING_SCHEME"].keys():
             if result["FITTING_SCHEME"]["STRUCTURAL_BATCH_SIZE"] is not None:
                 raise ValueError(
-                    "if using balanced_data_loader only atomic batch size can be provided"
+                    "if using balanced_data_loader only atomic batch size "
+                    "can be provided"
                 )
 
     if result["FITTING_SCHEME"]["MODEL_TO_START_WITH"] is not None:
         if result["FITTING_SCHEME"]["ALL_SPECIES_PATH"] is None:
             raise ValueError(
-                "When fine-tuning the model starting from a checkpoint [MODEL_TO_START_WITH, "
-                "the path to the all_species.npy file [ALL_SPECIES_PATH] must be provided."
+                "When fine-tuning the model starting from a checkpoint "
+                "[MODEL_TO_START_WITH, the path to the all_species.npy "
+                " file [ALL_SPECIES_PATH] must be provided."
             )
 
     return result
@@ -170,7 +176,6 @@ class Hypers:
 
 
 def load_hypers_from_file(path_to_hypers):
-
     loader = yaml.SafeLoader
     loader.add_implicit_resolver(
         "tag:yaml.org,2002:float",
@@ -195,7 +200,6 @@ def load_hypers_from_file(path_to_hypers):
 
 
 def set_hypers_from_files(path_to_provided_hypers, path_to_default_hypers):
-
     loader = yaml.SafeLoader
     loader.add_implicit_resolver(
         "tag:yaml.org,2002:float",

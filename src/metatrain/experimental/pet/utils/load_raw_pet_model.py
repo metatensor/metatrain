@@ -2,9 +2,9 @@ from typing import Dict, List
 
 import numpy as np
 import torch
+
 from ..modules.hypers import Hypers
 from ..modules.pet import PET, SelfContributionsWrapper
-
 from .fine_tuning import LoRAWrapper
 from .update_state_dict import update_state_dict
 
@@ -20,9 +20,9 @@ def load_raw_pet_model(
 
     ARCHITECTURAL_HYPERS = Hypers(hypers)
 
-    ARCHITECTURAL_HYPERS.D_OUTPUT = 1
-    ARCHITECTURAL_HYPERS.TARGET_AGGREGATION = "sum"
-    ARCHITECTURAL_HYPERS.TARGET_TYPE = "atomic"
+    ARCHITECTURAL_HYPERS.D_OUTPUT = 1  # type: ignore
+    ARCHITECTURAL_HYPERS.TARGET_AGGREGATION = "sum"  # type: ignore
+    ARCHITECTURAL_HYPERS.TARGET_TYPE = "atomic"  # type: ignore
 
     raw_pet = PET(ARCHITECTURAL_HYPERS, 0.0, len(atomic_types))
     if "use_lora_peft" in kwargs and kwargs["use_lora_peft"] is True:

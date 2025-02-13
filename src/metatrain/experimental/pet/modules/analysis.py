@@ -1,5 +1,6 @@
-import numpy as np
 import math
+
+import numpy as np
 
 
 def get_structural_batch_size(structures, atomic_batch_size):

@@ -9,6 +9,11 @@ from typing import List, Union
 
 import numpy as np
 import torch
+from torch_geometric.nn import DataParallel
+
+from ...utils.data import Dataset, check_datasets
+from ...utils.io import check_file_extension
+from . import PET as WrappedPET
 from .modules.analysis import adapt_hypers
 from .modules.data_preparation import (
     get_corrected_energies,
@@ -33,11 +38,6 @@ from .modules.utilities import (
     set_reproducibility,
     string2dtype,
 )
-from torch_geometric.nn import DataParallel
-
-from ...utils.data import Dataset, check_datasets
-from ...utils.io import check_file_extension
-from . import PET as WrappedPET
 from .utils import dataset_to_ase, load_raw_pet_model, update_hypers
 from .utils.fine_tuning import LoRAWrapper
 
@@ -119,12 +119,12 @@ class Trainer:
             os.mkdir(checkpoint_dir)
 
         hypers = Hypers(self.hypers)
-        dtype = string2dtype(hypers.ARCHITECTURAL_HYPERS.DTYPE)
+        dtype = string2dtype(hypers.ARCHITECTURAL_HYPERS.DTYPE)  # type: ignore
         torch.set_default_dtype(dtype)
 
-        FITTING_SCHEME = hypers.FITTING_SCHEME
-        MLIP_SETTINGS = hypers.MLIP_SETTINGS
-        ARCHITECTURAL_HYPERS = hypers.ARCHITECTURAL_HYPERS
+        FITTING_SCHEME = hypers.FITTING_SCHEME  # type: ignore
+        MLIP_SETTINGS = hypers.MLIP_SETTINGS  # type: ignore
+        ARCHITECTURAL_HYPERS = hypers.ARCHITECTURAL_HYPERS  # type: ignore
 
         if model.is_lora_applied and not FITTING_SCHEME.USE_LORA_PEFT:
             raise ValueError(
@@ -181,7 +181,7 @@ Units of the Energy and Forces are the same units given in input"""
 
         os.mkdir(f"{checkpoint_dir}/{NAME_OF_CALCULATION}")
         np.save(f"{checkpoint_dir}/{NAME_OF_CALCULATION}/all_species.npy", all_species)
-        hypers.UTILITY_FLAGS.CALCULATION_TYPE = "mlip"
+        hypers.UTILITY_FLAGS.CALCULATION_TYPE = "mlip"  # type: ignore
         save_hypers(hypers, f"{checkpoint_dir}/{NAME_OF_CALCULATION}/hypers_used.yaml")
 
         logging.info("Convering structures to PyG graphs...")

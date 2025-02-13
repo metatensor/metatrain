@@ -1,14 +1,15 @@
+import copy
+import logging
 import os
 import random
-import torch
+
 import numpy as np
-from torch.optim.lr_scheduler import LambdaLR
+import torch
 from scipy.spatial.transform import Rotation
-from torch_geometric.loader import DataLoader, DataListLoader, DynamicBatchSampler
-import copy
-from scipy.special import roots_legendre
 from scipy.spatial.transform import Rotation as R
-import logging
+from scipy.special import roots_legendre
+from torch.optim.lr_scheduler import LambdaLR
+from torch_geometric.loader import DataListLoader, DataLoader, DynamicBatchSampler
 
 
 def log_epoch_stats(epoch, total_epochs, epoch_stats, learning_rate, energies_key):
@@ -380,7 +381,7 @@ def load_checkpoint(model, optim, scheduler, checkpoint_path):
 def get_data_loaders(train_graphs, val_graphs, FITTING_SCHEME):
     def seed_worker(worker_id):
         worker_seed = torch.initial_seed() % 2**32
-        numpy.random.seed(worker_seed)
+        np.random.seed(worker_seed)
         random.seed(worker_seed)
 
     g = torch.Generator()
@@ -498,32 +499,38 @@ def report_accuracy(
     predictions_mean = np.mean(all_predictions, axis=0)
 
     if specify_per_component:
-        specification = "per component"
+        spec = "per component"
     else:
-        specification = ""
+        spec = ""
 
     if ground_truth is not None:
-        print(
-            f"{target_name} mae {specification}: {get_mae(predictions_mean, ground_truth, support_missing_values = support_missing_values)}"
+        mae = get_mae(
+            predictions_mean,
+            ground_truth,
+            support_missing_values=support_missing_values,
         )
-        print(
-            f"{target_name} rmse {specification}: {get_rmse(predictions_mean, ground_truth, support_missing_values=support_missing_values)}"
+        rmse = get_rmse(
+            predictions_mean,
+            ground_truth,
+            support_missing_values=support_missing_values,
         )
+        print(f"{target_name} mae {spec}: {mae}")
+        print(f"{target_name} rmse {spec}: {rmse}")
     else:
         print(
-            f"ground truth target for {target_name} is not provided (or is provided with a wrong key). Thus, it is impossible to estimate the error between predictions and ground truth target"
+            f"ground truth target for {target_name} is not provided "
+            "(or is provided with a wrong key). Thus, it is impossible "
+            "to estimate the error between predictions and ground truth target"
         )
 
     if all_predictions.shape[0] > 1:
-        predictions_std, predictions_mad = get_rotational_discrepancy(all_predictions)
+        pred_std, pred_mad = get_rotational_discrepancy(all_predictions)
         if verbose:
-            print(
-                f"{target_name} rotational discrepancy mad (aka mae) {specification}: {predictions_mad}"
-            )
+            str_mae = "rotational discrepancy mad (aka mae)"
+            str_rmse = "rotational discrepancy std (aka rmse)"
+            print(f"{target_name} {str_mae} {spec}: {pred_mad}")
 
-            print(
-                f"{target_name} rotational discrepancy std (aka rmse) {specification}: {predictions_std} "
-            )
+            print(f"{target_name} {str_rmse} {spec}: {pred_std} ")
 
     if target_type == "structural":
         if len(predictions_mean.shape) == 1:
@@ -535,13 +542,19 @@ def report_accuracy(
                 ground_truth = ground_truth[:, np.newaxis]
 
             ground_truth_per_atom = ground_truth / n_atoms[:, np.newaxis]
+            mae = get_mae(
+                predictions_mean_per_atom,
+                ground_truth_per_atom,
+                support_missing_values=support_missing_values,
+            )
+            rmse = get_rmse(
+                predictions_mean_per_atom,
+                ground_truth_per_atom,
+                support_missing_values=support_missing_values,
+            )
+            print(f"{target_name} mae per atom {spec}: " + f"{mae}")
 
-            print(
-                f"{target_name} mae per atom {specification}: {get_mae(predictions_mean_per_atom, ground_truth_per_atom, support_missing_values = support_missing_values)}"
-            )
-            print(
-                f"{target_name} rmse per atom {specification}: {get_rmse(predictions_mean_per_atom, ground_truth_per_atom, support_missing_values=support_missing_values)}"
-            )
+            print(f"{target_name} rmse per atom {spec}: {rmse}")
 
         if all_predictions.shape[0] > 1:
             if len(all_predictions.shape) == 2:
@@ -553,12 +566,10 @@ def report_accuracy(
                 get_rotational_discrepancy(all_predictions_per_atom)
             )
             if verbose:
-                print(
-                    f"{target_name} rotational discrepancy mad (aka mae) per atom {specification}: {predictions_mad_per_atom}"
-                )
-                print(
-                    f"{target_name} rotational discrepancy std (aka rmse) per atom {specification}: {predictions_std_per_atom} "
-                )
+                str_mae = "rotational discrepancy mad (aka mae)"
+                str_rmse = "rotational discrepancy std (aka rmse)"
+                print(f"{target_name} {str_mae} {spec}: {predictions_mad_per_atom}")
+                print(f"{target_name} {str_rmse} {spec}: {predictions_std_per_atom} ")
 
 
 class NeverRun(torch.nn.Module):

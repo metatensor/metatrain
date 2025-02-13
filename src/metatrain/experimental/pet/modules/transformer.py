@@ -1,10 +1,11 @@
-import torch
-import numpy as np
-from torch import nn
-import torch.nn.functional as F
+import copy
 from typing import Optional
 
-import copy
+import numpy as np
+import torch
+import torch.nn.functional as F
+from torch import nn
+
 from .utilities import NeverRun
 
 
@@ -60,7 +61,6 @@ class TransformerLayer(torch.nn.Module):
         activation=F.silu,
         transformer_type="PostLN",
     ):
-
         super(TransformerLayer, self).__init__()
         self.attention = AttentionBlock(d_model, n_heads, dropout=dropout)
 

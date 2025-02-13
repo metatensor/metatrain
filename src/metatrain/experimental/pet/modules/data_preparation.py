@@ -1,7 +1,8 @@
 import numpy as np
-from sklearn.linear_model import Ridge
-from .molecule import Molecule
 import torch
+from sklearn.linear_model import Ridge
+
+from .molecule import Molecule
 
 
 def get_all_species(structures):
@@ -35,11 +36,17 @@ def get_pyg_graphs(
     USE_LONG_RANGE,
     K_CUT,
     MULTI_TARGET,
-    TARGET_INDEX_KEY
+    TARGET_INDEX_KEY,
 ):
     molecules = [
         Molecule(
-            structure, R_CUT, USE_ADDITIONAL_SCALAR_ATTRIBUTES, USE_LONG_RANGE, K_CUT, MULTI_TARGET, TARGET_INDEX_KEY
+            structure,
+            R_CUT,
+            USE_ADDITIONAL_SCALAR_ATTRIBUTES,
+            USE_LONG_RANGE,
+            K_CUT,
+            MULTI_TARGET,
+            TARGET_INDEX_KEY,
         )
         for structure in structures
     ]
@@ -54,8 +61,7 @@ def get_pyg_graphs(
         max_k_num = None
 
     pyg_graphs = [
-        molecule.get_graph(max_num, all_species, max_k_num)
-        for molecule in molecules
+        molecule.get_graph(max_num, all_species, max_k_num) for molecule in molecules
     ]
     return pyg_graphs
 

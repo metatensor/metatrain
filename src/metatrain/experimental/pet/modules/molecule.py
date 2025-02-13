@@ -1,15 +1,23 @@
-import torch
 import ase.io
 import numpy as np
-from torch_geometric.data import Data
-from .long_range import get_reciprocal, get_all_k, get_volume
+import torch
 from matscipy.neighbours import neighbour_list as neighbor_list
+from torch_geometric.data import Data
+
+from .long_range import get_all_k, get_reciprocal, get_volume
+
 
 class Molecule:
     def __init__(
-        self, atoms, r_cut, use_additional_scalar_attributes, use_long_range, k_cut, multi_target, target_index_key
+        self,
+        atoms,
+        r_cut,
+        use_additional_scalar_attributes,
+        use_long_range,
+        k_cut,
+        multi_target,
+        target_index_key,
     ):
-
         self.use_additional_scalar_attributes = use_additional_scalar_attributes
 
         self.atoms = atoms
@@ -35,7 +43,7 @@ class Molecule:
         self.neighbors_index = [[] for i in range(len(positions))]
         self.neighbors_shift = [[] for i in range(len(positions))]
 
-        for i, j, D, S in zip(i_list, j_list, D_list, S_list):
+        for i, j, _D, S in zip(i_list, j_list, D_list, S_list):
             self.neighbors_index[i].append(j)
             self.neighbors_shift[i].append(S)
 
@@ -157,7 +165,7 @@ class Molecule:
         }
 
         if self.target_index is not None:
-            kwargs['target_id'] = self.target_index
+            kwargs["target_id"] = self.target_index
 
         if self.use_additional_scalar_attributes:
             kwargs["neighbor_scalar_attributes"] = torch.tensor(
@@ -198,9 +206,15 @@ class Molecule:
 
 class MoleculeCPP:
     def __init__(
-        self, atoms, r_cut, use_additional_scalar_attributes, use_long_range, k_cut, multi_target, target_index_key
+        self,
+        atoms,
+        r_cut,
+        use_additional_scalar_attributes,
+        use_long_range,
+        k_cut,
+        multi_target,
+        target_index_key,
     ):
-
         self.use_additional_scalar_attributes = use_additional_scalar_attributes
         self.atoms = atoms
         self.r_cut = r_cut
@@ -210,7 +224,9 @@ class MoleculeCPP:
         if self.use_long_range:
             raise NotImplementedError("Long range is not implemented in cpp")
         if self.use_additional_scalar_attributes:
-            raise NotImplementedError("Additional scalar attributes are not implemented in cpp")
+            raise NotImplementedError(
+                "Additional scalar attributes are not implemented in cpp"
+            )
 
         def is_3d_crystal(atoms):
             pbc = atoms.get_pbc()
@@ -219,7 +235,7 @@ class MoleculeCPP:
             return all(pbc)
 
         if is_3d_crystal(atoms):
-            i_list, j_list, D_list, S_list = neighbor_list('ijDS', atoms, r_cut)
+            i_list, j_list, D_list, S_list = neighbor_list("ijDS", atoms, r_cut)
         else:
             i_list, j_list, D_list, S_list = ase.neighborlist.neighbor_list(
                 "ijDS", atoms, r_cut
@@ -229,7 +245,9 @@ class MoleculeCPP:
         self.j_list = torch.tensor(j_list, dtype=torch.int64).contiguous()
         self.D_list = torch.tensor(D_list, dtype=torch.get_default_dtype()).contiguous()
         self.S_list = torch.tensor(S_list, dtype=torch.int64).contiguous()
-        self.species = torch.tensor(atoms.get_atomic_numbers(), dtype=torch.int64).contiguous()
+        self.species = torch.tensor(
+            atoms.get_atomic_numbers(), dtype=torch.int64
+        ).contiguous()
         if len(self.i_list) == 0:
             self.max_num = 0
         else:
@@ -250,8 +268,24 @@ class MoleculeCPP:
         n_atoms = len(self.atoms.get_atomic_numbers())
         all_species = torch.tensor(all_species, dtype=torch.int64).contiguous()
 
-        # torch.ops.my_extension.process(i_list, j_list, S_list, D_list, max_size, n_atoms, species, None)
-        neighbors_index, relative_positions, nums, mask, neighbor_species, neighbors_pos, species_mapped = torch.ops.neighbors_convert.process(self.i_list, self.j_list, self.S_list, self.D_list, max_num, n_atoms, self.species, all_species)
+        (
+            neighbors_index,
+            relative_positions,
+            nums,
+            mask,
+            neighbor_species,
+            neighbors_pos,
+            species_mapped,
+        ) = torch.ops.neighbors_convert.process(
+            self.i_list,
+            self.j_list,
+            self.S_list,
+            self.D_list,
+            max_num,
+            n_atoms,
+            self.species,
+            all_species,
+        )
 
         kwargs = {
             "central_species": species_mapped,
@@ -265,11 +299,12 @@ class MoleculeCPP:
         }
 
         if self.target_index is not None:
-            kwargs['target_id'] = self.target_index
+            kwargs["target_id"] = self.target_index
 
         result = Data(**kwargs)
 
         return result
+
 
 def batch_to_dict(batch):
     batch_dict = {
@@ -282,8 +317,8 @@ def batch_to_dict(batch):
         "neighbors_index": batch.neighbors_index.transpose(0, 1),
         "neighbors_pos": batch.neighbors_pos,
     }
-    if hasattr(batch, 'target_id'):
-        batch_dict['target_id'] = batch.target_id
+    if hasattr(batch, "target_id"):
+        batch_dict["target_id"] = batch.target_id
 
     if hasattr(batch, "neighbor_scalar_attributes"):
         batch_dict["neighbor_scalar_attributes"] = batch.neighbor_scalar_attributes
@@ -311,7 +346,7 @@ class NeighborIndexConstructor:
         self.neighbors_index = [[] for i in range(n_atoms)]
         self.neighbors_shift = [[] for i in range(n_atoms)]
 
-        for i, j, index, S in zip(i_list, j_list, range(len(i_list)), S_list):
+        for i, j, _index, S in zip(i_list, j_list, range(len(i_list)), S_list):
             self.neighbors_index[i].append(j)
             self.neighbors_shift[i].append(S)
 
