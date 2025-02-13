@@ -3,6 +3,7 @@ import torch
 from metatensor.torch.atomistic import (
     ModelCapabilities,
     ModelEvaluationOptions,
+    ModelMetadata,
     ModelOutput,
     System,
 )
@@ -54,7 +55,11 @@ def test_to(device):
         supported_devices=["cpu", "cuda"],
     )
 
-    exported = model.export()
+    exported = model.export(metadata=ModelMetadata(name="test"))
+
+    # test correct metadata
+    assert "This is the test model" in str(exported.metadata())
+
     exported.to(device=device, dtype=dtype)
 
     system = System(

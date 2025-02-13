@@ -20,6 +20,7 @@ from metatrain.utils.data.target_info import is_auxiliary_output
 
 from ...utils.additive import ZBL
 from ...utils.dtype import dtype_to_str
+from ...utils.metadata import append_metadata_references
 from .utils import load_raw_pet_model, systems_to_batch_dict
 
 
@@ -29,6 +30,9 @@ logger = logging.getLogger(__name__)
 class PET(torch.nn.Module):
     __supported_devices__ = ["cuda", "cpu"]
     __supported_dtypes__ = [torch.float32]
+    __default_metadata__ = ModelMetadata(
+        references={"architecture": ["https://arxiv.org/abs/2305.19302v3"]}
+    )
 
     def __init__(self, model_hypers: Dict, dataset_info: DatasetInfo) -> None:
         super().__init__()
@@ -273,7 +277,9 @@ class PET(torch.nn.Module):
 
         return model
 
-    def export(self) -> MetatensorAtomisticModel:
+    def export(
+        self, metadata: Optional[ModelMetadata] = None
+    ) -> MetatensorAtomisticModel:
         dtype = next(self.parameters()).dtype
         if dtype not in self.__supported_dtypes__:
             raise ValueError(f"Unsupported dtype {self.dtype} for PET")
@@ -306,4 +312,10 @@ class PET(torch.nn.Module):
             supported_devices=["cpu", "cuda"],  # and not __supported_devices__
             dtype=dtype_to_str(dtype),
         )
-        return MetatensorAtomisticModel(self.eval(), ModelMetadata(), capabilities)
+
+        if metadata is None:
+            metadata = ModelMetadata()
+
+        append_metadata_references(metadata, self.__default_metadata__)
+
+        return MetatensorAtomisticModel(self.eval(), metadata, capabilities)

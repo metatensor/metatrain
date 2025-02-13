@@ -5,9 +5,10 @@ PET
 
 .. warning::
 
-  The metatrain interface to PET is **experimental**. You should not use it for
-  anything important. You can also fit PET using native scripts (not experimental)
-  from `here <https://spozdn.github.io/pet/train_model.html>`_.
+  The metatrain interface to PET :footcite:p:`pozdnyakov_smooth_2023` is
+  **experimental**. You should not use it for anything important. You can also fit PET
+  using native scripts (not experimental) from `here
+  <https://spozdn.github.io/pet/train_model.html>`_.
 
 
 Installation
@@ -170,8 +171,8 @@ to significantly increase the model's speed with minimal impact on accuracy. For
 practical use, especially when conducting massive calculations where model speed is
 crucial, it may be beneficial to set ``N_TRANS_LAYERS`` to ``2`` instead of the default
 value of ``3``. The ``N_TRANS_LAYERS`` hyperparameter controls the number of transformer
-layers in each message-passing block (see more details in the `PET paper
-<https://arxiv.org/abs/2305.19302>`_). This adjustment would result in a model that is
+layers in each message-passing block (For more details see
+:footcite:t:`pozdnyakov_smooth_2023`). This adjustment would result in a model that is
 about *1.5 times* more lightweight and faster, with an expected minimal deterioration in
 accuracy.
 
@@ -289,3 +290,7 @@ dataset)``.
 - ``USE_ADDITIONAL_SCALAR_ATTRIBUTES``: if using additional scalar attributes
   such as collinear spins
 - ``SCALAR_ATTRIBUTES_SIZE``: dimensionality of additional scalar attributes
+
+References
+----------
+.. footbibliography::

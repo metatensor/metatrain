@@ -13,6 +13,7 @@ from pathlib import Path
 import huggingface_hub
 import pytest
 import torch
+from omegaconf import OmegaConf
 
 from metatrain.cli.export import export_model
 from metatrain.experimental.soap_bpnn import __model__
@@ -167,3 +168,24 @@ def test_private_huggingface(monkeypatch, tmp_path):
 
     # Test that the model can be loaded
     load_model(output, extensions_directory="extensions/")
+
+
+def test_metadata(monkeypatch, tmp_path):
+    """Test that the export cli does inject metadata."""
+    monkeypatch.chdir(tmp_path)
+
+    model_name = "test"
+    conf = OmegaConf.create({"name": model_name})
+    OmegaConf.save(config=conf, f="metadata.yaml")
+
+    command = [
+        "mtt",
+        "export",
+        str(RESOURCES_PATH / "model-32-bit.ckpt"),
+        "--metadata=metadata.yaml",
+    ]
+
+    subprocess.check_call(command)
+    model = load_model("model-32-bit.pt", extensions_directory="extensions/")
+
+    assert f"This is the {model_name} model" in str(model.metadata())
