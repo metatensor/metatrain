@@ -165,6 +165,63 @@ def get_neighbor_list(
         values=torch.tensor(labels_values, dtype=torch.int32),
     )
 
+def drop_empty_blocks(tensor: TensorMap) -> TensorMap:
+    """
+    Drops blocks from a TensorMap that have been sliced to zero samples.
+    """
+    # Return None if None
+    if tensor is None:
+        return tensor
+
+    # Find keys to drop
+    keys_to_drop = []
+    for key, block in tensor.items():
+        if any([dim == 0 for dim in block.values.shape]):
+            keys_to_drop.append(key)
+
+    if len(keys_to_drop) == 0:
+        return tensor
+
+    # Drop blocks
+    tensor_dropped = mts.drop_blocks(
+        tensor,
+        keys=mts.Labels(
+            names=keys_to_drop[0].names,
+            values=torch.tensor(
+                [[i for i in k.values] for k in keys_to_drop],
+                dtype=torch.int64
+            ),
+        ),
+    )
+
+    return tensor_dropped
+
+
+def get_tensor_std(tensor: TensorMap) -> TensorMap:
+    """
+    For each block, computes the norm over components and then a standard deviation over
+    samples. Scales this by the length of the ISC (i.e. 2l + 1). Stores the resulting
+    vector of length `len(block.properties)` in a TensorBlock, and returns the total
+    result in a TensorMap.
+    """
+    std_blocks = []
+    for key, block in tensor.items():
+
+        std_values = torch.std(torch.norm(block.values, dim=1), dim=0) * (
+            2 * key["o3_lambda"] + 1
+        )
+        std_blocks.append(
+            TensorBlock(
+                samples=Labels.single(),
+                components=[],
+                properties=block.properties,
+                values=std_values.reshape(1, -1),
+            )
+        )
+
+    return TensorMap(tensor.keys, std_blocks)
+
+
 
 # ===== Metadata from basis sets =====
 

@@ -56,20 +56,6 @@ class NanoPetOnBasis(torch.torch.nn.Module):
         # Instantiate NanoPET model
         if pet_hypers is None:
             pet_hypers = get_default_hypers("experimental.nanopet")["model"]
-        # TODO: separate PET for each block!
-        # self.nanopet = torch.nn.ModuleList(
-        #     [
-        #         NanoPET(
-        #             pet_hypers,
-        #             DatasetInfo(
-        #                 length_unit="angstrom",
-        #                 atomic_types=self.atom_types,
-        #                 targets={},
-        #             ),
-        #         )
-        #         for _ in self.in_keys_node
-        #     ]
-        # )
         self.nanopet = NanoPET(
             pet_hypers,
             DatasetInfo(
