@@ -4,7 +4,7 @@ import numpy as np
 import torch
 from torch import nn
 
-from metatrain.experimental.pet.modules.pet import get_activation
+from .utilities import get_activation
 
 
 def get_upper_bound(vec, first_other, second_other, k_cut):

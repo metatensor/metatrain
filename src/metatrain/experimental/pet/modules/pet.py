@@ -7,7 +7,7 @@ from torch import nn
 
 from .molecule import batch_to_dict
 from .transformer import Transformer, TransformerLayer
-from .utilities import NeverRun, get_rotations
+from .utilities import NeverRun, get_activation, get_rotations
 
 
 class CentralSplitter(torch.nn.Module):
@@ -73,14 +73,6 @@ def cutoff_func(grid: torch.Tensor, r_cut: float, delta: float):
     f[mask_bigger] = 0.0
     f[mask_smaller] = 1.0
     return f
-
-
-def get_activation(hypers):
-    if hypers.ACTIVATION == "mish":
-        return nn.Mish()
-    if hypers.ACTIVATION == "silu":
-        return nn.SiLU()
-    raise ValueError("unknown activation")
 
 
 class CartesianTransformer(torch.nn.Module):

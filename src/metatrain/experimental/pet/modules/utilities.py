@@ -12,6 +12,14 @@ from torch.optim.lr_scheduler import LambdaLR
 from torch_geometric.loader import DataListLoader, DataLoader, DynamicBatchSampler
 
 
+def get_activation(hypers):
+    if hypers.ACTIVATION == "mish":
+        return torch.nn.Mish()
+    if hypers.ACTIVATION == "silu":
+        return torch.nn.SiLU()
+    raise ValueError("unknown activation")
+
+
 def log_epoch_stats(epoch, total_epochs, epoch_stats, learning_rate, energies_key):
     """
     Logs the detailed training and validation statistics at the end of each epoch.
