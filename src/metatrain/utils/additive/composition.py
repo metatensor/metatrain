@@ -25,9 +25,8 @@ class CompositionModel(torch.nn.Module):
         target quantities and atomic types.
     """
 
-    weights: torch.Tensor
+    weights: Dict[str, TensorMap]
     outputs: Dict[str, ModelOutput]
-    output_name_to_output_index: Dict[str, int]
 
     def __init__(self, model_hypers: Dict, dataset_info: DatasetInfo):
         super().__init__()
@@ -131,7 +130,7 @@ class CompositionModel(torch.nn.Module):
                     )
                 weights_tensor = torch.tensor(
                     [fixed_weights[target_key][i] for i in self.atomic_types],
-                    dtype=self.weights.dtype,
+                    dtype=self.dummy_buffer.dtype,
                 ).reshape(-1, 1)
                 self.weights[target_key] = TensorMap(
                     keys=Labels.single(),
@@ -231,7 +230,15 @@ class CompositionModel(torch.nn.Module):
                                 )
                         # TODO: abstract even more for more complex targets?
                         for key, block in targets[target_key].items():
-                            per_block_targets_list[key].append(block)
+                            # `if key not in per_block_targets_list` doesn't work, so:
+                            matching_keys = [
+                                k for k in per_block_targets_list if k == key
+                            ]
+                            assert len(matching_keys) <= 1
+                            if len(matching_keys) == 0:
+                                per_block_targets_list[key] = [block]
+                            else:
+                                per_block_targets_list[matching_keys[0]].append(block)
 
                 weight_blocks = []
                 for key, block_list in per_block_targets_list.items():
@@ -309,8 +316,10 @@ class CompositionModel(torch.nn.Module):
                                     self.atomic_types, dtype=torch.int, device=device
                                 ).reshape(-1, 1),
                             ),
-                            components=metadata_block.components,
-                            properties=metadata_block.properties,
+                            components=[
+                                c.to(device) for c in metadata_block.components
+                            ],
+                            properties=metadata_block.properties.to(device),
                         )
                     )
                 self.weights[target_key] = TensorMap(
@@ -378,14 +387,10 @@ class CompositionModel(torch.nn.Module):
         device = systems[0].positions.device
 
         # move weights (TensorMaps can't be treated as buffers for now)
-        if len(self.weights) != 0:
-            if self.weights[self.weights.keys()[0]].device != device:
-                self.weights = {k: v.to(device) for k, v in self.weights.items()}
-            if self.weights[self.weights.keys()[0]].dtype != dtype:
-                self.weights = {k: v.to(dtype) for k, v in self.weights.items()}
+        self._move_weights_to_device_and_dtype(device, dtype)
 
         for output_name in outputs:
-            if output_name not in self.output_name_to_output_index:
+            if output_name not in self.weights:
                 raise ValueError(
                     f"output key {output_name} is not supported by this composition "
                     "model."
@@ -418,7 +423,7 @@ class CompositionModel(torch.nn.Module):
         for output_name, output_options in outputs.items():
             blocks: List[TensorBlock] = []
             for weight_key, weight_block in self.weights[output_name].items():
-                weights_tensor = self.weights["output"].block(weight_key).values
+                weights_tensor = self.weights[output_name].block(weight_key).values
                 composition_values_per_atom = torch.empty(
                     (len(concatenated_types), len(weight_block.properties)),
                     dtype=dtype,
@@ -462,6 +467,15 @@ class CompositionModel(torch.nn.Module):
             unit=target_info.unit,
             per_atom=True,
         )
+
+    def _move_weights_to_device_and_dtype(
+        self, device: torch.device, dtype: torch.dtype
+    ):
+        if len(self.weights) != 0:
+            if self.weights[list(self.weights.keys())[0]].device != device:
+                self.weights = {k: v.to(device) for k, v in self.weights.items()}
+            if self.weights[list(self.weights.keys())[0]].dtype != dtype:
+                self.weights = {k: v.to(dtype) for k, v in self.weights.items()}
 
     @staticmethod
     def is_valid_target(target_name: str, target_info: TargetInfo) -> bool:
