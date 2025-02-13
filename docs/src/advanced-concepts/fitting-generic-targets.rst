@@ -138,7 +138,9 @@ be raised.
 In particular:
 
 - if the target is per atom, the samples should have the [``system``, ``atom``] names,
-  otherwise the [``system``] name.
+  otherwise the [``system``] name. In order to produce correct results, per-atom targets
+  should be prepared in the same order as the atoms in the system. This means that you
+  should use e.g. ``metatensor.torch.sort`` to sort the atoms in your target.
 - if the target is a ``scalar``, only one ``TensorBlock`` should be present, the keys
   of the ``TensorMap`` should be a ``Labels.single()`` object, and there should be no
   components.
