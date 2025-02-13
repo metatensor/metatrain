@@ -1,8 +1,8 @@
 import copy
 
 import torch
-from pet.hypers import Hypers
-from pet.pet import PET
+from metatrain.experimental.pet.modules.hypers import Hypers
+from metatrain.experimental.pet.modules.pet import PET
 
 from metatrain.experimental.pet import PET as WrappedPET
 from metatrain.utils.architectures import get_default_hypers

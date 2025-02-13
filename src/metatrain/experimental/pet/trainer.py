@@ -9,17 +9,17 @@ from typing import List, Union
 
 import numpy as np
 import torch
-from pet.analysis import adapt_hypers
-from pet.data_preparation import (
+from .modules.analysis import adapt_hypers
+from .modules.data_preparation import (
     get_corrected_energies,
     get_forces,
     get_pyg_graphs,
     get_self_contributions,
     update_pyg_graphs,
 )
-from pet.hypers import Hypers, save_hypers
-from pet.pet import PET, FlagsWrapper, PETMLIPWrapper, PETUtilityWrapper
-from pet.utilities import (
+from .modules.hypers import Hypers, save_hypers
+from .modules.pet import PET, FlagsWrapper, PETMLIPWrapper, PETUtilityWrapper
+from .modules.utilities import (
     FullLogger,
     ModelKeeper,
     dtype2string,

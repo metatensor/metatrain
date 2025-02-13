@@ -2,8 +2,8 @@ from typing import Dict, List
 
 import numpy as np
 import torch
-from pet.hypers import Hypers
-from pet.pet import PET, SelfContributionsWrapper
+from ..modules.hypers import Hypers
+from ..modules.pet import PET, SelfContributionsWrapper
 
 from .fine_tuning import LoRAWrapper
 from .update_state_dict import update_state_dict

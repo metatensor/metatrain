@@ -64,7 +64,12 @@ soap-bpnn = [
     "wigners",
 ]
 pet = [
-  "pet @ git+https://github.com/lab-cosmo/pet@5d40710",
+    "pet-neighbors-convert @ git+https://github.com/lab-cosmo/pet-neighbors-convert.git",
+    "torch_geometric",
+    "matscipy",
+    "scikit-learn",
+    "pathos",
+    "scipy",
 ]
 nanopet = []
 gap = [

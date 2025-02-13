@@ -10,9 +10,9 @@ from metatensor.torch.atomistic import (
     NeighborListOptions,
     systems_to_torch,
 )
-from pet.data_preparation import get_pyg_graphs
-from pet.hypers import Hypers
-from pet.pet import PET
+from metatrain.experimental.pet.modules.data_preparation import get_pyg_graphs
+from metatrain.experimental.pet.modules.hypers import Hypers
+from metatrain.experimental.pet.modules.pet import PET
 
 from metatrain.experimental.pet import PET as WrappedPET
 from metatrain.experimental.pet.utils import systems_to_batch_dict

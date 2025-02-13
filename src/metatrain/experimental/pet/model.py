@@ -13,7 +13,7 @@ from metatensor.torch.atomistic import (
     NeighborListOptions,
     System,
 )
-from pet.pet import PET as RawPET
+from .modules.pet import PET as RawPET
 
 from metatrain.utils.data import DatasetInfo
 from metatrain.utils.data.target_info import is_auxiliary_output
