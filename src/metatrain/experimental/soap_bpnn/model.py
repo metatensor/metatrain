@@ -20,6 +20,7 @@ from metatrain.utils.data.dataset import DatasetInfo
 
 from ...utils.additive import ZBL, CompositionModel
 from ...utils.dtype import dtype_to_str
+from ...utils.metadata import append_metadata_references
 from ...utils.scaler import Scaler
 from .spherical import TensorBasis
 
@@ -120,6 +121,17 @@ class MLPHeadMap(ModuleMap):
 class SoapBpnn(torch.nn.Module):
     __supported_devices__ = ["cuda", "cpu"]
     __supported_dtypes__ = [torch.float64, torch.float32]
+    __default_metadata__ = ModelMetadata(
+        references={
+            "implementation": [
+                "rascaline: https://github.com/Luthaf/rascaline",
+            ],
+            "architecture": [
+                "SOAP: https://doi.org/10.1002/qua.24927",
+                "BPNN: https://link.aps.org/doi/10.1103/PhysRevLett.98.146401",
+            ],
+        }
+    )
 
     component_labels: Dict[str, List[List[Labels]]]  # torchscript needs this
 
@@ -451,7 +463,9 @@ class SoapBpnn(torch.nn.Module):
 
         return model
 
-    def export(self) -> MetatensorAtomisticModel:
+    def export(
+        self, metadata: Optional[ModelMetadata] = None
+    ) -> MetatensorAtomisticModel:
         dtype = next(self.parameters()).dtype
         if dtype not in self.__supported_dtypes__:
             raise ValueError(f"unsupported dtype {self.dtype} for SoapBpnn")
@@ -482,7 +496,12 @@ class SoapBpnn(torch.nn.Module):
             dtype=dtype_to_str(dtype),
         )
 
-        return MetatensorAtomisticModel(self.eval(), ModelMetadata(), capabilities)
+        if metadata is None:
+            metadata = ModelMetadata()
+
+        append_metadata_references(metadata, self.__default_metadata__)
+
+        return MetatensorAtomisticModel(self.eval(), metadata, capabilities)
 
     def _add_output(self, target_name: str, target: TargetInfo) -> None:
         # register bases of spherical tensors (TensorBasis)

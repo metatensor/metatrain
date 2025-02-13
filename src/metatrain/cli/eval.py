@@ -56,12 +56,12 @@ def _add_eval_model_parser(subparser: argparse._SubParsersAction) -> None:
     parser.add_argument(
         "path",
         type=str,
-        help="Saved exported model to be evaluated.",
+        help="Saved exported (.pt) model to be evaluated.",
     )
     parser.add_argument(
         "options",
         type=str,
-        help="Eval options file to define a dataset for evaluation.",
+        help="Eval options YAML file to define a dataset for evaluation.",
     )
     parser.add_argument(
         "-e",

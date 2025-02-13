@@ -38,6 +38,38 @@ or
 
     mtt export model.ckpt --output model.pt
 
+Adding information about models
+-------------------------------
+
+You can also insert the model name, a description, the list of authors and references
+into the model. This information will be saved in the exported model and can will be
+displayed to users when the model is used, for example, in molecular dynamics
+simulations.
+
+.. code-block:: bash
+
+    mtt export model.ckpt --metadata metadata.yaml
+
+The ``metadata.yaml`` file should have the following structure:
+
+.. code-block:: yaml
+
+    name: My model
+    description: This model was trained on the QM9 dataset.
+    authors:
+      - John Doe
+      - Jane Doe
+    references:
+      model:
+        - https://arxiv.org/abs/1234.5678
+
+You can also add additional keywords like additional references to the metadata file.
+The fields are the same for :class:`ModelMetadata
+<metatensor.torch.atomistic.ModelMetadata>` class from metatensor.
+
+Exporting remote models
+-----------------------
+
 For a export of distribution of models the ``export`` command also supports parsing
 models from remote locations. To export a remote model you can provide a URL instead of
 a file path.

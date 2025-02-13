@@ -17,6 +17,7 @@ from metatensor.torch.atomistic import (
 from ...utils.additive import ZBL, CompositionModel
 from ...utils.data import DatasetInfo, TargetInfo
 from ...utils.dtype import dtype_to_str
+from ...utils.metadata import append_metadata_references
 from ...utils.scaler import Scaler
 from .modules.encoder import Encoder
 from .modules.nef import (
@@ -49,6 +50,9 @@ class NanoPET(torch.nn.Module):
 
     __supported_devices__ = ["cuda", "cpu"]
     __supported_dtypes__ = [torch.float64, torch.float32]
+    __default_metadata__ = ModelMetadata(
+        references={"architecture": ["https://arxiv.org/abs/2305.19302v3"]}
+    )
 
     component_labels: Dict[str, List[List[Labels]]]
 
@@ -523,7 +527,9 @@ class NanoPET(torch.nn.Module):
 
         return model
 
-    def export(self) -> MetatensorAtomisticModel:
+    def export(
+        self, metadata: Optional[ModelMetadata] = None
+    ) -> MetatensorAtomisticModel:
         dtype = next(self.parameters()).dtype
         if dtype not in self.__supported_dtypes__:
             raise ValueError(f"unsupported dtype {self.dtype} for NanoPET")
@@ -554,7 +560,12 @@ class NanoPET(torch.nn.Module):
             dtype=dtype_to_str(dtype),
         )
 
-        return MetatensorAtomisticModel(self.eval(), ModelMetadata(), capabilities)
+        if metadata is None:
+            metadata = ModelMetadata()
+
+        append_metadata_references(metadata, self.__default_metadata__)
+
+        return MetatensorAtomisticModel(self.eval(), metadata, capabilities)
 
     def _add_output(self, target_name: str, target_info: TargetInfo) -> None:
         # one output shape for each tensor block, grouped by target (i.e. tensormap)

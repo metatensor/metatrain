@@ -1,6 +1,5 @@
 import logging
 from typing import Dict, List, Optional, Union
-import numpy as np
 
 import metatensor.torch
 import torch
@@ -60,7 +59,7 @@ class CompositionModel(torch.nn.Module):
             self._add_output(target_name, target_info)
 
         # keeps track of dtype and device of the composition model
-        self.register_buffer("dummy_buffer", torch.tensor(np.random.rand(1)))
+        self.register_buffer("dummy_buffer", torch.randn(1))
 
     def train_model(
         self,

@@ -23,11 +23,23 @@ from skmatter._selection import _FPS
 from metatrain.utils.data.dataset import DatasetInfo
 
 from ...utils.additive import ZBL, CompositionModel
+from ...utils.metadata import append_metadata_references
 
 
 class GAP(torch.nn.Module):
     __supported_devices__ = ["cpu"]
     __supported_dtypes__ = [torch.float64]
+    __default_metadata__ = ModelMetadata(
+        references={
+            "implementation": [
+                "rascaline: https://github.com/Luthaf/rascaline",
+            ],
+            "architecture": [
+                "SOAP: https://doi.org/10.1002/qua.24927",
+                "GAP: https://doi.org/10.1103/PhysRevB.87.184115",
+            ],
+        }
+    )
 
     def __init__(self, model_hypers: Dict, dataset_info: DatasetInfo) -> None:
         super().__init__()
@@ -251,7 +263,9 @@ class GAP(torch.nn.Module):
 
         return return_dict
 
-    def export(self) -> MetatensorAtomisticModel:
+    def export(
+        self, metadata: Optional[ModelMetadata] = None
+    ) -> MetatensorAtomisticModel:
         interaction_ranges = [self.hypers["soap"]["cutoff"]]
         for additive_model in self.additive_models:
             if hasattr(additive_model, "cutoff_radius"):
@@ -279,7 +293,12 @@ class GAP(torch.nn.Module):
             self._subset_of_regressors.export_torch_script_model()
         )
 
-        return MetatensorAtomisticModel(self.eval(), ModelMetadata(), capabilities)
+        if metadata is None:
+            metadata = ModelMetadata()
+
+        append_metadata_references(metadata, self.__default_metadata__)
+
+        return MetatensorAtomisticModel(self.eval(), metadata, capabilities)
 
     def set_composition_weights(
         self,

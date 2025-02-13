@@ -1,9 +1,10 @@
 import argparse
 import logging
 from pathlib import Path
-from typing import Any, Union
+from typing import Any, Optional, Union
 
-from metatensor.torch.atomistic import is_atomistic_model
+from metatensor.torch.atomistic import ModelMetadata, is_atomistic_model
+from omegaconf import OmegaConf
 
 from ..utils.io import check_file_extension, load_model
 from .formatter import CustomHelpFormatter
@@ -49,6 +50,15 @@ def _add_export_model_parser(subparser: argparse._SubParsersAction) -> None:
         ),
     )
     parser.add_argument(
+        "-m",
+        "--metadata",
+        type=str,
+        required=False,
+        dest="metadata",
+        default=None,
+        help="Metatdata YAML file to be appended to the model.",
+    )
+    parser.add_argument(
         "--huggingface_api_token",
         dest="huggingface_api_token",
         type=str,
@@ -65,8 +75,14 @@ def _prepare_export_model_args(args: argparse.Namespace) -> None:
         path=path,
         **args.__dict__,
     )
-    keys_to_keep = ["model", "output"]  # only these are needed for `export_model``
+
+    if args.metadata is not None:
+        args.metadata = ModelMetadata(**OmegaConf.load(args.metadata))
+
+    # only these are needed for `export_model``
+    keys_to_keep = ["model", "output", "metadata"]
     original_keys = list(args.__dict__.keys())
+
     for key in original_keys:
         if key not in keys_to_keep:
             args.__dict__.pop(key)
@@ -74,7 +90,9 @@ def _prepare_export_model_args(args: argparse.Namespace) -> None:
         args.__dict__["output"] = Path(path).stem + ".pt"
 
 
-def export_model(model: Any, output: Union[Path, str]) -> None:
+def export_model(
+    model: Any, output: Union[Path, str], metadata: Optional[ModelMetadata] = None
+) -> None:
     """Export a trained model allowing it to make predictions.
 
     This includes predictions within molecular simulation engines. Exported models will
@@ -83,6 +101,7 @@ def export_model(model: Any, output: Union[Path, str]) -> None:
 
     :param model: model to be exported
     :param output: path to save the model
+    :param metadata: metadata to be appended to the model
     """
     path = str(
         Path(check_file_extension(filename=output, extension=".pt"))
@@ -92,7 +111,7 @@ def export_model(model: Any, output: Union[Path, str]) -> None:
     extensions_path = str(Path("extensions/").absolute().resolve())
 
     if not is_atomistic_model(model):
-        model = model.export()
+        model = model.export(metadata)
 
     model.save(path, collect_extensions=extensions_path)
     logger.info(f"Model exported to '{path}' and extensions to '{extensions_path}'")
