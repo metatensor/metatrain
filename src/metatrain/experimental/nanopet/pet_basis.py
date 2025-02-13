@@ -15,7 +15,7 @@ from metatrain.utils.neighbor_lists import (
     get_system_with_neighbor_lists,
 )
 
-from elearn import symmetrize_samples, keys_triu_center_type
+from .elearn import symmetrize_samples, keys_triu_center_type
 from metatensor.torch.learn import ModuleMap
 
 
@@ -49,8 +49,6 @@ class NanoPetOnBasis(torch.torch.nn.Module):
             self.in_keys_edge, self.out_properties_edge = keys_triu_center_type(
                 in_keys_edge, out_properties_edge
             )
-            self.in_keys_edge = in_keys_edge
-            self.out_properties_edge = out_properties_edge
             self.predict_edges = True
         else:
             self.predict_edges = False
@@ -372,6 +370,8 @@ def symmetrize_predictions_edge(
     Symmetrize PET edge predictions
     """
 
+    apply_permutational_symmetry = "block_type" in in_keys_edge.names
+
     slice_edges = {}
     for key in in_keys_edge:
         Z1 = int(key["first_atom_type"])
@@ -405,7 +405,7 @@ def symmetrize_predictions_edge(
         )[0]
 
         # Symmetrize
-        if Z1 == Z2:
+        if Z1 == Z2 and apply_permutational_symmetry:
             block_plus, block_minus = symmetrize_samples(block)
             if key["block_type"] == 1:
                 edge_blocks.append(block_plus)

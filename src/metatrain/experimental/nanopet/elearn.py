@@ -1,4 +1,4 @@
-from typing import List, Tuple, Optional
+from typing import List, Tuple, Optional, Dict, Union
 
 import numpy as np
 import torch
@@ -103,6 +103,8 @@ def keys_triu_center_type(
         if i in idxs_to_keep
     ]
 
+    assert len(in_keys_edge_sliced) == len(out_properties_edge_sliced)
+
     return in_keys_edge_sliced, out_properties_edge_sliced
 
 
@@ -168,8 +170,8 @@ def get_neighbor_list(
 
 
 def get_one_center_metadata(
-    basis_set: dict,
-) -> Tuple[mts.Labels, List[mts.Labels], mts.Labels, List[mts.Labels]]:
+    basis_set: Dict[str, Dict[int, Union[int, List[int]]]],
+) -> Dict[str, Union[mts.Labels, List[mts.Labels]]]:
     """
     Parses the basis set definition and returns the metadata for one-center targets.
 
@@ -217,152 +219,32 @@ def get_one_center_metadata(
     }
 
 
-# def get_two_center_metadata(
-#     basis_set: dict,
-# ) -> Tuple[mts.Labels, List[mts.Labels], mts.Labels, List[mts.Labels]]:
-#     """
-#     Parses the basis set definition and returns the metadata for two-center targets.
-
-#     Return the keys and out properties of the node and edge features, in a dict.
-#     """
-
-#     # Edge keys
-#     keys_values_edge = []
-#     out_properties_edge = []
-#     for center_1_symbol, atom_1_basis in basis_set.items():
-#         for center_2_symbol, atom_2_basis in basis_set.items():
-#             for o3_lambda_1, radial_basis_1 in basis_set[center_1_symbol].items():
-
-#                 if isinstance(radial_basis_1, int):
-#                     radial_basis_1 = list(range(radial_basis_1))
-
-#                 for o3_lambda_2, radial_basis_2 in basis_set[center_2_symbol].items():
-
-#                     if isinstance(radial_basis_2, int):
-#                         radial_basis_2 = list(range(radial_basis_2))
-
-#                     for o3_lambda in range(
-#                         abs(o3_lambda_1 - o3_lambda_2),
-#                         abs(o3_lambda_1 + o3_lambda_2) + 1,
-#                     ):
-
-#                         o3_sigma = (-1) ** (o3_lambda_1 + o3_lambda_2 + o3_lambda)
-
-#                         # Create the edge properties for this block. This doesn't depend
-#                         #  on the block type
-#                         out_properties_values_edge = []
-#                         for n_1 in radial_basis_1:
-#                             for n_2 in radial_basis_2:
-
-#                                 out_properties_value_edge = [
-#                                     n_1,
-#                                     o3_lambda_1,
-#                                     n_2,
-#                                     o3_lambda_2,
-#                                 ]
-#                                 if (
-#                                     out_properties_value_edge
-#                                     not in out_properties_values_edge
-#                                 ):
-#                                     out_properties_values_edge.append(
-#                                         out_properties_value_edge
-#                                     )
-
-#                         out_properties = mts.Labels(
-#                             ["n_1", "l_1", "n_2", "l_2"],
-#                             torch.tensor(out_properties_values_edge, dtype=torch.int64),
-#                         )
-
-#                         # Edge keys, taking care of block types
-#                         if center_1_symbol == center_2_symbol:
-
-#                             for block_type in [-1, 0, 1]:
-
-#                                 # Skip blocks that are zero by symmetry
-#                                 same_orbital = (n_1 == n_2 and o3_lambda_1 == o3_lambda_2)
-#                                 if same_orbital and (
-#                                     (o3_sigma == -1 and block_type in [0, 1])
-#                                     or (o3_sigma == 1 and block_type == -1)
-#                                 ):
-#                                     continue
-
-#                                 # Create the edge key values
-#                                 keys_value_edge = [
-#                                     o3_lambda,
-#                                     o3_sigma,
-#                                     ATOMIC_SYMBOLS_TO_NUMBERS[center_1_symbol],
-#                                     ATOMIC_SYMBOLS_TO_NUMBERS[center_2_symbol],
-#                                     block_type,
-#                                 ]
-#                                 if keys_value_edge not in keys_values_edge:
-#                                     keys_values_edge.append(keys_value_edge)
-#                                     out_properties_edge.append(out_properties)
-#                         else:
-#                             block_type = 2
-#                             keys_value_edge = [
-#                                 o3_lambda,
-#                                 o3_sigma,
-#                                 ATOMIC_SYMBOLS_TO_NUMBERS[center_1_symbol],
-#                                 ATOMIC_SYMBOLS_TO_NUMBERS[center_2_symbol],
-#                                 block_type,
-#                             ]
-
-#                             if keys_value_edge not in keys_values_edge:
-#                                 keys_values_edge.append(keys_value_edge)
-#                                 out_properties_edge.append(out_properties)
-
-#     in_keys_edge = mts.Labels(
-#         ["o3_lambda", "o3_sigma", "first_atom_type", "second_atom_type", "block_type"],
-#         torch.tensor(keys_values_edge),
-#     )
-
-#     # Finally treat the special case of node, where block_type == 0
-#     in_keys_values_node = []
-#     out_properties_node = []
-#     in_keys_values_edge = []
-#     out_properties_edge_new = []
-#     for key_i, key in enumerate(in_keys_edge):
-#         if key["block_type"] == 0:  # this is a node
-#             assert key["first_atom_type"] == key["second_atom_type"]
-#             in_keys_values_node.append(key.values[:3])
-#             out_properties_node.append(out_properties_edge[key_i])
-#         else:
-#             in_keys_values_edge.append(key.values)
-#             out_properties_edge_new.append(out_properties_edge[key_i])
-
-
-#     in_keys_node = mts.Labels(
-#         ["o3_lambda", "o3_sigma", "center_type"], torch.stack(in_keys_values_node)
-#     )
-#     in_keys_edge = mts.Labels(
-#         ["o3_lambda", "o3_sigma", "first_atom_type", "second_atom_type", "block_type"],
-#         torch.stack(in_keys_values_edge)
-#     )
-
-#     return {
-#         "in_keys_node": in_keys_node,
-#         "out_properties_node": out_properties_node,
-#         "in_keys_edge": in_keys_edge,
-#         "out_properties_edge": out_properties_edge,
-#     }
-
-
 def get_two_center_metadata(
-    basis_set: dict,
-):
+    basis_set: Dict[str, Dict[int, Union[int, List[int]]]],
+    triangulate_center_types: bool = False,
+    permutation_symmetry: bool = False,
+) -> Dict[str, Union[mts.Labels, List[mts.Labels]]]:
     """
     Parses the basis set definition and returns the metadata for two-center targets.
 
     Return the keys and out properties of the node and edge features, in a dict.
     """
 
+    edge_key_names = ["o3_lambda", "o3_sigma", "first_atom_type", "second_atom_type"]
+    if permutation_symmetry:
+        edge_key_names.append("block_type")
+    node_key_names = ["o3_lambda", "o3_sigma", "center_type"]
+
     # Edge keys
     keys_values_edge = {}
     for center_1_symbol in basis_set:
         for center_2_symbol in basis_set:
             same_species = center_1_symbol == center_2_symbol
-            if same_species:
-                block_types = [-1, 0, 1]
+            if permutation_symmetry:
+                if same_species:
+                    block_types = [-1, 0, 1]
+                else:
+                    block_types = [2]
             else:
                 block_types = [2]
             for block_type in block_types:
@@ -411,9 +293,11 @@ def get_two_center_metadata(
                                         keys_values_edge[key] = []
                                     keys_values_edge[key].append([n_1, n_2])
 
+    keys_values_edge_new = {}
     for key, val in keys_values_edge.items():
-        if len(val) == 0:
-            del keys_values_edge[key]
+        if len(val) != 0:
+            keys_values_edge_new[key] = val
+    keys_values_edge = keys_values_edge_new
 
     metadata = TensorMap(
         Labels(
@@ -423,8 +307,8 @@ def get_two_center_metadata(
                 "first_atom_type",
                 "second_atom_type",
                 "block_type",
-                "l_1",
-                "l_2",
+                "orb_l_1",
+                "orb_l_2",
             ],
             torch.tensor(list(keys_values_edge.keys())),
         ),
@@ -432,18 +316,24 @@ def get_two_center_metadata(
             TensorBlock(
                 samples=Labels.single(),
                 components=[],
-                properties=Labels(["n_1", "n_2"], torch.tensor(keys_values_edge[key])),
+                properties=Labels(
+                    ["orb_n_1", "orb_n_2"], torch.tensor(keys_values_edge[key])
+                ),
                 values=torch.empty(1, len(keys_values_edge[key])),
             )
             for key in keys_values_edge
         ],
     )
     metadata = mts.permute_dimensions(
-        metadata.keys_to_properties(["l_1", "l_2"]), "properties", [2, 0, 3, 1]
+        metadata.keys_to_properties(["orb_l_1", "orb_l_2"]), "properties", [2, 0, 3, 1]
     )
+
+    if not permutation_symmetry:
+        metadata = mts.remove_dimension(metadata, "keys", "block_type")
 
     in_keys_edge = metadata.keys
     out_properties_edge = [block.properties for block in metadata]
+    assert len(in_keys_edge) == len(out_properties_edge)
 
     # Finally treat the special case of node, where block_type == 0
     in_keys_values_node = []
@@ -451,27 +341,40 @@ def get_two_center_metadata(
     in_keys_values_edge = []
     out_properties_edge_new = []
     for key_i, key in enumerate(in_keys_edge):
-        if key["block_type"] == 0:  # this is a node
-            assert key["first_atom_type"] == key["second_atom_type"]
-            in_keys_values_node.append(key.values[:3])
-            out_properties_node.append(out_properties_edge[key_i])
+        if permutation_symmetry:
+            if key["block_type"] == 0:  # this is a node
+                assert key["first_atom_type"] == key["second_atom_type"]
+                in_keys_values_node.append(key.values[:3])
+                out_properties_node.append(out_properties_edge[key_i])
+            else:
+                in_keys_values_edge.append(key.values)
+                out_properties_edge_new.append(out_properties_edge[key_i])
         else:
             in_keys_values_edge.append(key.values)
             out_properties_edge_new.append(out_properties_edge[key_i])
+            if key["first_atom_type"] == key["second_atom_type"]:
+                in_keys_values_node.append(key.values[:3])
+                out_properties_node.append(out_properties_edge[key_i])
 
-    in_keys_node = mts.Labels(
-        ["o3_lambda", "o3_sigma", "center_type"], torch.stack(in_keys_values_node)
-    )
+    in_keys_node = mts.Labels(node_key_names, torch.stack(in_keys_values_node))
     in_keys_edge = mts.Labels(
-        ["o3_lambda", "o3_sigma", "first_atom_type", "second_atom_type", "block_type"],
+        edge_key_names,
         torch.stack(in_keys_values_edge),
     )
+
+    if triangulate_center_types:
+        in_keys_edge, out_properties_edge_new = keys_triu_center_type(
+            in_keys_edge, out_properties_edge_new
+        )
+
+    assert len(in_keys_edge) == len(out_properties_edge_new)
+    assert len(in_keys_node) == len(out_properties_node)
 
     return {
         "in_keys_node": in_keys_node,
         "out_properties_node": out_properties_node,
         "in_keys_edge": in_keys_edge,
-        "out_properties_edge": out_properties_edge,
+        "out_properties_edge": out_properties_edge_new,
     }
 
 
