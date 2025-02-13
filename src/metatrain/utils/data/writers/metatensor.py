@@ -14,7 +14,7 @@ def write_mts(
     capabilities: ModelCapabilities,
     predictions: Dict[str, TensorMap],
 ) -> None:
-    """A metatensor-format prediction writer. Writes the predictions to `.mts` files.
+    """A metatensor-format prediction writer. Writes the predictions to `.npz` files.
 
     :param filename: name of the file to save to.
     :param systems: structures to be written to the file (not written by this writer).
@@ -25,6 +25,6 @@ def write_mts(
     filename_base = Path(filename).stem
     for prediction_name, prediction_tmap in predictions.items():
         save(
-            filename_base + "_" + prediction_name + ".mts",
+            filename_base + "_" + prediction_name + ".npz",
             prediction_tmap.to("cpu").to(torch.float64),
         )
