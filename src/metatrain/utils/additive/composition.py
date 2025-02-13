@@ -467,6 +467,26 @@ class CompositionModel(torch.nn.Module):
             unit=target_info.unit,
             per_atom=True,
         )
+        self.weights[target_name] = TensorMap(
+            keys=target_info.layout.keys,
+            blocks=[
+                TensorBlock(
+                    values=torch.zeros(
+                        ([len(self.atomic_types)] + b.shape[1:]),
+                        dtype=torch.float64,
+                    ),
+                    samples=Labels(
+                        names=["center_type"],
+                        values=torch.tensor(self.atomic_types, dtype=torch.int).reshape(
+                            -1, 1
+                        ),
+                    ),
+                    components=b.components,
+                    properties=b.properties,
+                )
+                for b in target_info.layout.blocks()
+            ],
+        )
 
     def _move_weights_to_device_and_dtype(
         self, device: torch.device, dtype: torch.dtype
