@@ -56,7 +56,7 @@ def _add_export_model_parser(subparser: argparse._SubParsersAction) -> None:
         required=False,
         dest="metadata",
         default=None,
-        help="metatdata file to be appended to the model.",
+        help="Metatdata YAML file to be appended to the model.",
     )
     parser.add_argument(
         "--huggingface_api_token",
