@@ -60,7 +60,7 @@ def _add_train_model_parser(subparser: argparse._SubParsersAction) -> None:
     parser.add_argument(
         "options",
         type=str,
-        help="Options file",
+        help="Options YAML file for training.",
     )
     parser.add_argument(
         "-o",
@@ -77,7 +77,7 @@ def _add_train_model_parser(subparser: argparse._SubParsersAction) -> None:
         dest="continue_from",
         type=_process_continue_from,
         required=False,
-        help="File to continue training from.",
+        help="Checkpoint file (.ckpt) to continue training from.",
     )
     parser.add_argument(
         "-r",
