@@ -1,5 +1,6 @@
 import logging
 from typing import Dict, List, Optional, Union
+import numpy as np
 
 import metatensor.torch
 import torch
@@ -59,7 +60,7 @@ class CompositionModel(torch.nn.Module):
             self._add_output(target_name, target_info)
 
         # keeps track of dtype and device of the composition model
-        self.register_buffer("dummy_buffer", torch.tensor(0.0))
+        self.register_buffer("dummy_buffer", torch.tensor(np.random.rand(1)))
 
     def train_model(
         self,
@@ -207,10 +208,7 @@ class CompositionModel(torch.nn.Module):
                         if self.dataset_info.targets[target_key].per_atom:
                             # we need the center type in the samples to do
                             # mean_over_samples
-                            if (
-                                "center_type"
-                                in targets[target_key].block(0).samples.names
-                            ):
+                            if "center_type" in targets[target_key].keys.names:
                                 # it's in the keys: move it to the samples
                                 targets[target_key] = targets[
                                     target_key
@@ -283,22 +281,36 @@ class CompositionModel(torch.nn.Module):
                                         blocks=[b],
                                     )
                                     for b in block_list
-                                ]
+                                ],
+                                axis="samples",
+                                remove_tensor_name=True,
                             ).block()
-                            weights_tensor = (
-                                metatensor.torch.sort(
-                                    metatensor.torch.mean_over_samples_block(
-                                        joined_blocks,
-                                        [
-                                            n
-                                            for n in joined_blocks.samples.names
-                                            if n != "center_type"
-                                        ],
-                                    )
-                                )
-                                .block()
-                                .values
+                            # This code doesn't work because mean_over_samples_block
+                            # actually does a sum...
+                            # weights_tensor = (
+                            #     metatensor.torch.sort_block(
+                            #         metatensor.torch.mean_over_samples_block(
+                            #             joined_blocks,
+                            #             [
+                            #                 n
+                            #                 for n in joined_blocks.samples.names
+                            #                 if n != "center_type"
+                            #             ],
+                            #         )
+                            #     )
+                            #     .values
+                            # )
+                            weights_tensor = torch.empty(
+                                len(self.atomic_types), len(metadata_block.properties)
                             )
+                            for i_type, atomic_type in enumerate(self.atomic_types):
+                                mask = (
+                                    joined_blocks.samples.column("center_type")
+                                    == atomic_type
+                                )
+                                weights_tensor[i_type] = joined_blocks.values[
+                                    mask
+                                ].mean(dim=0)
                         else:
                             # concatenate samples, for each block
                             all_targets = torch.concatenate(tensor_list)
@@ -425,7 +437,7 @@ class CompositionModel(torch.nn.Module):
             for weight_key, weight_block in self.weights[output_name].items():
                 weights_tensor = self.weights[output_name].block(weight_key).values
                 composition_values_per_atom = torch.empty(
-                    (len(concatenated_types), len(weight_block.properties)),
+                    [len(concatenated_types)] + weight_block.shape[1:],
                     dtype=dtype,
                     device=device,
                 )
