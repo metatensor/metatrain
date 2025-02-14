@@ -1,11 +1,10 @@
-from typing import Dict, List, Optional, Tuple, Type, Union
+from typing import Dict, List, Optional, Tuple, Union
 
 import metatensor.torch
 import numpy as np
 import rascaline
 import rascaline.torch
 import scipy
-import skmatter
 import torch
 from metatensor import Labels, TensorBlock, TensorMap
 from metatensor.torch import Labels as TorchLabels
@@ -359,9 +358,9 @@ class _SorKernelSolver:
     :param KMM:
         KNM matrix
 
-    The function solve the linear problem with 
+    The function solve the linear problem with
     the RKHS-QR method.
-    
+
     RKHS: Compute first the reproducing kernel features by diagonalizing K_MM and
           computing `P_NM = K_NM @ U_MM @ Lam_MM^(-1.2)` and then solves the linear
           problem for those (which is usually better conditioned)::
@@ -384,21 +383,15 @@ class _SorKernelSolver:
         self._vk, self._Uk = scipy.linalg.eigh(KMM)
         self._vk = self._vk[::-1]
         self._Uk = self._Uk[:, ::-1]
-        
+
         self._nM = len(np.where(self._vk > 0)[0])
         self._PKPhi = self._Uk[:, : self._nM] * 1 / np.sqrt(self._vk[: self._nM])
-        
-        self._Cov = np.zeros((self._nM, self._nM))
-        self._KY = None
-
 
     def fit(self, KNM, Y):
         if len(Y.shape) == 1:
             Y = Y[:, np.newaxis]
         # Solve with the RKHS-QR method
-        A = np.vstack(
-            [KNM @ self._PKPhi,  np.eye(self._nM)]
-        )
+        A = np.vstack([KNM @ self._PKPhi, np.eye(self._nM)])
         Q, R = np.linalg.qr(A)
         self._weights = self._PKPhi @ scipy.linalg.solve_triangular(
             R, Q.T @ np.vstack([Y, np.zeros((self._nM, Y.shape[1]))])
@@ -495,6 +488,7 @@ class AggregateKernel(torch.nn.Module):
     def compute_kernel(self, tensor1: TensorMap, tensor2: TensorMap) -> TensorMap:
         raise NotImplementedError("compute_kernel needs to be implemented.")
 
+
 class AggregatePolynomial(AggregateKernel):
     def __init__(
         self,
@@ -535,7 +529,7 @@ class TorchAggregateKernel(torch.nn.Module):
             )
         if structurewise_aggregate:
             raise NotImplementedError(
-                "structurewise aggregation has not been implemented."
+                "structure wise aggregation has not been implemented."
             )
 
         self._aggregate_names = aggregate_names
@@ -648,41 +642,22 @@ class TorchAggregatePolynomial(TorchAggregateKernel):
         )
 
 
-class GreedySelector:
-    """Wraps :py:class:`skmatter._selection.GreedySelector` for a TensorMap.
+class FPS:
+    """
+    Transformer that performs Greedy Sample Selection using Farthest Point Sampling.
 
-    The class creates a selector for each block. The selection will be done based
-    the values of each :py:class:`TensorBlock`. Gradients will not be considered for
-    the selection.
+    Refer to :py:class:`skmatter.sample_selection.FPS` for full documentation.
     """
 
     def __init__(
         self,
-        selector_class: Type[skmatter._selection.GreedySelector],
-        selection_type: str,
-        **selector_arguments,
-    ) -> None:
-        self._selector_class = selector_class
-        self._selection_type = selection_type
-        self._selector_arguments = selector_arguments
-
-        self._selector_arguments["selection_type"] = self._selection_type
+        initialize=0,
+        n_to_select=None,
+    ):
+        self._n_to_select = n_to_select
+        self._selector_class = _FPS
+        self._selection_type = "sample"
         self._support = None
-
-    @property
-    def selector_class(self) -> Type[skmatter._selection.GreedySelector]:
-        """The class to perform the selection."""
-        return self._selector_class
-
-    @property
-    def selection_type(self) -> str:
-        """Whether to choose a subset of columns ('feature') or rows ('sample')."""
-        return self._selection_type
-
-    @property
-    def selector_arguments(self) -> dict:
-        """Arguments passed to the ``selector_class``."""
-        return self._selector_arguments
 
     @property
     def support(self) -> TensorMap:
@@ -692,7 +667,7 @@ class GreedySelector:
 
         return self._support
 
-    def fit(self, X: TensorMap, warm_start: bool = False):  # -> GreedySelector:
+    def fit(self, X: TensorMap):  # -> GreedySelector:
         """Learn the features to select.
 
         :param X:
@@ -706,8 +681,14 @@ class GreedySelector:
 
         blocks = []
         for _, block in X.items():
-            selector = self.selector_class(**self.selector_arguments)
-            selector.fit(block.values, warm_start=warm_start)
+            selector = self._selector_class(
+                n_to_select=self._n_to_select,
+                progress_bar=False,
+                score_threshold=1e-12,
+                full=False,
+                selection_type=self._selection_type,
+            )
+            selector.fit(block.values, warm_start=False)
             mask = selector.get_support()
 
             if self._selection_type == "feature":
@@ -767,38 +748,7 @@ class GreedySelector:
             Whether the fit should continue after having already run, after increasing
             `n_to_select`. Assumes it is called with the same X.
         """
-        return self.fit(X, warm_start=warm_start).transform(X)
-
-
-class FPS(GreedySelector):
-    """
-    Transformer that performs Greedy Sample Selection using Farthest Point Sampling.
-
-    Refer to :py:class:`skmatter.sample_selection.FPS` for full documentation.
-    """
-
-    def __init__(
-        self,
-        initialize=0,
-        n_to_select=None,
-        score_threshold=None,
-        score_threshold_type="absolute",
-        progress_bar=False,
-        full=False,
-        random_state=0,
-    ):
-        super().__init__(
-            selector_class=_FPS,
-            selection_type="sample",
-            initialize=initialize,
-            n_to_select=n_to_select,
-            score_threshold=score_threshold,
-            score_threshold_type=score_threshold_type,
-            progress_bar=progress_bar,
-            full=full,
-            random_state=random_state,
-        )
-        self._n_to_select = n_to_select
+        return self.fit(X).transform(X)
 
 
 def torch_tensor_map_to_core(torch_tensor: TorchTensorMap):
@@ -914,7 +864,7 @@ class SubsetOfRegressors:
     ):
         if kernel_kwargs is None:
             kernel_kwargs = {}
-        
+
         # Set the kernel
         aggregate_type = kernel_kwargs.get("aggregate_type", "sum")
         if aggregate_type != "sum":
@@ -922,8 +872,8 @@ class SubsetOfRegressors:
                 f'aggregate_type={aggregate_type!r} found but must be "sum"'
             )
         self._kernel: Union[AggregateKernel, None] = None
-        self._kernel = AggregatePolynomial( **kernel_kwargs)
-        
+        self._kernel = AggregatePolynomial(**kernel_kwargs)
+
         self._kernel_kwargs = kernel_kwargs
         self._X_pseudo = None
         self._weights = None
@@ -1046,9 +996,7 @@ class SubsetOfRegressors:
                         / alpha_forces,
                     ]
                 )
-            self._solver = _SorKernelSolver(
-                k_mm_block.values
-            )
+            self._solver = _SorKernelSolver(k_mm_block.values)
 
             self._solver.fit(k_nm_reg, y_reg)
 
@@ -1101,16 +1049,14 @@ class TorchSubsetofRegressors(torch.nn.Module):
         self._X_pseudo = X_pseudo
         if kernel_kwargs is None:
             kernel_kwargs = {}
-        
+
         # Set the kernel
         aggregate_type = kernel_kwargs.get("aggregate_type", "sum")
         if aggregate_type != "sum":
             raise ValueError(
                 f'aggregate_type={aggregate_type!r} found but must be "sum"'
             )
-        self._kernel = TorchAggregatePolynomial(
-                 **kernel_kwargs
-            )
+        self._kernel = TorchAggregatePolynomial(**kernel_kwargs)
 
     def forward(self, T: TorchTensorMap) -> TorchTensorMap:
         """
@@ -1124,4 +1070,3 @@ class TorchSubsetofRegressors(torch.nn.Module):
 
         k_tm = self._kernel(T, self._X_pseudo, are_pseudo_points=(False, True))
         return metatensor.torch.dot(k_tm, self._weights)
-    
