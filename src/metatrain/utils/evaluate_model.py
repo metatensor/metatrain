@@ -17,15 +17,6 @@ from .data import TargetInfo
 from .output_gradient import compute_gradient
 
 
-# Ignore metatensor-torch warning due to the fact that positions/cell
-# already require grad when registering the NL
-warnings.filterwarnings(
-    "ignore",
-    category=UserWarning,
-    message="neighbor",
-)
-
-
 def evaluate_model(
     model: Union[
         torch.nn.Module,
@@ -50,6 +41,14 @@ def evaluate_model(
 
     :returns: The predictions of the model for the requested targets.
     """
+    # Ignore metatensor-torch warning due to the fact that positions/cell
+    # already require grad when registering the NL
+    warnings.filterwarnings(
+        "ignore",
+        category=UserWarning,
+        message="neighbor",
+    )
+
     model_outputs = _get_outputs(model)
     # Assert that all targets are within the model's capabilities:
     if not set(targets.keys()).issubset(model_outputs.keys()):
