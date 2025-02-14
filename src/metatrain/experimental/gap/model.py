@@ -108,6 +108,7 @@ class GAP(torch.nn.Module):
                 dtype=torch.float64,  # we only support float64 for now
             ),
         )
+        # print(model_hypers["soap"])
         self._soap_torch_calculator = featomic.torch.SoapPowerSpectrum(
             **model_hypers["soap"]
         )
