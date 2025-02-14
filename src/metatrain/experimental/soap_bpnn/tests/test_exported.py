@@ -1,6 +1,6 @@
 import pytest
 import torch
-from metatensor.torch.atomistic import ModelEvaluationOptions, System
+from metatensor.torch.atomistic import ModelEvaluationOptions, ModelMetadata, System
 
 from metatrain.experimental.soap_bpnn import SoapBpnn
 from metatrain.utils.data import DatasetInfo
@@ -26,7 +26,10 @@ def test_to(device, dtype):
         targets={"energy": get_energy_target_info({"unit": "eV"})},
     )
     model = SoapBpnn(MODEL_HYPERS, dataset_info).to(dtype=dtype)
-    exported = model.export()
+    exported = model.export(metadata=ModelMetadata(name="test"))
+
+    # test correct metadata
+    assert "This is the test model" in str(exported.metadata())
 
     exported.to(device=device)
 

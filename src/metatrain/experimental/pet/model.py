@@ -20,6 +20,7 @@ from metatrain.utils.data.target_info import is_auxiliary_output
 
 from ...utils.additive import ZBL
 from ...utils.dtype import dtype_to_str
+from ...utils.metadata import append_metadata_references
 from .utils import load_raw_pet_model, systems_to_batch_dict
 
 
@@ -29,6 +30,9 @@ logger = logging.getLogger(__name__)
 class PET(torch.nn.Module):
     __supported_devices__ = ["cuda", "cpu"]
     __supported_dtypes__ = [torch.float32]
+    __default_metadata__ = ModelMetadata(
+        references={"architecture": ["https://arxiv.org/abs/2305.19302v3"]}
+    )
 
     def __init__(self, model_hypers: Dict, dataset_info: DatasetInfo) -> None:
         super().__init__()
@@ -54,8 +58,10 @@ class PET(torch.nn.Module):
         model_hypers["D_OUTPUT"] = 1
         model_hypers["TARGET_TYPE"] = "atomic"
         model_hypers["TARGET_AGGREGATION"] = "sum"
+        for key in ["R_CUT", "CUTOFF_DELTA", "RESIDUAL_FACTOR"]:
+            model_hypers[key] = float(model_hypers[key])
         self.hypers = model_hypers
-        self.cutoff = self.hypers["R_CUT"]
+        self.cutoff = float(self.hypers["R_CUT"])
         self.atomic_types: List[int] = dataset_info.atomic_types
         self.dataset_info = dataset_info
         self.pet = None
@@ -75,7 +81,20 @@ class PET(torch.nn.Module):
         # time, and they are added to the output at evaluation time
         additive_models = []
         if self.hypers["USE_ZBL"]:
-            additive_models.append(ZBL(model_hypers, dataset_info))
+            additive_models.append(
+                ZBL(
+                    {},
+                    dataset_info=DatasetInfo(
+                        length_unit=dataset_info.length_unit,
+                        atomic_types=self.atomic_types,
+                        targets={
+                            target_name: target_info
+                            for target_name, target_info in dataset_info.targets.items()
+                            if ZBL.is_valid_target(target_name, target_info)
+                        },
+                    ),
+                )
+            )
         self.additive_models = torch.nn.ModuleList(additive_models)
 
     def restart(self, dataset_info: DatasetInfo) -> "PET":
@@ -258,7 +277,9 @@ class PET(torch.nn.Module):
 
         return model
 
-    def export(self) -> MetatensorAtomisticModel:
+    def export(
+        self, metadata: Optional[ModelMetadata] = None
+    ) -> MetatensorAtomisticModel:
         dtype = next(self.parameters()).dtype
         if dtype not in self.__supported_dtypes__:
             raise ValueError(f"Unsupported dtype {self.dtype} for PET")
@@ -291,4 +312,10 @@ class PET(torch.nn.Module):
             supported_devices=["cpu", "cuda"],  # and not __supported_devices__
             dtype=dtype_to_str(dtype),
         )
-        return MetatensorAtomisticModel(self.eval(), ModelMetadata(), capabilities)
+
+        if metadata is None:
+            metadata = ModelMetadata()
+
+        append_metadata_references(metadata, self.__default_metadata__)
+
+        return MetatensorAtomisticModel(self.eval(), metadata, capabilities)
