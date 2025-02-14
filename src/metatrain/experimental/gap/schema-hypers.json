@@ -84,6 +84,9 @@
             },
             "num_sparse_points": {
               "type": "integer"
+            },
+            "kernel-aggregation":{
+              "type": "string"
             }
           },
           "additionalProperties": false

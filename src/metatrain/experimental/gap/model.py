@@ -115,9 +115,10 @@ class GAP(torch.nn.Module):
         kernel_kwargs = {
             "degree": model_hypers["krr"]["degree"],
             "aggregate_names": ["atom", "center_type"],
+            "aggregate_type": model_hypers["krr"]["kernel-aggregation"],
         }
         self._subset_of_regressors = SubsetOfRegressors(
-            kernel_type=model_hypers["krr"].get("kernel", "polynomial"),
+            kernel_type=model_hypers["krr"]["kernel-type"],
             kernel_kwargs=kernel_kwargs,
         )
 
@@ -406,7 +407,7 @@ class _SorKernelSolver:
             self._vk, self._Uk = scipy.linalg.eigh(KMM)
             self._vk = self._vk[::-1]
             self._Uk = self._Uk[:, ::-1]
-        elif self.solver == "QR" or self.solver == "solve" or self.solver == "lstsq":
+        elif  self.solver == "solve" or self.solver == "lstsq":
             # gets maximum eigenvalue of KMM to scale the numerical jitter
             self._KMM_maxeva = scipy.sparse.linalg.eigsh(
                 KMM, k=1, return_eigenvectors=False
@@ -414,13 +415,13 @@ class _SorKernelSolver:
         else:
             raise ValueError(
                 f"Solver {solver} not supported. Possible values "
-                "are 'RKHS', 'RKHS-QR', 'QR', 'solve' or lstsq."
+                "are 'RKHS', 'RKHS-QR', 'solve' or lstsq."
             )
         if relative_jitter:
             if self.solver == "RKHS" or self.solver == "RKHS-QR":
                 self._jitter_scale = self._vk[0]
             elif (
-                self.solver == "QR" or self.solver == "solve" or self.solver == "lstsq"
+                self.solver == "solve" or self.solver == "lstsq"
             ):
                 self._jitter_scale = self._KMM_maxeva
         else:
@@ -433,11 +434,6 @@ class _SorKernelSolver:
         if self.solver == "RKHS" or self.solver == "RKHS-QR":
             self._nM = len(np.where(self._vk > self.jitter * self._jitter_scale)[0])
             self._PKPhi = self._Uk[:, : self._nM] * 1 / np.sqrt(self._vk[: self._nM])
-        elif self.solver == "QR":
-            self._VMM = scipy.linalg.cholesky(
-                self.regularizer * self.KMM
-                + np.eye(self._nM) * self._jitter_scale * self.jitter
-            )
         self._Cov = np.zeros((self._nM, self._nM))
         self._KY = None
 
@@ -459,12 +455,6 @@ class _SorKernelSolver:
             self._weights = self._PKPhi @ scipy.linalg.solve_triangular(
                 R, Q.T @ np.vstack([Y, np.zeros((self._nM, Y.shape[1]))])
             )
-        elif self.solver == "QR":
-            A = np.vstack([KNM, self._VMM])
-            Q, R = np.linalg.qr(A)
-            self._weights = scipy.linalg.solve_triangular(
-                R, Q.T @ np.vstack([Y, np.zeros((KNM.shape[1], Y.shape[1]))])
-            )
         elif self.solver == "solve":
             self._weights = scipy.linalg.solve(
                 KNM.T @ KNM
@@ -484,50 +474,6 @@ class _SorKernelSolver:
         else:
             ValueError("solver not implemented")
 
-    def partial_fit(self, KNM, Y, accumulate_only=False, rcond=None):
-        if len(Y) > 0:
-            # only accumulate if we are passing data
-            if len(Y.shape) == 1:
-                Y = Y[:, np.newaxis]
-            if self.solver == "RKHS":
-                Phi = KNM @ self._PKPhi
-            elif self.solver == "solve" or self.solver == "lstsq":
-                Phi = KNM
-            else:
-                raise ValueError(
-                    "Partial fit can only be realized with solver = 'RKHS' or 'solve'"
-                )
-            if self._KY is None:
-                self._KY = np.zeros((self._nM, Y.shape[1]))
-
-            self._Cov += Phi.T @ Phi
-            self._KY += Phi.T @ Y
-
-        # do actual fit if called with empty array or if asked
-        if len(Y) == 0 or (not accumulate_only):
-            if self.solver == "RKHS":
-                self._weights = self._PKPhi @ scipy.linalg.solve(
-                    self._Cov + np.eye(self._nM) * self.regularizer,
-                    self._KY,
-                    assume_a="pos",
-                )
-            elif self.solver == "solve":
-                self._weights = scipy.linalg.solve(
-                    self._Cov
-                    + self.regularizer * self.KMM
-                    + np.eye(self.KMM.shape[0]) * self.jitter * self._jitter_scale,
-                    self._KY,
-                    assume_a="pos",
-                )
-            elif self.solver == "lstsq":
-                self._weights = np.linalg.lstsq(
-                    self._Cov
-                    + self.regularizer * self.KMM
-                    + np.eye(self.KMM.shape[0]) * self.jitter * self._jitter_scale,
-                    self._KY,
-                    rcond=rcond,
-                )[0]
-
     @property
     def weights(self):
         return self._weights
@@ -539,7 +485,7 @@ class _SorKernelSolver:
 class AggregateKernel(torch.nn.Module):
     """
     A kernel that aggregates values in a kernel over :param aggregate_names: using
-    a aggregaten function given by :param aggregate_type:
+    an aggregate function given by :param aggregate_type:
 
     :param aggregate_names:
 
@@ -1062,38 +1008,23 @@ def core_labels_to_torch(core_labels: Labels):
 class SubsetOfRegressors:
     def __init__(
         self,
-        kernel_type: Union[str, AggregateKernel] = "linear",
         kernel_kwargs: Optional[dict] = None,
     ):
         if kernel_kwargs is None:
             kernel_kwargs = {}
-        self._set_kernel(kernel_type, **kernel_kwargs)
-        self._kernel_type = kernel_type
-        self._kernel_kwargs = kernel_kwargs
-        self._X_pseudo = None
-        self._weights = None
-
-    def _set_kernel(self, kernel: Union[str, AggregateKernel], **kernel_kwargs):
-        val_kernels = ["linear", "polynomial", "precomputed"]
+        
+        # Set the kernel
         aggregate_type = kernel_kwargs.get("aggregate_type", "sum")
         if aggregate_type != "sum":
             raise ValueError(
                 f'aggregate_type={aggregate_type!r} found but must be "sum"'
             )
         self._kernel: Union[AggregateKernel, None] = None
-        if kernel == "linear":
-            self._kernel = AggregateLinear(aggregate_type="sum", **kernel_kwargs)
-        elif kernel == "polynomial":
-            self._kernel = AggregatePolynomial(aggregate_type="sum", **kernel_kwargs)
-        elif kernel == "precomputed":
-            self._kernel = None
-        elif isinstance(kernel, AggregateKernel):
-            self._kernel = kernel
-        else:
-            raise ValueError(
-                f"kernel type {kernel!r} is not supported. Please use one "
-                f"of the valid kernels {val_kernels!r}"
-            )
+        self._kernel = AggregatePolynomial(aggregate_type="sum", **kernel_kwargs)
+        
+        self._kernel_kwargs = kernel_kwargs
+        self._X_pseudo = None
+        self._weights = None
 
     def fit(
         self,
@@ -1281,7 +1212,16 @@ class TorchSubsetofRegressors(torch.nn.Module):
         self._X_pseudo = X_pseudo
         if kernel_kwargs is None:
             kernel_kwargs = {}
-        self._set_kernel(kernel_type, **kernel_kwargs)
+        
+        # Set the kernel
+        aggregate_type = kernel_kwargs.get("aggregate_type", "sum")
+        if aggregate_type != "sum":
+            raise ValueError(
+                f'aggregate_type={aggregate_type!r} found but must be "sum"'
+            )
+        self._kernel = TorchAggregatePolynomial(
+                aggregate_type="sum", **kernel_kwargs
+            )
 
     def forward(self, T: TorchTensorMap) -> TorchTensorMap:
         """
@@ -1295,29 +1235,4 @@ class TorchSubsetofRegressors(torch.nn.Module):
 
         k_tm = self._kernel(T, self._X_pseudo, are_pseudo_points=(False, True))
         return metatensor.torch.dot(k_tm, self._weights)
-
-    def _set_kernel(self, kernel: Union[str, TorchAggregateKernel], **kernel_kwargs):
-        val_kernels = ["linear", "polynomial", "precomputed"]
-        aggregate_type = kernel_kwargs.get("aggregate_type", "sum")
-        if aggregate_type != "sum":
-            raise ValueError(
-                f'aggregate_type={aggregate_type!r} found but must be "sum"'
-            )
-        if kernel == "linear":
-            self._kernel = TorchAggregateLinear(aggregate_type="sum", **kernel_kwargs)
-        elif kernel == "polynomial":
-            self._kernel = TorchAggregatePolynomial(
-                aggregate_type="sum", **kernel_kwargs
-            )
-        elif kernel == "precomputed":
-            raise NotImplementedError(
-                "precomputed kernels are note supported in torch"
-                "version of subset of regressor."
-            )
-        elif isinstance(kernel, TorchAggregateKernel):
-            self._kernel = kernel
-        else:
-            raise ValueError(
-                f"kernel type {kernel!r} is not supported. Please use one "
-                f"of the valid kernels {val_kernels!r}"
-            )
+    
