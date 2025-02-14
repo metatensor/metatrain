@@ -1,8 +1,7 @@
-
 with open("out.put", "r") as fil:
     lines = fil.readlines()
-    for l in lines:
-        lsp = l.split()
+    for line in lines:
+        lsp = line.split()
         if len(lsp) > 5 and lsp[4] == "RMSE":
             ermse = lsp[7]
             emse = lsp[13]
