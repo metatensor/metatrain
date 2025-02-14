@@ -23,7 +23,7 @@ warnings.filterwarnings(
     "ignore",
     category=UserWarning,
     message="neighbor",
-)  # TODO: this is not filtering out the warning for some reason, therefore:
+)
 
 
 def evaluate_model(
@@ -261,6 +261,7 @@ def _get_model_outputs(
         )
 
 
+@torch.jit.script
 def _prepare_system(
     system: System, positions_grad: bool, strain_grad: bool, check_consistency: bool
 ):
@@ -270,10 +271,9 @@ def _prepare_system(
     if strain_grad:
         strain = torch.eye(
             3,
-            requires_grad=True,
             dtype=system.cell.dtype,
             device=system.cell.device,
-        )
+        ).requires_grad_(True)
         new_system = System(
             positions=system.positions @ strain,
             cell=system.cell @ strain,

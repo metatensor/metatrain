@@ -23,11 +23,23 @@ from skmatter._selection import _FPS
 from metatrain.utils.data.dataset import DatasetInfo
 
 from ...utils.additive import ZBL, CompositionModel
+from ...utils.metadata import append_metadata_references
 
 
 class GAP(torch.nn.Module):
     __supported_devices__ = ["cpu"]
     __supported_dtypes__ = [torch.float64]
+    __default_metadata__ = ModelMetadata(
+        references={
+            "implementation": [
+                "rascaline: https://github.com/Luthaf/rascaline",
+            ],
+            "architecture": [
+                "SOAP: https://doi.org/10.1002/qua.24927",
+                "GAP: https://doi.org/10.1103/PhysRevB.87.184115",
+            ],
+        }
+    )
 
     def __init__(self, model_hypers: Dict, dataset_info: DatasetInfo) -> None:
         super().__init__()
@@ -139,7 +151,20 @@ class GAP(torch.nn.Module):
         )
         additive_models = [composition_model]
         if self.hypers["zbl"]:
-            additive_models.append(ZBL(model_hypers, dataset_info))
+            additive_models.append(
+                ZBL(
+                    {},
+                    dataset_info=DatasetInfo(
+                        length_unit=dataset_info.length_unit,
+                        atomic_types=self.atomic_types,
+                        targets={
+                            target_name: target_info
+                            for target_name, target_info in dataset_info.targets.items()
+                            if ZBL.is_valid_target(target_name, target_info)
+                        },
+                    ),
+                )
+            )
         self.additive_models = torch.nn.ModuleList(additive_models)
 
     def restart(self, dataset_info: DatasetInfo) -> "GAP":
@@ -238,12 +263,20 @@ class GAP(torch.nn.Module):
 
         return return_dict
 
-    def export(self) -> MetatensorAtomisticModel:
+    def export(
+        self, metadata: Optional[ModelMetadata] = None
+    ) -> MetatensorAtomisticModel:
         interaction_ranges = [self.hypers["soap"]["cutoff"]]
         for additive_model in self.additive_models:
             if hasattr(additive_model, "cutoff_radius"):
                 interaction_ranges.append(additive_model.cutoff_radius)
         interaction_range = max(interaction_ranges)
+
+        # Additionally, the composition model contains some `TensorMap`s that cannot
+        # be registered correctly with Pytorch. This funciton moves them:
+        self.additive_models[0]._move_weights_to_device_and_dtype(
+            torch.device("cpu"), torch.float64
+        )
 
         capabilities = ModelCapabilities(
             outputs=self.outputs,
@@ -260,7 +293,12 @@ class GAP(torch.nn.Module):
             self._subset_of_regressors.export_torch_script_model()
         )
 
-        return MetatensorAtomisticModel(self.eval(), ModelMetadata(), capabilities)
+        if metadata is None:
+            metadata = ModelMetadata()
+
+        append_metadata_references(metadata, self.__default_metadata__)
+
+        return MetatensorAtomisticModel(self.eval(), metadata, capabilities)
 
     def set_composition_weights(
         self,

@@ -3,13 +3,10 @@
 GAP
 ===
 
-This is an implementation of the sparse `Gaussian Approximation Potential
-<GAP_>`_ (GAP) using `Smooth Overlap of Atomic Positions <SOAP_>`_ (SOAP)
-implemented in `rascaline <RASCALINE_>`_.
+This is an implementation of the sparse Gaussian Approximation Potential
+(GAP) :footcite:p:`bartok_representing_2013` using Smooth Overlap of Atomic Positions
+(SOAP) :footcite:p:`bartok_gaussian_2010` implemented in `rascaline <RASCALINE_>`_.
 
-
-.. _SOAP: https://doi.org/10.1103/PhysRevB.87.184115
-.. _GAP:  https://doi.org/10.1002/qua.24927
 .. _RASCALINE: https://github.com/Luthaf/rascaline
 
 The GAP model in metatrain can only train on CPU, but evaluation
@@ -149,3 +146,7 @@ training:
 ^^^^^^^^^
 :param regularizer: value of the energy regularizer. Default 0.001
 :param regularizer_forces: value of the forces regularizer. Default null
+
+References
+----------
+.. footbibliography::
