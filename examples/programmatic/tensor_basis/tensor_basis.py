@@ -16,6 +16,7 @@ import matplotlib.pyplot as plt
 import metatensor.torch as mts
 import numpy as np
 import torch
+from featomic.torch.clebsch_gordan import cartesian_to_spherical
 
 
 # %%
@@ -46,12 +47,11 @@ cartesian_tensormap = mts.TensorMap(
 #
 # Extract from the Cartesian polarizability tensor its irreducible spherical components
 #
-# .. code:: python
-#   spherical_tensormap = mts.remove_dimension(
-#       cartesian_to_spherical(cartesian_tensormap, components=["xyz_1", "xyz_2"]),
-#       "keys",
-#       "_",
-#   )
+spherical_tensormap = mts.remove_dimension(
+    cartesian_to_spherical(cartesian_tensormap, components=["xyz_1", "xyz_2"]),
+    "keys",
+    "_",
+)
 #
 
 # %%
@@ -59,46 +59,14 @@ cartesian_tensormap = mts.TensorMap(
 # We drop the block with ``o3_sigma=-1``, as polarizability should be symmetric and
 # therefore any non-zero pseudo-vector component is spurious.
 #
-# .. code:: python
-#   spherical_tensormap = mts.drop_blocks(
-#       spherical_tensormap, mts.Labels(["o3_sigma"], torch.tensor([[-1]]))
-#   )
+spherical_tensormap = mts.drop_blocks(
+    spherical_tensormap, mts.Labels(["o3_sigma"], torch.tensor([[-1]]))
+)
 # %%
 #
-# Now we need to separately save to disk the spherical components of the polarizability.
-# This is a temporary "hack" to allow the scalar component to be properly standardized,
-# as currently only "energy" targets allow full standardization of the target values.
-# Therefore we save the scalar component as if it were an "energy" target and the other
-# components as "spherical" targets, as they should.
+# Let's save the spherical components of the polarizability tensor to disk
 #
-# .. code:: python
-#   scalar_block = mts.drop_blocks(
-#       spherical_tensormap, mts.Labels("o3_lambda", torch.tensor([[2]]))
-#   )[0]
-#   scalar_block = mts.TensorBlock(
-#       samples=scalar_block.samples,
-#       components=[],
-#       properties=mts.Labels("energy", torch.tensor([[0]])),
-#       values=scalar_block.values.squeeze(1),
-#   )
-#   mts.save(
-#       "polarizability_lambda_0.npz",
-#       mts.TensorMap(
-#           mts.Labels.single(),
-#           [scalar_block],
-#       ),
-#   )
-
-#   mts.save(
-#       "polarizability_lambda_2.npz",
-#       mts.drop_blocks(
-#           spherical_tensormap,
-#           mts.Labels("o3_lambda", torch.tensor([[0]]))
-#       ),
-#   )
-#   mts.save("polarizability_spherical.npz", spherical_tensormap)
-#
-
+mts.save("spherical_polarizability.npz", spherical_tensormap)
 # %%
 #
 # Write the metatrain ``options.yaml`` file for the training of the polarizability
@@ -116,8 +84,9 @@ cartesian_tensormap = mts.TensorMap(
 # properties. Each spherical component of the target tensorial property is specified by
 # a dictionary enumerating the irreps of the SO(3) group that the target tensorial
 # property transforms under. These should match the keys of the ``TensorMap`` object
-# given in input. The scalar component of the target tensorial property is specified by
-# a dictionary with the key "energy", to comply with the "hack" described above.
+# given in input.
+# Here we run for 100 epochs on a 100-structure dataset, but you may want to increase
+# use more epochs and more structures for a better model.
 
 # %%
 #
@@ -140,11 +109,11 @@ cartesian_tensormap = mts.TensorMap(
 
 # %%
 #
-# Checkpoints can be exported using:
+# In case you need to export a specific checkpoints, you can do so using:
 #
 # .. code:: bash
 #
-#    mtt export model.ckpt -o model.pt
+#    mtt export /path/to/model.ckpt -o model_name.pt
 #
 
 # %%
@@ -172,9 +141,9 @@ cartesian_tensormap = mts.TensorMap(
 # %%
 #
 # After evaluation is completed, three files will be created in the current directory.
-# The only two relevant for this example are the ``outputs_mtt::polarizability.mts`` and
-# ``outputs_mtt::polarizability_scalar.mts`` files, containing the predicted values of
-# the target tensorial properties as binary ``TensorMap`` objects.
+# The only one relevant for this example is ``outputs_mtt::polarizability.npz``,
+# containing the predicted values of the target tensorial properties as binary
+# ``TensorMap`` objects.
 
 # %%
 #
@@ -186,23 +155,7 @@ cartesian_tensormap = mts.TensorMap(
 # after loading the predicted values we can update the metadata to reflect the correct
 # information about the target.
 
-spherical_tensormap = mts.load("polarizability_spherical.npz")
-predicted_polarizabilities_l2 = mts.load("outputs_mtt::polarizability.mts")[0]
-predicted_polarizabilities_l0 = mts.load("outputs_mtt::polarizability_scalar.mts")[0]
-predicted_polarizabilities_l0 = mts.TensorBlock(
-    samples=predicted_polarizabilities_l0.samples,
-    components=[mts.Labels("o3_mu", torch.tensor([[0]]))],
-    properties=mts.Labels("alpha", torch.tensor([[0]])),
-    values=predicted_polarizabilities_l0.values.unsqueeze(1),
-)
-
-predicted_polarizabilities = mts.TensorMap(
-    mts.Labels(["o3_lambda", "o3_sigma"], torch.tensor([[0, 1], [2, 1]])),
-    [
-        predicted_polarizabilities_l0,
-        predicted_polarizabilities_l2,
-    ],
-)
+predicted_polarizabilities = mts.load("outputs_mtt::polarizability.npz")
 
 index_folder = sorted(glob("outputs/*/*/indices"))[-1]
 indices = {
@@ -235,3 +188,4 @@ for key, ax in zip(spherical_tensormap.keys, axes):
         ax.plot(target[idx].flatten(), prediction[idx].flatten(), ".", label=tset)
     ax.legend()
 fig.tight_layout()
+plt.show()

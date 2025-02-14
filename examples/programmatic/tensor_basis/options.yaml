@@ -42,17 +42,14 @@ training_set:
     read_from: bulk_water_100.xyz
     length_unit: angstrom
   targets:
-    mtt::polarizability_scalar:
-      quantity: energy
-      read_from: polarizability_lambda_0.npz
-      per_atom: False
     mtt::polarizability:
       quantity: polarizability
-      read_from: polarizability_lambda_2.npz
+      read_from: spherical_polarizability.npz
       per_atom: False
       type: 
         spherical:
           irreps:
+            - {"o3_lambda": 0, "o3_sigma": 1}
             - {"o3_lambda": 2, "o3_sigma": 1}
 
 test_set: 0.1
