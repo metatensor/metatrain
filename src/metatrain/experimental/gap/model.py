@@ -568,7 +568,7 @@ class TorchAggregateKernel(torch.nn.Module):
                 )
             if not are_pseudo_points[1]:
                 raise NotImplementedError(
-                    "properties dimenson cannot be aggregated for the moment"
+                    "properties dimension cannot be aggregated for the moment"
                 )
             return kernel
         elif self._aggregate_type == "mean":
@@ -578,7 +578,7 @@ class TorchAggregateKernel(torch.nn.Module):
                 )
             if not are_pseudo_points[1]:
                 raise NotImplementedError(
-                    "properties dimenson cannot be aggregated for the moment"
+                    "properties dimension cannot be aggregated for the moment"
                 )
             return kernel
         else:
