@@ -358,30 +358,15 @@ class _SorKernelSolver:
 
     :param KMM:
         KNM matrix
-    :param regularizer:
-        regularizer
-    :param jitter:
-        numerical jitter to stabilize fit
-    :param solver:
-        Method to solve the sparse KRR equations.
 
-        * RKHS-QR: TBD
-        * RKHS: Compute first the reproducing kernel features by diagonalizing K_MM and
+    The function solve the linear problem with 
+    the RKHS-QR method.
+    
+    RKHS: Compute first the reproducing kernel features by diagonalizing K_MM and
           computing `P_NM = K_NM @ U_MM @ Lam_MM^(-1.2)` and then solves the linear
           problem for those (which is usually better conditioned)::
 
               (P_NM.T@P_NM + 1)^(-1) P_NM.T@Y
-
-        * QR: TBD
-        * solve: Uses `scipy.linalg.solve` for the normal equations::
-
-              (K_NM.T@K_NM + K_MM)^(-1) K_NM.T@Y
-
-        * lstsq: require rcond value. Use `numpy.linalg.solve(rcond=rcond)` for the
-          normal equations::
-
-             (K_NM.T@K_NM + K_MM)^(-1) K_NM.T@Y
-
     Reference
     ---------
     Foster, L., Waagen, A., Aijaz, N., Hurley, M., Luis, A., Rinsky, J., ... &
@@ -392,86 +377,32 @@ class _SorKernelSolver:
     def __init__(
         self,
         KMM: np.ndarray,
-        regularizer: float = 1.0,
-        jitter: float = 0.0,
-        solver: str = "RKHS",
-        relative_jitter: bool = True,
     ):
-        self.solver = solver
         self.KMM = KMM
-        self.relative_jitter = relative_jitter
 
         self._nM = len(KMM)
-        if self.solver == "RKHS" or self.solver == "RKHS-QR":
-            self._vk, self._Uk = scipy.linalg.eigh(KMM)
-            self._vk = self._vk[::-1]
-            self._Uk = self._Uk[:, ::-1]
-        elif  self.solver == "solve" or self.solver == "lstsq":
-            # gets maximum eigenvalue of KMM to scale the numerical jitter
-            self._KMM_maxeva = scipy.sparse.linalg.eigsh(
-                KMM, k=1, return_eigenvectors=False
-            )[0]
-        else:
-            raise ValueError(
-                f"Solver {solver} not supported. Possible values "
-                "are 'RKHS', 'RKHS-QR', 'solve' or lstsq."
-            )
-        if relative_jitter:
-            if self.solver == "RKHS" or self.solver == "RKHS-QR":
-                self._jitter_scale = self._vk[0]
-            elif (
-                self.solver == "solve" or self.solver == "lstsq"
-            ):
-                self._jitter_scale = self._KMM_maxeva
-        else:
-            self._jitter_scale = 1.0
-        self.set_regularizers(regularizer, jitter)
-
-    def set_regularizers(self, regularizer=1.0, jitter=0.0):
-        self.regularizer = regularizer
-        self.jitter = jitter
-        if self.solver == "RKHS" or self.solver == "RKHS-QR":
-            self._nM = len(np.where(self._vk > self.jitter * self._jitter_scale)[0])
-            self._PKPhi = self._Uk[:, : self._nM] * 1 / np.sqrt(self._vk[: self._nM])
+        self._vk, self._Uk = scipy.linalg.eigh(KMM)
+        self._vk = self._vk[::-1]
+        self._Uk = self._Uk[:, ::-1]
+        
+        self._nM = len(np.where(self._vk > 0)[0])
+        self._PKPhi = self._Uk[:, : self._nM] * 1 / np.sqrt(self._vk[: self._nM])
+        
         self._Cov = np.zeros((self._nM, self._nM))
         self._KY = None
 
-    def fit(self, KNM, Y, rcond=None):
+
+    def fit(self, KNM, Y):
         if len(Y.shape) == 1:
             Y = Y[:, np.newaxis]
-        if self.solver == "RKHS":
-            Phi = KNM @ self._PKPhi
-            self._weights = self._PKPhi @ scipy.linalg.solve(
-                Phi.T @ Phi + np.eye(self._nM) * self.regularizer,
-                Phi.T @ Y,
-                assume_a="pos",
-            )
-        elif self.solver == "RKHS-QR":
-            A = np.vstack(
-                [KNM @ self._PKPhi, np.sqrt(self.regularizer) * np.eye(self._nM)]
-            )
-            Q, R = np.linalg.qr(A)
-            self._weights = self._PKPhi @ scipy.linalg.solve_triangular(
-                R, Q.T @ np.vstack([Y, np.zeros((self._nM, Y.shape[1]))])
-            )
-        elif self.solver == "solve":
-            self._weights = scipy.linalg.solve(
-                KNM.T @ KNM
-                + self.regularizer * self.KMM
-                + np.eye(self._nM) * self.jitter * self._jitter_scale,
-                KNM.T @ Y,
-                assume_a="pos",
-            )
-        elif self.solver == "lstsq":
-            self._weights = np.linalg.lstsq(
-                KNM.T @ KNM
-                + self.regularizer * self.KMM
-                + np.eye(self._nM) * self.jitter * self._jitter_scale,
-                KNM.T @ Y,
-                rcond=rcond,
-            )[0]
-        else:
-            ValueError("solver not implemented")
+        # Solve with the RKHS-QR method
+        A = np.vstack(
+            [KNM @ self._PKPhi,  np.eye(self._nM)]
+        )
+        Q, R = np.linalg.qr(A)
+        self._weights = self._PKPhi @ scipy.linalg.solve_triangular(
+            R, Q.T @ np.vstack([Y, np.zeros((self._nM, Y.shape[1]))])
+        )
 
     @property
     def weights(self):
@@ -1004,8 +935,6 @@ class SubsetOfRegressors:
         y: TensorMap,
         alpha: float = 1.0,
         alpha_forces: Optional[float] = None,
-        solver: str = "RKHS-QR",
-        rcond: Optional[float] = None,
     ):
         r"""
         :param X:
@@ -1123,14 +1052,10 @@ class SubsetOfRegressors:
                     ]
                 )
             self._solver = _SorKernelSolver(
-                k_mm_block.values, regularizer=1, jitter=0, solver=solver
+                k_mm_block.values
             )
 
-            if rcond is None:
-                rcond_ = max(k_nm_reg.shape) * np.finfo(k_nm_reg.dtype.char.lower()).eps
-            else:
-                rcond_ = rcond
-            self._solver.fit(k_nm_reg, y_reg, rcond=rcond_)
+            self._solver.fit(k_nm_reg, y_reg)
 
             weight_block = TensorBlock(
                 values=self._solver.weights.T,
