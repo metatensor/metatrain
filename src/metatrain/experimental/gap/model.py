@@ -118,7 +118,6 @@ class GAP(torch.nn.Module):
             "aggregate_type": model_hypers["krr"]["kernel-aggregation"],
         }
         self._subset_of_regressors = SubsetOfRegressors(
-            kernel_type=model_hypers["krr"]["kernel-type"],
             kernel_kwargs=kernel_kwargs,
         )
 
@@ -565,34 +564,6 @@ class AggregateKernel(torch.nn.Module):
     def compute_kernel(self, tensor1: TensorMap, tensor2: TensorMap) -> TensorMap:
         raise NotImplementedError("compute_kernel needs to be implemented.")
 
-
-class AggregateLinear(AggregateKernel):
-    def __init__(
-        self,
-        aggregate_names: Union[str, List[str]],
-        aggregate_type: str = "sum",
-        structurewise_aggregate: bool = False,
-    ):
-        super().__init__(aggregate_names, aggregate_type, structurewise_aggregate)
-
-    def forward(
-        self,
-        tensor1: TensorMap,
-        tensor2: TensorMap,
-        are_pseudo_points: Tuple[bool, bool] = (False, False),
-    ) -> TensorMap:
-        # we overwrite default behavior because for linear kernels we can do it more
-        # memory efficient
-        if not are_pseudo_points[0]:
-            tensor1 = self.aggregate_features(tensor1)
-        if not are_pseudo_points[1]:
-            tensor2 = self.aggregate_features(tensor2)
-        return self.compute_kernel(tensor1, tensor2)
-
-    def compute_kernel(self, tensor1: TensorMap, tensor2: TensorMap) -> TensorMap:
-        return metatensor.dot(tensor1, tensor2)
-
-
 class AggregatePolynomial(AggregateKernel):
     def __init__(
         self,
@@ -1020,7 +991,7 @@ class SubsetOfRegressors:
                 f'aggregate_type={aggregate_type!r} found but must be "sum"'
             )
         self._kernel: Union[AggregateKernel, None] = None
-        self._kernel = AggregatePolynomial(aggregate_type="sum", **kernel_kwargs)
+        self._kernel = AggregatePolynomial( **kernel_kwargs)
         
         self._kernel_kwargs = kernel_kwargs
         self._X_pseudo = None
@@ -1194,7 +1165,6 @@ class SubsetOfRegressors:
         return TorchSubsetofRegressors(
             core_tensor_map_to_torch(self._weights),
             core_tensor_map_to_torch(self._X_pseudo),
-            self._kernel_type,
             self._kernel_kwargs,
         )
 
@@ -1204,7 +1174,6 @@ class TorchSubsetofRegressors(torch.nn.Module):
         self,
         weights: TorchTensorMap,
         X_pseudo: TorchTensorMap,
-        kernel_type: Union[str, AggregateKernel] = "linear",
         kernel_kwargs: Optional[dict] = None,
     ):
         super().__init__()
@@ -1220,7 +1189,7 @@ class TorchSubsetofRegressors(torch.nn.Module):
                 f'aggregate_type={aggregate_type!r} found but must be "sum"'
             )
         self._kernel = TorchAggregatePolynomial(
-                aggregate_type="sum", **kernel_kwargs
+                 **kernel_kwargs
             )
 
     def forward(self, T: TorchTensorMap) -> TorchTensorMap:
