@@ -30,6 +30,8 @@ class TargetInfo:
         self.is_scalar = False
         self.is_cartesian = False
         self.is_spherical = False
+        self.is_spherical_node = False
+        self.is_spherical_edge = False
 
         self._check_layout(layout)
 
@@ -49,6 +51,14 @@ class TargetInfo:
     def per_atom(self) -> bool:
         """Whether the target is per atom."""
         return "atom" in self.layout.block(0).samples.names
+    
+    @property
+    def per_atom(self) -> bool:
+        """Whether the target is per atom pair."""
+        return (
+            "first_atom" in self.layout.block(0).samples.names
+            and "second_atom" in self.layout.block(0).samples.names
+        )
 
     def __repr__(self):
         return (
@@ -103,7 +113,15 @@ class TargetInfo:
             len(components_first_block) == 1
             and components_first_block[0].names[0] == "o3_mu"
         ):
-            self.is_spherical = True
+            if layout.keys.names == ["o3_lambda", "o3_sigma", "center_type"]:
+                self.is_spherical_node = True
+            elif layout.keys.names == [
+                "o3_lambda", "o3_sigma", "center_1_type", "center_2_type", "block_type"
+            ]:
+                self.is_spherical_edge = True
+            else:
+                assert layout.keys.names == ["o3_lambda", "o3_sigma"]
+                self.is_spherical = True
         else:
             raise ValueError(
                 "The layout ``TensorMap`` of a target should be "
@@ -154,6 +172,97 @@ class TargetInfo:
                     f"Found '{layout.keys.names}' instead."
                 )
             for key, block in layout.items():
+                o3_lambda, o3_sigma = (
+                    int(key.values[0].item()),
+                    int(key.values[1].item()),
+                )
+                if o3_sigma not in [-1, 1]:
+                    raise ValueError(
+                        "The layout ``TensorMap`` of a spherical tensor target should "
+                        "have a key sample 'o3_sigma' that is either -1 or 1."
+                        f"Found '{o3_sigma}' instead."
+                    )
+                if o3_lambda < 0:
+                    raise ValueError(
+                        "The layout ``TensorMap`` of a spherical tensor target should "
+                        "have a key sample 'o3_lambda' that is non-negative."
+                        f"Found '{o3_lambda}' instead."
+                    )
+                components = block.components
+                if len(components) != 1:
+                    raise ValueError(
+                        "The layout ``TensorMap`` of a spherical tensor target should "
+                        "have a single component."
+                    )
+                if len(components[0]) != 2 * o3_lambda + 1:
+                    raise ValueError(
+                        "Each ``TensorBlock`` of a spherical tensor target should have "
+                        "a component with 2*o3_lambda + 1 elements."
+                        f"Found '{len(components[0])}' elements instead."
+                    )
+                if len(block.gradients_list()) > 0:
+                    raise ValueError(
+                        "Gradients of spherical tensor targets are not supported."
+                    )
+                
+        if self.is_spherical_node:
+            if layout.keys.names != ["o3_lambda", "o3_sigma", "center_type"]:
+                raise ValueError(
+                    # TODO
+                    # "The layout ``TensorMap`` of a spherical tensor target "
+                    # "should have three keys named 'o3_lambda', 'o3_sigma', "
+                    # "and 'center_type"
+                    f"Found '{layout.keys.names}' instead."
+                )
+            for key, block in layout.items():
+                # TODO: check atom types and block type?
+                o3_lambda, o3_sigma = (
+                    int(key.values[0].item()),
+                    int(key.values[1].item()),
+                )
+                if o3_sigma not in [-1, 1]:
+                    raise ValueError(
+                        "The layout ``TensorMap`` of a spherical tensor target should "
+                        "have a key sample 'o3_sigma' that is either -1 or 1."
+                        f"Found '{o3_sigma}' instead."
+                    )
+                if o3_lambda < 0:
+                    raise ValueError(
+                        "The layout ``TensorMap`` of a spherical tensor target should "
+                        "have a key sample 'o3_lambda' that is non-negative."
+                        f"Found '{o3_lambda}' instead."
+                    )
+                # TODO: check the atom types here?
+                components = block.components
+                if len(components) != 1:
+                    raise ValueError(
+                        "The layout ``TensorMap`` of a spherical tensor target should "
+                        "have a single component."
+                    )
+                if len(components[0]) != 2 * o3_lambda + 1:
+                    raise ValueError(
+                        "Each ``TensorBlock`` of a spherical tensor target should have "
+                        "a component with 2*o3_lambda + 1 elements."
+                        f"Found '{len(components[0])}' elements instead."
+                    )
+                if len(block.gradients_list()) > 0:
+                    raise ValueError(
+                        "Gradients of spherical tensor targets are not supported."
+                    )
+                
+        if self.is_spherical_edge:
+            if layout.keys.names != [
+                "o3_lambda", "o3_sigma", "center_1_type", "center_2_type", "block_type"
+            ]:
+                raise ValueError(
+                    # TODO
+                    # "The layout ``TensorMap`` of a node tensor target on a"
+                    # "should have three keys named 'o3_lambda', 'o3_sigma', "
+                    # "and 'center_type"
+                    f"Found '{layout.keys.names}' instead."
+                )
+            for key, block in layout.items():
+                # TODO: check atom types and block type?
                 o3_lambda, o3_sigma = (
                     int(key.values[0].item()),
                     int(key.values[1].item()),

@@ -3,6 +3,7 @@ from typing import Dict, List, Tuple
 
 import numpy as np
 import torch
+import metatensor.torch as mts
 from metatensor.torch import TensorBlock, TensorMap
 from metatensor.torch.atomistic import System
 from scipy.spatial.transform import Rotation
@@ -34,7 +35,11 @@ class RotationalAugmenter:
         self.wigner = None
         self.complex_to_real_spherical_harmonics_transforms = {}
         is_any_target_spherical = any(
-            target_info.is_spherical for target_info in target_info_dict.values()
+            (
+                target_info.is_spherical
+                or target_info.is_spherical_node
+                or target_info.is_spherical_edge
+            ) for target_info in target_info_dict.values()
         )
         if is_any_target_spherical:
             try:
@@ -48,7 +53,11 @@ class RotationalAugmenter:
             largest_l = max(
                 (len(block.components[0]) - 1) // 2
                 for target_info in target_info_dict.values()
-                if target_info.is_spherical
+                if (
+                    target_info.is_spherical
+                    or target_info.is_spherical_node
+                    or target_info.is_spherical_edge
+                )
                 for block in target_info.layout.blocks()
             )
             self.wigner = spherical.Wigner(largest_l)
@@ -81,7 +90,10 @@ class RotationalAugmenter:
             ]
             for target_name in targets.keys():
                 target_info = self.target_info_dict[target_name]
-                if target_info.is_spherical:
+                if (
+                    target_info.is_spherical or target_info.is_spherical_node
+                    or target_info.is_spherical_edge
+                ):
                     for block in target_info.layout.blocks():
                         ell = (len(block.components[0]) - 1) // 2
                         if ell not in wigner_D_matrices:  # skip if already computed
@@ -124,9 +136,16 @@ def _apply_wigner_D_matrices(
         ell, sigma = int(key[0]), int(key[1])
         values = block.values
         if "atom" in block.samples.names:
-            split_values = torch.split(
-                values, [len(system.positions) for system in systems]
-            )
+            split_blocks: List[TensorBlock] = []
+            for A in range(len(systems)):
+                split_blocks.append(
+                    mts.slice_block(
+                        block,
+                        "samples",
+                        mts.Labels(["system"], torch.tensor([A]).reshape(-1, 1))
+                    )
+                )
+            split_values = [block.values for block in split_blocks]
         else:
             split_values = torch.split(values, [1 for _ in systems])
         new_values = []
