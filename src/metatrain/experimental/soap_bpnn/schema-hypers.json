@@ -10,29 +10,93 @@
       "type": "object",
       "properties": {
         "soap": {
-          "$schema": "https://json-schema.org/draft/2020-12/schema",
-          "title": "PowerSpectrumParameters",
-          "description": "Parameters for SOAP power spectrum calculator.\n\n In the SOAP power spectrum, each sample represents rotationally-averaged\n atomic density correlations, built on top of the spherical expansion. Each\n sample is a vector indexed by `n1, n2, l`, where `n1` and `n2` are radial\n basis indexes and `l` is the angular index:\n\n `< n1 n2 l | X_i > = \\sum_m < n1 l m | X_i > < n2 l m | X_i >`\n\n where the `< n l m | X_i >` are the spherical expansion coefficients.\n\n See [this review article](https://doi.org/10.1063/1.5090481) for more\n information on the SOAP representations.",
           "type": "object",
           "properties": {
-            "basis": {
-              "description": "Definition of the basis functions used to expand the atomic density",
-              "$ref": "#/$defs/SphericalExpansionBasis"
-            },
             "cutoff": {
-              "description": "Definition of the atomic environment within a cutoff, and how\n neighboring atoms enter and leave the environment.",
-              "$ref": "#/$defs/Cutoff"
+              "type": "object",
+              "properties": {
+                "radius": {
+                  "type": "number"
+                },
+                "smoothing": {
+                  "type": "object",
+                  "properties": {
+                    "type": {
+                      "type": "string",
+                      "enum": ["ShiftedCosine"]
+                    },
+                    "width": {
+                      "type": "number"
+                    }
+                  },
+                  "additionalProperties": false
+                }
+              },
+              "additionalProperties": false
             },
             "density": {
-              "description": "Definition of the density arising from atoms in the local environment.",
-              "$ref": "#/$defs/Density"
+              "type": "object",
+              "properties": {
+                "type": {
+                  "type": "string",
+                  "enum": ["Gaussian"]
+                },
+                "center_atom_weight": {
+                  "type": "number"
+                },
+                "width": {
+                  "type": "number"
+                },
+                "scaling": {
+                  "type": "object",
+                  "properties": {
+                    "type": {
+                      "type": "string",
+                      "enum": ["Willatt2018"]
+                    },
+                    "rate": {
+                      "type": "number"
+                    },
+                    "scale": {
+                      "type": "number"
+                    },
+                    "exponent": {
+                      "type": "number"
+                    }
+                  },
+                  "additionalProperties": false
+                }
+              },
+              "additionalProperties": false
+            },
+            "basis": {
+              "type": "object",
+              "properties": {
+                "type": {
+                  "type": "string",
+                  "enum": ["TensorProduct"]
+                },
+                "max_angular": {
+                  "type": "integer"
+                },
+                "radial": {
+                  "type": "object",
+                  "properties": {
+                    "type": {
+                      "type": "string",
+                      "enum": ["Gto"]
+                    },
+                    "max_radial": {
+                      "type": "integer"
+                    }
+                  },
+                  "additionalProperties": false
+                }
+              },
+              "additionalProperties": false
             }
           },
-          "required": [
-            "cutoff",
-            "density",
-            "basis"
-          ]
+          "additionalProperties": false
         },
         "bpnn": {
           "type": "object",
@@ -170,7 +234,6 @@
                           "additionalProperties": false
                         }
                       },
-                      "required": ["deltas"],
                       "additionalProperties": false
                     }
                   },
@@ -183,348 +246,6 @@
         }
       },
       "additionalProperties": false
-    }
-  },
-  "$defs": {
-    "Cutoff": {
-      "description": "Definition of a local environment for SOAP calculations",
-      "type": "object",
-      "properties": {
-        "radius": {
-          "description": "Radius of the spherical cutoff to use for atomic environments",
-          "type": "number",
-          "format": "double"
-        },
-        "smoothing": {
-          "description": "Cutoff function used to smooth the behavior around the cutoff radius",
-          "$ref": "#/$defs/Smoothing"
-        }
-      },
-      "additionalProperties": false,
-      "required": [
-        "radius",
-        "smoothing"
-      ]
-    },
-    "Density": {
-      "description": "Definition of the (atomic) density to expand on a basis",
-      "type": "object",
-      "properties": {
-        "center_atom_weight": {
-          "description": "Weight of the central atom contribution to the density. If `1` the\n center atom contribution is weighted the same as any other contribution.\n If `0` the central atom does not contribute to the density at all.",
-          "type": "number",
-          "format": "double",
-          "default": 1.0
-        },
-        "scaling": {
-          "description": "radial scaling can be used to reduce the importance of neighbor atoms\n further away from the center, usually improving the performance of the\n model",
-          "anyOf": [
-            {
-              "$ref": "#/$defs/DensityScaling"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null
-        }
-      },
-      "oneOf": [
-        {
-          "description": "Dirac delta atomic density",
-          "type": "object",
-          "properties": {
-            "type": {
-              "type": "string",
-              "const": "DiracDelta"
-            }
-          },
-          "required": [
-            "type"
-          ]
-        },
-        {
-          "description": "Gaussian atomic density `exp(-r^2/width^2)`",
-          "type": "object",
-          "properties": {
-            "type": {
-              "type": "string",
-              "const": "Gaussian"
-            },
-            "width": {
-              "description": "Width of the gaussian, the same width is used for all atoms",
-              "type": "number",
-              "format": "double"
-            }
-          },
-          "required": [
-            "type",
-            "width"
-          ]
-        },
-        {
-          "description": "Smeared power law density, that behaves like `1 / r^p` as `r` goes to\n infinity, while removing any singularity at `r=0` and ensuring the\n density is differentiable everywhere.\n\n The density functional form is `f(r) = 1 / Γ(p/2) * γ(p/2, r^2/(2 σ^2))\n / r^p`, with σ the smearing width, Γ the Gamma function and γ the lower\n incomplete gamma function.\n\n For more information about the derivation of this density, see\n <https://doi.org/10.1021/acs.jpclett.3c02375> and section D of the\n supplementary information.",
-          "type": "object",
-          "properties": {
-            "type": {
-              "type": "string",
-              "const": "SmearedPowerLaw"
-            },
-            "exponent": {
-              "description": "Exponent of the density (`p`)",
-              "type": "integer",
-              "format": "uint",
-              "minimum": 0
-            },
-            "smearing": {
-              "description": "Smearing width of the density (`σ`)",
-              "type": "number",
-              "format": "double"
-            }
-          },
-          "required": [
-            "type",
-            "smearing",
-            "exponent"
-          ]
-        }
-      ]
-    },
-    "DensityScaling": {
-      "description": "Implemented options for radial scaling of the atomic density around an atom",
-      "oneOf": [
-        {
-          "description": "Use a long-range algebraic decay and smooth behavior at `r → 0` as\n introduced in <https://doi.org/10.1039/C8CP05921G>:\n `f(r) = rate / (rate + (r / scale) ^ exponent)`",
-          "type": "object",
-          "properties": {
-            "type": {
-              "type": "string",
-              "const": "Willatt2018"
-            },
-            "exponent": {
-              "description": "see in the formula",
-              "type": "number",
-              "format": "double"
-            },
-            "rate": {
-              "description": "see in the formula",
-              "type": "number",
-              "format": "double"
-            },
-            "scale": {
-              "description": "see in the formula",
-              "type": "number",
-              "format": "double"
-            }
-          },
-          "additionalProperties": false,
-          "required": [
-            "type",
-            "scale",
-            "rate",
-            "exponent"
-          ]
-        }
-      ]
-    },
-    "RadialBasis": {
-      "description": "The different kinds of radial basis supported by SOAP calculators",
-      "oneOf": [
-        {
-          "description": "Use a radial basis similar to Gaussian-Type Orbitals.\n\n The basis is defined as `R_n(r) ∝ r^n e^{- r^2 / (2 σ_n^2)}`, where `σ_n\n = cutoff * \\sqrt{n} / n_max`",
-          "type": "object",
-          "properties": {
-            "type": {
-              "type": "string",
-              "const": "Gto"
-            },
-            "max_radial": {
-              "description": "Maximal value of `n` to include in the radial basis function\n definition. The overall basis will have `max_radial + 1` basis\n functions, indexed from `0` to `max_radial` (inclusive).",
-              "type": "integer",
-              "format": "uint",
-              "minimum": 0
-            },
-            "radius": {
-              "type": [
-                "number",
-                "null"
-              ],
-              "format": "double"
-            }
-          },
-          "additionalProperties": false,
-          "required": [
-            "type",
-            "max_radial"
-          ]
-        },
-        {
-          "description": "Use pre-tabulated radial basis.\n\n This enables the calculation of the overall radial integral using\n user-defined splines.\n\n The easiest way to create such a tabulated basis is the corresponding\n functions in featomic's Python API.",
-          "type": "object",
-          "properties": {
-            "type": {
-              "type": "string",
-              "const": "Tabulated"
-            },
-            "points": {
-              "description": "Points defining the spline",
-              "type": "array",
-              "items": {
-                "$ref": "#/$defs/SplinePoint"
-              }
-            }
-          },
-          "additionalProperties": false,
-          "required": [
-            "type",
-            "points"
-          ]
-        }
-      ]
-    },
-    "Smoothing": {
-      "description": "Possible values for the smoothing cutoff function",
-      "oneOf": [
-        {
-          "description": "Shifted cosine smoothing function\n `f(r) = 1/2 * (1 + cos(π (r - cutoff + width) / width ))`",
-          "type": "object",
-          "properties": {
-            "type": {
-              "type": "string",
-              "const": "ShiftedCosine"
-            },
-            "width": {
-              "description": "Width of the switching function",
-              "type": "number",
-              "format": "double"
-            }
-          },
-          "additionalProperties": false,
-          "required": [
-            "type",
-            "width"
-          ]
-        },
-        {
-          "description": "Step smoothing function (i.e. no smoothing). This is 1 inside the cutoff\n and 0 outside, with a sharp step at the boundary.",
-          "type": "object",
-          "properties": {
-            "type": {
-              "type": "string",
-              "const": "Step"
-            }
-          },
-          "additionalProperties": false,
-          "required": [
-            "type"
-          ]
-        }
-      ]
-    },
-    "SphericalExpansionBasis": {
-      "description": "Possible Basis functions to use for the SOAP or LODE spherical expansion.\n\n The basis is made of radial and angular parts, that can be combined in\n various ways.",
-      "oneOf": [
-        {
-          "description": "This defines a tensor product basis, combining all possible radial basis\n functions with all possible angular basis functions.",
-          "type": "object",
-          "properties": {
-            "type": {
-              "type": "string",
-              "const": "TensorProduct"
-            },
-            "max_angular": {
-              "description": "Maximal value (inclusive) of the angular moment (quantum number `l`) to\n use for the spherical harmonics basis functions",
-              "type": "integer",
-              "format": "uint",
-              "minimum": 0
-            },
-            "radial": {
-              "description": "Definition of the radial basis functions",
-              "$ref": "#/$defs/RadialBasis"
-            },
-            "spline_accuracy": {
-              "description": "Accuracy for splining the radial integral. Using splines is typically\n faster than analytical implementations. If this is None, no splining is\n done.\n\n The number of control points in the spline is automatically determined\n to ensure the average absolute error is close to the requested accuracy.",
-              "type": [
-                "number",
-                "null"
-              ],
-              "format": "double",
-              "default": 1e-8
-            }
-          },
-          "additionalProperties": false,
-          "required": [
-            "type",
-            "max_angular",
-            "radial"
-          ]
-        },
-        {
-          "description": "This defines an explicit basis, where only a specific subset of angular\n basis can be used, and every angular basis can use a different radial\n basis.",
-          "type": "object",
-          "properties": {
-            "type": {
-              "type": "string",
-              "const": "Explicit"
-            },
-            "by_angular": {
-              "description": "A map of radial basis to use for the specified angular channels.\n\n Only angular channels included in this map will be included in the\n output. Different angular channels are allowed to use completely\n different radial basis functions.",
-              "type": "object",
-              "additionalProperties": {
-                "$ref": "#/$defs/RadialBasis"
-              },
-              "x-key-type": "integer"
-            },
-            "spline_accuracy": {
-              "description": "Accuracy for splining the radial integral. Using splines is typically\n faster than analytical implementations. If this is None, no splining is\n done.\n\n The number of control points in the spline is automatically determined\n to ensure the average absolute error is close to the requested accuracy.",
-              "type": [
-                "number",
-                "null"
-              ],
-              "format": "double",
-              "default": 1e-8
-            }
-          },
-          "additionalProperties": false,
-          "required": [
-            "type",
-            "by_angular"
-          ]
-        }
-      ]
-    },
-    "SplinePoint": {
-      "description": "A single point entering a spline used for the tabulated radial integrals.",
-      "type": "object",
-      "properties": {
-        "derivatives": {
-          "description": "Array of derivatives for the tabulated radial integral",
-          "type": "array",
-          "items": {
-            "type": "number",
-            "format": "double"
-          }
-        },
-        "position": {
-          "description": "Position of the point",
-          "type": "number",
-          "format": "double"
-        },
-        "values": {
-          "description": "Array of values for the tabulated radial integral",
-          "type": "array",
-          "items": {
-            "type": "number",
-            "format": "double"
-          }
-        }
-      },
-      "additionalProperties": false,
-      "required": [
-        "position",
-        "values",
-        "derivatives"
-      ]
     }
   },
   "additionalProperties": false

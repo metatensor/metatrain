@@ -560,7 +560,9 @@ def test_architecture_error(options, monkeypatch, tmp_path):
     monkeypatch.chdir(tmp_path)
     shutil.copy(DATASET_PATH_QM9, "qm9_reduced_100.xyz")
 
-    options["architecture"]["model"] = OmegaConf.create({"soap": {"cutoff": -1.0}})
+    options["architecture"]["model"] = OmegaConf.create(
+        {"soap": {"cutoff": {"radius": -1.0}}}
+    )
 
     with pytest.raises(ArchitectureError, match="originates from an architecture"):
         train_model(options)
