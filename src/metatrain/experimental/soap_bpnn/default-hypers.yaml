@@ -22,7 +22,7 @@ architecture:
         max_angular: 6
         radial:
           type: Gto
-          max_radial: 8
+          max_radial: 7
     bpnn:
       layernorm: true
       num_hidden_layers: 2
