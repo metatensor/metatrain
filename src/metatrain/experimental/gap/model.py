@@ -466,7 +466,7 @@ class AggregateKernel(torch.nn.Module):
                 kernel = metatensor.sum_over_samples(kernel, self._aggregate_names)
             if not are_pseudo_points[1]:
                 raise NotImplementedError(
-                    "properties dimenson cannot be aggregated for the moment"
+                    "properties dimension cannot be aggregated for the moment"
                 )
             return kernel
         elif self._aggregate_type == "mean":
@@ -474,7 +474,7 @@ class AggregateKernel(torch.nn.Module):
                 kernel = metatensor.mean_over_samples(kernel, self._aggregate_names)
             if not are_pseudo_points[1]:
                 raise NotImplementedError(
-                    "properties dimenson cannot be aggregated for the moment"
+                    "properties dimension cannot be aggregated for the moment"
                 )
             return kernel
         else:
