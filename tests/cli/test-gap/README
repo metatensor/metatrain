@@ -1,0 +1,5 @@
+usage 
+
+mtt train options-gap.yaml > out.put  
+
+python script.py

@@ -1,0 +1,49 @@
+architecture:
+  name: experimental.gap
+
+  model:
+    soap:
+      cutoff: 5.5
+      max_radial: 8
+      max_angular: 6
+      atomic_gaussian_width: 0.2
+      radial_basis:
+        Gto: {}
+      center_atom_weight: 1.0
+      cutoff_function:
+        ShiftedCosine:
+          width: 1.0
+      radial_scaling:
+        Willatt2018:
+          rate: 1.0
+          scale: 2.0
+          exponent: 7.0
+    krr:
+      degree: 2
+      num_sparse_points: 900
+    zbl: false
+
+  training:
+    regularizer: 0.00005
+    regularizer_forces: 0.001
+
+training_set:
+  systems: "ethanol_reduced_100.xyz" # file where the positions are stored
+  targets:
+    energy:
+      key: "energy" # name of the target value
+      unit: "eV" # unit of the target value
+
+test_set:
+  systems: "ethanol_reduced_100.xyz" # file where the positions are stored
+  targets:
+    energy:
+      key: "energy" # name of the target value
+      unit: "eV" # unit of the target value
+
+validation_set:
+  systems: "ethanol_reduced_100.xyz" # file where the positions are stored
+  targets:
+    energy:
+      key: "energy" # name of the target value
+      unit: "eV" # unit of the target value

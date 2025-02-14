@@ -946,15 +946,10 @@ class SubsetOfRegressors:
         :param y:
             targets
         :param alpha:
-            regularizationfor the energies, it must be a float
+            regularization for the energies, it must be a float
         :param alpha_forces:
             regularization for the forces, it must be a float. If None is set
             equal to alpha
-        :param solver:
-            determines which solver to use
-        :param rcond:
-            argument for the solver lstsq
-
 
         Derivation
         ----------
