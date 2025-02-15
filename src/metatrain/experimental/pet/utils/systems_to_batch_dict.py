@@ -1,5 +1,6 @@
 from typing import Dict, List, Optional, Tuple
 
+import pet_neighbors_convert  # noqa: F401
 import torch
 from metatensor.torch import Labels
 from metatensor.torch.atomistic import NeighborListOptions, System

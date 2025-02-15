@@ -13,7 +13,6 @@ from metatensor.torch.atomistic import (
     NeighborListOptions,
     System,
 )
-from pet.pet import PET as RawPET
 
 from metatrain.utils.data import DatasetInfo
 from metatrain.utils.data.target_info import is_auxiliary_output
@@ -21,6 +20,7 @@ from metatrain.utils.data.target_info import is_auxiliary_output
 from ...utils.additive import ZBL
 from ...utils.dtype import dtype_to_str
 from ...utils.metadata import append_metadata_references
+from .modules.pet import PET as RawPET
 from .utils import load_raw_pet_model, systems_to_batch_dict
 
 
@@ -124,8 +124,8 @@ class PET(torch.nn.Module):
         self.atomic_types = sorted(self.atomic_types)
         return self
 
-    def set_trained_model(self, trained_model: RawPET) -> None:
-        self.pet = trained_model
+    def set_trained_model(self, trained_model: RawPET):
+        self.pet = trained_model  # type: ignore
 
     def requested_neighbor_lists(
         self,
