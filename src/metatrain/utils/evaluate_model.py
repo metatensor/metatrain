@@ -17,15 +17,6 @@ from .data import TargetInfo
 from .output_gradient import compute_gradient
 
 
-# Ignore metatensor-torch warning due to the fact that positions/cell
-# already require grad when registering the NL
-warnings.filterwarnings(
-    "ignore",
-    category=UserWarning,
-    message="neighbor",
-)
-
-
 def evaluate_model(
     model: Union[
         torch.nn.Module,
@@ -50,6 +41,7 @@ def evaluate_model(
 
     :returns: The predictions of the model for the requested targets.
     """
+
     model_outputs = _get_outputs(model)
     # Assert that all targets are within the model's capabilities:
     if not set(targets.keys()).issubset(model_outputs.keys()):
@@ -72,12 +64,16 @@ def evaluate_model(
     new_systems = []
     strains = []
     for system in systems:
-        new_system, strain = _prepare_system(
-            system,
-            positions_grad=len(energy_targets_that_require_position_gradients) > 0,
-            strain_grad=len(energy_targets_that_require_strain_gradients) > 0,
-            check_consistency=check_consistency,
-        )
+        with warnings.catch_warnings():
+            # this seems to be the only way to filter out the torch-scripted warnings
+            # about neighbors (which are not relevant here)
+            warnings.simplefilter("ignore")
+            new_system, strain = _prepare_system(
+                system,
+                positions_grad=len(energy_targets_that_require_position_gradients) > 0,
+                strain_grad=len(energy_targets_that_require_strain_gradients) > 0,
+                check_consistency=check_consistency,
+            )
         new_systems.append(new_system)
         strains.append(strain)
     systems = new_systems

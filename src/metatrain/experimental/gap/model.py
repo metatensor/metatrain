@@ -272,6 +272,12 @@ class GAP(torch.nn.Module):
                 interaction_ranges.append(additive_model.cutoff_radius)
         interaction_range = max(interaction_ranges)
 
+        # Additionally, the composition model contains some `TensorMap`s that cannot
+        # be registered correctly with Pytorch. This funciton moves them:
+        self.additive_models[0]._move_weights_to_device_and_dtype(
+            torch.device("cpu"), torch.float64
+        )
+
         capabilities = ModelCapabilities(
             outputs=self.outputs,
             atomic_types=sorted(self.dataset_info.atomic_types),

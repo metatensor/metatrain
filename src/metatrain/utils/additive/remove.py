@@ -52,29 +52,31 @@ def remove_additive(
         # make the samples the same so we can use metatensor.torch.subtract
         # we also need to detach the values to avoid backpropagating through the
         # subtraction
-        block = metatensor.torch.TensorBlock(
-            values=additive_contribution[target_key].block().values.detach(),
-            samples=targets[target_key].block().samples,
-            components=additive_contribution[target_key].block().components,
-            properties=additive_contribution[target_key].block().properties,
-        )
-        for gradient_name, gradient in (
-            additive_contribution[target_key].block().gradients()
-        ):
-            block.add_gradient(
-                gradient_name,
-                metatensor.torch.TensorBlock(
-                    values=gradient.values.detach(),
-                    samples=targets[target_key].block().gradient(gradient_name).samples,
-                    components=gradient.components,
-                    properties=gradient.properties,
-                ),
+        blocks = []
+        for block_key, old_block in additive_contribution[target_key].items():
+            block = metatensor.torch.TensorBlock(
+                values=old_block.values.detach(),
+                samples=targets[target_key].block(block_key).samples,
+                components=old_block.components,
+                properties=old_block.properties,
             )
+            for gradient_name, gradient in old_block.gradients():
+                block.add_gradient(
+                    gradient_name,
+                    metatensor.torch.TensorBlock(
+                        values=gradient.values.detach(),
+                        samples=targets[target_key]
+                        .block(block_key)
+                        .gradient(gradient_name)
+                        .samples,
+                        components=gradient.components,
+                        properties=gradient.properties,
+                    ),
+                )
+            blocks.append(block)
         additive_contribution[target_key] = TensorMap(
             keys=targets[target_key].keys,
-            blocks=[
-                block,
-            ],
+            blocks=blocks,
         )
         # subtract the additive contribution from the target
         targets[target_key] = metatensor.torch.subtract(
