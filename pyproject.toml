@@ -64,7 +64,7 @@ soap-bpnn = [
     "wigners",
 ]
 pet = [
-    "pet-neighbors-convert @ git+https://github.com/lab-cosmo/pet-neighbors-convert.git",
+    "pet-neighbors-convert",
     "torch_geometric",
     "matscipy",
     "scikit-learn",
