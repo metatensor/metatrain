@@ -70,7 +70,9 @@ def read_generic(target: DictConfig) -> Tuple[List[TensorMap], TargetInfo]:
             raise ValueError("Only energy targets can have gradient blocks.")
 
     target_info = get_generic_target_info(target)
-    _check_tensor_map_metadata(tensor_map, target_info.layout)
+    if not target["metatensor_target_disable_checks"]:
+        # the check here will be skipped if the flag is set to True
+        _check_tensor_map_metadata(tensor_map, target_info.layout)
 
     # make sure that the properties of the target_info.layout also match the
     # actual properties of the tensor maps
