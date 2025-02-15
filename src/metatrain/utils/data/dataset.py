@@ -420,8 +420,16 @@ class DiskDataset(torch.utils.data.Dataset):
             )
             tensor_map = self[0][target_key]  # always > 0 samples, see above
             if is_energy:
-                target_info = get_energy_target_info(target)
-                _check_tensor_map_metadata(tensor_map, target_info.layout)
+                if len(tensor_map) != 1:
+                    raise ValueError("Energy TensorMaps should have exactly one block.")
+                add_position_gradients = target["forces"]
+                add_strain_gradients = target["stress"] or target["virial"]
+                target_info = get_energy_target_info(
+                    target, add_position_gradients, add_strain_gradients
+                )
+                if not target["metatensor_target_disable_checks"]:
+                    # the check here will be skipped if the flag is set to True
+                    _check_tensor_map_metadata(tensor_map, target_info.layout)
                 target_info_dict[target_key] = target_info
             else:
                 target_info = get_generic_target_info(target)
