@@ -417,6 +417,7 @@ class DiskDataset(torch.utils.data.Dataset):
                 and (not target["per_atom"])
                 and target["num_subtargets"] == 1
                 and target["type"] == "scalar"
+                and target["metatensor_target_disable_checks"] is False
             )
             tensor_map = self[0][target_key]  # always > 0 samples, see above
             if is_energy:
@@ -432,13 +433,20 @@ class DiskDataset(torch.utils.data.Dataset):
                     _check_tensor_map_metadata(tensor_map, target_info.layout)
                 target_info_dict[target_key] = target_info
             else:
-                target_info = get_generic_target_info(target)
+                # TODO!!!!: do the same as here in the metatensor reader
                 if not target["metatensor_target_disable_checks"]:
                     # the check here will be skipped if the flag is set to True
+                    target_info = get_generic_target_info(target)
                     _check_tensor_map_metadata(tensor_map, target_info.layout)
-                # make sure that the properties of the target_info.layout also match the
-                # actual properties of the tensor maps
-                target_info.layout = _empty_tensor_map_like(tensor_map)
+                    # make sure that the properties of the target_info.layout also match the
+                    # actual properties of the tensor maps
+                    target_info.layout = _empty_tensor_map_like(tensor_map)
+                else:
+                    target_info = TargetInfo(
+                        quantity=target["quantity"],
+                        unit=target["unit"],
+                        layout=_empty_tensor_map_like(tensor_map),
+                    )
                 target_info_dict[target_key] = target_info
         return target_info_dict
 

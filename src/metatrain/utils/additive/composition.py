@@ -3,7 +3,7 @@ from typing import Dict, List, Optional, Union
 
 import metatensor.torch
 import torch
-from metatensor.torch import Labels, LabelsEntry, TensorBlock, TensorMap
+from metatensor.torch import Labels, TensorBlock, TensorMap
 from metatensor.torch.atomistic import ModelOutput, System
 
 from ..data import Dataset, DatasetInfo, TargetInfo, get_all_targets, get_atomic_types
@@ -25,6 +25,7 @@ class CompositionModel(torch.nn.Module):
         target quantities and atomic types.
     """
 
+    all_layouts = Dict[str, TensorMap]
     weights: Dict[str, TensorMap]
     outputs: Dict[str, ModelOutput]
 
@@ -53,6 +54,7 @@ class CompositionModel(torch.nn.Module):
             for target_name, target_info in dataset_info.targets.items()
         }
 
+        self.all_layouts = {}
         self.weights = {}
         self.outputs: Dict[str, ModelOutput] = {}
         for target_name, target_info in self.dataset_info.targets.items():
@@ -165,9 +167,6 @@ class CompositionModel(torch.nn.Module):
                     )
                     continue
 
-                total_num_structures = sum(
-                    [len(dataset) for dataset in datasets_with_target]
-                )
                 dtype = datasets[0][0]["system"].positions.dtype
                 if dtype != torch.float64:
                     raise ValueError(
@@ -175,168 +174,210 @@ class CompositionModel(torch.nn.Module):
                         f"Got dtype: {dtype}."
                     )
 
-                composition_features = torch.zeros(
-                    (total_num_structures, len(self.atomic_types)),
-                    dtype=dtype,
-                    device=device,
-                )
-                system_index = 0
-                per_block_targets_list: Dict[LabelsEntry, List[TensorBlock]] = {}
-                for dataset in datasets_with_target:
-                    for sample in dataset:
-                        systems = [sample["system"]]
-                        targets = {target_key: sample[target_key]}
-                        systems, targets = systems_and_targets_to_device(
-                            systems, targets, device
-                        )
-                        for additive_model in additive_models:
-                            target_info_dict = {
-                                target_key: self.new_targets[target_key]
-                            }
-                            targets = remove_additive(  # remove other additive models
-                                systems,
-                                targets,
-                                additive_model,
-                                target_info_dict,
-                            )
-                        for j, t in enumerate(self.atomic_types):
-                            composition_features[system_index, j] = torch.sum(
-                                systems[0].types == t
-                            )
-                        system_index += 1
-                        if self.dataset_info.targets[target_key].per_atom:
-                            # we need the center type in the samples to do
-                            # mean_over_samples
-                            if "center_type" in targets[target_key].keys.names:
-                                # it's in the keys: move it to the samples
-                                targets[target_key] = targets[
-                                    target_key
-                                ].keys_to_samples("center_type")
-                            if targets[target_key].block(0).samples.names == [
-                                "system",
-                                "atom",
-                            ]:
-                                # there is no center type, we need to add it
-                                # and we will rely on the fact that per-atom targets
-                                # should be in the same order as the atoms in the system
-                                targets[target_key] = metatensor.torch.append_dimension(
-                                    targets[target_key],
-                                    "samples",
-                                    "center_type",
-                                    systems[0].types,
-                                )
-                        # TODO: abstract even more for more complex targets?
-                        for key, block in targets[target_key].items():
-                            # `if key not in per_block_targets_list` doesn't work, so:
-                            matching_keys = [
-                                k for k in per_block_targets_list if k == key
-                            ]
-                            assert len(matching_keys) <= 1
-                            if len(matching_keys) == 0:
-                                per_block_targets_list[key] = [block]
-                            else:
-                                per_block_targets_list[matching_keys[0]].append(block)
+                is_spherical = self.dataset_info.targets[target_key].is_spherical
+                is_per_atom = self.dataset_info.targets[target_key].per_atom
 
-                weight_blocks = []
-                for key, block_list in per_block_targets_list.items():
-                    # distinguish between spherical and scalar targets
-                    needs_unsqueeze = False
-                    if self.dataset_info.targets[target_key].is_spherical:  # spherical
-                        is_invariant = (
-                            int(key["o3_lambda"]) == 0 and int(key["o3_sigma"]) == 1
-                        )
-                        if is_invariant:
-                            # squeeze components dimension
-                            tensor_list = [b.values.squeeze(1) for b in block_list]
-                            needs_unsqueeze = True
-                        else:
-                            # we don't need the targets as we will set the composition
-                            # to zero
-                            tensor_list = None
-                    else:  # scalar
-                        tensor_list = [b.values for b in block_list]
-
-                    metadata_block = self.dataset_info.targets[target_key].layout.block(
-                        key
-                    )
-                    if tensor_list is None:  # spherical non-invariant
-                        weights_tensor = torch.zeros(
-                            (
-                                len(self.atomic_types),
-                                len(metadata_block.components[0]),
-                                len(metadata_block.properties),
-                            ),
-                            dtype=dtype,
-                            device=device,
+                if is_spherical:
+                    if is_per_atom:
+                        self.weights[target_key] = (
+                            self._get_composition_spherical_per_atom(
+                                datasets_with_target,
+                                target_key,
+                                additive_models,
+                                device,
+                                dtype,
+                            )
                         )
                     else:
-                        if self.dataset_info.targets[target_key].per_atom:
-                            # hack: metatensor.join doesn't work on single blocks;
-                            # create TensorMaps, join, and then extract the joined block
-                            joined_blocks = metatensor.torch.join(
-                                [
-                                    TensorMap(
-                                        keys=Labels.single(),
-                                        blocks=[b],
-                                    )
-                                    for b in block_list
-                                ],
-                                axis="samples",
-                                remove_tensor_name=True,
-                            ).block()
-                            # This code doesn't work because mean_over_samples_block
-                            # actually does a sum...
-                            # weights_tensor = (
-                            #     metatensor.torch.sort_block(
-                            #         metatensor.torch.mean_over_samples_block(
-                            #             joined_blocks,
-                            #             [
-                            #                 n
-                            #                 for n in joined_blocks.samples.names
-                            #                 if n != "center_type"
-                            #             ],
-                            #         )
-                            #     )
-                            #     .values
-                            # )
-                            weights_tensor = torch.empty(
-                                len(self.atomic_types), len(metadata_block.properties)
+                        self.weights[target_key] = (
+                            self._get_composition_spherical_per_structure(
+                                datasets_with_target,
+                                target_key,
+                                additive_models,
+                                device,
+                                dtype,
                             )
-                            for i_type, atomic_type in enumerate(self.atomic_types):
-                                mask = (
-                                    joined_blocks.samples.column("center_type")
-                                    == atomic_type
-                                )
-                                weights_tensor[i_type] = joined_blocks.values[
-                                    mask
-                                ].mean(dim=0)
-                        else:
-                            # concatenate samples, for each block
-                            all_targets = torch.concatenate(tensor_list)
-                            weights_tensor = _solve_linear_system(
-                                composition_features, all_targets
-                            )
-                    if needs_unsqueeze:  # scalar invariant, needs extra dimension
-                        weights_tensor = weights_tensor.unsqueeze(1)
-                    weight_blocks.append(
-                        TensorBlock(
-                            values=weights_tensor,
-                            samples=Labels(
-                                ["center_type"],
-                                values=torch.tensor(
-                                    self.atomic_types, dtype=torch.int, device=device
-                                ).reshape(-1, 1),
-                            ),
-                            components=[
-                                c.to(device) for c in metadata_block.components
-                            ],
-                            properties=metadata_block.properties.to(device),
                         )
-                    )
-                self.weights[target_key] = TensorMap(
-                    keys=self.dataset_info.targets[target_key].layout.keys.to(device),
-                    blocks=weight_blocks,
-                )
+                else:
+                    if is_per_atom:
+                        self.weights[target_key] = (
+                            self._get_composition_scalar_per_atom(
+                                datasets_with_target,
+                                target_key,
+                                additive_models,
+                                device,
+                                dtype,
+                            )
+                        )
+                    else:
+                        self.weights[target_key] = (
+                            self._get_composition_scalar_per_structure(
+                                datasets_with_target,
+                                target_key,
+                                additive_models,
+                                device,
+                                dtype,
+                            )
+                        )
+
+                # for dataset in datasets_with_target:
+                #     for sample in dataset:
+                #         systems = [sample["system"]]
+                #         targets = {target_key: sample[target_key]}
+                #         systems, targets = systems_and_targets_to_device(
+                #             systems, targets, device
+                #         )
+                #         for additive_model in additive_models:
+                #             target_info_dict = {
+                #                 target_key: self.new_targets[target_key]
+                #             }
+                #             targets = remove_additive(  # remove other additive models
+                #                 systems,
+                #                 targets,
+                #                 additive_model,
+                #                 target_info_dict,
+                #             )
+                #         for j, t in enumerate(self.atomic_types):
+                #             composition_features[system_index, j] = torch.sum(
+                #                 systems[0].types == t
+                #             )
+                #         system_index += 1
+                #         if self.dataset_info.targets[target_key].per_atom:
+                #             if "center_type" not in targets[
+                #                 target_key
+                #             ].keys.names and targets[target_key].block(
+                #                 0
+                #             ).samples.names == [
+                #                 "system",
+                #                 "atom",
+                #             ]:
+                #                 # there is no center type, we need to add it
+                #                 # and we will rely on the fact that per-atom targets
+                #                 # should be in the same order as the atoms in the system
+                #                 targets[target_key] = metatensor.torch.append_dimension(
+                #                     targets[target_key],
+                #                     "samples",
+                #                     "center_type",
+                #                     systems[0].types,
+                #                 )
+                #         # TODO: abstract even more for more complex targets?
+                #         for key, block in targets[target_key].items():
+                #             # `if key not in per_block_targets_list` doesn't work, so:
+                #             matching_keys = [
+                #                 k for k in per_block_targets_list if k == key
+                #             ]
+                #             assert len(matching_keys) <= 1
+                #             if len(matching_keys) == 0:
+                #                 per_block_targets_list[key] = [block]
+                #             else:
+                #                 per_block_targets_list[matching_keys[0]].append(block)
+
+                # weight_blocks = []
+                # for key, block_list in per_block_targets_list.items():
+                #     # distinguish between spherical and scalar targets
+                #     is_spherical = self.dataset_info.targets[target_key].is_spherical
+                #     is_spherical_and_invariant = False
+                #     if is_spherical:
+                #         is_spherical_and_invariant = (
+                #             int(key["o3_lambda"]) == 0 and int(key["o3_sigma"]) == 1
+                #         )
+                #     needs_unsqueeze = False
+                #     if self.dataset_info.targets[target_key].is_spherical:  # spherical
+                #         is_invariant = (
+                #             int(key["o3_lambda"]) == 0 and int(key["o3_sigma"]) == 1
+                #         )
+                #         if is_invariant:
+                #             # squeeze components dimension
+                #             tensor_list = [b.values.squeeze(1) for b in block_list]
+                #             needs_unsqueeze = True
+                #         else:
+                #             # we don't need the targets as we will set the composition
+                #             # to zero
+                #             tensor_list = None
+                #     else:  # scalar
+                #         tensor_list = [b.values for b in block_list]
+
+                #     metadata_block = self.dataset_info.targets[target_key].layout.block(
+                #         key
+                #     )
+                #     if is_spherical and not is_spherical_and_invariant:
+                #         weights_tensor = torch.zeros(
+                #             (
+                #                 len(self.atomic_types),
+                #                 len(metadata_block.components[0]),
+                #                 len(metadata_block.properties),
+                #             ),
+                #             dtype=dtype,
+                #             device=device,
+                #         )
+                #     else:
+                #         if self.dataset_info.targets[target_key].per_atom:
+                #             # HACK: metatensor.join doesn't work on single blocks;
+                #             # create TensorMaps, join, and then extract the joined block
+                #             joined_blocks = metatensor.torch.join(
+                #                 [
+                #                     TensorMap(
+                #                         keys=Labels.single(),
+                #                         blocks=[b],
+                #                     )
+                #                     for b in block_list
+                #                 ],
+                #                 axis="samples",
+                #                 remove_tensor_name=True,
+                #             ).block()
+                #             # This code doesn't work because mean_over_samples_block
+                #             # actually does a sum... TODO: change for next release
+                #             # weights_tensor = (
+                #             #     metatensor.torch.sort_block(
+                #             #         metatensor.torch.mean_over_samples_block(
+                #             #             joined_blocks,
+                #             #             [
+                #             #                 n
+                #             #                 for n in joined_blocks.samples.names
+                #             #                 if n != "center_type"
+                #             #             ],
+                #             #         )
+                #             #     )
+                #             #     .values
+                #             # )
+                #             weights_tensor = torch.empty(
+                #                 len(self.atomic_types), len(metadata_block.properties)
+                #             )
+                #             for i_type, atomic_type in enumerate(self.atomic_types):
+                #                 mask = (
+                #                     joined_blocks.samples.column("center_type")
+                #                     == atomic_type
+                #                 )
+                #                 weights_tensor[i_type] = joined_blocks.values[
+                #                     mask
+                #                 ].mean(dim=0)
+                #         else:
+                #             # concatenate samples, for each block
+                #             all_targets = torch.concatenate(tensor_list)
+                #             weights_tensor = _solve_linear_system(
+                #                 composition_features, all_targets
+                #             )
+                #     if needs_unsqueeze:  # scalar invariant, needs extra dimension
+                #         weights_tensor = weights_tensor.unsqueeze(1)
+                #     weight_blocks.append(
+                #         TensorBlock(
+                #             values=weights_tensor,
+                #             samples=Labels(
+                #                 ["center_type"],
+                #                 values=torch.tensor(
+                #                     self.atomic_types, dtype=torch.int, device=device
+                #                 ).reshape(-1, 1),
+                #             ),
+                #             components=[
+                #                 c.to(device) for c in metadata_block.components
+                #             ],
+                #             properties=metadata_block.properties.to(device),
+                #         )
+                #     )
+                # self.weights[target_key] = TensorMap(
+                #     keys=self.dataset_info.targets[target_key].layout.keys.to(device),
+                #     blocks=weight_blocks,
+                # )
 
     def restart(self, dataset_info: DatasetInfo) -> "CompositionModel":
         """Restart the model with a new dataset info.
@@ -433,27 +474,84 @@ class CompositionModel(torch.nn.Module):
         composition_result_dict: Dict[str, TensorMap] = {}
         for output_name, output_options in outputs.items():
             blocks: List[TensorBlock] = []
-            for weight_key, weight_block in self.weights[output_name].items():
-                weights_tensor = self.weights[output_name].block(weight_key).values
-                composition_values_per_atom = torch.empty(
-                    [len(concatenated_types)] + weight_block.shape[1:],
-                    dtype=dtype,
-                    device=device,
-                )
-                for i_type, atomic_type in enumerate(self.atomic_types):
-                    composition_values_per_atom[concatenated_types == atomic_type] = (
-                        weights_tensor[i_type]
-                    )
-                blocks.append(
-                    TensorBlock(
-                        values=composition_values_per_atom,
-                        samples=sample_labels,
-                        components=weight_block.components,
-                        properties=weight_block.properties,
-                    )
-                )
+            if "center_type" in self.weights[output_name].keys.names:
+                for key in self.all_layouts[output_name].keys:
+                    if key in self.weights[output_name].keys:
+                        weight_block = self.weights[output_name].block(key)
+                        center_type = int(key["center_type"])
+                        center_type_mask = concatenated_types == center_type
+                        weights_tensor = weight_block.values
+                        composition_values_per_atom = weights_tensor.expand(
+                            [int(torch.sum(center_type_mask))] + [-1 for _ in weight_block.shape[1:]]
+                        )
+                        blocks.append(
+                            TensorBlock(
+                                values=composition_values_per_atom,
+                                samples=Labels(
+                                    sample_labels.names,
+                                    sample_labels.values[center_type_mask],
+                                ),
+                                components=weight_block.components,
+                                properties=weight_block.properties,
+                            )
+                        )
+                    else:
+                        center_type = int(key["center_type"])
+                        center_type_mask = concatenated_types == center_type
+                        blocks.append(
+                            TensorBlock(
+                                values=torch.zeros(
+                                    [int(torch.sum(center_type_mask))]
+                                    + self.all_layouts[output_name].block(key).shape[1:],
+                                    dtype=dtype,
+                                    device=device,
+                                ),
+                                samples=Labels(
+                                    sample_labels.names,
+                                    sample_labels.values[center_type_mask],
+                                ),
+                                components=self.all_layouts[output_name].block(key).components,
+                                properties=self.all_layouts[output_name].block(key).properties,
+                            )
+                        )
+            else:
+                for key in self.all_layouts[output_name].keys:
+                    if key in self.weights[output_name].keys:
+                        weight_block = self.weights[output_name].block(key)
+                        weights_tensor = weight_block.values
+                        composition_values_per_atom = torch.empty(
+                            [len(concatenated_types)] + weight_block.shape[1:],
+                            dtype=dtype,
+                            device=device,
+                        )
+                        for i_type, atomic_type in enumerate(self.atomic_types):
+                            composition_values_per_atom[
+                                concatenated_types == atomic_type
+                            ] = weights_tensor[i_type]
+                        blocks.append(
+                            TensorBlock(
+                                values=composition_values_per_atom,
+                                samples=sample_labels,
+                                components=weight_block.components,
+                                properties=weight_block.properties,
+                            )
+                        )
+                    else:  # spherical non-invariant target
+                        blocks.append(
+                            TensorBlock(
+                                values=torch.zeros(
+                                    [len(concatenated_types)]
+                                    + self.all_layouts[output_name].block(key).shape[1:],
+                                    dtype=dtype,
+                                    device=device,
+                                ),
+                                samples=sample_labels,
+                                components=self.all_layouts[output_name].block(key).components,
+                                properties=self.all_layouts[output_name].block(key).properties,
+                            )
+                        )
             composition_result_dict[output_name] = TensorMap(
-                keys=self.weights[output_name].keys,
+                keys=self.all_layouts[output_name].keys,
                 blocks=blocks,
             )
 
@@ -473,31 +571,57 @@ class CompositionModel(torch.nn.Module):
         return composition_result_dict
 
     def _add_output(self, target_name: str, target_info: TargetInfo) -> None:
+        self.all_layouts[target_name] = target_info.layout
         self.outputs[target_name] = ModelOutput(
             quantity=target_info.quantity,
             unit=target_info.unit,
             per_atom=True,
         )
-        self.weights[target_name] = TensorMap(
-            keys=target_info.layout.keys,
-            blocks=[
-                TensorBlock(
-                    values=torch.zeros(
-                        ([len(self.atomic_types)] + b.shape[1:]),
-                        dtype=torch.float64,
-                    ),
-                    samples=Labels(
-                        names=["center_type"],
-                        values=torch.tensor(self.atomic_types, dtype=torch.int).reshape(
-                            -1, 1
+        center_type_in_keys = "center_type" in target_info.layout.keys.names
+        new_keys = Labels(
+            target_info.layout.keys.names, target_info.layout.keys.values[target_info.layout.keys.select(
+                Labels(["o3_lambda", "o3_sigma"], torch.tensor([[0, 1]]))
+            )]
+        ) if target_info.is_spherical else target_info.layout.keys
+        if center_type_in_keys:
+            self.weights[target_name] = TensorMap(
+                keys=new_keys,
+                blocks=[
+                    TensorBlock(
+                        values=torch.zeros(
+                            ([1] + block.shape[1:]),
+                            dtype=torch.float64,
                         ),
-                    ),
-                    components=b.components,
-                    properties=b.properties,
-                )
-                for b in target_info.layout.blocks()
-            ],
-        )
+                        samples=Labels.single(),
+                        components=block.components,
+                        properties=block.properties,
+                    )
+                    for key, block in target_info.layout.items()
+                    if (key["o3_lambda"] == 0 and key["o3_sigma"] == 1)
+                ],
+            )
+        else:
+            self.weights[target_name] = TensorMap(
+                keys=new_keys,
+                blocks=[
+                    TensorBlock(
+                        values=torch.zeros(
+                            ([len(self.atomic_types)] + block.shape[1:]),
+                            dtype=torch.float64,
+                        ),
+                        samples=Labels(
+                            names=["center_type"],
+                            values=torch.tensor(
+                                self.atomic_types, dtype=torch.int
+                            ).reshape(-1, 1),
+                        ),
+                        components=block.components,
+                        properties=block.properties,
+                    )
+                    for key, block in target_info.layout.items()
+                    if (key["o3_lambda"] == 0 and key["o3_sigma"] == 1)
+                ],
+            )
 
     def _move_weights_to_device_and_dtype(
         self, device: torch.device, dtype: torch.dtype
@@ -507,6 +631,150 @@ class CompositionModel(torch.nn.Module):
                 self.weights = {k: v.to(device) for k, v in self.weights.items()}
             if self.weights[list(self.weights.keys())[0]].dtype != dtype:
                 self.weights = {k: v.to(dtype) for k, v in self.weights.items()}
+        if len(self.all_layouts) != 0:
+            if self.all_layouts[list(self.all_layouts.keys())[0]].device != device:
+                self.all_layouts = {k: v.to(device) for k, v in self.all_layouts.items()}
+            if self.all_layouts[list(self.all_layouts.keys())[0]].dtype != dtype:
+                self.all_layouts = {k: v.to(dtype) for k, v in self.all_layouts.items()}
+
+    def _get_composition_spherical_per_atom(
+        self,
+        datasets_with_target: List[Union[Dataset, torch.utils.data.Subset]],
+        target_key: str,
+        additive_models: List[torch.nn.Module],
+        device: torch.device,
+        dtype: torch.dtype,
+    ):
+        metadata_tensor_map = self.dataset_info.targets[target_key].layout
+        center_type_in_keys = "center_type" in metadata_tensor_map.keys.names
+
+        # Initialize one accumulator per block (only invariant blocks)
+        if center_type_in_keys:
+            mean_accumulators = {
+                tuple(int(k) for k in key.values): _MeanAccumulator(
+                    shape=metadata_tensor_map.block(key).values.shape[1:],
+                    device=device,
+                    dtype=dtype,
+                )
+                for key in metadata_tensor_map.keys
+                if (key["o3_lambda"] == 0 and key["o3_sigma"] == 1)
+            }
+        else:
+            mean_accumulators = {
+                tuple(int(k) for k in key.values) + (center_type): _MeanAccumulator(
+                    shape=metadata_tensor_map.block(key).values.shape[1:],
+                    device=device,
+                    dtype=dtype,
+                )
+                for center_type in self.atomic_types
+                for key in metadata_tensor_map.keys
+                if (key["o3_lambda"] == 0 and key["o3_sigma"] == 1)
+            }
+
+        for dataset in datasets_with_target:
+            for sample in dataset:
+                systems = [sample["system"]]
+                targets = {target_key: sample[target_key]}
+                systems, targets = systems_and_targets_to_device(
+                    systems, targets, device
+                )
+                for additive_model in additive_models:
+                    target_info_dict = {target_key: self.new_targets[target_key]}
+                    targets = remove_additive(
+                        systems, targets, additive_model, target_info_dict
+                    )
+                for key, block in targets[target_key].items():
+                    if key["o3_lambda"] == 0 and key["o3_sigma"] == 1:
+                        # Two cases: with and without center_type
+                        if center_type_in_keys:
+                            mean_accumulators[tuple(int(k) for k in key.values)].add(
+                                block.values
+                            )
+                        else:
+                            for center_type in self.atomic_types:
+                                mask = systems[0].types == center_type
+                                mean_accumulators[
+                                    tuple(int(k) for k in key.values) + (center_type,)
+                                ].add(block.values[mask])
+
+        composition_tensor_map = TensorMap(
+            keys=Labels(
+                names=metadata_tensor_map.keys.names,
+                values=torch.stack(
+                    [k.values for k in metadata_tensor_map.keys if (k["o3_lambda"] == 0 and k["o3_sigma"] == 1)]
+                ).to(device),
+            ),
+            blocks=(
+                [
+                    TensorBlock(
+                        values=mean_accumulators[tuple(int(k) for k in key.values)]
+                        .return_result()
+                        .reshape((1,) + metadata_tensor_map.block(key).values.shape[1:]),
+                        samples=Labels.single().to(device),
+                        components=[c.to(device) for c in metadata_tensor_map.block(key).components],
+                        properties=self.dataset_info.targets[target_key]
+                        .layout.block(key)
+                        .properties.to(device),
+                    )
+                    for key in metadata_tensor_map.keys if (key["o3_lambda"] == 0 and key["o3_sigma"] == 1)
+                ]
+                if center_type_in_keys
+                else [
+                    TensorBlock(
+                        values=torch.stack(
+                            [
+                                mean_accumulators[
+                                    tuple(int(k) for k in key.values) + (center_type,)
+                                ].return_result()
+                                for center_type in self.atomic_types
+                            ]
+                        ),
+                        samples=Labels(
+                            names=["center_type"],
+                            values=torch.tensor(
+                                self.atomic_types, dtype=torch.int, device=device
+                            ).reshape(-1, 1),
+                        ),
+                        components=[c.to(device) for c in metadata_tensor_map.block(key).components],
+                        properties=self.dataset_info.targets[target_key]
+                        .layout.block(key)
+                        .properties.to(device),
+                    )
+                    for key in metadata_tensor_map.keys if (key["o3_lambda"] == 0 and key["o3_sigma"] == 1)
+                ]
+            ),
+        )
+        return composition_tensor_map
+
+    def _get_composition_spherical_per_structure(
+        self,
+        datasets_with_target: List[Union[Dataset, torch.utils.data.Subset]],
+        target_key: str,
+        additive_models: List[torch.nn.Module],
+        device: torch.device,
+        dtype: torch.dtype,
+    ):
+        raise NotImplementedError()
+
+    def _get_composition_scalar_per_atom(
+        self,
+        datasets_with_target: List[Union[Dataset, torch.utils.data.Subset]],
+        target_key: str,
+        additive_models: List[torch.nn.Module],
+        device: torch.device,
+        dtype: torch.dtype,
+    ):
+        raise NotImplementedError()
+
+    def _get_composition_scalar_per_structure(
+        self,
+        datasets_with_target: List[Union[Dataset, torch.utils.data.Subset]],
+        target_key: str,
+        additive_models: List[torch.nn.Module],
+        device: torch.device,
+        dtype: torch.dtype,
+    ):
+        raise NotImplementedError()
 
     @staticmethod
     def is_valid_target(target_name: str, target_info: TargetInfo) -> bool:
@@ -533,18 +801,48 @@ class CompositionModel(torch.nn.Module):
         return True
 
 
-def _solve_linear_system(composition_features, all_targets) -> torch.Tensor:
-    compf_t_at_compf = composition_features.T @ composition_features
-    compf_t_at_targets = composition_features.T @ all_targets
-    trace_magnitude = float(torch.diag(compf_t_at_compf).abs().mean())
-    regularizer = 1e-14 * trace_magnitude
-    return torch.linalg.solve(
-        compf_t_at_compf
-        + regularizer
-        * torch.eye(
-            composition_features.shape[1],
-            dtype=composition_features.dtype,
-            device=composition_features.device,
-        ),
-        compf_t_at_targets,
-    )
+class _MeanAccumulator:
+    def __init__(self, shape: List[int], device: torch.device, dtype: torch.dtype):
+        self.sum = torch.zeros(shape, dtype=dtype, device=device)
+        self.count = 0
+
+    def add(self, tensor: float):
+        self.sum += torch.sum(tensor, dim=0)
+        self.count += tensor.numel()
+
+    def return_result(self) -> torch.Tensor:
+        return self.sum / self.count
+
+
+class _LinearSystemAccumulator:
+    def __init__(
+        self,
+        feature_size: int,
+        target_size: int,
+        dtype: torch.dtype,
+        device: torch.device,
+    ):
+        self.feat_t_at_feat = torch.zeros(
+            feature_size, feature_size, dtype=dtype, device=device
+        )
+        self.feat_t_at_targets = torch.zeros(
+            feature_size, target_size, dtype=dtype, device=device
+        )
+
+    def add(self, features: torch.Tensor, targets: torch.Tensor):
+        self.feat_t_at_feat += features.T @ features
+        self.feat_t_at_targets += features.T @ targets
+
+    def return_result(self) -> torch.Tensor:
+        trace_magnitude = float(torch.diag(self.compf_t_at_compf).abs().mean())
+        regularizer = 1e-14 * trace_magnitude
+        return torch.linalg.solve(
+            self.feat_t_at_feat
+            + regularizer
+            * torch.eye(
+                self.feat_t_at_feat.shape[0],
+                dtype=self.feat_t_at_feat.dtype,
+                device=self.feat_t_at_feat.device,
+            ),
+            self.feat_t_at_targets,
+        )

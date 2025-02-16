@@ -447,25 +447,30 @@ class NanoPET(torch.nn.Module):
         for output_name, last_layer in self.last_layers.items():
             if output_name in outputs:
                 atomic_features = atomic_features_dict[output_name]
-                atomic_properties_by_block = []
-                for last_layer_by_block in last_layer.values():
-                    atomic_properties_by_block.append(
-                        last_layer_by_block(atomic_features)
+                blocks: List[TensorBlock] = []
+                for (last_layer_key, last_layer_by_block), shape, components, properties in zip(last_layer.items(), self.output_shapes[output_name].values(), self.component_labels[output_name], self.property_labels[output_name]):
+                    if "center_type" in last_layer_key:
+                        center_type = int(last_layer_key.split("center_type_")[-1])
+                        center_type_mask = species == center_type
+                        relevant_atomic_features = atomic_features[center_type_mask]
+                    else:
+                        relevant_atomic_features = atomic_features
+                    atomic_property = last_layer_by_block(relevant_atomic_features)
+                    blocks.append(
+                        TensorBlock(
+                            values=atomic_property.reshape([atomic_property.shape[0]] + shape),
+                            samples=(
+                                Labels(
+                                    names=["system", "atom"],
+                                    values=sample_values[center_type_mask]
+                                )
+                                if "center_type" in last_layer_key else sample_labels
+                            ),
+                            components=components,
+                            properties=properties,
+                        )
                     )
-                blocks = [
-                    TensorBlock(
-                        values=atomic_property.reshape([-1] + shape),
-                        samples=sample_labels,
-                        components=components,
-                        properties=properties,
-                    )
-                    for atomic_property, shape, components, properties in zip(
-                        atomic_properties_by_block,
-                        self.output_shapes[output_name].values(),
-                        self.component_labels[output_name],
-                        self.property_labels[output_name],
-                    )
-                ]
+                # print(self.key_labels[output_name].column("center_type"))
                 atomic_properties_tmap_dict[output_name] = TensorMap(
                     keys=self.key_labels[output_name],
                     blocks=blocks,

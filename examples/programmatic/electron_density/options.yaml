@@ -1,0 +1,17 @@
+architecture:
+  name: experimental.nanopet
+  training:
+    batch_size: 16
+    num_epochs: 100
+
+# Section defining the parameters for system and target data
+training_set:
+  systems: "qm9_reduced_100.zip"
+  targets:
+    mtt::electron_density:
+      read_from: "qm9_reduced_100.zip"
+      quantity: "electron_density"
+      metatensor_target_disable_checks: true
+
+validation_set: 0.1
+test_set: 0.1

@@ -123,10 +123,13 @@ def _apply_wigner_D_matrices(
     for key, block in target_tmap.items():
         ell, sigma = int(key[0]), int(key[1])
         values = block.values
+        split_indices = (
+            [int(torch.sum(system.types == key["center_type"])) for system in systems]
+            if "center_type" in key.names
+            else [len(system.positions) for system in systems]
+        )
         if "atom" in block.samples.names:
-            split_values = torch.split(
-                values, [len(system.positions) for system in systems]
-            )
+            split_values = torch.split(values, split_indices)
         else:
             split_values = torch.split(values, [1 for _ in systems])
         new_values = []
