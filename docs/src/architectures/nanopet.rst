@@ -1,11 +1,11 @@
 .. _architecture-nanopet:
 
-NanoPET
-=======
+NanoPET (experimental)
+======================
 
 .. warning::
 
-  This is an **experimental model**.  You should not use it for anything important.
+  This is an **experimental model**. You should not use it for anything important.
 
 This is a more user-friendly re-implementation of the original
 PET :footcite:p:`pozdnyakov_smooth_2023` (which lives in https://github.com/spozdn/pet),
@@ -13,6 +13,7 @@ with slightly improved training and evaluation speed.
 
 Installation
 ------------
+
 To install the package, you can run the following command in the root
 directory of the repository:
 
@@ -25,6 +26,7 @@ This will install the package with the nanoPET dependencies.
 
 Default Hyperparameters
 -----------------------
+
 The default hyperparameters for the nanoPET model are:
 
 .. literalinclude:: ../../../src/metatrain/experimental/nanopet/default-hypers.yaml
@@ -33,6 +35,7 @@ The default hyperparameters for the nanoPET model are:
 
 Tuning Hyperparameters
 ----------------------
+
 The default hyperparameters above will work well in most cases, but they
 may not be optimal for your specific dataset. In general, the most important
 hyperparameters to tune are (in decreasing order of importance):
@@ -74,6 +77,7 @@ hyperparameters to tune are (in decreasing order of importance):
 
 All Hyperparameters
 -------------------
+
 :param name: ``experimental.nanopet``
 
 model
@@ -95,6 +99,7 @@ The model-related hyperparameters are
 
 training
 ########
+
 The hyperparameters for training are
 
 :param distributed: Whether to use distributed training
@@ -124,4 +129,5 @@ The hyperparameters for training are
 
 References
 ----------
+
 .. footbibliography::
