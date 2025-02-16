@@ -12,7 +12,6 @@ This is an implementation of the sparse Gaussian Approximation Potential
 The GAP model in metatrain can only train on CPU, but evaluation
 is also supported on GPU.
 
-
 Installation
 ------------
 
@@ -28,14 +27,16 @@ This will install the package with the GAP dependencies.
 
 Default Hyperparameters
 -----------------------
+
 The default hyperparameters for the GAP model are:
 
-.. literalinclude:: ../../../src/metatrain/experimental/gap/default-hypers.yaml
+.. literalinclude:: ../../../src/metatrain/gap/default-hypers.yaml
    :language: yaml
 
 
 Tuning Hyperparameters
 ----------------------
+
 The default hyperparameters above will work well in most cases, but they
 may not be optimal for your specific dataset. In general, the most important
 hyperparameters to tune are (in decreasing order of importance):
@@ -69,7 +70,7 @@ hyperparameters to tune are (in decreasing order of importance):
 Architecture Hyperparameters
 ----------------------------
 
-:param name: ``experimental.gap``
+:param name: ``gap``
 
 model
 #####
@@ -138,15 +139,18 @@ soap
 
 krr
 ^^^^
+
 :param degree: degree of the polynomial kernel. Default 2
 :param num_sparse_points: number of pseudo points to select
     (by farthest point sampling). Default 500
 
 training:
 ^^^^^^^^^
+
 :param regularizer: value of the energy regularizer. Default 0.001
 :param regularizer_forces: value of the forces regularizer. Default null
 
 References
 ----------
+
 .. footbibliography::

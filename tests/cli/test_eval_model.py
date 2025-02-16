@@ -9,7 +9,7 @@ import torch
 from omegaconf import OmegaConf
 
 from metatrain.cli.eval import eval_model
-from metatrain.experimental.soap_bpnn import __model__
+from metatrain.soap_bpnn import __model__
 from metatrain.utils.data import DatasetInfo
 from metatrain.utils.data.target_info import get_energy_target_info
 

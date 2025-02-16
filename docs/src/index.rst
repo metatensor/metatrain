@@ -10,7 +10,7 @@ Welcome to metatrain!
    :hidden:
 
    getting-started/index
-   tutorials/index
    architectures/index
+   tutorials/index
    advanced-concepts/index
    dev-docs/index

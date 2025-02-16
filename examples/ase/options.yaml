@@ -1,7 +1,7 @@
 seed: 42
 
 architecture:
-  name: experimental.gap
+  name: gap
 
 # training set section
 training_set:

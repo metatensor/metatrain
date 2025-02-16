@@ -4,7 +4,7 @@ import pytest
 import torch
 from omegaconf import ListConfig, OmegaConf
 
-from metatrain.experimental import soap_bpnn
+from metatrain import soap_bpnn
 from metatrain.utils import omegaconf
 from metatrain.utils.omegaconf import (
     check_dataset_options,
@@ -28,7 +28,7 @@ def test_default_device_resolver():
     conf = OmegaConf.create(
         {
             "device": "${default_device:}",
-            "architecture": {"name": "experimental.soap_bpnn"},
+            "architecture": {"name": "soap_bpnn"},
         }
     )
 
@@ -44,7 +44,7 @@ def test_default_device_resolver_multi(monkeypatch):
     conf = OmegaConf.create(
         {
             "device": "${default_device:}",
-            "architecture": {"name": "experimental.soap_bpnn"},
+            "architecture": {"name": "soap_bpnn"},
         }
     )
 
@@ -61,7 +61,7 @@ def test_default_precision_resolver(dtype, precision, monkeypatch):
     conf = OmegaConf.create(
         {
             "base_precision": "${default_precision:}",
-            "architecture": {"name": "experimental.soap_bpnn"},
+            "architecture": {"name": "soap_bpnn"},
         }
     )
 
@@ -74,7 +74,7 @@ def test_default_precision_resolver_unknown_dtype(monkeypatch):
     conf = OmegaConf.create(
         {
             "base_precision": "${default_precision:}",
-            "architecture": {"name": "experimental.soap_bpnn"},
+            "architecture": {"name": "soap_bpnn"},
         }
     )
 

@@ -9,7 +9,11 @@ coverage:
   ignore:
     - "tests/.*"
     - "examples/.*"
+    - "src/metatrain/deprecated/.*"
     - "src/metatrain/experimental/.*"
+    - "src/metatrain/gap/.*"
+    - "src/metatrain/pet/.*"
+    - "src/metatrain/soap_bpnn/.*"
     - "src/metatrain/utils/distributed/.*"
 
 comment: false

@@ -1,0 +1,118 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "type": "object",
+  "properties": {
+    "name": {
+      "type": "string",
+      "enum": ["gap"]
+    },
+    "model": {
+      "type": "object",
+      "properties": {
+        "soap": {
+          "type": "object",
+          "properties": {
+            "cutoff": {
+              "type": "number"
+            },
+            "max_radial": {
+              "type": "integer"
+            },
+            "max_angular": {
+              "type": "integer"
+            },
+            "atomic_gaussian_width": {
+              "type": "number"
+            },
+            "radial_basis": {
+              "type": "object",
+              "properties": {
+                "Gto": {
+                  "type": "object",
+                  "additionalProperties": false
+                }
+              },
+              "additionalProperties": false
+            },
+            "center_atom_weight": {
+              "type": "number"
+            },
+            "cutoff_function": {
+              "type": "object",
+              "properties": {
+                "ShiftedCosine": {
+                  "type": "object",
+                  "properties": {
+                    "width": {
+                      "type": "number"
+                    }
+                  },
+                  "additionalProperties": false
+                }
+              },
+              "additionalProperties": false
+            },
+            "radial_scaling": {
+              "type": "object",
+              "properties": {
+                "Willatt2018": {
+                  "type": "object",
+                  "properties": {
+                    "rate": {
+                      "type": "number"
+                    },
+                    "scale": {
+                      "type": "number"
+                    },
+                    "exponent": {
+                      "type": "number"
+                    }
+                  },
+                  "additionalProperties": false
+                }
+              },
+              "additionalProperties": false
+            }
+          },
+          "additionalProperties": false
+        },
+        "krr": {
+          "type": "object",
+          "properties": {
+            "degree": {
+              "type": "integer"
+            },
+            "num_sparse_points": {
+              "type": "integer"
+            }
+          },
+          "additionalProperties": false
+        },
+        "zbl": {
+          "type": "boolean"
+        }
+      },
+      "additionalProperties": false
+    },
+    "training": {
+      "type": "object",
+      "properties": {
+        "regularizer": {
+          "type": "number"
+        },
+        "regularizer_forces": {
+          "oneOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "additionalProperties": false
+    }
+  },
+  "additionalProperties": false
+}

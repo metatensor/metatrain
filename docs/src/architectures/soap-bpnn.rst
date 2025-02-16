@@ -3,10 +3,6 @@
 SOAP-BPNN
 =========
 
-.. warning::
-
-  This is an **experimental model**.  You should not use it for anything important.
-
 This is a Behler-Parrinello neural network :footcite:p:`behler_generalized_2007` with
 using features based on the Smooth overlab of atomic positions (SOAP)
 :footcite:p:`bartok_representing_2013`. The SOAP features are calculated with `rascaline
@@ -28,7 +24,7 @@ Default Hyperparameters
 -----------------------
 The default hyperparameters for the SOAP-BPNN model are:
 
-.. literalinclude:: ../../../src/metatrain/experimental/soap_bpnn/default-hypers.yaml
+.. literalinclude:: ../../../src/metatrain/soap_bpnn/default-hypers.yaml
    :language: yaml
 
 
@@ -75,7 +71,7 @@ hyperparameters to tune are (in decreasing order of importance):
 
 All Hyperparameters
 -------------------
-:param name: ``experimental.soap_bpnn``
+:param name: ``soap_bpnn``
 
 model
 #####
