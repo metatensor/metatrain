@@ -17,15 +17,6 @@ from .data import TargetInfo
 from .output_gradient import compute_gradient
 
 
-# Ignore metatensor-torch warning due to the fact that positions/cell
-# already require grad when registering the NL
-warnings.filterwarnings(
-    "ignore",
-    category=UserWarning,
-    message="neighbor",
-)  # TODO: this is not filtering out the warning for some reason, therefore:
-
-
 def evaluate_model(
     model: Union[
         torch.nn.Module,
@@ -50,6 +41,7 @@ def evaluate_model(
 
     :returns: The predictions of the model for the requested targets.
     """
+
     model_outputs = _get_outputs(model)
     # Assert that all targets are within the model's capabilities:
     if not set(targets.keys()).issubset(model_outputs.keys()):
@@ -72,12 +64,16 @@ def evaluate_model(
     new_systems = []
     strains = []
     for system in systems:
-        new_system, strain = _prepare_system(
-            system,
-            positions_grad=len(energy_targets_that_require_position_gradients) > 0,
-            strain_grad=len(energy_targets_that_require_strain_gradients) > 0,
-            check_consistency=check_consistency,
-        )
+        with warnings.catch_warnings():
+            # this seems to be the only way to filter out the torch-scripted warnings
+            # about neighbors (which are not relevant here)
+            warnings.simplefilter("ignore")
+            new_system, strain = _prepare_system(
+                system,
+                positions_grad=len(energy_targets_that_require_position_gradients) > 0,
+                strain_grad=len(energy_targets_that_require_strain_gradients) > 0,
+                check_consistency=check_consistency,
+            )
         new_systems.append(new_system)
         strains.append(strain)
     systems = new_systems
@@ -261,6 +257,7 @@ def _get_model_outputs(
         )
 
 
+@torch.jit.script
 def _prepare_system(
     system: System, positions_grad: bool, strain_grad: bool, check_consistency: bool
 ):
@@ -270,10 +267,9 @@ def _prepare_system(
     if strain_grad:
         strain = torch.eye(
             3,
-            requires_grad=True,
             dtype=system.cell.dtype,
             device=system.cell.device,
-        )
+        ).requires_grad_(True)
         new_system = System(
             positions=system.positions @ strain,
             cell=system.cell @ strain,

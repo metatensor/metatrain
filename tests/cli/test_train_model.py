@@ -646,12 +646,15 @@ def test_train_generic_target(monkeypatch, tmp_path):
     train_model(options)
 
 
-def test_train_generic_target_metatensor(monkeypatch, tmp_path):
+@pytest.mark.parametrize("with_scalar_part", [False, True])
+def test_train_generic_target_metatensor(monkeypatch, tmp_path, with_scalar_part):
     """Test training on a spherical rank-2 tensor target in metatensor format"""
     monkeypatch.chdir(tmp_path)
     shutil.copy(DATASET_PATH_QM7X, "qm7x_reduced_100.xyz")
 
-    dump_spherical_targets("qm7x_reduced_100.xyz", "qm7x_reduced_100.npz")
+    dump_spherical_targets(
+        "qm7x_reduced_100.xyz", "qm7x_reduced_100.npz", with_scalar_part
+    )
 
     # run training with original options
     options = OmegaConf.load(OPTIONS_PATH)
@@ -660,7 +663,14 @@ def test_train_generic_target_metatensor(monkeypatch, tmp_path):
     options["training_set"]["targets"] = {
         "mtt::polarizability": {
             "read_from": "qm7x_reduced_100.npz",
-            "type": {"spherical": {"irreps": [{"o3_lambda": 2, "o3_sigma": 1}]}},
+            "type": {
+                "spherical": {
+                    "irreps": (
+                        [{"o3_lambda": 0, "o3_sigma": 1}] if with_scalar_part else []
+                    )
+                    + [{"o3_lambda": 2, "o3_sigma": 1}]
+                }
+            },
         }
     }
 

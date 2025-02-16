@@ -44,6 +44,9 @@ def get_corresponding_edges(array):
     # opposite direction) for each edge in the array; this is useful
     # in the message-passing operation
 
+    if array.numel() == 0:
+        return torch.empty((0,), dtype=array.dtype, device=array.device)
+
     array = array.to(torch.int64)  # avoid overflow
 
     centers = array[:, 0]
