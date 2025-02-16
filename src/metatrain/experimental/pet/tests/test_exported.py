@@ -7,10 +7,10 @@ from metatensor.torch.atomistic import (
     ModelOutput,
     System,
 )
-from pet.hypers import Hypers
-from pet.pet import PET
 
 from metatrain.experimental.pet import PET as WrappedPET
+from metatrain.experimental.pet.modules.hypers import Hypers
+from metatrain.experimental.pet.modules.pet import PET
 from metatrain.utils.architectures import get_default_hypers
 from metatrain.utils.data import DatasetInfo
 from metatrain.utils.data.target_info import get_energy_target_info
