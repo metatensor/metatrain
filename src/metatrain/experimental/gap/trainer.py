@@ -57,7 +57,7 @@ class Trainer:
         # Calculate and set the composition weights:
         logger.info("Calculating composition weights")
         # model.additive_models[0] is the composition model
-        model.additive_models[0].train_model(train_datasets)
+        model.additive_models[0].train_model(train_datasets, model.additive_models[1:])
 
         logger.info("Setting up data loaders")
         if len(train_datasets[0][0][output_name].keys) > 1:

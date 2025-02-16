@@ -10,8 +10,8 @@ authors = [{name = "metatrain developers"}]
 
 dependencies = [
     "ase < 3.23.0",
-    "metatensor-learn==0.3.0",
-    "metatensor-operations==0.3.0",
+    "metatensor-learn==0.3.1",
+    "metatensor-operations==0.3.1",
     "metatensor-torch==0.6.3",
     "jsonschema",
     "omegaconf",
@@ -64,13 +64,17 @@ soap-bpnn = [
     "wigners",
 ]
 pet = [
-  "pet @ git+https://github.com/lab-cosmo/pet@5d40710",
+    "pet-neighbors-convert",
+    "torch_geometric",
+    "matscipy",
+    "scikit-learn",
+    "pathos",
+    "scipy",
 ]
 nanopet = []
 gap = [
     "rascaline-torch @ git+https://github.com/luthaf/rascaline@5326b6e#subdirectory=python/rascaline-torch",
     "skmatter",
-    "metatensor-learn",
     "scipy",
 ]
 

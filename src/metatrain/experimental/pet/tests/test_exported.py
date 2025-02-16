@@ -3,13 +3,14 @@ import torch
 from metatensor.torch.atomistic import (
     ModelCapabilities,
     ModelEvaluationOptions,
+    ModelMetadata,
     ModelOutput,
     System,
 )
-from pet.hypers import Hypers
-from pet.pet import PET
 
 from metatrain.experimental.pet import PET as WrappedPET
+from metatrain.experimental.pet.modules.hypers import Hypers
+from metatrain.experimental.pet.modules.pet import PET
 from metatrain.utils.architectures import get_default_hypers
 from metatrain.utils.data import DatasetInfo
 from metatrain.utils.data.target_info import get_energy_target_info
@@ -54,7 +55,11 @@ def test_to(device):
         supported_devices=["cpu", "cuda"],
     )
 
-    exported = model.export()
+    exported = model.export(metadata=ModelMetadata(name="test"))
+
+    # test correct metadata
+    assert "This is the test model" in str(exported.metadata())
+
     exported.to(device=device, dtype=dtype)
 
     system = System(

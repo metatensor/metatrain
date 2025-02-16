@@ -22,7 +22,7 @@ def write_xyz(
     to each atom are saved inside atoms.arrays, while any other arrays are
     saved inside atoms.info.
 
-    :param filename: name of the file to read.
+    :param filename: name of the file to save to.
     :param systems: structures to be written to the file.
     :param: capabilities: capabilities of the model.
     :param predictions: prediction values to be written to the file.

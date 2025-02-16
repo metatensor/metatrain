@@ -1,4 +1,4 @@
-import warnings
+import logging
 from typing import Dict, List, Optional
 
 import metatensor.torch
@@ -7,7 +7,11 @@ from ase.data import covalent_radii
 from metatensor.torch import Labels, TensorBlock, TensorMap
 from metatensor.torch.atomistic import ModelOutput, NeighborListOptions, System
 
-from ..data import DatasetInfo
+from ..data import DatasetInfo, TargetInfo
+from ..jsonschema import validate
+
+
+logger = logging.getLogger(__name__)
 
 
 class ZBL(torch.nn.Module):
@@ -30,30 +34,25 @@ class ZBL(torch.nn.Module):
     def __init__(self, model_hypers: Dict, dataset_info: DatasetInfo):
         super().__init__()
 
-        # Check capabilities
+        # `model_hypers` should be an empty dictionary
+        validate(
+            instance=model_hypers,
+            schema={"type": "object", "additionalProperties": False},
+        )
+
+        # Check dataset length units
         if dataset_info.length_unit != "angstrom":
             raise ValueError(
                 "ZBL only supports angstrom units, but a "
                 f"{dataset_info.length_unit} unit was provided."
             )
-        for target in dataset_info.targets.values():
-            if target.quantity != "energy":
+
+        for target_name, target_info in dataset_info.targets.items():
+            if not self.is_valid_target(target_name, target_info):
                 raise ValueError(
-                    "ZBL only supports energy-like outputs, but a "
-                    f"{target.quantity} output was provided."
-                )
-            if not target.is_scalar:
-                raise ValueError("ZBL only supports scalar outputs")
-            if len(target.layout.block(0).properties) > 1:
-                raise ValueError(
-                    "ZBL only supports outputs with one property, but "
-                    f"{len(target.layout.block(0).properties)} "
-                    "properties were provided."
-                )
-            if target.unit != "eV":
-                raise ValueError(
-                    "ZBL only supports eV units, but a "
-                    f"{target.unit} output was provided."
+                    f"ZBL model does not support target "
+                    f"{target_name}. This is an architecture bug. "
+                    "Please report this issue and help us improve!"
                 )
 
         self.dataset_info = dataset_info
@@ -89,10 +88,9 @@ class ZBL(torch.nn.Module):
             if ase_covalent_radius == 0.2:
                 # 0.2 seems to be the default value when the covalent radius
                 # is not known/available
-                warnings.warn(
+                logger.warning(
                     f"Covalent radius for element {t} is not available in ASE. "
-                    "Using a default value of 0.2 Å.",
-                    stacklevel=2,
+                    "Using a default value of 0.2 Å."
                 )
             self.covalent_radii[i] = ase_covalent_radius
 
@@ -104,6 +102,15 @@ class ZBL(torch.nn.Module):
 
         :param dataset_info: New dataset information to be used.
         """
+
+        for target_name, target_info in dataset_info.targets.items():
+            if not self.is_valid_target(target_name, target_info):
+                raise ValueError(
+                    f"ZBL model does not support target "
+                    f"{target_name}. This is an architecture bug. "
+                    "Please report this issue and help us improve!"
+                )
+
         return self({}, self.dataset_info.union(dataset_info))
 
     def forward(
@@ -260,6 +267,38 @@ class ZBL(torch.nn.Module):
                 strict=True,
             )
         ]
+
+    @staticmethod
+    def is_valid_target(target_name: str, target_info: TargetInfo) -> bool:
+        """Finds if a ``TargetInfo`` object is compatible with the ZBL model.
+
+        :param target_info: The ``TargetInfo`` object to be checked.
+        """
+        if target_info.quantity != "energy":
+            logger.debug(
+                f"ZBL model does not support target {target_name} since it is "
+                "not an energy."
+            )
+            return False
+        if not target_info.is_scalar:
+            logger.debug(
+                f"ZBL model does not support target {target_name} since it is "
+                "not a scalar."
+            )
+            return False
+        if len(target_info.layout.block(0).properties) > 1:
+            logger.debug(
+                f"ZBL model does not support target {target_name} since it has "
+                "more than one property."
+            )
+            return False
+        if target_info.unit != "eV":
+            logger.debug(
+                f"ZBL model does not support target {target_name} since it is "
+                "not in eV."
+            )
+            return False
+        return True
 
 
 def _phi(r, c, da):

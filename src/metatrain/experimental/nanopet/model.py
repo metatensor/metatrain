@@ -17,6 +17,7 @@ from metatensor.torch.atomistic import (
 from ...utils.additive import ZBL, CompositionModel
 from ...utils.data import DatasetInfo, TargetInfo
 from ...utils.dtype import dtype_to_str
+from ...utils.metadata import append_metadata_references
 from ...utils.scaler import Scaler
 from .modules.encoder import Encoder
 from .modules.nef import (
@@ -49,6 +50,9 @@ class NanoPET(torch.nn.Module):
 
     __supported_devices__ = ["cuda", "cpu"]
     __supported_dtypes__ = [torch.float64, torch.float32]
+    __default_metadata__ = ModelMetadata(
+        references={"architecture": ["https://arxiv.org/abs/2305.19302v3"]}
+    )
 
     component_labels: Dict[str, List[List[Labels]]]
 
@@ -67,8 +71,8 @@ class NanoPET(torch.nn.Module):
             strict=True,
         )
 
-        self.cutoff = self.hypers["cutoff"]
-        self.cutoff_width = self.hypers["cutoff_width"]
+        self.cutoff = float(self.hypers["cutoff"])
+        self.cutoff_width = float(self.hypers["cutoff_width"])
 
         self.encoder = Encoder(len(self.atomic_types), self.hypers["d_pet"])
 
@@ -140,13 +144,26 @@ class NanoPET(torch.nn.Module):
                 targets={
                     target_name: target_info
                     for target_name, target_info in dataset_info.targets.items()
-                    if CompositionModel.is_valid_target(target_info)
+                    if CompositionModel.is_valid_target(target_name, target_info)
                 },
             ),
         )
         additive_models = [composition_model]
         if self.hypers["zbl"]:
-            additive_models.append(ZBL(model_hypers, dataset_info))
+            additive_models.append(
+                ZBL(
+                    {},
+                    dataset_info=DatasetInfo(
+                        length_unit=dataset_info.length_unit,
+                        atomic_types=self.atomic_types,
+                        targets={
+                            target_name: target_info
+                            for target_name, target_info in dataset_info.targets.items()
+                            if ZBL.is_valid_target(target_name, target_info)
+                        },
+                    ),
+                )
+            )
         self.additive_models = torch.nn.ModuleList(additive_models)
 
         # scaler: this is also handled by the trainer at training time
@@ -187,7 +204,7 @@ class NanoPET(torch.nn.Module):
                 targets={
                     target_name: target_info
                     for target_name, target_info in dataset_info.targets.items()
-                    if CompositionModel.is_valid_target(target_info)
+                    if CompositionModel.is_valid_target(target_name, target_info)
                 },
             ),
         )
@@ -510,7 +527,9 @@ class NanoPET(torch.nn.Module):
 
         return model
 
-    def export(self) -> MetatensorAtomisticModel:
+    def export(
+        self, metadata: Optional[ModelMetadata] = None
+    ) -> MetatensorAtomisticModel:
         dtype = next(self.parameters()).dtype
         if dtype not in self.__supported_dtypes__:
             raise ValueError(f"unsupported dtype {self.dtype} for NanoPET")
@@ -519,6 +538,12 @@ class NanoPET(torch.nn.Module):
         # For example, after training, the additive models could still be in
         # float64
         self.to(dtype)
+
+        # Additionally, the composition model contains some `TensorMap`s that cannot
+        # be registered correctly with Pytorch. This funciton moves them:
+        self.additive_models[0]._move_weights_to_device_and_dtype(
+            torch.device("cpu"), torch.float64
+        )
 
         interaction_ranges = [self.hypers["num_gnn_layers"] * self.hypers["cutoff"]]
         for additive_model in self.additive_models:
@@ -535,7 +560,12 @@ class NanoPET(torch.nn.Module):
             dtype=dtype_to_str(dtype),
         )
 
-        return MetatensorAtomisticModel(self.eval(), ModelMetadata(), capabilities)
+        if metadata is None:
+            metadata = ModelMetadata()
+
+        append_metadata_references(metadata, self.__default_metadata__)
+
+        return MetatensorAtomisticModel(self.eval(), metadata, capabilities)
 
     def _add_output(self, target_name: str, target_info: TargetInfo) -> None:
         # one output shape for each tensor block, grouped by target (i.e. tensormap)
@@ -558,9 +588,13 @@ class NanoPET(torch.nn.Module):
             or self.head_types[target_name] == "mlp"
         ):
             self.heads[target_name] = torch.nn.Sequential(
-                torch.nn.Linear(self.hypers["d_pet"], 4 * self.hypers["d_pet"]),
+                torch.nn.Linear(
+                    self.hypers["d_pet"], 4 * self.hypers["d_pet"], bias=False
+                ),
                 torch.nn.SiLU(),
-                torch.nn.Linear(4 * self.hypers["d_pet"], self.hypers["d_pet"]),
+                torch.nn.Linear(
+                    4 * self.hypers["d_pet"], self.hypers["d_pet"], bias=False
+                ),
                 torch.nn.SiLU(),
             )
         elif self.head_types[target_name] == "linear":

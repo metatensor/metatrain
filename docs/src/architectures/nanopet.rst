@@ -7,8 +7,9 @@ NanoPET
 
   This is an **experimental model**.  You should not use it for anything important.
 
-This is a more user-friendly re-implementation of the original PET (which lives in
-https://github.com/spozdn/pet), with slightly improved training and evaluation speed.
+This is a more user-friendly re-implementation of the original
+PET :footcite:p:`pozdnyakov_smooth_2023` (which lives in https://github.com/spozdn/pet),
+with slightly improved training and evaluation speed.
 
 Installation
 ------------
@@ -120,3 +121,7 @@ The hyperparameters for training are
     the current directory and in the checkpoint directory. The default is ``rmse_prod``,
     i.e., the product of the RMSEs for each target. Other options are ``mae_prod`` and
     ``loss``.
+
+References
+----------
+.. footbibliography::
