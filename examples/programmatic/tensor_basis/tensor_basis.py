@@ -1,6 +1,6 @@
 """
-Training a polarizability model using the TensorBasis in metatrain
-==================================================================
+Training an equivariant model for polarizability
+================================================
 
 This tutorial demonstrates how to train equivariant models in metatrain constructed as
 linear combinations of the elements of a tensorial basis with neural networks
@@ -21,10 +21,14 @@ from featomic.torch.clebsch_gordan import cartesian_to_spherical
 
 # %%
 #
-# Read some bulk water ASE frames decorated with the polarizability (Cartesian) tensor.
+# Read a subset of 1000 molecules from the QM7x dataset in the XYZ format decorated with
+# the polarizability (Cartesian) tensor.
 # Extract the polarizability from the ase.Atoms.info dictionary.
-frames = ase.io.read("bulk_water_100.xyz", ":")
-polarizabilities = np.array([frame.info["alpha"].reshape(3, 3) for frame in frames])
+#
+molecules = ase.io.read("qm7x_reduced_100.xyz", ":")
+polarizabilities = np.array(
+    [molecule.info["polarizability"].reshape(3, 3) for molecule in molecules]
+)
 
 # %%
 #
@@ -35,9 +39,9 @@ cartesian_tensormap = mts.TensorMap(
     keys=mts.Labels.single(),
     blocks=[
         mts.TensorBlock(
-            samples=mts.Labels.range("system", len(frames)),
+            samples=mts.Labels.range("system", len(molecules)),
             components=[mts.Labels.range(name, 3) for name in ["xyz_1", "xyz_2"]],
-            properties=mts.Labels(["alpha"], torch.tensor([[0]])),
+            properties=mts.Labels(["polarizability"], torch.tensor([[0]])),
             values=torch.from_numpy(polarizabilities).unsqueeze(-1),
         )
     ],
@@ -120,11 +124,8 @@ mts.save("spherical_polarizability.npz", spherical_tensormap)
 #
 # To evaluate the model, we can write the following ``eval.yaml`` file:
 #
-# .. code:: yaml
-#
-#    systems:
-#        read_from: bulk_water_100.xyz
-#        length_unit: angstrom
+# .. literalinclude:: eval.yaml
+#   :language: yaml
 #
 
 # %%
@@ -169,7 +170,7 @@ indices = {
 # Plot the parity plots of the predicted values of the target tensorial properties
 # against the true values for the training, validation, and test sets.
 
-fig, axes = plt.subplots(1, 2, figsize=(10, 5))
+fig, axes = plt.subplots(1, 2, figsize=(7, 3.5))
 
 for key, ax in zip(spherical_tensormap.keys, axes):
     o3_lambda = key["o3_lambda"]
@@ -189,3 +190,5 @@ for key, ax in zip(spherical_tensormap.keys, axes):
     ax.legend()
 fig.tight_layout()
 plt.show()
+
+# %%
