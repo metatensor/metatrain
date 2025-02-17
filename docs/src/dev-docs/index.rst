@@ -15,3 +15,4 @@ module.
    dataset-information
    cli/index
    utils/index
+   changelog

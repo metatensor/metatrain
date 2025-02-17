@@ -18,7 +18,7 @@ Fine-Tuning PET Model with LoRA
 Fine-tuning a PET model using LoRA (Low-Rank Adaptation) can significantly
 enhance the model's performance on specific tasks while reducing the
 computational cost. Below are the steps to fine-tune a PET model from
-``metatrain.experimental.pet`` using LoRA.
+``metatrain.pet`` using LoRA.
 
 What is LoRA?
 ^^^^^^^^^^^^^
@@ -52,7 +52,7 @@ foundational model, if you have access to its checkpoint. After this training,
 you will find the checkpoint file called ``best_model.ckpt`` in the training
 directory.
 
-2. Set the LoRA parameters in the ``architecture.training``
+1. Set the LoRA parameters in the ``architecture.training``
 section of the ``options.yaml``:
 
 .. code-block:: yaml

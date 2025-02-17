@@ -94,7 +94,7 @@ def test_train(capfd, monkeypatch, tmp_path, output):
     assert file_log == stdout_log
 
     assert "This log is also available" in stdout_log
-    assert "Running training for 'experimental.soap_bpnn' architecture"
+    assert "Running training for 'soap_bpnn' architecture"
     assert re.search(r"Random seed of this run is [1-9]\d*", stdout_log)
     assert "Training dataset:" in stdout_log
     assert "Validation dataset:" in stdout_log
@@ -161,7 +161,7 @@ def test_train_unknonw_arch_options(monkeypatch, tmp_path):
 
     options_str = """
     architecture:
-        name: experimental.soap_bpnn
+        name: soap_bpnn
         training:
             batch_size: 2
             num_epoch: 1

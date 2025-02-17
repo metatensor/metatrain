@@ -1,0 +1,33 @@
+architecture:
+  name: gap
+
+  model:
+    soap:
+      cutoff:
+        radius: 5.0
+        smoothing: 
+          type: ShiftedCosine
+          width: 1.0
+      density:
+        type: Gaussian
+        center_atom_weight: 1.0
+        width: 0.3
+        scaling:
+          type: Willatt2018
+          rate: 1.0
+          scale: 2.0
+          exponent: 7.0
+      basis:
+        type: TensorProduct
+        max_angular: 6
+        radial:
+          type: Gto
+          max_radial: 7
+    krr:
+      degree: 2
+      num_sparse_points: 500
+    zbl: false
+
+  training:
+    regularizer: 0.001
+    regularizer_forces: null
