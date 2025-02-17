@@ -1,6 +1,10 @@
 metatrain
 =========
 
+.. image:: https://raw.githubusercontent.com/metatensor/metatrain/refs/heads/main/docs/src/logo/metatrain.svg
+   :width: 200 px
+   :align: left
+
 |tests| |codecov| |docs|
 
 .. marker-introduction
