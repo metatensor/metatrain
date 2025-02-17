@@ -596,35 +596,6 @@ class TorchAggregateKernel(torch.nn.Module):
         raise NotImplementedError("compute_kernel needs to be implemented.")
 
 
-class TorchAggregateLinear(TorchAggregateKernel):
-    def __init__(
-        self,
-        aggregate_names: Union[str, List[str]],
-        aggregate_type: str = "sum",
-        structurewise_aggregate: bool = False,
-    ):
-        super().__init__(aggregate_names, aggregate_type, structurewise_aggregate)
-
-    def forward(
-        self,
-        tensor1: TorchTensorMap,
-        tensor2: TorchTensorMap,
-        are_pseudo_points: Tuple[bool, bool] = (False, False),
-    ) -> TorchTensorMap:
-        # we overwrite default behavior because for linear kernels we can do it more
-        # memory efficient
-        if not are_pseudo_points[0]:
-            tensor1 = self.aggregate_features(tensor1)
-        if not are_pseudo_points[1]:
-            tensor2 = self.aggregate_features(tensor2)
-        return self.compute_kernel(tensor1, tensor2)
-
-    def compute_kernel(
-        self, tensor1: TorchTensorMap, tensor2: TorchTensorMap
-    ) -> TorchTensorMap:
-        return metatensor.torch.dot(tensor1, tensor2)
-
-
 class TorchAggregatePolynomial(TorchAggregateKernel):
     def __init__(
         self,
