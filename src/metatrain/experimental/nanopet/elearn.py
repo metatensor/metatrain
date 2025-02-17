@@ -235,31 +235,31 @@ def get_tensor_std(tensor: TensorMap) -> TensorMap:
     std_blocks = []
     for key, block in tensor.items():
 
-        std_values = torch.std(torch.norm(block.values, dim=1), dim=0) / (
-            (2 * key["o3_lambda"] + 1) ** 0.5
-        )
-        # If nan, set std to 1
-        if torch.any(torch.isnan(std_values)):
-            print("Warning: std is nan, setting to 1")
-            std_values = torch.tensor([1.0] * len(block.properties))
-        std_blocks.append(
-            TensorBlock(
-                samples=Labels.single(),
-                components=[],
-                properties=block.properties,
-                values=std_values.reshape(1, -1),
-            )
-        )
-
-        # std_values = torch.std(block.values, dim=[0, 1]) * (2 * key["o3_lambda"] + 1)
+        # std_values = torch.std(torch.norm(block.values, dim=1), dim=0) * (
+        #     (2 * key["o3_lambda"] + 1) ** 0.5
+        # )
+        # # If nan, set std to 1
+        # if torch.any(torch.isnan(std_values)):
+        #     print("Warning: std is nan, setting to 1")
+        #     std_values = torch.tensor([1.0] * len(block.properties))
         # std_blocks.append(
         #     TensorBlock(
         #         samples=Labels.single(),
-        #         components=block.components,
+        #         components=[],
         #         properties=block.properties,
-        #         values=std_values.reshape(1, 2 * key["o3_lambda"] + 1, -1),
+        #         values=std_values.reshape(1, -1),
         #     )
         # )
+
+        std_values = torch.std(block.values, dim=0) * (2 * key["o3_lambda"] + 1)
+        std_blocks.append(
+            TensorBlock(
+                samples=Labels.single(),
+                components=block.components,
+                properties=block.properties,
+                values=std_values.reshape(1, 2 * key["o3_lambda"] + 1, -1),
+            )
+        )
 
 
     return TensorMap(tensor.keys, std_blocks)

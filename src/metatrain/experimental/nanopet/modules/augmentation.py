@@ -137,7 +137,11 @@ def _apply_wigner_D_matrices(
         values = block.values
         if "atom" in block.samples.names:
             split_blocks: List[TensorBlock] = []
-            for A in range(len(systems)):
+            system_ids_block: List[int] = [
+                int(A)
+                for A in mts.unique_metadata_block(block, "samples", "system").values.flatten()
+            ]
+            for A in system_ids_block:
                 split_blocks.append(
                     mts.slice_block(
                         block,
@@ -163,6 +167,11 @@ def _apply_wigner_D_matrices(
             new_v = new_v.transpose(1, 2)
             new_values.append(new_v)
         new_values = torch.concatenate(new_values)
+
+        # print(new_values.shape)
+        # print(block.samples.__repr__())
+        # for i in block.samples.values:
+        #     print(i)
         new_block = TensorBlock(
             values=new_values,
             samples=block.samples,
