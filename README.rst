@@ -152,7 +152,7 @@ Thanks goes to all people that make ``metatrain`` possible:
 .. image:: https://contrib.rocks/image?repo=lab-cosmo/metatrain
   :target: https://github.com/metatensor/metatrain/graphs/contributors
 
-.. |tests| image:: https://github.com/lab-cosmo/metatrain/workflows/Tests/badge.svg
+.. |tests| image:: https://github.com/lab-cosmo/metatrain/workflows/Tests/badge.svg?branch=main
   :alt: Github Actions Tests Job Status
   :target: https://github.com/metatensor/metatrain/actions?query=branch%3Amain
 
