@@ -9,7 +9,7 @@ from ...utils.neighbor_lists import (
 )
 
 
-# dummy dataloaders due to https://github.com/lab-cosmo/metatensor/issues/521
+# dummy dataloaders due to https://github.com/metatensor/metatensor/issues/521
 def dataset_to_ase(dataset, model, do_forces=True, target_name="energy"):
     dataloader = DataLoader(
         dataset,
