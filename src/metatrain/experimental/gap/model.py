@@ -299,43 +299,6 @@ class GAP(torch.nn.Module):
 
         return MetatensorAtomisticModel(self.eval(), metadata, capabilities)
 
-    def set_composition_weights(
-        self,
-        output_name: str,
-        input_composition_weights: torch.Tensor,
-        species: List[int],
-    ) -> None:
-        """Set the composition weights for a given output."""
-        # all species that are not present retain their weight of zero
-        self.composition_weights[self.output_to_index[output_name]][  # type: ignore
-            species
-        ] = input_composition_weights.to(
-            dtype=self.composition_weights.dtype,  # type: ignore
-            device=self.composition_weights.device,  # type: ignore
-        )
-
-    def apply_composition_weights(
-        self, systems: List[System], energies: TorchTensorMap
-    ) -> TorchTensorMap:
-        """Apply the composition weights to the energies."""
-        new_blocks: List[TorchTensorBlock] = []
-        for block in energies.blocks():
-            atomic_species = [system.types for system in systems]
-            new_values = block.values
-            for i in range(len(new_values)):
-                for s in atomic_species[i]:
-                    new_values[i] += self.composition_weights[0, s]
-            new_blocks.append(
-                TorchTensorBlock(
-                    values=new_values,
-                    samples=block.samples,
-                    components=block.components,
-                    properties=block.properties,
-                )
-            )
-
-        return TorchTensorMap(energies.keys, new_blocks)
-
 
 ########################################################################################
 # All classes and methods will be moved to metatensor-operations and metatensor-learn] #
@@ -387,15 +350,35 @@ class _SorKernelSolver:
         self._nM = len(np.where(self._vk > 0)[0])
         self._PKPhi = self._Uk[:, : self._nM] * 1 / np.sqrt(self._vk[: self._nM])
 
-    def fit(self, KNM, Y):
+    def fit(self, KNM: Union[torch.Tensor, np.ndarray], Y: Union[torch.Tensor, np.ndarray]) -> None:
+        # Convert to numpy arrays if passed as torch tensors for the solver
+        if isinstance(KNM, torch.Tensor):
+            weights_to_torch = True
+            dtype = KNM.dtype
+            device = KNM.device
+            KNM = KNM.detach().numpy()
+            assert isinstance(Y, torch.Tensor), "must pass `KNM` and `Y` as same type."
+            Y = Y.detach().numpy()
+        else:
+            weights_to_torch = False
+
+        # Broadcast Y for shape
         if len(Y.shape) == 1:
             Y = Y[:, np.newaxis]
+        
         # Solve with the RKHS-QR method
         A = np.vstack([KNM @ self._PKPhi, np.eye(self._nM)])
         Q, R = np.linalg.qr(A)
-        self._weights = self._PKPhi @ scipy.linalg.solve_triangular(
+        
+        weights = self._PKPhi @ scipy.linalg.solve_triangular(
             R, Q.T @ np.vstack([Y, np.zeros((self._nM, Y.shape[1]))])
         )
+
+        # Store weights as torch tensors 
+        if weights_to_torch:
+            weights = torch.tensor(weights, dtype=dtype, device=device)
+        self._weights = weights
+            
 
     @property
     def weights(self):
@@ -643,10 +626,11 @@ class FPS:
 
         :param X:
             Training vectors.
-        :param warm_start:
-            Whether the fit should continue after having already run, after increasing
-            `n_to_select`. Assumes it is called with the same X.
         """
+        if isinstance(X, torch.ScriptObject):
+            X = torch_tensor_map_to_core(X)
+            assert isinstance(X[0].values, np.ndarray)
+
         if len(X.component_names) != 0:
             raise ValueError("Only blocks with no components are supported.")
 
@@ -681,7 +665,6 @@ class FPS:
                     properties=properties,
                 )
             )
-
         self._support = TensorMap(X.keys, blocks)
 
         return self
@@ -694,6 +677,12 @@ class FPS:
         :returns:
             The selected subset of the input.
         """
+        if isinstance(X, torch.ScriptObject):
+            use_mts_torch = True
+            X = torch_tensor_map_to_core(X)
+        else:
+            use_mts_torch = False
+
         blocks = []
         for key, block in X.items():
             block_support = self.support.block(key)
@@ -708,16 +697,16 @@ class FPS:
                 )
             blocks.append(new_block)
 
-        return TensorMap(X.keys, blocks)
+        X_reduced = TensorMap(X.keys, blocks)
+        if use_mts_torch:
+            X_reduced = core_tensor_map_to_torch(X_reduced)
+        return X_reduced
 
-    def fit_transform(self, X: TensorMap, warm_start: bool = False) -> TensorMap:
+    def fit_transform(self, X: TensorMap) -> TensorMap:
         """Fit to data, then transform it.
 
         :param X:
             Training vectors.
-        :param warm_start:
-            Whether the fit should continue after having already run, after increasing
-            `n_to_select`. Assumes it is called with the same X.
         """
         return self.fit(X).transform(X)
 
