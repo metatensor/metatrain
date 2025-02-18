@@ -22,8 +22,8 @@ from skmatter._selection import _FPS
 
 from metatrain.utils.data.dataset import DatasetInfo
 
-from ...utils.additive import ZBL, CompositionModel
-from ...utils.metadata import append_metadata_references
+from ..utils.additive import ZBL, CompositionModel
+from ..utils.metadata import append_metadata_references
 
 
 class GAP(torch.nn.Module):

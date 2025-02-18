@@ -18,10 +18,10 @@ from metatensor.torch.learn.nn import ModuleMap
 from metatrain.utils.data import TargetInfo
 from metatrain.utils.data.dataset import DatasetInfo
 
-from ...utils.additive import ZBL, CompositionModel
-from ...utils.dtype import dtype_to_str
-from ...utils.metadata import append_metadata_references
-from ...utils.scaler import Scaler
+from ..utils.additive import ZBL, CompositionModel
+from ..utils.dtype import dtype_to_str
+from ..utils.metadata import append_metadata_references
+from ..utils.scaler import Scaler
 from .spherical import TensorBasis
 
 
