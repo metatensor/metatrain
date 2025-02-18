@@ -32,8 +32,6 @@ def symmetrize_samples(
         )
     )
 
-    # print(sample_names, permuted_samples)
-    # print(idx_to_symmetrize.shape, values.shape, idx_to_symmetrize)
     # Symmetrize the sample values
     values_plus = values + values[idx_to_symmetrize]
     values_minus = values - values[idx_to_symmetrize]
@@ -165,6 +163,7 @@ def get_neighbor_list(
         values=torch.tensor(labels_values, dtype=torch.int32),
     )
 
+
 def drop_empty_blocks(tensor: TensorMap) -> TensorMap:
     """
     Drops blocks from a TensorMap that have been sliced to zero samples.
@@ -188,13 +187,13 @@ def drop_empty_blocks(tensor: TensorMap) -> TensorMap:
         keys=mts.Labels(
             names=keys_to_drop[0].names,
             values=torch.tensor(
-                [[i for i in k.values] for k in keys_to_drop],
-                dtype=torch.int64
+                [[i for i in k.values] for k in keys_to_drop], dtype=torch.int64
             ),
         ),
     )
 
     return tensor_dropped
+
 
 def get_tensor_invariant_mean(tensor: TensorMap) -> TensorMap:
     """
@@ -224,6 +223,7 @@ def get_tensor_invariant_mean(tensor: TensorMap) -> TensorMap:
         ),
         mean_blocks,
     )
+
 
 def get_tensor_std(tensor: TensorMap) -> TensorMap:
     """
@@ -261,9 +261,7 @@ def get_tensor_std(tensor: TensorMap) -> TensorMap:
             )
         )
 
-
     return TensorMap(tensor.keys, std_blocks)
-
 
 
 # ===== Metadata from basis sets =====
