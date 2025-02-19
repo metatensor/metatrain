@@ -109,6 +109,18 @@ class Trainer:
         for additive_model in model.additive_models:
             additive_model.to(dtype=torch.float64)
 
+        if self.hypers["do_EMA"]:
+            ema_decay = self.hypers["EMA_decay"]
+            
+            # Do this generation before the model is moved to devices!
+            ema_model = AveragedModel(model, 
+                                      multi_avg_fn=get_ema_multi_avg_fn(ema_decay),
+                                      )
+            ema_model.to(device=device, dtype=dtype)
+
+
+        model.to(device=device, dtype=dtype)
+
         logger.info("Calculating composition weights")
         model.additive_models[0].train_model(  # this is the composition model
             train_datasets,
@@ -122,17 +134,7 @@ class Trainer:
                 train_datasets, model.additive_models, treat_as_additive=True
             )
 
-        if self.hypers["do_EMA"]:
-            ema_decay = self.hypers["EMA_decay"]
-            
-            # Do this generation before the model is moved to devices!
-            ema_model = AveragedModel(model, 
-                                      multi_avg_fn=get_ema_multi_avg_fn(ema_decay),
-                                      )
-            ema_model.to(device=device, dtype=dtype)
 
-
-        model.to(device=device, dtype=dtype)
 
         if is_distributed:
             model = DistributedDataParallel(model, device_ids=[device])
