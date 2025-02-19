@@ -226,8 +226,8 @@ def get_system_batch_dict(
     # and we heavily rely on the fact that the indices of the atoms
     # are contiguous below.
     index = torch.argsort(i_list, stable=True)
-    j_list = j_list[index]
-    i_list = i_list[index]
+    j_list = j_list[index].contiguous()
+    i_list = i_list[index].contiguous()
     S_list: torch.Tensor = (
         torch.cat(
             (
@@ -238,7 +238,7 @@ def get_system_batch_dict(
         )
         .transpose(0, 1)[index]
         .to(torch.int64)
-    )
+    ).contiguous()
     D_list = (
         system.positions[j_list]
         - system.positions[i_list]
