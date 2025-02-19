@@ -1,0 +1,65 @@
+architecture:
+  name: pet
+
+  model:
+    CUTOFF_DELTA: 0.2
+    AVERAGE_POOLING: False
+    TRANSFORMERS_CENTRAL_SPECIFIC: False
+    HEADS_CENTRAL_SPECIFIC: False
+    ADD_TOKEN_FIRST: True
+    ADD_TOKEN_SECOND: True
+    N_GNN_LAYERS: 3
+    TRANSFORMER_D_MODEL: 128
+    TRANSFORMER_N_HEAD: 4
+    TRANSFORMER_DIM_FEEDFORWARD: 512
+    HEAD_N_NEURONS: 128
+    N_TRANS_LAYERS: 3
+    ACTIVATION: silu
+    USE_LENGTH: True
+    USE_ONLY_LENGTH: False
+    R_CUT: 5.0
+    R_EMBEDDING_ACTIVATION: False
+    COMPRESS_MODE: mlp
+    BLEND_NEIGHBOR_SPECIES: False
+    AVERAGE_BOND_ENERGIES: False
+    USE_BOND_ENERGIES: True
+    USE_ADDITIONAL_SCALAR_ATTRIBUTES: False
+    SCALAR_ATTRIBUTES_SIZE: null
+    TRANSFORMER_TYPE: PostLN # PostLN or PreLN
+    USE_LONG_RANGE: False
+    K_CUT: null # should be float; only used when USE_LONG_RANGE is True
+    K_CUT_DELTA: null
+    DTYPE: float32 # float32 or float16 or bfloat16
+    N_TARGETS: 1
+    TARGET_INDEX_KEY: target_index
+    RESIDUAL_FACTOR: 0.5
+    USE_ZBL: False
+
+  training:
+    USE_LORA_PEFT: False 
+    LORA_RANK: 4
+    LORA_ALPHA: 0.5
+    INITIAL_LR: 1e-4
+    EPOCH_NUM_ATOMIC: 1000000000
+    EPOCHS_WARMUP_ATOMIC: 100000000
+    SCHEDULER_STEP_SIZE_ATOMIC: 500000000 # structural version is called "SCHEDULER_STEP_SIZE"
+    GLOBAL_AUG: True
+    SLIDING_FACTOR: 0.7
+    ATOMIC_BATCH_SIZE: 850 # structural version is called "STRUCTURAL_BATCH_SIZE"
+    BALANCED_DATA_LOADER: False # if True, use DynamicBatchSampler from torch_geometric
+    MAX_TIME: 234000
+    ENERGY_WEIGHT: 0.1 # only used when fitting MLIP
+    MULTI_GPU: False
+    RANDOM_SEED: 0
+    CUDA_DETERMINISTIC: False
+    MODEL_TO_START_WITH: null
+    ALL_SPECIES_PATH: null
+    SELF_CONTRIBUTIONS_PATH: null
+    SUPPORT_MISSING_VALUES: False
+    USE_WEIGHT_DECAY: False
+    WEIGHT_DECAY: 0.0
+    DO_GRADIENT_CLIPPING: False
+    GRADIENT_CLIPPING_MAX_NORM: null # must be overwritten if DO_GRADIENT_CLIPPING is True
+    USE_SHIFT_AGNOSTIC_LOSS: False # only used when fitting general target. Primary use case: EDOS
+    ENERGIES_LOSS: per_structure # per_structure or per_atom
+    CHECKPOINT_INTERVAL: 100

@@ -11,13 +11,13 @@ RESOURCES_PATH = Path(__file__).parents[2] / "resources"
 def test_get_dataset():
     options = {
         "systems": {
-            "read_from": RESOURCES_PATH / "qm9_reduced_100.xyz",
+            "read_from": str(RESOURCES_PATH / "qm9_reduced_100.xyz"),
             "reader": "ase",
         },
         "targets": {
             "energy": {
                 "quantity": "energy",
-                "read_from": RESOURCES_PATH / "qm9_reduced_100.xyz",
+                "read_from": str(RESOURCES_PATH / "qm9_reduced_100.xyz"),
                 "reader": "ase",
                 "key": "U0",
                 "unit": "eV",

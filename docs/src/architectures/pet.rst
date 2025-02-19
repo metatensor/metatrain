@@ -3,13 +3,8 @@
 PET
 ===
 
-.. warning::
-
-  The metatrain interface to PET :footcite:p:`pozdnyakov_smooth_2023` is
-  **experimental**. You should not use it for anything important. You can also fit PET
-  using native scripts (not experimental) from `here
-  <https://spozdn.github.io/pet/train_model.html>`_.
-
+Metatrain training interface to the Point Edge transformer (PET)
+:footcite:p:`pozdnyakov_smooth_2023` architecture.
 
 Installation
 ------------
@@ -19,7 +14,7 @@ repository:
 
 .. code-block:: bash
 
-  pip install .[pet]
+  pip install metatrain[pet]
 
 This will install the package with the PET dependencies.
 
@@ -28,7 +23,7 @@ Default Hyperparameters
 -----------------------
 The default hyperparameters for the PET model are:
 
-.. literalinclude:: ../../../src/metatrain/experimental/pet/default-hypers.yaml
+.. literalinclude:: ../../../src/metatrain/pet/default-hypers.yaml
   :language: yaml
 
 Tuning Hyperparameters

@@ -198,7 +198,7 @@ def test_write_xyz_cell(monkeypatch, tmp_path):
         assert atoms.info["virial"].shape == (3, 3)
 
 
-@pytest.mark.parametrize("filename", ("test_output.xyz", "test_output.npz"))
+@pytest.mark.parametrize("filename", ("test_output.xyz", "test_output.mts"))
 @pytest.mark.parametrize("fileformat", (None, "same_as_filename"))
 @pytest.mark.parametrize("cell", (None, torch.eye(3)))
 def test_write_predictions(filename, fileformat, cell, monkeypatch, tmp_path):
@@ -224,15 +224,15 @@ def test_write_predictions(filename, fileformat, cell, monkeypatch, tmp_path):
             if cell is not None:
                 assert frame.info["stress"].shape == (3, 3)
 
-    elif filename.endswith(".npz"):
-        tensormap = metatensor.torch.load(filename.split(".")[0] + "_energy.npz")
+    elif filename.endswith(".mts"):
+        tensormap = metatensor.torch.load(filename.split(".")[0] + "_energy.mts")
         assert tensormap.block().values.shape == (2, 1)
         assert tensormap.block().gradient("positions").values.shape == (4, 3, 1)
         if cell is not None:
             assert tensormap.block().gradient("strain").values.shape == (2, 3, 3, 1)
 
     else:
-        ValueError("This test only does `.xyz` and `.npz`")
+        ValueError("This test only does `.xyz` and `.mts`")
 
 
 def test_write_predictions_unknown_fileformat():

@@ -1,17 +1,25 @@
 import math
 import os
 import warnings
+import zipfile
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple, Union
 
 import numpy as np
+import torch
 from metatensor.learn.data import Dataset, group_and_join
-from metatensor.torch import TensorMap
+from metatensor.learn.data._namedtuple import namedtuple
+from metatensor.torch import TensorMap, load_buffer
+from metatensor.torch import save_buffer as mts_save_buffer
+from metatensor.torch.atomistic import System, load_system
+from metatensor.torch.atomistic import save as mta_save
+from omegaconf import DictConfig
 from torch.utils.data import Subset
 
 from ..external_naming import to_external_name
 from ..units import get_gradient_units
-from .target_info import TargetInfo
+from .readers.metatensor import _check_tensor_map_metadata, _empty_tensor_map_like
+from .target_info import TargetInfo, get_energy_target_info, get_generic_target_info
 
 
 class DatasetInfo:
@@ -341,6 +349,140 @@ def _train_test_random_split(
         Subset(train_dataset, train_indices),
         Subset(train_dataset, test_indices),
     ]
+
+
+class DiskDataset(torch.utils.data.Dataset):
+    """A class representing a dataset stored on disk.
+
+    The dataset is stored in a zip file, where each sample is stored in a separate
+    directory. The directory's name is the index of the sample (e.g. ``0/``), and the
+    files in the directory are the system (``system.mta``) and the targets
+    (each named ``<target_name>.mts``). These are ``metatensor.torch.atomistic.System``
+    and ``metatensor.torch.TensorMap`` objects, respectively.
+
+    Such a dataset can be created conveniently using the :py:class:`DiskDatasetWriter`
+    class.
+
+    :param path: Path to the zip file containing the dataset.
+    """
+
+    def __init__(self, path: Union[str, Path]):
+        self.zip_file = zipfile.ZipFile(path, "r")
+        self._field_names = ["system"]
+        # check that we have at least one sample:
+        if "0/system.mta" not in self.zip_file.namelist():
+            raise ValueError(
+                "Could not find `0/system.mta` in the zip file. "
+                "The dataset format might be wrong, or the dataset might be empty. "
+                "Empty disk datasets are not supported."
+            )
+        for file_name in self.zip_file.namelist():
+            if file_name.startswith("0/") and file_name.endswith(".mts"):
+                self._field_names.append(file_name[2:-4])
+        self._sample_class = namedtuple("Sample", self._field_names)
+        self._len = len([f for f in self.zip_file.namelist() if f.endswith(".mta")])
+
+    def __len__(self):
+        return self._len
+
+    def __getitem__(self, index):
+        system_and_targets = []
+        for field_name in self._field_names:
+            if field_name == "system":
+                with self.zip_file.open(f"{index}/system.mta", "r") as file:
+                    system = load_system(file)
+                    system_and_targets.append(system)
+            else:
+                with self.zip_file.open(f"{index}/{field_name}.mts", "r") as file:
+                    numpy_buffer = np.load(file)
+                    tensor_buffer = torch.from_numpy(numpy_buffer)
+                    tensor_map = load_buffer(tensor_buffer)
+                    system_and_targets.append(tensor_map)
+        return self._sample_class(*system_and_targets)
+
+    def __del__(self):
+        self.zip_file.close()
+
+    def get_target_info(self, target_config: DictConfig) -> Dict[str, TargetInfo]:
+        """
+        Get information about the targets in the dataset.
+
+        :param target_config: The user-provided (through the yaml file) target
+            configuration.
+        """
+        target_info_dict = {}
+        for target_key, target in target_config.items():
+            is_energy = (
+                (target["quantity"] == "energy")
+                and (not target["per_atom"])
+                and target["num_subtargets"] == 1
+                and target["type"] == "scalar"
+            )
+            tensor_map = self[0][target_key]  # always > 0 samples, see above
+            if is_energy:
+                if len(tensor_map) != 1:
+                    raise ValueError("Energy TensorMaps should have exactly one block.")
+                add_position_gradients = tensor_map.block().has_gradient("positions")
+                add_strain_gradients = tensor_map.block().has_gradient("strain")
+                target_info = get_energy_target_info(
+                    target, add_position_gradients, add_strain_gradients
+                )
+                _check_tensor_map_metadata(tensor_map, target_info.layout)
+                target_info_dict[target_key] = target_info
+            else:
+                target_info = get_generic_target_info(target)
+                _check_tensor_map_metadata(tensor_map, target_info.layout)
+                # make sure that the properties of the target_info.layout also match the
+                # actual properties of the tensor maps
+                target_info.layout = _empty_tensor_map_like(tensor_map)
+                target_info_dict[target_key] = target_info
+        return target_info_dict
+
+
+def _is_disk_dataset(dataset: Any) -> bool:
+    # this also needs to detect if it's a ``torch.nn.utils.data.Subset`` object
+    # with a ``DiskDataset`` object as its dataset, recursively
+    if isinstance(dataset, DiskDataset):
+        return True
+    if isinstance(dataset, torch.utils.data.Subset):
+        return _is_disk_dataset(dataset.dataset)
+    return False
+
+
+class DiskDatasetWriter:
+    """
+    A class for writing a dataset to disk, to be read by the :py:class:`DiskDataset`
+    class.
+
+    The class is initialized with a path to a zip file, and samples can be written to
+    the zip file using the :py:meth:`write_sample` method.
+
+    :param path: Path to the zip file to write the dataset to.
+    """
+
+    def __init__(self, path: Union[str, Path]):
+        self.zip_file = zipfile.ZipFile(path, "w")
+        self.index = 0
+
+    def write_sample(self, system: System, targets: Dict[str, TensorMap]):
+        """
+        Write a sample to the zip file.
+
+        :param system: The system to write.
+        :param targets: A dictionary of targets to write, where each value is
+            a :py:class:`TensorMap`.
+        """
+        with self.zip_file.open(f"{self.index}/system.mta", "w") as file:
+            mta_save(file, system)
+        for target_name, target in targets.items():
+            with self.zip_file.open(f"{self.index}/{target_name}.mts", "w") as file:
+                tensor_buffer = mts_save_buffer(target)
+                numpy_buffer = tensor_buffer.numpy()
+                np.save(file, numpy_buffer)
+        self.index += 1
+
+    def __del__(self):
+        self.zip_file.close()
 
 
 def _save_indices(

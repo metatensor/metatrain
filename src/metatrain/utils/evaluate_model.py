@@ -1,7 +1,6 @@
 import warnings
 from typing import Dict, List, Union
 
-import metatensor.torch
 import torch
 from metatensor.torch import Labels, TensorBlock, TensorMap
 from metatensor.torch.atomistic import (
@@ -10,7 +9,6 @@ from metatensor.torch.atomistic import (
     ModelOutput,
     System,
     is_atomistic_model,
-    register_autograd_neighbors,
 )
 
 from .data import TargetInfo
@@ -66,7 +64,7 @@ def evaluate_model(
     for system in systems:
         with warnings.catch_warnings():
             # this seems to be the only way to filter out the torch-scripted warnings
-            # about neighbors (which are not relevant here)
+            # about neighbors (which are not relevant here), regex fails
             warnings.simplefilter("ignore")
             new_system, strain = _prepare_system(
                 system,
@@ -257,7 +255,6 @@ def _get_model_outputs(
         )
 
 
-@torch.jit.script
 def _prepare_system(
     system: System, positions_grad: bool, strain_grad: bool, check_consistency: bool
 ):
@@ -296,8 +293,6 @@ def _prepare_system(
 
     for nl_options in system.known_neighbor_lists():
         nl = system.get_neighbor_list(nl_options)
-        nl = metatensor.torch.detach_block(nl)
-        register_autograd_neighbors(new_system, nl, check_consistency)
         new_system.add_neighbor_list(nl_options, nl)
 
     return new_system, strain
