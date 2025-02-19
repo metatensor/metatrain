@@ -427,9 +427,7 @@ class DiskDataset(torch.utils.data.Dataset):
                 target_info = get_energy_target_info(
                     target, add_position_gradients, add_strain_gradients
                 )
-                if not target["metatensor_target_disable_checks"]:
-                    # the check here will be skipped if the flag is set to True
-                    _check_tensor_map_metadata(tensor_map, target_info.layout)
+                _check_tensor_map_metadata(tensor_map, target_info.layout)
                 target_info_dict[target_key] = target_info
             else:
                 target_info = get_generic_target_info(target)
