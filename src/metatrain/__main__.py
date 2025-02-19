@@ -124,7 +124,7 @@ def main():
         except Exception as err:
             logging.error(
                 "If the error message below is unclear, please help us improve it by "
-                "opening an issue at https://github.com/lab-cosmo/metatrain/issues. "
+                "opening an issue at https://github.com/metatensor/metatrain/issues. "
                 "When opening the issue, please include the full traceback log from "
                 f"{str(error_file.absolute().resolve())!r}. Thank you!\n\n{err}"
             )

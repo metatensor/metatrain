@@ -69,7 +69,7 @@ You can install ``metatrain`` with pip:
 
 .. code-block:: bash
 
-    git clone https://github.com/lab-cosmo/metatrain
+    git clone https://github.com/metatensor/metatrain
     cd metatrain
     pip install .
 
@@ -149,10 +149,10 @@ Contributors
 ------------
 Thanks goes to all people that make ``metatrain`` possible:
 
-.. image:: https://contrib.rocks/image?repo=lab-cosmo/metatrain
+.. image:: https://contrib.rocks/image?repo=metatensor/metatrain
   :target: https://github.com/metatensor/metatrain/graphs/contributors
 
-.. |tests| image:: https://github.com/lab-cosmo/metatrain/workflows/Tests/badge.svg
+.. |tests| image:: https://img.shields.io/github/checks-status/metatensor/metatrain/main
   :alt: Github Actions Tests Job Status
   :target: https://github.com/metatensor/metatrain/actions?query=branch%3Amain
 
