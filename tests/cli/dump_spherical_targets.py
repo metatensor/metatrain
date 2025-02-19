@@ -1,7 +1,8 @@
-import ase.io
 import numpy as np
 import torch
 from metatensor.torch import Labels, TensorBlock, TensorMap
+
+from metatrain.utils.data.readers.ase import read
 
 
 def l0_components_from_matrix(A):
@@ -30,7 +31,7 @@ def dump_spherical_targets(path_in, path_out, with_scalar_part=False):
     # spherical coordinates, and saves them in metatensor format (suitable for
     # training a model with spherical targets).
 
-    structures = ase.io.read(path_in, ":")
+    structures = read(path_in, ":")
 
     polarizabilities_l2 = np.array(
         [

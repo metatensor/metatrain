@@ -9,16 +9,14 @@ description = "Training and evaluating machine learning models for atomistic sys
 authors = [{name = "metatrain developers"}]
 
 dependencies = [
-    "ase < 3.23.0",
+    "ase",
     "metatensor-learn==0.3.1",
     "metatensor-operations==0.3.1",
     "metatensor-torch==0.7.2",
     "jsonschema",
     "omegaconf",
     "python-hostlist",
-    "torch",
     "vesin",
-    "numpy < 2.0.0"
 ]
 
 keywords = ["machine learning", "molecular modeling"]
@@ -44,7 +42,7 @@ homepage = "https://metatensor.github.io/metatrain"
 documentation = "https://metatensor.github.io/metatrain"
 repository = "https://github.com/metatensor/metatrain"
 issues = "https://github.com/metatensor/metatrain/issues"
-changelog = "https://metatensor.github.io/metatrain/latest/references/changelog.html"
+changelog = "https://metatensor.github.io/metatrain/latest/dev-docs/changelog.html"
 
 [project.scripts]
 mtt = "metatrain.__main__:main"
@@ -130,7 +128,7 @@ follow_imports = 'skip'
 ignore_missing_imports = true
 
 [tool.pytest.ini_options]
-# ignore" a bunch of internal warnings with Python 3.12 and PyTorch
+# ignore" a bunch of internal warnings with Python 3.13 and PyTorch
 filterwarnings = [
     "ignore:ast.Str is deprecated and will be removed in Python 3.14:DeprecationWarning",
     "ignore:Attribute s is deprecated and will be removed in Python 3.14:DeprecationWarning",

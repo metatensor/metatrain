@@ -1,4 +1,3 @@
-import ase
 import pytest
 import torch
 from metatensor.torch.atomistic import (
@@ -18,6 +17,7 @@ from metatrain.pet.modules.pet import PET
 from metatrain.pet.utils import systems_to_batch_dict
 from metatrain.utils.architectures import get_default_hypers
 from metatrain.utils.data import DatasetInfo
+from metatrain.utils.data.readers.ase import read
 from metatrain.utils.data.target_info import get_energy_target_info
 from metatrain.utils.neighbor_lists import get_system_with_neighbor_lists
 
@@ -57,7 +57,7 @@ def test_batch_dicts_compatibility(cutoff):
     """Tests that the batch dict computed with internal MTM routines
     is consitent with PET implementation."""
 
-    structure = ase.io.read(DATASET_PATH)
+    structure = read(DATASET_PATH)
     atomic_types = sorted(set(structure.numbers))
     system = systems_to_torch(structure)
     options = NeighborListOptions(cutoff=cutoff, full_list=True, strict=True)
@@ -93,7 +93,7 @@ def test_predictions_compatibility(cutoff):
     """Tests that predictions of the MTM implemetation of PET
     are consistent with the predictions of the original PET implementation."""
 
-    structure = ase.io.read(DATASET_PATH)
+    structure = read(DATASET_PATH)
 
     dataset_info = DatasetInfo(
         length_unit="Angstrom",

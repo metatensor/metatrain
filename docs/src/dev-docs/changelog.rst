@@ -12,8 +12,10 @@ Unreleased
 
 .. Possible sections for each release:
 
-.. Added
-.. #####
+Added
+#####
+
+- Added support for Python 3.13 and ase >= 3.23
 
 .. Fixed
 .. #####
