@@ -276,8 +276,8 @@ class CompositionModel(torch.nn.Module):
                             joined_blocks = metatensor.torch.join(
                                 [
                                     TensorMap(
-                                        keys=Labels.single(),
-                                        blocks=[b],
+                                        keys=Labels.single().to(device),
+                                        blocks=[b.to(device)],
                                     )
                                     for b in block_list
                                 ],
@@ -320,7 +320,7 @@ class CompositionModel(torch.nn.Module):
                         weights_tensor = weights_tensor.unsqueeze(1)
                     weight_blocks.append(
                         TensorBlock(
-                            values=weights_tensor,
+                            values=weights_tensor.to(device),
                             samples=Labels(
                                 ["center_type"],
                                 values=torch.tensor(
