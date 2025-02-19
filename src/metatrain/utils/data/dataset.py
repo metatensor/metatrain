@@ -422,8 +422,8 @@ class DiskDataset(torch.utils.data.Dataset):
             if is_energy:
                 if len(tensor_map) != 1:
                     raise ValueError("Energy TensorMaps should have exactly one block.")
-                add_position_gradients = target["forces"]
-                add_strain_gradients = target["stress"] or target["virial"]
+                add_position_gradients = tensor_map.block().has_gradient("positions")
+                add_strain_gradients = tensor_map.block().has_gradient("strain")
                 target_info = get_energy_target_info(
                     target, add_position_gradients, add_strain_gradients
                 )

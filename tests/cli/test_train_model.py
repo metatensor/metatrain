@@ -691,7 +691,7 @@ def test_train_disk_dataset(monkeypatch, tmp_path, options):
         system = systems_to_torch(frame, dtype=torch.float64)
         system = get_system_with_neighbor_lists(
             system,
-            [NeighborListOptions(cutoff=5.0, full_list=True, strict=True)],
+            [NeighborListOptions(cutoff=5.0, full_list=False, strict=False)],
         )
         energy = TensorMap(
             keys=Labels.single(),
