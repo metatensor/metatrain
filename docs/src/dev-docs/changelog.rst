@@ -12,12 +12,10 @@ Unreleased
 
 .. Possible sections for each release:
 
-Added
-#####
-
-- Added support for Python 3.13 and ase >= 3.23
-
 .. Fixed
+.. #####
+
+.. Added
 .. #####
 
 .. Changed
@@ -26,6 +24,19 @@ Added
 .. Removed
 .. #######
 
+
+Version 2025.1 - 2025-02-20
+---------------------------
+
+Added
+#####
+
+- Support for Python 3.13 and ``ase`` >= 3.23
+
+Fixed
+#####
+
+- Some irrelevant autograd warnings
 
 Version 2025.0 - 2025-02-19
 ---------------------------
