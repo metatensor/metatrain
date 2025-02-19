@@ -1,3 +1,15 @@
+"""
+Saving a disk dataset
+=====================
+
+Large datasets may not fit into memory. In such cases, it is useful to save the
+dataset to disk and load it on the fly during training. This example demonstrates
+how to save a ``DiskDataset`` for this purpose.
+"""
+
+# %%
+#
+
 import ase.io
 import torch
 import tqdm
@@ -7,6 +19,11 @@ from metatensor.torch.atomistic import NeighborListOptions, systems_to_torch
 from metatrain.utils.data import DiskDatasetWriter
 from metatrain.utils.neighbor_lists import get_system_with_neighbor_lists
 
+
+# %%
+#
+# Read some sample systems. Metatrain always reads systems in float64, while torch
+# uses float32 by default. We will convert the systems to float32.
 
 disk_dataset_writer = DiskDatasetWriter("qm9_reduced_100.zip")
 for i in tqdm.tqdm(range(100)):
