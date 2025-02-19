@@ -1,8 +1,8 @@
 from pathlib import Path
 from typing import Dict, List, Optional, Union
 
+import featomic.torch
 import metatensor.torch
-import rascaline.torch
 import torch
 from metatensor.torch import Labels, TensorBlock, TensorMap
 from metatensor.torch.atomistic import (
@@ -141,14 +141,12 @@ class SoapBpnn(torch.nn.Module):
         self.dataset_info = dataset_info
         self.atomic_types = dataset_info.atomic_types
 
-        self.soap_calculator = rascaline.torch.SoapPowerSpectrum(
-            radial_basis={"Gto": {}}, **self.hypers["soap"]
-        )
+        self.soap_calculator = featomic.torch.SoapPowerSpectrum(**self.hypers["soap"])
 
         soap_size = (
             (len(self.atomic_types) * (len(self.atomic_types) + 1) // 2)
-            * self.hypers["soap"]["max_radial"] ** 2
-            * (self.hypers["soap"]["max_angular"] + 1)
+            * (self.hypers["soap"]["basis"]["radial"]["max_radial"] + 1) ** 2
+            * (self.hypers["soap"]["basis"]["max_angular"] + 1)
         )
 
         hypers_bpnn = {**self.hypers["bpnn"]}
@@ -481,7 +479,7 @@ class SoapBpnn(torch.nn.Module):
             torch.device("cpu"), torch.float64
         )
 
-        interaction_ranges = [self.hypers["soap"]["cutoff"]]
+        interaction_ranges = [self.hypers["soap"]["cutoff"]["radius"]]
         for additive_model in self.additive_models:
             if hasattr(additive_model, "cutoff_radius"):
                 interaction_ranges.append(additive_model.cutoff_radius)

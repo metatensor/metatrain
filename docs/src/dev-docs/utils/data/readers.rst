@@ -15,7 +15,7 @@ Parsers for obtaining *system* and *target* information from files. Currently,
     - ``.xyz``, ``.extxyz``
   * - ``metatensor``
     - system, energy, forces, stress, virials
-    - ``.npz``
+    - ``.mts``
 
 
 If the ``reader`` parameter is not set, the library is determined from the file

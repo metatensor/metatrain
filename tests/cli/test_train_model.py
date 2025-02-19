@@ -560,7 +560,9 @@ def test_architecture_error(options, monkeypatch, tmp_path):
     monkeypatch.chdir(tmp_path)
     shutil.copy(DATASET_PATH_QM9, "qm9_reduced_100.xyz")
 
-    options["architecture"]["model"] = OmegaConf.create({"soap": {"cutoff": -1.0}})
+    options["architecture"]["model"] = OmegaConf.create(
+        {"soap": {"cutoff": {"radius": -1.0}}}
+    )
 
     with pytest.raises(ArchitectureError, match="originates from an architecture"):
         train_model(options)
@@ -649,7 +651,7 @@ def test_train_generic_target_metatensor(monkeypatch, tmp_path, with_scalar_part
     shutil.copy(DATASET_PATH_QM7X, "qm7x_reduced_100.xyz")
 
     dump_spherical_targets(
-        "qm7x_reduced_100.xyz", "qm7x_reduced_100.npz", with_scalar_part
+        "qm7x_reduced_100.xyz", "qm7x_reduced_100.mts", with_scalar_part
     )
 
     # run training with original options
@@ -658,7 +660,7 @@ def test_train_generic_target_metatensor(monkeypatch, tmp_path, with_scalar_part
     options["training_set"]["systems"]["read_from"] = "qm7x_reduced_100.xyz"
     options["training_set"]["targets"] = {
         "mtt::polarizability": {
-            "read_from": "qm7x_reduced_100.npz",
+            "read_from": "qm7x_reduced_100.mts",
             "type": {
                 "spherical": {
                     "irreps": (

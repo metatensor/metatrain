@@ -129,7 +129,7 @@ Preparing your targets -- metatensor
 
 If you are using the metatensor readers to read your targets, you will have to save them
 as a ``metatensor.torch.TensorMap`` object with ``metatensor.torch.TensorMap.save()``
-into a file with the ``.npz`` extension.
+into a file with the ``.mts`` extension.
 
 The metatensor reader will verify that the target data in the input files corresponds to
 the metadata in the provided ``TensorMap`` objects. In case of a mismatch, errors will

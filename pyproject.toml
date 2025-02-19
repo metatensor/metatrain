@@ -12,7 +12,7 @@ dependencies = [
     "ase < 3.23.0",
     "metatensor-learn==0.3.1",
     "metatensor-operations==0.3.1",
-    "metatensor-torch==0.6.3",
+    "metatensor-torch==0.7.2",
     "jsonschema",
     "omegaconf",
     "python-hostlist",
@@ -61,7 +61,7 @@ build-backend = "setuptools.build_meta"
 
 [project.optional-dependencies]
 soap-bpnn = [
-    "rascaline-torch @ git+https://github.com/luthaf/rascaline@5326b6e#subdirectory=python/rascaline-torch",
+    "featomic-torch >=0.6,<0.7",
     "wigners",
 ]
 pet = [
@@ -74,7 +74,7 @@ pet = [
 ]
 nanopet = []
 gap = [
-    "rascaline-torch @ git+https://github.com/luthaf/rascaline@5326b6e#subdirectory=python/rascaline-torch",
+    "featomic-torch >=0.6,<0.7",
     "skmatter",
     "scipy",
 ]

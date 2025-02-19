@@ -1,3 +1,5 @@
+import copy
+
 import metatensor.torch
 import pytest
 import torch
@@ -246,7 +248,7 @@ def test_output_per_atom():
 def test_fixed_composition_weights():
     """Tests the correctness of the json schema for fixed_composition_weights"""
 
-    hypers = DEFAULT_HYPERS.copy()
+    hypers = copy.deepcopy(DEFAULT_HYPERS)
     hypers["training"]["fixed_composition_weights"] = {
         "energy": {
             1: 1.0,
@@ -262,7 +264,7 @@ def test_fixed_composition_weights():
 
 def test_fixed_composition_weights_error():
     """Test that only inputd of type Dict[str, Dict[int, float]] are allowed."""
-    hypers = DEFAULT_HYPERS.copy()
+    hypers = copy.deepcopy(DEFAULT_HYPERS)
     hypers["training"]["fixed_composition_weights"] = {"energy": {"H": 300.0}}
     hypers = OmegaConf.create(hypers)
     with pytest.raises(ValidationError, match=r"'H' does not match '\^\[0-9\]\+\$'"):
