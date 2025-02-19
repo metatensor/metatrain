@@ -4,7 +4,7 @@ import pytest
 import torch
 from metatensor.torch.atomistic import MetatensorAtomisticModel
 
-from metatrain.experimental.soap_bpnn.model import SoapBpnn
+from metatrain.soap_bpnn.model import SoapBpnn
 from metatrain.utils.io import check_file_extension, is_exported_file, load_model
 
 from . import RESOURCES_PATH
@@ -74,7 +74,7 @@ def test_load_model_yaml(suffix):
 
 
 def test_load_model_unknown_model(tmpdir):
-    architecture_name = "experimental.soap_bpnn"
+    architecture_name = "soap_bpnn"
     path = "fake.ckpt"
 
     with tmpdir.as_cwd():
@@ -90,7 +90,7 @@ def test_load_model_unknown_model(tmpdir):
 
 def test_load_model_no_architecture_name(monkeypatch, tmpdir):
     monkeypatch.chdir(tmpdir)
-    architecture_name = "experimental.soap_bpnn"
+    architecture_name = "soap_bpnn"
     path = "fake.ckpt"
     torch.save({"not_architecture_name": architecture_name}, path)
 

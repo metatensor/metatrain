@@ -9,8 +9,8 @@ import tomli  # Replace by tomllib from std library once docs are build with Pyt
 # When importing metatensor-torch, this will change the definition of the classes
 # to include the documentation
 os.environ["METATENSOR_IMPORT_FOR_SPHINX"] = "1"
-os.environ["RASCALINE_IMPORT_FOR_SPHINX"] = "1"
 os.environ["PYTORCH_JIT"] = "0"
+os.environ["METATENSOR_DEBUG_EXTENSIONS_LOADING"] = "1"
 
 import metatrain  # noqa: E402
 
@@ -102,8 +102,6 @@ intersphinx_mapping = {
     "torch": ("https://pytorch.org/docs/stable/", None),
     "metatensor": ("https://docs.metatensor.org/latest/", None),
     "omegaconf": ("https://omegaconf.readthedocs.io/en/latest/", None),
-    # "rascaline": ("https://luthaf.fr/rascaline/latest/", None),
-    # # TODO: change to featomic
 }
 
 # The path to the bibtex file
@@ -122,8 +120,12 @@ html_theme = "furo"
 # relative to this directory. They are copied after the builtin static files,
 # so a file named "default.css" will overwrite the builtin "default.css".
 html_static_path = [os.path.join(ROOT, "docs", "static")]
+html_favicon = "logo/metatrain-64.png"
 
 html_theme_options = {
+    "light_logo": "images/metatrain.png",
+    "dark_logo": "images/metatrain-dark.png",
+    "sidebar_hide_name": True,
     "footer_icons": [
         {
             "name": "GitHub",

@@ -1,0 +1,140 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "type": "object",
+  "properties": {
+    "name": {
+      "type": "string",
+      "enum": ["gap"]
+    },
+    "model": {
+      "type": "object",
+      "properties": {
+        "soap": {
+          "type": "object",
+          "properties": {
+            "cutoff": {
+              "type": "object",
+              "properties": {
+                "radius": {
+                  "type": "number"
+                },
+                "smoothing": {
+                  "type": "object",
+                  "properties": {
+                    "type": {
+                      "type": "string",
+                      "enum": ["ShiftedCosine"]
+                    },
+                    "width": {
+                      "type": "number"
+                    }
+                  },
+                  "additionalProperties": false
+                }
+              },
+              "additionalProperties": false
+            },
+            "density": {
+              "type": "object",
+              "properties": {
+                "type": {
+                  "type": "string",
+                  "enum": ["Gaussian"]
+                },
+                "center_atom_weight": {
+                  "type": "number"
+                },
+                "width": {
+                  "type": "number"
+                },
+                "scaling": {
+                  "type": "object",
+                  "properties": {
+                    "type": {
+                      "type": "string",
+                      "enum": ["Willatt2018"]
+                    },
+                    "rate": {
+                      "type": "number"
+                    },
+                    "scale": {
+                      "type": "number"
+                    },
+                    "exponent": {
+                      "type": "number"
+                    }
+                  },
+                  "additionalProperties": false
+                }
+              },
+              "additionalProperties": false
+            },
+            "basis": {
+              "type": "object",
+              "properties": {
+                "type": {
+                  "type": "string",
+                  "enum": ["TensorProduct"]
+                },
+                "max_angular": {
+                  "type": "integer"
+                },
+                "radial": {
+                  "type": "object",
+                  "properties": {
+                    "type": {
+                      "type": "string",
+                      "enum": ["Gto"]
+                    },
+                    "max_radial": {
+                      "type": "integer"
+                    }
+                  },
+                  "additionalProperties": false
+                }
+              },
+              "additionalProperties": false
+            }
+          },
+          "additionalProperties": false
+        },
+        "krr": {
+          "type": "object",
+          "properties": {
+            "degree": {
+              "type": "integer"
+            },
+            "num_sparse_points": {
+              "type": "integer"
+            }
+          },
+          "additionalProperties": false
+        },
+        "zbl": {
+          "type": "boolean"
+        }
+      },
+      "additionalProperties": false
+    },
+    "training": {
+      "type": "object",
+      "properties": {
+        "regularizer": {
+          "type": "number"
+        },
+        "regularizer_forces": {
+          "oneOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "additionalProperties": false
+    }
+  },
+  "additionalProperties": false
+}
