@@ -1,23 +1,28 @@
 architecture:
-  name: experimental.gap
+  name: gap
 
   model:
     soap:
-      cutoff: 5.5
-      max_radial: 8
-      max_angular: 6
-      atomic_gaussian_width: 0.2
-      radial_basis:
-        Gto: {}
-      center_atom_weight: 1.0
-      cutoff_function:
-        ShiftedCosine:
+      cutoff:
+        radius: 5.5
+        smoothing: 
+          type: ShiftedCosine
           width: 1.0
-      radial_scaling:
-        Willatt2018:
+      density:
+        type: Gaussian
+        center_atom_weight: 1.0
+        width: 0.2
+        scaling:
+          type: Willatt2018
           rate: 1.0
           scale: 2.0
           exponent: 7.0
+      basis:
+        type: TensorProduct
+        max_angular: 6
+        radial:
+          type: Gto
+          max_radial: 9  # now exclusive
     krr:
       degree: 2
       num_sparse_points: 900
