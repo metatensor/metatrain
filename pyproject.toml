@@ -40,10 +40,11 @@ classifiers = [
 ]
 
 [project.urls]
-homepage = "https://lab-cosmo.github.io/metatrain/latest/"
-documentation = "https://lab-cosmo.github.io/metatrain/latest/"
-repository = "https://github.com/lab-cosmo/metatrain"
-# changelog = "TODO"
+homepage = "https://metatensor.github.io/metatrain"
+documentation = "https://metatensor.github.io/metatrain"
+repository = "https://github.com/metatensor/metatrain"
+issues = "https://github.com/metatensor/metatrain/issues"
+changelog = "https://metatensor.github.io/metatrain/latest/references/changelog.html"
 
 [project.scripts]
 mtt = "metatrain.__main__:main"
