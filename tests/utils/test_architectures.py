@@ -139,7 +139,8 @@ def test_import_architecture_erro(monkeypatch):
 
     match = (
         rf"Trying to import '{name}' but architecture dependencies seem not be "
-        rf"installed. \nTry to install them with `pip install .\[{name_for_deps}\]`"
+        rf"installed. \nTry to install them with "
+        rf"`pip install metatrain\[{name_for_deps}\]`"
     )
     with pytest.raises(ImportError, match=match):
         import_architecture(name)

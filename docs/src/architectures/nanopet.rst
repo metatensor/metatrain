@@ -19,7 +19,7 @@ directory of the repository:
 
 .. code-block:: bash
 
-    pip install .[nanopet]
+    pip install metatrain[nanopet]
 
 This will install the package with the nanoPET dependencies.
 

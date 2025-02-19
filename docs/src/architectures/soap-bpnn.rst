@@ -15,7 +15,7 @@ directory of the repository:
 
 .. code-block:: bash
 
-    pip install .[soap-bpnn]
+    pip install metatrain[soap-bpnn]
 
 This will install the package with the SOAP-BPNN dependencies.
 

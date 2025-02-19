@@ -14,7 +14,7 @@ repository:
 
 .. code-block:: bash
 
-  pip install .[pet]
+  pip install metatrain[pet]
 
 This will install the package with the PET dependencies.
 
