@@ -420,20 +420,6 @@ class AggregateKernel(torch.nn.Module):
         self._aggregate_type = aggregate_type
         self._structurewise_aggregate = structurewise_aggregate
 
-    def aggregate_features(self, tensor: TensorMap) -> TensorMap:
-        if self._aggregate_type == "sum":
-            return metatensor.sum_over_samples(
-                tensor, sample_names=self._aggregate_names
-            )
-        elif self._aggregate_type == "mean":
-            return metatensor.mean_over_samples(
-                tensor, sample_names=self._aggregate_names
-            )
-        else:
-            raise NotImplementedError(
-                f"aggregate_type {self._aggregate_type!r} has not been implemented."
-            )
-
     def aggregate_kernel(
         self, kernel: TensorMap, are_pseudo_points: Tuple[bool, bool] = (False, False)
     ) -> TensorMap:
@@ -519,20 +505,6 @@ class TorchAggregateKernel(torch.nn.Module):
         self._aggregate_type = aggregate_type
         self._structurewise_aggregate = structurewise_aggregate
 
-    def aggregate_features(self, tensor: TorchTensorMap) -> TorchTensorMap:
-        if self._aggregate_type == "sum":
-            return metatensor.torch.sum_over_samples(
-                tensor, sample_names=self._aggregate_names
-            )
-        elif self._aggregate_type == "mean":
-            return metatensor.torch.mean_over_samples(
-                tensor, sample_names=self._aggregate_names
-            )
-        else:
-            raise NotImplementedError(
-                f"aggregate_type {self._aggregate_type} has not been implemented."
-            )
-
     def aggregate_kernel(
         self,
         kernel: TorchTensorMap,
@@ -605,7 +577,6 @@ class FPS:
 
     def __init__(
         self,
-        initialize=0,
         n_to_select=None,
     ):
         self._n_to_select = n_to_select
