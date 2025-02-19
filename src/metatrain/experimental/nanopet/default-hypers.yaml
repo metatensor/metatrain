@@ -22,6 +22,10 @@ architecture:
     scheduler_factor: 0.8
     log_interval: 10
     checkpoint_interval: 100
+    do_EMA: False
+    EMA_decay: 0.999
+    EMA_epoch_start: 11
+    warmup_epochs: 10
     scale_targets: true
     fixed_composition_weights: {}
     per_structure_targets: []

@@ -6,6 +6,7 @@ from typing import List, Union
 import torch
 import torch.distributed
 from torch.utils.data import DataLoader, DistributedSampler
+from torch.optim.swa_utils import AveragedModel, get_ema_multi_avg_fn
 
 from ...utils.additive import remove_additive
 from ...utils.data import CombinedDataLoader, Dataset, collate_fn
@@ -98,8 +99,11 @@ class Trainer:
                 # and doesn't require to reassign the system to the dataset:
                 _ = get_system_with_neighbor_lists(system, requested_neighbor_lists)
 
+
+        
         # Move the model to the device and dtype:
-        model.to(device=device, dtype=dtype)
+        
+
         # The additive models of the SOAP-BPNN are always in float64 (to avoid
         # numerical errors in the composition weights, which can be very large).
         for additive_model in model.additive_models:
@@ -117,6 +121,18 @@ class Trainer:
             model.scaler.train_model(
                 train_datasets, model.additive_models, treat_as_additive=True
             )
+
+        if self.hypers["do_EMA"]:
+            ema_decay = self.hypers["EMA_decay"]
+            
+            # Do this generation before the model is moved to devices!
+            ema_model = AveragedModel(model, 
+                                      multi_avg_fn=get_ema_multi_avg_fn(ema_decay),
+                                      )
+            ema_model.to(device=device, dtype=dtype)
+
+
+        model.to(device=device, dtype=dtype)
 
         if is_distributed:
             model = DistributedDataParallel(model, device_ids=[device])
@@ -224,11 +240,20 @@ class Trainer:
                 optimizer.load_state_dict(self.optimizer_state_dict)
 
         # Create a scheduler:
+
+        warmup = torch.optim.lr_scheduler.LinearLR(
+            optimizer,
+            start_factor=0.001,
+            total_iters=self.hypers["warmup_epochs"],
+            end_factor=1.
+        )
+
         lr_scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
             optimizer,
             factor=self.hypers["scheduler_factor"],
             patience=self.hypers["scheduler_patience"],
         )
+
         if self.scheduler_state_dict is not None:
             # same as the optimizer, try to load the scheduler state dict
             if not (model.module if is_distributed else model).has_new_targets:
@@ -300,6 +325,11 @@ class Trainer:
                 train_loss_batch.backward()
                 torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
                 optimizer.step()
+
+                # do EMA step if EMA is selected:
+                if self.hypers["do_EMA"] and epoch > self.hypers["EMA_epoch_start"]:
+                    # here would also be the place to modify if SWA is used
+                    ema_model.update_parameters(model)
 
                 if is_distributed:
                     # sum the loss over all processes
@@ -411,8 +441,12 @@ class Trainer:
                     epoch=epoch,
                     rank=rank,
                 )
-
+            warmup.step()
+            
+            
             lr_scheduler.step(val_loss)
+            
+            
             new_lr = lr_scheduler.get_last_lr()[0]
             if new_lr != old_lr:
                 if new_lr < 1e-7:
@@ -420,19 +454,22 @@ class Trainer:
                     break
                 else:
                     logger.info(f"Changing learning rate from {old_lr} to {new_lr}")
-                    old_lr = new_lr
-                    # load best model and optimizer state dict, re-initialize scheduler
-                    (model.module if is_distributed else model).load_state_dict(
-                        self.best_model_state_dict
-                    )
-                    optimizer.load_state_dict(self.best_optimizer_state_dict)
-                    for param_group in optimizer.param_groups:
-                        param_group["lr"] = new_lr
-                    lr_scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
-                        optimizer,
-                        factor=self.hypers["scheduler_factor"],
-                        patience=self.hypers["scheduler_patience"],
-                    )
+                    if epoch > self.hypers["warmup_epochs"]:
+                        old_lr = new_lr
+                        # load best model and optimizer state dict, re-initialize scheduler
+                        (model.module if is_distributed else model).load_state_dict(
+                            self.best_model_state_dict
+                        )
+
+                        optimizer.load_state_dict(self.best_optimizer_state_dict)
+                        for param_group in optimizer.param_groups:
+                            param_group["lr"] = new_lr
+                        
+                        lr_scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
+                            optimizer,
+                            factor=self.hypers["scheduler_factor"],
+                            patience=self.hypers["scheduler_patience"],
+                        )
 
             val_metric = get_selected_metric(
                 finalized_val_info, self.hypers["best_model_metric"]
@@ -443,7 +480,20 @@ class Trainer:
                     (model.module if is_distributed else model).state_dict()
                 )
                 self.best_optimizer_state_dict = copy.deepcopy(optimizer.state_dict())
+            
+            if epoch == self.hypers["warmup_epochs"] and self.hypers["do_EMA"]:
+                statedict_model = model.state_dict()
 
+                cleaned_statedict = {}
+
+                for key, value in statedict_model.items():
+                    
+                    new_key = "module." + key
+                    cleaned_statedict[new_key] = value
+                
+                cleaned_statedict["n_averaged"] = ema_model.state_dict()["n_averaged"]
+                ema_model.load_state_dict(cleaned_statedict)
+            
             if epoch % self.hypers["checkpoint_interval"] == 0:
                 if is_distributed:
                     torch.distributed.barrier()
@@ -455,6 +505,54 @@ class Trainer:
                         (model.module if is_distributed else model),
                         Path(checkpoint_dir) / f"model_{epoch}.ckpt",
                     )
+
+                    # TODO: do this less hacky: metatensor complains when cloning from GPU
+                    # Do not count warmup into EMA averaging
+
+
+                    if self.hypers["do_EMA"]:
+                        
+                        # ideally the EMA_echekpoint is stored, just like any other 
+                        # metatrain .ckpt with the module weights being the model weights,
+                        # such that it can be easily used in any mtt export/eval
+
+                        
+
+                        statedict_ema = ema_model.state_dict()
+
+                        del statedict_ema['n_averaged']
+
+
+                        cleaned_statedict = {}
+                        for key, value in statedict_ema.items():
+                            
+                            new_key = key.removeprefix("module.")
+                            cleaned_statedict[new_key] = value
+
+                        checkpoint = {
+                            "architecture_name": "experimental.nanopet",
+                            "model_data": {
+                                "model_hypers": model.hypers,
+                                "dataset_info": model.dataset_info,
+                            },
+                            "model_state_dict": cleaned_statedict,
+                            "train_hypers": self.hypers,
+                            "epoch": self.epoch,
+                            "optimizer_state_dict": self.optimizer_state_dict,
+                            "scheduler_state_dict": self.scheduler_state_dict,
+                            "best_metric": self.best_metric,
+                            "best_model_state_dict": self.best_model_state_dict,
+                            "best_optimizer_state_dict": self.best_optimizer_state_dict,
+                        }
+
+                        torch.save(checkpoint, Path(checkpoint_dir) / f"model_{epoch}_EMA.ckpt")
+
+                        """
+                        self.save_checkpoint(
+                        (ema_model.module if is_distributed else ema_model),
+                        Path(checkpoint_dir) / f"model_{epoch}_EMA.ckpt",
+                        )
+                        """
 
         # prepare for the checkpoint that will be saved outside the function
         self.epoch = epoch

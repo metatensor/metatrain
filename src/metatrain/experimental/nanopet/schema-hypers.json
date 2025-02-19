@@ -155,6 +155,18 @@
             }
           },
           "additionalProperties": false
+        },
+        "warmup_epochs": {
+          "type": "integer"
+        },
+        "do_EMA": {
+          "type": "boolean"
+        },
+        "EMA_decay": {
+          "type": "number"
+        },
+        "EMA_epoch_start": {
+          "type": "integer"
         }
       },
       "additionalProperties": false
