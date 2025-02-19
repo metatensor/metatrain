@@ -1,3 +1,4 @@
+import warnings
 from typing import Dict, List, Union
 
 import torch
@@ -9,7 +10,6 @@ from metatensor.torch.atomistic import (
     System,
     is_atomistic_model,
 )
-import warnings
 
 from .data import TargetInfo
 from .output_gradient import compute_gradient
