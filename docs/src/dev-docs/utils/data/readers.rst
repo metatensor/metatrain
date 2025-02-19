@@ -44,6 +44,7 @@ ASE
 
 This section describes the parsers for the ASE library.
 
+.. autofunction:: metatrain.utils.data.readers.ase.read
 .. autofunction:: metatrain.utils.data.readers.ase.read_systems
 .. autofunction:: metatrain.utils.data.readers.ase.read_energy
 .. autofunction:: metatrain.utils.data.readers.ase.read_generic

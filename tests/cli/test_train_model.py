@@ -17,6 +17,7 @@ from omegaconf import OmegaConf
 from metatrain import RANDOM_SEED
 from metatrain.cli.train import _process_continue_from, train_model
 from metatrain.utils.data import DiskDatasetWriter
+from metatrain.utils.data.readers.ase import read
 from metatrain.utils.errors import ArchitectureError
 from metatrain.utils.neighbor_lists import get_system_with_neighbor_lists
 
@@ -209,7 +210,7 @@ def test_train_explicit_validation_test(
     monkeypatch.chdir(tmp_path)
     caplog.set_level(logging.DEBUG)
 
-    systems = ase.io.read(DATASET_PATH_QM9, ":")
+    systems = read(DATASET_PATH_QM9, ":")
 
     ase.io.write("qm9_reduced_100.xyz", systems[:50])
 
@@ -252,11 +253,6 @@ def test_train_multiple_datasets(monkeypatch, tmp_path, options):
 
     systems_qm9 = ase.io.read(DATASET_PATH_QM9, ":")
     systems_ethanol = ase.io.read(DATASET_PATH_ETHANOL, ":")
-
-    # delete calculator to avoid warnings during writing. Remove once updated to ase >=
-    # 3.23.0
-    for atoms in systems_ethanol:
-        atoms.calc = None
 
     ase.io.write("qm9_reduced_100.xyz", systems_qm9[:50])
     ase.io.write("ethanol_reduced_100.xyz", systems_ethanol[:50])
@@ -356,7 +352,7 @@ def test_unit_check_is_performed(
     """Test that error is raised if units are inconsistent between the datasets."""
     monkeypatch.chdir(tmp_path)
 
-    systems = ase.io.read(DATASET_PATH_QM9, ":")
+    systems = read(DATASET_PATH_QM9, ":")
 
     ase.io.write("qm9_reduced_100.xyz", systems[:50])
 
@@ -387,7 +383,7 @@ def test_inconsistent_number_of_datasets(
     i.e one train dataset but two validation datasets. Same for the test dataset."""
     monkeypatch.chdir(tmp_path)
 
-    systems = ase.io.read(DATASET_PATH_QM9, ":")
+    systems = read(DATASET_PATH_QM9, ":")
 
     ase.io.write("qm9_reduced_100.xyz", systems[:50])
 
@@ -687,7 +683,7 @@ def test_train_disk_dataset(monkeypatch, tmp_path, options):
 
     disk_dataset_writer = DiskDatasetWriter("qm9_reduced_100.zip")
     for i in range(100):
-        frame = ase.io.read("qm9_reduced_100.xyz", index=i)
+        frame = read("qm9_reduced_100.xyz", index=i)
         system = systems_to_torch(frame, dtype=torch.float64)
         system = get_system_with_neighbor_lists(
             system,

@@ -1,12 +1,12 @@
 from typing import Dict, List, Tuple
 
-import ase.io
 import metatensor.torch
 import pytest
 import torch
 from metatensor.torch import Labels, TensorBlock, TensorMap
 from metatensor.torch.atomistic import ModelCapabilities, ModelOutput, System
 
+from metatrain.utils.data.readers.ase import read
 from metatrain.utils.data.writers import write_predictions, write_xyz
 
 
@@ -80,7 +80,7 @@ def test_write_xyz(monkeypatch, tmp_path):
     write_xyz(filename, systems, capabilities, predictions)
 
     # Read the file and verify its contents
-    frames = ase.io.read(filename, index=":")
+    frames = read(filename, index=":")
     assert len(frames) == len(systems)
     for i, atoms in enumerate(frames):
         assert atoms.info["energy"] == float(predictions["energy"].block().values[i, 0])
@@ -123,7 +123,7 @@ def test_write_components_and_properties_xyz(monkeypatch, tmp_path):
     write_xyz(filename, systems, capabilities, predictions)
 
     # Read the file and verify its contents
-    frames = ase.io.read(filename, index=":")
+    frames = read(filename, index=":")
     assert len(frames) == len(systems)
     for atoms in frames:
         assert atoms.info["dos"].shape == (3, 100)
@@ -168,7 +168,7 @@ def test_write_components_and_properties_xyz_per_atom(monkeypatch, tmp_path):
     write_xyz(filename, systems, capabilities, predictions)
 
     # Read the file and verify its contents
-    frames = ase.io.read(filename, index=":")
+    frames = read(filename, index=":")
     assert len(frames) == len(systems)
     for atoms in frames:
         assert atoms.arrays["dos"].shape == (2, 300)
@@ -187,7 +187,7 @@ def test_write_xyz_cell(monkeypatch, tmp_path):
     write_xyz(filename, systems, capabilities, predictions)
 
     # Read the file and verify its contents
-    frames = ase.io.read(filename, index=":")
+    frames = read(filename, index=":")
     for i, atoms in enumerate(frames):
         cell_actual = torch.tensor(atoms.cell.array, dtype=cell_expected.dtype)
         torch.testing.assert_close(cell_actual, cell_expected)
@@ -214,7 +214,7 @@ def test_write_predictions(filename, fileformat, cell, monkeypatch, tmp_path):
     )
 
     if filename.endswith(".xyz"):
-        frames = ase.io.read(filename, index=":")
+        frames = read(filename, index=":")
         assert len(frames) == len(systems)
         for i, frame in enumerate(frames):
             assert frame.info["energy"] == float(

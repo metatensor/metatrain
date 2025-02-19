@@ -1,6 +1,5 @@
 import copy
 
-import ase.io
 import numpy as np
 import pytest
 import torch
@@ -8,6 +7,7 @@ from metatensor.torch.atomistic import System, systems_to_torch
 
 from metatrain.soap_bpnn import SoapBpnn
 from metatrain.utils.data import DatasetInfo
+from metatrain.utils.data.readers.ase import read
 from metatrain.utils.data.target_info import (
     get_energy_target_info,
     get_generic_target_info,
@@ -31,7 +31,7 @@ def test_rotational_invariance():
     )
     model = SoapBpnn(MODEL_HYPERS, dataset_info)
 
-    system = ase.io.read(DATASET_PATH)
+    system = read(DATASET_PATH)
     original_system = copy.deepcopy(system)
     system.rotate(48, "y")
 
@@ -77,7 +77,7 @@ def test_equivariance_rotations(o3_lambda, o3_sigma):
     )
     model = SoapBpnn(MODEL_HYPERS, dataset_info)
 
-    system = ase.io.read(DATASET_PATH)
+    system = read(DATASET_PATH)
     original_system = systems_to_torch(system)
     rotation = get_random_rotation()
     rotated_system = rotate_system(original_system, rotation)
@@ -128,7 +128,7 @@ def test_equivariance_inversion(o3_lambda, o3_sigma):
     )
     model = SoapBpnn(MODEL_HYPERS, dataset_info)
 
-    system = ase.io.read(DATASET_PATH)
+    system = read(DATASET_PATH)
     original_system = systems_to_torch(system)
     inverted_system = System(
         positions=original_system.positions * (-1),
