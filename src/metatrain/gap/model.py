@@ -351,7 +351,9 @@ class _SorKernelSolver:
         self._nM = len(np.where(self._vk > 0)[0])
         self._PKPhi = self._Uk[:, : self._nM] * 1 / np.sqrt(self._vk[: self._nM])
 
-    def fit(self, KNM: Union[torch.Tensor, np.ndarray], Y: Union[torch.Tensor, np.ndarray]) -> None:
+    def fit(
+        self, KNM: Union[torch.Tensor, np.ndarray], Y: Union[torch.Tensor, np.ndarray]
+    ) -> None:
         # Convert to numpy arrays if passed as torch tensors for the solver
         if isinstance(KNM, torch.Tensor):
             weights_to_torch = True
@@ -366,20 +368,19 @@ class _SorKernelSolver:
         # Broadcast Y for shape
         if len(Y.shape) == 1:
             Y = Y[:, np.newaxis]
-        
+
         # Solve with the RKHS-QR method
         A = np.vstack([KNM @ self._PKPhi, np.eye(self._nM)])
         Q, R = np.linalg.qr(A)
-        
+
         weights = self._PKPhi @ scipy.linalg.solve_triangular(
             R, Q.T @ np.vstack([Y, np.zeros((self._nM, Y.shape[1]))])
         )
 
-        # Store weights as torch tensors 
+        # Store weights as torch tensors
         if weights_to_torch:
             weights = torch.tensor(weights, dtype=dtype, device=device)
         self._weights = weights
-            
 
     @property
     def weights(self):
