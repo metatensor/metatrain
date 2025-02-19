@@ -26,6 +26,7 @@ architecture:
     krr:
       degree: 2
       num_sparse_points: 500
+      kernel-aggregation: "sum"
     zbl: false
 
   training:
