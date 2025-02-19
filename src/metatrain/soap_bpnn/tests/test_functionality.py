@@ -259,9 +259,7 @@ def test_fixed_composition_weights():
         }
     }
     hypers = OmegaConf.create(hypers)
-    check_architecture_options(
-        name="experimental.soap_bpnn", options=OmegaConf.to_container(hypers)
-    )
+    check_architecture_options(name="soap_bpnn", options=OmegaConf.to_container(hypers))
 
 
 def test_fixed_composition_weights_error():
@@ -271,7 +269,7 @@ def test_fixed_composition_weights_error():
     hypers = OmegaConf.create(hypers)
     with pytest.raises(ValidationError, match=r"'H' does not match '\^\[0-9\]\+\$'"):
         check_architecture_options(
-            name="experimental.soap_bpnn", options=OmegaConf.to_container(hypers)
+            name="soap_bpnn", options=OmegaConf.to_container(hypers)
         )
 
 
