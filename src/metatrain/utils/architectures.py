@@ -131,7 +131,7 @@ def import_architecture(name: str):
         raise ImportError(
             f"Trying to import '{name}' but architecture dependencies "
             f"seem not be installed. \n"
-            f"Try to install them with `pip install .[{name_for_deps}]`"
+            f"Try to install them with `pip install metatrain[{name_for_deps}]`"
         ) from err
 
 

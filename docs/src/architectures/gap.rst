@@ -20,7 +20,7 @@ of the repository:
 
 .. code-block:: bash
 
-    pip install .[gap]
+    pip install metatrain[gap]
 
 This will install the package with the GAP dependencies.
 
