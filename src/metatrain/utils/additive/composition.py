@@ -306,11 +306,10 @@ class CompositionModel(torch.nn.Module):
                                 mask = (
                                     joined_blocks.samples.column("center_type")
                                     == atomic_type
+                                )
                                 weights_tensor[i_type] = joined_blocks.values[
                                     mask
                                 ].mean(dim=0)
-                                )
-                            
                         else:
                             # concatenate samples, for each block
                             all_targets = torch.concatenate(tensor_list)
