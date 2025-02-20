@@ -14,12 +14,12 @@ jobs:
           - os: ubuntu-22.04
             python-version: "3.9"
           - os: ubuntu-22.04
-            python-version: "3.12"
+            python-version: "3.13"
           - os: macos-14
-            python-version: "3.12"
+            python-version: "3.13"
           # To be restored once we figure out the issue with the windows build
           # - os: windows-2019
-          #   python-version: "3.12"
+          #   python-version: "3.13"
 
     runs-on: ${{ matrix.os }}
 

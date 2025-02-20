@@ -1,7 +1,6 @@
 import copy
 import random
 
-import ase.io
 import metatensor.torch
 import numpy as np
 import torch
@@ -10,6 +9,7 @@ from omegaconf import OmegaConf
 from metatrain.gap import GAP, Trainer
 from metatrain.utils.data import Dataset, DatasetInfo
 from metatrain.utils.data.readers import read_systems, read_targets
+from metatrain.utils.data.readers.ase import read
 from metatrain.utils.data.target_info import get_energy_target_info
 
 from . import DATASET_ETHANOL_PATH, DATASET_PATH, DEFAULT_HYPERS
@@ -90,7 +90,7 @@ def test_regression_train_and_invariance():
     assert torch.allclose(output["mtt::U0"].block().values, expected_output, rtol=0.3)
 
     # Tests that the model is rotationally invariant
-    system = ase.io.read(DATASET_PATH)
+    system = read(DATASET_PATH)
     system.numbers = np.ones(len(system.numbers))
 
     original_system = copy.deepcopy(system)
@@ -167,7 +167,7 @@ def test_ethanol_regression_train_and_invariance():
 
     # Predict on the first five systems
     output = gap(systems[:5], {"energy": gap.outputs["energy"]})
-    data = ase.io.read(DATASET_ETHANOL_PATH, ":5", format="extxyz")
+    data = read(DATASET_ETHANOL_PATH, ":5", format="extxyz")
 
     expected_output = torch.tensor([[i.info["energy"]] for i in data])
     assert torch.allclose(output["energy"].block().values, expected_output, rtol=0.1)
@@ -176,7 +176,7 @@ def test_ethanol_regression_train_and_invariance():
     # expected_forces = torch.vstack([torch.Tensor(i.arrays["forces"]) for i in data])
 
     # Tests that the model is rotationally invariant
-    system = ase.io.read(DATASET_ETHANOL_PATH)
+    system = read(DATASET_ETHANOL_PATH)
 
     original_system = copy.deepcopy(system)
     system.rotate(48, "y")
