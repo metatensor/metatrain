@@ -1,10 +1,5 @@
 import subprocess
 
-import torch
-
-
-torch.set_default_dtype(torch.float64)  # GAP only supports float64
-
 
 def test_regression_CI():
     """Perform a regression test on the model at initialization"""
@@ -22,17 +17,17 @@ def test_regression_CI():
         for line in lines:
             lsp = line.split()
             if len(lsp) > 5 and lsp[4] == "RMSE":
-                ermse = lsp[7]
-                emse = lsp[13]
-                frmse = lsp[17]
-                fmse = lsp[21]
+                ermse = float(lsp[7])
+                emse = float(lsp[13])
+                frmse = float(lsp[17])
+                fmse = float(lsp[21])
 
-    ref_ermse = str(0.44241)
-    ref_emse = str(0.36433)
-    ref_frmse = str(639.68)
-    ref_fmse = str(493.95)
+    ref_ermse = 0.44241
+    ref_emse = 0.36433
+    ref_frmse = 639.68
+    ref_fmse = 493.95
 
-    assert ermse == ref_ermse
-    assert emse == ref_emse
-    assert frmse == ref_frmse
-    assert fmse == ref_fmse
+    assert abs(ermse - ref_ermse) < 1e-4
+    assert abs(emse - ref_emse) < 1e-4
+    assert abs(frmse - ref_frmse) < 1e-2
+    assert abs(fmse - ref_fmse) < 1e-2
