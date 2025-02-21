@@ -5,6 +5,7 @@ from typing import List
 
 import ase
 import ase.io
+import numpy as np
 import pytest
 import torch
 
@@ -22,12 +23,15 @@ def ase_system() -> ase.Atoms:
     positions = [[0.0, 0.0, 0.0], [0.0, 0.0, 0.74]]
     info = {
         "true_energy": 42.0,
+        "energy": 42.0,
         "stress-3x3": [[0.0, 1.1, 2.1], [1.2, 2, 3], [13, 12, 12]],
+        "stress": np.array([[0.0, 1.1, 2.1], [1.2, 2, 3], [13, 12, 12]]),
         "stress-9": [0.1, 3, 6, 1, 2, 3, 4, 5, 53.3],
     }
 
     atoms = ase.Atoms(symbols, positions=positions, info=info, pbc=True, cell=[2, 2, 2])
     atoms.set_array("forces", positions, dtype=float)
+    atoms.set_array("true_forces", positions, dtype=float)
 
     return atoms
 
@@ -106,7 +110,7 @@ def test_read_forces_ase(monkeypatch, tmp_path):
     results = _read_forces_ase(filename=filename, key="forces")
 
     for result, atoms in zip(results, systems):
-        expected = -torch.tensor(atoms.get_array("forces"), dtype=torch.float64)
+        expected = -torch.tensor(atoms.arrays["forces"], dtype=torch.float64)
         expected = expected.reshape(-1, 3, 1)
         torch.testing.assert_close(result.values, expected)
 

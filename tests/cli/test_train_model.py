@@ -10,11 +10,16 @@ import ase.io
 import pytest
 import torch
 from jsonschema.exceptions import ValidationError
+from metatensor.torch import Labels, TensorBlock, TensorMap
+from metatensor.torch.atomistic import NeighborListOptions, systems_to_torch
 from omegaconf import OmegaConf
 
 from metatrain import RANDOM_SEED
 from metatrain.cli.train import _process_continue_from, train_model
+from metatrain.utils.data import DiskDatasetWriter
+from metatrain.utils.data.readers.ase import read
 from metatrain.utils.errors import ArchitectureError
+from metatrain.utils.neighbor_lists import get_system_with_neighbor_lists
 
 from . import (
     DATASET_PATH_CARBON,
@@ -94,7 +99,7 @@ def test_train(capfd, monkeypatch, tmp_path, output):
     assert file_log == stdout_log
 
     assert "This log is also available" in stdout_log
-    assert "Running training for 'experimental.soap_bpnn' architecture"
+    assert "Running training for 'soap_bpnn' architecture"
     assert re.search(r"Random seed of this run is [1-9]\d*", stdout_log)
     assert "Training dataset:" in stdout_log
     assert "Validation dataset:" in stdout_log
@@ -155,13 +160,13 @@ def test_train_from_options_restart_yaml(monkeypatch, tmp_path):
     train_model(options_restart, checkpoint_dir="outputs/")
 
 
-def test_train_unknonw_arch_options(monkeypatch, tmp_path):
+def test_train_unknown_arch_options(monkeypatch, tmp_path):
     monkeypatch.chdir(tmp_path)
     shutil.copy(DATASET_PATH_QM9, "qm9_reduced_100.xyz")
 
     options_str = """
     architecture:
-        name: experimental.soap_bpnn
+        name: soap_bpnn
         training:
             batch_size: 2
             num_epoch: 1
@@ -205,7 +210,7 @@ def test_train_explicit_validation_test(
     monkeypatch.chdir(tmp_path)
     caplog.set_level(logging.DEBUG)
 
-    systems = ase.io.read(DATASET_PATH_QM9, ":")
+    systems = read(DATASET_PATH_QM9, ":")
 
     ase.io.write("qm9_reduced_100.xyz", systems[:50])
 
@@ -248,11 +253,6 @@ def test_train_multiple_datasets(monkeypatch, tmp_path, options):
 
     systems_qm9 = ase.io.read(DATASET_PATH_QM9, ":")
     systems_ethanol = ase.io.read(DATASET_PATH_ETHANOL, ":")
-
-    # delete calculator to avoid warnings during writing. Remove once updated to ase >=
-    # 3.23.0
-    for atoms in systems_ethanol:
-        atoms.calc = None
 
     ase.io.write("qm9_reduced_100.xyz", systems_qm9[:50])
     ase.io.write("ethanol_reduced_100.xyz", systems_ethanol[:50])
@@ -352,7 +352,7 @@ def test_unit_check_is_performed(
     """Test that error is raised if units are inconsistent between the datasets."""
     monkeypatch.chdir(tmp_path)
 
-    systems = ase.io.read(DATASET_PATH_QM9, ":")
+    systems = read(DATASET_PATH_QM9, ":")
 
     ase.io.write("qm9_reduced_100.xyz", systems[:50])
 
@@ -383,7 +383,7 @@ def test_inconsistent_number_of_datasets(
     i.e one train dataset but two validation datasets. Same for the test dataset."""
     monkeypatch.chdir(tmp_path)
 
-    systems = ase.io.read(DATASET_PATH_QM9, ":")
+    systems = read(DATASET_PATH_QM9, ":")
 
     ase.io.write("qm9_reduced_100.xyz", systems[:50])
 
@@ -560,7 +560,9 @@ def test_architecture_error(options, monkeypatch, tmp_path):
     monkeypatch.chdir(tmp_path)
     shutil.copy(DATASET_PATH_QM9, "qm9_reduced_100.xyz")
 
-    options["architecture"]["model"] = OmegaConf.create({"soap": {"cutoff": -1.0}})
+    options["architecture"]["model"] = OmegaConf.create(
+        {"soap": {"cutoff": {"radius": -1.0}}}
+    )
 
     with pytest.raises(ArchitectureError, match="originates from an architecture"):
         train_model(options)
@@ -649,7 +651,7 @@ def test_train_generic_target_metatensor(monkeypatch, tmp_path, with_scalar_part
     shutil.copy(DATASET_PATH_QM7X, "qm7x_reduced_100.xyz")
 
     dump_spherical_targets(
-        "qm7x_reduced_100.xyz", "qm7x_reduced_100.npz", with_scalar_part
+        "qm7x_reduced_100.xyz", "qm7x_reduced_100.mts", with_scalar_part
     )
 
     # run training with original options
@@ -658,7 +660,7 @@ def test_train_generic_target_metatensor(monkeypatch, tmp_path, with_scalar_part
     options["training_set"]["systems"]["read_from"] = "qm7x_reduced_100.xyz"
     options["training_set"]["targets"] = {
         "mtt::polarizability": {
-            "read_from": "qm7x_reduced_100.npz",
+            "read_from": "qm7x_reduced_100.mts",
             "type": {
                 "spherical": {
                     "irreps": (
@@ -670,4 +672,39 @@ def test_train_generic_target_metatensor(monkeypatch, tmp_path, with_scalar_part
         }
     }
 
+    train_model(options)
+
+
+def test_train_disk_dataset(monkeypatch, tmp_path, options):
+    """Test that training via the training cli runs without an error raise
+    when learning from a `DiskDataset`."""
+    monkeypatch.chdir(tmp_path)
+    shutil.copy(DATASET_PATH_QM9, "qm9_reduced_100.xyz")
+
+    disk_dataset_writer = DiskDatasetWriter("qm9_reduced_100.zip")
+    for i in range(100):
+        frame = read("qm9_reduced_100.xyz", index=i)
+        system = systems_to_torch(frame, dtype=torch.float64)
+        system = get_system_with_neighbor_lists(
+            system,
+            [NeighborListOptions(cutoff=5.0, full_list=False, strict=False)],
+        )
+        energy = TensorMap(
+            keys=Labels.single(),
+            blocks=[
+                TensorBlock(
+                    values=torch.tensor([[frame.info["U0"]]], dtype=torch.float64),
+                    samples=Labels(
+                        names=["system"],
+                        values=torch.tensor([[i]]),
+                    ),
+                    components=[],
+                    properties=Labels("energy", torch.tensor([[0]])),
+                )
+            ],
+        )
+        disk_dataset_writer.write_sample(system, {"energy": energy})
+    del disk_dataset_writer
+
+    options["training_set"]["systems"]["read_from"] = "qm9_reduced_100.zip"
     train_model(options)

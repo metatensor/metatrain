@@ -2,6 +2,9 @@ from .combine_dataloaders import CombinedDataLoader  # noqa: F401
 from .dataset import (  # noqa: F401
     Dataset,
     DatasetInfo,
+    DiskDataset,
+    DiskDatasetWriter,
+    _is_disk_dataset,
     check_datasets,
     collate_fn,
     get_all_targets,
