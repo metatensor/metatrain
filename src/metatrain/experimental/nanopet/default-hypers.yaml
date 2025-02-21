@@ -11,6 +11,7 @@ architecture:
     num_gnn_layers: 2
     heads: {}
     zbl: False
+    long_range: False
 
   training:
     distributed: False

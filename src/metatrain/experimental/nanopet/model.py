@@ -17,6 +17,7 @@ from metatensor.torch.atomistic import (
 from ...utils.additive import ZBL, CompositionModel
 from ...utils.data import DatasetInfo, TargetInfo
 from ...utils.dtype import dtype_to_str
+from ...utils.long_range import LongRangeFeaturizer
 from ...utils.metadata import append_metadata_references
 from ...utils.scaler import Scaler
 from .modules.encoder import Encoder
@@ -133,6 +134,14 @@ class NanoPET(torch.nn.Module):
         )
         for i, species in enumerate(self.atomic_types):
             self.species_to_species_index[species] = i
+
+        # long-range module
+        if self.hypers["long_range"]:
+            self.long_range = True
+            self.long_range_featurizer = LongRangeFeaturizer(self.hypers["long_range"])
+        else:
+            self.long_range = False
+            self.long_range_featurizer = torch.nn.Identity()  # for torchscript
 
         # additive models: these are handled by the trainer at training
         # time, and they are added to the output at evaluation time
@@ -364,6 +373,12 @@ class NanoPET(torch.nn.Module):
 
         edge_features = features * radial_mask[:, :, None]
         node_features = torch.sum(edge_features, dim=1)
+
+        if self.long_range:
+            long_range_node_features = self.long_range_featurizer(
+                systems, node_features, neighbors, edge_vectors
+            )
+            node_features = (node_features + long_range_node_features) * 0.5**0.5
 
         return_dict: Dict[str, TensorMap] = {}
 
