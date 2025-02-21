@@ -138,7 +138,7 @@ class NanoPET(torch.nn.Module):
         # long-range module
         if self.hypers["long_range"]:
             self.long_range = True
-            self.long_range_featurizer = LongRangeFeaturizer(self.hypers["long_range"])
+            self.long_range_featurizer = LongRangeFeaturizer(self.hypers)
         else:
             self.long_range = False
 
@@ -390,7 +390,7 @@ class NanoPET(torch.nn.Module):
 
         if self.long_range:
             long_range_node_features = self.long_range_featurizer(
-                systems, node_features, neighbors, edge_vectors
+                systems, node_features, self.requested_nl
             )
             node_features = (node_features + long_range_node_features) * 0.5**0.5
 

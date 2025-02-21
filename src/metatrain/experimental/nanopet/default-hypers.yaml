@@ -11,7 +11,15 @@ architecture:
     num_gnn_layers: 2
     heads: {}
     zbl: False
-    long_range: False
+    long_range: 
+      enabled: False
+      calculator: ewald
+      prefactor: 14.
+      atomic_smearing: 1.
+      lr_wavelength: 0.5
+      subtract_interior: true
+      physical_charges: false
+      exponent: 1.0
 
   training:
     distributed: False
