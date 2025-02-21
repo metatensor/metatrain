@@ -84,7 +84,14 @@ class TargetInfo:
         # examine basic properties of all blocks
         for block in layout.blocks():
             for sample_name in block.samples.names:
-                if sample_name not in ["system", "atom"]:
+                if (
+                    sample_name not in [  # node target
+                        "system", "atom",
+                    ]
+                    and sample_name not in [  # edge target
+                        "system", "first_atom", "second_atom", "cell_shift_a", "cell_shift_b", "cell_shift_c"
+                    ]
+                ):
                     raise ValueError(
                         "The layout ``TensorMap`` of a target should only have samples "
                         "named 'system' or 'atom', but found "
@@ -116,11 +123,17 @@ class TargetInfo:
             if layout.keys.names == ["o3_lambda", "o3_sigma", "center_type"]:
                 self.is_spherical_node = True
             elif layout.keys.names == [
-                "o3_lambda", "o3_sigma", "center_1_type", "center_2_type", "block_type"
+                "o3_lambda", "o3_sigma", "first_atom_type", "second_atom_type",
+            ]:
+                self.is_spherical_edge = True
+            elif layout.keys.names == [
+                "o3_lambda", "o3_sigma", "first_atom_type", "second_atom_type", "block_type"
             ]:
                 self.is_spherical_edge = True
             else:
-                assert layout.keys.names == ["o3_lambda", "o3_sigma"]
+                assert layout.keys.names == ["o3_lambda", "o3_sigma"], (
+                    f"invalid key names: {layout.keys.names }"
+                )
                 self.is_spherical = True
         else:
             raise ValueError(
@@ -252,7 +265,9 @@ class TargetInfo:
                 
         if self.is_spherical_edge:
             if layout.keys.names != [
-                "o3_lambda", "o3_sigma", "center_1_type", "center_2_type", "block_type"
+                "o3_lambda", "o3_sigma", "first_atom_type", "second_atom_type"
+            ] and layout.keys.names != [
+                "o3_lambda", "o3_sigma", "first_atom_type", "second_atom_type", "block_type"
             ]:
                 raise ValueError(
                     # TODO

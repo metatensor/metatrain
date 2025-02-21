@@ -27,10 +27,10 @@ class NanoPetOnBasis(torch.torch.nn.Module):
     def __init__(
         self,
         atomic_types: List[int],
-        in_keys_node: Labels,
-        out_properties_node: List[Labels],
-        in_keys_edge: Labels = None,
-        out_properties_edge: List[Labels] = None,
+        in_keys_node: Optional[Labels] = None,
+        out_properties_node: Optional[List[Labels]] = None,
+        in_keys_edge: Optional[Labels] = None,
+        out_properties_edge: Optional[List[Labels]] = None,
         pet_hypers=None,
         head_hidden_layer_widths=[64, 64, 64],
         standardizers: Dict[str, TensorMap] = None,
@@ -51,10 +51,16 @@ class NanoPetOnBasis(torch.torch.nn.Module):
         super().__init__()
 
         # Extract node target metadata
-        self.in_keys_node = in_keys_node
-        self.out_properties_node = out_properties_node
         self.atomic_types = atomic_types
-        # self.atomic_types = torch.unique(self.in_keys_node.column("center_type"))
+
+        if in_keys_node is not None:
+            self.in_keys_node = in_keys_node
+            self.out_properties_node = out_properties_node
+            self.predict_nodes = True
+        else:
+            self.in_keys_node = None
+            self.out_properties_node = None
+            self.predict_nodes = False
 
         # Extract edge target metadata
         if in_keys_edge is not None:
@@ -64,6 +70,8 @@ class NanoPetOnBasis(torch.torch.nn.Module):
             )
             self.predict_edges = True
         else:
+            self.in_keys_edge = None
+            self.out_properties_edge = None
             self.predict_edges = False
 
         # Instantiate NanoPET model
@@ -79,11 +87,12 @@ class NanoPetOnBasis(torch.torch.nn.Module):
         )
 
         # Build node heads
-        self.node_heads = self._instantiate_heads(
-            self.in_keys_node,
-            self.out_properties_node,
-            head_hidden_layer_widths,
-        )
+        if self.predict_nodes:
+            self.node_heads = self._instantiate_heads(
+                self.in_keys_node,
+                self.out_properties_node,
+                head_hidden_layer_widths,
+            )
 
         # Build edge heads
         if self.predict_edges:
@@ -104,6 +113,7 @@ class NanoPetOnBasis(torch.torch.nn.Module):
         if standardizers is None:
             self.standardizers = None
             return
+        
 
         for name, tensor in standardizers.items():
             assert name in ["node_mean", "node_std", "edge_mean", "edge_std"]
@@ -135,21 +145,25 @@ class NanoPetOnBasis(torch.torch.nn.Module):
         )["features"]
 
         # Symmetrize PET predictions and pass through head modules. First handle nodes.
-        predictions_node = symmetrize_predictions_node(
-            self.atomic_types,
-            pet_features["node"],
-            self.in_keys_node,
-            systems=systems,
-        )
-        predictions_node = self.node_heads(predictions_node)
-        predictions_node = self._reshape_predictions(predictions_node, "node")
+        if self.predict_nodes:
+            predictions_node = symmetrize_predictions_node(
+                self.atomic_types,
+                pet_features["node"],
+                self.in_keys_node,
+                systems=systems,
+            )
+            predictions_node = self.node_heads(predictions_node)
+            predictions_node = self._reshape_predictions(predictions_node, "node")
 
-        if system_id is not None:
-            predictions_node = reindex_tensormap(predictions_node, system_id)
+            if system_id is not None:
+                predictions_node = reindex_tensormap(predictions_node, system_id)
+        else:
+            predictions_node = None
 
         # Next handle edges, if applicable
         if self.predict_edges:
             predictions_edge = symmetrize_predictions_edge(
+                self.atomic_types,
                 pet_features["edge"],
                 self.in_keys_edge,
                 systems=systems,
@@ -158,6 +172,8 @@ class NanoPetOnBasis(torch.torch.nn.Module):
             predictions_edge = self._reshape_predictions(predictions_edge, "edge")
             if system_id is not None:
                 predictions_edge = reindex_tensormap(predictions_edge, system_id)
+
+            predictions_edge = mts.sort(predictions_edge, "samples")
         else:
             predictions_edge = None
 
@@ -166,7 +182,7 @@ class NanoPetOnBasis(torch.torch.nn.Module):
             predictions_node, predictions_edge
         )
         return predictions_node, predictions_edge
-
+    
     def _add_mean_revert_std(
         self,
         predictions_node: TensorMap,
@@ -178,18 +194,19 @@ class NanoPetOnBasis(torch.torch.nn.Module):
         """
         if self.standardizers is None:
             return predictions_node, predictions_edge
-
+        
         # TODO: does order matter here?
-        if "node_mean" in self.standardizers:
-            predictions_node = add_back_invariant_mean(
-                predictions_node,
-                self.standardizers["node_mean"],
-            )
-        if "node_std" in self.standardizers:
-            predictions_node = revert_standardization(
-                predictions_node,
-                self.standardizers["node_std"],
-            )
+        if predictions_node is not None:
+            if "node_mean" in self.standardizers:
+                predictions_node = add_back_invariant_mean(
+                    predictions_node,
+                    self.standardizers["node_mean"],
+                )
+            if "node_std" in self.standardizers:
+                predictions_node = revert_standardization(
+                    predictions_node,
+                    self.standardizers["node_std"],
+                )
         if predictions_edge is not None:
             if "edge_mean" in self.standardizers:
                 predictions_edge = add_back_invariant_mean(
@@ -285,7 +302,7 @@ class ResidualBlock(torch.nn.Module):
 
     def __init__(self, input_dim, output_dim, device=None):
         super().__init__()
-        # self.norm = torch.nn.LayerNorm(input_dim, device=device)
+        self.norm = torch.nn.LayerNorm(input_dim, device=device)
         self.linear = torch.nn.Linear(input_dim, output_dim, device=device)
         self.activation = torch.nn.SiLU()
         # self.dropout = torch.nn.Dropout(0.5)
@@ -354,10 +371,12 @@ def symmetrize_predictions_node(
     """Symmetrize PET node predictions."""
 
     # Create a dictionary storing the atomic indices for each center type
-    slice_nodes = {center_type: [] for center_type in atomic_types}
+    slice_nodes = {
+        center_type: [] for center_type in atomic_types
+    }
     for A, system in enumerate(systems):
         for i, center_type in enumerate(system.types):
-
+            
             slice_nodes[int(center_type)].append([A, i])
 
     # Slice the predictions TensorMap to create blocks for the different center types
@@ -372,9 +391,9 @@ def symmetrize_predictions_node(
             "samples",
             Labels(
                 ["system", "atom"],
-                torch.tensor(slice_nodes[center_type], dtype=torch.int32).reshape(
-                    -1, 2
-                ),
+                torch.tensor(
+                    slice_nodes[center_type],
+                    dtype=torch.int32).reshape(-1, 2),
             ),
         )[0]
 
@@ -384,6 +403,7 @@ def symmetrize_predictions_node(
 
 
 def symmetrize_predictions_edge(
+    atomic_types: List[int],
     predictions_edge: TensorMap,
     in_keys_edge: Labels,
     systems,
@@ -391,25 +411,18 @@ def symmetrize_predictions_edge(
     """
     Symmetrize PET edge predictions
     """
-    # TODO: update for predicting on subset of the global atomic types as in
-    # symmetrize_predictions_node
-    raise NotImplementedError("TODO: change for predicting on a subset of atomic types")
     apply_permutational_symmetry = "block_type" in in_keys_edge.names
 
-    slice_edges = {}
-    for key in in_keys_edge:
-        Z1 = int(key["first_atom_type"])
-        Z2 = int(key["second_atom_type"])
-        if (Z1, Z2) not in slice_edges:
-            slice_edges[(Z1, Z2)] = []
+    slice_edges = {
+        (first_atom_type, second_atom_type): [] 
+        for first_atom_type in atomic_types
+        for second_atom_type in atomic_types
+    }
     for A, system in enumerate(systems):
-        for i, Z1 in enumerate(system.types):
-            Z1 = int(Z1)
-            for j, Z2 in enumerate(system.types):
-                if Z1 > Z2:
-                    continue
-                Z2 = int(Z2)
-                slice_edges[(Z1, Z2)].append([A, i, j])
+        for i, first_atom_type in enumerate(system.types):
+            for j, second_atom_type in enumerate(system.types):
+            
+                slice_edges[(int(first_atom_type), int(second_atom_type))].append([A, i, j])
 
     # Edges (properly symmetrized)
     edge_blocks = []
@@ -424,7 +437,7 @@ def symmetrize_predictions_edge(
             "samples",
             Labels(
                 ["system", "first_atom", "second_atom"],
-                torch.tensor(slice_edges[Z1, Z2], dtype=torch.int32).reshape(-1, 3),
+                torch.tensor(slice_edges[(Z1, Z2)], dtype=torch.int32).reshape(-1, 3),
             ),
         )[0]
 
@@ -479,10 +492,10 @@ def reindex_tensormap(
 
     return mts.TensorMap(tensor.keys, new_blocks)
 
-
 def add_back_invariant_mean(tensor: TensorMap, mean_tensor: TensorMap) -> TensorMap:
     """
-    Standardizes the input ``tensor`` using the ``standardizer`` layer.
+    Adds back the mean to the invariant blocks of the input ``tensor`` using the
+    ``mean_tensor`` layer.
     """
     for key, mean_block in mean_tensor.items():
         if key not in tensor.keys:
@@ -492,10 +505,9 @@ def add_back_invariant_mean(tensor: TensorMap, mean_tensor: TensorMap) -> Tensor
 
     return tensor
 
-
 def revert_standardization(tensor: TensorMap, standardizer: TensorMap) -> TensorMap:
     """
-    Standardizes the input ``tensor`` using the ``standardizer`` layer.
+    Un-standardizes the input ``tensor`` using the ``standardizer`` layer.
     """
     for key, block in tensor.items():
         block.values[:] *= standardizer.block(key).values

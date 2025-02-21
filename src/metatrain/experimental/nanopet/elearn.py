@@ -1,4 +1,5 @@
-from typing import List, Tuple, Optional, Dict, Union
+from functools import partial
+from typing import List, Tuple, Optional, Dict, Union, NamedTuple
 
 import numpy as np
 import torch
@@ -6,6 +7,14 @@ import vesin
 
 import metatensor.torch as mts
 from metatensor.torch import Labels, TensorBlock, TensorMap
+
+from metatensor.torch.learn.data import IndexedDataset, DataLoader, group_and_join
+from metatensor.torch.learn.data._namedtuple import namedtuple
+
+from metatrain.experimental.nanopet.modules.augmentation import (
+    RotationalAugmenter, get_random_rotation, get_random_inversion
+)
+from metatrain.utils.data import TargetInfo
 
 
 def symmetrize_samples(
@@ -475,6 +484,184 @@ def get_two_center_metadata(
         "out_properties_edge": out_properties_edge_new,
     }
 
+
+def get_edges(tensor: TensorMap) -> Dict[str, TensorMap]:
+    """
+    Splits the two-center target ``tensor`` into node and edge tensors.
+    """
+
+    # Now edges
+    edge_keys = []
+    edge_blocks = []
+    for key, block in tensor.items():
+
+        edge_keys.append(key.values)
+
+        # Assert non-periodic for now. TODO: periodic!
+        assert all(block.samples.column("cell_shift_a") == 0)
+        assert all(block.samples.column("cell_shift_b") == 0)
+        assert all(block.samples.column("cell_shift_c") == 0)
+
+        # Slice samples to off-site
+        samples_mask = torch.where(
+            block.samples.values[:, block.samples.names.index("first_atom")] 
+            != block.samples.values[:, block.samples.names.index("second_atom")]
+        )
+        edge_blocks.append(
+            TensorBlock(
+                samples=Labels(
+                    block.samples.names,
+                    block.samples.values[samples_mask],
+                ),
+                components=block.components,
+                properties=block.properties,
+                values=block.values[samples_mask],
+            )
+        )
+
+    edge_tensor = TensorMap(Labels(tensor.keys.names, torch.stack(edge_keys)), edge_blocks)
+    edge_tensor = drop_empty_blocks(edge_tensor)
+
+    # return node_tensor, edge_tensor
+    return edge_tensor
+
+
+# ===== Training utils ===== #
+
+def group_and_join_nonetypes(
+    batch: List[NamedTuple],
+    fields_to_join: Optional[List[str]] = None,
+    join_kwargs: Optional[dict] = None,
+) -> NamedTuple:
+    """
+    A modified form of :py:meth:`metatensor.torch.learn.data.group_and_join` that
+    handles data fields that are NoneType. Any fields that are a list of ``None`` are
+    'joined' to a single ``None``. All other functionality is the same, but
+
+    This is useful for passing data straight to the :py:class:`rholearn.loss.RhoLoss`
+    class.
+    """
+    data: List[Union[TensorMap, torch.Tensor]] = []
+    names = batch[0]._fields
+    if fields_to_join is None:
+        fields_to_join = names
+    if join_kwargs is None:
+        join_kwargs = {}
+    for name, field in zip(names, list(zip(*batch))):
+
+        if name == "sample_id":  # special case, keep as is
+            data.append(field)
+            continue
+
+        if name in fields_to_join:  # Join tensors if requested
+            if isinstance(field[0], torch.ScriptObject) and field[0]._has_method(
+                "keys_to_properties"
+            ):  # inferred metatensor.torch.TensorMap type
+                data.append(mts.join(field, axis="samples", **join_kwargs))
+            elif isinstance(field[0], torch.Tensor):  # torch.Tensor type
+                data.append(torch.vstack(field))
+            elif isinstance(field[0], type(None)):  # NoneType
+                data.append(None)
+            else:
+                data.append(field)
+
+        else:  # otherwise just keep as a list
+            data.append(field)
+
+    return namedtuple("Batch", names)(*data)
+
+def get_dataset(systems, system_id, target_node, target_edge):
+    """Returns a dataset with systems, and target nodes and edges"""
+    return IndexedDataset(
+        sample_id=system_id,
+        systems=[systems[i] for i in system_id],
+        targets_node=[
+            mts.slice(
+                target_node,
+                "samples",
+                mts.Labels(["system"], torch.tensor([A]).reshape(-1, 1)),
+            )
+            for A in system_id
+        ],
+        targets_edge=[
+            mts.slice(
+                target_edge,
+                "samples",
+                mts.Labels(["system"], torch.tensor([A]).reshape(-1, 1)),
+            )
+            for A in system_id
+        ],
+    )
+
+def get_dataloader(dataset, **kwargs):
+    """Returns a dataloader"""
+    return DataLoader(
+    dataset,
+    collate_fn=partial(
+        group_and_join_nonetypes,
+        join_kwargs={
+            "remove_tensor_name": True,
+            "different_keys": "union",
+        }
+    ),
+    shuffle=True,
+    **kwargs
+)
+
+def get_augmenter(
+    target_node: Optional[TensorMap] = None,
+    target_edge: Optional[TensorMap] = None,
+) -> RotationalAugmenter:
+    """
+    Returns a RotationalAugmenter for node and/or edge targets.
+    """
+    target_info_dict = {}
+    if target_node is not None:
+        target_info_dict.update(
+            {
+                "mtt::target_node": TargetInfo(
+                    quantity="node",
+                    unit="Angstrom^-3",
+                    layout=mts.slice(
+                        target_node,
+                        "samples",
+                        mts.Labels(["system"], torch.tensor([-1]).reshape(-1, 1)),
+                    )
+                )
+            }
+        )
+    if target_edge is not None:
+        target_info_dict.update(
+            {
+                "mtt::target_edge": TargetInfo(
+                    quantity="edge",
+                    unit="Angstrom^-3",
+                    layout=mts.slice(
+                        target_edge,
+                        "samples",
+                        mts.Labels(["system"], torch.tensor([-1]).reshape(-1, 1)),
+                    )
+                )
+            }
+        )
+    return RotationalAugmenter(target_info_dict)
+
+def l2loss(input: TensorMap, target: TensorMap) -> torch.Tensor:
+    """Computes the squared loss (reduction = sum) between the input and target TensorMaps"""
+    mts.equal_metadata_raise(input, target)
+    loss = 0
+    for key in target.keys:
+        loss += torch.sum((input[key].values - target[key].values) ** 2)
+    return loss
+
+def get_system_transformations(systems) -> List[torch.Tensor]:
+    """
+    Returns a series of random transformations to be applied for each system in
+    ``systems``.
+    """
+    rotations = [get_random_rotation() for _ in range(len(systems))]
+    inversions = [get_random_inversion() for _ in range(len(systems))]
+    return rotations, inversions
 
 # ===== For converting between atomic numbers and symbols
 
