@@ -475,14 +475,28 @@ class CompositionModel(torch.nn.Module):
         for output_name, output_options in outputs.items():
             blocks: List[TensorBlock] = []
             if "center_type" in self.weights[output_name].keys.names:
-                for key in self.all_layouts[output_name].keys:
-                    if key in self.weights[output_name].keys:
+                # weird stuff going on here because iterating a Labels to get a LabelsEntry
+                # apparently doesn't work in torchscript
+                center_type_position = self.weights[output_name].keys.names.index(
+                    "center_type"
+                )
+                for v in self.all_layouts[output_name].keys.values:
+                    key = {
+                        name: int(value)
+                        for name, value in zip(self.weights[output_name].keys.names, v)
+                    }
+                    if torch.any(
+                        torch.all(
+                            torch.eq(self.weights[output_name].keys.values, v), dim=1
+                        )
+                    ):
                         weight_block = self.weights[output_name].block(key)
-                        center_type = int(key["center_type"])
+                        center_type = int(v[center_type_position])
                         center_type_mask = concatenated_types == center_type
                         weights_tensor = weight_block.values
                         composition_values_per_atom = weights_tensor.expand(
-                            [int(torch.sum(center_type_mask))] + [-1 for _ in weight_block.shape[1:]]
+                            [int(torch.sum(center_type_mask))]
+                            + [-1 for _ in weight_block.shape[1:]]
                         )
                         blocks.append(
                             TensorBlock(
@@ -496,13 +510,15 @@ class CompositionModel(torch.nn.Module):
                             )
                         )
                     else:
-                        center_type = int(key["center_type"])
+                        center_type = int(v[center_type_position])
                         center_type_mask = concatenated_types == center_type
                         blocks.append(
                             TensorBlock(
                                 values=torch.zeros(
                                     [int(torch.sum(center_type_mask))]
-                                    + self.all_layouts[output_name].block(key).shape[1:],
+                                    + self.all_layouts[output_name]
+                                    .block(key)
+                                    .shape[1:],
                                     dtype=dtype,
                                     device=device,
                                 ),
@@ -510,13 +526,25 @@ class CompositionModel(torch.nn.Module):
                                     sample_labels.names,
                                     sample_labels.values[center_type_mask],
                                 ),
-                                components=self.all_layouts[output_name].block(key).components,
-                                properties=self.all_layouts[output_name].block(key).properties,
+                                components=self.all_layouts[output_name]
+                                .block(key)
+                                .components,
+                                properties=self.all_layouts[output_name]
+                                .block(key)
+                                .properties,
                             )
                         )
             else:
-                for key in self.all_layouts[output_name].keys:
-                    if key in self.weights[output_name].keys:
+                for v in self.all_layouts[output_name].keys.values:
+                    key = {
+                        name: int(value)
+                        for name, value in zip(self.weights[output_name].keys.names, v)
+                    }
+                    if torch.any(
+                        torch.all(
+                            torch.eq(self.weights[output_name].keys.values, v), dim=1
+                        )
+                    ):
                         weight_block = self.weights[output_name].block(key)
                         weights_tensor = weight_block.values
                         composition_values_per_atom = torch.empty(
@@ -541,13 +569,19 @@ class CompositionModel(torch.nn.Module):
                             TensorBlock(
                                 values=torch.zeros(
                                     [len(concatenated_types)]
-                                    + self.all_layouts[output_name].block(key).shape[1:],
+                                    + self.all_layouts[output_name]
+                                    .block(key)
+                                    .shape[1:],
                                     dtype=dtype,
                                     device=device,
                                 ),
                                 samples=sample_labels,
-                                components=self.all_layouts[output_name].block(key).components,
-                                properties=self.all_layouts[output_name].block(key).properties,
+                                components=self.all_layouts[output_name]
+                                .block(key)
+                                .components,
+                                properties=self.all_layouts[output_name]
+                                .block(key)
+                                .properties,
                             )
                         )
             composition_result_dict[output_name] = TensorMap(
@@ -578,11 +612,18 @@ class CompositionModel(torch.nn.Module):
             per_atom=True,
         )
         center_type_in_keys = "center_type" in target_info.layout.keys.names
-        new_keys = Labels(
-            target_info.layout.keys.names, target_info.layout.keys.values[target_info.layout.keys.select(
-                Labels(["o3_lambda", "o3_sigma"], torch.tensor([[0, 1]]))
-            )]
-        ) if target_info.is_spherical else target_info.layout.keys
+        new_keys = (
+            Labels(
+                target_info.layout.keys.names,
+                target_info.layout.keys.values[
+                    target_info.layout.keys.select(
+                        Labels(["o3_lambda", "o3_sigma"], torch.tensor([[0, 1]]))
+                    )
+                ],
+            )
+            if target_info.is_spherical
+            else target_info.layout.keys
+        )
         if center_type_in_keys:
             self.weights[target_name] = TensorMap(
                 keys=new_keys,
@@ -633,7 +674,9 @@ class CompositionModel(torch.nn.Module):
                 self.weights = {k: v.to(dtype) for k, v in self.weights.items()}
         if len(self.all_layouts) != 0:
             if self.all_layouts[list(self.all_layouts.keys())[0]].device != device:
-                self.all_layouts = {k: v.to(device) for k, v in self.all_layouts.items()}
+                self.all_layouts = {
+                    k: v.to(device) for k, v in self.all_layouts.items()
+                }
             if self.all_layouts[list(self.all_layouts.keys())[0]].dtype != dtype:
                 self.all_layouts = {k: v.to(dtype) for k, v in self.all_layouts.items()}
 
@@ -701,7 +744,11 @@ class CompositionModel(torch.nn.Module):
             keys=Labels(
                 names=metadata_tensor_map.keys.names,
                 values=torch.stack(
-                    [k.values for k in metadata_tensor_map.keys if (k["o3_lambda"] == 0 and k["o3_sigma"] == 1)]
+                    [
+                        k.values
+                        for k in metadata_tensor_map.keys
+                        if (k["o3_lambda"] == 0 and k["o3_sigma"] == 1)
+                    ]
                 ).to(device),
             ),
             blocks=(
@@ -709,14 +756,20 @@ class CompositionModel(torch.nn.Module):
                     TensorBlock(
                         values=mean_accumulators[tuple(int(k) for k in key.values)]
                         .return_result()
-                        .reshape((1,) + metadata_tensor_map.block(key).values.shape[1:]),
+                        .reshape(
+                            (1,) + metadata_tensor_map.block(key).values.shape[1:]
+                        ),
                         samples=Labels.single().to(device),
-                        components=[c.to(device) for c in metadata_tensor_map.block(key).components],
+                        components=[
+                            c.to(device)
+                            for c in metadata_tensor_map.block(key).components
+                        ],
                         properties=self.dataset_info.targets[target_key]
                         .layout.block(key)
                         .properties.to(device),
                     )
-                    for key in metadata_tensor_map.keys if (key["o3_lambda"] == 0 and key["o3_sigma"] == 1)
+                    for key in metadata_tensor_map.keys
+                    if (key["o3_lambda"] == 0 and key["o3_sigma"] == 1)
                 ]
                 if center_type_in_keys
                 else [
@@ -735,12 +788,16 @@ class CompositionModel(torch.nn.Module):
                                 self.atomic_types, dtype=torch.int, device=device
                             ).reshape(-1, 1),
                         ),
-                        components=[c.to(device) for c in metadata_tensor_map.block(key).components],
+                        components=[
+                            c.to(device)
+                            for c in metadata_tensor_map.block(key).components
+                        ],
                         properties=self.dataset_info.targets[target_key]
                         .layout.block(key)
                         .properties.to(device),
                     )
-                    for key in metadata_tensor_map.keys if (key["o3_lambda"] == 0 and key["o3_sigma"] == 1)
+                    for key in metadata_tensor_map.keys
+                    if (key["o3_lambda"] == 0 and key["o3_sigma"] == 1)
                 ]
             ),
         )

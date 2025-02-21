@@ -180,7 +180,7 @@ def _get_digits(value: float) -> Tuple[int, int]:
     if not np.isfinite(value):
         return 5, 2
     else:
-        order = int(np.floor(np.log10(value))) 
+        order = int(np.floor(np.log10(value)))
 
     # Get the number of digits before the decimal point:
     if order < 0:

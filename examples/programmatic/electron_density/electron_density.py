@@ -6,6 +6,8 @@ This tutorial demonstrates how to train a model for the electron density of an
 atomic system.
 """
 
+import subprocess
+
 import ase.io
 import numpy as np
 import torch
@@ -91,19 +93,15 @@ del disk_dataset_writer
 # %%
 #
 # Now that the dataset has been saved to disk, we can train a model on it.
-# The model was trained using the following training options.
+# The model will be trained using the following training options.
 #
 # .. literalinclude:: options.yaml
 #    :language: yaml
 
-# You can train the same model yourself with
+# Launch `mtt train options.yaml` from this script
+subprocess.run(["mtt", "train", "options.yaml"])
 
-# .. literalinclude:: train.sh
-#    :language: bash
-
-#
-# Once the model has been trained, we can load it and use it:
-
+# Once the model is trained, we can load it and use it:
 load_model("model.pt", extensions_directory="extensions/")
 
 # %%
