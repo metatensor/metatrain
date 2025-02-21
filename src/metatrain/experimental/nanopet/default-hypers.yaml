@@ -12,7 +12,7 @@ architecture:
     heads: {}
     zbl: False
     long_range: 
-      enabled: False
+      enabled: true
       calculator: ewald
       prefactor: 14.
       atomic_smearing: 1.

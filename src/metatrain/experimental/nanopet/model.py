@@ -136,7 +136,7 @@ class NanoPET(torch.nn.Module):
             self.species_to_species_index[species] = i
 
         # long-range module
-        if self.hypers["long_range"]:
+        if self.hypers["long_range"]["enabled"]:
             self.long_range = True
             self.long_range_featurizer = LongRangeFeaturizer(self.hypers)
         else:
