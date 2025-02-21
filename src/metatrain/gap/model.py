@@ -404,7 +404,7 @@ class AggregateKernel(torch.nn.Module):
         structurewise_aggregate: bool = False,
     ):
         super().__init__()
-        
+
         self._aggregate_names = aggregate_names
         self._structurewise_aggregate = structurewise_aggregate
 
@@ -470,9 +470,7 @@ class TorchAggregateKernel(torch.nn.Module):
         are_pseudo_points: Tuple[bool, bool] = (False, False),
     ) -> TorchTensorMap:
         if not are_pseudo_points[0]:
-            kernel = metatensor.torch.sum_over_samples(
-                kernel, self._aggregate_names
-            )
+            kernel = metatensor.torch.sum_over_samples(kernel, self._aggregate_names)
         if not are_pseudo_points[1]:
             raise NotImplementedError(
                 "properties dimension cannot be aggregated for the moment"
