@@ -18,14 +18,15 @@ from metatrain.utils.data.readers.ase import (
 )
 
 
-def test_read_energies(monkeypatch, tmp_path):
+@pytest.mark.parametrize("key", ["true_energy", "energy"])
+def test_read_energies(monkeypatch, tmp_path, key):
     monkeypatch.chdir(tmp_path)
 
     filename = "systems.xyz"
     systems = ase_systems()
     ase.io.write(filename, systems)
 
-    results = _read_energy_ase(filename, key="true_energy")
+    results = _read_energy_ase(filename, key=key)
 
     assert type(results) is list
     assert len(results) == len(systems)
@@ -36,14 +37,15 @@ def test_read_energies(monkeypatch, tmp_path):
         assert result.properties == Labels("energy", torch.tensor([[0]]))
 
 
-def test_read_forces(monkeypatch, tmp_path):
+@pytest.mark.parametrize("key", ["true_forces", "forces"])
+def test_read_forces(monkeypatch, tmp_path, key):
     monkeypatch.chdir(tmp_path)
 
     filename = "systems.xyz"
     systems = ase_systems()
     ase.io.write(filename, systems)
 
-    results = _read_forces_ase(filename, key="forces")
+    results = _read_forces_ase(filename, key=key)
 
     assert type(results) is list
     assert len(results) == len(systems)
@@ -56,15 +58,16 @@ def test_read_forces(monkeypatch, tmp_path):
         assert result.properties == Labels("energy", torch.tensor([[0]]))
 
 
+@pytest.mark.parametrize("key", ["stress", "stress-3x3"])
 @pytest.mark.parametrize("reader_func", [_read_stress_ase, _read_virial_ase])
-def test_read_stress_virial(reader_func, monkeypatch, tmp_path):
+def test_read_stress_virial(reader_func, monkeypatch, tmp_path, key):
     monkeypatch.chdir(tmp_path)
 
     filename = "systems.xyz"
     systems = ase_systems()
     ase.io.write(filename, systems)
 
-    results = reader_func(filename, key="stress-3x3")
+    results = reader_func(filename, key=key)
 
     assert type(results) is list
     assert len(results) == len(systems)

@@ -1,7 +1,7 @@
 seed: 42
 
 architecture:
-  name: experimental.soap_bpnn
+  name: soap_bpnn
   model:
     zbl: true
   training:

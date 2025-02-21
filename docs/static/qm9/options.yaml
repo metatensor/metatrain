@@ -1,6 +1,6 @@
 # architecture used to train the model
 architecture:
-  name: experimental.soap_bpnn
+  name: soap_bpnn
   training:
     num_epochs: 5 # a very short training run
 

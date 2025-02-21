@@ -1,7 +1,7 @@
 import pytest
 import torch
 
-from metatrain.experimental.soap_bpnn import __model__
+from metatrain.soap_bpnn import __model__
 from metatrain.utils.data import DatasetInfo, read_systems
 from metatrain.utils.data.target_info import get_energy_target_info
 from metatrain.utils.evaluate_model import evaluate_model

@@ -3,7 +3,7 @@ Output naming
 
 The name and format of the outputs in ``metatrain`` are based on
 those of the `<metatensor.torch.atomistic
-https://lab-cosmo.github.io/metatensor/latest/atomistic/outputs.html>`_
+https://docs.metatensor.org/latest/atomistic/outputs/index.html>`_
 package. An immediate example is given by the ``energy`` output.
 
 Any additional outputs present within the library are denoted by the

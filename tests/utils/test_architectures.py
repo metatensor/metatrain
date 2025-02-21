@@ -24,17 +24,14 @@ def test_find_all_architectures():
     all_arches = find_all_architectures()
     assert len(all_arches) == 4
 
-    assert "experimental.gap" in all_arches
-    assert "experimental.pet" in all_arches
-    assert "experimental.soap_bpnn" in all_arches
+    assert "gap" in all_arches
+    assert "pet" in all_arches
+    assert "soap_bpnn" in all_arches
     assert "experimental.nanopet" in all_arches
 
 
 def test_get_architecture_path():
-    assert (
-        get_architecture_path("experimental.soap_bpnn")
-        == PACKAGE_ROOT / "experimental" / "soap_bpnn"
-    )
+    assert get_architecture_path("soap_bpnn") == PACKAGE_ROOT / "soap_bpnn"
 
 
 @pytest.mark.parametrize("name", find_all_architectures())
@@ -46,14 +43,14 @@ def test_get_default_hypers(name):
 
 
 def test_check_architecture_name():
-    check_architecture_name("experimental.soap_bpnn")
+    check_architecture_name("soap_bpnn")
 
 
 def test_check_architecture_name_suggest():
-    name = "experimental.soap-bpnn"
+    name = "soap-bpnn"
     match = (
         rf"Architecture {name!r} is not a valid architecture. "
-        r"Do you mean 'experimental.soap_bpnn'?"
+        r"Do you mean 'soap_bpnn'?"
     )
     with pytest.raises(ValueError, match=match):
         check_architecture_name(name)
@@ -70,7 +67,7 @@ def test_check_architecture_name_experimental():
     with pytest.raises(
         ValueError, match="experimental architecture with the same name"
     ):
-        check_architecture_name("soap_bpnn")
+        check_architecture_name("nanopet")
 
 
 def test_check_architecture_name_deprecated():
@@ -82,13 +79,13 @@ def test_check_architecture_name_deprecated():
 @pytest.mark.parametrize(
     "path",
     [
-        PACKAGE_ROOT / "experimental" / "soap_bpnn",
-        PACKAGE_ROOT / "experimental" / "soap_bpnn" / "__init__.py",
-        PACKAGE_ROOT / "experimental" / "soap_bpnn" / "default-hypers.yaml",
+        PACKAGE_ROOT / "soap_bpnn",
+        PACKAGE_ROOT / "soap_bpnn" / "__init__.py",
+        PACKAGE_ROOT / "soap_bpnn" / "default-hypers.yaml",
     ],
 )
 def test_get_architecture_name(path_type, path):
-    assert get_architecture_name(path_type(path)) == "experimental.soap_bpnn"
+    assert get_architecture_name(path_type(path)) == "soap_bpnn"
 
 
 def test_get_architecture_name_err_no_such_path():
@@ -113,7 +110,7 @@ def test_check_valid_default_architecture_options(name):
 
 
 def test_check_architecture_options_error_raise():
-    name = "experimental.soap_bpnn"
+    name = "soap_bpnn"
     options = get_default_hypers(name)
 
     # Add an unknown parameter
@@ -125,7 +122,7 @@ def test_check_architecture_options_error_raise():
 
 
 def test_import_architecture():
-    name = "experimental.soap_bpnn"
+    name = "soap_bpnn"
     architecture_ref = importlib.import_module(f"metatrain.{name}")
     assert import_architecture(name) == architecture_ref
 
@@ -142,7 +139,8 @@ def test_import_architecture_erro(monkeypatch):
 
     match = (
         rf"Trying to import '{name}' but architecture dependencies seem not be "
-        rf"installed. \nTry to install them with `pip install .\[{name_for_deps}\]`"
+        rf"installed. \nTry to install them with "
+        rf"`pip install metatrain\[{name_for_deps}\]`"
     )
     with pytest.raises(ImportError, match=match):
         import_architecture(name)

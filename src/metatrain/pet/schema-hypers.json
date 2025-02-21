@@ -1,0 +1,285 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "type": "object",
+  "properties": {
+    "name": {
+      "type": "string",
+      "enum": ["pet"]
+    },
+    "model": {
+      "type": "object",
+      "properties": {
+        "CUTOFF_DELTA": {
+          "type": "number"
+        },
+        "AVERAGE_POOLING": {
+          "type": "boolean"
+        },
+        "TRANSFORMERS_CENTRAL_SPECIFIC": {
+          "type": "boolean"
+        },
+        "HEADS_CENTRAL_SPECIFIC": {
+          "type": "boolean"
+        },
+        "ADD_TOKEN_FIRST": {
+          "type": "boolean"
+        },
+        "ADD_TOKEN_SECOND": {
+          "type": "boolean"
+        },
+        "N_GNN_LAYERS": {
+          "type": "integer"
+        },
+        "TRANSFORMER_D_MODEL": {
+          "type": "integer"
+        },
+        "TRANSFORMER_N_HEAD": {
+          "type": "integer"
+        },
+        "TRANSFORMER_DIM_FEEDFORWARD": {
+          "type": "integer"
+        },
+        "HEAD_N_NEURONS": {
+          "type": "integer"
+        },
+        "N_TRANS_LAYERS": {
+          "type": "integer"
+        },
+        "ACTIVATION": {
+          "type": "string"
+        },
+        "USE_LENGTH": {
+          "type": "boolean"
+        },
+        "USE_ONLY_LENGTH": {
+          "type": "boolean"
+        },
+        "R_CUT": {
+          "type": "number"
+        },
+        "R_EMBEDDING_ACTIVATION": {
+          "type": "boolean"
+        },
+        "COMPRESS_MODE": {
+          "type": "string"
+        },
+        "BLEND_NEIGHBOR_SPECIES": {
+          "type": "boolean"
+        },
+        "AVERAGE_BOND_ENERGIES": {
+          "type": "boolean"
+        },
+        "USE_BOND_ENERGIES": {
+          "type": "boolean"
+        },
+        "USE_ADDITIONAL_SCALAR_ATTRIBUTES": {
+          "type": "boolean"
+        },
+        "SCALAR_ATTRIBUTES_SIZE": {
+          "oneOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "TRANSFORMER_TYPE": {
+          "type": "string"
+        },
+        "USE_LONG_RANGE": {
+          "type": "boolean"
+        },
+        "K_CUT": {
+          "oneOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "K_CUT_DELTA": {
+          "oneOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "DTYPE": {
+          "type": "string",
+          "enum": ["float32", "float64", "bfloat16"]
+        },
+        "N_TARGETS": {
+          "type": "integer"
+        },
+        "TARGET_INDEX_KEY": {
+          "type": "string"
+        },
+        "RESIDUAL_FACTOR": {
+          "type": "number"
+        },
+        "USE_ZBL": {
+          "type": "boolean"
+        }
+      },
+      "additionalProperties": false
+    },
+    "training": {
+      "type": "object",
+      "properties": {
+        "USE_LORA_PEFT": {
+          "type": "boolean"
+        },
+        "LORA_RANK": {
+          "type": "integer"
+        },
+        "LORA_ALPHA": {
+          "type": "number"
+        },
+        "INITIAL_LR": {
+          "type": "number"
+        },
+        "EPOCH_NUM": {
+          "type": "integer"
+        },
+        "EPOCH_NUM_ATOMIC": {
+          "type": "integer"
+        },
+        "SCHEDULER_STEP_SIZE": {
+          "type": "integer"
+        },
+        "SCHEDULER_STEP_SIZE_ATOMIC": {
+          "type": "integer"
+        },
+        "EPOCHS_WARMUP": {
+          "type": "integer"
+        },
+        "EPOCHS_WARMUP_ATOMIC": {
+          "type": "integer"
+        },
+        "GLOBAL_AUG": {
+          "type": "boolean"
+        },
+        "SLIDING_FACTOR": {
+          "type": "number"
+        },
+        "STRUCTURAL_BATCH_SIZE": {
+          "type": "integer"
+        },
+        "ATOMIC_BATCH_SIZE": {
+          "type": "integer"
+        },
+        "MAX_TIME": {
+          "type": "integer"
+        },
+        "ENERGY_WEIGHT": {
+          "type": "number"
+        },
+        "MULTI_GPU": {
+          "type": "boolean"
+        },
+        "RANDOM_SEED": {
+          "type": "integer"
+        },
+        "CUDA_DETERMINISTIC": {
+          "type": "boolean"
+        },
+        "MODEL_TO_START_WITH": {
+          "oneOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "ALL_SPECIES_PATH": {
+          "oneOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "SELF_CONTRIBUTIONS_PATH": {
+          "oneOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "SUPPORT_MISSING_VALUES": {
+          "type": "boolean"
+        },
+        "USE_WEIGHT_DECAY": {
+          "type": "boolean"
+        },
+        "WEIGHT_DECAY": {
+          "type": "number"
+        },
+        "DO_GRADIENT_CLIPPING": {
+          "type": "boolean"
+        },
+        "GRADIENT_CLIPPING_MAX_NORM": {
+          "oneOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "USE_SHIFT_AGNOSTIC_LOSS": {
+          "type": "boolean"
+        },
+        "ENERGIES_LOSS": {
+          "type": "string",
+          "enum": ["per_structure", "per_atom"]
+        },
+        "BALANCED_DATA_LOADER": {
+          "type": "boolean"
+        },
+        "CHECKPOINT_INTERVAL": {
+          "type": "integer"
+        }
+      },
+      "additionalProperties": false,
+      "allOf": [
+        {
+          "not": {
+            "required": ["SCHEDULER_STEP_SIZE", "SCHEDULER_STEP_SIZE_ATOMIC"]
+          }
+        },
+        {
+          "not": {
+            "required": ["EPOCH_NUM", "EPOCH_NUM_ATOMIC"]
+          }
+        },
+        {
+          "not": {
+            "required": ["STRUCTURAL_BATCH_SIZE", "ATOMIC_BATCH_SIZE"]
+          }
+        },
+        {
+          "not": {
+            "required": ["EPOCHS_WARMUP", "EPOCHS_WARMUP_ATOMIC"]
+          }
+        }
+      ]
+    }
+  },
+  "additionalProperties": false
+}
