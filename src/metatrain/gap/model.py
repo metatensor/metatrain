@@ -1,9 +1,9 @@
 from typing import Dict, List, Optional, Tuple, Type, Union
 
+import featomic
+import featomic.torch
 import metatensor.torch
 import numpy as np
-import rascaline
-import rascaline.torch
 import scipy
 import skmatter
 import torch
@@ -108,7 +108,8 @@ class GAP(torch.nn.Module):
                 dtype=torch.float64,  # we only support float64 for now
             ),
         )
-        self._soap_torch_calculator = rascaline.torch.SoapPowerSpectrum(
+        # print(model_hypers["soap"])
+        self._soap_torch_calculator = featomic.torch.SoapPowerSpectrum(
             **model_hypers["soap"]
         )
 
@@ -266,7 +267,7 @@ class GAP(torch.nn.Module):
     def export(
         self, metadata: Optional[ModelMetadata] = None
     ) -> MetatensorAtomisticModel:
-        interaction_ranges = [self.hypers["soap"]["cutoff"]]
+        interaction_ranges = [self.hypers["soap"]["cutoff"]["radius"]]
         for additive_model in self.additive_models:
             if hasattr(additive_model, "cutoff_radius"):
                 interaction_ranges.append(additive_model.cutoff_radius)

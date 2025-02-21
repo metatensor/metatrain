@@ -5,9 +5,9 @@ GAP
 
 This is an implementation of the sparse Gaussian Approximation Potential
 (GAP) :footcite:p:`bartok_representing_2013` using Smooth Overlap of Atomic Positions
-(SOAP) :footcite:p:`bartok_gaussian_2010` implemented in `rascaline <RASCALINE_>`_.
+(SOAP) :footcite:p:`bartok_gaussian_2010` implemented in `featomic <FEATOMIC_>`_.
 
-.. _RASCALINE: https://github.com/Luthaf/rascaline
+.. _FEATOMIC: https://github.com/Luthaf/featomic
 
 The GAP model in metatrain can only train on CPU, but evaluation
 is also supported on GPU.
@@ -20,7 +20,7 @@ of the repository:
 
 .. code-block:: bash
 
-    pip install .[gap]
+    pip install metatrain[gap]
 
 This will install the package with the GAP dependencies.
 

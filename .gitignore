@@ -164,9 +164,10 @@ cython_debug/
 *.pt
 *.ckpt
 
-# model output directories
+# model output directories and extensions
 outputs/
 examples/basic_usage/*.xyz
+extensions/
 
 # sphinx gallery
 docs/src/examples

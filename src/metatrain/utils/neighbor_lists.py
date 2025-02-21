@@ -8,7 +8,6 @@ from metatensor.torch import Labels, TensorBlock
 from metatensor.torch.atomistic import (
     NeighborListOptions,
     System,
-    register_autograd_neighbors,
 )
 
 from .data.system_to_ase import system_to_ase
@@ -83,7 +82,6 @@ def get_system_with_neighbor_lists(
             neighbor_list = _compute_single_neighbor_list(atoms, options).to(
                 device=system.device, dtype=system.dtype
             )
-            register_autograd_neighbors(system, neighbor_list)
             system.add_neighbor_list(options, neighbor_list)
 
     return system

@@ -3,9 +3,9 @@
 import copy
 from typing import Dict, List, Optional
 
+import featomic.torch
 import metatensor.torch
 import numpy as np
-import rascaline.torch
 import torch
 import wigners
 from metatensor.torch import Labels
@@ -24,10 +24,8 @@ class VectorBasis(torch.nn.Module):
         super().__init__()
         self.atomic_types = atomic_types
         soap_vector_hypers = copy.deepcopy(soap_hypers)
-        soap_vector_hypers["max_angular"] = 1
-        self.soap_calculator = rascaline.torch.SphericalExpansion(
-            radial_basis={"Gto": {}}, **soap_vector_hypers
-        )
+        soap_vector_hypers["basis"]["max_angular"] = 1
+        self.soap_calculator = featomic.torch.SphericalExpansion(**soap_vector_hypers)
         self.neighbor_species_labels = Labels(
             names=["neighbor_type"],
             values=torch.tensor(self.atomic_types).reshape(-1, 1),
@@ -44,7 +42,8 @@ class VectorBasis(torch.nn.Module):
                     dim=1,
                 ),
             ),
-            in_features=soap_vector_hypers["max_radial"] * len(self.atomic_types),
+            in_features=(soap_vector_hypers["basis"]["radial"]["max_radial"] + 1)
+            * len(self.atomic_types),
             out_features=3,
             bias=False,
             out_properties=[Labels.range("basis", 3) for _ in self.atomic_types],

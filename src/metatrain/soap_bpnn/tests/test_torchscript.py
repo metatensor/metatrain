@@ -127,13 +127,13 @@ def test_torchscript_integers():
     parameters are instead supplied as integers."""
 
     new_hypers = copy.deepcopy(MODEL_HYPERS)
-    new_hypers["soap"]["cutoff"] = 5
-    new_hypers["soap"]["atomic_gaussian_width"] = 1
-    new_hypers["soap"]["center_atom_weight"] = 1
-    new_hypers["soap"]["cutoff_function"]["ShiftedCosine"]["width"] = 1
-    new_hypers["soap"]["radial_scaling"]["Willatt2018"]["rate"] = 1
-    new_hypers["soap"]["radial_scaling"]["Willatt2018"]["scale"] = 2
-    new_hypers["soap"]["radial_scaling"]["Willatt2018"]["exponent"] = 7
+    new_hypers["soap"]["cutoff"]["radius"] = 5
+    new_hypers["soap"]["density"]["width"] = 1
+    new_hypers["soap"]["density"]["center_atom_weight"] = 1
+    new_hypers["soap"]["cutoff"]["smoothing"]["width"] = 1
+    new_hypers["soap"]["density"]["scaling"]["rate"] = 1
+    new_hypers["soap"]["density"]["scaling"]["scale"] = 2
+    new_hypers["soap"]["density"]["scaling"]["exponent"] = 7
 
     dataset_info = DatasetInfo(
         length_unit="Angstrom",

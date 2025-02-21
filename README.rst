@@ -69,16 +69,14 @@ You can install ``metatrain`` with pip:
 
 .. code-block:: bash
 
-    git clone https://github.com/lab-cosmo/metatrain
-    cd metatrain
-    pip install .
+    pip install metatrain
 
 In addition, specific models must be installed by specifying the model name. For
-example, to install the SOAP-BPNN model, you can run:
+example, to install the *SOAP-BPNN* model, you can run:
 
 .. code-block:: bash
 
-    pip install .[soap-bpnn]
+    pip install metatrain[soap-bpnn]
 
 You can then use ``mtt`` from the command line to train your models!
 
@@ -94,7 +92,7 @@ To train a model, you can use the following command:
     mtt train options.yaml
 
 Where ``options.yaml`` is a configuration file that specifies the training options. For
-example, the following configuration file trains a SOAP-BPNN model on the QM9 dataset:
+example, the following configuration file trains a *SOAP-BPNN* model on the QM9 dataset:
 
 .. code-block:: yaml
 
@@ -149,10 +147,10 @@ Contributors
 ------------
 Thanks goes to all people that make ``metatrain`` possible:
 
-.. image:: https://contrib.rocks/image?repo=lab-cosmo/metatrain
+.. image:: https://contrib.rocks/image?repo=metatensor/metatrain
   :target: https://github.com/metatensor/metatrain/graphs/contributors
 
-.. |tests| image:: https://github.com/lab-cosmo/metatrain/workflows/Tests/badge.svg
+.. |tests| image:: https://img.shields.io/github/checks-status/metatensor/metatrain/main
   :alt: Github Actions Tests Job Status
   :target: https://github.com/metatensor/metatrain/actions?query=branch%3Amain
 

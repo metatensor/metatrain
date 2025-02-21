@@ -85,13 +85,15 @@ def test_torchscript_integers():
     """Tests that the model can be jitted when some float
     parameters are instead supplied as integers."""
     new_hypers = copy.deepcopy(DEFAULT_HYPERS["model"])
-    new_hypers["soap"]["cutoff"] = 5
-    new_hypers["soap"]["atomic_gaussian_width"] = 1
-    new_hypers["soap"]["center_atom_weight"] = 1
-    new_hypers["soap"]["cutoff_function"]["ShiftedCosine"]["width"] = 1
-    new_hypers["soap"]["radial_scaling"]["Willatt2018"]["rate"] = 1
-    new_hypers["soap"]["radial_scaling"]["Willatt2018"]["scale"] = 2
-    new_hypers["soap"]["radial_scaling"]["Willatt2018"]["exponent"] = 7
+    new_hypers["soap"]["cutoff"]["radius"] = 5
+    new_hypers["soap"]["density"]["width"] = 1
+    new_hypers["soap"]["density"]["center_atom_weight"] = 1
+    new_hypers["soap"]["cutoff"]["smoothing"]["width"] = 1
+    new_hypers["soap"]["density"]["scaling"]["rate"] = 1
+    new_hypers["soap"]["density"]["scaling"]["scale"] = 2
+    new_hypers["soap"]["density"]["scaling"]["exponent"] = 7
+
+    # print(new_hypers)
 
     target_info_dict = {}
     target_info_dict["mtt::U0"] = get_energy_target_info({"unit": "eV"})

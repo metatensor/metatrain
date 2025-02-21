@@ -13,26 +13,18 @@
           "type": "object",
           "properties": {
             "cutoff": {
-              "type": "number"
-            },
-            "max_radial": {
-              "type": "integer"
-            },
-            "max_angular": {
-              "type": "integer"
-            },
-            "atomic_gaussian_width": {
-              "type": "number"
-            },
-            "center_atom_weight": {
-              "type": "number"
-            },
-            "cutoff_function": {
               "type": "object",
               "properties": {
-                "ShiftedCosine": {
+                "radius": {
+                  "type": "number"
+                },
+                "smoothing": {
                   "type": "object",
                   "properties": {
+                    "type": {
+                      "type": "string",
+                      "enum": ["ShiftedCosine"]
+                    },
                     "width": {
                       "type": "number"
                     }
@@ -42,12 +34,26 @@
               },
               "additionalProperties": false
             },
-            "radial_scaling": {
+            "density": {
               "type": "object",
               "properties": {
-                "Willatt2018": {
+                "type": {
+                  "type": "string",
+                  "enum": ["Gaussian"]
+                },
+                "center_atom_weight": {
+                  "type": "number"
+                },
+                "width": {
+                  "type": "number"
+                },
+                "scaling": {
                   "type": "object",
                   "properties": {
+                    "type": {
+                      "type": "string",
+                      "enum": ["Willatt2018"]
+                    },
                     "rate": {
                       "type": "number"
                     },
@@ -56,6 +62,32 @@
                     },
                     "exponent": {
                       "type": "number"
+                    }
+                  },
+                  "additionalProperties": false
+                }
+              },
+              "additionalProperties": false
+            },
+            "basis": {
+              "type": "object",
+              "properties": {
+                "type": {
+                  "type": "string",
+                  "enum": ["TensorProduct"]
+                },
+                "max_angular": {
+                  "type": "integer"
+                },
+                "radial": {
+                  "type": "object",
+                  "properties": {
+                    "type": {
+                      "type": "string",
+                      "enum": ["Gto"]
+                    },
+                    "max_radial": {
+                      "type": "integer"
                     }
                   },
                   "additionalProperties": false
@@ -202,7 +234,6 @@
                           "additionalProperties": false
                         }
                       },
-                      "required": ["deltas"],
                       "additionalProperties": false
                     }
                   },
