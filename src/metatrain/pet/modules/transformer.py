@@ -1,11 +1,12 @@
-import torch
-from torch import nn
+import copy
 from typing import Dict, Optional
+
 import numpy as np
+import torch
 import torch.nn.functional as F
+from torch import nn
 
 from .utilities import NeverRun, cutoff_func
-import copy
 
 
 class AttentionBlock(nn.Module):
@@ -199,7 +200,7 @@ class CartesianTransformer(torch.nn.Module):
 
         lengths = torch.sqrt(torch.sum(x * x, dim=2) + 1e-16)
         multipliers = cutoff_func(
-            lengths, self.hypers["cutoff"], self.hypers["cutoff_delta"]
+            lengths, self.hypers["cutoff"], self.hypers["cutoff_width"]
         )
         sub_multipliers = torch.ones(mask.shape[0], device=mask.device)
         multipliers = torch.cat([sub_multipliers[:, None], multipliers], dim=1)

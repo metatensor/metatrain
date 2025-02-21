@@ -45,7 +45,6 @@ class PET(torch.nn.Module):
             raise ValueError("PET only supports a single target")
         self.hypers = model_hypers
         self.dataset_info = dataset_info
-        self.new_outputs = list(dataset_info.targets.keys())
         self.atomic_types = dataset_info.atomic_types
 
         self.requested_nl = NeighborListOptions(
@@ -78,6 +77,8 @@ class PET(torch.nn.Module):
         self.messages_bonds_heads = torch.nn.ModuleDict()
         self.central_tokens_last_layers = torch.nn.ModuleDict()
         self.messages_bonds_last_layers = torch.nn.ModuleDict()
+        self.central_tokens_last_layers = torch.nn.ModuleDict()
+        self.messages_bonds_last_layers = torch.nn.ModuleDict()
 
         # last-layer feature size (for LLPR module)
         self.last_layer_feature_size = (
@@ -94,8 +95,9 @@ class PET(torch.nn.Module):
         self.key_labels: Dict[str, Labels] = {}
         self.component_labels: Dict[str, List[List[Labels]]] = {}
         self.property_labels: Dict[str, List[Labels]] = {}
-        self.single_label = Labels.single()
+        self.target_names: List[str] = []
         for target_name, target_info in dataset_info.targets.items():
+            self.target_names.append(target_name)
             self._add_output(target_name, target_info)
 
         # additive models: these are handled by the trainer at training
@@ -113,7 +115,7 @@ class PET(torch.nn.Module):
             ),
         )
         additive_models = [composition_model]
-        if self.hypers["use_zbl"]:
+        if self.hypers["zbl"]:
             additive_models.append(
                 ZBL(
                     {},
@@ -133,7 +135,10 @@ class PET(torch.nn.Module):
         # scaler: this is also handled by the trainer at training time
         self.scaler = Scaler(model_hypers={}, dataset_info=dataset_info)
 
+        self.single_label = Labels.single()
+
     def restart(self, dataset_info: DatasetInfo) -> "PET":
+        # merge old and new dataset info
         merged_info = self.dataset_info.union(dataset_info)
         new_atomic_types = [
             at for at in merged_info.atomic_types if at not in self.atomic_types
@@ -143,18 +148,18 @@ class PET(torch.nn.Module):
             for key, value in merged_info.targets.items()
             if key not in self.dataset_info.targets
         }
+        self.has_new_targets = len(new_targets) > 0
 
         if len(new_atomic_types) > 0:
             raise ValueError(
                 f"New atomic types found in the dataset: {new_atomic_types}. "
-                "The PET model does not support adding new atomic types."
+                "The nanoPET model does not support adding new atomic types."
             )
 
-        if len(new_targets) > 0:
-            raise ValueError(
-                f"New targets found in the training options: {new_targets}. "
-                "The PET model does not support adding new training targets."
-            )
+        # register new outputs as new last layers
+        for target_name, target in new_targets.items():
+            self.target_names.append(target_name)
+            self._add_output(target_name, target)
 
         self.dataset_info = merged_info
 
@@ -170,8 +175,8 @@ class PET(torch.nn.Module):
                 },
             ),
         )
-        self.atomic_types = sorted(self.atomic_types)
         self.scaler.restart(dataset_info)
+
         return self
 
     def requested_neighbor_lists(
@@ -186,17 +191,14 @@ class PET(torch.nn.Module):
         selected_atoms: Optional[Labels] = None,
     ) -> Dict[str, TensorMap]:
         nl_options = self.requested_neighbor_lists()[0]
-        batch_dict = systems_to_batch_dict(
-            systems, nl_options, self.atomic_types, selected_atoms
-        )
+        batch_dict = systems_to_batch_dict(systems, nl_options, self.atomic_types, None)
 
         x = batch_dict["x"]
         neighbor_species = batch_dict["neighbor_species"]
         mask = batch_dict["mask"]
-
         lengths = torch.sqrt(torch.sum(x * x, dim=2) + 1e-16)
         multipliers = cutoff_func(
-            lengths, self.hypers["cutoff"], self.hypers["cutoff_delta"]
+            lengths, self.hypers["cutoff"], self.hypers["cutoff_width"]
         )
         multipliers[mask] = 0.0
 
@@ -216,10 +218,16 @@ class PET(torch.nn.Module):
             batch_dict["input_messages"] = self.hypers["residual_factor"] * (
                 batch_dict["input_messages"] + new_input_messages
             )
+            print("central_tokens", result["central_token"])
+            print("output_messages", output_messages)
             central_tokens_list.append(result["central_token"])
             output_messages_list.append(output_messages)
 
-        features = torch.cat(central_tokens_list, dim=1)
+        central_tokens_features = torch.cat(central_tokens_list, dim=1)
+        output_messages_features = torch.cat(output_messages_list, dim=2)
+        output_messages_features = output_messages_features * multipliers[:, :, None]
+        output_messages_features = output_messages_features.sum(dim=1)
+        features = torch.cat([central_tokens_features, output_messages_features], dim=1)
 
         system_indices = torch.concatenate(
             [
@@ -279,14 +287,14 @@ class PET(torch.nn.Module):
                 )
 
         central_tokens_features_dict: Dict[str, List[torch.Tensor]] = dict.fromkeys(
-            self.new_outputs, []
+            self.target_names, []
         )
         messages_bonds_features_dict: Dict[str, List[torch.Tensor]] = dict.fromkeys(
-            self.new_outputs, []
+            self.target_names, []
         )
 
         last_layer_features_dict: Dict[str, List[torch.Tensor]] = dict.fromkeys(
-            self.new_outputs, []
+            self.target_names, []
         )
 
         last_layer_features: Dict[str, torch.Tensor] = {}
@@ -332,20 +340,20 @@ class PET(torch.nn.Module):
             )
             # the corresponding output could be base_name or mtt::base_name
             if (
-                f"mtt::{base_name}" not in last_layer_features_dict
-                and base_name not in last_layer_features_dict
+                f"mtt::{base_name}" not in last_layer_features
+                and base_name not in last_layer_features
             ):
                 raise ValueError(
                     f"Features {output_name} can only be requested "
                     f"if the corresponding output {base_name} is also requested."
                 )
-            if f"mtt::{base_name}" in last_layer_features_dict:
+            if f"mtt::{base_name}" in last_layer_features:
                 base_name = f"mtt::{base_name}"
             last_layer_feature_tmap = TensorMap(
                 keys=self.single_label,
                 blocks=[
                     TensorBlock(
-                        values=last_layer_features_dict[base_name],
+                        values=last_layer_features[base_name],
                         samples=sample_labels,
                         components=[],
                         properties=Labels(
@@ -367,7 +375,7 @@ class PET(torch.nn.Module):
                 )
 
         atomic_properties_tmap_dict: Dict[str, TensorMap] = {}
-        for output_name in self.new_outputs:
+        for output_name in self.target_names:
             if output_name in outputs:
                 central_tokens_last_layers = self.central_tokens_last_layers[
                     output_name
@@ -385,16 +393,30 @@ class PET(torch.nn.Module):
                     key: torch.zeros(1, dtype=x.dtype, device=x.device)
                     for key in self.output_shapes[output_name].keys()
                 }
-                for key in self.output_shapes[output_name]:
-                    central_token_last_layer_by_block = central_tokens_last_layers[key]
-                    messages_bonds_last_layer_by_block = messages_bonds_last_layers[key]
-                    atomic_properties_by_block[key] += (
-                        central_token_last_layer_by_block(central_tokens_features)
-                    )
-                    atomic_properties_by_block[key] += (
-                        messages_bonds_last_layer_by_block(messages_bonds_features)
-                    )
-
+                for (
+                    central_tokens_last_layer,
+                    messages_bonds_last_layer,
+                    central_tokens_feature,
+                    messages_bonds_feature,
+                ) in zip(
+                    central_tokens_last_layers,
+                    messages_bonds_last_layers,
+                    central_tokens_features,
+                    messages_bonds_features,
+                ):
+                    for key in self.output_shapes[output_name]:
+                        central_token_last_layer_by_block = central_tokens_last_layer[
+                            key
+                        ]
+                        messages_bonds_last_layer_by_block = messages_bonds_last_layer[
+                            key
+                        ]
+                        atomic_properties_by_block[key] = atomic_properties_by_block[
+                            key
+                        ] + central_token_last_layer_by_block(central_tokens_feature)
+                        atomic_properties_by_block[key] = atomic_properties_by_block[
+                            key
+                        ] + messages_bonds_last_layer_by_block(messages_bonds_feature)
                 blocks = [
                     TensorBlock(
                         values=atomic_properties_by_block[key].reshape([-1] + shape),
@@ -534,26 +556,36 @@ class PET(torch.nn.Module):
             ]
         )
 
-        self.central_tokens_last_layers[target_name] = torch.nn.ModuleDict(
-            {
-                key: torch.nn.Linear(
-                    self.hypers["d_pet"],
-                    prod(shape),
-                    bias=False,
+        self.central_tokens_last_layers[target_name] = torch.nn.ModuleList(
+            [
+                torch.nn.ModuleDict(
+                    {
+                        key: torch.nn.Linear(
+                            self.hypers["d_head"],
+                            prod(shape),
+                            bias=False,
+                        )
+                        for key, shape in self.output_shapes[target_name].items()
+                    }
                 )
-                for key, shape in self.output_shapes[target_name].items()
-            }
+                for _ in range(self.hypers["num_gnn_layers"])
+            ]
         )
 
-        self.messages_bonds_last_layers[target_name] = torch.nn.ModuleDict(
-            {
-                key: torch.nn.Linear(
-                    self.hypers["d_pet"],
-                    prod(shape),
-                    bias=False,
+        self.messages_bonds_last_layers[target_name] = torch.nn.ModuleList(
+            [
+                torch.nn.ModuleDict(
+                    {
+                        key: torch.nn.Linear(
+                            self.hypers["d_head"],
+                            prod(shape),
+                            bias=False,
+                        )
+                        for key, shape in self.output_shapes[target_name].items()
+                    }
                 )
-                for key, shape in self.output_shapes[target_name].items()
-            }
+                for _ in range(self.hypers["num_gnn_layers"])
+            ]
         )
 
         ll_features_name = (
