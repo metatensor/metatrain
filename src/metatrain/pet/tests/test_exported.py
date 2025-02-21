@@ -8,7 +8,7 @@ from metatensor.torch.atomistic import (
     System,
 )
 
-from metatrain.pet import PET as WrappedPET
+from metatrain.pet import PET as PET
 from metatrain.pet.modules.hypers import Hypers
 from metatrain.pet.modules.pet import PET
 from metatrain.utils.architectures import get_default_hypers
@@ -35,7 +35,7 @@ def test_to(device):
         atomic_types=[1, 6, 7, 8],
         targets={"energy": get_energy_target_info({"unit": "eV"})},
     )
-    model = WrappedPET(DEFAULT_HYPERS["model"], dataset_info)
+    model = PET(DEFAULT_HYPERS["model"], dataset_info)
     ARCHITECTURAL_HYPERS = Hypers(model.hypers)
     raw_pet = PET(ARCHITECTURAL_HYPERS, 0.0, len(model.atomic_types))
     model.set_trained_model(raw_pet)

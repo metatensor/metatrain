@@ -1,583 +1,21 @@
-import copy
-import logging
-import os
-import random
+from typing import Dict, List, Optional, Tuple
 
 import numpy as np
+import pet_neighbors_convert  # noqa: F401
 import torch
-from scipy.spatial.transform import Rotation
-from scipy.spatial.transform import Rotation as R
-from scipy.special import roots_legendre
-from torch.optim.lr_scheduler import LambdaLR
-from torch_geometric.loader import DataListLoader, DataLoader, DynamicBatchSampler
-
-
-def get_activation(hypers):
-    if hypers.ACTIVATION == "mish":
-        return torch.nn.Mish()
-    if hypers.ACTIVATION == "silu":
-        return torch.nn.SiLU()
-    raise ValueError("unknown activation")
-
-
-def log_epoch_stats(epoch, total_epochs, epoch_stats, learning_rate, energies_key):
-    """
-    Logs the detailed training and validation statistics at the end of each epoch.
-
-    Parameters are the same as in the previous version, with added validation metrics.
-    """
-
-    if "forces" in epoch_stats.keys():
-        write_forces_error = True
-    else:
-        write_forces_error = False
-    epoch_stats_log = f"Epoch: {epoch} | LR: {learning_rate:.3e} | "
-
-    train_energies_mae = epoch_stats[energies_key]["train"]["mae"]
-    train_energies_rmse = epoch_stats[energies_key]["train"]["rmse"]
-    if write_forces_error:
-        train_forces_mae = epoch_stats["forces"]["train"]["mae"]
-        train_forces_rmse = epoch_stats["forces"]["train"]["rmse"]
-
-    val_energies_mae = epoch_stats[energies_key]["val"]["mae"]
-    val_energies_rmse = epoch_stats[energies_key]["val"]["rmse"]
-    if write_forces_error:
-        val_forces_mae = epoch_stats["forces"]["val"]["mae"]
-        val_forces_rmse = epoch_stats["forces"]["val"]["rmse"]
-
-    if energies_key == "energies per structure":
-        energies_log_key = ""
-    elif energies_key == "energies per atom":
-        energies_log_key = "/at."
-    else:
-        energies_log_key = ""
-
-    # epoch_time = epoch_stats["epoch_time"]
-    total_time = epoch_stats["elapsed_time"]
-    estimated_remaining_time = epoch_stats["estimated_remaining_time"]
-
-    epoch_stats_log += f"V-E-MAE{energies_log_key} {val_energies_mae:.2e} | "
-    epoch_stats_log += f"V-E-RMSE{energies_log_key} {val_energies_rmse:.2e} | "
-    if write_forces_error:
-        epoch_stats_log += f"V-F-MAE {val_forces_mae:.2e} | "
-        epoch_stats_log += f"V-F-RMSE {val_forces_rmse:.2e} | "
-    epoch_stats_log += f"T-E-MAE{energies_log_key} {train_energies_mae:.2e} | "
-    epoch_stats_log += f"T-E-RMSE{energies_log_key} {train_energies_rmse:.2e} | "
-    if write_forces_error:
-        epoch_stats_log += f"T-F-MAE {train_forces_mae:.2e} | "
-        epoch_stats_log += f"T-F-RMSE {train_forces_rmse:.2e} | "
-
-    epoch_stats_log += f"Time/ETA: {total_time:.2f}/{estimated_remaining_time:.2f} s"
-    logging.info(epoch_stats_log)
-
-
-def get_calc_names(all_completed_calcs, current_name):
-    name_to_load = None
-    name_of_calculation = current_name
-    if name_of_calculation in all_completed_calcs:
-        name_to_load = name_of_calculation
-        for i in range(100000):
-            name_now = name_of_calculation + f"_continuation_{i}"
-            if name_now not in all_completed_calcs:
-                name_to_save = name_now
-                break
-            name_to_load = name_now
-        name_of_calculation = name_to_save
-    return name_to_load, name_of_calculation
-
-
-def set_reproducibility(random_seed, cuda_deterministic):
-    torch.manual_seed(random_seed)
-    np.random.seed(random_seed)
-    random.seed(random_seed)
-    os.environ["PYTHONHASHSEED"] = str(random_seed)
-    if torch.cuda.is_available():
-        torch.cuda.manual_seed(random_seed)
-        torch.cuda.manual_seed_all(random_seed)
-
-    if cuda_deterministic and torch.cuda.is_available():
-        torch.use_deterministic_algorithms(True)
-        torch.backends.cudnn.benchmark = False
-        os.environ["CUBLAS_WORKSPACE_CONFIG"] = ":4096:8"
-
-
-def get_length(delta):
-    return np.sqrt(np.sum(delta * delta))
-
-
-class ModelKeeper:
-    def __init__(self):
-        self.best_model = None
-        self.best_error = None
-        self.best_epoch = None
-        self.additional_info = None
-
-    def update(self, model_now, error_now, epoch_now, additional_info=None):
-        if (self.best_error is None) or (error_now < self.best_error):
-            self.best_error = error_now
-            original_device = next(model_now.parameters()).device
-            model_now.to("cpu")
-            self.best_model = copy.deepcopy(model_now)
-            model_now.to(original_device)
-            self.best_epoch = epoch_now
-            self.additional_info = additional_info
-
-
-class Accumulator:
-    def __init__(self):
-        self.values = None
-
-    def update(self, values_now):
-        if isinstance(values_now, torch.Tensor):
-            values_now = [values_now]
-
-        if self.values is None:
-            self.values = [[] for _ in range(len(values_now))]
-
-        for index, value_now in enumerate(values_now):
-            if isinstance(value_now, torch.Tensor):
-                value_now = value_now.data.cpu().to(torch.float32).numpy()
-            self.values[index].append(value_now)
-
-    def consist_of_nones(self, el):
-        has_none = False
-        has_value = False
-        for index in range(len(el)):
-            if el[index] is None:
-                has_none = True
-            else:
-                has_value = True
-        if has_none and has_value:
-            raise ValueError("Some values are None, some are not")
-        return has_none
-
-    def flush(self):
-        result = []
-        for el in self.values:
-            if self.consist_of_nones(el):
-                result.append(None)
-            else:
-                result.append(np.concatenate(el, axis=0))
-        self.values = None
-        return result
-
-
-class Logger:
-    def __init__(self, support_missing_values, use_shift_agnostic_loss, device):
-        self.predictions = []
-        self.targets = []
-        self.support_missing_values = support_missing_values
-        self.use_shift_agnostic_loss = use_shift_agnostic_loss
-        self.device = device
-
-    def update(self, predictions_now, targets_now):
-        if isinstance(predictions_now, dict):
-            predictions_now = predictions_now["prediction"]
-        self.predictions.append(predictions_now.data.cpu().to(torch.float32).numpy())
-        self.targets.append(targets_now.data.cpu().to(torch.float32).numpy())
-
-    def flush(self):
-        if not self.use_shift_agnostic_loss:
-            self.predictions = np.concatenate(self.predictions, axis=0)
-            self.targets = np.concatenate(self.targets, axis=0)
-
-            output = {}
-            output["rmse"] = get_rmse(
-                self.predictions,
-                self.targets,
-                support_missing_values=self.support_missing_values,
-            )
-            output["mae"] = get_mae(
-                self.predictions,
-                self.targets,
-                support_missing_values=self.support_missing_values,
-            )
-            output["relative rmse"] = get_relative_rmse(
-                self.predictions,
-                self.targets,
-                support_missing_values=self.support_missing_values,
-            )
-
-            self.predictions = []
-            self.targets = []
-            return output
-        else:
-            if self.support_missing_values:
-                raise ValueError(
-                    "Shift agnostic loss is not supported with missing values"
-                )
-
-            total_mse = 0.0
-            total_mae = 0.0
-            num_samples = 0
-
-            with torch.no_grad():
-                for prediction_batch, target_batch in zip(
-                    self.predictions, self.targets
-                ):
-                    prediction_batch = torch.tensor(
-                        prediction_batch,
-                        device=self.device,
-                        dtype=torch.get_default_dtype(),
-                    )
-                    target_batch = torch.tensor(
-                        target_batch,
-                        device=self.device,
-                        dtype=torch.get_default_dtype(),
-                    )
-                    batch_size = len(target_batch)
-                    current_mse = (
-                        get_shift_agnostic_mse(prediction_batch, target_batch)
-                        * batch_size
-                    )
-                    current_mae = (
-                        get_shift_agnostic_mae(prediction_batch, target_batch)
-                        * batch_size
-                    )
-                    current_mse = float(current_mse)
-                    current_mae = float(current_mae)
-                    total_mse += current_mse
-                    total_mae += current_mae
-                    num_samples += batch_size
-
-            rmse = np.sqrt(total_mse / num_samples)
-            mae = total_mae / num_samples
-
-            output = {}
-            output["rmse"] = rmse
-            output["mae"] = mae
-
-            self.predictions = []
-            self.targets = []
-            return output
-
-
-class FullLogger:
-    def __init__(self, support_missing_values, use_shift_agnostic_loss, device):
-        self.train_logger = Logger(
-            support_missing_values, use_shift_agnostic_loss, device
-        )
-        self.val_logger = Logger(
-            support_missing_values, use_shift_agnostic_loss, device
-        )
-
-    def flush(self):
-        return {"train": self.train_logger.flush(), "val": self.val_logger.flush()}
-
-
-def get_rotations(indices, global_aug=False):
-    if global_aug:
-        num = np.max(indices) + 1
-    else:
-        num = indices.shape[0]
-
-    rotations = Rotation.random(num).as_matrix()
-    rotations[np.random.randn(rotations.shape[0]) >= 0] *= -1
-
-    if global_aug:
-        return rotations[indices]
-    else:
-        return rotations
-
-
-def get_shift_agnostic_mse(predictions, targets):
-    if predictions.shape[1] < targets.shape[1]:
-        smaller = predictions
-        bigger = targets
-    else:
-        smaller = targets
-        bigger = predictions
-
-    bigger_unfolded = bigger.unfold(1, smaller.shape[1], 1)
-    smaller_expanded = smaller[:, None, :]
-    delta = smaller_expanded - bigger_unfolded
-    losses = torch.mean(delta * delta, dim=2)
-    losses, _ = torch.min(losses, dim=1)
-    result = torch.mean(losses)
-    return result
-
-
-def get_shift_agnostic_mae(predictions, targets):
-    if predictions.shape[1] < targets.shape[1]:
-        smaller = predictions
-        bigger = targets
-    else:
-        smaller = targets
-        bigger = predictions
-
-    bigger_unfolded = bigger.unfold(1, smaller.shape[1], 1)
-    smaller_expanded = smaller[:, None, :]
-    delta = smaller_expanded - bigger_unfolded
-    losses = torch.mean(torch.abs(delta), dim=2)
-    losses, _ = torch.min(losses, dim=1)
-    result = torch.mean(losses)
-    return result
-
-
-def get_loss(predictions, targets, support_missing_values, use_shift_agnostic_loss):
-    if use_shift_agnostic_loss:
-        if support_missing_values:
-            raise NotImplementedError(
-                "shift agnostic loss is not yet supported with missing values"
-            )
-        else:
-            return get_shift_agnostic_mse(predictions, targets)
-    else:
-        if isinstance(predictions, dict):
-            predictions = predictions["prediction"]
-        if support_missing_values:
-            delta = predictions - targets
-            mask_nan = torch.isnan(targets)
-            delta[mask_nan] = 0.0
-            mask_not_nan = torch.logical_not(mask_nan)
-            return torch.sum(delta * delta) / torch.sum(mask_not_nan)
-        else:
-            delta = predictions - targets
-            return torch.mean(delta * delta)
-
-
-def get_rmse(predictions, targets, support_missing_values=False):
-    if support_missing_values:
-        delta = predictions - targets
-        mask_nan = np.isnan(targets)
-        delta[mask_nan] = 0.0
-        mask_not_nan = np.logical_not(mask_nan)
-        return np.sqrt(np.sum(delta * delta) / np.sum(mask_not_nan))
-    else:
-        delta = predictions - targets
-        return np.sqrt(np.mean(delta * delta))
-
-
-def get_mae(predictions, targets, support_missing_values=False):
-    if support_missing_values:
-        delta = predictions - targets
-        mask_nan = np.isnan(targets)
-        delta[mask_nan] = 0.0
-        mask_not_nan = np.logical_not(mask_nan)
-        return np.sum(np.abs(delta)) / np.sum(mask_not_nan)
-    else:
-        delta = predictions - targets
-        return np.mean(np.abs(delta))
-
-
-def get_relative_rmse(predictions, targets, support_missing_values=False):
-    rmse = get_rmse(predictions, targets, support_missing_values=support_missing_values)
-    return rmse / get_rmse(
-        np.mean(targets), targets, support_missing_values=support_missing_values
-    )
-
-
-def get_scheduler(optim, FITTING_SCHEME):
-    def func_lr_scheduler(epoch):
-        if epoch < FITTING_SCHEME.EPOCHS_WARMUP:
-            return epoch / FITTING_SCHEME.EPOCHS_WARMUP
-        delta = epoch - FITTING_SCHEME.EPOCHS_WARMUP
-        num_blocks = delta // FITTING_SCHEME.SCHEDULER_STEP_SIZE
-        return 0.5 ** (num_blocks)
-
-    scheduler = LambdaLR(optim, func_lr_scheduler)
-    return scheduler
-
-
-def load_checkpoint(model, optim, scheduler, checkpoint_path):
-    checkpoint = torch.load(checkpoint_path)
-    model.load_state_dict(checkpoint["model_state_dict"])
-    optim.load_state_dict(checkpoint["optim_state_dict"])
-    scheduler.load_state_dict(checkpoint["scheduler_state_dict"])
-
-
-def get_data_loaders(train_graphs, val_graphs, FITTING_SCHEME):
-    def seed_worker(worker_id):
-        worker_seed = torch.initial_seed() % 2**32
-        np.random.seed(worker_seed)
-        random.seed(worker_seed)
-
-    g = torch.Generator()
-    g.manual_seed(FITTING_SCHEME.RANDOM_SEED)
-
-    if FITTING_SCHEME.BALANCED_DATA_LOADER:
-        train_sampler = DynamicBatchSampler(
-            train_graphs,
-            max_num=FITTING_SCHEME.ATOMIC_BATCH_SIZE,
-            mode="node",
-            shuffle=True,
-        )
-        val_sampler = DynamicBatchSampler(
-            val_graphs,
-            max_num=FITTING_SCHEME.ATOMIC_BATCH_SIZE,
-            mode="node",
-            shuffle=False,
-        )
-
-        if FITTING_SCHEME.MULTI_GPU:
-            train_loader = DataListLoader(
-                train_graphs,
-                batch_sampler=train_sampler,
-                worker_init_fn=seed_worker,
-                generator=g,
-            )
-            val_loader = DataListLoader(
-                val_graphs,
-                batch_sampler=val_sampler,
-                worker_init_fn=seed_worker,
-                generator=g,
-            )
-        else:
-            train_loader = DataLoader(
-                train_graphs,
-                batch_sampler=train_sampler,
-                worker_init_fn=seed_worker,
-                generator=g,
-            )
-            val_loader = DataLoader(
-                val_graphs,
-                batch_sampler=val_sampler,
-                worker_init_fn=seed_worker,
-                generator=g,
-            )
-    else:
-        if FITTING_SCHEME.MULTI_GPU:
-            train_loader = DataListLoader(
-                train_graphs,
-                batch_size=FITTING_SCHEME.STRUCTURAL_BATCH_SIZE,
-                shuffle=True,
-                worker_init_fn=seed_worker,
-                generator=g,
-            )
-            val_loader = DataListLoader(
-                val_graphs,
-                batch_size=FITTING_SCHEME.STRUCTURAL_BATCH_SIZE,
-                shuffle=False,
-                worker_init_fn=seed_worker,
-                generator=g,
-            )
-        else:
-            train_loader = DataLoader(
-                train_graphs,
-                batch_size=FITTING_SCHEME.STRUCTURAL_BATCH_SIZE,
-                shuffle=True,
-                worker_init_fn=seed_worker,
-                generator=g,
-            )
-            val_loader = DataLoader(
-                val_graphs,
-                batch_size=FITTING_SCHEME.STRUCTURAL_BATCH_SIZE,
-                shuffle=False,
-                worker_init_fn=seed_worker,
-                generator=g,
-            )
-
-    return train_loader, val_loader
-
-
-def get_optimizer(model, FITTING_SCHEME):
-    if FITTING_SCHEME.USE_WEIGHT_DECAY:
-        optim = torch.optim.AdamW(
-            model.parameters(),
-            lr=FITTING_SCHEME.INITIAL_LR,
-            weight_decay=FITTING_SCHEME.WEIGHT_DECAY,
-        )
-    else:
-        optim = torch.optim.Adam(model.parameters(), lr=FITTING_SCHEME.INITIAL_LR)
-    return optim
-
-
-def get_rotational_discrepancy(all_predictions):
-    predictions_mean = np.mean(all_predictions, axis=0)
-    predictions_discrepancies = all_predictions - predictions_mean[np.newaxis]
-    # correction for unbiased estimate
-    correction = all_predictions.shape[0] / (all_predictions.shape[0] - 1)
-    predictions_std = np.sqrt(np.mean(predictions_discrepancies**2) * correction)
-
-    # biased estimate, kind of a mess with the unbiased one
-    predictions_mad = np.mean(np.abs(predictions_discrepancies))
-    return predictions_std, predictions_mad
-
-
-def report_accuracy(
-    all_predictions,
-    ground_truth,
-    target_name,
-    verbose,
-    specify_per_component,
-    target_type,
-    n_atoms=None,
-    support_missing_values=False,
-):
-    predictions_mean = np.mean(all_predictions, axis=0)
-
-    if specify_per_component:
-        spec = "per component"
-    else:
-        spec = ""
-
-    if ground_truth is not None:
-        mae = get_mae(
-            predictions_mean,
-            ground_truth,
-            support_missing_values=support_missing_values,
-        )
-        rmse = get_rmse(
-            predictions_mean,
-            ground_truth,
-            support_missing_values=support_missing_values,
-        )
-        print(f"{target_name} mae {spec}: {mae}")
-        print(f"{target_name} rmse {spec}: {rmse}")
-    else:
-        print(
-            f"ground truth target for {target_name} is not provided "
-            "(or is provided with a wrong key). Thus, it is impossible "
-            "to estimate the error between predictions and ground truth target"
-        )
-
-    if all_predictions.shape[0] > 1:
-        pred_std, pred_mad = get_rotational_discrepancy(all_predictions)
-        if verbose:
-            str_mae = "rotational discrepancy mad (aka mae)"
-            str_rmse = "rotational discrepancy std (aka rmse)"
-            print(f"{target_name} {str_mae} {spec}: {pred_mad}")
-
-            print(f"{target_name} {str_rmse} {spec}: {pred_std} ")
-
-    if target_type == "structural":
-        if len(predictions_mean.shape) == 1:
-            predictions_mean = predictions_mean[:, np.newaxis]
-        predictions_mean_per_atom = predictions_mean / n_atoms[:, np.newaxis]
-
-        if ground_truth is not None:
-            if len(ground_truth.shape) == 1:
-                ground_truth = ground_truth[:, np.newaxis]
-
-            ground_truth_per_atom = ground_truth / n_atoms[:, np.newaxis]
-            mae = get_mae(
-                predictions_mean_per_atom,
-                ground_truth_per_atom,
-                support_missing_values=support_missing_values,
-            )
-            rmse = get_rmse(
-                predictions_mean_per_atom,
-                ground_truth_per_atom,
-                support_missing_values=support_missing_values,
-            )
-            print(f"{target_name} mae per atom {spec}: " + f"{mae}")
-
-            print(f"{target_name} rmse per atom {spec}: {rmse}")
-
-        if all_predictions.shape[0] > 1:
-            if len(all_predictions.shape) == 2:
-                all_predictions = all_predictions[:, :, np.newaxis]
-            all_predictions_per_atom = (
-                all_predictions / n_atoms[np.newaxis, :, np.newaxis]
-            )
-            predictions_std_per_atom, predictions_mad_per_atom = (
-                get_rotational_discrepancy(all_predictions_per_atom)
-            )
-            if verbose:
-                str_mae = "rotational discrepancy mad (aka mae)"
-                str_rmse = "rotational discrepancy std (aka rmse)"
-                print(f"{target_name} {str_mae} {spec}: {predictions_mad_per_atom}")
-                print(f"{target_name} {str_rmse} {spec}: {predictions_std_per_atom} ")
+from metatensor.torch import Labels
+from metatensor.torch.atomistic import NeighborListOptions, System
+
+
+def cutoff_func(grid: torch.Tensor, r_cut: float, delta: float):
+    mask_bigger = grid >= r_cut
+    mask_smaller = grid <= r_cut - delta
+    grid = (grid - r_cut + delta) / delta
+    f = 1 / 2.0 + torch.cos(np.pi * grid) / 2.0
+
+    f[mask_bigger] = 0.0
+    f[mask_smaller] = 1.0
+    return f
 
 
 class NeverRun(torch.nn.Module):
@@ -591,65 +29,364 @@ class NeverRun(torch.nn.Module):
         raise RuntimeError("This model should never be run")
 
 
-def get_quadrature(L):
-    matrices, weights = [], []
-    for theta_index in range(0, 2 * L - 1):
-        for w_index in range(0, 2 * L - 1):
-            theta = 2 * np.pi * theta_index / (2 * L - 1)
-            w = 2 * np.pi * w_index / (2 * L - 1)
-            roots_legendre_now, weights_now = roots_legendre(L)
-            all_v = np.arccos(roots_legendre_now)
-            for v, weight in zip(all_v, weights_now):
-                weights.append(weight)
-                angles = [theta, v, w]
-                rotation = R.from_euler("xyz", angles, degrees=False)
-                rotation_matrix = rotation.as_matrix()
-                matrices.append(rotation_matrix)
+def collate_graph_dicts(
+    graph_dicts: List[Dict[str, torch.Tensor]],
+) -> Dict[str, torch.Tensor]:
+    """
+    Collates a list of graphs into a single graph.
 
-    return matrices, weights
+    :param graph_dicts: A list of graphs to be collated.
+
+    :return: The collated grap (batch).
+    """
+    device = graph_dicts[0]["x"].device
+    simple_concatenate_keys: List[str] = [
+        "central_species",
+        "x",
+        "neighbor_species",
+        "neighbors_pos",
+        "nums",
+        "mask",
+    ]
+    cumulative_adjust_keys: List[str] = ["neighbors_index"]
+
+    result: Dict[str, List[torch.Tensor]] = {}
+
+    n_nodes_cumulative: int = 0
+
+    number_of_graphs: int = int(len(graph_dicts))
+
+    for index in range(number_of_graphs):
+        graph: Dict[str, torch.Tensor] = graph_dicts[index]
+
+        for key in simple_concatenate_keys:
+            if key not in result:
+                result[key] = [graph[key]]
+            else:
+                result[key].append(graph[key])
+
+        for key in cumulative_adjust_keys:
+            if key not in result:
+                graph_key: torch.Tensor = graph[key]
+
+                now: List[torch.Tensor] = [graph_key + n_nodes_cumulative]
+                result[key] = now
+
+            else:
+                graph_key_2: torch.Tensor = graph[key]
+
+                now_2: torch.Tensor = graph_key_2 + n_nodes_cumulative
+                result[key].append(now_2)
+
+        n_atoms: int = graph["central_species"].shape[0]
+
+        index_repeated: torch.Tensor = torch.LongTensor([index for _ in range(n_atoms)])
+        if "batch" not in result.keys():
+            result["batch"] = [index_repeated]
+        else:
+            result["batch"].append(index_repeated)
+
+        n_nodes_cumulative += n_atoms
+
+    result_final: Dict[str, torch.Tensor] = {}
+    for key in simple_concatenate_keys + cumulative_adjust_keys:
+        now_3: List[torch.Tensor] = []
+        for el in result[key]:
+            now_3.append(el)
+
+        result_final[key] = torch.cat(now_3, dim=0)
+
+    result_final["batch"] = torch.cat(result["batch"], dim=0).to(device)
+    return result_final
 
 
-def dtype2string(dtype):
-    if dtype == torch.float32:
-        return "float32"
-    if dtype == torch.float16:
-        return "float16"
-    if dtype == torch.bfloat16:
-        return "bfloat16"
+def get_max_num_neighbors(systems: List[System], options: NeighborListOptions):
+    """
+    Calculates the maximum number of neighbors that atoms in a list of systems have.
 
-    raise ValueError("unknown dtype")
-
-
-def string2dtype(string):
-    if string == "float32":
-        return torch.float32
-    if string == "float16":
-        return torch.float16
-    if string == "bfloat16":
-        return torch.bfloat16
-
-    raise ValueError("unknown dtype")
+    """
+    max_system_num_neighbors = []
+    for system in systems:
+        nl = system.get_neighbor_list(options)
+        i_list = nl.samples.column("first_atom")
+        if len(i_list) == 0:
+            max_atom_num_neighbors = torch.tensor(
+                0, device=i_list.device, dtype=i_list.dtype
+            )
+        else:
+            max_atom_num_neighbors = torch.bincount(i_list).max()
+        max_system_num_neighbors.append(max_atom_num_neighbors)
+    return torch.stack(max_system_num_neighbors).max()
 
 
-def get_quadrature_predictions(batch, model, quadrature_order, dtype):
-    x_initial = batch.x.clone()
-    all_energies, all_forces = [], []
-    rotations, weights = get_quadrature(quadrature_order)
-    for rotation in rotations:
-        rotation = torch.tensor(rotation, device=batch.x.device, dtype=dtype)
-        batch_rotations = rotation[None, :].repeat(batch.num_nodes, 1, 1)
-        batch.x = torch.bmm(x_initial, batch_rotations)
-        prediction_energy, prediction_forces = model(
-            batch, augmentation=False, create_graph=False
+def get_central_species(
+    system: System, all_species: torch.Tensor, unique_index: torch.Tensor
+) -> torch.Tensor:
+    """
+    Returns the indices of the species of the central atoms in the system
+    in a list of all species.
+
+    """
+    species = system.types[unique_index]
+    tmp_index_1, tmp_index_2 = torch.where(all_species.unsqueeze(1) == species)
+    index = torch.argsort(tmp_index_2)
+    return tmp_index_1[index]
+
+
+def write_system_data(
+    system: System,
+    options: NeighborListOptions,
+    selected_atoms_index: torch.Tensor,
+):
+    nl = system.get_neighbor_list(options)
+    i_list = nl.samples.column("first_atom")
+    j_list = nl.samples.column("second_atom")
+    S_list = torch.cat(
+        (
+            nl.samples.column("cell_shift_a")[None],
+            nl.samples.column("cell_shift_b")[None],
+            nl.samples.column("cell_shift_c")[None],
         )
-        all_energies.append(prediction_energy.data.cpu().numpy())
-        all_forces.append(prediction_forces.data.cpu().numpy())
+    ).transpose(0, 1)
+    D_list = nl.values[:, :, 0]
+    positions = system.positions
+    types = system.types
+    cell = system.cell
+    torch.save(
+        {
+            "i_list": i_list,
+            "j_list": j_list,
+            "S_list": S_list,
+            "D_list": D_list,
+            "positions": positions,
+            "types": types,
+            "cell": cell,
+            "selected_atoms_index": selected_atoms_index,
+        },
+        "system_data.pt",
+    )
 
-    energy_mean, forces_mean, total_weight = 0.0, 0.0, 0.0
-    for energy, forces, weight in zip(all_energies, all_forces, weights):
-        energy_mean += energy * weight
-        forces_mean += forces * weight
-        total_weight += weight
-    energy_mean /= total_weight
-    forces_mean /= total_weight
-    return energy_mean, forces_mean
+
+def write_batch_dict(batch_dict: Dict[str, torch.Tensor]):
+    torch.save(batch_dict, "batch_dict.pt")
+
+
+def remap_to_contiguous_indexing(
+    i_list: torch.Tensor,
+    j_list: torch.Tensor,
+    unique_neighbors_index: torch.Tensor,
+    unique_index: torch.Tensor,
+    device: torch.device,
+) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+    """
+    This helper function remaps the indices of center and neighbor atoms
+    from arbitrary indexing to contgious indexing, i.e.
+
+    from
+    0, 1, 2, 54, 55, 56
+    to
+    0, 1, 2, 3, 4, 5.
+
+    This remapping is required by internal implementation of PET neighbor lists, where
+    indices of the atoms cannot exceed the total amount of atoms in the system.
+
+    Shifted indices come from LAMMPS neighborlists in the case of domain decomposition
+    enabled, since they contain not only the atoms in the unit cell, but also so-called
+    ghost atoms, which may have a different indexing. Thus, to avoid further errors, we
+    remap the indices to a contiguous format.
+
+    """
+    index_map = torch.empty(
+        int(unique_index.max().item()) + 1, dtype=torch.int64, device=device
+    )
+    index_map[unique_index] = torch.arange(len(unique_index), device=device)
+    i_list = index_map[i_list]
+    j_list = index_map[j_list]
+    unique_neighbors_index = index_map[unique_neighbors_index]
+    return i_list, j_list, unique_neighbors_index
+
+
+def get_system_batch_dict(
+    system: System,
+    options: NeighborListOptions,
+    all_species: torch.Tensor,
+    max_num_neighbors: torch.Tensor,
+    selected_atoms_index: torch.Tensor,
+    device: torch.device,
+    debug: bool = False,
+) -> Dict[str, torch.Tensor]:
+    if debug:
+        write_system_data(system, options, selected_atoms_index)
+    nl = system.get_neighbor_list(options)
+    i_list = nl.samples.column("first_atom")
+    j_list = nl.samples.column("second_atom")
+
+    unique_neighbors_index, _ = torch.unique(i_list, return_counts=True)
+    unique_index = torch.unique(
+        torch.cat((selected_atoms_index, unique_neighbors_index))
+    )
+
+    # We calculate the actual size of the system, which is the number of
+    # unique atoms in the system.
+    # This is required for LAMMPS interface, because by default
+    # it produces the system with both local and ghost atoms.
+    actual_system_size = len(unique_index)
+
+    # Then we remap the indices of the atoms to a contiguous format.
+    # Also see the docstring of the function for more details.
+    i_list, j_list, unique_neighbors_index = remap_to_contiguous_indexing(
+        i_list, j_list, unique_neighbors_index, unique_index, device
+    )
+
+    # We sort the indices of the atoms in the system, to join the
+    # periodic images of the same atom together. Otherwise, the
+    # neighbor list may have a discontinuous indexing, like:
+    # >>> i_list
+    # tensor([0, 1, 2, 0, 1, 2])
+    # instead of
+    # >>> i_list
+    # tensor([0, 0, 1, 1, 2, 2])
+    # and we heavily rely on the fact that the indices of the atoms
+    # are contiguous below.
+    index = torch.argsort(i_list, stable=True)
+    j_list = j_list[index]
+    i_list = i_list[index]
+    S_list: torch.Tensor = (
+        torch.cat(
+            (
+                nl.samples.column("cell_shift_a")[None],
+                nl.samples.column("cell_shift_b")[None],
+                nl.samples.column("cell_shift_c")[None],
+            )
+        )
+        .transpose(0, 1)[index]
+        .to(torch.int64)
+    )
+
+    D_list: torch.Tensor = nl.values[:, :, 0][index]
+
+    species = system.types[unique_index].to(torch.int64)
+
+    res = torch.ops.neighbors_convert.process(
+        i_list,
+        j_list,
+        S_list,
+        D_list,
+        max_num_neighbors,
+        torch.tensor(actual_system_size),
+        species,
+        all_species,
+    )
+
+    # `neighbors_index`: indices of the neighbors
+    # from j_list for each central atom
+    neighbors_index = res[0]
+    # `relative_positions`: displacements of the neighbors
+    # from j_list relative to each central atom
+    relative_positions = res[1]
+    # `nums`: number of neighbors for each central atom
+    nums = res[2]
+    # `mask`: for each central atom extracts the actual
+    # neighbors data from the remaining tensors (i.e neighbors_index,
+    # relative_positions, etc). The reason for this, is a padding that
+    # enlarges the leghts of these tensors for each central atom up to
+    # maximum number of neighbors across all the central atoms, to fix
+    # the dimensionality of the neighborlist and fit is into a single
+    # tensor. Thus, mask essentially show, where the padding is used, and
+    # where is the actual NL data.
+    mask = res[3]
+    # `neighbor_species`: the indices of the species of the neighbors in the
+    # all_species tensor.
+    neighbor_species = res[4]
+    # `neighbors_pos`: the reversed neighbors index, which is used in the
+    # PET model to account for edge information update not only with the central
+    # atoms data, but also with the neighbors data. This requires knowing the
+    # reversed indices of the neighbors in the neighbor list.
+    #
+    # The reversed neighbor index is basically the index of the central atom in the
+    # neighbor list of the neighbor atom.
+    #
+    # Example:
+    # >>> neighbors_index
+    # tensor([[25, 28, 39, ...],
+    #         ...
+    #         [ 2,  3,  4, ...]])
+    # >>> neighbors_pos # reversed_neighbors_index
+    # tensor([[ 3,  4,  1, ...],
+    #         ...
+    #         [ 3,  8,  7, ...]])
+    #
+    # The first atom has the neighbors with indices 25, 28, 39, etc.,
+    # That means, in the list of neighbors of 25th atom, 4th atom will
+    # have the index 0 (i.e. that will be the first atom).
+    #
+    # >>> neighbors_index[25]
+    # tensor([45, 29, 47,  0, ...])
+    # >>> neighbors_index[25][3]
+    # tensor(0)
+    #
+    # and this is the element [0, 0] of the `neighbors_pos`.
+    #
+    # We also demand the reversed cell shift vector to be the opposite
+    # of the original cell shift vector. This is because sometimes the
+    # central atom may have two neighbors, which are the same atom, but
+    # different periodic images.
+    neighbors_pos = res[5]
+    # central_species: the indices of species of the central
+    # atoms of the system in the all_species tensor.
+    central_species = res[6]
+
+    system_dict = {
+        "central_species": central_species,
+        "neighbor_species": neighbor_species,
+        "x": relative_positions,
+        "neighbors_pos": neighbors_pos,
+        "neighbors_index": neighbors_index,
+        "nums": nums,
+        "mask": mask,
+    }
+    if debug:
+        write_batch_dict(system_dict)
+    return system_dict
+
+
+def systems_to_batch_dict(
+    systems: List[System],
+    options: NeighborListOptions,
+    all_species_list: List[int],
+    selected_atoms: Optional[Labels] = None,
+) -> Dict[str, torch.Tensor]:
+    """
+    Converts a standard input data format of `metatrain` to a
+    PyTorch Geometric `Batch` object, compatible with `PET` model.
+
+    :param systems: The list of systems in `metatensor.torch.atomistic.System`
+    format, that needs to be converted.
+    :param options: A `NeighborListOptions` objects specifying the parameters
+    for a neighbor list, which will be used during the convertation.
+    :param all_species: A `torch.Tensor` with all the species present in the
+    systems.
+
+    :return: Batch compatible with PET.
+    """
+    device = systems[0].positions.device
+    all_species = torch.tensor(all_species_list, device=device)
+    batch: List[Dict[str, torch.Tensor]] = []
+    max_num_neighbors = get_max_num_neighbors(systems, options)
+    for i, system in enumerate(systems):
+        if selected_atoms is not None:
+            selected_atoms_index = selected_atoms.values[:, 1][
+                selected_atoms.values[:, 0] == i
+            ]
+        else:
+            selected_atoms_index = torch.arange(len(system), device=device)
+        system_dict = get_system_batch_dict(
+            system,
+            options,
+            all_species,
+            max_num_neighbors,
+            selected_atoms_index,
+            device,
+        )
+        batch.append(system_dict)
+    return collate_graph_dicts(batch)

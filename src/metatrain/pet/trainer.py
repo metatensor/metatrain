@@ -10,10 +10,11 @@ from typing import List, Union
 import numpy as np
 import torch
 from torch_geometric.nn import DataParallel
+from torch.utils.data import DataLoader
 
 from ..utils.data import Dataset, check_datasets
 from ..utils.io import check_file_extension
-from . import PET as WrappedPET
+from .model import PET
 from .modules.analysis import adapt_hypers
 from .modules.data_preparation import (
     get_corrected_energies,
@@ -22,8 +23,16 @@ from .modules.data_preparation import (
     get_self_contributions,
     update_pyg_graphs,
 )
+from ..utils.additive import remove_additive
+from ..utils.data import CombinedDataLoader, Dataset, collate_fn
+
 from .modules.hypers import Hypers, save_hypers
-from .modules.pet import PET, FlagsWrapper, PETMLIPWrapper, PETUtilityWrapper
+from .modules.pet import PET as RawPET
+from ..utils.neighbor_lists import (
+    get_requested_neighbor_lists,
+    get_system_with_neighbor_lists,
+)
+from .modules.pet import FlagsWrapper, PETMLIPWrapper, PETUtilityWrapper
 from .modules.utilities import (
     FullLogger,
     ModelKeeper,
@@ -33,16 +42,29 @@ from .modules.utilities import (
     get_loss,
     get_optimizer,
     get_rmse,
-    get_scheduler,
     log_epoch_stats,
     set_reproducibility,
     string2dtype,
 )
 from .utils import dataset_to_ase, load_raw_pet_model, update_hypers
 from .utils.fine_tuning import LoRAWrapper
+from .modules.augmentation import RotationalAugmenter
+from torch.optim.lr_scheduler import LambdaLR
 
 
 logger = logging.getLogger(__name__)
+
+
+def get_scheduler(optimizer, hypers):
+    def func_lr_scheduler(epoch):
+        if epoch < hypers["EPOCHS_WARMUP"]:
+            return epoch / hypers["EPOCHS_WARMUP"]
+        delta = epoch - hypers["EPOCHS_WARMUP"]
+        num_blocks = delta // hypers["SCHEDULER_STEP_SIZE"]
+        return 0.5 ** (num_blocks)
+
+    scheduler = LambdaLR(optimizer, func_lr_scheduler)
+    return scheduler
 
 
 class Trainer:
@@ -56,271 +78,129 @@ class Trainer:
 
     def train(
         self,
-        model: WrappedPET,
+        model: PET,
         dtype: torch.dtype,
         devices: List[torch.device],
         train_datasets: List[Union[Dataset, torch.utils.data.Subset]],
         val_datasets: List[Union[Dataset, torch.utils.data.Subset]],
         checkpoint_dir: str,
     ):
-        assert dtype in WrappedPET.__supported_dtypes__
+        assert dtype in PET.__supported_dtypes__
+        device = devices[0]
+        logger.info(f"Training on device {device} with dtype {dtype}")
 
-        name_of_calculation = "pet"
-        self.pet_dir = Path(checkpoint_dir) / name_of_calculation
+        logger.info("Calculating neighbor lists for the datasets")
+        requested_neighbor_lists = get_requested_neighbor_lists(model)
+        for dataset in train_datasets + val_datasets:
+            for i in range(len(dataset)):
+                system = dataset[i]["system"]
+                # The following line attaches the neighbors lists to the system,
+                # and doesn't require to reassign the system to the dataset:
+                _ = get_system_with_neighbor_lists(system, requested_neighbor_lists)
 
-        if len(train_datasets) != 1:
-            raise ValueError("PET only supports a single training dataset")
-        if len(val_datasets) != 1:
-            raise ValueError("PET only supports a single validation dataset")
-        if torch.device("cpu") in devices:
-            warnings.warn(
-                "Training PET on a CPU is very slow! For better performance, use a "
-                "CUDA GPU.",
-                stacklevel=1,
+        # Move the model to the device and dtype:
+        model.to(device=device, dtype=dtype)
+        # The additive models of the SOAP-BPNN are always in float64 (to avoid
+        # numerical errors in the composition weights, which can be very large).
+        for additive_model in model.additive_models:
+            additive_model.to(dtype=torch.float64)
+
+        logger.info("Calculating composition weights")
+        model.additive_models[0].train_model(  # this is the composition model
+            train_datasets,
+            model.additive_models[1:],
+            self.hypers["fixed_composition_weights"],
+        )
+
+        if self.hypers["scale_targets"]:
+            logger.info("Calculating scaling weights")
+            model.scaler.train_model(
+                train_datasets, model.additive_models, treat_as_additive=True
             )
 
-        logger.info("Checking datasets for consistency")
-        check_datasets(train_datasets, val_datasets)
+        train_samplers = [None] * len(train_datasets)
+        val_samplers = [None] * len(val_datasets)
 
-        train_dataset = train_datasets[0]
-        val_dataset = val_datasets[0]
-
-        # are we fitting on only energies or energies and forces?
-        target_name = model.target_name
-        do_forces = (
-            next(iter(train_dataset))[target_name].block().has_gradient("positions")
-        )
-
-        ase_train_dataset = dataset_to_ase(
-            train_dataset, model, do_forces=do_forces, target_name=target_name
-        )
-        ase_val_dataset = dataset_to_ase(
-            val_dataset, model, do_forces=do_forces, target_name=target_name
-        )
-
-        self.hypers = update_hypers(self.hypers, model.hypers, do_forces)
-
-        device = devices[0]  # only one device, as we don't support multi-gpu for now
-
-        ########################################
-        # STARTING THE PURE PET TRAINING SCRIPT #
-        ########################################
-
-        logging.info("Initializing PET training...")
-
-        TIME_SCRIPT_STARTED = time.time()
-        value = datetime.datetime.fromtimestamp(TIME_SCRIPT_STARTED)
-        logging.info(f"Starting training at: {value.strftime('%Y-%m-%d %H:%M:%S')}")
-        training_configuration_log = "Training configuration:\n"
-        training_configuration_log += f"Output directory: {checkpoint_dir}\n"
-        training_configuration_log += f"Training using device: {device}\n"
-
-        if not os.path.exists(checkpoint_dir):
-            os.mkdir(checkpoint_dir)
-
-        hypers = Hypers(self.hypers)
-        dtype = string2dtype(hypers.ARCHITECTURAL_HYPERS.DTYPE)  # type: ignore
-        torch.set_default_dtype(dtype)
-
-        FITTING_SCHEME = hypers.FITTING_SCHEME  # type: ignore
-        MLIP_SETTINGS = hypers.MLIP_SETTINGS  # type: ignore
-        ARCHITECTURAL_HYPERS = hypers.ARCHITECTURAL_HYPERS  # type: ignore
-
-        if model.is_lora_applied and not FITTING_SCHEME.USE_LORA_PEFT:
-            raise ValueError(
-                "LoRA is applied to the model, but the USE_LORA_PEFT is False"
-                " in the training hyperparameters. Please set USE_LORA_PEFT to True"
-            )
-
-        if FITTING_SCHEME.USE_SHIFT_AGNOSTIC_LOSS:
-            raise ValueError(
-                "shift agnostic loss is intended only for general target training"
-            )
-
-        training_configuration_log += (
-            f"Output dimensionality: {ARCHITECTURAL_HYPERS.D_OUTPUT}\n"
-        )
-        training_configuration_log += (
-            f"Target type: {ARCHITECTURAL_HYPERS.TARGET_TYPE}\n"
-        )
-        training_configuration_log += (
-            f"Target aggregation: {ARCHITECTURAL_HYPERS.TARGET_AGGREGATION}\n"
-        )
-        training_configuration_log += f"Random seed: {FITTING_SCHEME.RANDOM_SEED}\n"
-        training_configuration_log += (
-            f"CUDA is deterministic: {FITTING_SCHEME.CUDA_DETERMINISTIC}"
-        )
-
-        st = """
-Legend: LR          -> Learning Rate
-        MAE         -> Mean Absolute Error
-        RMSE        -> Root Mean Square Error
-        V-E-MAE/at  -> MAE of the Energy per atom on the Validation set
-        V-E-RMSE/at -> RMSE of the Energy per atom on the Validation set
-        V-F-MAE     -> MAE of the Forces on the Validation set
-        V-F-RMSE    -> RMSE of the Forces on the Validation set
-        T-E-MAE/at  -> MAE of the Energy per atom on the Training set
-        T-E-RMSE/at -> RMSE of the Energy per atom on the Training set
-        T-F-MAE     -> MAE of the Forces on the Training set
-        T-F-RMSE    -> RMSE of the Forces on the Training set
-Units of the Energy and Forces are the same units given in input"""
-        training_configuration_log += st
-        logging.info(training_configuration_log)
-
-        set_reproducibility(
-            FITTING_SCHEME.RANDOM_SEED, FITTING_SCHEME.CUDA_DETERMINISTIC
-        )
-
-        adapt_hypers(FITTING_SCHEME, ase_train_dataset)
-
-        all_species = model.atomic_types
-
-        name_to_load, NAME_OF_CALCULATION = get_calc_names(
-            os.listdir(checkpoint_dir), name_of_calculation
-        )
-
-        os.mkdir(f"{checkpoint_dir}/{NAME_OF_CALCULATION}")
-        np.save(f"{checkpoint_dir}/{NAME_OF_CALCULATION}/all_species.npy", all_species)
-        hypers.UTILITY_FLAGS.CALCULATION_TYPE = "mlip"  # type: ignore
-        save_hypers(hypers, f"{checkpoint_dir}/{NAME_OF_CALCULATION}/hypers_used.yaml")
-
-        logging.info("Convering structures to PyG graphs...")
-
-        train_graphs = get_pyg_graphs(
-            ase_train_dataset,
-            all_species,
-            ARCHITECTURAL_HYPERS.R_CUT,
-            ARCHITECTURAL_HYPERS.USE_ADDITIONAL_SCALAR_ATTRIBUTES,
-            ARCHITECTURAL_HYPERS.USE_LONG_RANGE,
-            ARCHITECTURAL_HYPERS.K_CUT,
-            ARCHITECTURAL_HYPERS.N_TARGETS > 1,
-            ARCHITECTURAL_HYPERS.TARGET_INDEX_KEY,
-        )
-        val_graphs = get_pyg_graphs(
-            ase_val_dataset,
-            all_species,
-            ARCHITECTURAL_HYPERS.R_CUT,
-            ARCHITECTURAL_HYPERS.USE_ADDITIONAL_SCALAR_ATTRIBUTES,
-            ARCHITECTURAL_HYPERS.USE_LONG_RANGE,
-            ARCHITECTURAL_HYPERS.K_CUT,
-            ARCHITECTURAL_HYPERS.N_TARGETS > 1,
-            ARCHITECTURAL_HYPERS.TARGET_INDEX_KEY,
-        )
-
-        logging.info("Pre-processing training data...")
-        if MLIP_SETTINGS.USE_ENERGIES:
-            if model.pet is not None:
-                self_contributions = model.pet.self_contributions
-            else:
-                self_contributions = get_self_contributions(
-                    MLIP_SETTINGS.ENERGY_KEY, ase_train_dataset, all_species
+        # Create dataloader for the training datasets:
+        train_dataloaders = []
+        for dataset, sampler in zip(train_datasets, train_samplers):
+            train_dataloaders.append(
+                DataLoader(
+                    dataset=dataset,
+                    batch_size=self.hypers["batch_size"],
+                    sampler=sampler,
+                    shuffle=(
+                        sampler is None
+                    ),  # the sampler takes care of this (if present)
+                    drop_last=(
+                        sampler is None
+                    ),  # the sampler takes care of this (if present)
+                    collate_fn=collate_fn,
                 )
-            np.save(
-                f"{checkpoint_dir}/{NAME_OF_CALCULATION}/self_contributions.npy",
-                self_contributions,
             )
+        train_dataloader = CombinedDataLoader(train_dataloaders, shuffle=True)
 
-            train_energies = get_corrected_energies(
-                MLIP_SETTINGS.ENERGY_KEY,
-                ase_train_dataset,
-                all_species,
-                self_contributions,
+        # Create dataloader for the validation datasets:
+        val_dataloaders = []
+        for dataset, sampler in zip(val_datasets, val_samplers):
+            val_dataloaders.append(
+                DataLoader(
+                    dataset=dataset,
+                    batch_size=self.hypers["batch_size"],
+                    sampler=sampler,
+                    shuffle=False,
+                    drop_last=False,
+                    collate_fn=collate_fn,
+                )
             )
-            val_energies = get_corrected_energies(
-                MLIP_SETTINGS.ENERGY_KEY,
-                ase_val_dataset,
-                all_species,
-                self_contributions,
+        val_dataloader = CombinedDataLoader(val_dataloaders, shuffle=False)
+
+        train_targets = model.dataset_info.targets
+        outputs_list = []
+        for target_name, target_info in train_targets.items():
+            outputs_list.append(target_name)
+            for gradient_name in target_info.gradients:
+                outputs_list.append(f"{target_name}_{gradient_name}_gradients")
+
+        if self.hypers["USE_WEIGHT_DECAY"]:
+            optimizer = torch.optim.AdamW(
+                model.parameters(),
+                lr=self.hypers["INITIAL_LR"],
+                weight_decay=self.hypers["WEIGHT_DECAY"],
             )
-
-            update_pyg_graphs(train_graphs, "y", train_energies)
-            update_pyg_graphs(val_graphs, "y", val_energies)
-
-        if MLIP_SETTINGS.USE_FORCES:
-            train_forces = get_forces(ase_train_dataset, MLIP_SETTINGS.FORCES_KEY)
-            val_forces = get_forces(ase_val_dataset, MLIP_SETTINGS.FORCES_KEY)
-
-            update_pyg_graphs(train_graphs, "forces", train_forces)
-            update_pyg_graphs(val_graphs, "forces", val_forces)
-
-        train_loader, val_loader = get_data_loaders(
-            train_graphs, val_graphs, FITTING_SCHEME
-        )
-
-        logging.info("Initializing the model...")
-        if model.pet is not None:
-            pet_model = model.pet.model
-            if model.is_lora_applied:
-                pet_model.model.hypers.TARGET_TYPE = "structural"
-                pet_model.model.TARGET_TYPE = "structural"
-            else:
-                pet_model.hypers.TARGET_TYPE = "structural"
-                pet_model.TARGET_TYPE = "structural"
         else:
-            pet_model = PET(ARCHITECTURAL_HYPERS, 0.0, len(all_species))
-        num_params = sum([p.numel() for p in pet_model.parameters()])
-        logging.info(f"Number of parameters: {num_params}")
-
-        if FITTING_SCHEME.USE_LORA_PEFT:
-            if not model.is_lora_applied:
-                lora_rank = FITTING_SCHEME.LORA_RANK
-                lora_alpha = FITTING_SCHEME.LORA_ALPHA
-                pet_model = LoRAWrapper(pet_model, lora_rank, lora_alpha)
-                model.is_lora_applied = True
-
-            num_trainable_params = sum(
-                [p.numel() for p in pet_model.parameters() if p.requires_grad]
+            optimizer = torch.optim.Adam(
+                model.parameters(), lr=self.hypers["INITIAL_LR"]
             )
-            fraction = num_trainable_params / num_params * 100
-            logging.info(
-                f"Using LoRA PEFT with rank {FITTING_SCHEME.LORA_RANK} "
-                + f"and alpha {FITTING_SCHEME.LORA_ALPHA}"
-            )
-            logging.info(
-                "Number of trainable parameters: "
-                + f"{num_trainable_params} [{fraction:.2f}%]"
-            )
-        pet_model = pet_model.to(device=device, dtype=dtype)
-        pet_model = PETUtilityWrapper(pet_model, FITTING_SCHEME.GLOBAL_AUG)
 
-        pet_model = PETMLIPWrapper(
-            pet_model, MLIP_SETTINGS.USE_ENERGIES, MLIP_SETTINGS.USE_FORCES
-        )
-        if FITTING_SCHEME.MULTI_GPU and torch.cuda.is_available():
-            logging.info(
-                f"Using multi-GPU training on {torch.cuda.device_count()} GPUs"
-            )
-            pet_model = DataParallel(FlagsWrapper(pet_model))
-            pet_model = pet_model.to(torch.device("cuda:0"))
+        if self.optimizer_state_dict is not None:
+            # try to load the optimizer state dict, but this is only possible
+            # if there are no new targets in the model (new parameters)
+            if not model.has_new_targets:
+                optimizer.load_state_dict(self.optimizer_state_dict)
 
-        optim = get_optimizer(pet_model, FITTING_SCHEME)
-        scheduler = get_scheduler(optim, FITTING_SCHEME)
+        lr_scheduler = get_scheduler(optimizer, self.hypers)
 
-        if self.pet_trainer_state is not None:
-            for i, param_group in enumerate(optim.param_groups):
-                if len(param_group["params"]) != len(
-                    self.pet_trainer_state["optim_state_dict"]["param_groups"][i][
-                        "params"
-                    ]
-                ):
-                    raise RuntimeError(
-                        "The number of parameters in the optimizer state dict "
-                        "from the loaded checkpoint does not match the current "
-                        "optimizer state. This means the model architecture has "
-                        "changed since the last checkpoint. If you are using LoRA "
-                        "PEFT, you should use the best model chekpoint from the "
-                        "pre-training step. If you still need to use the current "
-                        "checkpoint, set the trainer_state_dict in the checkpoint "
-                        "to None and restart the training."
-                    )
+        if self.scheduler_state_dict is not None:
+            # same as the optimizer, try to load the scheduler state dict
+            if not model.has_new_targets:
+                lr_scheduler.load_state_dict(self.scheduler_state_dict)
 
-            optim.load_state_dict(self.pet_trainer_state["optim_state_dict"])
-            scheduler.load_state_dict(self.pet_trainer_state["scheduler_state_dict"])
-        else:
-            logging.info(
-                "No optimizer and scheduler state found in the "
-                "checkpoint, starting from scratch"
-            )
+        per_structure_targets = self.hypers["per_structure_targets"]
+
+        # Log the initial learning rate:
+        old_lr = optimizer.param_groups[0]["lr"]
+        logger.info(f"Initial learning rate: {old_lr}")
+
+        rotational_augmenter = RotationalAugmenter(train_targets)
+
+        start_epoch = 0 if self.epoch is None else self.epoch + 1
+
+        # Train the model:
+        if self.best_metric is None:
+            self.best_metric = float("inf")
+        logger.info("Starting training")
+        epoch = start_epoch
 
         history = []
         if MLIP_SETTINGS.USE_ENERGIES:

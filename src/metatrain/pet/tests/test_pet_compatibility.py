@@ -11,7 +11,7 @@ from metatensor.torch.atomistic import (
     systems_to_torch,
 )
 
-from metatrain.pet import PET as WrappedPET
+from metatrain.pet import PET as PET
 from metatrain.pet.modules.data_preparation import get_pyg_graphs
 from metatrain.pet.modules.hypers import Hypers
 from metatrain.pet.modules.pet import PET
@@ -116,7 +116,7 @@ def test_predictions_compatibility(cutoff):
     )
     hypers = DEFAULT_HYPERS["model"]
     hypers["R_CUT"] = cutoff
-    model = WrappedPET(DEFAULT_HYPERS["model"], dataset_info)
+    model = PET(DEFAULT_HYPERS["model"], dataset_info)
     ARCHITECTURAL_HYPERS = Hypers(model.hypers)
     raw_pet = PET(ARCHITECTURAL_HYPERS, 0.0, len(dataset_info.atomic_types))
     model.set_trained_model(raw_pet)
