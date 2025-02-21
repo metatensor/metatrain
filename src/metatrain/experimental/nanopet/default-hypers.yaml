@@ -12,10 +12,10 @@ architecture:
     heads: {}
     zbl: False
     long_range: 
-      enabled: true
+      enable: false
       calculator: ewald
-      prefactor: 14.
-      atomic_smearing: 1.
+      prefactor: 14.0
+      atomic_smearing: 1.0
       lr_wavelength: 0.5
       subtract_interior: true
       physical_charges: false

@@ -125,7 +125,8 @@
         },
         "zbl": {
           "type": "boolean"
-        }
+        },
+        "long_range": {}
       },
       "additionalProperties": false
     },

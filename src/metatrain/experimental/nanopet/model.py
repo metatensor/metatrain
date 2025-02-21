@@ -17,7 +17,7 @@ from metatensor.torch.atomistic import (
 from ...utils.additive import ZBL, CompositionModel
 from ...utils.data import DatasetInfo, TargetInfo
 from ...utils.dtype import dtype_to_str
-from ...utils.long_range import LongRangeFeaturizer
+from ...utils.long_range import DummyLongRangeFeaturizer, LongRangeFeaturizer
 from ...utils.metadata import append_metadata_references
 from ...utils.scaler import Scaler
 from .modules.encoder import Encoder
@@ -136,25 +136,15 @@ class NanoPET(torch.nn.Module):
             self.species_to_species_index[species] = i
 
         # long-range module
-        if self.hypers["long_range"]["enabled"]:
+        if self.hypers["long_range"]["enable"]:
             self.long_range = True
-            self.long_range_featurizer = LongRangeFeaturizer(self.hypers)
+            self.long_range_featurizer = LongRangeFeaturizer(
+                self.hypers["long_range"],
+                feature_dim=self.hypers["d_pet"],
+                neighbor_list_options=self.requested_nl,
+            )
         else:
             self.long_range = False
-
-            class DummyLongRangeFeaturizer(torch.nn.Module):
-                def __init__(self):
-                    super().__init__()
-
-                def forward(
-                    self,
-                    systems: List[System],
-                    features,
-                    neighbor_indices,
-                    neighbor_distances,
-                ) -> torch.Tensor:
-                    return torch.tensor(0)
-
             self.long_range_featurizer = DummyLongRangeFeaturizer()  # for torchscript
 
         # additive models: these are handled by the trainer at training
@@ -390,7 +380,7 @@ class NanoPET(torch.nn.Module):
 
         if self.long_range:
             long_range_node_features = self.long_range_featurizer(
-                systems, node_features, self.requested_nl
+                systems, node_features, r
             )
             node_features = (node_features + long_range_node_features) * 0.5**0.5
 
