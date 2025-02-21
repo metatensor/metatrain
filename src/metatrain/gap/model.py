@@ -115,7 +115,6 @@ class GAP(torch.nn.Module):
         kernel_kwargs = {
             "degree": model_hypers["krr"]["degree"],
             "aggregate_names": ["atom", "center_type"],
-            "aggregate_type": model_hypers["krr"]["kernel-aggregation"],
         }
         self._subset_of_regressors = SubsetOfRegressors(
             kernel_kwargs=kernel_kwargs,
@@ -393,58 +392,32 @@ class _SorKernelSolver:
 class AggregateKernel(torch.nn.Module):
     """
     A kernel that aggregates values in a kernel over :param aggregate_names: using
-    an aggregate function given by :param aggregate_type:
+    the sum as aggregate function
 
     :param aggregate_names:
 
-    :param aggregate_type:
     """
 
     def __init__(
         self,
         aggregate_names: Union[str, List[str]],
-        aggregate_type: str = "sum",
         structurewise_aggregate: bool = False,
     ):
         super().__init__()
-        val_aggregate_types = ["sum", "mean"]
-        if aggregate_type not in val_aggregate_types:
-            raise ValueError(
-                f"Given aggregate_type {aggregate_type!r} but only "
-                f"{aggregate_type!r} are supported."
-            )
-        if structurewise_aggregate:
-            raise NotImplementedError(
-                "structurewise aggregation has not been implemented."
-            )
-
+        
         self._aggregate_names = aggregate_names
-        self._aggregate_type = aggregate_type
         self._structurewise_aggregate = structurewise_aggregate
 
     def aggregate_kernel(
         self, kernel: TensorMap, are_pseudo_points: Tuple[bool, bool] = (False, False)
     ) -> TensorMap:
-        if self._aggregate_type == "sum":
-            if not are_pseudo_points[0]:
-                kernel = metatensor.sum_over_samples(kernel, self._aggregate_names)
-            if not are_pseudo_points[1]:
-                raise NotImplementedError(
-                    "properties dimension cannot be aggregated for the moment"
-                )
-            return kernel
-        elif self._aggregate_type == "mean":
-            if not are_pseudo_points[0]:
-                kernel = metatensor.mean_over_samples(kernel, self._aggregate_names)
-            if not are_pseudo_points[1]:
-                raise NotImplementedError(
-                    "properties dimension cannot be aggregated for the moment"
-                )
-            return kernel
-        else:
+        if not are_pseudo_points[0]:
+            kernel = metatensor.sum_over_samples(kernel, self._aggregate_names)
+        if not are_pseudo_points[1]:
             raise NotImplementedError(
-                f"aggregate_type {self._aggregate_type!r} has not been implemented."
+                "properties dimension cannot be aggregated for the moment"
             )
+        return kernel
 
     def forward(
         self,
@@ -464,11 +437,10 @@ class AggregatePolynomial(AggregateKernel):
     def __init__(
         self,
         aggregate_names: Union[str, List[str]],
-        aggregate_type: str = "sum",
         structurewise_aggregate: bool = False,
         degree: int = 2,
     ):
-        super().__init__(aggregate_names, aggregate_type, structurewise_aggregate)
+        super().__init__(aggregate_names, structurewise_aggregate)
         self._degree = degree
 
     def compute_kernel(self, tensor1: TensorMap, tensor2: TensorMap):
@@ -478,33 +450,18 @@ class AggregatePolynomial(AggregateKernel):
 class TorchAggregateKernel(torch.nn.Module):
     """
     A kernel that aggregates values in a kernel over :param aggregate_names: using
-    a aggregaten function given by :param aggregate_type:
+    the sum as aggregate function
 
     :param aggregate_names:
-
-    :param aggregate_type:
     """
 
     def __init__(
         self,
         aggregate_names: Union[str, List[str]],
-        aggregate_type: str = "sum",
         structurewise_aggregate: bool = False,
     ):
         super().__init__()
-        val_aggregate_types = ["sum", "mean"]
-        if aggregate_type not in val_aggregate_types:
-            raise ValueError(
-                f"Given aggregate_type {aggregate_type} but only "
-                f"{aggregate_type} are supported."
-            )
-        if structurewise_aggregate:
-            raise NotImplementedError(
-                "structure wise aggregation has not been implemented."
-            )
-
         self._aggregate_names = aggregate_names
-        self._aggregate_type = aggregate_type
         self._structurewise_aggregate = structurewise_aggregate
 
     def aggregate_kernel(
@@ -512,30 +469,15 @@ class TorchAggregateKernel(torch.nn.Module):
         kernel: TorchTensorMap,
         are_pseudo_points: Tuple[bool, bool] = (False, False),
     ) -> TorchTensorMap:
-        if self._aggregate_type == "sum":
-            if not are_pseudo_points[0]:
-                kernel = metatensor.torch.sum_over_samples(
-                    kernel, self._aggregate_names
-                )
-            if not are_pseudo_points[1]:
-                raise NotImplementedError(
-                    "properties dimension cannot be aggregated for the moment"
-                )
-            return kernel
-        elif self._aggregate_type == "mean":
-            if not are_pseudo_points[0]:
-                kernel = metatensor.torch.mean_over_samples(
-                    kernel, self._aggregate_names
-                )
-            if not are_pseudo_points[1]:
-                raise NotImplementedError(
-                    "properties dimension cannot be aggregated for the moment"
-                )
-            return kernel
-        else:
-            raise NotImplementedError(
-                f"aggregate_type {self._aggregate_type} has not been implemented."
+        if not are_pseudo_points[0]:
+            kernel = metatensor.torch.sum_over_samples(
+                kernel, self._aggregate_names
             )
+        if not are_pseudo_points[1]:
+            raise NotImplementedError(
+                "properties dimension cannot be aggregated for the moment"
+            )
+        return kernel
 
     def forward(
         self,
@@ -557,11 +499,10 @@ class TorchAggregatePolynomial(TorchAggregateKernel):
     def __init__(
         self,
         aggregate_names: Union[str, List[str]],
-        aggregate_type: str = "sum",
         structurewise_aggregate: bool = False,
         degree: int = 2,
     ):
-        super().__init__(aggregate_names, aggregate_type, structurewise_aggregate)
+        super().__init__(aggregate_names, structurewise_aggregate)
         self._degree = degree
 
     def compute_kernel(self, tensor1: TorchTensorMap, tensor2: TorchTensorMap):
@@ -799,11 +740,6 @@ class SubsetOfRegressors:
             kernel_kwargs = {}
 
         # Set the kernel
-        aggregate_type = kernel_kwargs.get("aggregate_type", "sum")
-        if aggregate_type != "sum":
-            raise ValueError(
-                f'aggregate_type={aggregate_type!r} found but must be "sum"'
-            )
         self._kernel: Union[AggregateKernel, None] = None
         self._kernel = AggregatePolynomial(**kernel_kwargs)
 
@@ -984,11 +920,6 @@ class TorchSubsetofRegressors(torch.nn.Module):
             kernel_kwargs = {}
 
         # Set the kernel
-        aggregate_type = kernel_kwargs.get("aggregate_type", "sum")
-        if aggregate_type != "sum":
-            raise ValueError(
-                f'aggregate_type={aggregate_type!r} found but must be "sum"'
-            )
         self._kernel = TorchAggregatePolynomial(**kernel_kwargs)
 
     def forward(self, T: TorchTensorMap) -> TorchTensorMap:
