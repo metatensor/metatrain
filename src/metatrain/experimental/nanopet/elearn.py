@@ -12,7 +12,9 @@ from metatensor.torch.learn.data import IndexedDataset, DataLoader, group_and_jo
 from metatensor.torch.learn.data._namedtuple import namedtuple
 
 from metatrain.experimental.nanopet.modules.augmentation import (
-    RotationalAugmenter, get_random_rotation, get_random_inversion
+    RotationalAugmenter,
+    get_random_rotation,
+    get_random_inversion,
 )
 from metatrain.utils.data import TargetInfo
 
@@ -504,7 +506,7 @@ def get_edges(tensor: TensorMap) -> Dict[str, TensorMap]:
 
         # Slice samples to off-site
         samples_mask = torch.where(
-            block.samples.values[:, block.samples.names.index("first_atom")] 
+            block.samples.values[:, block.samples.names.index("first_atom")]
             != block.samples.values[:, block.samples.names.index("second_atom")]
         )
         edge_blocks.append(
@@ -519,7 +521,9 @@ def get_edges(tensor: TensorMap) -> Dict[str, TensorMap]:
             )
         )
 
-    edge_tensor = TensorMap(Labels(tensor.keys.names, torch.stack(edge_keys)), edge_blocks)
+    edge_tensor = TensorMap(
+        Labels(tensor.keys.names, torch.stack(edge_keys)), edge_blocks
+    )
     edge_tensor = drop_empty_blocks(edge_tensor)
 
     # return node_tensor, edge_tensor
@@ -527,6 +531,7 @@ def get_edges(tensor: TensorMap) -> Dict[str, TensorMap]:
 
 
 # ===== Training utils ===== #
+
 
 def group_and_join_nonetypes(
     batch: List[NamedTuple],
@@ -570,6 +575,7 @@ def group_and_join_nonetypes(
 
     return namedtuple("Batch", names)(*data)
 
+
 def get_dataset(systems, system_id, target_node, target_edge):
     """Returns a dataset with systems, and target nodes and edges"""
     return IndexedDataset(
@@ -593,20 +599,22 @@ def get_dataset(systems, system_id, target_node, target_edge):
         ],
     )
 
+
 def get_dataloader(dataset, **kwargs):
     """Returns a dataloader"""
     return DataLoader(
-    dataset,
-    collate_fn=partial(
-        group_and_join_nonetypes,
-        join_kwargs={
-            "remove_tensor_name": True,
-            "different_keys": "union",
-        }
-    ),
-    shuffle=True,
-    **kwargs
-)
+        dataset,
+        collate_fn=partial(
+            group_and_join_nonetypes,
+            join_kwargs={
+                "remove_tensor_name": True,
+                "different_keys": "union",
+            },
+        ),
+        shuffle=True,
+        **kwargs,
+    )
+
 
 def get_augmenter(
     target_node: Optional[TensorMap] = None,
@@ -626,7 +634,7 @@ def get_augmenter(
                         target_node,
                         "samples",
                         mts.Labels(["system"], torch.tensor([-1]).reshape(-1, 1)),
-                    )
+                    ),
                 )
             }
         )
@@ -640,11 +648,12 @@ def get_augmenter(
                         target_edge,
                         "samples",
                         mts.Labels(["system"], torch.tensor([-1]).reshape(-1, 1)),
-                    )
+                    ),
                 )
             }
         )
     return RotationalAugmenter(target_info_dict)
+
 
 def l2loss(input: TensorMap, target: TensorMap) -> torch.Tensor:
     """Computes the squared loss (reduction = sum) between the input and target TensorMaps"""
@@ -654,6 +663,7 @@ def l2loss(input: TensorMap, target: TensorMap) -> torch.Tensor:
         loss += torch.sum((input[key].values - target[key].values) ** 2)
     return loss
 
+
 def get_system_transformations(systems) -> List[torch.Tensor]:
     """
     Returns a series of random transformations to be applied for each system in
@@ -662,6 +672,7 @@ def get_system_transformations(systems) -> List[torch.Tensor]:
     rotations = [get_random_rotation() for _ in range(len(systems))]
     inversions = [get_random_inversion() for _ in range(len(systems))]
     return rotations, inversions
+
 
 # ===== For converting between atomic numbers and symbols
 
