@@ -1,4 +1,7 @@
+from typing import List
+
 import torch
+from metatensor.torch.atomistic import System
 
 
 class LongRangeFeaturizer(torch.nn.Module):
@@ -7,6 +10,11 @@ class LongRangeFeaturizer(torch.nn.Module):
         raise NotImplementedError
         # use hypers for long-range, register modules, etc
 
-    def forward(systems, features, neighbor_indices, neighbor_distances):
+    def forward(
+        systems: List[System],
+        features: torch.Tensor,
+        neighbor_indices: torch.Tensor,
+        neighbor_distances: torch.Tensor,
+    ):
         raise NotImplementedError
         # implement long-range featurization here
