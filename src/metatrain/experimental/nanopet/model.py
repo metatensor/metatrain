@@ -141,7 +141,21 @@ class NanoPET(torch.nn.Module):
             self.long_range_featurizer = LongRangeFeaturizer(self.hypers["long_range"])
         else:
             self.long_range = False
-            self.long_range_featurizer = torch.nn.Identity()  # for torchscript
+
+            class DummyLongRangeFeaturizer(torch.nn.Module):
+                def __init__(self):
+                    super().__init__()
+
+                def forward(
+                    self,
+                    systems: List[System],
+                    features,
+                    neighbor_indices,
+                    neighbor_distances,
+                ) -> torch.Tensor:
+                    return torch.tensor(0)
+
+            self.long_range_featurizer = DummyLongRangeFeaturizer()  # for torchscript
 
         # additive models: these are handled by the trainer at training
         # time, and they are added to the output at evaluation time
