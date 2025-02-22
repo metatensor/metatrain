@@ -3,12 +3,15 @@ base_precision: 32
 seed: 42
 
 architecture:
-  name: experimental.soap_bpnn
+  name: soap_bpnn
   model:
     soap:
-      cutoff: 5.0
-      max_radial: 8
-      max_angular: 6
+      cutoff:
+        radius: 5.0
+      basis:
+        max_angular: 6
+        radial:
+          max_radial: 7
     bpnn:
       layernorm: true
       num_hidden_layers: 2
@@ -26,7 +29,7 @@ training_set:
   targets:
     mtt::polarizability:
       quantity: polarizability
-      read_from: spherical_polarizability.npz
+      read_from: spherical_polarizability.mts
       per_atom: False
       type: 
         spherical:
