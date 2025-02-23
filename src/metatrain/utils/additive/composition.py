@@ -133,10 +133,10 @@ class CompositionModel(torch.nn.Module):
                     dtype=self.dummy_buffer.dtype,
                 ).reshape(-1, 1)
                 self.weights[target_key] = TensorMap(
-                    keys=Labels.single(),
+                    keys=Labels.single().to(device),
                     blocks=[
                         TensorBlock(
-                            values=weights_tensor,
+                            values=weights_tensor.to(device),
                             samples=Labels(
                                 names=["center_type"],
                                 values=torch.tensor(
@@ -144,10 +144,10 @@ class CompositionModel(torch.nn.Module):
                                 ).reshape(-1, 1),
                             ),
                             components=self.dataset_info.targets[target_key]
-                            .layout.block()
+                            .layout.block().to(device)
                             .components,
                             properties=self.dataset_info.targets[target_key]
-                            .layout.block()
+                            .layout.block().to(device)
                             .properties,
                         )
                     ],
@@ -273,17 +273,19 @@ class CompositionModel(torch.nn.Module):
                         if self.dataset_info.targets[target_key].per_atom:
                             # hack: metatensor.join doesn't work on single blocks;
                             # create TensorMaps, join, and then extract the joined block
+                            
                             joined_blocks = metatensor.torch.join(
                                 [
                                     TensorMap(
-                                        keys=Labels.single(),
-                                        blocks=[b],
+                                        keys=Labels.single().to(device),
+                                        blocks=[b.to(device, dtype=dtype)],
                                     )
                                     for b in block_list
                                 ],
                                 axis="samples",
                                 remove_tensor_name=True,
                             ).block()
+
                             # This code doesn't work because mean_over_samples_block
                             # actually does a sum...
                             # weights_tensor = (
@@ -320,7 +322,7 @@ class CompositionModel(torch.nn.Module):
                         weights_tensor = weights_tensor.unsqueeze(1)
                     weight_blocks.append(
                         TensorBlock(
-                            values=weights_tensor,
+                            values=weights_tensor.to(device),
                             samples=Labels(
                                 ["center_type"],
                                 values=torch.tensor(
@@ -331,7 +333,7 @@ class CompositionModel(torch.nn.Module):
                                 c.to(device) for c in metadata_block.components
                             ],
                             properties=metadata_block.properties.to(device),
-                        )
+                        ).to(device, dtype=dtype)
                     )
                 self.weights[target_key] = TensorMap(
                     keys=self.dataset_info.targets[target_key].layout.keys.to(device),
