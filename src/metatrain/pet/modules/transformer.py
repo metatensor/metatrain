@@ -115,17 +115,18 @@ class CartesianTransformer(torch.nn.Module):
     def __init__(
         self,
         hypers,
-        d_model,
-        n_head,
-        dim_feedforward,
-        n_layers,
-        dropout,
-        n_atomic_species,
+        d_model: int,
+        n_head: int,
+        dim_feedforward: int,
+        n_layers: int,
+        dropout: float,
+        n_atomic_species: int,
         is_first,
     ):
         super(CartesianTransformer, self).__init__()
-        self.hypers = hypers
         self.is_first = is_first
+        self.cutoff = float(hypers["cutoff"])
+        self.cutoff_width = float(hypers["cutoff_width"])
         self.trans_layer = TransformerLayer(
             d_model=d_model,
             n_heads=n_head,
@@ -199,9 +200,7 @@ class CartesianTransformer(torch.nn.Module):
         total_mask = torch.cat([submask[:, None], mask], dim=1)
 
         lengths = torch.sqrt(torch.sum(x * x, dim=2) + 1e-16)
-        multipliers = cutoff_func(
-            lengths, self.hypers["cutoff"], self.hypers["cutoff_width"]
-        )
+        multipliers = cutoff_func(lengths, self.cutoff, self.cutoff_width)
         sub_multipliers = torch.ones(mask.shape[0], device=mask.device)
         multipliers = torch.cat([sub_multipliers[:, None], multipliers], dim=1)
         multipliers[total_mask] = 0.0

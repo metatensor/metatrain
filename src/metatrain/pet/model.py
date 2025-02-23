@@ -28,25 +28,19 @@ from .modules.utilities import cutoff_func, systems_to_batch_dict
 logger = logging.getLogger(__name__)
 
 
-def convert_hypers(hypers):
-    raise NotImplementedError
-
-
 class PET(torch.nn.Module):
     __supported_devices__ = ["cuda", "cpu"]
     __supported_dtypes__ = [torch.float32]
     __default_metadata__ = ModelMetadata(
         references={"architecture": ["https://arxiv.org/abs/2305.19302v3"]}
     )
+    component_labels: Dict[str, List[List[Labels]]]
 
     def __init__(self, model_hypers: Dict, dataset_info: DatasetInfo) -> None:
         super().__init__()
-        if len(dataset_info.targets) != 1:
-            raise ValueError("PET only supports a single target")
-        self.hypers = model_hypers
         self.dataset_info = dataset_info
         self.atomic_types = dataset_info.atomic_types
-
+        self.hypers = model_hypers
         self.requested_nl = NeighborListOptions(
             cutoff=self.hypers["cutoff"],
             full_list=True,
@@ -54,6 +48,8 @@ class PET(torch.nn.Module):
         )
 
         self.cutoff = float(self.hypers["cutoff"])
+        self.cutoff_width = float(self.hypers["cutoff_width"])
+        self.residual_factor = float(self.hypers["residual_factor"])
         self.embedding = torch.nn.Embedding(
             len(self.atomic_types) + 1, self.hypers["d_pet"]
         )
@@ -79,7 +75,6 @@ class PET(torch.nn.Module):
         self.messages_bonds_last_layers = torch.nn.ModuleDict()
         self.central_tokens_last_layers = torch.nn.ModuleDict()
         self.messages_bonds_last_layers = torch.nn.ModuleDict()
-
         # last-layer feature size (for LLPR module)
         self.last_layer_feature_size = (
             self.hypers["num_gnn_layers"] * self.hypers["d_head"] * 2
@@ -93,8 +88,8 @@ class PET(torch.nn.Module):
 
         self.output_shapes: Dict[str, Dict[str, List[int]]] = {}
         self.key_labels: Dict[str, Labels] = {}
-        self.component_labels: Dict[str, List[List[Labels]]] = {}
         self.property_labels: Dict[str, List[Labels]] = {}
+        self.component_labels: Dict[str, List[List[Labels]]] = {}
         self.target_names: List[str] = []
         for target_name, target_info in dataset_info.targets.items():
             self.target_names.append(target_name)
@@ -190,51 +185,32 @@ class PET(torch.nn.Module):
         outputs: Dict[str, ModelOutput],
         selected_atoms: Optional[Labels] = None,
     ) -> Dict[str, TensorMap]:
-        nl_options = self.requested_neighbor_lists()[0]
-        batch_dict = systems_to_batch_dict(systems, nl_options, self.atomic_types, None)
+        device = systems[0].device
 
-        x = batch_dict["x"]
-        neighbor_species = batch_dict["neighbor_species"]
-        mask = batch_dict["mask"]
-        lengths = torch.sqrt(torch.sum(x * x, dim=2) + 1e-16)
-        multipliers = cutoff_func(
-            lengths, self.hypers["cutoff"], self.hypers["cutoff_width"]
-        )
-        multipliers[mask] = 0.0
-
-        neighbors_index = batch_dict["neighbors_index"]
-        neighbors_pos = batch_dict["neighbors_pos"]
-
-        batch_dict["input_messages"] = self.embedding(neighbor_species)
-
-        return_dict: Dict[str, TensorMap] = {}
-        central_tokens_list = []
-        output_messages_list = []
-
-        for gnn_layer in self.gnn_layers:
-            result = gnn_layer(batch_dict)
-            output_messages = result["output_messages"]
-            new_input_messages = output_messages[neighbors_index, neighbors_pos]
-            batch_dict["input_messages"] = self.hypers["residual_factor"] * (
-                batch_dict["input_messages"] + new_input_messages
-            )
-            print("central_tokens", result["central_token"])
-            print("output_messages", output_messages)
-            central_tokens_list.append(result["central_token"])
-            output_messages_list.append(output_messages)
-
-        central_tokens_features = torch.cat(central_tokens_list, dim=1)
-        output_messages_features = torch.cat(output_messages_list, dim=2)
-        output_messages_features = output_messages_features * multipliers[:, :, None]
-        output_messages_features = output_messages_features.sum(dim=1)
-        features = torch.cat([central_tokens_features, output_messages_features], dim=1)
+        if self.single_label.values.device != device:
+            self.single_label = self.single_label.to(device)
+            self.key_labels = {
+                output_name: label.to(device)
+                for output_name, label in self.key_labels.items()
+            }
+            self.component_labels = {
+                output_name: [
+                    [labels.to(device) for labels in components_block]
+                    for components_block in components_tmap
+                ]
+                for output_name, components_tmap in self.component_labels.items()
+            }
+            self.property_labels = {
+                output_name: [labels.to(device) for labels in properties_tmap]
+                for output_name, properties_tmap in self.property_labels.items()
+            }
 
         system_indices = torch.concatenate(
             [
                 torch.full(
                     (len(system),),
                     i_system,
-                    device=x.device,
+                    device=device,
                 )
                 for i_system, system in enumerate(systems)
             ],
@@ -247,7 +223,7 @@ class PET(torch.nn.Module):
                     [
                         torch.arange(
                             len(system),
-                            device=x.device,
+                            device=device,
                         )
                         for system in systems
                     ],
@@ -259,6 +235,41 @@ class PET(torch.nn.Module):
             names=["system", "atom"],
             values=sample_values,
         )
+
+        nl_options = self.requested_neighbor_lists()[0]
+        batch_dict = systems_to_batch_dict(systems, nl_options, self.atomic_types, None)
+
+        x = batch_dict["x"]
+        neighbor_species = batch_dict["neighbor_species"]
+        mask = batch_dict["mask"]
+        neighbors_index = batch_dict["neighbors_index"]
+        neighbors_pos = batch_dict["neighbors_pos"]
+
+        lengths = torch.sqrt(torch.sum(x * x, dim=2) + 1e-16)
+        multipliers = cutoff_func(lengths, self.cutoff, self.cutoff_width)
+        multipliers[mask] = 0.0
+
+        batch_dict["input_messages"] = self.embedding(neighbor_species)
+
+        return_dict: Dict[str, TensorMap] = {}
+        central_tokens_list = []
+        output_messages_list = []
+
+        for gnn_layer in self.gnn_layers:
+            result = gnn_layer(batch_dict)
+            output_messages = result["output_messages"]
+            new_input_messages = output_messages[neighbors_index, neighbors_pos]
+            batch_dict["input_messages"] = self.residual_factor * (
+                batch_dict["input_messages"] + new_input_messages
+            )
+            central_tokens_list.append(result["central_token"])
+            output_messages_list.append(output_messages)
+
+        central_tokens_features = torch.cat(central_tokens_list, dim=1)
+        output_messages_features = torch.cat(output_messages_list, dim=2)
+        output_messages_features = output_messages_features * multipliers[:, :, None]
+        output_messages_features = output_messages_features.sum(dim=1)
+        features = torch.cat([central_tokens_features, output_messages_features], dim=1)
 
         # output the hidden features, if requested:
         if "features" in outputs:
@@ -286,45 +297,40 @@ class PET(torch.nn.Module):
                     feature_tmap, ["atom"]
                 )
 
-        central_tokens_features_dict: Dict[str, List[torch.Tensor]] = dict.fromkeys(
-            self.target_names, []
-        )
-        messages_bonds_features_dict: Dict[str, List[torch.Tensor]] = dict.fromkeys(
-            self.target_names, []
-        )
+        central_tokens_features_dict: Dict[str, List[torch.Tensor]] = {}
+        messages_bonds_features_dict: Dict[str, List[torch.Tensor]] = {}
 
-        last_layer_features_dict: Dict[str, List[torch.Tensor]] = dict.fromkeys(
-            self.target_names, []
-        )
+        for output_name, central_tokens_heads in self.central_tokens_heads.items():
+            if output_name not in central_tokens_features_dict:
+                central_tokens_features_dict[output_name] = []
 
+            for i, central_tokens_head in enumerate(central_tokens_heads):
+                central_tokens = central_tokens_list[i]
+                central_tokens_feature = central_tokens_head(central_tokens)
+                central_tokens_features_dict[output_name].append(central_tokens_feature)
+
+        for output_name, messages_bonds_heads in self.messages_bonds_heads.items():
+            if output_name not in messages_bonds_features_dict:
+                messages_bonds_features_dict[output_name] = []
+
+            for i, messages_bonds_head in enumerate(messages_bonds_heads):
+                output_messages = output_messages_list[i]
+                messages_bonds_feature = messages_bonds_head(
+                    output_messages, mask, multipliers
+                )
+                messages_bonds_features_dict[output_name].append(messages_bonds_feature)
+
+        last_layer_features_dict: Dict[str, List[torch.Tensor]] = {}
         last_layer_features: Dict[str, torch.Tensor] = {}
 
         for output_name in self.target_names:
-            central_tokens_heads = self.central_tokens_heads[output_name]
-            messages_bonds_heads = self.messages_bonds_heads[output_name]
-            for (
-                central_tokens_head,
-                messages_bonds_head,
-                central_tokens,
-                output_messages,
-            ) in zip(
-                central_tokens_heads,
-                messages_bonds_heads,
-                central_tokens_list,
-                output_messages_list,
-            ):
-                central_tokens_features_dict[output_name].append(
-                    central_tokens_head(central_tokens)
-                )
-                messages_bonds_features_dict[output_name].append(
-                    messages_bonds_head(output_messages, mask, multipliers)
-                )
-                last_layer_features_dict[output_name].append(
-                    central_tokens_features_dict[output_name][-1]
-                )
-                last_layer_features_dict[output_name].append(
-                    messages_bonds_features_dict[output_name][-1]
-                )
+            if output_name not in last_layer_features_dict:
+                last_layer_features_dict[output_name] = []
+            for i in range(len(central_tokens_features_dict[output_name])):
+                central_tokens_feature = central_tokens_features_dict[output_name][i]
+                messages_bonds_feature = messages_bonds_features_dict[output_name][i]
+                last_layer_features_dict[output_name].append(central_tokens_feature)
+                last_layer_features_dict[output_name].append(messages_bonds_feature)
             last_layer_features[output_name] = torch.cat(
                 last_layer_features_dict[output_name], dim=1
             )
@@ -375,48 +381,81 @@ class PET(torch.nn.Module):
                 )
 
         atomic_properties_tmap_dict: Dict[str, TensorMap] = {}
+
+        central_tokens_properties_by_layer: List[List[torch.Tensor]] = []
+        messages_bonds_properties_by_layer: List[List[torch.Tensor]] = []
+
+        for (
+            output_name,
+            central_tokens_last_layers,
+        ) in self.central_tokens_last_layers.items():
+            if output_name in outputs:
+                central_tokens_properties_by_layer = []
+                for i, central_tokens_last_layer in enumerate(
+                    central_tokens_last_layers
+                ):
+                    central_tokens_features = central_tokens_features_dict[output_name][
+                        i
+                    ]
+                    central_tokens_properties_by_block: List[torch.Tensor] = []
+                    for (
+                        central_token_last_layer_by_block
+                    ) in central_tokens_last_layer.values():
+                        central_tokens_properties_by_block.append(
+                            central_token_last_layer_by_block(central_tokens_features)
+                        )
+                    central_tokens_properties_by_layer.append(
+                        central_tokens_properties_by_block
+                    )
+
+        for (
+            output_name,
+            messages_bonds_last_layers,
+        ) in self.messages_bonds_last_layers.items():
+            if output_name in outputs:
+                messages_bonds_properties_by_layer = []
+                for i, messages_bonds_last_layer in enumerate(
+                    messages_bonds_last_layers
+                ):
+                    messages_bonds_features = messages_bonds_features_dict[output_name][
+                        i
+                    ]
+                    messages_bonds_properties_by_block: List[torch.Tensor] = []
+                    for (
+                        messages_bonds_last_layer_by_block
+                    ) in messages_bonds_last_layer.values():
+                        messages_bonds_properties_by_block.append(
+                            messages_bonds_last_layer_by_block(messages_bonds_features)
+                        )
+                    messages_bonds_properties_by_layer.append(
+                        messages_bonds_properties_by_block
+                    )
+
         for output_name in self.target_names:
             if output_name in outputs:
-                central_tokens_last_layers = self.central_tokens_last_layers[
-                    output_name
-                ]  # last_layer
-                messages_bonds_last_layers = self.messages_bonds_last_layers[
-                    output_name
-                ]  # last_layer
-                central_tokens_features = central_tokens_features_dict[
-                    output_name
-                ]  # atomic_features
-                messages_bonds_features = messages_bonds_features_dict[
-                    output_name
-                ]  # atomic_features
                 atomic_properties_by_block = {
                     key: torch.zeros(1, dtype=x.dtype, device=x.device)
                     for key in self.output_shapes[output_name].keys()
                 }
-                for (
-                    central_tokens_last_layer,
-                    messages_bonds_last_layer,
-                    central_tokens_feature,
-                    messages_bonds_feature,
-                ) in zip(
-                    central_tokens_last_layers,
-                    messages_bonds_last_layers,
-                    central_tokens_features,
-                    messages_bonds_features,
-                ):
-                    for key in self.output_shapes[output_name]:
-                        central_token_last_layer_by_block = central_tokens_last_layer[
-                            key
+
+                for i in range(len(central_tokens_properties_by_layer)):
+                    central_tokens_properties_by_block = (
+                        central_tokens_properties_by_layer[i]
+                    )
+                    messages_bonds_properties_by_block = (
+                        messages_bonds_properties_by_layer[i]
+                    )
+                    for j, key in enumerate(atomic_properties_by_block):
+                        central_tokens_properties = central_tokens_properties_by_block[
+                            j
                         ]
-                        messages_bonds_last_layer_by_block = messages_bonds_last_layer[
-                            key
+                        messages_bonds_properties = messages_bonds_properties_by_block[
+                            j
                         ]
                         atomic_properties_by_block[key] = atomic_properties_by_block[
                             key
-                        ] + central_token_last_layer_by_block(central_tokens_feature)
-                        atomic_properties_by_block[key] = atomic_properties_by_block[
-                            key
-                        ] + messages_bonds_last_layer_by_block(messages_bonds_feature)
+                        ] + (central_tokens_properties + messages_bonds_properties)
+
                 blocks = [
                     TensorBlock(
                         values=atomic_properties_by_block[key].reshape([-1] + shape),
@@ -491,7 +530,7 @@ class PET(torch.nn.Module):
     ) -> MetatensorAtomisticModel:
         dtype = next(self.parameters()).dtype
         if dtype not in self.__supported_dtypes__:
-            raise ValueError(f"unsupported dtype {self.dtype} for NanoPET")
+            raise ValueError(f"unsupported dtype {dtype} for PET")
 
         # Make sure the model is all in the same dtype
         # For example, after training, the additive models could still be in
