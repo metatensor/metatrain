@@ -19,7 +19,9 @@ architecture:
     distributed_port: 39591
     batch_size: 16
     num_epochs: 10000
-    learning_rate: 3e-4
+    num_epochs_warmup: 100
+    learning_rate: 1e-4
+    weight_decay: null
     scheduler_patience: 100
     scheduler_factor: 0.8
     log_interval: 10
@@ -34,3 +36,4 @@ architecture:
       type: mse
       weights: {}
       reduction: mean
+      sliding_factor: 0.7

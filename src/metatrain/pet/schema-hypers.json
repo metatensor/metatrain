@@ -57,8 +57,14 @@
         "num_epochs": {
           "type": "integer"
         },
+        "num_epochs_warmup": {
+          "type": "integer"
+        },
         "learning_rate": {
           "type": "number"
+        },
+        "weight_decay": {
+          "type": ["number", "null"]
         },
         "scheduler_patience": {
           "type": "integer"
@@ -151,6 +157,9 @@
                   "additionalProperties": false
                 }
               ]
+            },
+            "sliding_factor": {
+              "type": "number"
             }
           },
           "additionalProperties": false
