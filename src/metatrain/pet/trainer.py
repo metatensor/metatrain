@@ -11,7 +11,6 @@ from ..utils.additive import remove_additive
 from ..utils.augmentation import RotationalAugmenter
 from ..utils.data import CombinedDataLoader, Dataset, _is_disk_dataset, collate_fn
 from ..utils.distributed.slurm import DistributedEnvironment
-from ..utils.evaluate_model import evaluate_model
 from ..utils.external_naming import to_external_name
 from ..utils.io import check_file_extension
 from ..utils.logging import MetricLogger
@@ -27,6 +26,7 @@ from ..utils.transfer import (
     systems_and_targets_to_dtype,
 )
 from .model import PET
+from .utilities.evaluate_model import evaluate_model
 from .utilities.neighbor_lists import get_system_with_neighbor_lists
 
 
