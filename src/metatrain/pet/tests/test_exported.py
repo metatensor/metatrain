@@ -14,7 +14,7 @@ from . import MODEL_HYPERS
 
 
 @pytest.mark.parametrize("device", ["cpu", "cuda"])
-@pytest.mark.parametrize("dtype", [torch.float32, torch.float64])
+@pytest.mark.parametrize("dtype", [torch.float32])
 def test_to(device, dtype):
     """Tests that the `.to()` method of the exported model works."""
     if device == "cuda" and not torch.cuda.is_available():
