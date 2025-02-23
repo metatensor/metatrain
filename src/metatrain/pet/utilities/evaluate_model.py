@@ -12,8 +12,8 @@ from metatensor.torch.atomistic import (
     register_autograd_neighbors,
 )
 
-from .data import TargetInfo
-from .output_gradient import compute_gradient
+from metatrain.utils.data import TargetInfo
+from metatrain.utils.output_gradient import compute_gradient
 
 
 def evaluate_model(
@@ -294,7 +294,7 @@ def _prepare_system(
 
     for nl_options in system.known_neighbor_lists():
         nl = system.get_neighbor_list(nl_options)
-        register_autograd_neighbors(nl, new_system, check_consistency=False)
+        register_autograd_neighbors(new_system, nl, check_consistency=False)
         new_system.add_neighbor_list(nl_options, nl)
 
     return new_system, strain
