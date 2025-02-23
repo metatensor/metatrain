@@ -250,7 +250,6 @@ class Trainer:
                 optimizer.load_state_dict(self.optimizer_state_dict)
 
         lr_scheduler = get_scheduler(optimizer, self.hypers)
-        print("patience: ", self.hypers["scheduler_patience"])
 
         if self.scheduler_state_dict is not None:
             # same as the optimizer, try to load the scheduler state dict
