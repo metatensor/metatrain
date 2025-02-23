@@ -44,17 +44,17 @@ def test_regression_init():
 
     expected_output = torch.tensor(
         [
-            [-0.881162524223],
-            [-0.217067301273],
-            [-0.338408827782],
-            [-0.396433591843],
-            [-0.058203138411],
+            [0.653782904148],
+            [0.899662137032],
+            [0.244875088334],
+            [0.846885263920],
+            [0.807604968548],
         ]
     )
 
     # if you need to change the hardcoded values:
-    # torch.set_printoptions(precision=12)
-    # print(output["mtt::U0"].block().values)
+    torch.set_printoptions(precision=12)
+    print(output["mtt::U0"].block().values)
 
     torch.testing.assert_close(output["mtt::U0"].block().values, expected_output)
 
@@ -85,13 +85,13 @@ def test_regression_train():
 
     hypers = DEFAULT_HYPERS.copy()
     hypers["training"]["num_epochs"] = 2
+    hypers["training"]["scheduler_patience"] = 1
 
     dataset_info = DatasetInfo(
         length_unit="Angstrom", atomic_types=[1, 6, 7, 8], targets=target_info_dict
     )
     model = PET(MODEL_HYPERS, dataset_info)
 
-    hypers["training"]["num_epochs"] = 1
     trainer = Trainer(hypers["training"])
     trainer.train(
         model=model,
@@ -113,11 +113,11 @@ def test_regression_train():
 
     expected_output = torch.tensor(
         [
-            [-0.200074151158],
-            [-0.007532753050],
-            [0.249057114124],
-            [-0.112243928015],
-            [0.042499568313],
+            [1.093326091766],
+            [-0.131960242987],
+            [0.212054699659],
+            [0.338528394699],
+            [-0.287360936403],
         ]
     )
 

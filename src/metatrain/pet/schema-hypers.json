@@ -69,9 +69,6 @@
         "scheduler_patience": {
           "type": "integer"
         },
-        "scheduler_factor": {
-          "type": "number"
-        },
         "log_interval": {
           "type": "integer"
         },
