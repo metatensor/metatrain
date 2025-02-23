@@ -17,7 +17,7 @@ from metatrain.utils.neighbor_lists import (
 from . import RESOURCES_PATH
 
 
-@pytest.mark.parametrize("calculator", ["ewald", "p3m"])
+@pytest.mark.parametrize("calculator", ["ewald", "pme", "p3m"])
 def test_long_range(calculator):
     """Tests that the long-range module can predict successfully."""
 

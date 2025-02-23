@@ -10,7 +10,11 @@ class LongRangeFeaturizer(torch.nn.Module):
 
         try:
             from torchpme import InversePowerLawPotential
-            from torchpme.calculators import EwaldCalculator, P3MCalculator
+            from torchpme.calculators import (
+                EwaldCalculator,
+                P3MCalculator,
+                PMECalculator,
+            )
         except ImportError:
             raise ImportError(
                 "`torch-pme` is required for long-range models. "
@@ -39,6 +43,23 @@ class LongRangeFeaturizer(torch.nn.Module):
                 full_neighbor_list=neighbor_list_options.full_list,
                 mesh_spacing=hypers["lr_wavelength"],
                 prefactor=hypers["prefactor"],
+            )
+        elif hypers["calculator"] == "pme":
+            self.calculator = PMECalculator(
+                potential=InversePowerLawPotential(
+                    exponent=hypers["exponent"],
+                    smearing=hypers["atomic_smearing"],
+                    exclusion_radius=neighbor_list_options.cutoff,
+                ),
+                full_neighbor_list=neighbor_list_options.full_list,
+                mesh_spacing=hypers["lr_wavelength"],
+                prefactor=hypers["prefactor"],
+            )
+
+        else:
+            raise ValueError(
+                f"Invalid torch-pme calculator: {hypers['calculator']}. "
+                "Allowed options are ewald, pme, p3m."
             )
 
         self.neighbor_list_options = neighbor_list_options
