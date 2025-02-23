@@ -64,11 +64,6 @@ soap-bpnn = [
 ]
 pet = [
     "pet-neighbors-convert",
-    "torch_geometric",
-    "matscipy",
-    "scikit-learn",
-    "pathos",
-    "scipy",
 ]
 nanopet = []
 gap = [
