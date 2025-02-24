@@ -5,6 +5,16 @@ from metatensor.torch.atomistic import System
 
 
 class LongRangeFeaturizer(torch.nn.Module):
+    """A class to compute long-range features starting from short-range features.
+
+    :param hypers: Dictionary containing the hyperparameters for the long-range
+        featurizer.
+    :param feature_dim: The dimension of the short-range features (which also
+        corresponds to the number of long-range features that will be returned).
+    :param neighbor_list_options: A :py:class:`NeighborListOptions` object containing
+        the neighbor list information for the short-range model.
+    """
+
     def __init__(self, hypers, feature_dim, neighbor_list_options):
         super(LongRangeFeaturizer, self).__init__()
 
@@ -63,6 +73,16 @@ class LongRangeFeaturizer(torch.nn.Module):
         features: torch.Tensor,
         neighbor_distances: torch.Tensor,
     ) -> torch.Tensor:
+        """Compute the long-range features for a list of systems.
+
+        :param systems: A list of :py:class:`System` objects for which to compute the
+            long-range features. Each system must contain a neighbor list consistent
+            with the neighbor list options used to create the class.
+        :param features: A tensor of short-range features for the systems.
+        :param neighbor_distances: A tensor of neighbor distances for the systems,
+            which must be consistent with the neighbor list options used to create the
+            class.
+        """
         charges = self.charges_map(features)
 
         last_len_nodes = 0

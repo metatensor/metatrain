@@ -3,6 +3,7 @@ from pathlib import Path
 from typing import Dict, List, Optional, Union
 
 import metatensor.torch
+import numpy as np
 import torch
 from metatensor.torch import Labels, TensorBlock, TensorMap
 from metatensor.torch.atomistic import (
@@ -568,6 +569,8 @@ class NanoPET(torch.nn.Module):
         for additive_model in self.additive_models:
             if hasattr(additive_model, "cutoff_radius"):
                 interaction_ranges.append(additive_model.cutoff_radius)
+            if self.long_range:
+                interaction_ranges.append(np.inf)
         interaction_range = max(interaction_ranges)
 
         capabilities = ModelCapabilities(
