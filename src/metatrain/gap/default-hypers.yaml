@@ -25,7 +25,7 @@ architecture:
           max_radial: 7
     krr:
       degree: 2
-      num_sparse_points: 500 
+      num_sparse_points: 500
     zbl: false
 
   training:

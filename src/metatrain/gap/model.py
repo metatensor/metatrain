@@ -17,7 +17,7 @@ from metatensor.torch.atomistic import (
     ModelOutput,
     System,
 )
-from skmatter._selection import _FPS
+from skmatter._selection import _FPS as _FPS_skmatter
 
 from metatrain.utils.data.dataset import DatasetInfo
 
@@ -120,7 +120,7 @@ class GAP(torch.nn.Module):
             kernel_kwargs=kernel_kwargs,
         )
 
-        self._sampler = FPS(n_to_select=model_hypers["krr"]["num_sparse_points"])
+        self._sampler = _FPS(n_to_select=model_hypers["krr"]["num_sparse_points"])
 
         # set it do dummy keys, these are properly set during training
         self._keys = TorchLabels.empty("_")
@@ -509,7 +509,7 @@ class TorchAggregatePolynomial(TorchAggregateKernel):
         )
 
 
-class FPS:
+class _FPS:
     """
     Transformer that performs Greedy Sample Selection using Farthest Point Sampling.
 
@@ -521,7 +521,7 @@ class FPS:
         n_to_select=None,
     ):
         self._n_to_select = n_to_select
-        self._selector_class = _FPS
+        self._selector_class = _FPS_skmatter
         self._selection_type = "sample"
         self._support = None
 
