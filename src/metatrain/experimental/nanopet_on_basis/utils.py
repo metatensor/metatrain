@@ -1,20 +1,18 @@
 from functools import partial
-from typing import List, Tuple, Optional, Dict, Union, NamedTuple
+from typing import Dict, List, NamedTuple, Optional, Tuple, Union
 
+import metatensor.torch as mts
 import numpy as np
 import torch
 import vesin
-
-import metatensor.torch as mts
 from metatensor.torch import Labels, TensorBlock, TensorMap
-
-from metatensor.torch.learn.data import IndexedDataset, DataLoader
+from metatensor.torch.learn.data import DataLoader, IndexedDataset
 from metatensor.torch.learn.data._namedtuple import namedtuple
 
 from metatrain.experimental.nanopet.modules.augmentation import (
     RotationalAugmenter,
-    get_random_rotation,
     get_random_inversion,
+    get_random_rotation,
 )
 from metatrain.utils.data import TargetInfo
 
@@ -95,7 +93,6 @@ def symmetrize_samples(
 def keys_triu_center_type(
     in_keys_edge: Labels, out_properties_edge: List[Labels]
 ) -> TensorMap:
-
     idxs_to_keep = []
     for key_i, key in enumerate(in_keys_edge):
         # Keep blocks where the first atom type is less than the second atom type
@@ -130,7 +127,6 @@ def get_neighbor_list(
 
     labels_values = []
     for A, frame in zip(frame_idxs, frames):
-
         # Compute the neighbor list
         if np.any([d == 0 for d in frame.cell]):  # for ase
             # if np.any([d == 0 for d in frame.cell]):  # for chemfiles
@@ -245,7 +241,6 @@ def get_tensor_std(tensor: TensorMap) -> TensorMap:
     """
     std_blocks = []
     for key, block in tensor.items():
-
         # std_values = torch.std(torch.norm(block.values, dim=1), dim=0) * (
         #     (2 * key["o3_lambda"] + 1) ** 0.5
         # )
@@ -292,7 +287,6 @@ def get_one_center_metadata(
     keys_values_node = []
     for center_symbol, atom_basis in basis_set.items():
         for o3_lambda, radial_basis in basis_set[center_symbol].items():
-
             # Node key
             keys_value_node = [
                 o3_lambda,
@@ -309,7 +303,6 @@ def get_one_center_metadata(
     # Node properties
     out_properties_node = []
     for key in in_keys_node:
-
         o3_lambda, o3_sigma, center_type = key
 
         radial_basis = basis_set[ATOMIC_NUMBERS_TO_SYMBOLS[center_type]][o3_lambda]
@@ -377,7 +370,6 @@ def get_two_center_metadata(
 
                             for n_1 in radial_basis_1:
                                 for n_2 in radial_basis_2:
-
                                     same_orbital = (n_1 == n_2) and (
                                         o3_lambda_1 == o3_lambda_2
                                     )
@@ -496,7 +488,6 @@ def get_edges(tensor: TensorMap) -> Dict[str, TensorMap]:
     edge_keys = []
     edge_blocks = []
     for key, block in tensor.items():
-
         edge_keys.append(key.values)
 
         # Assert non-periodic for now. TODO: periodic!
@@ -553,7 +544,6 @@ def group_and_join_nonetypes(
     if join_kwargs is None:
         join_kwargs = {}
     for name, field in zip(names, list(zip(*batch))):
-
         if name == "sample_id":  # special case, keep as is
             data.append(field)
             continue

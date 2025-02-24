@@ -1,11 +1,10 @@
-from typing import Dict, List, Tuple, Union, Optional
-
-import torch
+from typing import Dict, List, Optional, Tuple, Union
 
 import metatensor.torch as mts
-from metatensor.torch.atomistic import ModelOutput
+import torch
 from metatensor.torch import Labels, TensorBlock, TensorMap
-
+from metatensor.torch.atomistic import ModelOutput
+from metatensor.torch.learn import ModuleMap
 
 from metatrain.experimental.nanopet import NanoPET
 from metatrain.utils.architectures import get_default_hypers
@@ -15,8 +14,7 @@ from metatrain.utils.neighbor_lists import (
     get_system_with_neighbor_lists,
 )
 
-from .utils import symmetrize_samples, keys_triu_center_type
-from metatensor.torch.learn import ModuleMap
+from .utils import keys_triu_center_type, symmetrize_samples
 
 
 class NanoPetOnBasis(torch.torch.nn.Module):
@@ -263,7 +261,6 @@ class NanoPetOnBasis(torch.torch.nn.Module):
         # Reshape each block in turn
         predicted_blocks = []
         for key, out_props in zip(in_keys, out_properties):
-
             if key not in predicted_features.keys:
                 continue
             predicted_block = predicted_features[key]
@@ -337,7 +334,6 @@ class MLPModel(torch.nn.Module):
         hidden_layer_widths: List[int],
         device="cpu",
     ) -> None:
-
         super().__init__()
 
         # Initialize the layers
@@ -374,14 +370,12 @@ def symmetrize_predictions_node(
     slice_nodes = {center_type: [] for center_type in atomic_types}
     for A, system in enumerate(systems):
         for i, center_type in enumerate(system.types):
-
             slice_nodes[int(center_type)].append([A, i])
 
     # Slice the predictions TensorMap to create blocks for the different center types
     # with the correct atomic samples
     node_blocks = []
     for key in in_keys_node:
-
         center_type = int(key["center_type"])
 
         block = mts.slice(
@@ -419,7 +413,6 @@ def symmetrize_predictions_edge(
     for A, system in enumerate(systems):
         for i, first_atom_type in enumerate(system.types):
             for j, second_atom_type in enumerate(system.types):
-
                 slice_edges[(int(first_atom_type), int(second_atom_type))].append(
                     [A, i, j]
                 )
@@ -427,7 +420,6 @@ def symmetrize_predictions_edge(
     # Edges (properly symmetrized)
     edge_blocks = []
     for key in in_keys_edge:
-
         Z1 = int(key["first_atom_type"])
         Z2 = int(key["second_atom_type"])
 

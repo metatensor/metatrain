@@ -3,21 +3,21 @@ import logging
 from pathlib import Path
 from typing import Union
 
-import torch
 import metatensor.torch as mts
+import torch
 from metatensor.learn.data import IndexedDataset
 from metatensor.torch.learn import DataLoader
+
 from ...utils.data.dataset import DatasetInfo
 from ...utils.data.target_info import TargetInfo
 from ...utils.io import check_file_extension
 from ...utils.logging import MetricLogger
 from ...utils.loss import TensorMapDictLoss
 from ...utils.metrics import RMSEAccumulator, get_selected_metric
-
 from ..nanopet.modules.augmentation import RotationalAugmenter
-
-from .utils import group_and_join_nonetypes, get_system_transformations
 from .model import NanoPetOnBasis
+from .utils import get_system_transformations, group_and_join_nonetypes
+
 
 logger = logging.getLogger(__name__)
 
@@ -42,7 +42,6 @@ class Trainer:
         checkpoint_dir: str,
         loss_fn: torch.nn.Module = None,
     ):
-
         is_distributed = False  # FIXME
         rank = 0  # FIXME
 
@@ -178,14 +177,12 @@ class Trainer:
         epoch = start_epoch
 
         for epoch in range(start_epoch, start_epoch + self.hypers["num_epochs"]):
-
             train_rmse_calculator = RMSEAccumulator(self.hypers["log_separate_blocks"])
             val_rmse_calculator = RMSEAccumulator(self.hypers["log_separate_blocks"])
 
             model.train()
             train_loss = 0
             for batch in train_dataloader:
-
                 systems_train, targets_train_node, targets_train_edge = (
                     batch.systems,
                     batch.targets_node,
@@ -255,7 +252,6 @@ class Trainer:
 
             val_loss = 0.0
             for batch in val_dataloader:
-
                 targets = {
                     "mtt::node": batch.targets_node,
                     "mtt::edge": batch.targets_edge,

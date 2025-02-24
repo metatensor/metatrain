@@ -1,9 +1,9 @@
 import random
 from typing import Dict, List, Optional, Tuple
 
+import metatensor.torch as mts
 import numpy as np
 import torch
-import metatensor.torch as mts
 from metatensor.torch import TensorBlock, TensorMap
 from metatensor.torch.atomistic import System
 from scipy.spatial.transform import Rotation
@@ -39,7 +39,8 @@ class RotationalAugmenter:
                 target_info.is_spherical
                 or target_info.is_spherical_node
                 or target_info.is_spherical_edge
-            ) for target_info in target_info_dict.values()
+            )
+            for target_info in target_info_dict.values()
         )
         if is_any_target_spherical:
             try:
@@ -84,7 +85,7 @@ class RotationalAugmenter:
             rotations = [get_random_rotation() for _ in range(len(systems))]
         if inversions is None:
             inversions = [get_random_inversion() for _ in range(len(systems))]
-        
+
         # Build the transformations from the specified or random rotations and inversions
         transformations = [
             torch.from_numpy(r.as_matrix() * i) for r, i in zip(rotations, inversions)
@@ -102,7 +103,8 @@ class RotationalAugmenter:
             for target_name in targets.keys():
                 target_info = self.target_info_dict[target_name]
                 if (
-                    target_info.is_spherical or target_info.is_spherical_node
+                    target_info.is_spherical
+                    or target_info.is_spherical_node
                     or target_info.is_spherical_edge
                 ):
                     for block in target_info.layout.blocks():
@@ -152,31 +154,37 @@ def _apply_wigner_D_matrices(
             split_blocks: List[TensorBlock] = []
             system_ids_block: List[int] = [
                 int(A)
-                for A in mts.unique_metadata_block(block, "samples", "system").values.flatten()
+                for A in mts.unique_metadata_block(
+                    block, "samples", "system"
+                ).values.flatten()
             ]
             for A in system_ids_block:
                 split_blocks.append(
                     mts.slice_block(
                         block,
                         "samples",
-                        mts.Labels(["system"], torch.tensor([A]).reshape(-1, 1))
+                        mts.Labels(["system"], torch.tensor([A]).reshape(-1, 1)),
                     )
                 )
             split_values = [block.values for block in split_blocks]
 
         # Edge targets
-        elif "first_atom" in block.samples.names and "second_atom" in block.samples.names:
+        elif (
+            "first_atom" in block.samples.names and "second_atom" in block.samples.names
+        ):
             split_blocks: List[TensorBlock] = []
             system_ids_block: List[int] = [
                 int(A)
-                for A in mts.unique_metadata_block(block, "samples", "system").values.flatten()
+                for A in mts.unique_metadata_block(
+                    block, "samples", "system"
+                ).values.flatten()
             ]
             for A in system_ids_block:
                 split_blocks.append(
                     mts.slice_block(
                         block,
                         "samples",
-                        mts.Labels(["system"], torch.tensor([A]).reshape(-1, 1))
+                        mts.Labels(["system"], torch.tensor([A]).reshape(-1, 1)),
                     )
                 )
             split_values = [block.values for block in split_blocks]
@@ -185,7 +193,6 @@ def _apply_wigner_D_matrices(
         else:
             split_values = torch.split(values, [1 for _ in systems])
 
-        
         new_values = []
         ell = (len(block.components[0]) - 1) // 2
         for v, transformation, wigner_D_matrix in zip(
