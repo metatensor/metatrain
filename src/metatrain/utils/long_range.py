@@ -42,7 +42,7 @@ class LongRangeFeaturizer(torch.nn.Module):
                     smearing=None,
                     exclusion_radius=neighbor_list_options.cutoff,
                 ),
-                full_neighbor_list=True,
+                full_neighbor_list=False,  # see docs of torch.combinations
             )
         else:
             raise NotImplementedError(
@@ -88,24 +88,35 @@ class LongRangeFeaturizer(torch.nn.Module):
             ]
             last_len_edges += len(neighbor_indices_system)
 
-            if not system.pbc.all():
-                neighbor_indices_system = torch.combinations(
-                    torch.arange(len(system)), 2
-                ).to(system.positions.device)
-                neighbor_distances_system = torch.norm(
-                    system.positions[neighbor_indices_system[:, 0]]
-                    - system.positions[neighbor_indices_system[:, 1]],
-                    dim=1,
-                ).to(system.positions.device)
-                potential = self.direct_calculator.forward(
+            if system.pbc.any() and not system.pbc.all():
+                raise NotImplementedError(
+                    "Long-range features are not currently supported for systems "
+                    "with mixed periodic and non-periodic boundary conditions."
+                )
+
+            if system.pbc.all():  # periodic
+                potential = self.calculator.forward(
                     charges=system_charges,
                     cell=system.cell,
                     positions=system.positions,
                     neighbor_indices=neighbor_indices_system,
                     neighbor_distances=neighbor_distances_system,
                 )
-            else:
-                potential = self.calculator.forward(
+            else:  # non-periodic
+                neighbor_indices_system = torch.combinations(
+                    torch.arange(len(system), device=system.positions.device), 2
+                )
+                neighbor_distances_system = torch.sqrt(
+                    torch.sum(
+                        (
+                            system.positions[neighbor_indices_system[:, 1]]
+                            - system.positions[neighbor_indices_system[:, 0]]
+                        )
+                        ** 2,
+                        dim=1,
+                    )
+                )
+                potential = self.direct_calculator.forward(
                     charges=system_charges,
                     cell=system.cell,
                     positions=system.positions,

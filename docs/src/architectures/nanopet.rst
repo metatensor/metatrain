@@ -99,6 +99,13 @@ The model-related hyperparameters are
   MLP (multi-layer perceptron) head. MLP heads consist of two hidden layers with
   dimensionality ``d_pet``.
 :param zbl: Whether to use the ZBL short-range repulsion as the baseline for the model
+:param long_range: Parameters related to long-range interactions.  ``enabled``: whether
+  to use long-range interactions. ``exponent``: the exponent that determines the
+  long-range decay of the interactions (``1/r^(exponent)``); ``smearing``: the width of
+  the Gaussian function used to approximate the charge distribution in Fourier space;
+  ``interpolation_nodes``: the number of grid points used in spline interpolation for
+  the P3M method; ``mesh_spacing``: the resolution of the Fourier-space grid used for
+  calculating long-range interactions.
 
 training
 ########
