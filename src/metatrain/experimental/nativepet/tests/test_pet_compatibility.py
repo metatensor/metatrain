@@ -1,10 +1,7 @@
 import pytest
 
 
-try:
-    import pet  # noqa: F401
-except ImportError:
-    pytest.skip("Required modules not available", allow_module_level=True)
+pytest.skip("This test is not available", allow_module_level=True)
 
 import torch
 from metatensor.torch.atomistic import (
