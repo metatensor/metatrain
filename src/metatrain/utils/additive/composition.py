@@ -144,10 +144,12 @@ class CompositionModel(torch.nn.Module):
                                 ).reshape(-1, 1),
                             ),
                             components=self.dataset_info.targets[target_key]
-                            .layout.block().to(device)
+                            .layout.block()
+                            .to(device)
                             .components,
                             properties=self.dataset_info.targets[target_key]
-                            .layout.block().to(device)
+                            .layout.block()
+                            .to(device)
                             .properties,
                         )
                     ],
@@ -273,12 +275,12 @@ class CompositionModel(torch.nn.Module):
                         if self.dataset_info.targets[target_key].per_atom:
                             # hack: metatensor.join doesn't work on single blocks;
                             # create TensorMaps, join, and then extract the joined block
-                            
+
                             joined_blocks = metatensor.torch.join(
                                 [
                                     TensorMap(
                                         keys=Labels.single().to(device),
-                                        blocks=[b.to(device, dtype=dtype)],
+                                        blocks=[b.to(device)],
                                     )
                                     for b in block_list
                                 ],
@@ -333,7 +335,7 @@ class CompositionModel(torch.nn.Module):
                                 c.to(device) for c in metadata_block.components
                             ],
                             properties=metadata_block.properties.to(device),
-                        ).to(device, dtype=dtype)
+                        ).to(device)
                     )
                 self.weights[target_key] = TensorMap(
                     keys=self.dataset_info.targets[target_key].layout.keys.to(device),
