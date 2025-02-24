@@ -62,7 +62,7 @@ soap-bpnn = [
     "featomic-torch >=0.6,<0.7",
     "wigners",
 ]
-pet = [
+nativepet = [
     "pet-neighbors-convert",
 ]
 nanopet = []
