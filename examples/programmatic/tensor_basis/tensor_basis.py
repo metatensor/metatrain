@@ -1,14 +1,17 @@
 """
-Training an equivariant model for polarizability
-================================================
+Training an equivariant model for the polarizability
+====================================================
 
-This tutorial demonstrates how to train equivariant models in metatrain constructed as
-linear combinations of the elements of a tensorial basis with neural networks
-(SOAP-based Behler-Parrinello nets) as coefficients of the linear combination.
+This tutorial demonstrates how to train an equivariant model for the molecular
+polarizability. In this example, the SOAP-BPNN architecture is used to predict
+equivariant targets. Internally, this is done using the "tensor basis" construction,
+i.e., a linear combinations of the elements of a tensorial basis with the
+neural network predicting the invariant coefficients of the linear combination.
 """
 
 # %%
 #
+import subprocess
 from glob import glob
 
 import ase.io
@@ -94,14 +97,14 @@ mts.save("spherical_polarizability.mts", spherical_tensormap)
 
 # %%
 #
-# Train the model using the command:
+# Now that the dataset has been saved, we can train a model on it.
 #
 # .. code:: bash
 #
-#    mtt train options.yaml 2> err.log
+#    mtt train options.yaml
 #
-# The ``stderr`` output will be redirected to the ``err.log`` file to avoid seeing too
-# many warnings.
+# In this case, we launch the above command from this script
+subprocess.run(["mtt", "train", "options.yaml"])
 
 # %%
 #
@@ -134,15 +137,17 @@ mts.save("spherical_polarizability.mts", spherical_tensormap)
 #
 # .. code:: bash
 #
-#    mtt eval model.pt eval.yaml -e extensions/ -o outputs.mts 2> err.log
+#    mtt eval model.pt eval.yaml -e extensions/ -o outputs.mts
 #
-# The ``stderr`` output will be redirected to the ``err.log`` file to avoid seeing too
-# many warnings.
+# In this case, we launch the above command from this script
+subprocess.run(
+    ["mtt", "eval", "model.pt", "eval.yaml", "-e", "extensions/", "-o", "outputs_mtt"]
+)
 
 # %%
 #
 # After evaluation is completed, three files will be created in the current directory.
-# The only one relevant for this example is ``outputs_mtt::polarizability.npz``,
+# The only one relevant for this example is ``outputs_mtt::polarizability.mts``,
 # containing the predicted values of the target tensorial properties as binary
 # ``TensorMap`` objects.
 
@@ -178,7 +183,7 @@ for key, ax in zip(spherical_tensormap.keys, axes):
     ax.set_aspect("equal")
     ax.set_xlabel("Target")
     ax.set_ylabel("Prediction")
-    ax.set_title(f"$\lambda={o3_lambda}$, $\sigma={o3_sigma}$")
+    ax.set_title(rf"$\lambda={o3_lambda}$, $\sigma={o3_sigma}$")
     target = spherical_tensormap[key].values
     prediction = predicted_polarizabilities[key].values
     ax.set_xlim(target.min(), target.max())
