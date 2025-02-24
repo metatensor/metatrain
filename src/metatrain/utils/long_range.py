@@ -19,7 +19,7 @@ class LongRangeFeaturizer(torch.nn.Module):
         super(LongRangeFeaturizer, self).__init__()
 
         try:
-            from torchpme import CoulombPotential, InversePowerLawPotential
+            from torchpme import CoulombPotential
             from torchpme.calculators import Calculator, P3MCalculator
         except ImportError:
             raise ImportError(
@@ -30,41 +30,24 @@ class LongRangeFeaturizer(torch.nn.Module):
         if hypers["exponent"] == 1:
             self.calculator = P3MCalculator(
                 potential=CoulombPotential(
-                    smearing=1.4,
+                    smearing=hypers["smearing"],
                     exclusion_radius=neighbor_list_options.cutoff,
                 ),
-                interpolation_nodes=5,
+                interpolation_nodes=hypers["interpolation_nodes"],
                 full_neighbor_list=neighbor_list_options.full_list,
-                mesh_spacing=1.33,
+                mesh_spacing=hypers["mesh_spacing"],
             )
             self.direct_calculator = Calculator(
                 potential=CoulombPotential(
                     smearing=None,
                     exclusion_radius=neighbor_list_options.cutoff,
                 ),
-                full_neighbor_list=False,
+                full_neighbor_list=True,
             )
         else:
             raise NotImplementedError(
-                "Only the Coulomb potential (1/r) is currently supported."
-            )
-            self.calculator = P3MCalculator(
-                potential=InversePowerLawPotential(
-                    exponent=hypers["exponent"],
-                    smearing=1.4,
-                    exclusion_radius=neighbor_list_options.cutoff,
-                ),
-                interpolation_nodes=5,
-                full_neighbor_list=neighbor_list_options.full_list,
-                mesh_spacing=1.33,
-            )
-            self.direct_calculator = Calculator(
-                potential=InversePowerLawPotential(
-                    exponent=hypers["exponent"],
-                    smearing=None,
-                    exclusion_radius=neighbor_list_options.cutoff,
-                ),
-                full_neighbor_list=False,
+                "Only the Coulomb potential (1/r, i.e., exponent=1) is currently "
+                "supported for long-range interactions."
             )
 
         self.neighbor_list_options = neighbor_list_options
@@ -90,7 +73,7 @@ class LongRangeFeaturizer(torch.nn.Module):
 
         last_len_nodes = 0
         last_len_edges = 0
-        potentials = []
+        long_range_features = []
         for system in systems:
             system_charges = charges[last_len_nodes : last_len_nodes + len(system)]
             last_len_nodes += len(system)
@@ -129,8 +112,8 @@ class LongRangeFeaturizer(torch.nn.Module):
                     neighbor_indices=neighbor_indices_system,
                     neighbor_distances=neighbor_distances_system,
                 )
-            potentials.append(potential * system_charges)
-        return torch.cat(potentials)
+            long_range_features.append(potential * system_charges)
+        return torch.concatenate(long_range_features)
 
 
 class DummyLongRangeFeaturizer(torch.nn.Module):

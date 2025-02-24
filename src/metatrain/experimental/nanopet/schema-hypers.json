@@ -48,6 +48,15 @@
             },
             "exponent": {
               "type": "integer"
+            },
+            "smearing": {
+              "type": "number"
+            },
+            "interpolation_nodes": {
+              "type": "integer"
+            },
+            "mesh_spacing": {
+              "type": "number"
             }
           }
         }
