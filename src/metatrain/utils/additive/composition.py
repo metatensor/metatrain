@@ -304,7 +304,10 @@ class CompositionModel(torch.nn.Module):
                             #     .values
                             # )
                             weights_tensor = torch.empty(
-                                len(self.atomic_types), len(metadata_block.properties)
+                                len(self.atomic_types),
+                                len(metadata_block.properties),
+                                dtype=dtype,
+                                device=device,
                             )
                             for i_type, atomic_type in enumerate(self.atomic_types):
                                 mask = (
