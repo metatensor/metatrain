@@ -1,0 +1,54 @@
+architecture:
+  name: gap
+
+  model:
+    soap:
+      cutoff:
+        radius: 5.5
+        smoothing: 
+          type: ShiftedCosine
+          width: 1.0
+      density:
+        type: Gaussian
+        center_atom_weight: 1.0
+        width: 0.2
+        scaling:
+          type: Willatt2018
+          rate: 1.0
+          scale: 2.0
+          exponent: 7.0
+      basis:
+        type: TensorProduct
+        max_angular: 6
+        radial:
+          type: Gto
+          max_radial: 7  # now exclusive
+    krr:
+      degree: 2
+      num_sparse_points: 900
+    zbl: false
+
+  training:
+    regularizer: 0.00005
+    regularizer_forces: 0.001
+
+training_set:
+  systems: "ethanol_reduced_100.xyz" # file where the positions are stored
+  targets:
+    energy:
+      key: "energy" # name of the target value
+      unit: "eV" # unit of the target value
+
+test_set:
+  systems: "ethanol_reduced_100.xyz" # file where the positions are stored
+  targets:
+    energy:
+      key: "energy" # name of the target value
+      unit: "eV" # unit of the target value
+
+validation_set:
+  systems: "ethanol_reduced_100.xyz" # file where the positions are stored
+  targets:
+    energy:
+      key: "energy" # name of the target value
+      unit: "eV" # unit of the target value
