@@ -285,8 +285,8 @@ def get_one_center_metadata(
 
     # Node keys
     keys_values_node = []
-    for center_symbol, atom_basis in basis_set.items():
-        for o3_lambda, radial_basis in basis_set[center_symbol].items():
+    for center_symbol, _ in basis_set.items():
+        for o3_lambda, _ in basis_set[center_symbol].items():
             # Node key
             keys_value_node = [
                 o3_lambda,
@@ -646,7 +646,9 @@ def get_augmenter(
 
 
 def l2loss(input: TensorMap, target: TensorMap) -> torch.Tensor:
-    """Computes the squared loss (reduction = sum) between the input and target TensorMaps"""
+    """
+    Computes the squared loss (reduction = sum) between the input and target TensorMaps
+    """
 
     loss = 0
     for k in target.keys():

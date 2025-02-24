@@ -86,7 +86,7 @@ class RotationalAugmenter:
         if inversions is None:
             inversions = [get_random_inversion() for _ in range(len(systems))]
 
-        # Build the transformations from the specified or random rotations and inversions
+        # Build the transformations from the specified or random rotations and inversion
         transformations = [
             torch.from_numpy(r.as_matrix() * i) for r, i in zip(rotations, inversions)
         ]

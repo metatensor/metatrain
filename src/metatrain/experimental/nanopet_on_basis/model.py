@@ -30,7 +30,7 @@ class NanoPetOnBasis(torch.torch.nn.Module):
         in_keys_edge: Optional[Labels] = None,
         out_properties_edge: Optional[List[Labels]] = None,
         pet_hypers=None,
-        head_hidden_layer_widths=[64, 64, 64],
+        head_hidden_layer_widths=None,
         standardizers: Dict[str, TensorMap] = None,
     ) -> None:
         """
@@ -84,6 +84,9 @@ class NanoPetOnBasis(torch.torch.nn.Module):
                 targets={},
             ),
         )
+
+        if head_hidden_layer_widths is None:
+            head_hidden_layer_widths = [64] * 3
 
         # Build node heads
         if self.predict_nodes:

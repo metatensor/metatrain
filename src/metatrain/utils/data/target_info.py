@@ -53,7 +53,7 @@ class TargetInfo:
         return "atom" in self.layout.block(0).samples.names
 
     @property
-    def per_atom(self) -> bool:
+    def per_atom_pair(self) -> bool:
         """Whether the target is per atom pair."""
         return (
             "first_atom" in self.layout.block(0).samples.names
@@ -141,9 +141,10 @@ class TargetInfo:
             ]:
                 self.is_spherical_edge = True
             else:
-                assert layout.keys.names == ["o3_lambda", "o3_sigma"], (
-                    f"invalid key names: {layout.keys.names}"
-                )
+                assert layout.keys.names == [
+                    "o3_lambda",
+                    "o3_sigma",
+                ], f"invalid key names: {layout.keys.names}"
                 self.is_spherical = True
         else:
             raise ValueError(
