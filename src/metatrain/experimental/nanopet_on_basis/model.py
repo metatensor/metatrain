@@ -15,7 +15,7 @@ from metatrain.utils.neighbor_lists import (
     get_system_with_neighbor_lists,
 )
 
-from .elearn import symmetrize_samples, keys_triu_center_type
+from .utils import symmetrize_samples, keys_triu_center_type
 from metatensor.torch.learn import ModuleMap
 
 
@@ -81,7 +81,8 @@ class NanoPetOnBasis(torch.torch.nn.Module):
             pet_hypers,
             DatasetInfo(
                 length_unit="angstrom",
-                atomic_types=self.atomic_types,  # NanoPET predicts on the global set of atomic types
+                atomic_types=self.atomic_types,  # NanoPET predicts on the global set
+                # of atomic types
                 targets={},
             ),
         )
@@ -113,7 +114,6 @@ class NanoPetOnBasis(torch.torch.nn.Module):
         if standardizers is None:
             self.standardizers = None
             return
-        
 
         for name, tensor in standardizers.items():
             assert name in ["node_mean", "node_std", "edge_mean", "edge_std"]
@@ -182,7 +182,7 @@ class NanoPetOnBasis(torch.torch.nn.Module):
             predictions_node, predictions_edge
         )
         return predictions_node, predictions_edge
-    
+
     def _add_mean_revert_std(
         self,
         predictions_node: TensorMap,
@@ -194,7 +194,7 @@ class NanoPetOnBasis(torch.torch.nn.Module):
         """
         if self.standardizers is None:
             return predictions_node, predictions_edge
-        
+
         # TODO: does order matter here?
         if predictions_node is not None:
             if "node_mean" in self.standardizers:
@@ -371,12 +371,10 @@ def symmetrize_predictions_node(
     """Symmetrize PET node predictions."""
 
     # Create a dictionary storing the atomic indices for each center type
-    slice_nodes = {
-        center_type: [] for center_type in atomic_types
-    }
+    slice_nodes = {center_type: [] for center_type in atomic_types}
     for A, system in enumerate(systems):
         for i, center_type in enumerate(system.types):
-            
+
             slice_nodes[int(center_type)].append([A, i])
 
     # Slice the predictions TensorMap to create blocks for the different center types
@@ -391,9 +389,9 @@ def symmetrize_predictions_node(
             "samples",
             Labels(
                 ["system", "atom"],
-                torch.tensor(
-                    slice_nodes[center_type],
-                    dtype=torch.int32).reshape(-1, 2),
+                torch.tensor(slice_nodes[center_type], dtype=torch.int32).reshape(
+                    -1, 2
+                ),
             ),
         )[0]
 
@@ -414,15 +412,17 @@ def symmetrize_predictions_edge(
     apply_permutational_symmetry = "block_type" in in_keys_edge.names
 
     slice_edges = {
-        (first_atom_type, second_atom_type): [] 
+        (first_atom_type, second_atom_type): []
         for first_atom_type in atomic_types
         for second_atom_type in atomic_types
     }
     for A, system in enumerate(systems):
         for i, first_atom_type in enumerate(system.types):
             for j, second_atom_type in enumerate(system.types):
-            
-                slice_edges[(int(first_atom_type), int(second_atom_type))].append([A, i, j])
+
+                slice_edges[(int(first_atom_type), int(second_atom_type))].append(
+                    [A, i, j]
+                )
 
     # Edges (properly symmetrized)
     edge_blocks = []
@@ -492,6 +492,7 @@ def reindex_tensormap(
 
     return mts.TensorMap(tensor.keys, new_blocks)
 
+
 def add_back_invariant_mean(tensor: TensorMap, mean_tensor: TensorMap) -> TensorMap:
     """
     Adds back the mean to the invariant blocks of the input ``tensor`` using the
@@ -504,6 +505,7 @@ def add_back_invariant_mean(tensor: TensorMap, mean_tensor: TensorMap) -> Tensor
         tensor_block.values[:] += mean_block.values
 
     return tensor
+
 
 def revert_standardization(tensor: TensorMap, standardizer: TensorMap) -> TensorMap:
     """

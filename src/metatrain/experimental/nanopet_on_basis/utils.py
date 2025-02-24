@@ -8,7 +8,7 @@ import vesin
 import metatensor.torch as mts
 from metatensor.torch import Labels, TensorBlock, TensorMap
 
-from metatensor.torch.learn.data import IndexedDataset, DataLoader, group_and_join
+from metatensor.torch.learn.data import IndexedDataset, DataLoader
 from metatensor.torch.learn.data._namedtuple import namedtuple
 
 from metatrain.experimental.nanopet.modules.augmentation import (
@@ -657,10 +657,14 @@ def get_augmenter(
 
 def l2loss(input: TensorMap, target: TensorMap) -> torch.Tensor:
     """Computes the squared loss (reduction = sum) between the input and target TensorMaps"""
-    mts.equal_metadata_raise(input, target)
+
     loss = 0
-    for key in target.keys:
-        loss += torch.sum((input[key].values - target[key].values) ** 2)
+    for k in target.keys():
+        assert k in input.keys()
+        mts.equal_metadata_raise(input[k], target[k])
+        for key in target[k].keys:
+            loss += torch.sum((input[k][key].values - target[k][key].values) ** 2)
+
     return loss
 
 
