@@ -141,7 +141,7 @@ subprocess.run(["mtt", "train", "options.yaml"])
 #
 # In this case, we launch the above command from this script
 subprocess.run(
-    ["mtt", "eval", "model.pt", "eval.yaml", "-e", "extensions/", "-o", "outputs_mtt"]
+    ["mtt", "eval", "model.pt", "eval.yaml", "-e", "extensions/", "-o", "outputs.mts"]
 )
 
 # %%
