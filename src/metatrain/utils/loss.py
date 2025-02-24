@@ -285,10 +285,10 @@ def get_sliding_weights(
             ):
                 target_values = target_block.values
                 predictions_values = predictions_block.values
-                sliding_weights["values"] = sliding_factor * previous_sliding_weights[
-                    "values"
-                ] + (1 - sliding_factor) * losses["values"](
-                    predictions_values, target_values
+                sliding_weights["values"] = (
+                    sliding_factor * previous_sliding_weights["values"]
+                    + (1 - sliding_factor)
+                    * losses["values"](predictions_values, target_values).detach()
                 )
                 for gradient_name, gradient_block in target_block.gradients():
                     target_values = gradient_block.values
@@ -298,7 +298,9 @@ def get_sliding_weights(
                     sliding_weights[gradient_name] = (
                         sliding_factor * previous_sliding_weights[gradient_name]
                         + (1 - sliding_factor)
-                        * losses[gradient_name](predictions_values, target_values)
+                        * losses[gradient_name](
+                            predictions_values, target_values
+                        ).detach()
                     )
     return sliding_weights
 

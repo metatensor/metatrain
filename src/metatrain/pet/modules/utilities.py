@@ -263,7 +263,11 @@ def get_system_batch_dict(
         .to(torch.int64)
     )
 
-    D_list: torch.Tensor = nl.values[:, :, 0][index]
+    D_list = (
+        system.positions[j_list]
+        - system.positions[i_list]
+        + S_list.to(system.cell.dtype) @ system.cell
+    )
 
     species = system.types[unique_index].to(torch.int64)
 

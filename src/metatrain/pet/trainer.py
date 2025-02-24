@@ -11,6 +11,7 @@ from ..utils.additive import remove_additive
 from ..utils.augmentation import RotationalAugmenter
 from ..utils.data import CombinedDataLoader, Dataset, _is_disk_dataset, collate_fn
 from ..utils.distributed.slurm import DistributedEnvironment
+from ..utils.evaluate_model import evaluate_model
 from ..utils.external_naming import to_external_name
 from ..utils.io import check_file_extension
 from ..utils.logging import MetricLogger
@@ -26,7 +27,6 @@ from ..utils.transfer import (
     systems_and_targets_to_dtype,
 )
 from .model import PET
-from .utilities.evaluate_model import evaluate_model
 from .utilities.neighbor_lists import get_system_with_neighbor_lists
 
 
@@ -275,7 +275,6 @@ class Trainer:
         for epoch in range(start_epoch, start_epoch + self.hypers["num_epochs"]):
             if is_distributed:
                 sampler.set_epoch(epoch)
-
             train_rmse_calculator = RMSEAccumulator(self.hypers["log_separate_blocks"])
             val_rmse_calculator = RMSEAccumulator(self.hypers["log_separate_blocks"])
             if self.hypers["log_mae"]:
@@ -285,7 +284,7 @@ class Trainer:
                 val_mae_calculator = MAEAccumulator(self.hypers["log_separate_blocks"])
 
             train_loss = 0.0
-            for batch in train_dataloader:
+            for i, batch in enumerate(train_dataloader):
                 optimizer.zero_grad()
 
                 systems, targets = batch
@@ -317,7 +316,6 @@ class Trainer:
                     predictions, systems, per_structure_targets
                 )
                 targets = average_by_num_atoms(targets, systems, per_structure_targets)
-
                 train_loss_batch = loss_fn(predictions, targets)
                 train_loss_batch.backward()
                 optimizer.step()
@@ -326,10 +324,10 @@ class Trainer:
                     # sum the loss over all processes
                     torch.distributed.all_reduce(train_loss_batch)
                 train_loss += train_loss_batch.item()
+
                 train_rmse_calculator.update(predictions, targets)
                 if self.hypers["log_mae"]:
                     train_mae_calculator.update(predictions, targets)
-
             finalized_train_info = train_rmse_calculator.finalize(
                 not_per_atom=["positions_gradients"] + per_structure_targets,
                 is_distributed=is_distributed,

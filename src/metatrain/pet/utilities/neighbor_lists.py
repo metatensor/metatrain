@@ -3,7 +3,6 @@ from typing import List
 from metatensor.torch.atomistic import (
     NeighborListOptions,
     System,
-    register_autograd_neighbors,
 )
 
 from metatrain.utils.data import system_to_ase
@@ -30,7 +29,7 @@ def get_system_with_neighbor_lists(
             neighbor_list = _compute_single_neighbor_list(atoms, options).to(
                 device=system.device, dtype=system.dtype
             )
-            register_autograd_neighbors(system, neighbor_list, check_consistency=False)
+            # register_autograd_neighbors(system, neighbor_list, check_consistency=False)
             system.add_neighbor_list(options, neighbor_list)
 
     return system
