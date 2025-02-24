@@ -17,11 +17,14 @@ from metatrain.utils.neighbor_lists import (
 from . import RESOURCES_PATH
 
 
-@pytest.mark.parametrize("calculator", ["ewald", "pme", "p3m"])
-def test_long_range(calculator):
+@pytest.mark.parametrize("periodicity", [True, False])
+def test_long_range(periodicity, tmpdir):
     """Tests that the long-range module can predict successfully."""
 
-    structures = read(RESOURCES_PATH / "carbon_reduced_100.xyz", ":10")
+    if periodicity:
+        structures = read(RESOURCES_PATH / "carbon_reduced_100.xyz", ":10")
+    else:
+        structures = read(RESOURCES_PATH / "ethanol_reduced_100.xyz", ":10")
     systems = systems_to_torch(structures)
 
     dataset_info = DatasetInfo(
@@ -32,7 +35,6 @@ def test_long_range(calculator):
 
     hypers = get_default_hypers("soap_bpnn")
     hypers["model"]["long_range"]["enable"] = True
-    hypers["model"]["long_range"]["calculator"] = calculator
     model = SoapBpnn(hypers["model"], dataset_info)
     requested_nls = get_requested_neighbor_lists(model)
 
@@ -51,3 +53,19 @@ def test_long_range(calculator):
         systems,
         {"energy": model.outputs["energy"]},
     )
+
+    # now torchscripted
+    model = torch.jit.script(model)
+    model(
+        systems,
+        {"energy": model.outputs["energy"]},
+    )
+
+    # torch.jit.save and torch.jit.load
+    with tmpdir.as_cwd():
+        torch.jit.save(model, "model.pt")
+        model = torch.jit.load("model.pt")
+        model(
+            systems,
+            {"energy": model.outputs["energy"]},
+        )
