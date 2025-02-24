@@ -156,7 +156,7 @@ mts.save("spherical_polarizability.mts", spherical_tensormap)
 # after loading the predicted values we can update the metadata to reflect the correct
 # information about the target.
 
-predicted_polarizabilities = mts.load("outputs_mtt::polarizability.npz")
+predicted_polarizabilities = mts.load("outputs_mtt::polarizability.mts")
 
 index_folder = sorted(glob("outputs/*/*/indices"))[-1]
 indices = {

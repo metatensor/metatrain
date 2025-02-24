@@ -20,7 +20,7 @@ architecture:
   training:
     log_mae: true
     checkpoint_interval: 10
-    num_epochs: 100
+    num_epochs: 10
 
 training_set:
   systems:
