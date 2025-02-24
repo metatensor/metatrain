@@ -1,6 +1,7 @@
 import random
-from typing import Dict, List, Tuple
+from typing import Dict, List, Optional, Tuple
 
+import metatensor.torch as mts
 import numpy as np
 import torch
 from metatensor.torch import TensorBlock, TensorMap
@@ -34,7 +35,12 @@ class RotationalAugmenter:
         self.wigner = None
         self.complex_to_real_spherical_harmonics_transforms = {}
         is_any_target_spherical = any(
-            target_info.is_spherical for target_info in target_info_dict.values()
+            (
+                target_info.is_spherical
+                or target_info.is_spherical_node
+                or target_info.is_spherical_edge
+            )
+            for target_info in target_info_dict.values()
         )
         if is_any_target_spherical:
             try:
@@ -48,7 +54,11 @@ class RotationalAugmenter:
             largest_l = max(
                 (len(block.components[0]) - 1) // 2
                 for target_info in target_info_dict.values()
-                if target_info.is_spherical
+                if (
+                    target_info.is_spherical
+                    or target_info.is_spherical_node
+                    or target_info.is_spherical_edge
+                )
                 for block in target_info.layout.blocks()
             )
             self.wigner = spherical.Wigner(largest_l)
@@ -57,15 +67,26 @@ class RotationalAugmenter:
                     _complex_to_real_spherical_harmonics_transform(ell)
                 )
 
-    def apply_random_augmentations(
-        self, systems: List[System], targets: Dict[str, TensorMap]
+    def apply_augmentations(
+        self,
+        systems: List[System],
+        targets: Dict[str, TensorMap],
+        rotations: Optional[List[Rotation]] = None,
+        inversions: Optional[List[int]] = None,
     ) -> Tuple[List[System], Dict[str, TensorMap]]:
         """
-        Apply a random augmentation to a number of ``System`` objects and its targets.
+        Applies augmentations to a number of ``System`` objects and its targets.
+
+        Pre-defined ``rotations`` and ``inversions`` are used if passed, otherwise
+        random ones are generated.
         """
 
-        rotations = [get_random_rotation() for _ in range(len(systems))]
-        inversions = [get_random_inversion() for _ in range(len(systems))]
+        if rotations is None:
+            rotations = [get_random_rotation() for _ in range(len(systems))]
+        if inversions is None:
+            inversions = [get_random_inversion() for _ in range(len(systems))]
+
+        # Build the transformations from the specified or random rotations and inversion
         transformations = [
             torch.from_numpy(r.as_matrix() * i) for r, i in zip(rotations, inversions)
         ]
@@ -81,7 +102,11 @@ class RotationalAugmenter:
             ]
             for target_name in targets.keys():
                 target_info = self.target_info_dict[target_name]
-                if target_info.is_spherical:
+                if (
+                    target_info.is_spherical
+                    or target_info.is_spherical_node
+                    or target_info.is_spherical_edge
+                ):
                     for block in target_info.layout.blocks():
                         ell = (len(block.components[0]) - 1) // 2
                         if ell not in wigner_D_matrices:  # skip if already computed
@@ -108,7 +133,7 @@ class RotationalAugmenter:
                                 )
                             wigner_D_matrices[ell] = wigner_D_matrices_l
 
-        return _apply_random_augmentations(
+        return _apply_augmentations(
             systems, targets, transformations, wigner_D_matrices
         )
 
@@ -123,12 +148,51 @@ def _apply_wigner_D_matrices(
     for key, block in target_tmap.items():
         ell, sigma = int(key[0]), int(key[1])
         values = block.values
+
+        # Node targets
         if "atom" in block.samples.names:
-            split_values = torch.split(
-                values, [len(system.positions) for system in systems]
-            )
+            split_blocks: List[TensorBlock] = []
+            system_ids_block: List[int] = [
+                int(A)
+                for A in mts.unique_metadata_block(
+                    block, "samples", "system"
+                ).values.flatten()
+            ]
+            for A in system_ids_block:
+                split_blocks.append(
+                    mts.slice_block(
+                        block,
+                        "samples",
+                        mts.Labels(["system"], torch.tensor([A]).reshape(-1, 1)),
+                    )
+                )
+            split_values = [block.values for block in split_blocks]
+
+        # Edge targets
+        elif (
+            "first_atom" in block.samples.names and "second_atom" in block.samples.names
+        ):
+            split_blocks: List[TensorBlock] = []
+            system_ids_block: List[int] = [
+                int(A)
+                for A in mts.unique_metadata_block(
+                    block, "samples", "system"
+                ).values.flatten()
+            ]
+            for A in system_ids_block:
+                split_blocks.append(
+                    mts.slice_block(
+                        block,
+                        "samples",
+                        mts.Labels(["system"], torch.tensor([A]).reshape(-1, 1)),
+                    )
+                )
+            split_values = [block.values for block in split_blocks]
+
+        # per_atom is false
         else:
             split_values = torch.split(values, [1 for _ in systems])
+
         new_values = []
         ell = (len(block.components[0]) - 1) // 2
         for v, transformation, wigner_D_matrix in zip(
@@ -144,6 +208,11 @@ def _apply_wigner_D_matrices(
             new_v = new_v.transpose(1, 2)
             new_values.append(new_v)
         new_values = torch.concatenate(new_values)
+
+        # print(new_values.shape)
+        # print(block.samples.__repr__())
+        # for i in block.samples.values:
+        #     print(i)
         new_block = TensorBlock(
             values=new_values,
             samples=block.samples,
@@ -159,7 +228,7 @@ def _apply_wigner_D_matrices(
 
 
 @torch.jit.script  # script for speed
-def _apply_random_augmentations(
+def _apply_augmentations(
     systems: List[System],
     targets: Dict[str, TensorMap],
     transformations: List[torch.Tensor],
