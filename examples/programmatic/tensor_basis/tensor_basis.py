@@ -54,12 +54,12 @@ cartesian_tensormap = mts.TensorMap(
 #
 # Extract from the Cartesian polarizability tensor its irreducible spherical components
 #
+
 spherical_tensormap = mts.remove_dimension(
     cartesian_to_spherical(cartesian_tensormap, components=["xyz_1", "xyz_2"]),
     "keys",
     "_",
 )
-#
 
 # %%
 #
