@@ -45,6 +45,9 @@ class LongRangeFeaturizer(torch.nn.Module):
                 full_neighbor_list=False,
             )
         else:
+            raise NotImplementedError(
+                "Only the Coulomb potential (1/r) is currently supported."
+            )
             self.calculator = P3MCalculator(
                 potential=InversePowerLawPotential(
                     exponent=hypers["exponent"],
