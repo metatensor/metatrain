@@ -707,13 +707,13 @@ def core_tensor_block_to_torch(core_block: TensorBlock):
     for parameter, gradient in core_block.gradients():
         block.add_gradient(
             parameter=parameter,
-            gradient=TensorBlock(
-                values=gradient.values.detach().cpu().numpy(),
-                samples=torch_labels_to_core(gradient.samples),
+            gradient=TorchTensorBlock(
+                values=torch.tensor(gradient.values),
+                samples=core_labels_to_torch(gradient.samples),
                 components=[
-                    torch_labels_to_core(component) for component in gradient.components
+                    core_labels_to_torch(component) for component in gradient.components
                 ],
-                properties=torch_labels_to_core(gradient.properties),
+                properties=core_labels_to_torch(gradient.properties),
             ),
         )
     return block
