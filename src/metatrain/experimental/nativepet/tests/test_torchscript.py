@@ -22,10 +22,6 @@ def test_torchscript():
         },
     )
     model = NativePET(MODEL_HYPERS, dataset_info)
-    print("target names: ", model.target_names)
-    print("last layer keys: ", model.central_tokens_last_layers.keys())
-    print("component labels: ", model.component_labels)
-
     system = System(
         types=torch.tensor([6, 1, 8, 7]),
         positions=torch.tensor(
