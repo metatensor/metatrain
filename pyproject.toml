@@ -62,6 +62,14 @@ soap-bpnn = [
     "featomic-torch >=0.6,<0.7",
     "wigners",
 ]
+pet = [
+    "pet-neighbors-convert",
+    "torch_geometric",
+    "matscipy",
+    "scikit-learn",
+    "pathos",
+    "scipy",
+]
 nativepet = [
     "pet-neighbors-convert",
 ]
