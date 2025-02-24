@@ -67,6 +67,9 @@ hyperparameters to tune are (in decreasing order of importance):
   ``deltas: {"energy": 0.1, "forces": 0.01}``). 3. ``reduction``. This controls how the
   loss is reduced over batches. The default value is ``mean``, and the other allowed
   option is ``sum``.
+- ``long_range``: In some systems and datasets, enabling long-range interactions
+  might be beneficial for the accuracy of the model and/or its physical correctness.
+  See below for a breakdown of the long-range section of the model hyperparameters.
 
 
 All Hyperparameters
