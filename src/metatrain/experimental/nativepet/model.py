@@ -29,6 +29,14 @@ logger = logging.getLogger(__name__)
 
 
 class NativePET(torch.nn.Module):
+    """
+    Native metatrain implementation of the PET architecture.
+
+    Originally proposed in work (https://arxiv.org/abs/2305.19302v3),
+    and published in the `pet` package (https://github.com/spozdn/pet).
+
+    """
+
     __supported_devices__ = ["cuda", "cpu"]
     __supported_dtypes__ = [torch.float32]
     __default_metadata__ = ModelMetadata(
@@ -71,8 +79,6 @@ class NativePET(torch.nn.Module):
 
         self.central_tokens_heads = torch.nn.ModuleDict()
         self.messages_bonds_heads = torch.nn.ModuleDict()
-        self.central_tokens_last_layers = torch.nn.ModuleDict()
-        self.messages_bonds_last_layers = torch.nn.ModuleDict()
         self.central_tokens_last_layers = torch.nn.ModuleDict()
         self.messages_bonds_last_layers = torch.nn.ModuleDict()
         # last-layer feature size (for LLPR module)
