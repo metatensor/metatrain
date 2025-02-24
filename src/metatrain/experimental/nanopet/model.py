@@ -532,7 +532,7 @@ class NanoPET(torch.nn.Module):
     ) -> MetatensorAtomisticModel:
         dtype = next(self.parameters()).dtype
         if dtype not in self.__supported_dtypes__:
-            raise ValueError(f"unsupported dtype {self.dtype} for NanoPET")
+            raise ValueError(f"unsupported dtype {dtype} for NanoPET")
 
         # Make sure the model is all in the same dtype
         # For example, after training, the additive models could still be in
