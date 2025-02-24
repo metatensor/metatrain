@@ -192,36 +192,36 @@ class Trainer:
                     batch.targets_edge,
                 )
 
-                # # Define a random transformation for each training system
-                # rotations, inversions = get_system_transformations(systems_train)
+                # Define a random transformation for each training system
+                rotations, inversions = get_system_transformations(systems_train)
 
-                # # Apply rotational augmentation - node
-                # if model.in_keys_node is not None:
-                #     systems_train, targets_train_node = (
-                #         rotational_augmenter.apply_augmentations(
-                #             systems_train,
-                #             {"mtt::node": targets_train_node},
-                #             rotations,
-                #             inversions,
-                #         )
-                #     )
-                #     targets_train_node = targets_train_node["mtt::node"]
-                #     assert mts.equal_metadata(batch.targets_node, targets_train_node)
-                #     assert not mts.allclose(batch.targets_node, targets_train_node)
+                # Apply rotational augmentation - node
+                if model.in_keys_node is not None:
+                    systems_train, targets_train_node = (
+                        rotational_augmenter.apply_augmentations(
+                            systems_train,
+                            {"mtt::node": targets_train_node},
+                            rotations,
+                            inversions,
+                        )
+                    )
+                    targets_train_node = targets_train_node["mtt::node"]
+                    assert mts.equal_metadata(batch.targets_node, targets_train_node)
+                    assert not mts.allclose(batch.targets_node, targets_train_node)
 
-                # # Apply rotational augmentation - edge
-                # if model.in_keys_edge is not None:
-                #     systems_train, targets_train_edge = (
-                #         rotational_augmenter.apply_augmentations(
-                #             systems_train,
-                #             {"mtt::edge": targets_train_edge},
-                #             rotations,
-                #             inversions,
-                #         )
-                #     )
-                #     targets_train_edge = targets_train_edge["mtt::edge"]
-                #     assert mts.equal_metadata(batch.targets_edge, targets_train_edge)
-                #     assert not mts.allclose(batch.targets_edge, targets_train_edge)
+                # Apply rotational augmentation - edge
+                if model.in_keys_edge is not None:
+                    systems_train, targets_train_edge = (
+                        rotational_augmenter.apply_augmentations(
+                            systems_train,
+                            {"mtt::edge": targets_train_edge},
+                            rotations,
+                            inversions,
+                        )
+                    )
+                    targets_train_edge = targets_train_edge["mtt::edge"]
+                    assert mts.equal_metadata(batch.targets_edge, targets_train_edge)
+                    assert not mts.allclose(batch.targets_edge, targets_train_edge)
 
                 targets = {
                     "mtt::node": targets_train_node,
