@@ -9,57 +9,49 @@ class LongRangeFeaturizer(torch.nn.Module):
         super(LongRangeFeaturizer, self).__init__()
 
         try:
-            from torchpme import InversePowerLawPotential
-            from torchpme.calculators import (
-                EwaldCalculator,
-                P3MCalculator,
-                PMECalculator,
-            )
+            from torchpme import CoulombPotential, InversePowerLawPotential
+            from torchpme.calculators import Calculator, P3MCalculator
         except ImportError:
             raise ImportError(
                 "`torch-pme` is required for long-range models. "
                 "Please install it with `pip install torch-pme`."
             )
 
-        if hypers["calculator"] == "ewald":
-            self.calculator = EwaldCalculator(
-                potential=InversePowerLawPotential(
-                    exponent=hypers["exponent"],
-                    smearing=hypers["atomic_smearing"],
+        if hypers["exponent"] == 1:
+            self.calculator = P3MCalculator(
+                potential=CoulombPotential(
+                    smearing=1.4,
                     exclusion_radius=neighbor_list_options.cutoff,
                 ),
+                interpolation_nodes=5,
                 full_neighbor_list=neighbor_list_options.full_list,
-                lr_wavelength=hypers["lr_wavelength"],
-                prefactor=hypers["prefactor"],
+                mesh_spacing=1.33,
             )
-
-        elif hypers["calculator"] == "p3m":
+            self.direct_calculator = Calculator(
+                potential=CoulombPotential(
+                    smearing=None,
+                    exclusion_radius=neighbor_list_options.cutoff,
+                ),
+                full_neighbor_list=False,
+            )
+        else:
             self.calculator = P3MCalculator(
                 potential=InversePowerLawPotential(
                     exponent=hypers["exponent"],
-                    smearing=hypers["atomic_smearing"],
+                    smearing=1.4,
                     exclusion_radius=neighbor_list_options.cutoff,
                 ),
+                interpolation_nodes=5,
                 full_neighbor_list=neighbor_list_options.full_list,
-                mesh_spacing=hypers["lr_wavelength"],
-                prefactor=hypers["prefactor"],
+                mesh_spacing=1.33,
             )
-        elif hypers["calculator"] == "pme":
-            self.calculator = PMECalculator(
+            self.direct_calculator = Calculator(
                 potential=InversePowerLawPotential(
                     exponent=hypers["exponent"],
-                    smearing=hypers["atomic_smearing"],
+                    smearing=None,
                     exclusion_radius=neighbor_list_options.cutoff,
                 ),
-                full_neighbor_list=neighbor_list_options.full_list,
-                mesh_spacing=hypers["lr_wavelength"],
-                prefactor=hypers["prefactor"],
-            )
-
-        else:
-            raise ValueError(
-                f"Invalid torch-pme calculator: {hypers['calculator']}. "
-                "Allowed options are ewald, pme, p3m."
+                full_neighbor_list=False,
             )
 
         self.neighbor_list_options = neighbor_list_options
@@ -90,13 +82,30 @@ class LongRangeFeaturizer(torch.nn.Module):
             ]
             last_len_edges += len(neighbor_indices_system)
 
-            potential = self.calculator.forward(
-                charges=system_charges,
-                cell=system.cell,
-                positions=system.positions,
-                neighbor_indices=neighbor_indices_system,
-                neighbor_distances=neighbor_distances_system,
-            )
+            if not system.pbc.all():
+                neighbor_indices_system = torch.combinations(
+                    torch.arange(len(system)), 2
+                ).to(system.positions.device)
+                neighbor_distances_system = torch.norm(
+                    system.positions[neighbor_indices_system[:, 0]]
+                    - system.positions[neighbor_indices_system[:, 1]],
+                    dim=1,
+                ).to(system.positions.device)
+                potential = self.direct_calculator.forward(
+                    charges=system_charges,
+                    cell=system.cell,
+                    positions=system.positions,
+                    neighbor_indices=neighbor_indices_system,
+                    neighbor_distances=neighbor_distances_system,
+                )
+            else:
+                potential = self.calculator.forward(
+                    charges=system_charges,
+                    cell=system.cell,
+                    positions=system.positions,
+                    neighbor_indices=neighbor_indices_system,
+                    neighbor_distances=neighbor_distances_system,
+                )
             potentials.append(potential * system_charges)
         return torch.cat(potentials)
 

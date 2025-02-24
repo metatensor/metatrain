@@ -40,7 +40,17 @@
         "zbl": {
           "type": "boolean"
         },
-        "long_range": {}
+        "long_range": {
+          "type": "object",
+          "properties": {
+            "enabled": {
+              "type": "boolean"
+            },
+            "exponent": {
+              "type": "integer"
+            }
+          }
+        }
       },
       "additionalProperties": false
     },
