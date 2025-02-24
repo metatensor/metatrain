@@ -43,7 +43,7 @@
         "long_range": {
           "type": "object",
           "properties": {
-            "enabled": {
+            "enable": {
               "type": "boolean"
             },
             "exponent": {
