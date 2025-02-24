@@ -122,7 +122,8 @@ class TensorMapLoss:
         for block_1, block_2 in zip(tensor_map_1.blocks(), tensor_map_2.blocks()):
             values_1 = block_1.values
             values_2 = block_2.values
-            loss += self.weight * self.losses["values"](values_1, values_2)
+            if values_1.numel() != 0:
+                loss += self.weight * self.losses["values"](values_1, values_2)
             for gradient_name, gradient_weight in self.gradient_weights.items():
                 values_1 = block_1.gradient(gradient_name).values
                 values_2 = block_2.gradient(gradient_name).values

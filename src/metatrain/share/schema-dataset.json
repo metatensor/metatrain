@@ -195,6 +195,9 @@
                 },
                 "virial": {
                   "$ref": "#/$defs/gradient_section"
+                },
+                "metatensor_target_disable_checks": {
+                  "type": "boolean"
                 }
               },
               "additionalProperties": false
