@@ -11,6 +11,7 @@ from ...utils.additive import remove_additive
 from ...utils.augmentation import RotationalAugmenter
 from ...utils.data import CombinedDataLoader, Dataset, _is_disk_dataset, collate_fn
 from ...utils.distributed.slurm import DistributedEnvironment
+from ...utils.distributed.distributed_data_parallel import DistributedDataParallel
 from ...utils.evaluate_model import evaluate_model
 from ...utils.external_naming import to_external_name
 from ...utils.io import check_file_extension
@@ -140,6 +141,9 @@ class Trainer:
                 train_datasets, model.additive_models, treat_as_additive=True
             )
 
+        if is_distributed:
+            model = DistributedDataParallel(model, device_ids=[device])
+
         logger.info("Setting up data loaders")
 
         if is_distributed:
@@ -201,7 +205,7 @@ class Trainer:
             )
         val_dataloader = CombinedDataLoader(val_dataloaders, shuffle=False)
 
-        train_targets = model.dataset_info.targets
+        train_targets = (model.module if is_distributed else model).dataset_info.targets
         outputs_list = []
         for target_name, target_info in train_targets.items():
             outputs_list.append(target_name)
@@ -246,7 +250,7 @@ class Trainer:
         if self.optimizer_state_dict is not None:
             # try to load the optimizer state dict, but this is only possible
             # if there are no new targets in the model (new parameters)
-            if not model.has_new_targets:
+            if not (model.module if is_distributed else model).has_new_targets:
                 optimizer.load_state_dict(self.optimizer_state_dict)
 
         lr_scheduler = get_scheduler(optimizer, self.hypers)
