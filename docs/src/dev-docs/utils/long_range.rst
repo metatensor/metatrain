@@ -1,5 +1,5 @@
-Metrics
-#######
+Long-range
+##########
 
 .. automodule:: metatrain.utils.long_range
     :members:
