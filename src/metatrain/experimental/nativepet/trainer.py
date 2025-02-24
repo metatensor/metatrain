@@ -7,26 +7,26 @@ import torch
 from torch.optim.lr_scheduler import LambdaLR
 from torch.utils.data import DataLoader, DistributedSampler
 
-from ..utils.additive import remove_additive
-from ..utils.augmentation import RotationalAugmenter
-from ..utils.data import CombinedDataLoader, Dataset, _is_disk_dataset, collate_fn
-from ..utils.distributed.slurm import DistributedEnvironment
-from ..utils.evaluate_model import evaluate_model
-from ..utils.external_naming import to_external_name
-from ..utils.io import check_file_extension
-from ..utils.logging import MetricLogger
-from ..utils.loss import TensorMapDictLoss
-from ..utils.metrics import MAEAccumulator, RMSEAccumulator, get_selected_metric
-from ..utils.neighbor_lists import (
+from ...utils.additive import remove_additive
+from ...utils.augmentation import RotationalAugmenter
+from ...utils.data import CombinedDataLoader, Dataset, _is_disk_dataset, collate_fn
+from ...utils.distributed.slurm import DistributedEnvironment
+from ...utils.evaluate_model import evaluate_model
+from ...utils.external_naming import to_external_name
+from ...utils.io import check_file_extension
+from ...utils.logging import MetricLogger
+from ...utils.loss import TensorMapDictLoss
+from ...utils.metrics import MAEAccumulator, RMSEAccumulator, get_selected_metric
+from ...utils.neighbor_lists import (
     get_requested_neighbor_lists,
 )
-from ..utils.per_atom import average_by_num_atoms
-from ..utils.scaler import remove_scale
-from ..utils.transfer import (
+from ...utils.per_atom import average_by_num_atoms
+from ...utils.scaler import remove_scale
+from ...utils.transfer import (
     systems_and_targets_to_device,
     systems_and_targets_to_dtype,
 )
-from .model import PET
+from .model import NativePET
 from .utilities.neighbor_lists import get_system_with_neighbor_lists
 
 
@@ -57,14 +57,14 @@ class Trainer:
 
     def train(
         self,
-        model: PET,
+        model: NativePET,
         dtype: torch.dtype,
         devices: List[torch.device],
         train_datasets: List[Union[Dataset, torch.utils.data.Subset]],
         val_datasets: List[Union[Dataset, torch.utils.data.Subset]],
         checkpoint_dir: str,
     ):
-        assert dtype in PET.__supported_dtypes__
+        assert dtype in NativePET.__supported_dtypes__
         is_distributed = self.hypers["distributed"]
         if is_distributed:
             distr_env = DistributedEnvironment(self.hypers["distributed_port"])

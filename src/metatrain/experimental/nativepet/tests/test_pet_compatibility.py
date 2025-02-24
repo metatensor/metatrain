@@ -17,7 +17,7 @@ from metatensor.torch.atomistic import (
     systems_to_torch,
 )
 
-from metatrain.pet import PET as PET
+from metatrain.pet import NativePET as NativePET
 from metatrain.pet.utils import systems_to_batch_dict
 from metatrain.utils.architectures import get_default_hypers
 from metatrain.utils.data import DatasetInfo
@@ -122,9 +122,9 @@ def test_predictions_compatibility(cutoff):
     )
     hypers = DEFAULT_HYPERS["model"]
     hypers["R_CUT"] = cutoff
-    model = PET(DEFAULT_HYPERS["model"], dataset_info)
+    model = NativePET(DEFAULT_HYPERS["model"], dataset_info)
     ARCHITECTURAL_HYPERS = Hypers(model.hypers)
-    raw_pet = PET(ARCHITECTURAL_HYPERS, 0.0, len(dataset_info.atomic_types))
+    raw_pet = NativePET(ARCHITECTURAL_HYPERS, 0.0, len(dataset_info.atomic_types))
     model.set_trained_model(raw_pet)
 
     system = systems_to_torch(structure)

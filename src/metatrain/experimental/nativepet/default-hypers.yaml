@@ -1,6 +1,6 @@
 architecture:
 
-  name: pet
+  name: experimental.nativepet
 
   model:
     cutoff: 4.5

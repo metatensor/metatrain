@@ -5,7 +5,7 @@ import metatensor
 import torch
 from omegaconf import OmegaConf
 
-from metatrain.pet import PET, Trainer
+from metatrain.experimental.nativepet import NativePET, Trainer
 from metatrain.utils.data import Dataset, DatasetInfo
 from metatrain.utils.data.readers import read_systems, read_targets
 from metatrain.utils.data.target_info import get_energy_target_info
@@ -32,7 +32,7 @@ def test_continue(monkeypatch, tmp_path):
     dataset_info = DatasetInfo(
         length_unit="Angstrom", atomic_types=[1, 6, 7, 8], targets=target_info_dict
     )
-    model = PET(MODEL_HYPERS, dataset_info)
+    model = NativePET(MODEL_HYPERS, dataset_info)
 
     conf = {
         "mtt::U0": {

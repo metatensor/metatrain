@@ -1,8 +1,8 @@
-from .model import PET
+from .model import NativePET
 from .trainer import Trainer
 
 
-__model__ = PET
+__model__ = NativePET
 __trainer__ = Trainer
 __capabilities__ = {
     "supported_devices": __model__.__supported_devices__,

@@ -3,7 +3,7 @@ import copy
 import torch
 from metatensor.torch.atomistic import System
 
-from metatrain.pet import PET
+from metatrain.experimental.nativepet import NativePET
 from metatrain.utils.data import DatasetInfo
 from metatrain.utils.data.target_info import get_energy_target_info
 from metatrain.utils.neighbor_lists import get_system_with_neighbor_lists
@@ -21,7 +21,7 @@ def test_torchscript():
             "energy": get_energy_target_info({"quantity": "energy", "unit": "eV"})
         },
     )
-    model = PET(MODEL_HYPERS, dataset_info)
+    model = NativePET(MODEL_HYPERS, dataset_info)
     print("target names: ", model.target_names)
     print("last layer keys: ", model.central_tokens_last_layers.keys())
     print("component labels: ", model.component_labels)
@@ -53,7 +53,7 @@ def test_torchscript_save_load(tmpdir):
             "energy": get_energy_target_info({"quantity": "energy", "unit": "eV"})
         },
     )
-    model = PET(MODEL_HYPERS, dataset_info)
+    model = NativePET(MODEL_HYPERS, dataset_info)
 
     with tmpdir.as_cwd():
         torch.jit.save(torch.jit.script(model), "model.pt")
@@ -75,7 +75,7 @@ def test_torchscript_integers():
             "energy": get_energy_target_info({"quantity": "energy", "unit": "eV"})
         },
     )
-    model = PET(new_hypers, dataset_info)
+    model = NativePET(new_hypers, dataset_info)
 
     system = System(
         types=torch.tensor([6, 1, 8, 7]),

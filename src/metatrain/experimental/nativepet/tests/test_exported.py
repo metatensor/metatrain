@@ -2,7 +2,7 @@ import pytest
 import torch
 from metatensor.torch.atomistic import ModelEvaluationOptions, ModelMetadata, System
 
-from metatrain.pet import PET
+from metatrain.experimental.nativepet import NativePET
 from metatrain.utils.data import DatasetInfo
 from metatrain.utils.data.target_info import get_energy_target_info
 from metatrain.utils.neighbor_lists import (
@@ -27,7 +27,7 @@ def test_to(device, dtype):
             "energy": get_energy_target_info({"quantity": "energy", "unit": "eV"})
         },
     )
-    model = PET(MODEL_HYPERS, dataset_info).to(dtype=dtype)
+    model = NativePET(MODEL_HYPERS, dataset_info).to(dtype=dtype)
 
     exported = model.export(metadata=ModelMetadata(name="test"))
 

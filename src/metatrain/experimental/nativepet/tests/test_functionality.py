@@ -5,7 +5,7 @@ from jsonschema.exceptions import ValidationError
 from metatensor.torch.atomistic import ModelOutput, System
 from omegaconf import OmegaConf
 
-from metatrain.pet import PET
+from metatrain.experimental.nativepet import NativePET
 from metatrain.utils.architectures import check_architecture_options
 from metatrain.utils.data import DatasetInfo
 from metatrain.utils.data.target_info import (
@@ -27,7 +27,7 @@ def test_prediction():
         },
     )
 
-    model = PET(MODEL_HYPERS, dataset_info)
+    model = NativePET(MODEL_HYPERS, dataset_info)
 
     system = System(
         types=torch.tensor([6, 6]),
@@ -52,7 +52,7 @@ def test_pet_padding():
         },
     )
 
-    model = PET(MODEL_HYPERS, dataset_info)
+    model = NativePET(MODEL_HYPERS, dataset_info)
 
     system = System(
         types=torch.tensor([6, 6]),
@@ -103,7 +103,7 @@ def test_prediction_subset_elements():
         },
     )
 
-    model = PET(MODEL_HYPERS, dataset_info)
+    model = NativePET(MODEL_HYPERS, dataset_info)
 
     system = System(
         types=torch.tensor([6, 6]),
@@ -134,7 +134,7 @@ def test_prediction_subset_atoms():
         },
     )
 
-    model = PET(MODEL_HYPERS, dataset_info)
+    model = NativePET(MODEL_HYPERS, dataset_info)
 
     # Since we don't yet support atomic predictions, we will test this by
     # predicting on a system with two monomers at a large distance
@@ -212,7 +212,7 @@ def test_output_last_layer_features():
         },
     )
 
-    model = PET(MODEL_HYPERS, dataset_info)
+    model = NativePET(MODEL_HYPERS, dataset_info)
 
     system = System(
         types=torch.tensor([6, 1, 8, 7]),
@@ -317,7 +317,7 @@ def test_output_per_atom():
         },
     )
 
-    model = PET(MODEL_HYPERS, dataset_info)
+    model = NativePET(MODEL_HYPERS, dataset_info)
 
     system = System(
         types=torch.tensor([6, 1, 8, 7]),
@@ -352,7 +352,9 @@ def test_fixed_composition_weights():
         }
     }
     hypers = OmegaConf.create(hypers)
-    check_architecture_options(name="pet", options=OmegaConf.to_container(hypers))
+    check_architecture_options(
+        name="experimental.nativepet", options=OmegaConf.to_container(hypers)
+    )
 
 
 def test_fixed_composition_weights_error():
@@ -361,7 +363,9 @@ def test_fixed_composition_weights_error():
     hypers["training"]["fixed_composition_weights"] = {"energy": {"H": 300.0}}
     hypers = OmegaConf.create(hypers)
     with pytest.raises(ValidationError, match=r"'H' does not match '\^\[0-9\]\+\$'"):
-        check_architecture_options(name="pet", options=OmegaConf.to_container(hypers))
+        check_architecture_options(
+            name="experimental.nativepet", options=OmegaConf.to_container(hypers)
+        )
 
 
 @pytest.mark.parametrize("per_atom", [True, False])
@@ -384,7 +388,7 @@ def test_vector_output(per_atom):
         },
     )
 
-    model = PET(MODEL_HYPERS, dataset_info)
+    model = NativePET(MODEL_HYPERS, dataset_info)
 
     system = System(
         types=torch.tensor([6, 6]),
@@ -421,7 +425,7 @@ def test_spherical_output(per_atom):
         },
     )
 
-    model = PET(MODEL_HYPERS, dataset_info)
+    model = NativePET(MODEL_HYPERS, dataset_info)
 
     system = System(
         types=torch.tensor([6, 6]),
@@ -465,7 +469,7 @@ def test_spherical_output_multi_block(per_atom):
         },
     )
 
-    model = PET(MODEL_HYPERS, dataset_info)
+    model = NativePET(MODEL_HYPERS, dataset_info)
 
     system = System(
         types=torch.tensor([6, 6]),

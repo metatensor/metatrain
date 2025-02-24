@@ -15,11 +15,11 @@ from metatensor.torch.atomistic import (
     System,
 )
 
-from ..utils.additive import ZBL, CompositionModel
-from ..utils.data import DatasetInfo, TargetInfo
-from ..utils.dtype import dtype_to_str
-from ..utils.metadata import append_metadata_references
-from ..utils.scaler import Scaler
+from ...utils.additive import ZBL, CompositionModel
+from ...utils.data import DatasetInfo, TargetInfo
+from ...utils.dtype import dtype_to_str
+from ...utils.metadata import append_metadata_references
+from ...utils.scaler import Scaler
 from .modules.heads import CentralTokensHead, Head, MessagesBondsHead
 from .modules.transformer import CartesianTransformer
 from .modules.utilities import cutoff_func, systems_to_batch_dict
@@ -28,7 +28,7 @@ from .modules.utilities import cutoff_func, systems_to_batch_dict
 logger = logging.getLogger(__name__)
 
 
-class PET(torch.nn.Module):
+class NativePET(torch.nn.Module):
     __supported_devices__ = ["cuda", "mps", "cpu"]
     __supported_dtypes__ = [torch.float32]
     __default_metadata__ = ModelMetadata(
@@ -132,7 +132,7 @@ class PET(torch.nn.Module):
 
         self.single_label = Labels.single()
 
-    def restart(self, dataset_info: DatasetInfo) -> "PET":
+    def restart(self, dataset_info: DatasetInfo) -> "NativePET":
         # merge old and new dataset info
         merged_info = self.dataset_info.union(dataset_info)
         new_atomic_types = [
@@ -511,7 +511,7 @@ class PET(torch.nn.Module):
         return return_dict
 
     @classmethod
-    def load_checkpoint(cls, path: Union[str, Path]) -> "PET":
+    def load_checkpoint(cls, path: Union[str, Path]) -> "NativePET":
         checkpoint = torch.load(path, weights_only=False, map_location="cpu")
         model_data = checkpoint["model_data"]
         model_state_dict = checkpoint["model_state_dict"]
@@ -530,7 +530,7 @@ class PET(torch.nn.Module):
     ) -> MetatensorAtomisticModel:
         dtype = next(self.parameters()).dtype
         if dtype not in self.__supported_dtypes__:
-            raise ValueError(f"unsupported dtype {dtype} for PET")
+            raise ValueError(f"unsupported dtype {dtype} for NativePET")
 
         # Make sure the model is all in the same dtype
         # For example, after training, the additive models could still be in
