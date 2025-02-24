@@ -12,10 +12,10 @@ architecture:
     num_attention_layers: 2
     num_gnn_layers: 2
     residual_factor: 0.5
-    zbl: False
+    zbl: false
 
   training:
-    distributed: False
+    distributed: false
     distributed_port: 39591
     batch_size: 16
     num_epochs: 10000
