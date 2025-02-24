@@ -4,6 +4,6 @@ sphinx >= 7
 sphinxcontrib-bibtex
 sphinx-gallery
 sphinx-toggleprompt
-setuptools  # required for sphinxcontrib-bibtex together with Python 3.12
+setuptools  # required for sphinxcontrib-bibtex together with Python 3.13
 tomli
 featomic-torch @ git+https://github.com/metatensor/featomic.git#subdirectory=python/featomic_torch

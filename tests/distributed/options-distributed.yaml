@@ -2,7 +2,7 @@ seed: 42
 device: cuda
 
 architecture:
-  name: experimental.soap_bpnn
+  name: soap_bpnn
   training:
     distributed: True
     batch_size: 25
