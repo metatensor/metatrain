@@ -125,6 +125,26 @@
         },
         "zbl": {
           "type": "boolean"
+        },
+        "long_range": {
+          "type": "object",
+          "properties": {
+            "enable": {
+              "type": "boolean"
+            },
+            "exponent": {
+              "type": "integer"
+            },
+            "smearing": {
+              "type": "number"
+            },
+            "interpolation_nodes": {
+              "type": "integer"
+            },
+            "mesh_spacing": {
+              "type": "number"
+            }
+          }
         }
       },
       "additionalProperties": false
