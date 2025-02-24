@@ -70,7 +70,7 @@ spherical_tensormap = mts.drop_blocks(
 #
 # Let's save the spherical components of the polarizability tensor to disk
 #
-mts.save("spherical_polarizability.npz", spherical_tensormap)
+mts.save("spherical_polarizability.mts", spherical_tensormap)
 # %%
 #
 # Write the metatrain ``options.yaml`` file for the training of the polarizability
