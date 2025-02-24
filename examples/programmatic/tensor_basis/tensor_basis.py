@@ -177,7 +177,7 @@ for key, ax in zip(spherical_tensormap.keys, axes):
     ax.set_aspect("equal")
     ax.set_xlabel("Target")
     ax.set_ylabel("Prediction")
-    ax.set_title(f"$\lambda={o3_lambda}$, $\sigma={o3_sigma}$")
+    ax.set_title(rf"$\lambda={o3_lambda}$, $\sigma={o3_sigma}$")
     target = spherical_tensormap[key].values
     prediction = predicted_polarizabilities[key].values
     ax.set_xlim(target.min(), target.max())
