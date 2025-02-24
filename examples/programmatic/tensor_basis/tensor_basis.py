@@ -1,14 +1,17 @@
 """
-Training a polarizability model using the TensorBasis in metatrain
-==================================================================
+Training an equivariant model for the polarizability
+====================================================
 
-This tutorial demonstrates how to train equivariant models in metatrain constructed as
-linear combinations of the elements of a tensorial basis with neural networks
-(SOAP-based Behler-Parrinello nets) as coefficients of the linear combination.
+This tutorial demonstrates how to train an equivariant model for the molecular
+polarizability. In this example, the SOAP-BPNN architecture is used to predict
+equivariant targets. Internally, this is done using the "tensor basis" construction,
+i.e., a linear combinations of the elements of a tensorial basis with the
+neural network predicting the invariant coefficients of the linear combination.
 """
 
 # %%
 #
+import subprocess
 from glob import glob
 
 import ase.io
@@ -21,10 +24,14 @@ from featomic.torch.clebsch_gordan import cartesian_to_spherical
 
 # %%
 #
-# Read some bulk water ASE frames decorated with the polarizability (Cartesian) tensor.
+# Read a subset of 1000 molecules from the QM7x dataset in the XYZ format decorated with
+# the polarizability (Cartesian) tensor.
 # Extract the polarizability from the ase.Atoms.info dictionary.
-frames = ase.io.read("bulk_water_100.xyz", ":")
-polarizabilities = np.array([frame.info["alpha"].reshape(3, 3) for frame in frames])
+#
+molecules = ase.io.read("qm7x_reduced_100.xyz", ":")
+polarizabilities = np.array(
+    [molecule.info["polarizability"].reshape(3, 3) for molecule in molecules]
+)
 
 # %%
 #
@@ -35,9 +42,9 @@ cartesian_tensormap = mts.TensorMap(
     keys=mts.Labels.single(),
     blocks=[
         mts.TensorBlock(
-            samples=mts.Labels.range("system", len(frames)),
+            samples=mts.Labels.range("system", len(molecules)),
             components=[mts.Labels.range(name, 3) for name in ["xyz_1", "xyz_2"]],
-            properties=mts.Labels(["alpha"], torch.tensor([[0]])),
+            properties=mts.Labels(["polarizability"], torch.tensor([[0]])),
             values=torch.from_numpy(polarizabilities).unsqueeze(-1),
         )
     ],
@@ -47,12 +54,12 @@ cartesian_tensormap = mts.TensorMap(
 #
 # Extract from the Cartesian polarizability tensor its irreducible spherical components
 #
+
 spherical_tensormap = mts.remove_dimension(
     cartesian_to_spherical(cartesian_tensormap, components=["xyz_1", "xyz_2"]),
     "keys",
     "_",
 )
-#
 
 # %%
 #
@@ -66,7 +73,7 @@ spherical_tensormap = mts.drop_blocks(
 #
 # Let's save the spherical components of the polarizability tensor to disk
 #
-mts.save("spherical_polarizability.npz", spherical_tensormap)
+mts.save("spherical_polarizability.mts", spherical_tensormap)
 # %%
 #
 # Write the metatrain ``options.yaml`` file for the training of the polarizability
@@ -90,14 +97,14 @@ mts.save("spherical_polarizability.npz", spherical_tensormap)
 
 # %%
 #
-# Train the model using the command:
+# Now that the dataset has been saved, we can train a model on it.
 #
 # .. code:: bash
 #
-#    mtt train options.yaml 2> err.log
+#    mtt train options.yaml
 #
-# The ``stderr`` output will be redirected to the ``err.log`` file to avoid seeing too
-# many warnings.
+# In this case, we launch the above command from this script
+subprocess.run(["mtt", "train", "options.yaml"])
 
 # %%
 #
@@ -120,11 +127,8 @@ mts.save("spherical_polarizability.npz", spherical_tensormap)
 #
 # To evaluate the model, we can write the following ``eval.yaml`` file:
 #
-# .. code:: yaml
-#
-#    systems:
-#        read_from: bulk_water_100.xyz
-#        length_unit: angstrom
+# .. literalinclude:: eval.yaml
+#   :language: yaml
 #
 
 # %%
@@ -133,15 +137,17 @@ mts.save("spherical_polarizability.npz", spherical_tensormap)
 #
 # .. code:: bash
 #
-#    mtt eval model.pt eval.yaml -e extensions/ -o outputs.mts 2> err.log
+#    mtt eval model.pt eval.yaml -e extensions/ -o outputs.mts
 #
-# The ``stderr`` output will be redirected to the ``err.log`` file to avoid seeing too
-# many warnings.
+# In this case, we launch the above command from this script
+subprocess.run(
+    ["mtt", "eval", "model.pt", "eval.yaml", "-e", "extensions/", "-o", "outputs.mts"]
+)
 
 # %%
 #
 # After evaluation is completed, three files will be created in the current directory.
-# The only one relevant for this example is ``outputs_mtt::polarizability.npz``,
+# The only one relevant for this example is ``outputs_mtt::polarizability.mts``,
 # containing the predicted values of the target tensorial properties as binary
 # ``TensorMap`` objects.
 
@@ -155,7 +161,7 @@ mts.save("spherical_polarizability.npz", spherical_tensormap)
 # after loading the predicted values we can update the metadata to reflect the correct
 # information about the target.
 
-predicted_polarizabilities = mts.load("outputs_mtt::polarizability.npz")
+predicted_polarizabilities = mts.load("outputs_mtt::polarizability.mts")
 
 index_folder = sorted(glob("outputs/*/*/indices"))[-1]
 indices = {
@@ -169,7 +175,7 @@ indices = {
 # Plot the parity plots of the predicted values of the target tensorial properties
 # against the true values for the training, validation, and test sets.
 
-fig, axes = plt.subplots(1, 2, figsize=(10, 5))
+fig, axes = plt.subplots(1, 2, figsize=(7, 3.5))
 
 for key, ax in zip(spherical_tensormap.keys, axes):
     o3_lambda = key["o3_lambda"]
@@ -189,3 +195,5 @@ for key, ax in zip(spherical_tensormap.keys, axes):
     ax.legend()
 fig.tight_layout()
 plt.show()
+
+# %%

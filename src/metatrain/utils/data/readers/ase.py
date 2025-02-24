@@ -1,9 +1,11 @@
 import logging
 import warnings
-from typing import List, Tuple
+from pathlib import PurePath
+from typing import IO, List, Tuple, Union
 
 import ase.io
 import torch
+from ase.stress import voigt_6_to_full_3x3_stress
 from metatensor.torch import Labels, TensorBlock, TensorMap
 from metatensor.torch.atomistic import System, systems_to_torch
 from omegaconf import DictConfig
@@ -14,11 +16,40 @@ from ..target_info import TargetInfo, get_energy_target_info, get_generic_target
 logger = logging.getLogger(__name__)
 
 
-def _wrapped_ase_io_read(filename):
+def read(filename: Union[str, PurePath, IO], *args, **kwargs) -> List[ase.Atoms]:
+    """Wrapper around the :func:`ase.io.read` function.
+
+    The wrapper provides a more informative error message in case of failure.
+    Additionally, it will make the keys ``"energy"``, ``"forces"`` and ``"stress"``
+    available from the calculator and the info/arrays dictionary.
+
+    .. warning::
+
+        Lists of atoms read with this function can NOT be written back to a file with
+        :func:`ase.io.write` because of the duplicated keys.
+
+    :param filename: Name of the file to read from or a file descriptor.
+    :param args: additional positional arguments for :func:`ase.io.read`
+    :param kwargs: additional keyword arguments for :func:`ase.io.read`
+    :returns: A list of atoms
+    """
     try:
-        return ase.io.read(filename, ":")
+        frames = ase.io.read(filename, *args, **kwargs)
     except Exception as e:
         raise ValueError(f"Failed to read '{filename}' with ASE: {e}") from e
+
+    # allow access of "special" keys from calculator and `info`/`arrays` dictionary
+    for atoms in frames:
+        if hasattr(atoms, "calc") and atoms.calc is not None:
+            results = atoms.calc.results
+            if "energy" in results:
+                atoms.info["energy"] = results["energy"]
+            if "forces" in results:
+                atoms.arrays["forces"] = results["forces"]
+            if "stress" in results:
+                atoms.info["stress"] = voigt_6_to_full_3x3_stress(results["stress"])
+
+    return frames
 
 
 def read_systems(filename: str) -> List[System]:
@@ -27,7 +58,7 @@ def read_systems(filename: str) -> List[System]:
     :param filename: name of the file to read
     :returns: A list of systems
     """
-    return systems_to_torch(_wrapped_ase_io_read(filename), dtype=torch.float64)
+    return systems_to_torch(read(filename, ":"), dtype=torch.float64)
 
 
 def _read_energy_ase(filename: str, key: str) -> List[TensorBlock]:
@@ -37,7 +68,7 @@ def _read_energy_ase(filename: str, key: str) -> List[TensorBlock]:
     :param key: target value key name to be parsed from the file.
     :returns: TensorMap containing the energies
     """
-    frames = _wrapped_ase_io_read(filename)
+    frames = read(filename, ":")
 
     properties = Labels("energy", torch.tensor([[0]]))
 
@@ -63,7 +94,7 @@ def _read_energy_ase(filename: str, key: str) -> List[TensorBlock]:
     return blocks
 
 
-def _read_forces_ase(filename: str, key: str = "energy") -> List[TensorBlock]:
+def _read_forces_ase(filename: str, key: str = "forces") -> List[TensorBlock]:
     """Store force information in a List of :class:`metatensor.TensorBlock` which can be
     used as ``position`` gradients.
 
@@ -71,7 +102,7 @@ def _read_forces_ase(filename: str, key: str = "energy") -> List[TensorBlock]:
     :param key: target value key name to be parsed from the file.
     :returns: TensorMap containing the forces
     """
-    frames = _wrapped_ase_io_read(filename)
+    frames = read(filename, ":")
 
     components = [Labels(["xyz"], torch.arange(3).reshape(-1, 1))]
     properties = Labels("energy", torch.tensor([[0]]))
@@ -130,7 +161,7 @@ def _read_stress_ase(filename: str, key: str = "stress") -> List[TensorBlock]:
 def _read_virial_stress_ase(
     filename: str, key: str, is_virial: bool = True
 ) -> List[TensorBlock]:
-    frames = _wrapped_ase_io_read(filename)
+    frames = read(filename, ":")
 
     samples = Labels(["sample"], torch.tensor([[0]]))
     components = [
@@ -142,11 +173,7 @@ def _read_virial_stress_ase(
     blocks = []
     for i_system, atoms in enumerate(frames):
         if key not in atoms.info:
-            if is_virial:
-                target_name = "virial"
-            else:
-                target_name = "stress"
-
+            target_name = "virial" if is_virial else "stress"
             raise ValueError(
                 f"{target_name} key {key!r} was not found in system {filename!r} at "
                 f"index {i_system}"
@@ -272,7 +299,7 @@ def read_energy(target: DictConfig) -> Tuple[List[TensorMap], TargetInfo]:
 
 def read_generic(target: DictConfig) -> Tuple[List[TensorMap], TargetInfo]:
     filename = target["read_from"]
-    frames = _wrapped_ase_io_read(filename)
+    frames = read(filename, ":")
 
     # we don't allow ASE to read spherical tensors with more than one irrep,
     # otherwise it's a mess
@@ -299,27 +326,24 @@ def read_generic(target: DictConfig) -> Tuple[List[TensorMap], TargetInfo]:
 
     tensor_maps = []
     for i_system, atoms in enumerate(frames):
-        if not per_atom and target_key not in atoms.info:
-            raise ValueError(
-                f"Target key {target_key!r} was not found in system {filename!r} at "
-                f"index {i_system}"
-            )
-        if per_atom and target_key not in atoms.arrays:
+        if (per_atom and target_key not in atoms.arrays) or (
+            not per_atom and target_key not in atoms.info
+        ):
             raise ValueError(
                 f"Target key {target_key!r} was not found in system {filename!r} at "
                 f"index {i_system}"
             )
 
+        if per_atom:
+            data = atoms.arrays[target_key]
+        else:
+            data = atoms.info[target_key]
+
         # here we reshape to allow for more flexibility; this is actually
         # necessary for the `arrays`, which are stored in a 2D array
-        if per_atom:
-            values = torch.tensor(
-                atoms.arrays[target_key], dtype=torch.float64
-            ).reshape([-1] + shape_after_samples)
-        else:
-            values = torch.tensor(atoms.info[target_key], dtype=torch.float64).reshape(
-                [-1] + shape_after_samples
-            )
+        values = torch.tensor(data, dtype=torch.float64).reshape(
+            [-1] + shape_after_samples
+        )
 
         samples = (
             Labels(

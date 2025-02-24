@@ -3,14 +3,14 @@ import shutil
 import subprocess
 from pathlib import Path
 
-import ase.io
 import pytest
 import torch
 from omegaconf import OmegaConf
 
 from metatrain.cli.eval import eval_model
-from metatrain.experimental.soap_bpnn import __model__
+from metatrain.soap_bpnn import __model__
 from metatrain.utils.data import DatasetInfo
+from metatrain.utils.data.readers.ase import read
 from metatrain.utils.data.target_info import get_energy_target_info
 
 from . import EVAL_OPTIONS_PATH, MODEL_HYPERS, MODEL_PATH, RESOURCES_PATH
@@ -74,7 +74,7 @@ def test_eval(monkeypatch, tmp_path, caplog, model_name, options):
     assert "ms per atom" in log
 
     # Test file is written predictions
-    frames = ase.io.read("foo.xyz", ":")
+    frames = read("foo.xyz", ":")
     frames[0].info["energy"]
 
 
@@ -106,7 +106,7 @@ def test_eval_batch_size(monkeypatch, tmp_path, caplog, model_name, options):
     assert "inaccurate average timings" in log
 
     # Test file is written predictions
-    frames = ase.io.read("foo.xyz", ":")
+    frames = read("foo.xyz", ":")
     frames[0].info["energy"]
 
 
@@ -153,7 +153,7 @@ def test_eval_multi_dataset(monkeypatch, tmp_path, caplog, model, options):
 
     # Test file is written predictions
     for i in range(2):
-        frames = ase.io.read(f"foo_{i}.xyz", ":")
+        frames = read(f"foo_{i}.xyz", ":")
         frames[0].info["energy"]
 
 

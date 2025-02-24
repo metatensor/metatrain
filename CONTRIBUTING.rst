@@ -20,7 +20,7 @@ to other potential users. Other than that, you can help with:
 All these contributions are very welcome. We accept contributions via Github `pull
 request <https://github.com/metatrain/pulls>`_. If you want to work on the code
 and pick something easy to get started, have a look at the `good first issues
-<https://github.com/lab-cosmo/metatrain/labels/Good%20first%20issue>`_.
+<https://github.com/metatensor/metatrain/labels/Good%20first%20issue>`_.
 
 
 Bug reports and feature requests
@@ -32,7 +32,7 @@ happened instead? Please provide any useful code snippet or input file with your
 report.
 
 If you want to add a new feature to metatrain, please create an `issue
-<https://github.com/lab-cosmo/metatrain/issues/new>`_ so that we can discuss it,
+<https://github.com/metatensor/metatrain/issues/new>`_ so that we can discuss it,
 and you have more chances to see your changes incorporated.
 
 
@@ -54,7 +54,7 @@ Then this package itself
 
 .. code-block:: bash
 
-  git clone https://github.com/lab-cosmo/metatrain 
+  git clone https://github.com/metatensor/metatrain 
   cd metatrain 
   pip install -e .
 
