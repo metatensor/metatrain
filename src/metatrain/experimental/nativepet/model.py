@@ -29,7 +29,7 @@ logger = logging.getLogger(__name__)
 
 
 class NativePET(torch.nn.Module):
-    __supported_devices__ = ["cuda", "mps", "cpu"]
+    __supported_devices__ = ["cuda", "cpu"]
     __supported_dtypes__ = [torch.float32]
     __default_metadata__ = ModelMetadata(
         references={"architecture": ["https://arxiv.org/abs/2305.19302v3"]}
