@@ -1,11 +1,10 @@
-from typing import Dict, List, Optional, Tuple, Type, Union
+from typing import Dict, List, Optional, Tuple, Union
 
 import featomic
 import featomic.torch
 import metatensor.torch
 import numpy as np
 import scipy
-import skmatter
 import torch
 from metatensor import Labels, TensorBlock, TensorMap
 from metatensor.torch import Labels as TorchLabels
@@ -18,7 +17,7 @@ from metatensor.torch.atomistic import (
     ModelOutput,
     System,
 )
-from skmatter._selection import _FPS
+from skmatter._selection import _FPS as _FPS_skmatter
 
 from metatrain.utils.data.dataset import DatasetInfo
 
@@ -118,11 +117,10 @@ class GAP(torch.nn.Module):
             "aggregate_names": ["atom", "center_type"],
         }
         self._subset_of_regressors = SubsetOfRegressors(
-            kernel_type=model_hypers["krr"].get("kernel", "polynomial"),
             kernel_kwargs=kernel_kwargs,
         )
 
-        self._sampler = FPS(n_to_select=model_hypers["krr"]["num_sparse_points"])
+        self._sampler = _FPS(n_to_select=model_hypers["krr"]["num_sparse_points"])
 
         # set it do dummy keys, these are properly set during training
         self._keys = TorchLabels.empty("_")
@@ -301,43 +299,6 @@ class GAP(torch.nn.Module):
 
         return MetatensorAtomisticModel(self.eval(), metadata, capabilities)
 
-    def set_composition_weights(
-        self,
-        output_name: str,
-        input_composition_weights: torch.Tensor,
-        species: List[int],
-    ) -> None:
-        """Set the composition weights for a given output."""
-        # all species that are not present retain their weight of zero
-        self.composition_weights[self.output_to_index[output_name]][  # type: ignore
-            species
-        ] = input_composition_weights.to(
-            dtype=self.composition_weights.dtype,  # type: ignore
-            device=self.composition_weights.device,  # type: ignore
-        )
-
-    def apply_composition_weights(
-        self, systems: List[System], energies: TorchTensorMap
-    ) -> TorchTensorMap:
-        """Apply the composition weights to the energies."""
-        new_blocks: List[TorchTensorBlock] = []
-        for block in energies.blocks():
-            atomic_species = [system.types for system in systems]
-            new_values = block.values
-            for i in range(len(new_values)):
-                for s in atomic_species[i]:
-                    new_values[i] += self.composition_weights[0, s]
-            new_blocks.append(
-                TorchTensorBlock(
-                    values=new_values,
-                    samples=block.samples,
-                    components=block.components,
-                    properties=block.properties,
-                )
-            )
-
-        return TorchTensorMap(energies.keys, new_blocks)
-
 
 ########################################################################################
 # All classes and methods will be moved to metatensor-operations and metatensor-learn] #
@@ -359,30 +320,15 @@ class _SorKernelSolver:
 
     :param KMM:
         KNM matrix
-    :param regularizer:
-        regularizer
-    :param jitter:
-        numerical jitter to stabilize fit
-    :param solver:
-        Method to solve the sparse KRR equations.
 
-        * RKHS-QR: TBD
-        * RKHS: Compute first the reproducing kernel features by diagonalizing K_MM and
+    The function solve the linear problem with
+    the RKHS-QR method.
+
+    RKHS: Compute first the reproducing kernel features by diagonalizing K_MM and
           computing `P_NM = K_NM @ U_MM @ Lam_MM^(-1.2)` and then solves the linear
           problem for those (which is usually better conditioned)::
 
               (P_NM.T@P_NM + 1)^(-1) P_NM.T@Y
-
-        * QR: TBD
-        * solve: Uses `scipy.linalg.solve` for the normal equations::
-
-              (K_NM.T@K_NM + K_MM)^(-1) K_NM.T@Y
-
-        * lstsq: require rcond value. Use `numpy.linalg.solve(rcond=rcond)` for the
-          normal equations::
-
-             (K_NM.T@K_NM + K_MM)^(-1) K_NM.T@Y
-
     Reference
     ---------
     Foster, L., Waagen, A., Aijaz, N., Hurley, M., Luis, A., Rinsky, J., ... &
@@ -393,141 +339,47 @@ class _SorKernelSolver:
     def __init__(
         self,
         KMM: np.ndarray,
-        regularizer: float = 1.0,
-        jitter: float = 0.0,
-        solver: str = "RKHS",
-        relative_jitter: bool = True,
     ):
-        self.solver = solver
         self.KMM = KMM
-        self.relative_jitter = relative_jitter
 
         self._nM = len(KMM)
-        if self.solver == "RKHS" or self.solver == "RKHS-QR":
-            self._vk, self._Uk = scipy.linalg.eigh(KMM)
-            self._vk = self._vk[::-1]
-            self._Uk = self._Uk[:, ::-1]
-        elif self.solver == "QR" or self.solver == "solve" or self.solver == "lstsq":
-            # gets maximum eigenvalue of KMM to scale the numerical jitter
-            self._KMM_maxeva = scipy.sparse.linalg.eigsh(
-                KMM, k=1, return_eigenvectors=False
-            )[0]
-        else:
-            raise ValueError(
-                f"Solver {solver} not supported. Possible values "
-                "are 'RKHS', 'RKHS-QR', 'QR', 'solve' or lstsq."
-            )
-        if relative_jitter:
-            if self.solver == "RKHS" or self.solver == "RKHS-QR":
-                self._jitter_scale = self._vk[0]
-            elif (
-                self.solver == "QR" or self.solver == "solve" or self.solver == "lstsq"
-            ):
-                self._jitter_scale = self._KMM_maxeva
-        else:
-            self._jitter_scale = 1.0
-        self.set_regularizers(regularizer, jitter)
+        self._vk, self._Uk = scipy.linalg.eigh(KMM)
+        self._vk = self._vk[::-1]
+        self._Uk = self._Uk[:, ::-1]
 
-    def set_regularizers(self, regularizer=1.0, jitter=0.0):
-        self.regularizer = regularizer
-        self.jitter = jitter
-        if self.solver == "RKHS" or self.solver == "RKHS-QR":
-            self._nM = len(np.where(self._vk > self.jitter * self._jitter_scale)[0])
-            self._PKPhi = self._Uk[:, : self._nM] * 1 / np.sqrt(self._vk[: self._nM])
-        elif self.solver == "QR":
-            self._VMM = scipy.linalg.cholesky(
-                self.regularizer * self.KMM
-                + np.eye(self._nM) * self._jitter_scale * self.jitter
-            )
-        self._Cov = np.zeros((self._nM, self._nM))
-        self._KY = None
+        self._nM = len(np.where(self._vk > 0)[0])
+        self._PKPhi = self._Uk[:, : self._nM] * 1 / np.sqrt(self._vk[: self._nM])
 
-    def fit(self, KNM, Y, rcond=None):
+    def fit(
+        self, KNM: Union[torch.Tensor, np.ndarray], Y: Union[torch.Tensor, np.ndarray]
+    ) -> None:
+        # Convert to numpy arrays if passed as torch tensors for the solver
+        if isinstance(KNM, torch.Tensor):
+            weights_to_torch = True
+            dtype = KNM.dtype
+            device = KNM.device
+            KNM = KNM.detach().numpy()
+            assert isinstance(Y, torch.Tensor), "must pass `KNM` and `Y` as same type."
+            Y = Y.detach().numpy()
+        else:
+            weights_to_torch = False
+
+        # Broadcast Y for shape
         if len(Y.shape) == 1:
             Y = Y[:, np.newaxis]
-        if self.solver == "RKHS":
-            Phi = KNM @ self._PKPhi
-            self._weights = self._PKPhi @ scipy.linalg.solve(
-                Phi.T @ Phi + np.eye(self._nM) * self.regularizer,
-                Phi.T @ Y,
-                assume_a="pos",
-            )
-        elif self.solver == "RKHS-QR":
-            A = np.vstack(
-                [KNM @ self._PKPhi, np.sqrt(self.regularizer) * np.eye(self._nM)]
-            )
-            Q, R = np.linalg.qr(A)
-            self._weights = self._PKPhi @ scipy.linalg.solve_triangular(
-                R, Q.T @ np.vstack([Y, np.zeros((self._nM, Y.shape[1]))])
-            )
-        elif self.solver == "QR":
-            A = np.vstack([KNM, self._VMM])
-            Q, R = np.linalg.qr(A)
-            self._weights = scipy.linalg.solve_triangular(
-                R, Q.T @ np.vstack([Y, np.zeros((KNM.shape[1], Y.shape[1]))])
-            )
-        elif self.solver == "solve":
-            self._weights = scipy.linalg.solve(
-                KNM.T @ KNM
-                + self.regularizer * self.KMM
-                + np.eye(self._nM) * self.jitter * self._jitter_scale,
-                KNM.T @ Y,
-                assume_a="pos",
-            )
-        elif self.solver == "lstsq":
-            self._weights = np.linalg.lstsq(
-                KNM.T @ KNM
-                + self.regularizer * self.KMM
-                + np.eye(self._nM) * self.jitter * self._jitter_scale,
-                KNM.T @ Y,
-                rcond=rcond,
-            )[0]
-        else:
-            ValueError("solver not implemented")
 
-    def partial_fit(self, KNM, Y, accumulate_only=False, rcond=None):
-        if len(Y) > 0:
-            # only accumulate if we are passing data
-            if len(Y.shape) == 1:
-                Y = Y[:, np.newaxis]
-            if self.solver == "RKHS":
-                Phi = KNM @ self._PKPhi
-            elif self.solver == "solve" or self.solver == "lstsq":
-                Phi = KNM
-            else:
-                raise ValueError(
-                    "Partial fit can only be realized with solver = 'RKHS' or 'solve'"
-                )
-            if self._KY is None:
-                self._KY = np.zeros((self._nM, Y.shape[1]))
+        # Solve with the RKHS-QR method
+        A = np.vstack([KNM @ self._PKPhi, np.eye(self._nM)])
+        Q, R = np.linalg.qr(A)
 
-            self._Cov += Phi.T @ Phi
-            self._KY += Phi.T @ Y
+        weights = self._PKPhi @ scipy.linalg.solve_triangular(
+            R, Q.T @ np.vstack([Y, np.zeros((self._nM, Y.shape[1]))])
+        )
 
-        # do actual fit if called with empty array or if asked
-        if len(Y) == 0 or (not accumulate_only):
-            if self.solver == "RKHS":
-                self._weights = self._PKPhi @ scipy.linalg.solve(
-                    self._Cov + np.eye(self._nM) * self.regularizer,
-                    self._KY,
-                    assume_a="pos",
-                )
-            elif self.solver == "solve":
-                self._weights = scipy.linalg.solve(
-                    self._Cov
-                    + self.regularizer * self.KMM
-                    + np.eye(self.KMM.shape[0]) * self.jitter * self._jitter_scale,
-                    self._KY,
-                    assume_a="pos",
-                )
-            elif self.solver == "lstsq":
-                self._weights = np.linalg.lstsq(
-                    self._Cov
-                    + self.regularizer * self.KMM
-                    + np.eye(self.KMM.shape[0]) * self.jitter * self._jitter_scale,
-                    self._KY,
-                    rcond=rcond,
-                )[0]
+        # Store weights as torch tensors
+        if weights_to_torch:
+            weights = torch.tensor(weights, dtype=dtype, device=device)
+        self._weights = weights
 
     @property
     def weights(self):
@@ -540,72 +392,32 @@ class _SorKernelSolver:
 class AggregateKernel(torch.nn.Module):
     """
     A kernel that aggregates values in a kernel over :param aggregate_names: using
-    a aggregaten function given by :param aggregate_type:
+    the sum as aggregate function
 
     :param aggregate_names:
 
-    :param aggregate_type:
     """
 
     def __init__(
         self,
         aggregate_names: Union[str, List[str]],
-        aggregate_type: str = "sum",
         structurewise_aggregate: bool = False,
     ):
         super().__init__()
-        val_aggregate_types = ["sum", "mean"]
-        if aggregate_type not in val_aggregate_types:
-            raise ValueError(
-                f"Given aggregate_type {aggregate_type!r} but only "
-                f"{aggregate_type!r} are supported."
-            )
-        if structurewise_aggregate:
-            raise NotImplementedError(
-                "structurewise aggregation has not been implemented."
-            )
 
         self._aggregate_names = aggregate_names
-        self._aggregate_type = aggregate_type
         self._structurewise_aggregate = structurewise_aggregate
-
-    def aggregate_features(self, tensor: TensorMap) -> TensorMap:
-        if self._aggregate_type == "sum":
-            return metatensor.sum_over_samples(
-                tensor, sample_names=self._aggregate_names
-            )
-        elif self._aggregate_type == "mean":
-            return metatensor.mean_over_samples(
-                tensor, sample_names=self._aggregate_names
-            )
-        else:
-            raise NotImplementedError(
-                f"aggregate_type {self._aggregate_type!r} has not been implemented."
-            )
 
     def aggregate_kernel(
         self, kernel: TensorMap, are_pseudo_points: Tuple[bool, bool] = (False, False)
     ) -> TensorMap:
-        if self._aggregate_type == "sum":
-            if not are_pseudo_points[0]:
-                kernel = metatensor.sum_over_samples(kernel, self._aggregate_names)
-            if not are_pseudo_points[1]:
-                raise NotImplementedError(
-                    "properties dimenson cannot be aggregated for the moment"
-                )
-            return kernel
-        elif self._aggregate_type == "mean":
-            if not are_pseudo_points[0]:
-                kernel = metatensor.mean_over_samples(kernel, self._aggregate_names)
-            if not are_pseudo_points[1]:
-                raise NotImplementedError(
-                    "properties dimenson cannot be aggregated for the moment"
-                )
-            return kernel
-        else:
+        if not are_pseudo_points[0]:
+            kernel = metatensor.sum_over_samples(kernel, self._aggregate_names)
+        if not are_pseudo_points[1]:
             raise NotImplementedError(
-                f"aggregate_type {self._aggregate_type!r} has not been implemented."
+                "properties dimension cannot be aggregated for the moment"
             )
+        return kernel
 
     def forward(
         self,
@@ -621,42 +433,14 @@ class AggregateKernel(torch.nn.Module):
         raise NotImplementedError("compute_kernel needs to be implemented.")
 
 
-class AggregateLinear(AggregateKernel):
-    def __init__(
-        self,
-        aggregate_names: Union[str, List[str]],
-        aggregate_type: str = "sum",
-        structurewise_aggregate: bool = False,
-    ):
-        super().__init__(aggregate_names, aggregate_type, structurewise_aggregate)
-
-    def forward(
-        self,
-        tensor1: TensorMap,
-        tensor2: TensorMap,
-        are_pseudo_points: Tuple[bool, bool] = (False, False),
-    ) -> TensorMap:
-        # we overwrite default behavior because for linear kernels we can do it more
-        # memory efficient
-        if not are_pseudo_points[0]:
-            tensor1 = self.aggregate_features(tensor1)
-        if not are_pseudo_points[1]:
-            tensor2 = self.aggregate_features(tensor2)
-        return self.compute_kernel(tensor1, tensor2)
-
-    def compute_kernel(self, tensor1: TensorMap, tensor2: TensorMap) -> TensorMap:
-        return metatensor.dot(tensor1, tensor2)
-
-
 class AggregatePolynomial(AggregateKernel):
     def __init__(
         self,
         aggregate_names: Union[str, List[str]],
-        aggregate_type: str = "sum",
         structurewise_aggregate: bool = False,
         degree: int = 2,
     ):
-        super().__init__(aggregate_names, aggregate_type, structurewise_aggregate)
+        super().__init__(aggregate_names, structurewise_aggregate)
         self._degree = degree
 
     def compute_kernel(self, tensor1: TensorMap, tensor2: TensorMap):
@@ -666,78 +450,32 @@ class AggregatePolynomial(AggregateKernel):
 class TorchAggregateKernel(torch.nn.Module):
     """
     A kernel that aggregates values in a kernel over :param aggregate_names: using
-    a aggregaten function given by :param aggregate_type:
+    the sum as aggregate function
 
     :param aggregate_names:
-
-    :param aggregate_type:
     """
 
     def __init__(
         self,
         aggregate_names: Union[str, List[str]],
-        aggregate_type: str = "sum",
         structurewise_aggregate: bool = False,
     ):
         super().__init__()
-        val_aggregate_types = ["sum", "mean"]
-        if aggregate_type not in val_aggregate_types:
-            raise ValueError(
-                f"Given aggregate_type {aggregate_type} but only "
-                f"{aggregate_type} are supported."
-            )
-        if structurewise_aggregate:
-            raise NotImplementedError(
-                "structurewise aggregation has not been implemented."
-            )
-
         self._aggregate_names = aggregate_names
-        self._aggregate_type = aggregate_type
         self._structurewise_aggregate = structurewise_aggregate
-
-    def aggregate_features(self, tensor: TorchTensorMap) -> TorchTensorMap:
-        if self._aggregate_type == "sum":
-            return metatensor.torch.sum_over_samples(
-                tensor, sample_names=self._aggregate_names
-            )
-        elif self._aggregate_type == "mean":
-            return metatensor.torch.mean_over_samples(
-                tensor, sample_names=self._aggregate_names
-            )
-        else:
-            raise NotImplementedError(
-                f"aggregate_type {self._aggregate_type} has not been implemented."
-            )
 
     def aggregate_kernel(
         self,
         kernel: TorchTensorMap,
         are_pseudo_points: Tuple[bool, bool] = (False, False),
     ) -> TorchTensorMap:
-        if self._aggregate_type == "sum":
-            if not are_pseudo_points[0]:
-                kernel = metatensor.torch.sum_over_samples(
-                    kernel, self._aggregate_names
-                )
-            if not are_pseudo_points[1]:
-                raise NotImplementedError(
-                    "properties dimenson cannot be aggregated for the moment"
-                )
-            return kernel
-        elif self._aggregate_type == "mean":
-            if not are_pseudo_points[0]:
-                kernel = metatensor.torch.mean_over_samples(
-                    kernel, self._aggregate_names
-                )
-            if not are_pseudo_points[1]:
-                raise NotImplementedError(
-                    "properties dimenson cannot be aggregated for the moment"
-                )
-            return kernel
-        else:
+        if not are_pseudo_points[0]:
+            kernel = metatensor.torch.sum_over_samples(kernel, self._aggregate_names)
+        if not are_pseudo_points[1]:
             raise NotImplementedError(
-                f"aggregate_type {self._aggregate_type} has not been implemented."
+                "properties dimension cannot be aggregated for the moment"
             )
+        return kernel
 
     def forward(
         self,
@@ -755,44 +493,14 @@ class TorchAggregateKernel(torch.nn.Module):
         raise NotImplementedError("compute_kernel needs to be implemented.")
 
 
-class TorchAggregateLinear(TorchAggregateKernel):
-    def __init__(
-        self,
-        aggregate_names: Union[str, List[str]],
-        aggregate_type: str = "sum",
-        structurewise_aggregate: bool = False,
-    ):
-        super().__init__(aggregate_names, aggregate_type, structurewise_aggregate)
-
-    def forward(
-        self,
-        tensor1: TorchTensorMap,
-        tensor2: TorchTensorMap,
-        are_pseudo_points: Tuple[bool, bool] = (False, False),
-    ) -> TorchTensorMap:
-        # we overwrite default behavior because for linear kernels we can do it more
-        # memory efficient
-        if not are_pseudo_points[0]:
-            tensor1 = self.aggregate_features(tensor1)
-        if not are_pseudo_points[1]:
-            tensor2 = self.aggregate_features(tensor2)
-        return self.compute_kernel(tensor1, tensor2)
-
-    def compute_kernel(
-        self, tensor1: TorchTensorMap, tensor2: TorchTensorMap
-    ) -> TorchTensorMap:
-        return metatensor.torch.dot(tensor1, tensor2)
-
-
 class TorchAggregatePolynomial(TorchAggregateKernel):
     def __init__(
         self,
         aggregate_names: Union[str, List[str]],
-        aggregate_type: str = "sum",
         structurewise_aggregate: bool = False,
         degree: int = 2,
     ):
-        super().__init__(aggregate_names, aggregate_type, structurewise_aggregate)
+        super().__init__(aggregate_names, structurewise_aggregate)
         self._degree = degree
 
     def compute_kernel(self, tensor1: TorchTensorMap, tensor2: TorchTensorMap):
@@ -801,41 +509,21 @@ class TorchAggregatePolynomial(TorchAggregateKernel):
         )
 
 
-class GreedySelector:
-    """Wraps :py:class:`skmatter._selection.GreedySelector` for a TensorMap.
+class _FPS:
+    """
+    Transformer that performs Greedy Sample Selection using Farthest Point Sampling.
 
-    The class creates a selector for each block. The selection will be done based
-    the values of each :py:class:`TensorBlock`. Gradients will not be considered for
-    the selection.
+    Refer to :py:class:`skmatter.sample_selection.FPS` for full documentation.
     """
 
     def __init__(
         self,
-        selector_class: Type[skmatter._selection.GreedySelector],
-        selection_type: str,
-        **selector_arguments,
-    ) -> None:
-        self._selector_class = selector_class
-        self._selection_type = selection_type
-        self._selector_arguments = selector_arguments
-
-        self._selector_arguments["selection_type"] = self._selection_type
+        n_to_select=None,
+    ):
+        self._n_to_select = n_to_select
+        self._selector_class = _FPS_skmatter
+        self._selection_type = "sample"
         self._support = None
-
-    @property
-    def selector_class(self) -> Type[skmatter._selection.GreedySelector]:
-        """The class to perform the selection."""
-        return self._selector_class
-
-    @property
-    def selection_type(self) -> str:
-        """Whether to choose a subset of columns ('feature') or rows ('sample')."""
-        return self._selection_type
-
-    @property
-    def selector_arguments(self) -> dict:
-        """Arguments passed to the ``selector_class``."""
-        return self._selector_arguments
 
     @property
     def support(self) -> TensorMap:
@@ -845,22 +533,29 @@ class GreedySelector:
 
         return self._support
 
-    def fit(self, X: TensorMap, warm_start: bool = False):  # -> GreedySelector:
+    def fit(self, X: TensorMap):  # -> GreedySelector:
         """Learn the features to select.
 
         :param X:
             Training vectors.
-        :param warm_start:
-            Whether the fit should continue after having already run, after increasing
-            `n_to_select`. Assumes it is called with the same X.
         """
+        if isinstance(X, torch.ScriptObject):
+            X = torch_tensor_map_to_core(X)
+            assert isinstance(X[0].values, np.ndarray)
+
         if len(X.component_names) != 0:
             raise ValueError("Only blocks with no components are supported.")
 
         blocks = []
         for _, block in X.items():
-            selector = self.selector_class(**self.selector_arguments)
-            selector.fit(block.values, warm_start=warm_start)
+            selector = self._selector_class(
+                n_to_select=self._n_to_select,
+                progress_bar=False,
+                score_threshold=1e-12,
+                full=False,
+                selection_type=self._selection_type,
+            )
+            selector.fit(block.values, warm_start=False)
             mask = selector.get_support()
 
             if self._selection_type == "feature":
@@ -882,7 +577,6 @@ class GreedySelector:
                     properties=properties,
                 )
             )
-
         self._support = TensorMap(X.keys, blocks)
 
         return self
@@ -895,6 +589,12 @@ class GreedySelector:
         :returns:
             The selected subset of the input.
         """
+        if isinstance(X, torch.ScriptObject):
+            use_mts_torch = True
+            X = torch_tensor_map_to_core(X)
+        else:
+            use_mts_torch = False
+
         blocks = []
         for key, block in X.items():
             block_support = self.support.block(key)
@@ -909,49 +609,18 @@ class GreedySelector:
                 )
             blocks.append(new_block)
 
-        return TensorMap(X.keys, blocks)
+        X_reduced = TensorMap(X.keys, blocks)
+        if use_mts_torch:
+            X_reduced = core_tensor_map_to_torch(X_reduced)
+        return X_reduced
 
-    def fit_transform(self, X: TensorMap, warm_start: bool = False) -> TensorMap:
+    def fit_transform(self, X: TensorMap) -> TensorMap:
         """Fit to data, then transform it.
 
         :param X:
             Training vectors.
-        :param warm_start:
-            Whether the fit should continue after having already run, after increasing
-            `n_to_select`. Assumes it is called with the same X.
         """
-        return self.fit(X, warm_start=warm_start).transform(X)
-
-
-class FPS(GreedySelector):
-    """
-    Transformer that performs Greedy Sample Selection using Farthest Point Sampling.
-
-    Refer to :py:class:`skmatter.sample_selection.FPS` for full documentation.
-    """
-
-    def __init__(
-        self,
-        initialize=0,
-        n_to_select=None,
-        score_threshold=None,
-        score_threshold_type="absolute",
-        progress_bar=False,
-        full=False,
-        random_state=0,
-    ):
-        super().__init__(
-            selector_class=_FPS,
-            selection_type="sample",
-            initialize=initialize,
-            n_to_select=n_to_select,
-            score_threshold=score_threshold,
-            score_threshold_type=score_threshold_type,
-            progress_bar=progress_bar,
-            full=full,
-            random_state=random_state,
-        )
-        self._n_to_select = n_to_select
+        return self.fit(X).transform(X)
 
 
 def torch_tensor_map_to_core(torch_tensor: TorchTensorMap):
@@ -1038,13 +707,13 @@ def core_tensor_block_to_torch(core_block: TensorBlock):
     for parameter, gradient in core_block.gradients():
         block.add_gradient(
             parameter=parameter,
-            gradient=TensorBlock(
-                values=gradient.values.detach().cpu().numpy(),
-                samples=torch_labels_to_core(gradient.samples),
+            gradient=TorchTensorBlock(
+                values=torch.tensor(gradient.values),
+                samples=core_labels_to_torch(gradient.samples),
                 components=[
-                    torch_labels_to_core(component) for component in gradient.components
+                    core_labels_to_torch(component) for component in gradient.components
                 ],
-                properties=torch_labels_to_core(gradient.properties),
+                properties=core_labels_to_torch(gradient.properties),
             ),
         )
     return block
@@ -1063,38 +732,18 @@ def core_labels_to_torch(core_labels: Labels):
 class SubsetOfRegressors:
     def __init__(
         self,
-        kernel_type: Union[str, AggregateKernel] = "linear",
         kernel_kwargs: Optional[dict] = None,
     ):
         if kernel_kwargs is None:
             kernel_kwargs = {}
-        self._set_kernel(kernel_type, **kernel_kwargs)
-        self._kernel_type = kernel_type
+
+        # Set the kernel
+        self._kernel: Union[AggregateKernel, None] = None
+        self._kernel = AggregatePolynomial(**kernel_kwargs)
+
         self._kernel_kwargs = kernel_kwargs
         self._X_pseudo = None
         self._weights = None
-
-    def _set_kernel(self, kernel: Union[str, AggregateKernel], **kernel_kwargs):
-        val_kernels = ["linear", "polynomial", "precomputed"]
-        aggregate_type = kernel_kwargs.get("aggregate_type", "sum")
-        if aggregate_type != "sum":
-            raise ValueError(
-                f'aggregate_type={aggregate_type!r} found but must be "sum"'
-            )
-        self._kernel: Union[AggregateKernel, None] = None
-        if kernel == "linear":
-            self._kernel = AggregateLinear(aggregate_type="sum", **kernel_kwargs)
-        elif kernel == "polynomial":
-            self._kernel = AggregatePolynomial(aggregate_type="sum", **kernel_kwargs)
-        elif kernel == "precomputed":
-            self._kernel = None
-        elif isinstance(kernel, AggregateKernel):
-            self._kernel = kernel
-        else:
-            raise ValueError(
-                f"kernel type {kernel!r} is not supported. Please use one "
-                f"of the valid kernels {val_kernels!r}"
-            )
 
     def fit(
         self,
@@ -1103,8 +752,6 @@ class SubsetOfRegressors:
         y: TensorMap,
         alpha: float = 1.0,
         alpha_forces: Optional[float] = None,
-        solver: str = "RKHS-QR",
-        rcond: Optional[float] = None,
     ):
         r"""
         :param X:
@@ -1116,15 +763,10 @@ class SubsetOfRegressors:
         :param y:
             targets
         :param alpha:
-            regularizationfor the energies, it must be a float
+            regularization for the energies, it must be a float
         :param alpha_forces:
             regularization for the forces, it must be a float. If None is set
             equal to alpha
-        :param solver:
-            determines which solver to use
-        :param rcond:
-            argument for the solver lstsq
-
 
         Derivation
         ----------
@@ -1221,15 +863,9 @@ class SubsetOfRegressors:
                         / alpha_forces,
                     ]
                 )
-            self._solver = _SorKernelSolver(
-                k_mm_block.values, regularizer=1, jitter=0, solver=solver
-            )
+            self._solver = _SorKernelSolver(k_mm_block.values)
 
-            if rcond is None:
-                rcond_ = max(k_nm_reg.shape) * np.finfo(k_nm_reg.dtype.char.lower()).eps
-            else:
-                rcond_ = rcond
-            self._solver.fit(k_nm_reg, y_reg, rcond=rcond_)
+            self._solver.fit(k_nm_reg, y_reg)
 
             weight_block = TensorBlock(
                 values=self._solver.weights.T,
@@ -1264,7 +900,6 @@ class SubsetOfRegressors:
         return TorchSubsetofRegressors(
             core_tensor_map_to_torch(self._weights),
             core_tensor_map_to_torch(self._X_pseudo),
-            self._kernel_type,
             self._kernel_kwargs,
         )
 
@@ -1274,7 +909,6 @@ class TorchSubsetofRegressors(torch.nn.Module):
         self,
         weights: TorchTensorMap,
         X_pseudo: TorchTensorMap,
-        kernel_type: Union[str, AggregateKernel] = "linear",
         kernel_kwargs: Optional[dict] = None,
     ):
         super().__init__()
@@ -1282,7 +916,9 @@ class TorchSubsetofRegressors(torch.nn.Module):
         self._X_pseudo = X_pseudo
         if kernel_kwargs is None:
             kernel_kwargs = {}
-        self._set_kernel(kernel_type, **kernel_kwargs)
+
+        # Set the kernel
+        self._kernel = TorchAggregatePolynomial(**kernel_kwargs)
 
     def forward(self, T: TorchTensorMap) -> TorchTensorMap:
         """
@@ -1296,29 +932,3 @@ class TorchSubsetofRegressors(torch.nn.Module):
 
         k_tm = self._kernel(T, self._X_pseudo, are_pseudo_points=(False, True))
         return metatensor.torch.dot(k_tm, self._weights)
-
-    def _set_kernel(self, kernel: Union[str, TorchAggregateKernel], **kernel_kwargs):
-        val_kernels = ["linear", "polynomial", "precomputed"]
-        aggregate_type = kernel_kwargs.get("aggregate_type", "sum")
-        if aggregate_type != "sum":
-            raise ValueError(
-                f'aggregate_type={aggregate_type!r} found but must be "sum"'
-            )
-        if kernel == "linear":
-            self._kernel = TorchAggregateLinear(aggregate_type="sum", **kernel_kwargs)
-        elif kernel == "polynomial":
-            self._kernel = TorchAggregatePolynomial(
-                aggregate_type="sum", **kernel_kwargs
-            )
-        elif kernel == "precomputed":
-            raise NotImplementedError(
-                "precomputed kernels are note supported in torch"
-                "version of subset of regressor."
-            )
-        elif isinstance(kernel, TorchAggregateKernel):
-            self._kernel = kernel
-        else:
-            raise ValueError(
-                f"kernel type {kernel!r} is not supported. Please use one "
-                f"of the valid kernels {val_kernels!r}"
-            )
