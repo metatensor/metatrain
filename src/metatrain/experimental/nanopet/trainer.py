@@ -237,11 +237,12 @@ class Trainer:
                 optimizer.load_state_dict(self.optimizer_state_dict)
 
         # Create a scheduler:
-        lr_scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
-            optimizer,
-            factor=self.hypers["scheduler_factor"],
-            patience=self.hypers["scheduler_patience"],
-        )
+        def lr_lambda(step):
+            if step < 1000:
+                return step / 1000  # Linear warm-up
+            return 1.0  # Keep lr constant after warm-up
+
+        lr_scheduler = torch.optim.lr_scheduler.LambdaLR(optimizer, lr_lambda)
         if self.scheduler_state_dict is not None:
             # same as the optimizer, try to load the scheduler state dict
             if not (model.module if is_distributed else model).has_new_targets:
@@ -313,6 +314,7 @@ class Trainer:
                 train_loss_batch.backward()
                 torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
                 optimizer.step()
+                lr_scheduler.step()
 
                 if is_distributed:
                     # sum the loss over all processes
@@ -425,27 +427,27 @@ class Trainer:
                     rank=rank,
                 )
 
-            lr_scheduler.step(val_loss)
-            new_lr = lr_scheduler.get_last_lr()[0]
-            if new_lr != old_lr:
-                if new_lr < 1e-7:
-                    logger.info("Learning rate is too small, stopping training")
-                    break
-                else:
-                    logger.info(f"Changing learning rate from {old_lr} to {new_lr}")
-                    old_lr = new_lr
-                    # load best model and optimizer state dict, re-initialize scheduler
-                    (model.module if is_distributed else model).load_state_dict(
-                        self.best_model_state_dict
-                    )
-                    optimizer.load_state_dict(self.best_optimizer_state_dict)
-                    for param_group in optimizer.param_groups:
-                        param_group["lr"] = new_lr
-                    lr_scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
-                        optimizer,
-                        factor=self.hypers["scheduler_factor"],
-                        patience=self.hypers["scheduler_patience"],
-                    )
+            # lr_scheduler.step(val_loss)
+            # new_lr = lr_scheduler.get_last_lr()[0]
+            # if new_lr != old_lr:
+            #     if new_lr < 1e-7:
+            #         logger.info("Learning rate is too small, stopping training")
+            #         break
+            #     else:
+            #         logger.info(f"Changing learning rate from {old_lr} to {new_lr}")
+            #         old_lr = new_lr
+            #         # load best model and optimizer state dict, re-initialize schedulr
+            #         (model.module if is_distributed else model).load_state_dict(
+            #             self.best_model_state_dict
+            #         )
+            #         optimizer.load_state_dict(self.best_optimizer_state_dict)
+            #         for param_group in optimizer.param_groups:
+            #             param_group["lr"] = new_lr
+            #         lr_scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
+            #             optimizer,
+            #             factor=self.hypers["scheduler_factor"],
+            #             patience=self.hypers["scheduler_patience"],
+            #         )
 
             val_metric = get_selected_metric(
                 finalized_val_info, self.hypers["best_model_metric"]
