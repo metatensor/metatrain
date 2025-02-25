@@ -84,7 +84,7 @@ model
   MLP (multi-layer perceptron) head. MLP heads consists of one hidden layer with as
   many neurons as the SOAP-BPNN (i.e. ``num_neurons_per_layer`` below).
 :param zbl: Whether to use the ZBL short-range repulsion as the baseline for the model
-:param long_range: Parameters related to long-range interactions.  ``enabled``: whether
+:param long_range: Parameters related to long-range interactions. ``enable``: whether
   to use long-range interactions. ``smearing``: the width of the Gaussian function used
   to approximate the charge distribution in Fourier space; ``interpolation_nodes``: the
   number of grid points used in spline interpolation for the P3M method;
