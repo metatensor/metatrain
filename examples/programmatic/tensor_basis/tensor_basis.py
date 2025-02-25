@@ -20,6 +20,14 @@ import numpy as np
 
 # %%
 #
+# First, we need to prepare the dataset by saving the polarizability in
+# the form of spherical tensors. This is done using the ``metatensor`` library.
+#
+# .. literalinclude:: save_tensor_map.py
+#   :language: python
+
+# %%
+#
 # Write the metatrain ``options.yaml`` file for the training of the polarizability
 # model
 #
@@ -57,7 +65,8 @@ import numpy as np
 
 # %%
 #
-# In case you need to export a specific checkpoints, you can do so using:
+# In case you need to export a specific checkpoint (most likely from the ``outputs``
+# directory), you can do so using:
 #
 # .. code:: bash
 #
