@@ -12,6 +12,7 @@ neural network predicting the invariant coefficients of the linear combination.
 # %%
 #
 import subprocess
+import sys
 from glob import glob
 
 import ase.io
@@ -20,6 +21,13 @@ import metatensor as mts
 import numpy as np
 from featomic.clebsch_gordan import cartesian_to_spherical
 
+
+# %%
+#
+# In addition to the SOAP-BPNN dependencies, training on a tensor target requires the
+# ``sphericart-torch`` package. To install it, we will run ``pip install`` from this
+# script.
+subprocess.check_call([sys.executable, "-m", "pip", "install", "sphericart-torch"])
 
 # %%
 #

@@ -6,4 +6,3 @@ sphinx-gallery
 sphinx-toggleprompt
 setuptools  # required for sphinxcontrib-bibtex together with Python 3.13
 tomli
-sphericart-torch  # SOAP-BPNN + tensor basis example
