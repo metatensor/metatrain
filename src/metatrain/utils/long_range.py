@@ -27,28 +27,22 @@ class LongRangeFeaturizer(torch.nn.Module):
                 "Please install it with `pip install torch-pme`."
             )
 
-        if hypers["exponent"] == 1:
-            self.calculator = P3MCalculator(
-                potential=CoulombPotential(
-                    smearing=hypers["smearing"],
-                    exclusion_radius=neighbor_list_options.cutoff,
-                ),
-                interpolation_nodes=hypers["interpolation_nodes"],
-                full_neighbor_list=neighbor_list_options.full_list,
-                mesh_spacing=hypers["mesh_spacing"],
-            )
-            self.direct_calculator = Calculator(
-                potential=CoulombPotential(
-                    smearing=None,
-                    exclusion_radius=neighbor_list_options.cutoff,
-                ),
-                full_neighbor_list=False,  # see docs of torch.combinations
-            )
-        else:
-            raise NotImplementedError(
-                "Only the Coulomb potential (1/r, i.e., exponent=1) is currently "
-                "supported for long-range interactions."
-            )
+        self.calculator = P3MCalculator(
+            potential=CoulombPotential(
+                smearing=hypers["smearing"],
+                exclusion_radius=neighbor_list_options.cutoff,
+            ),
+            interpolation_nodes=hypers["interpolation_nodes"],
+            full_neighbor_list=neighbor_list_options.full_list,
+            mesh_spacing=hypers["mesh_spacing"],
+        )
+        self.direct_calculator = Calculator(
+            potential=CoulombPotential(
+                smearing=None,
+                exclusion_radius=neighbor_list_options.cutoff,
+            ),
+            full_neighbor_list=False,  # see docs of torch.combinations
+        )
 
         self.neighbor_list_options = neighbor_list_options
         self.charges_map = torch.nn.Linear(feature_dim, feature_dim)
@@ -103,6 +97,7 @@ class LongRangeFeaturizer(torch.nn.Module):
                     neighbor_distances=neighbor_distances_system,
                 )
             else:  # non-periodic
+                # compute the distance between all pairs of atoms
                 neighbor_indices_system = torch.combinations(
                     torch.arange(len(system), device=system.positions.device), 2
                 )

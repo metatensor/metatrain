@@ -46,9 +46,6 @@
             "enable": {
               "type": "boolean"
             },
-            "exponent": {
-              "type": "integer"
-            },
             "smearing": {
               "type": "number"
             },

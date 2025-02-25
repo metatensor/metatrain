@@ -31,7 +31,6 @@ architecture:
     zbl: false
     long_range: 
       enable: false
-      exponent: 1
       smearing: 1.4
       interpolation_nodes: 5
       mesh_spacing: 1.33
