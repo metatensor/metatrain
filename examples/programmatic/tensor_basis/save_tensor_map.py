@@ -1,6 +1,3 @@
-import subprocess
-import sys
-
 import ase.io
 import metatensor.torch as mts
 import numpy as np
