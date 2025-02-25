@@ -3,7 +3,6 @@ from typing import Dict, List, Optional, Union
 
 import featomic.torch
 import metatensor.torch
-import numpy as np
 import torch
 from metatensor.torch import Labels, TensorBlock, TensorMap
 from metatensor.torch.atomistic import (
@@ -565,7 +564,7 @@ class SoapBpnn(torch.nn.Module):
             if hasattr(additive_model, "cutoff_radius"):
                 interaction_ranges.append(additive_model.cutoff_radius)
             if self.long_range:
-                interaction_ranges.append(np.inf)
+                interaction_ranges.append(torch.inf)
         interaction_range = max(interaction_ranges)
 
         capabilities = ModelCapabilities(
