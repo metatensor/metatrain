@@ -106,7 +106,7 @@ import numpy as np
 # after loading the predicted values we can update the metadata to reflect the correct
 # information about the target.
 
-target_polarizabilities = mts.load("spherical_polarizabilities.mts")
+target_polarizabilities = mts.load("spherical_polarizability.mts")
 predicted_polarizabilities = mts.load("outputs_mtt::polarizability.mts")
 
 index_folder = sorted(glob("outputs/*/*/indices"))[-1]

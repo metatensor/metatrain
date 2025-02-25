@@ -32,6 +32,7 @@ sphinx_gallery_conf = {
         os.path.join(ROOT, "docs", "src", "examples", "programmatic", "disk_dataset"),
         os.path.join(ROOT, "docs", "src", "examples", "programmatic", "tensor_basis"),
     ],
+    "ignore_pattern": "save_tensor_map.py",
     "min_reported_time": 5,
     "matplotlib_animations": True,
 }
