@@ -16,10 +16,9 @@ from glob import glob
 
 import ase.io
 import matplotlib.pyplot as plt
-import metatensor.torch as mts
+import metatensor as mts
 import numpy as np
-import torch
-from featomic.torch.clebsch_gordan import cartesian_to_spherical
+from featomic.clebsch_gordan import cartesian_to_spherical
 
 
 # %%
@@ -44,8 +43,8 @@ cartesian_tensormap = mts.TensorMap(
         mts.TensorBlock(
             samples=mts.Labels.range("system", len(molecules)),
             components=[mts.Labels.range(name, 3) for name in ["xyz_1", "xyz_2"]],
-            properties=mts.Labels(["polarizability"], torch.tensor([[0]])),
-            values=torch.from_numpy(polarizabilities).unsqueeze(-1),
+            properties=mts.Labels(["polarizability"], np.array([[0]])),
+            values=polarizabilities[:, :, :, None],
         )
     ],
 )
@@ -67,12 +66,26 @@ spherical_tensormap = mts.remove_dimension(
 # therefore any non-zero pseudo-vector component is spurious.
 #
 spherical_tensormap = mts.drop_blocks(
-    spherical_tensormap, mts.Labels(["o3_sigma"], torch.tensor([[-1]]))
+    spherical_tensormap, mts.Labels(["o3_sigma"], np.array([[-1]]))
 )
 # %%
 #
 # Let's save the spherical components of the polarizability tensor to disk
 #
+# For now, making each array contiguous is necessary for the save function to work
+# (https://github.com/metatensor/metatensor/issues/870)
+blocks = []
+for block in spherical_tensormap.blocks():
+    new_block = mts.TensorBlock(
+        samples=block.samples,
+        components=block.components,
+        properties=block.properties,
+        values=np.ascontiguousarray(block.values),
+    )
+    blocks.append(new_block)
+spherical_tensormap = mts.TensorMap(keys=spherical_tensormap.keys, blocks=blocks)
+
+# save
 mts.save("spherical_polarizability.mts", spherical_tensormap)
 # %%
 #
