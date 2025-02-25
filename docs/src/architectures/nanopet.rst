@@ -73,6 +73,9 @@ hyperparameters to tune are (in decreasing order of importance):
   ``deltas: {"energy": 0.1, "forces": 0.01}``). 3. ``reduction``. This controls how the
   loss is reduced over batches. The default value is ``mean``, and the other allowed
   option is ``sum``.
+- ``long_range``: In some systems and datasets, enabling long-range Coulomb interactions
+  might be beneficial for the accuracy of the model and/or its physical correctness.
+  See below for a breakdown of the long-range section of the model hyperparameters.
 
 
 All Hyperparameters
@@ -96,6 +99,12 @@ The model-related hyperparameters are
   MLP (multi-layer perceptron) head. MLP heads consist of two hidden layers with
   dimensionality ``d_pet``.
 :param zbl: Whether to use the ZBL short-range repulsion as the baseline for the model
+:param long_range: Parameters related to long-range interactions. ``enable``: whether
+  to use long-range interactions. ``smearing``: the width of the Gaussian function used
+  to approximate the charge distribution in Fourier space; ``interpolation_nodes``: the
+  number of grid points used in spline interpolation for the P3M method;
+  ``mesh_spacing``: the resolution of the Fourier-space grid used for calculating
+  long-range interactions.
 
 training
 ########
