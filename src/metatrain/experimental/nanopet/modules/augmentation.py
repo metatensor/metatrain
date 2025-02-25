@@ -107,8 +107,10 @@ class RotationalAugmenter:
                     or target_info.is_spherical_node
                     or target_info.is_spherical_edge
                 ):
-                    for block in target_info.layout.blocks():
-                        ell = (len(block.components[0]) - 1) // 2
+                    # for block in target_info.layout.blocks():
+                    for key, block in target_info.layout.items():
+                        # ell = (len(block.components[0]) - 1) // 2
+                        ell = key["o3_lambda"]
                         if ell not in wigner_D_matrices:  # skip if already computed
                             wigner_D_matrices_l = []
                             for wigner_D_matrix_complex in wigner_D_matrices_complex:
@@ -207,12 +209,12 @@ def _apply_wigner_D_matrices(
             new_v = new_v @ wigner_D_matrix.T
             new_v = new_v.transpose(1, 2)
             new_values.append(new_v)
+
+        if len(new_values) == 0:
+            # Empty block
+            new_values = [block.values]
         new_values = torch.concatenate(new_values)
 
-        # print(new_values.shape)
-        # print(block.samples.__repr__())
-        # for i in block.samples.values:
-        #     print(i)
         new_block = TensorBlock(
             values=new_values,
             samples=block.samples,
