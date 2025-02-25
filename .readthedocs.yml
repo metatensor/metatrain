@@ -16,6 +16,7 @@ build:
       - set -e && cd examples/ase && bash train.sh
       - set -e && cd examples/programmatic/llpr && bash train.sh
       - set -e && cd examples/zbl && bash train.sh
+      - set -e && cd examples/programmatic/tensor_basis && python save_tensor_map.py && bash train_eval.sh
 
 # Build documentation in the docs/ directory with Sphinx
 sphinx:
