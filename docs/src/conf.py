@@ -9,7 +9,6 @@ import tomli  # Replace by tomllib from std library once docs are build with Pyt
 # When importing metatensor-torch, this will change the definition of the classes
 # to include the documentation
 os.environ["METATENSOR_IMPORT_FOR_SPHINX"] = "1"
-os.environ["FEATOMIC_IMPORT_FOR_SPHINX"] = "1"
 os.environ["PYTORCH_JIT"] = "0"
 os.environ["METATENSOR_DEBUG_EXTENSIONS_LOADING"] = "1"
 
@@ -55,12 +54,10 @@ def generate_examples():
     # METATENSOR_IMPORT_FOR_SPHINX=1). So instead we run it inside a small script, and
     # include the corresponding output later.
     del os.environ["METATENSOR_IMPORT_FOR_SPHINX"]
-    del os.environ["FEATOMIC_IMPORT_FOR_SPHINX"]
     del os.environ["PYTORCH_JIT"]
     script = os.path.join(ROOT, "docs", "generate_examples", "generate-examples.py")
     subprocess.run([sys.executable, script])
     os.environ["METATENSOR_IMPORT_FOR_SPHINX"] = "1"
-    os.environ["FEATOMIC_IMPORT_FOR_SPHINX"] = "1"
     os.environ["PYTORCH_JIT"] = "0"
 
 
