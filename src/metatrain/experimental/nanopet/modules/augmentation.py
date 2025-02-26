@@ -1,7 +1,6 @@
 import random
 from typing import Dict, List, Optional, Tuple
 
-import metatensor.torch as mts
 import numpy as np
 import torch
 from metatensor.torch import TensorBlock, TensorMap
@@ -107,10 +106,8 @@ class RotationalAugmenter:
                     or target_info.is_spherical_node
                     or target_info.is_spherical_edge
                 ):
-                    # for block in target_info.layout.blocks():
-                    for key, block in target_info.layout.items():
-                        # ell = (len(block.components[0]) - 1) // 2
-                        ell = key["o3_lambda"]
+                    for key in target_info.layout.keys:
+                        ell = int(key["o3_lambda"])
                         if ell not in wigner_D_matrices:  # skip if already computed
                             wigner_D_matrices_l = []
                             for wigner_D_matrix_complex in wigner_D_matrices_complex:
@@ -153,43 +150,42 @@ def _apply_wigner_D_matrices(
 
         # Node targets
         if "atom" in block.samples.names:
-            split_blocks: List[TensorBlock] = []
-            system_ids_block: List[int] = [
-                int(A)
-                for A in mts.unique_metadata_block(
-                    block, "samples", "system"
-                ).values.flatten()
-            ]
-            for A in system_ids_block:
-                split_blocks.append(
-                    mts.slice_block(
-                        block,
-                        "samples",
-                        mts.Labels(["system"], torch.tensor([A]).reshape(-1, 1)),
+            split_indices: List[int] = []
+            for system in systems:
+                split_indices.append(
+                    int(
+                        torch.sum(
+                            system.types == int(key["center_type"]),
+                        )
                     )
                 )
-            split_values = [block.values for block in split_blocks]
+            assert sum(split_indices) == len(values), (sum(split_indices), len(values))
+            split_values = torch.split(values, split_indices)
 
         # Edge targets
         elif (
             "first_atom" in block.samples.names and "second_atom" in block.samples.names
         ):
-            split_blocks: List[TensorBlock] = []
-            system_ids_block: List[int] = [
-                int(A)
-                for A in mts.unique_metadata_block(
-                    block, "samples", "system"
-                ).values.flatten()
-            ]
-            for A in system_ids_block:
-                split_blocks.append(
-                    mts.slice_block(
-                        block,
-                        "samples",
-                        mts.Labels(["system"], torch.tensor([A]).reshape(-1, 1)),
+            split_indices: List[int] = []
+            for system in systems:
+                neighbor_lists = system.known_neighbor_lists()
+                assert len(neighbor_lists) == 1
+                neighbor_samples = system.get_neighbor_list(neighbor_lists[0]).samples
+                split_indices.append(
+                    int(
+                        torch.sum(
+                            torch.logical_and(
+                                system.types[neighbor_samples.column("first_atom")]
+                                == int(key["first_atom_type"]),
+                                system.types[neighbor_samples.column("second_atom")]
+                                == int(key["second_atom_type"]),
+                            )
+                        )
                     )
+                    // (2 if int(key["block_type"]) != 2 else 1)
                 )
-            split_values = [block.values for block in split_blocks]
+            assert sum(split_indices) == len(values), (sum(split_indices), len(values))
+            split_values = torch.split(values, split_indices)
 
         # per_atom is false
         else:

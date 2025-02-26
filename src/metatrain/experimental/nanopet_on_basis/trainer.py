@@ -8,12 +8,17 @@ import torch
 from metatensor.learn.data import IndexedDataset
 from metatensor.torch.learn import DataLoader
 
+from ...utils.data import _is_disk_dataset
 from ...utils.data.dataset import DatasetInfo
 from ...utils.data.target_info import TargetInfo
 from ...utils.io import check_file_extension
 from ...utils.logging import MetricLogger
 from ...utils.loss import TensorMapDictLoss
 from ...utils.metrics import RMSEAccumulator, get_selected_metric
+from ...utils.neighbor_lists import (
+    get_requested_neighbor_lists,
+    get_system_with_neighbor_lists,
+)
 from ..nanopet.modules.augmentation import RotationalAugmenter
 from .model import NanoPetOnBasis
 from .utils import get_system_transformations, group_and_join_nonetypes
@@ -41,11 +46,41 @@ class Trainer:
         val_dataset: IndexedDataset,
         checkpoint_dir: str,
         loss_fn: torch.nn.Module = None,
+        debug_dataloader: bool = False,
+        debug_rotations: bool = False,
     ):
         is_distributed = False  # FIXME
         rank = 0  # FIXME
 
         logger.info(f"Training on {device} with dtype {dtype}")
+
+        # Calculate the neighbor lists in advance (in particular, this
+        # needs to happen before the additive models are trained, as they
+        # might need them):
+        logger.info("Calculating neighbor lists for the datasets")
+        requested_neighbor_lists = get_requested_neighbor_lists(model)
+        for dataset in [train_dataset, val_dataset]:
+            # If the dataset is a disk dataset, the NLs are already attached, we will
+            # just check the first system
+            if _is_disk_dataset(dataset):
+                system = dataset[0]["system"]
+                for options in requested_neighbor_lists:
+                    if options not in system.known_neighbor_lists():
+                        raise ValueError(
+                            "The requested neighbor lists are not attached to the "
+                            f"system. Neighbor list {options} is missing from the "
+                            "first system in the disk dataset. Make sure you save "
+                            "the neighbor lists in the systems when saving the dataset."
+                        )
+            else:
+                for sample in dataset:
+                    system = sample["systems"]  # TODO system
+                    # The following line attaches the neighbors lists to the system,
+                    # and doesn't require to reassign the system to the dataset:
+                    get_system_with_neighbor_lists(system, requested_neighbor_lists)
+
+        # Move the model to the device and dtype:
+        model.to(device=device, dtype=dtype)
 
         # Store "phony" dataset info
         target_info = {}
@@ -144,6 +179,9 @@ class Trainer:
             collate_fn=group_and_join_nonetypes,
         )
 
+        if debug_dataloader:
+            return train_dataloader, val_dataloader
+
         # Set up rotational augmenter
         rotational_augmenter = RotationalAugmenter(target_info)
 
@@ -176,6 +214,11 @@ class Trainer:
             self.best_metric = float("inf")
         epoch = start_epoch
 
+        # if debug_rotations:
+        #     rotations, inversions = get_system_transformations([0])
+        #     rotations = [rotations[0]] * self.hypers["batch_size"]
+        #     inversions = [inversions[0]] * self.hypers["batch_size"]
+
         for epoch in range(start_epoch, start_epoch + self.hypers["num_epochs"]):
             train_rmse_calculator = RMSEAccumulator(self.hypers["log_separate_blocks"])
             val_rmse_calculator = RMSEAccumulator(self.hypers["log_separate_blocks"])
@@ -183,21 +226,26 @@ class Trainer:
             model.train()
             train_loss = 0
             for batch in train_dataloader:
-                systems_train, targets_train_node, targets_train_edge = (
-                    batch.systems,
-                    batch.targets_node,
-                    batch.targets_edge,
-                )
+                # systems_train, targets_train_node, targets_train_edge = (
+                #     batch.systems,
+                #     batch.targets_node,
+                #     batch.targets_edge,
+                # )
 
                 # Define a random transformation for each training system
-                rotations, inversions = get_system_transformations(systems_train)
+                if not debug_rotations:
+                    rotations, inversions = get_system_transformations(batch.systems)
+                else:
+                    rotations, inversions = get_system_transformations([0])
+                    rotations = [rotations[0]] * len(batch.systems)
+                    inversions = [inversions[0]] * len(batch.systems)
 
                 # Apply rotational augmentation - node
                 if model.in_keys_node is not None:
                     systems_train, targets_train_node = (
                         rotational_augmenter.apply_augmentations(
-                            systems_train,
-                            {"mtt::node": targets_train_node},
+                            batch.systems,
+                            {"mtt::node": batch.targets_node},
                             rotations,
                             inversions,
                         )
@@ -208,21 +256,20 @@ class Trainer:
 
                 # Apply rotational augmentation - edge
                 if model.in_keys_edge is not None:
-                    systems_train, targets_train_edge = (
-                        rotational_augmenter.apply_augmentations(
-                            systems_train,
-                            {"mtt::edge": targets_train_edge},
-                            rotations,
-                            inversions,
-                        )
+                    _, targets_train_edge = rotational_augmenter.apply_augmentations(
+                        batch.systems,
+                        {"mtt::edge": batch.targets_edge},
+                        rotations,
+                        inversions,
                     )
+
                     targets_train_edge = targets_train_edge["mtt::edge"]
                     assert mts.equal_metadata(batch.targets_edge, targets_train_edge)
                     assert not mts.allclose(batch.targets_edge, targets_train_edge)
 
                 targets = {
-                    "mtt::node": targets_train_node,
-                    "mtt::edge": targets_train_edge,
+                    "mtt::node": mts.sort(targets_train_node),
+                    "mtt::edge": mts.sort(targets_train_edge),
                 }
 
                 # Zero the parameter gradients
@@ -233,11 +280,13 @@ class Trainer:
                     systems_train, batch.sample_id
                 )
                 predictions = {
-                    "mtt::node": node_predictions,
-                    "mtt::edge": edge_predictions,
+                    "mtt::node": mts.sort(node_predictions),
+                    "mtt::edge": mts.sort(edge_predictions),
                 }
 
-                train_loss_batch = loss_fn(predictions, targets)
+                train_loss_batch = loss_fn(
+                    predictions, targets, self.hypers["loss"]["weights"]
+                )
                 train_loss_batch.backward()
                 torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
                 optimizer.step()
@@ -253,8 +302,8 @@ class Trainer:
             val_loss = 0.0
             for batch in val_dataloader:
                 targets = {
-                    "mtt::node": batch.targets_node,
-                    "mtt::edge": batch.targets_edge,
+                    "mtt::node": mts.sort(batch.targets_node),
+                    "mtt::edge": mts.sort(batch.targets_edge),
                 }
 
                 model.eval()
@@ -262,11 +311,13 @@ class Trainer:
                     batch.systems, batch.sample_id
                 )
                 predictions = {
-                    "mtt::node": node_predictions,
-                    "mtt::edge": edge_predictions,
+                    "mtt::node": mts.sort(node_predictions),
+                    "mtt::edge": mts.sort(edge_predictions),
                 }
 
-                val_loss_batch = loss_fn(predictions, targets)
+                val_loss_batch = loss_fn(
+                    predictions, targets, self.hypers["loss"]["weights"]
+                )
                 val_loss += val_loss_batch.item()
                 val_rmse_calculator.update(predictions, targets)
 

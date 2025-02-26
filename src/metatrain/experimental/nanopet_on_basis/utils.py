@@ -31,7 +31,7 @@ def symmetrize_samples(
     # Permute the samples to get the negative samples
     permuted_samples = all_samples.permute([0, 2, 1, 3, 4, 5]).values.clone()
     permuted_samples[:, -3:] *= -1
-    values = block.values  # .clone() # TODO: is this to be cloned?
+    values = block.values  # .clone()  # TODO: is this to be cloned?
 
     # Find the indices of the samples to symmetrize
     idx_to_symmetrize = all_samples.select(
@@ -542,7 +542,10 @@ def group_and_join_nonetypes(
     if fields_to_join is None:
         fields_to_join = names
     if join_kwargs is None:
-        join_kwargs = {}
+        join_kwargs = {
+            "different_keys": "union",
+            "remove_tensor_name": True,
+        }
     for name, field in zip(names, list(zip(*batch))):
         if name == "sample_id":  # special case, keep as is
             data.append(field)
@@ -645,17 +648,28 @@ def get_augmenter(
     return RotationalAugmenter(target_info_dict)
 
 
-def l2loss(input: TensorMap, target: TensorMap) -> torch.Tensor:
+def l2loss(input: TensorMap, target: TensorMap, weights=None) -> torch.Tensor:
     """
     Computes the squared loss (reduction = sum) between the input and target TensorMaps
     """
 
+    if weights is None:
+        weights = {k: 1 for k in target}
+
     loss = 0
     for k in target.keys():
         assert k in input.keys()
+        assert k in weights
+        assert mts.equal_metadata(input[k], target[k]), (
+            input[k][0],
+            target[k][0],
+        )
         mts.equal_metadata_raise(input[k], target[k])
+
         for key in target[k].keys:
-            loss += torch.sum((input[k][key].values - target[k][key].values) ** 2)
+            loss += weights[k] * torch.sum(
+                (input[k][key].values - target[k][key].values) ** 2
+            )
 
     return loss
 
