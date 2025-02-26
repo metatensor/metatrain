@@ -1,4 +1,3 @@
-import copy
 from typing import Dict, Optional
 
 import numpy as np
@@ -93,15 +92,35 @@ class TransformerLayer(torch.nn.Module):
 
 
 class Transformer(torch.nn.Module):
-    def __init__(self, trans_layer, num_layers):
+    def __init__(
+        self,
+        d_model,
+        num_layers,
+        n_heads,
+        dim_feedforward=512,
+        dropout=0.0,
+        activation=F.silu,
+        transformer_type="PostLN",
+    ):
         super(Transformer, self).__init__()
-        self.transformer_type = trans_layer.transformer_type
+        self.transformer_type = transformer_type
 
         self.final_norm = NeverRun()  # for torchscript
-        if trans_layer.transformer_type == "PreLN":
-            self.final_norm = nn.LayerNorm(trans_layer.d_model)
-        self.layers = [copy.deepcopy(trans_layer) for _ in range(num_layers)]
-        self.layers = nn.ModuleList(self.layers)
+        if transformer_type == "PreLN":
+            self.final_norm = nn.LayerNorm(d_model)
+        self.layers = nn.ModuleList(
+            [
+                TransformerLayer(
+                    d_model=d_model,
+                    n_heads=n_heads,
+                    dim_feedforward=dim_feedforward,
+                    dropout=dropout,
+                    activation=activation,
+                    transformer_type=transformer_type,
+                )
+                for _ in range(num_layers)
+            ]
+        )
 
     def forward(self, x: torch.Tensor, multipliers: Optional[torch.Tensor] = None):
         for layer in self.layers:
@@ -127,15 +146,15 @@ class CartesianTransformer(torch.nn.Module):
         self.is_first = is_first
         self.cutoff = float(hypers["cutoff"])
         self.cutoff_width = float(hypers["cutoff_width"])
-        self.trans_layer = TransformerLayer(
+        self.trans = Transformer(
             d_model=d_model,
+            num_layers=n_layers,
             n_heads=n_head,
             dim_feedforward=dim_feedforward,
             dropout=dropout,
             activation=torch.nn.SiLU(),
             transformer_type="PostLN",
         )
-        self.trans = Transformer(self.trans_layer, num_layers=n_layers)
 
         input_dim = 4  # x, y, z, r
 

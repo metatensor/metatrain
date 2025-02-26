@@ -10,8 +10,8 @@ from torch.utils.data import DataLoader, DistributedSampler
 from ...utils.additive import remove_additive
 from ...utils.augmentation import RotationalAugmenter
 from ...utils.data import CombinedDataLoader, Dataset, _is_disk_dataset, collate_fn
-from ...utils.distributed.slurm import DistributedEnvironment
 from ...utils.distributed.distributed_data_parallel import DistributedDataParallel
+from ...utils.distributed.slurm import DistributedEnvironment
 from ...utils.evaluate_model import evaluate_model
 from ...utils.external_naming import to_external_name
 from ...utils.io import check_file_extension
