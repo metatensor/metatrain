@@ -4,7 +4,9 @@
   "properties": {
     "name": {
       "type": "string",
-      "enum": ["experimental.nativepet"]
+      "enum": [
+        "experimental.nativepet"
+      ]
     },
     "model": {
       "type": "object",
@@ -64,7 +66,10 @@
           "type": "number"
         },
         "weight_decay": {
-          "type": ["number", "null"]
+          "type": [
+            "number",
+            "null"
+          ]
         },
         "scheduler_patience": {
           "type": "integer"
@@ -107,7 +112,11 @@
         },
         "best_model_metric": {
           "type": "string",
-          "enum": ["rmse_prod", "mae_prod", "loss"]
+          "enum": [
+            "rmse_prod",
+            "mae_prod",
+            "loss"
+          ]
         },
         "loss": {
           "type": "object",
@@ -123,13 +132,20 @@
             },
             "reduction": {
               "type": "string",
-              "enum": ["sum", "mean", "none"]
+              "enum": [
+                "sum",
+                "mean",
+                "none"
+              ]
             },
             "type": {
               "oneOf": [
                 {
                   "type": "string",
-                  "enum": ["mse", "mae"]
+                  "enum": [
+                    "mse",
+                    "mae"
+                  ]
                 },
                 {
                   "type": "object",
@@ -147,7 +163,9 @@
                           "additionalProperties": false
                         }
                       },
-                      "required": ["deltas"],
+                      "required": [
+                        "deltas"
+                      ],
                       "additionalProperties": false
                     }
                   },
@@ -156,7 +174,10 @@
               ]
             },
             "sliding_factor": {
-              "type": "number"
+              "type": [
+                "number",
+                "null"
+              ]
             }
           },
           "additionalProperties": false
