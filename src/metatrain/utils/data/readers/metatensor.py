@@ -7,8 +7,8 @@ from metatensor.torch import Labels, TensorBlock, TensorMap
 from metatensor.torch.atomistic import System
 from omegaconf import DictConfig
 
+from .split import split_structurewise
 from ..target_info import TargetInfo, get_energy_target_info, get_generic_target_info
-
 
 logger = logging.getLogger(__name__)
 
@@ -47,22 +47,26 @@ def read_energy(target: DictConfig) -> Tuple[TensorMap, TargetInfo]:
     # the actual metadata in the tensor maps
     _check_tensor_map_metadata(tensor_map, target_info.layout)
 
-    selections = [
-        Labels(
-            names=["system"],
-            values=torch.tensor([[int(i)]]),
-        )
-        for i in torch.unique(
-            torch.concatenate(
-                [block.samples.column("system") for block in tensor_map.blocks()]
-            )
-        )
-    ]
-    tensor_maps = metatensor.torch.split(tensor_map, "samples", selections)
+    # selections = [
+    #     Labels(
+    #         names=["system"],
+    #         values=torch.tensor([[int(i)]]),
+    #     )
+    #     for i in torch.unique(
+    #         torch.concatenate(
+    #             [block.samples.column("system") for block in tensor_map.blocks()]
+    #         )
+    #     )
+    # ]
+
+    #TODO: replace with fast metatensor.torch.split once available
+    tensor_maps = split_structurewise(tensor_map)
+
     return tensor_maps, target_info
 
 
 def read_generic(target: DictConfig) -> Tuple[List[TensorMap], TargetInfo]:
+    print("Now I am reading generic")
     tensor_map = _wrapped_metatensor_read(target["read_from"])
 
     for block in tensor_map.blocks():
@@ -76,14 +80,17 @@ def read_generic(target: DictConfig) -> Tuple[List[TensorMap], TargetInfo]:
     # actual properties of the tensor maps
     target_info.layout = _empty_tensor_map_like(tensor_map)
 
-    selections = [
-        Labels(
-            names=["system"],
-            values=torch.tensor([[int(i)]]),
-        )
-        for i in torch.unique(tensor_map.block(0).samples.column("system"))
-    ]
-    tensor_maps = metatensor.torch.split(tensor_map, "samples", selections)
+    # selections = [
+    #     Labels(
+    #         names=["system"],
+    #         values=torch.tensor([[int(i)]]),
+    #     )
+    #     for i in torch.unique(tensor_map.block(0).samples.column("system"))
+    # ]
+
+    #TODO: replace with fast metatensor.torch.split once available
+    tensor_maps = split_structurewise(tensor_map)
+
     return tensor_maps, target_info
 
 
