@@ -85,11 +85,13 @@ model
   many neurons as the SOAP-BPNN (i.e. ``num_neurons_per_layer`` below).
 :param zbl: Whether to use the ZBL short-range repulsion as the baseline for the model
 :param long_range: Parameters related to long-range interactions. ``enable``: whether
-  to use long-range interactions. ``smearing``: the width of the Gaussian function used
-  to approximate the charge distribution in Fourier space; ``interpolation_nodes``: the
-  number of grid points used in spline interpolation for the P3M method;
-  ``mesh_spacing``: the resolution of the Fourier-space grid used for calculating
-  long-range interactions.
+  to use long-range interactions; ``use_ewald``: whether to use an Ewald calculator
+  (faster for smaller systems); ``smearing``: the width of the Gaussian function used
+  to approximate the charge distribution in Fourier space; ``kspace_resolution``: the
+  spatial resolution of the Fourier-space used for calculating long-range interactions;
+  ``prefactor``: conversion factor from Gaussian units used in the long-range calculator
+  to user's units; ``interpolation_nodes``: the number of grid points used in spline
+  interpolation for the P3M method.
 
 soap
 ^^^^

@@ -20,22 +20,35 @@ class LongRangeFeaturizer(torch.nn.Module):
 
         try:
             from torchpme import CoulombPotential
-            from torchpme.calculators import Calculator, P3MCalculator
+            from torchpme.calculators import Calculator, EwaldCalculator, P3MCalculator
         except ImportError:
             raise ImportError(
                 "`torch-pme` is required for long-range models. "
                 "Please install it with `pip install torch-pme`."
             )
 
-        self.calculator = P3MCalculator(
-            potential=CoulombPotential(
-                smearing=hypers["smearing"],
-                exclusion_radius=neighbor_list_options.cutoff,
-            ),
-            interpolation_nodes=hypers["interpolation_nodes"],
-            full_neighbor_list=neighbor_list_options.full_list,
-            mesh_spacing=hypers["mesh_spacing"],
-        )
+        if hypers["use_ewald"]:
+            self.calculator = EwaldCalculator(
+                potential=CoulombPotential(
+                    smearing=hypers["smearing"],
+                    exclusion_radius=neighbor_list_options.cutoff,
+                ),
+                full_neighbor_list=neighbor_list_options.full_list,
+                lr_wavelength=hypers["kspace_resolution"],
+                prefactor=hypers["prefactor"],
+            )
+        else:
+            self.calculator = P3MCalculator(
+                potential=CoulombPotential(
+                    smearing=hypers["smearing"],
+                    exclusion_radius=neighbor_list_options.cutoff,
+                ),
+                interpolation_nodes=hypers["interpolation_nodes"],
+                full_neighbor_list=neighbor_list_options.full_list,
+                mesh_spacing=hypers["kspace_resolution"],
+                prefactor=hypers["prefactor"],
+            )
+
         self.direct_calculator = Calculator(
             potential=CoulombPotential(
                 smearing=None,
