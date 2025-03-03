@@ -593,7 +593,7 @@ def get_dataset(systems, system_id, target_node, target_edge):
     )
 
 
-def get_dataloader(dataset, **kwargs):
+def get_dataloader(dataset, dloader_kwargs: dict, fields_to_join: List[str] = None):
     """Returns a dataloader"""
     return DataLoader(
         dataset,
@@ -603,9 +603,9 @@ def get_dataloader(dataset, **kwargs):
                 "remove_tensor_name": True,
                 "different_keys": "union",
             },
+            fields_to_join=fields_to_join,
         ),
-        shuffle=True,
-        **kwargs,
+        **dloader_kwargs,
     )
 
 
@@ -648,7 +648,7 @@ def get_augmenter(
     return RotationalAugmenter(target_info_dict)
 
 
-def l2loss(input: TensorMap, target: TensorMap, weights=None) -> torch.Tensor:
+def l2loss(input: Dict[str, TensorMap], target: Dict[str, TensorMap], weights=None) -> torch.Tensor:
     """
     Computes the squared loss (reduction = sum) between the input and target TensorMaps
     """
@@ -660,13 +660,11 @@ def l2loss(input: TensorMap, target: TensorMap, weights=None) -> torch.Tensor:
     for k in target.keys():
         assert k in input.keys()
         assert k in weights
-        assert mts.equal_metadata(input[k], target[k]), (
-            input[k][0],
-            target[k][0],
-        )
-        mts.equal_metadata_raise(input[k], target[k])
 
         for key in target[k].keys:
+            # Some prediction blocks might be empty, so just check metadata on blocks we
+            # have target keys for.
+            mts.equal_metadata_block_raise(input[k][key], target[k][key])
             loss += weights[k] * torch.sum(
                 (input[k][key].values - target[k][key].values) ** 2
             )
