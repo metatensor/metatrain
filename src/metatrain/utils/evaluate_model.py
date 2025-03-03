@@ -296,4 +296,7 @@ def _prepare_system(
         nl = system.get_neighbor_list(nl_options)
         new_system.add_neighbor_list(nl_options, nl)
 
+    for key in system.known_data():
+        new_system.add_data(key, system.get_data(key))
+
     return new_system, strain
