@@ -99,6 +99,7 @@ CONF_TARGET_FIELDS = OmegaConf.create(
         "per_atom": False,
         "type": "scalar",
         "num_subtargets": 1,
+        "metatensor_target_disable_checks": False,
     }
 )
 
