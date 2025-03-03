@@ -1,16 +1,21 @@
 import copy
 import logging
 from pathlib import Path
-from typing import Union
+from typing import List, Union
 
 import metatensor.torch as mts
 import torch
-from metatensor.learn.data import IndexedDataset
-from metatensor.torch.learn import DataLoader
+import torch.distributed
+from torch.utils.data import DataLoader, DistributedSampler
 
 from ...utils.data import _is_disk_dataset
 from ...utils.data.dataset import DatasetInfo
 from ...utils.data.target_info import TargetInfo
+from ...utils.data import CombinedDataLoader, Dataset, _is_disk_dataset, collate_fn
+from ...utils.distributed.distributed_data_parallel import DistributedDataParallel
+from ...utils.distributed.slurm import DistributedEnvironment
+from ...utils.evaluate_model import evaluate_model
+from ...utils.external_naming import to_external_name
 from ...utils.io import check_file_extension
 from ...utils.logging import MetricLogger
 from ...utils.loss import TensorMapDictLoss
@@ -19,9 +24,13 @@ from ...utils.neighbor_lists import (
     get_requested_neighbor_lists,
     get_system_with_neighbor_lists,
 )
+from .utils import get_system_transformations  # , group_and_join_nonetypes  # TODO: collate needed?
+from ...utils.transfer import (
+    systems_and_targets_to_device,
+    systems_and_targets_to_dtype,
+)
+from .model import NanoPETBasis
 from ..nanopet.modules.augmentation import RotationalAugmenter
-from .model import NanoPetOnBasis
-from .utils import get_system_transformations, group_and_join_nonetypes
 
 
 logger = logging.getLogger(__name__)
@@ -39,27 +48,53 @@ class Trainer:
 
     def train(
         self,
-        model: NanoPetOnBasis,
-        device: torch.device,
+        model: NanoPETBasis,
         dtype: torch.dtype,
-        train_dataset: IndexedDataset,
-        val_dataset: IndexedDataset,
+        devices: List[torch.device],
+        train_datasets: List[Union[Dataset, torch.utils.data.Subset]],
+        val_datasets: List[Union[Dataset, torch.utils.data.Subset]],
         checkpoint_dir: str,
-        loss_fn: torch.nn.Module = None,
-        debug_dataloader: bool = False,
-        debug_rotations: bool = False,
+        loss_fn: torch.nn.Module,
     ):
-        is_distributed = False  # FIXME
-        rank = 0  # FIXME
+        assert dtype in NanoPETBasis.__supported_dtypes__
 
-        logger.info(f"Training on {device} with dtype {dtype}")
+        is_distributed = self.hypers["distributed"]
+
+        if is_distributed:
+            distr_env = DistributedEnvironment(self.hypers["distributed_port"])
+            torch.distributed.init_process_group(backend="nccl")
+            world_size = torch.distributed.get_world_size()
+            rank = torch.distributed.get_rank()
+        else:
+            rank = 0
+
+        if is_distributed:
+            if len(devices) > 1:
+                raise ValueError(
+                    "Requested distributed training with the `multi-gpu` device. "
+                    " If you want to run distributed training with SOAP-BPNN, please "
+                    "set `device` to cuda."
+                )
+            # the calculation of the device number works both when GPUs on different
+            # processes are not visible to each other and when they are
+            device_number = distr_env.local_rank % torch.cuda.device_count()
+            device = torch.device("cuda", device_number)
+        else:
+            device = devices[
+                0
+            ]  # only one device, as we don't support multi-gpu for now
+
+        if is_distributed:
+            logger.info(f"Training on {world_size} devices with dtype {dtype}")
+        else:
+            logger.info(f"Training on device {device} with dtype {dtype}")
 
         # Calculate the neighbor lists in advance (in particular, this
         # needs to happen before the additive models are trained, as they
         # might need them):
         logger.info("Calculating neighbor lists for the datasets")
         requested_neighbor_lists = get_requested_neighbor_lists(model)
-        for dataset in [train_dataset, val_dataset]:
+        for dataset in train_datasets + val_datasets:
             # If the dataset is a disk dataset, the NLs are already attached, we will
             # just check the first system
             if _is_disk_dataset(dataset):
@@ -74,7 +109,7 @@ class Trainer:
                         )
             else:
                 for sample in dataset:
-                    system = sample["systems"]  # TODO system
+                    system = sample["system"]
                     # The following line attaches the neighbors lists to the system,
                     # and doesn't require to reassign the system to the dataset:
                     get_system_with_neighbor_lists(system, requested_neighbor_lists)
@@ -82,207 +117,172 @@ class Trainer:
         # Move the model to the device and dtype:
         model.to(device=device, dtype=dtype)
 
-        # Store "phony" dataset info
-        target_info = {}
-        if model.in_keys_node is not None:
-            target_info.update(
-                {
-                    "mtt::node": TargetInfo(
-                        quantity="mtt::node",
-                        layout=mts.TensorMap(
-                            model.in_keys_node,
-                            [
-                                mts.TensorBlock(
-                                    samples=mts.Labels.empty(["system", "atom"]),
-                                    components=[
-                                        mts.Labels(
-                                            "o3_mu",
-                                            torch.arange(
-                                                -k["o3_lambda"], k["o3_lambda"] + 1
-                                            ).reshape(-1, 1),
-                                        )
-                                    ],
-                                    properties=out_props,
-                                    values=torch.empty(
-                                        0,
-                                        2 * k["o3_lambda"] + 1,
-                                        len(out_props),
-                                    ),
-                                )
-                                for k, out_props in zip(
-                                    model.in_keys_node, model.out_properties_node
-                                )
-                            ],
-                        ),
-                    ),
-                }
+        if is_distributed:
+            model = DistributedDataParallel(model, device_ids=[device])
+
+        logger.info("Setting up data loaders")
+
+        if is_distributed:
+            train_samplers = [
+                DistributedSampler(
+                    train_dataset,
+                    num_replicas=world_size,
+                    rank=rank,
+                    shuffle=True,
+                    drop_last=True,
+                )
+                for train_dataset in train_datasets
+            ]
+            val_samplers = [
+                DistributedSampler(
+                    val_dataset,
+                    num_replicas=world_size,
+                    rank=rank,
+                    shuffle=False,
+                    drop_last=False,
+                )
+                for val_dataset in val_datasets
+            ]
+        else:
+            train_samplers = [None] * len(train_datasets)
+            val_samplers = [None] * len(val_datasets)
+
+        # Create dataloader for the training datasets:
+        train_dataloaders = []
+        for dataset, sampler in zip(train_datasets, train_samplers):
+            train_dataloaders.append(
+                DataLoader(
+                    dataset=dataset,
+                    batch_size=self.hypers["batch_size"],
+                    sampler=sampler,
+                    shuffle=(
+                        sampler is None
+                    ),  # the sampler takes care of this (if present)
+                    drop_last=(
+                        sampler is None
+                    ),  # the sampler takes care of this (if present)
+                    collate_fn=collate_fn,
+                )
             )
-        if model.in_keys_edge is not None:
-            target_info.update(
-                {
-                    "mtt::edge": TargetInfo(
-                        quantity="mtt::edge",
-                        layout=mts.TensorMap(
-                            model.in_keys_edge,
-                            [
-                                mts.TensorBlock(
-                                    samples=mts.Labels.empty(
-                                        [
-                                            "system",
-                                            "first_atom",
-                                            "second_atom",
-                                            "cell_shift_a",
-                                            "cell_shift_b",
-                                            "cell_shift_c",
-                                        ]
-                                    ),
-                                    components=[
-                                        mts.Labels(
-                                            "o3_mu",
-                                            torch.arange(
-                                                -k["o3_lambda"], k["o3_lambda"] + 1
-                                            ).reshape(-1, 1),
-                                        )
-                                    ],
-                                    properties=out_props,
-                                    values=torch.empty(
-                                        0,
-                                        2 * k["o3_lambda"] + 1,
-                                        len(out_props),
-                                    ),
-                                )
-                                for k, out_props in zip(
-                                    model.in_keys_edge, model.out_properties_edge
-                                )
-                            ],
-                        ),
-                    ),
-                }
+        train_dataloader = CombinedDataLoader(train_dataloaders, shuffle=True)
+
+        # Create dataloader for the validation datasets:
+        val_dataloaders = []
+        for dataset, sampler in zip(val_datasets, val_samplers):
+            val_dataloaders.append(
+                DataLoader(
+                    dataset=dataset,
+                    batch_size=self.hypers["batch_size"],
+                    sampler=sampler,
+                    shuffle=False,
+                    drop_last=False,
+                    collate_fn=collate_fn,
+                )
             )
+        val_dataloader = CombinedDataLoader(val_dataloaders, shuffle=False)
 
-        self.dataset_info = DatasetInfo(
-            length_unit="angstrom", atomic_types=model.atomic_types, targets=target_info
-        )
-
-        # Create dataloaders
-        train_dataloader = DataLoader(
-            train_dataset,
-            batch_size=self.hypers["batch_size"],
-            shuffle=self.hypers["shuffle"],
-            collate_fn=group_and_join_nonetypes,
-        )
-
-        val_dataloader = DataLoader(
-            val_dataset,
-            batch_size=self.hypers["batch_size"],
-            shuffle=False,
-            collate_fn=group_and_join_nonetypes,
-        )
-
-        if debug_dataloader:
-            return train_dataloader, val_dataloader
-
-        # Set up rotational augmenter
-        rotational_augmenter = RotationalAugmenter(target_info)
-
-        # Define the loss function
+        train_targets = (model.module if is_distributed else model).dataset_info.targets
+        
+        # Create a loss function:
         if loss_fn is None:
             loss_fn = TensorMapDictLoss(**self.hypers["loss"])
-
-        # Set up optimizer and scheduler
+        # Create an optimizer:
         optimizer = torch.optim.Adam(
             model.parameters(), lr=self.hypers["learning_rate"]
         )
         if self.optimizer_state_dict is not None:
-            optimizer.load_state_dict(self.optimizer_state_dict)
+            # try to load the optimizer state dict, but this is only possible
+            # if there are no new targets in the model (new parameters)
+            if not (model.module if is_distributed else model).has_new_targets:
+                optimizer.load_state_dict(self.optimizer_state_dict)
 
+        # Create a scheduler:
         lr_scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
             optimizer,
             factor=self.hypers["scheduler_factor"],
             patience=self.hypers["scheduler_patience"],
         )
         if self.scheduler_state_dict is not None:
-            lr_scheduler.load_state_dict(self.scheduler_state_dict)
+            # same as the optimizer, try to load the scheduler state dict
+            if not (model.module if is_distributed else model).has_new_targets:
+                lr_scheduler.load_state_dict(self.scheduler_state_dict)
 
         # Log the initial learning rate:
         old_lr = optimizer.param_groups[0]["lr"]
         logger.info(f"Initial learning rate: {old_lr}")
 
-        # Training loop
+        rotational_augmenter = RotationalAugmenter(train_targets)
+
         start_epoch = 0 if self.epoch is None else self.epoch + 1
+
+        # Train the model:
         if self.best_metric is None:
             self.best_metric = float("inf")
+        logger.info("Starting training")
         epoch = start_epoch
-
-        # if debug_rotations:
-        #     rotations, inversions = get_system_transformations([0])
-        #     rotations = [rotations[0]] * self.hypers["batch_size"]
-        #     inversions = [inversions[0]] * self.hypers["batch_size"]
-
         for epoch in range(start_epoch, start_epoch + self.hypers["num_epochs"]):
+            if is_distributed:
+                sampler.set_epoch(epoch)
+
             train_rmse_calculator = RMSEAccumulator(self.hypers["log_separate_blocks"])
             val_rmse_calculator = RMSEAccumulator(self.hypers["log_separate_blocks"])
 
             model.train()
-            train_loss = 0
+            train_loss = 0.0
             for batch in train_dataloader:
-                # systems_train, targets_train_node, targets_train_edge = (
-                #     batch.systems,
-                #     batch.targets_node,
-                #     batch.targets_edge,
-                # )
+                optimizer.zero_grad()
 
-                # Define a random transformation for each training system
-                if not debug_rotations:
-                    rotations, inversions = get_system_transformations(batch.systems)
-                else:
-                    rotations, inversions = get_system_transformations([0])
-                    rotations = [rotations[0]] * len(batch.systems)
-                    inversions = [inversions[0]] * len(batch.systems)
+                systems_, targets = batch
+
+                # TODO: remove sorting!
+                targets["node"] = mts.sort(targets["node"])
+                targets["edge"] = mts.sort(targets["edge"])
+
+                systems_, targets = systems_and_targets_to_device(
+                    systems_, targets, device
+                )
+                systems_, targets = systems_and_targets_to_dtype(systems_, targets, dtype)
+
+                # TODO: use `evaluate_model` instead?
+                # Define a random transformation for each training system. This needs to
+                # be done outside of the augmenter as the same transformations need to
+                # be applied to both nodes and edges.
+                rotations, inversions = get_system_transformations(systems_)
 
                 # Apply rotational augmentation - node
                 if model.in_keys_node is not None:
-                    systems_train, targets_train_node = (
+                    systems, targets_node = (
                         rotational_augmenter.apply_augmentations(
-                            batch.systems,
-                            {"mtt::node": batch.targets_node},
+                            systems_,
+                            {"node": targets["node"]},
                             rotations,
                             inversions,
                         )
                     )
-                    targets_train_node = targets_train_node["mtt::node"]
-                    assert mts.equal_metadata(batch.targets_node, targets_train_node)
-                    assert not mts.allclose(batch.targets_node, targets_train_node)
+                    targets_node = targets_node["node"]
+                    assert mts.equal_metadata(targets["node"], targets_node)
+                    assert not mts.allclose(targets["node"], targets_node)
 
                 # Apply rotational augmentation - edge
                 if model.in_keys_edge is not None:
-                    _, targets_train_edge = rotational_augmenter.apply_augmentations(
-                        batch.systems,
-                        {"mtt::edge": batch.targets_edge},
+                    _, targets_edge = rotational_augmenter.apply_augmentations(
+                        systems_,
+                        {"edge": targets["edge"]},
                         rotations,
                         inversions,
                     )
 
-                    targets_train_edge = targets_train_edge["mtt::edge"]
-                    assert mts.equal_metadata(batch.targets_edge, targets_train_edge)
-                    assert not mts.allclose(batch.targets_edge, targets_train_edge)
+                    targets_edge = targets_edge["edge"]
+                    assert mts.equal_metadata(targets["edge"], targets_edge)
+                    assert not mts.allclose(targets["edge"], targets_edge)
 
-                targets = {
-                    "mtt::node": mts.sort(targets_train_node),
-                    "mtt::edge": mts.sort(targets_train_edge),
-                }
+                predictions_node, predictions_edge = model(systems, targets["sample_id"])
 
-                # Zero the parameter gradients
-                optimizer.zero_grad()
-
-                # Forward pass
-                node_predictions, edge_predictions = model(
-                    systems_train, batch.sample_id
-                )
-                predictions = {
-                    "mtt::node": mts.sort(node_predictions),
-                    "mtt::edge": mts.sort(edge_predictions),
-                }
+                # TODO: remove sorting!
+                predictions_node = mts.sort(predictions_node)
+                predictions_edge = mts.sort(predictions_edge)
+                
+                predictions = {"node": predictions_node, "edge": predictions_edge}
 
                 train_loss_batch = loss_fn(
                     predictions, targets, self.hypers["loss"]["weights"]
@@ -291,28 +291,31 @@ class Trainer:
                 torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
                 optimizer.step()
 
+                if is_distributed:
+                    # sum the loss over all processes
+                    torch.distributed.all_reduce(train_loss_batch)
                 train_loss += train_loss_batch.item()
-
                 train_rmse_calculator.update(predictions, targets)
 
             finalized_train_info = train_rmse_calculator.finalize(
-                ["mtt::node", "mtt::edge"], device=device
+                ["node", "edge"],
+                device=device,
             )
 
             val_loss = 0.0
             for batch in val_dataloader:
-                targets = {
-                    "mtt::node": mts.sort(batch.targets_node),
-                    "mtt::edge": mts.sort(batch.targets_edge),
-                }
+                systems, targets = batch
+                systems, targets = systems_and_targets_to_device(
+                    systems, targets, device
+                )
 
                 model.eval()
                 node_predictions, edge_predictions = model(
-                    batch.systems, batch.sample_id
+                    systems, targets["sample_id"]
                 )
                 predictions = {
-                    "mtt::node": mts.sort(node_predictions),
-                    "mtt::edge": mts.sort(edge_predictions),
+                    "node": mts.sort(node_predictions),
+                    "edge": mts.sort(edge_predictions),
                 }
 
                 val_loss_batch = loss_fn(
@@ -322,7 +325,7 @@ class Trainer:
                 val_rmse_calculator.update(predictions, targets)
 
             finalized_val_info = val_rmse_calculator.finalize(
-                ["mtt::node", "mtt::edge"], device=device
+                ["node", "edge"], device=device
             )
 
             finalized_train_info = {"loss": train_loss, **finalized_train_info}
@@ -331,11 +334,12 @@ class Trainer:
                 **finalized_val_info,
             }
 
-            # Log metrics
             if epoch == start_epoch:
                 metric_logger = MetricLogger(
                     log_obj=logger,
-                    dataset_info=self.dataset_info,
+                    dataset_info=(
+                        model.module if is_distributed else model
+                    ).dataset_info,
                     initial_metrics=[finalized_train_info, finalized_val_info],
                     names=["training", "validation"],
                 )
@@ -343,7 +347,7 @@ class Trainer:
                 metric_logger.log(
                     metrics=[finalized_train_info, finalized_val_info],
                     epoch=epoch,
-                    rank=0,
+                    rank=rank,
                 )
 
             lr_scheduler.step(val_loss)
@@ -395,24 +399,13 @@ class Trainer:
         self.optimizer_state_dict = optimizer.state_dict()
         self.scheduler_state_dict = lr_scheduler.state_dict()
 
-    # def save_checkpoint(self, model, path: Union[str, Path]):
-    #     checkpoint = {
-    #         "model": model.state_dict(),
-    #         "optimizer_state_dict": self.optimizer_state_dict,
-    #         "scheduler_state_dict": self.scheduler_state_dict,
-    #         "epoch": self.epoch,
-    #         "best_metric": self.best_metric,
-    #         "best_model_state_dict": self.best_model_state_dict,
-    #         "best_optimizer_state_dict": self.best_optimizer_state_dict,
-    #     }
-    #     torch.save(checkpoint, path)
     def save_checkpoint(self, model, path: Union[str, Path]):
         checkpoint = {
-            "architecture_name": "experimental.nanopet_on_basis",
-            # "model_data": {
-            # "model_hypers": model.hypers,
-            # "dataset_info": model.dataset_info,
-            # },
+            "architecture_name": "experimental.nanopet_basis",
+            "model_data": {
+                "model_hypers": model.hypers,
+                "dataset_info": model.dataset_info,
+            },
             "model_state_dict": model.state_dict(),
             "train_hypers": self.hypers,
             "epoch": self.epoch,

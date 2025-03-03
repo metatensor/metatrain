@@ -6,6 +6,12 @@ from metatensor.torch import Labels, TensorBlock, TensorMap
 from metatensor.torch.atomistic import ModelOutput
 from metatensor.torch.learn import ModuleMap
 
+from metatensor.torch.atomistic import (
+    ModelMetadata,
+    ModelOutput,
+)
+
+
 from metatrain.experimental.nanopet import NanoPET
 from metatrain.utils.architectures import get_default_hypers
 from metatrain.utils.data import DatasetInfo
@@ -13,14 +19,19 @@ from metatrain.utils.neighbor_lists import (
     get_requested_neighbor_lists,
     get_system_with_neighbor_lists,
 )
+from .utils import keys_triu_center_type
 
-from .utils import keys_triu_center_type, symmetrize_samples
 
-
-class NanoPetOnBasis(torch.torch.nn.Module):
+class NanoPETBasis(torch.torch.nn.Module):
     """
     Makes node (single-center) and edge (two-center) predictions on a spherical basis.
     """
+
+    __supported_devices__ = ["cuda", "cpu"]
+    __supported_dtypes__ = [torch.float64, torch.float32]
+    __default_metadata__ = ModelMetadata(
+        references={"architecture": ["https://arxiv.org/abs/2305.19302v3"]}
+    )
 
     def __init__(
         self,
@@ -62,10 +73,12 @@ class NanoPetOnBasis(torch.torch.nn.Module):
 
         # Extract edge target metadata
         if in_keys_edge is not None:
-            # Triangularize the edge keys and keep the corresponding properties
-            self.in_keys_edge, self.out_properties_edge = keys_triu_center_type(
-                in_keys_edge, out_properties_edge
-            )
+            # # Triangularize the edge keys and keep the corresponding properties. TODO: remove.
+            # # commented out as the model not care about this, i.e. this should be in the data
+            # # generation (elearn) step
+            # self.in_keys_edge, self.out_properties_edge = keys_triu_center_type(
+            #     in_keys_edge, out_properties_edge )
+            self.in_keys_edge, self.out_properties_edge = in_keys_edge, out_properties_edge
             self.predict_edges = True
         else:
             self.in_keys_edge = None
@@ -356,157 +369,3 @@ class MLPModel(torch.nn.Module):
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         return self.model(x)
-
-
-# ===== HELPER FUNCTIONS ===== #
-
-
-def symmetrize_predictions_node(
-    atomic_types: List[int],
-    predictions_node: TensorMap,
-    in_keys_node: Labels,
-    systems,
-) -> TensorMap:
-    """Symmetrize PET node predictions."""
-
-    # Create a dictionary storing the atomic indices for each center type
-    slice_nodes = {center_type: [] for center_type in atomic_types}
-    for A, system in enumerate(systems):
-        for i, center_type in enumerate(system.types):
-            slice_nodes[int(center_type)].append([A, i])
-
-    # Slice the predictions TensorMap to create blocks for the different center types
-    # with the correct atomic samples
-    node_blocks = []
-    for key in in_keys_node:
-        center_type = int(key["center_type"])
-
-        block = mts.slice(
-            predictions_node,
-            "samples",
-            Labels(
-                ["system", "atom"],
-                torch.tensor(slice_nodes[center_type], dtype=torch.int32).reshape(
-                    -1, 2
-                ),
-            ),
-        )[0]
-
-        node_blocks.append(block)
-
-    return TensorMap(in_keys_node, node_blocks)
-
-
-def symmetrize_predictions_edge(
-    atomic_types: List[int],
-    predictions_edge: TensorMap,
-    in_keys_edge: Labels,
-    systems,
-) -> TensorMap:
-    """
-    Symmetrize PET edge predictions
-    """
-    apply_permutational_symmetry = "block_type" in in_keys_edge.names
-
-    slice_edges = {
-        (first_atom_type, second_atom_type): []
-        for first_atom_type in atomic_types
-        for second_atom_type in atomic_types
-    }
-    for A, system in enumerate(systems):
-        for i, first_atom_type in enumerate(system.types):
-            for j, second_atom_type in enumerate(system.types):
-                slice_edges[(int(first_atom_type), int(second_atom_type))].append(
-                    [A, i, j]
-                )
-
-    # Edges (properly symmetrized)
-    edge_blocks = []
-    for key in in_keys_edge:
-        Z1 = int(key["first_atom_type"])
-        Z2 = int(key["second_atom_type"])
-
-        # Slice to the relevant types, which could leave a block with zero samples
-        block = mts.slice(
-            predictions_edge,
-            "samples",
-            Labels(
-                ["system", "first_atom", "second_atom"],
-                torch.tensor(slice_edges[(Z1, Z2)], dtype=torch.int32).reshape(-1, 3),
-            ),
-        )[0]
-
-        # Symmetrize
-        if Z1 == Z2 and apply_permutational_symmetry:
-            block_plus, block_minus = symmetrize_samples(block)
-            if key["block_type"] == 1:
-                edge_blocks.append(block_plus)
-            elif key["block_type"] == -1:
-                edge_blocks.append(block_minus)
-            else:
-                raise ValueError(f"Block type must be 1 or -1 for Z1=Z2={Z1}")
-        else:
-            edge_blocks.append(block)
-
-    return TensorMap(in_keys_edge, edge_blocks)
-
-
-def reindex_tensormap(
-    tensor: TensorMap,
-    system_ids: List[int],
-) -> TensorMap:
-    """
-    Takes a single TensorMap `tensor` containing data on multiple systems and re-indexes
-    the "system" dimension of the samples. Assumes input has numeric system indices from
-    {0, ..., N_system - 1} (inclusive), and maps these indices one-to-one with those
-    passed in ``system_ids``.
-    """
-    assert tensor.sample_names[0] == "system"
-
-    index_mapping = {i: A for i, A in enumerate(system_ids)}
-
-    def new_row(row):
-        return [index_mapping[row[0].item()]] + [i for i in row[1:]]
-
-    new_blocks = []
-    for block in tensor.blocks():
-        new_samples = mts.Labels(
-            names=block.samples.names,
-            values=torch.tensor(
-                [new_row(row) for row in block.samples.values],
-                dtype=torch.int32,
-            ).reshape(-1, len(block.samples.names)),
-        )
-        new_block = mts.TensorBlock(
-            values=block.values,
-            samples=new_samples,
-            components=block.components,
-            properties=block.properties,
-        )
-        new_blocks.append(new_block)
-
-    return mts.TensorMap(tensor.keys, new_blocks)
-
-
-def add_back_invariant_mean(tensor: TensorMap, mean_tensor: TensorMap) -> TensorMap:
-    """
-    Adds back the mean to the invariant blocks of the input ``tensor`` using the
-    ``mean_tensor`` layer.
-    """
-    for key, mean_block in mean_tensor.items():
-        if key not in tensor.keys:
-            continue
-        tensor_block = tensor[key]
-        tensor_block.values[:] += mean_block.values
-
-    return tensor
-
-
-def revert_standardization(tensor: TensorMap, standardizer: TensorMap) -> TensorMap:
-    """
-    Un-standardizes the input ``tensor`` using the ``standardizer`` layer.
-    """
-    for key, block in tensor.items():
-        block.values[:] *= standardizer.block(key).values
-
-    return tensor
