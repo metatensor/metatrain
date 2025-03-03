@@ -166,6 +166,10 @@ def _apply_wigner_D_matrices(
         elif (
             "first_atom" in block.samples.names and "second_atom" in block.samples.names
         ):
+            if "block_type" in key.names:
+                floor_divisor = (2 if int(key["block_type"]) != 2 else 1)
+            else:
+                floor_divisor = 1
             split_indices: List[int] = []
             for system in systems:
                 neighbor_lists = system.known_neighbor_lists()
@@ -182,7 +186,7 @@ def _apply_wigner_D_matrices(
                             )
                         )
                     )
-                    // (2 if int(key["block_type"]) != 2 else 1)
+                    // floor_divisor
                 )
             assert sum(split_indices) == len(values), (sum(split_indices), len(values))
             split_values = torch.split(values, split_indices)
