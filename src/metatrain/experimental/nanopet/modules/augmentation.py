@@ -1,5 +1,5 @@
 import random
-from typing import Dict, List, Tuple
+from typing import Dict, List, Optional, Tuple
 
 import numpy as np
 import torch
@@ -34,7 +34,12 @@ class RotationalAugmenter:
         self.wigner = None
         self.complex_to_real_spherical_harmonics_transforms = {}
         is_any_target_spherical = any(
-            target_info.is_spherical for target_info in target_info_dict.values()
+            (
+                target_info.is_spherical
+                or target_info.is_spherical_node
+                or target_info.is_spherical_edge
+            )
+            for target_info in target_info_dict.values()
         )
         if is_any_target_spherical:
             try:
@@ -48,7 +53,11 @@ class RotationalAugmenter:
             largest_l = max(
                 (len(block.components[0]) - 1) // 2
                 for target_info in target_info_dict.values()
-                if target_info.is_spherical
+                if (
+                    target_info.is_spherical
+                    or target_info.is_spherical_node
+                    or target_info.is_spherical_edge
+                )
                 for block in target_info.layout.blocks()
             )
             self.wigner = spherical.Wigner(largest_l)
@@ -57,15 +66,26 @@ class RotationalAugmenter:
                     _complex_to_real_spherical_harmonics_transform(ell)
                 )
 
-    def apply_random_augmentations(
-        self, systems: List[System], targets: Dict[str, TensorMap]
+    def apply_augmentations(
+        self,
+        systems: List[System],
+        targets: Dict[str, TensorMap],
+        rotations: Optional[List[Rotation]] = None,
+        inversions: Optional[List[int]] = None,
     ) -> Tuple[List[System], Dict[str, TensorMap]]:
         """
-        Apply a random augmentation to a number of ``System`` objects and its targets.
+        Applies augmentations to a number of ``System`` objects and its targets.
+
+        Pre-defined ``rotations`` and ``inversions`` are used if passed, otherwise
+        random ones are generated.
         """
 
-        rotations = [get_random_rotation() for _ in range(len(systems))]
-        inversions = [get_random_inversion() for _ in range(len(systems))]
+        if rotations is None:
+            rotations = [get_random_rotation() for _ in range(len(systems))]
+        if inversions is None:
+            inversions = [get_random_inversion() for _ in range(len(systems))]
+
+        # Build the transformations from the specified or random rotations and inversion
         transformations = [
             torch.from_numpy(r.as_matrix() * i) for r, i in zip(rotations, inversions)
         ]
@@ -81,9 +101,13 @@ class RotationalAugmenter:
             ]
             for target_name in targets.keys():
                 target_info = self.target_info_dict[target_name]
-                if target_info.is_spherical:
-                    for block in target_info.layout.blocks():
-                        ell = (len(block.components[0]) - 1) // 2
+                if (
+                    target_info.is_spherical
+                    or target_info.is_spherical_node
+                    or target_info.is_spherical_edge
+                ):
+                    for key in target_info.layout.keys:
+                        ell = int(key["o3_lambda"])
                         if ell not in wigner_D_matrices:  # skip if already computed
                             wigner_D_matrices_l = []
                             for wigner_D_matrix_complex in wigner_D_matrices_complex:
@@ -108,7 +132,7 @@ class RotationalAugmenter:
                                 )
                             wigner_D_matrices[ell] = wigner_D_matrices_l
 
-        return _apply_random_augmentations(
+        return _apply_augmentations(
             systems, targets, transformations, wigner_D_matrices
         )
 
@@ -123,12 +147,58 @@ def _apply_wigner_D_matrices(
     for key, block in target_tmap.items():
         ell, sigma = int(key[0]), int(key[1])
         values = block.values
+
+        # Node targets
         if "atom" in block.samples.names:
-            split_values = torch.split(
-                values, [len(system.positions) for system in systems]
-            )
+            split_indices: List[int] = []
+            for system in systems:
+                split_indices.append(
+                    int(
+                        torch.sum(
+                            system.types == int(key["center_type"]),
+                        )
+                    )
+                )
+            assert sum(split_indices) == len(values), (sum(split_indices), len(values))
+            split_values = torch.split(values, split_indices)
+
+        # Edge targets
+        elif (
+            "first_atom" in block.samples.names and "second_atom" in block.samples.names
+        ):
+            if "block_type" in key.names:
+                floor_divisor = (2 if int(key["block_type"]) != 2 else 1)
+            else:
+                floor_divisor = 1
+            split_indices: List[int] = []
+            for system in systems:
+                neighbor_lists = system.known_neighbor_lists()
+                if len(neighbor_lists) == 0:
+                    raise ValueError("systems must have neighbor lists pre-computed. None found")
+                if len(neighbor_lists) > 1:
+                    raise ValueError("more than one neighbor list found")
+                
+                neighbor_samples = system.get_neighbor_list(neighbor_lists[0]).samples
+                split_indices.append(
+                    int(
+                        torch.sum(
+                            torch.logical_and(
+                                system.types[neighbor_samples.column("first_atom")]
+                                == int(key["first_atom_type"]),
+                                system.types[neighbor_samples.column("second_atom")]
+                                == int(key["second_atom_type"]),
+                            )
+                        )
+                    )
+                    // floor_divisor
+                )
+            assert sum(split_indices) == len(values), (sum(split_indices), len(values))
+            split_values = torch.split(values, split_indices)
+
+        # per_atom is false
         else:
             split_values = torch.split(values, [1 for _ in systems])
+
         new_values = []
         ell = (len(block.components[0]) - 1) // 2
         for v, transformation, wigner_D_matrix in zip(
@@ -143,7 +213,12 @@ def _apply_wigner_D_matrices(
             new_v = new_v @ wigner_D_matrix.T
             new_v = new_v.transpose(1, 2)
             new_values.append(new_v)
+
+        if len(new_values) == 0:
+            # Empty block
+            new_values = [block.values]
         new_values = torch.concatenate(new_values)
+
         new_block = TensorBlock(
             values=new_values,
             samples=block.samples,
@@ -159,7 +234,7 @@ def _apply_wigner_D_matrices(
 
 
 @torch.jit.script  # script for speed
-def _apply_random_augmentations(
+def _apply_augmentations(
     systems: List[System],
     targets: Dict[str, TensorMap],
     transformations: List[torch.Tensor],
