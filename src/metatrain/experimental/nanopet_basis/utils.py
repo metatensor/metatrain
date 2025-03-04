@@ -1,6 +1,8 @@
-from typing import List, Optional, Tuple
+from typing import Dict, List, Optional, Tuple
 
 import torch
+
+import metatensor.torch as mts
 from metatensor.torch import Labels, TensorBlock, TensorMap
 
 from metatrain.experimental.nanopet.modules.augmentation import (
@@ -85,30 +87,6 @@ def get_system_transformations(systems) -> List[torch.Tensor]:
     rotations = [get_random_rotation() for _ in range(len(systems))]
     inversions = [get_random_inversion() for _ in range(len(systems))]
     return rotations, inversions
-
-
-def keys_triu_center_type(
-    in_keys_edge: Labels, out_properties_edge: List[Labels]
-) -> TensorMap:
-    idxs_to_keep = []
-    for key_i, key in enumerate(in_keys_edge):
-        # Keep blocks where the first atom type is less than the second atom type
-        if key["first_atom_type"] <= key["second_atom_type"]:
-            idxs_to_keep.append(key_i)
-
-    in_keys_edge_sliced = Labels(
-        in_keys_edge.names,
-        in_keys_edge.values[idxs_to_keep],
-    )
-    out_properties_edge_sliced = [
-        out_props
-        for i, out_props in enumerate(out_properties_edge)
-        if i in idxs_to_keep
-    ]
-
-    assert len(in_keys_edge_sliced) == len(out_properties_edge_sliced)
-
-    return in_keys_edge_sliced, out_properties_edge_sliced
 
 
 def symmetrize_samples(
@@ -204,7 +182,7 @@ def symmetrize_predictions_node(
     for key in in_keys_node:
         center_type = int(key["center_type"])
 
-        block = slice(
+        block = mts.slice(
             predictions_node,
             "samples",
             Labels(
@@ -250,7 +228,7 @@ def symmetrize_predictions_edge(
         Z2 = int(key["second_atom_type"])
 
         # Slice to the relevant types, which could leave a block with zero samples
-        block = slice(
+        block = mts.slice(
             predictions_edge,
             "samples",
             Labels(
@@ -272,43 +250,6 @@ def symmetrize_predictions_edge(
             edge_blocks.append(block)
 
     return TensorMap(in_keys_edge, edge_blocks)
-
-
-def reindex_tensormap(
-    tensor: TensorMap,
-    system_ids: List[int],
-) -> TensorMap:
-    """
-    Takes a single TensorMap `tensor` containing data on multiple systems and re-indexes
-    the "system" dimension of the samples. Assumes input has numeric system indices from
-    {0, ..., N_system - 1} (inclusive), and maps these indices one-to-one with those
-    passed in ``system_ids``.
-    """
-    assert tensor.sample_names[0] == "system"
-
-    index_mapping = {i: A for i, A in enumerate(system_ids)}
-
-    def new_row(row):
-        return [index_mapping[row[0].item()]] + [i for i in row[1:]]
-
-    new_blocks = []
-    for block in tensor.blocks():
-        new_samples = Labels(
-            names=block.samples.names,
-            values=torch.tensor(
-                [new_row(row) for row in block.samples.values],
-                dtype=torch.int32,
-            ).reshape(-1, len(block.samples.names)),
-        )
-        new_block = TensorBlock(
-            values=block.values,
-            samples=new_samples,
-            components=block.components,
-            properties=block.properties,
-        )
-        new_blocks.append(new_block)
-
-    return TensorMap(tensor.keys, new_blocks)
 
 
 def add_back_invariant_mean(tensor: TensorMap, mean_tensor: TensorMap) -> TensorMap:
@@ -333,3 +274,42 @@ def revert_standardization(tensor: TensorMap, standardizer: TensorMap) -> Tensor
         block.values[:] *= standardizer.block(key).values
 
     return tensor
+
+def reindex_tensormap(
+    tensor: TensorMap,
+    *,
+    system_ids: List[int] = None,
+    system_ids_map: Dict[int, int] = None,
+) -> TensorMap:
+    """
+    Takes a single TensorMap `tensor` containing data on multiple systems and re-indexes
+    the "system" dimension of the samples. Assumes input has numeric system indices from
+    {0, ..., N_system - 1} (inclusive), and maps these indices one-to-one with those
+    passed in ``system_ids``.
+    """
+    assert tensor.sample_names[0] == "system"
+
+    if system_ids_map is None:
+        system_ids_map = {i: A for i, A in enumerate(system_ids)}
+
+    def new_row(row):
+        return [system_ids_map[row[0].item()]] + [i for i in row[1:]]
+
+    new_blocks = []
+    for block in tensor.blocks():
+        new_samples = Labels(
+            names=block.samples.names,
+            values=torch.tensor(
+                [new_row(row) for row in block.samples.values],
+                dtype=torch.int32,
+            ).reshape(-1, len(block.samples.names)),
+        )
+        new_block = TensorBlock(
+            values=block.values,
+            samples=new_samples,
+            components=block.components,
+            properties=block.properties,
+        )
+        new_blocks.append(new_block)
+
+    return TensorMap(tensor.keys, new_blocks)

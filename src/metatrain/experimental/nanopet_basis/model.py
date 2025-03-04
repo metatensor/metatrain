@@ -1,3 +1,4 @@
+from pathlib import Path
 from typing import Dict, List, Optional, Tuple, Union
 
 import metatensor.torch as mts
@@ -7,19 +8,28 @@ from metatensor.torch.atomistic import ModelOutput
 from metatensor.torch.learn import ModuleMap
 
 from metatensor.torch.atomistic import (
+    MetatensorAtomisticModel,
+    ModelCapabilities,
     ModelMetadata,
     ModelOutput,
+    System,
 )
+from ...utils.dtype import dtype_to_str
+from ...utils.metadata import append_metadata_references
 
-
-from metatrain.experimental.nanopet import NanoPET
+from ..nanopet import NanoPET
 from metatrain.utils.architectures import get_default_hypers
 from metatrain.utils.data import DatasetInfo
 from metatrain.utils.neighbor_lists import (
     get_requested_neighbor_lists,
     get_system_with_neighbor_lists,
 )
-from .utils import keys_triu_center_type
+from .utils import (
+    symmetrize_predictions_node,
+    symmetrize_predictions_edge,
+    add_back_invariant_mean,
+    revert_standardization,
+)
 
 
 class NanoPETBasis(torch.torch.nn.Module):
@@ -35,13 +45,8 @@ class NanoPETBasis(torch.torch.nn.Module):
 
     def __init__(
         self,
-        atomic_types: List[int],
-        in_keys_node: Optional[Labels] = None,
-        out_properties_node: Optional[List[Labels]] = None,
-        in_keys_edge: Optional[Labels] = None,
-        out_properties_edge: Optional[List[Labels]] = None,
-        pet_hypers=None,
-        head_hidden_layer_widths=None,
+        model_hypers: Dict,
+        dataset_info: DatasetInfo,
         standardizers: Dict[str, TensorMap] = None,
     ) -> None:
         """
@@ -59,12 +64,29 @@ class NanoPETBasis(torch.torch.nn.Module):
 
         super().__init__()
 
-        # Extract node target metadata
-        self.atomic_types = atomic_types
+        # Store hypers
+        self.hypers = model_hypers
+        self.dataset_info = dataset_info
+        self.new_outputs = list(dataset_info.targets.keys())
+        self.atomic_types = dataset_info.atomic_types
+        self.outputs = {}  # TODO!
 
-        if in_keys_node is not None:
-            self.in_keys_node = in_keys_node
-            self.out_properties_node = out_properties_node
+        # Initialize base NanoPET
+        self.nanopet = NanoPET(
+            self.hypers["nanopet"],
+            DatasetInfo(
+                length_unit=self.dataset_info.length_unit,
+                atomic_types=self.atomic_types,
+                targets={},
+            ),
+        )
+
+        # Extract node target metadata
+        if self.dataset_info.targets.get("node") is not None:
+            self.in_keys_node = self.dataset_info.targets["node"].layout.keys
+            self.out_properties_node = [
+                self.dataset_info.targets["node"].layout[key].properties for key in self.in_keys_node
+            ]
             self.predict_nodes = True
         else:
             self.in_keys_node = None
@@ -72,41 +94,23 @@ class NanoPETBasis(torch.torch.nn.Module):
             self.predict_nodes = False
 
         # Extract edge target metadata
-        if in_keys_edge is not None:
-            # # Triangularize the edge keys and keep the corresponding properties. TODO: remove.
-            # # commented out as the model not care about this, i.e. this should be in the data
-            # # generation (elearn) step
-            # self.in_keys_edge, self.out_properties_edge = keys_triu_center_type(
-            #     in_keys_edge, out_properties_edge )
-            self.in_keys_edge, self.out_properties_edge = in_keys_edge, out_properties_edge
+        if self.dataset_info.targets.get("edge") is not None:
+            self.in_keys_edge = self.dataset_info.targets["edge"].layout.keys
+            self.out_properties_edge = [
+                self.dataset_info.targets["edge"].layout[key].properties for key in self.in_keys_edge
+            ]
             self.predict_edges = True
         else:
             self.in_keys_edge = None
             self.out_properties_edge = None
             self.predict_edges = False
 
-        # Instantiate NanoPET model
-        if pet_hypers is None:
-            pet_hypers = get_default_hypers("experimental.nanopet")["model"]
-        self.nanopet = NanoPET(
-            pet_hypers,
-            DatasetInfo(
-                length_unit="angstrom",
-                atomic_types=self.atomic_types,  # NanoPET predicts on the global set
-                # of atomic types
-                targets={},
-            ),
-        )
-
-        if head_hidden_layer_widths is None:
-            head_hidden_layer_widths = [64] * 3
-
         # Build node heads
         if self.predict_nodes:
             self.node_heads = self._instantiate_heads(
                 self.in_keys_node,
                 self.out_properties_node,
-                head_hidden_layer_widths,
+                self.hypers["basis"]["head_hidden_layer_widths"],
             )
 
         # Build edge heads
@@ -114,13 +118,13 @@ class NanoPETBasis(torch.torch.nn.Module):
             self.edge_heads = self._instantiate_heads(
                 self.in_keys_edge,
                 self.out_properties_edge,
-                head_hidden_layer_widths,
+                self.hypers["basis"]["head_hidden_layer_widths"],
             )
 
         # Set the prediction (un)standardizer
-        self._set_standardizers(standardizers)
+        self._set_standardizers(getattr(self.dataset_info, "standardizers", None))
 
-    def _set_standardizers(self, standardizers):
+    def _set_standardizers(self, standardizers) -> None:
         """
         Set the standardizers for the node and edge targets.
         Turns off gradients for the standardizer values.
@@ -136,9 +140,38 @@ class NanoPETBasis(torch.torch.nn.Module):
 
         self.standardizers = standardizers
 
+    def restart(self, dataset_info: DatasetInfo) -> "NanoPETBasis":
+        # merge old and new dataset info
+        merged_info = self.dataset_info.union(dataset_info)
+        new_atomic_types = [
+            at for at in merged_info.atomic_types if at not in self.atomic_types
+        ]
+        new_targets = {
+            key: value
+            for key, value in merged_info.targets.items()
+            if key not in self.dataset_info.targets
+        }
+        self.has_new_targets = len(new_targets) > 0
+
+        if len(new_atomic_types) > 0:
+            raise ValueError(
+                f"New atomic types found in the dataset: {new_atomic_types}. "
+                "The nanoPET model does not support adding new atomic types."
+            )
+
+        # register new outputs as new last layers
+        for target_name, target in new_targets.items():
+            self._add_output(target_name, target)
+
+        self.dataset_info = merged_info
+
+        return self
+
     def forward(
-        self, systems, system_id: List[int] = None
-    ) -> Tuple[TensorMap, Union[TensorMap, None]]:
+        self, systems: List[System],
+        outputs: Dict[str, ModelOutput],  # TODO!
+        selected_atoms: Optional[Labels],  # TODO!
+    ) -> Dict[str, TensorMap]:
         """
         Predicts the node and edge (if applicable) targets on a basis.
         """
@@ -168,9 +201,6 @@ class NanoPETBasis(torch.torch.nn.Module):
             )
             predictions_node = self.node_heads(predictions_node)
             predictions_node = self._reshape_predictions(predictions_node, "node")
-
-            if system_id is not None:
-                predictions_node = reindex_tensormap(predictions_node, system_id)
         else:
             predictions_node = None
 
@@ -184,9 +214,7 @@ class NanoPETBasis(torch.torch.nn.Module):
             )
             predictions_edge = self.edge_heads(predictions_edge)
             predictions_edge = self._reshape_predictions(predictions_edge, "edge")
-            if system_id is not None:
-                predictions_edge = reindex_tensormap(predictions_edge, system_id)
-
+            # TODO: remove sorting
             predictions_edge = mts.sort(predictions_edge, "samples")
         else:
             predictions_edge = None
@@ -195,7 +223,67 @@ class NanoPETBasis(torch.torch.nn.Module):
         predictions_node, predictions_edge = self._add_mean_revert_std(
             predictions_node, predictions_edge
         )
-        return predictions_node, predictions_edge
+        return {"node": predictions_node, "edge": predictions_edge}
+    
+    @classmethod
+    def load_checkpoint(cls, path: Union[str, Path]) -> "NanoPETBasis":
+        # Load the checkpoint
+        checkpoint = torch.load(path, weights_only=False, map_location="cpu")
+        model_data = checkpoint["model_data"]
+        model_state_dict = checkpoint["model_state_dict"]
+
+        # Create the model
+        model = cls(**model_data)
+        state_dict_iter = iter(model_state_dict.values())
+        next(state_dict_iter)  # skip `species_to_species_index` buffer (int)
+        dtype = next(state_dict_iter).dtype
+        model.to(dtype).load_state_dict(model_state_dict)
+
+        return model
+    
+    def export(
+        self, metadata: Optional[ModelMetadata] = None
+    ) -> MetatensorAtomisticModel:
+        dtype = next(self.parameters()).dtype
+        if dtype not in self.__supported_dtypes__:
+            raise ValueError(f"unsupported dtype {dtype} for NanoPET")
+
+        # Make sure the model is all in the same dtype
+        # For example, after training, the additive models could still be in
+        # float64
+        self.to(dtype)
+
+        # TODO: CompositionModel for NanoPETBasis?
+        # # Additionally, the composition model contains some `TensorMap`s that cannot
+        # # be registered correctly with Pytorch. This funciton moves them:
+        # self.additive_models[0]._move_weights_to_device_and_dtype(
+        #     torch.device("cpu"), torch.float64
+        # )
+
+        interaction_ranges = [self.hypers["nanopet"]["num_gnn_layers"] * self.hypers["nanopet"]["cutoff"]]
+        # TODO: CompositionModel for NanoPETBasis?
+        # for additive_model in self.additive_models:
+        #     if hasattr(additive_model, "cutoff_radius"):
+        #         interaction_ranges.append(additive_model.cutoff_radius)
+        #     if self.long_range:
+        #         interaction_ranges.append(torch.inf)
+        interaction_range = max(interaction_ranges)
+
+        capabilities = ModelCapabilities(
+            outputs=self.outputs,
+            atomic_types=self.atomic_types,
+            interaction_range=interaction_range,
+            length_unit=self.dataset_info.length_unit,
+            supported_devices=self.__supported_devices__,
+            dtype=dtype_to_str(dtype),
+        )
+
+        if metadata is None:
+            metadata = ModelMetadata()
+
+        append_metadata_references(metadata, self.__default_metadata__)
+
+        return MetatensorAtomisticModel(self.eval(), metadata, capabilities)
 
     def _add_mean_revert_std(
         self,

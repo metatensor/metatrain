@@ -233,15 +233,16 @@ class Trainer:
                 optimizer.zero_grad()
 
                 systems_, targets = batch
+                systems_, targets = systems_and_targets_to_device(
+                    systems_, targets, device
+                )
+                systems_, targets = systems_and_targets_to_dtype(
+                    systems_, targets, dtype
+                )
 
                 # TODO: remove sorting!
                 targets["node"] = mts.sort(targets["node"])
                 targets["edge"] = mts.sort(targets["edge"])
-
-                systems_, targets = systems_and_targets_to_device(
-                    systems_, targets, device
-                )
-                systems_, targets = systems_and_targets_to_dtype(systems_, targets, dtype)
 
                 # TODO: use `evaluate_model` instead?
                 # Define a random transformation for each training system. This needs to
@@ -251,6 +252,7 @@ class Trainer:
 
                 # Apply rotational augmentation - node
                 if model.in_keys_node is not None:
+                    # TODO: pass both node and edges here?
                     systems, targets_node = (
                         rotational_augmenter.apply_augmentations(
                             systems_,
@@ -262,6 +264,7 @@ class Trainer:
                     targets_node = targets_node["node"]
                     assert mts.equal_metadata(targets["node"], targets_node)
                     assert not mts.allclose(targets["node"], targets_node)
+                    targets["node"] = targets_node
 
                 # Apply rotational augmentation - edge
                 if model.in_keys_edge is not None:
@@ -271,21 +274,19 @@ class Trainer:
                         rotations,
                         inversions,
                     )
-
                     targets_edge = targets_edge["edge"]
                     assert mts.equal_metadata(targets["edge"], targets_edge)
                     assert not mts.allclose(targets["edge"], targets_edge)
+                    targets["edge"] = targets_edge
 
-                predictions_node, predictions_edge = model(systems, targets["sample_id"])
+                predictions = model(systems, {}, selected_atoms=None)
 
                 # TODO: remove sorting!
-                predictions_node = mts.sort(predictions_node)
-                predictions_edge = mts.sort(predictions_edge)
-                
-                predictions = {"node": predictions_node, "edge": predictions_edge}
+                predictions["node"] = mts.sort(predictions["node"])
+                predictions["edge"] = mts.sort(predictions["edge"])
 
                 train_loss_batch = loss_fn(
-                    predictions, targets, self.hypers["loss"]["weights"]
+                    predictions, targets, self.hypers["loss"]["weights"],
                 )
                 train_loss_batch.backward()
                 torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
@@ -305,18 +306,22 @@ class Trainer:
             val_loss = 0.0
             for batch in val_dataloader:
                 systems, targets = batch
-                systems, targets = systems_and_targets_to_device(
-                    systems, targets, device
+                systems_, targets = systems_and_targets_to_device(
+                    systems_, targets, device
                 )
+                
+                # TODO: remove sorting!
+                targets["node"] = mts.sort(targets["node"])
+                targets["edge"] = mts.sort(targets["edge"])
 
                 model.eval()
-                node_predictions, edge_predictions = model(
-                    systems, targets["sample_id"]
-                )
-                predictions = {
-                    "node": mts.sort(node_predictions),
-                    "edge": mts.sort(edge_predictions),
-                }
+                node_predictions, edge_predictions = model(systems, {}, None)
+                
+                # TODO: remove sorting!
+                predictions_node = mts.sort(predictions_node)
+                predictions_edge = mts.sort(predictions_edge)
+                predictions = {"node": node_predictions, "edge": edge_predictions}
+                targets = {"node": targets["node"], "edge": targets["edge"]}
 
                 val_loss_batch = loss_fn(
                     predictions, targets, self.hypers["loss"]["weights"]

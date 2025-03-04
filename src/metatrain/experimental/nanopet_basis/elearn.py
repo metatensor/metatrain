@@ -6,14 +6,13 @@ import numpy as np
 import torch
 import vesin
 from metatensor.torch import Labels, TensorBlock, TensorMap
-from metatensor.torch.learn.data import DataLoader, IndexedDataset
+from metatensor.torch.learn.data import Dataset, DataLoader, IndexedDataset
 from metatensor.torch.learn.data._namedtuple import namedtuple
 
 from metatrain.experimental.nanopet.modules.augmentation import (
     RotationalAugmenter,
-    get_random_inversion,
-    get_random_rotation,
 )
+from metatrain.experimental.nanopet_basis.utils import reindex_tensormap
 from metatrain.utils.data import TargetInfo
 
 
@@ -420,8 +419,30 @@ def get_edges(tensor: TensorMap) -> Dict[str, TensorMap]:
     )
     edge_tensor = drop_empty_blocks(edge_tensor)
 
-    # return node_tensor, edge_tensor
     return edge_tensor
+
+def keys_triu_center_type(
+    in_keys_edge: Labels, out_properties_edge: List[Labels]
+) -> TensorMap:
+    idxs_to_keep = []
+    for key_i, key in enumerate(in_keys_edge):
+        # Keep blocks where the first atom type is less than the second atom type
+        if key["first_atom_type"] <= key["second_atom_type"]:
+            idxs_to_keep.append(key_i)
+
+    in_keys_edge_sliced = Labels(
+        in_keys_edge.names,
+        in_keys_edge.values[idxs_to_keep],
+    )
+    out_properties_edge_sliced = [
+        out_props
+        for i, out_props in enumerate(out_properties_edge)
+        if i in idxs_to_keep
+    ]
+
+    assert len(in_keys_edge_sliced) == len(out_properties_edge_sliced)
+
+    return in_keys_edge_sliced, out_properties_edge_sliced
 
 
 # ===== Training utils ===== #
@@ -473,6 +494,34 @@ def group_and_join_nonetypes(
 
 
 def get_dataset(systems, system_id, target_node, target_edge):
+    """Returns a dataset with systems, and target nodes and edges"""
+    return Dataset(
+        system=[systems[A] for A in system_id],
+        node=[
+            reindex_tensormap(
+                mts.slice(
+                    target_node,
+                    "samples",
+                    mts.Labels(["system"], torch.tensor([A]).reshape(-1, 1)),
+                ),
+                system_ids_map={A: i},
+            )
+            for i, A in enumerate(system_id)
+        ],
+        edge=[
+            reindex_tensormap(
+                mts.slice(
+                    target_edge,
+                    "samples",
+                    mts.Labels(["system"], torch.tensor([A]).reshape(-1, 1)),
+                ),
+                system_ids_map={A: i},
+            )
+            for i, A in enumerate(system_id)
+        ],
+    )
+
+def get_indexed_dataset(systems, system_id, target_node, target_edge):
     """Returns a dataset with systems, and target nodes and edges"""
     return IndexedDataset(
         sample_id=system_id,

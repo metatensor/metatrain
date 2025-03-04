@@ -173,7 +173,11 @@ def _apply_wigner_D_matrices(
             split_indices: List[int] = []
             for system in systems:
                 neighbor_lists = system.known_neighbor_lists()
-                assert len(neighbor_lists) == 1
+                if len(neighbor_lists) == 0:
+                    raise ValueError("systems must have neighbor lists pre-computed. None found")
+                if len(neighbor_lists) > 1:
+                    raise ValueError("more than one neighbor list found")
+                
                 neighbor_samples = system.get_neighbor_list(neighbor_lists[0]).samples
                 split_indices.append(
                     int(
