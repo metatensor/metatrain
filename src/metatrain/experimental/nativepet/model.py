@@ -20,7 +20,9 @@ from ...utils.data import DatasetInfo, TargetInfo
 from ...utils.dtype import dtype_to_str
 from ...utils.metadata import append_metadata_references
 from ...utils.scaler import Scaler
-from .modules.heads import CentralTokensHead, Head, MessagesBondsHead
+from .modules.heads import (
+    Head,
+)
 from .modules.transformer import CartesianTransformer
 from .modules.utilities import cutoff_func, systems_to_batch_dict
 
@@ -77,10 +79,10 @@ class NativePET(torch.nn.Module):
 
         self.gnn_layers = torch.nn.ModuleList(gnn_layers)
 
-        self.central_tokens_heads = torch.nn.ModuleDict()
-        self.messages_bonds_heads = torch.nn.ModuleDict()
-        self.central_tokens_last_layers = torch.nn.ModuleDict()
-        self.messages_bonds_last_layers = torch.nn.ModuleDict()
+        self.heads = torch.nn.ModuleDict()
+        self.bond_heads = torch.nn.ModuleDict()
+        self.last_layers = torch.nn.ModuleDict()
+        self.bond_last_layers = torch.nn.ModuleDict()
         # last-layer feature size (for LLPR module)
         self.last_layer_feature_size = (
             self.hypers["num_gnn_layers"] * self.hypers["d_head"] * 2
@@ -306,25 +308,24 @@ class NativePET(torch.nn.Module):
         central_tokens_features_dict: Dict[str, List[torch.Tensor]] = {}
         messages_bonds_features_dict: Dict[str, List[torch.Tensor]] = {}
 
-        for output_name, central_tokens_heads in self.central_tokens_heads.items():
+        for output_name, heads in self.heads.items():
             if output_name not in central_tokens_features_dict:
                 central_tokens_features_dict[output_name] = []
-
-            for i, central_tokens_head in enumerate(central_tokens_heads):
+            for i, head in enumerate(heads):
                 central_tokens = central_tokens_list[i]
-                central_tokens_feature = central_tokens_head(central_tokens)
+                central_tokens_feature = head(central_tokens)
                 central_tokens_features_dict[output_name].append(central_tokens_feature)
 
-        for output_name, messages_bonds_heads in self.messages_bonds_heads.items():
+                output_messages = output_messages_list[i]
+                messages_feature = head(output_messages)
+
+        for output_name, bond_heads in self.bond_heads.items():
             if output_name not in messages_bonds_features_dict:
                 messages_bonds_features_dict[output_name] = []
-
-            for i, messages_bonds_head in enumerate(messages_bonds_heads):
+            for i, bond_head in enumerate(bond_heads):
                 output_messages = output_messages_list[i]
-                messages_bonds_feature = messages_bonds_head(
-                    output_messages, mask, multipliers
-                )
-                messages_bonds_features_dict[output_name].append(messages_bonds_feature)
+                messages_bond_feature = bond_head(output_messages)
+                messages_bonds_features_dict[output_name].append(messages_bond_feature)
 
         last_layer_features_dict: Dict[str, List[torch.Tensor]] = {}
         last_layer_features: Dict[str, torch.Tensor] = {}
@@ -334,9 +335,11 @@ class NativePET(torch.nn.Module):
                 last_layer_features_dict[output_name] = []
             for i in range(len(central_tokens_features_dict[output_name])):
                 central_tokens_feature = central_tokens_features_dict[output_name][i]
-                messages_bonds_feature = messages_bonds_features_dict[output_name][i]
+                messages_bond_feature = messages_bonds_features_dict[output_name][i]
+                messages_bond_feature = messages_bond_feature * multipliers[:, :, None]
+                messages_bond_feature = messages_bond_feature.sum(dim=1)
                 last_layer_features_dict[output_name].append(central_tokens_feature)
-                last_layer_features_dict[output_name].append(messages_bonds_feature)
+                last_layer_features_dict[output_name].append(messages_bond_feature)
             last_layer_features[output_name] = torch.cat(
                 last_layer_features_dict[output_name], dim=1
             )
@@ -391,47 +394,44 @@ class NativePET(torch.nn.Module):
         central_tokens_properties_by_layer: List[List[torch.Tensor]] = []
         messages_bonds_properties_by_layer: List[List[torch.Tensor]] = []
 
-        for (
-            output_name,
-            central_tokens_last_layers,
-        ) in self.central_tokens_last_layers.items():
+        for output_name, last_layers in self.last_layers.items():
             if output_name in outputs:
-                central_tokens_properties_by_layer = []
-                for i, central_tokens_last_layer in enumerate(
-                    central_tokens_last_layers
-                ):
+                for i, last_layer in enumerate(last_layers):
                     central_tokens_features = central_tokens_features_dict[output_name][
                         i
                     ]
                     central_tokens_properties_by_block: List[torch.Tensor] = []
-                    for (
-                        central_token_last_layer_by_block
-                    ) in central_tokens_last_layer.values():
+                    for last_layer_by_block in last_layer.values():
                         central_tokens_properties_by_block.append(
-                            central_token_last_layer_by_block(central_tokens_features)
+                            last_layer_by_block(central_tokens_features)
                         )
+
                     central_tokens_properties_by_layer.append(
                         central_tokens_properties_by_block
                     )
 
-        for (
-            output_name,
-            messages_bonds_last_layers,
-        ) in self.messages_bonds_last_layers.items():
+        for output_name, last_layers in self.bond_last_layers.items():
             if output_name in outputs:
-                messages_bonds_properties_by_layer = []
-                for i, messages_bonds_last_layer in enumerate(
-                    messages_bonds_last_layers
-                ):
+                for i, last_layer in enumerate(last_layers):
                     messages_bonds_features = messages_bonds_features_dict[output_name][
                         i
                     ]
                     messages_bonds_properties_by_block: List[torch.Tensor] = []
-                    for (
-                        messages_bonds_last_layer_by_block
-                    ) in messages_bonds_last_layer.values():
+                    for last_layer_by_block in last_layer.values():
+                        messages_bonds_properties = last_layer_by_block(
+                            messages_bonds_features
+                        )
+                        mask_expanded = mask[..., None].repeat(
+                            1, 1, messages_bonds_properties.shape[2]
+                        )
+                        messages_bonds_properties = torch.where(
+                            mask_expanded, 0.0, messages_bonds_properties
+                        )
+                        messages_bonds_properties = (
+                            messages_bonds_properties * multipliers[:, :, None]
+                        )
                         messages_bonds_properties_by_block.append(
-                            messages_bonds_last_layer_by_block(messages_bonds_features)
+                            messages_bonds_properties.sum(dim=1)
                         )
                     messages_bonds_properties_by_layer.append(
                         messages_bonds_properties_by_block
@@ -587,28 +587,29 @@ class NativePET(torch.nn.Module):
             unit=target_info.unit,
             per_atom=True,
         )
-        self.central_tokens_heads[target_name] = torch.nn.ModuleList(
+
+        self.heads[target_name] = torch.nn.ModuleList(
             [
-                CentralTokensHead(Head(self.hypers["d_pet"], self.hypers["d_head"]))
+                Head(self.hypers["d_pet"], self.hypers["d_head"])
                 for _ in range(self.hypers["num_gnn_layers"])
             ]
         )
 
-        self.messages_bonds_heads[target_name] = torch.nn.ModuleList(
+        self.bond_heads[target_name] = torch.nn.ModuleList(
             [
-                MessagesBondsHead(Head(self.hypers["d_pet"], self.hypers["d_head"]))
+                Head(self.hypers["d_pet"], self.hypers["d_head"])
                 for _ in range(self.hypers["num_gnn_layers"])
             ]
         )
 
-        self.central_tokens_last_layers[target_name] = torch.nn.ModuleList(
+        self.last_layers[target_name] = torch.nn.ModuleList(
             [
                 torch.nn.ModuleDict(
                     {
                         key: torch.nn.Linear(
                             self.hypers["d_head"],
                             prod(shape),
-                            bias=False,
+                            bias=True,
                         )
                         for key, shape in self.output_shapes[target_name].items()
                     }
@@ -617,14 +618,14 @@ class NativePET(torch.nn.Module):
             ]
         )
 
-        self.messages_bonds_last_layers[target_name] = torch.nn.ModuleList(
+        self.bond_last_layers[target_name] = torch.nn.ModuleList(
             [
                 torch.nn.ModuleDict(
                     {
                         key: torch.nn.Linear(
                             self.hypers["d_head"],
                             prod(shape),
-                            bias=False,
+                            bias=True,
                         )
                         for key, shape in self.output_shapes[target_name].items()
                     }

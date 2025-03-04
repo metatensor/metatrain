@@ -16,27 +16,46 @@ class Head(torch.nn.Module):
         return self.nn(inputs)
 
 
-class CentralTokensHead(torch.nn.Module):
-    def __init__(self, head):
-        super(CentralTokensHead, self).__init__()
-        self.head = head
+class CentralTokensLastLayer(torch.nn.Module):
+    def __init__(self, last_layer):
+        super(CentralTokensLastLayer, self).__init__()
+        self.last_layer = last_layer
 
-    def forward(self, central_tokens: torch.Tensor):
-        return self.head(central_tokens)
+    def forward(self, central_tokens_features: torch.Tensor):
+        return self.last_layer(central_tokens_features)
 
 
-class MessagesBondsHead(torch.nn.Module):
-    def __init__(self, head):
-        super(MessagesBondsHead, self).__init__()
-        self.head = head
+class MessagesLastLayer(torch.nn.Module):
+    def __init__(self, last_layer):
+        super(MessagesLastLayer, self).__init__()
+        self.last_layer = last_layer
 
     def forward(
         self,
-        messages: torch.Tensor,
+        messages_features: torch.Tensor,
         mask: torch.Tensor,
         multipliers: torch.Tensor,
     ):
-        predictions = self.head(messages)
+        messages_proceed = messages_features * multipliers[:, :, None]
+        messages_proceed[mask] = 0.0
+        pooled = messages_proceed.sum(dim=1)
+
+        predictions = self.last_layer(pooled)
+        return predictions
+
+
+class MessagesBondsLastLayer(torch.nn.Module):
+    def __init__(self, last_layer):
+        super(MessagesBondsLastLayer, self).__init__()
+        self.last_layer = last_layer
+
+    def forward(
+        self,
+        messages_features: torch.Tensor,
+        mask: torch.Tensor,
+        multipliers: torch.Tensor,
+    ):
+        predictions = self.last_layer(messages_features)
         mask_expanded = mask[..., None].repeat(1, 1, predictions.shape[2])
         predictions = torch.where(mask_expanded, 0.0, predictions)
         predictions = predictions * multipliers[:, :, None]

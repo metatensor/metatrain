@@ -48,17 +48,17 @@ def test_regression_init():
 
     expected_output = torch.tensor(
         [
-            [0.653782904148],
-            [0.899662137032],
-            [0.244875088334],
-            [0.846885263920],
-            [0.807604968548],
+            [0.888111233711],
+            [0.749664425850],
+            [0.341758787632],
+            [0.042623102665],
+            [0.022434651852],
         ]
     )
 
     # if you need to change the hardcoded values:
-    # torch.set_printoptions(precision=12)
-    # print(output["mtt::U0"].block().values)
+    torch.set_printoptions(precision=12)
+    print(output["mtt::U0"].block().values)
 
     torch.testing.assert_close(output["mtt::U0"].block().values, expected_output)
 
@@ -117,17 +117,17 @@ def test_regression_energies_train():
 
     expected_output = torch.tensor(
         [
-            [1.093326091766],
-            [-0.131960242987],
-            [0.212054699659],
-            [0.338528394699],
-            [-0.287360936403],
+            [-0.918320298195],
+            [-0.428599059582],
+            [-0.045029819012],
+            [-0.534373521805],
+            [-0.192955702543],
         ]
     )
 
     # if you need to change the hardcoded values:
-    # torch.set_printoptions(precision=12)
-    # print(output["mtt::U0"].block().values)
+    torch.set_printoptions(precision=12)
+    print(output["mtt::U0"].block().values)
 
     torch.testing.assert_close(output["mtt::U0"].block().values, expected_output)
 
@@ -188,22 +188,22 @@ def test_regression_energies_forces_train():
 
     expected_output = torch.tensor(
         [
-            [8.736638069153],
-            [8.789728164673],
-            [8.807537078857],
-            [8.830915451050],
-            [8.831190109253],
+            [-11.669878005981],
+            [-11.918601989746],
+            [-11.727122306824],
+            [-11.778238296509],
+            [-11.949980735779],
         ]
     )
 
     expected_gradients_output = torch.tensor(
-        [0.085952222347, -0.049893796444, -0.121401414275]
+        [-0.084277093410, 0.045288741589, 0.109097838402]
     )
 
     # if you need to change the hardcoded values:
     torch.set_printoptions(precision=12)
-    # print(output["energy"].block().values)
-    # print(output["energy"].block().gradient("positions").values.squeeze(-1)[0])
+    print(output["energy"].block().values)
+    print(output["energy"].block().gradient("positions").values.squeeze(-1)[0])
 
     torch.testing.assert_close(output["energy"].block().values, expected_output)
     torch.testing.assert_close(
