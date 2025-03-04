@@ -20,6 +20,7 @@ from metatrain.utils.data.dataset import DatasetInfo
 
 from ..utils.additive import ZBL, CompositionModel
 from ..utils.dtype import dtype_to_str
+from ..utils.long_range import DummyLongRangeFeaturizer, LongRangeFeaturizer
 from ..utils.metadata import append_metadata_references
 from ..utils.scaler import Scaler
 from .spherical import TensorBasis
@@ -176,6 +177,19 @@ class SoapBpnn(torch.nn.Module):
         else:
             self.n_inputs_last_layer = hypers_bpnn["num_neurons_per_layer"]
 
+        # long-range module
+        self.nl_options = self.soap_calculator.requested_neighbor_lists()[0]
+        if self.hypers["long_range"]["enable"]:
+            self.long_range = True
+            self.long_range_featurizer = LongRangeFeaturizer(
+                self.hypers["long_range"],
+                self.n_inputs_last_layer,
+                self.nl_options,
+            )
+        else:
+            self.long_range = False
+            self.long_range_featurizer = DummyLongRangeFeaturizer()  # for torchscript
+
         self.last_layer_feature_size = self.n_inputs_last_layer * len(self.atomic_types)
 
         self.outputs = {
@@ -310,6 +324,72 @@ class SoapBpnn(torch.nn.Module):
 
         soap_features = self.layernorm(soap_features)
         features = self.bpnn(soap_features)
+
+        if self.long_range:
+            # slightly painful because:
+            # - the features are split per center type
+            # - we have to recompute the edge vectors again outside of featomic
+
+            # first, send center_type to the samples dimension and make sure the
+            # ordering is the same as in the systems
+            merged_features = (
+                metatensor.torch.sort(
+                    features.keys_to_samples("center_type"), axes="samples"
+                )
+                .block()
+                .values
+            )
+
+            # calculate the distances between all atoms
+            # TODO: replace by something smarter once `register_autograd_neighbors`
+            # is fixed
+            edge_vectors = torch.concatenate(
+                [
+                    system.positions[
+                        system.get_neighbor_list(self.nl_options).samples.values[:, 1]
+                    ]
+                    - system.positions[
+                        system.get_neighbor_list(self.nl_options).samples.values[:, 0]
+                    ]
+                    + system.get_neighbor_list(self.nl_options)
+                    .samples.values[:, 2:]
+                    .to(system.cell.dtype)
+                    @ system.cell
+                    for system in systems
+                ]
+            )
+            distances = torch.sqrt(torch.sum(edge_vectors**2, dim=-1))
+
+            long_range_features_tensor = self.long_range_featurizer(
+                systems, merged_features, distances
+            )
+
+            # also sort the original features to avoid problems
+            features = metatensor.torch.sort(features, axes="samples")
+
+            # split the long-range features back to center types
+            center_types = torch.concatenate([system.types for system in systems])
+            long_range_features = TensorMap(
+                keys=features.keys,
+                blocks=[
+                    TensorBlock(
+                        values=long_range_features_tensor[center_types == center_type],
+                        samples=features.block(
+                            {"center_type": int(center_type)}
+                        ).samples,
+                        components=features.block(
+                            {"center_type": int(center_type)}
+                        ).components,
+                        properties=features.block(
+                            {"center_type": int(center_type)}
+                        ).properties,
+                    )
+                    for center_type in features.keys.column("center_type")
+                ],
+            )
+
+            # combine short- and long-range features
+            features = metatensor.torch.add(features, long_range_features)
 
         # output the hidden features, if requested:
         if "features" in outputs:
@@ -483,6 +563,8 @@ class SoapBpnn(torch.nn.Module):
         for additive_model in self.additive_models:
             if hasattr(additive_model, "cutoff_radius"):
                 interaction_ranges.append(additive_model.cutoff_radius)
+            if self.long_range:
+                interaction_ranges.append(torch.inf)
         interaction_range = max(interaction_ranges)
 
         capabilities = ModelCapabilities(

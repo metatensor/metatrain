@@ -29,6 +29,11 @@ architecture:
       num_neurons_per_layer: 32
     heads: {}
     zbl: false
+    long_range: 
+      enable: false
+      smearing: 1.4
+      interpolation_nodes: 5
+      mesh_spacing: 1.33
 
   training:
     distributed: False
