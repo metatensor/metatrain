@@ -316,9 +316,6 @@ class NativePET(torch.nn.Module):
                 central_tokens_feature = head(central_tokens)
                 central_tokens_features_dict[output_name].append(central_tokens_feature)
 
-                output_messages = output_messages_list[i]
-                messages_feature = head(output_messages)
-
         for output_name, bond_heads in self.bond_heads.items():
             if output_name not in messages_bonds_features_dict:
                 messages_bonds_features_dict[output_name] = []
