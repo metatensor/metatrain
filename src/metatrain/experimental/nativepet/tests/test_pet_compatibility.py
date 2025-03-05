@@ -261,7 +261,7 @@ def get_test_environment():
         cell=torch.zeros(3, 3),
         pbc=torch.tensor([False, False, False]),
     )
-
+    system.positions.requires_grad_(True)
     system = get_system_with_neighbor_lists(
         system, nativepet_model.requested_neighbor_lists()
     )
@@ -474,4 +474,54 @@ def test_predictions_compatibility():
     torch.testing.assert_close(
         nativepet_predictions["energy"].block().values,
         pet_predictions["energy"].block().values,
+    )
+
+
+def test_positions_gradients_compatibility():
+    """Tests that the gradients w.r.t positions of the
+    PET and NativePET models are the same"""
+    nativepet_model, pet_model, system = get_test_environment()
+
+    outputs = {"energy": ModelOutput(per_atom=False)}
+
+    nativepet_predictions = nativepet_model([system], outputs)
+
+    nativepet_gradients = -torch.autograd.grad(
+        nativepet_predictions["energy"].block().values[0][0],
+        system.positions,
+        torch.ones_like(nativepet_predictions["energy"].block().values[0][0]),
+        create_graph=True,
+        retain_graph=True,
+    )[0]
+
+    nl_options = nativepet_model.requested_neighbor_lists()[0]
+    batch_dict = systems_to_batch_dict(
+        [system], nl_options, nativepet_model.atomic_types, None
+    )
+    x = batch_dict["x"]
+    x.requires_grad_(True)
+
+    pet_predictions = pet_model.pet(batch_dict)["prediction"]
+
+    pet_grads_wrt_x = torch.autograd.grad(
+        pet_predictions,
+        x,
+        grad_outputs=torch.ones_like(pet_predictions),
+        create_graph=True,
+        retain_graph=True,
+    )[0]
+
+    neighbors_index = batch_dict["neighbors_index"]  # .transpose(0, 1)
+    neighbors_pos = batch_dict["neighbors_pos"]
+    grads_messaged = pet_grads_wrt_x[neighbors_index, neighbors_pos]
+    pet_grads_wrt_x[batch_dict["mask"]] = 0.0
+
+    grads_messaged[batch_dict["mask"]] = 0.0
+    first = pet_grads_wrt_x.sum(dim=1)
+    second = grads_messaged.sum(dim=1)
+    pet_gradients = first - second
+
+    torch.testing.assert_close(
+        nativepet_gradients,
+        pet_gradients,
     )
