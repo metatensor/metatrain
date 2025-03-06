@@ -16,6 +16,7 @@ architecture:
       smearing: 1.4
       interpolation_nodes: 5
       mesh_spacing: 1.33
+    excess_targets: {}
 
   training:
     distributed: False
@@ -37,3 +38,5 @@ architecture:
       type: mse
       weights: {}
       reduction: mean
+    integral_penalty: 2.0
+    gradient_penalty: 1e-4

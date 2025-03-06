@@ -36,6 +36,9 @@ from ..utils.omegaconf import BASE_OPTIONS, check_units, expand_dataset_config
 from .eval import _eval_targets
 from .formatter import CustomHelpFormatter
 
+# Here
+import metatensor.torch as mt
+
 
 logger = logging.getLogger(__name__)
 
@@ -243,7 +246,6 @@ def train_model(
         target_info_dict.update(target_info_dict_single)
 
     train_size = 1.0
-
     ############################
     # SET UP VALIDATION SET ####
     ############################
@@ -465,7 +467,12 @@ def train_model(
             mts_atomistic_model.buffers(),
         )
     ).device
-    mts_atomistic_model.save(str(output_checked), collect_extensions=extensions_path)
+    try: # LOL!
+        mts_atomistic_model.module.additive_models[0].weights['mtt::dos'] = mt.make_contiguous(mts_atomistic_model.module.additive_models[0].weights['mtt::dos'])
+    except:
+        print ("Failed to make DOS additive model contiguous, the target probably does not exist")
+
+    mts_atomistic_model.save(str(output_checked), collect_extensions=extensions_path) # <---- This is the line that is causing the error
     # the model is first saved and then reloaded 1) for good practice and 2) because
     # MetatensorAtomisticModel only torchscripts (makes faster) during save()
 
@@ -479,7 +486,6 @@ def train_model(
                 f"{Path(output_checked).stem}.ckpt",
                 Path(checkpoint_dir) / f"{Path(output_checked).stem}.ckpt",
             )
-
     ###########################
     # EVALUATE FINAL MODEL ####
     ###########################

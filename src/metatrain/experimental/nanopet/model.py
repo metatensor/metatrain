@@ -63,6 +63,24 @@ class NanoPET(torch.nn.Module):
 
         self.hypers = model_hypers
         self.dataset_info = dataset_info
+        # LOL!
+        for i in self.hypers["excess_targets"]:
+            additional_output = int(self.hypers["excess_targets"][i])
+            target_size = dataset_info.targets[i].layout[0].values.shape[1]
+            prediction_size = target_size + additional_output
+            output_block = metatensor.torch.TensorBlock(
+                values= torch.empty(0, prediction_size).double(),
+                samples=metatensor.torch.Labels.empty('system'),
+                components=[],
+                # properties=metatensor.torch.Labels.single(),
+                properties=metatensor.torch.Labels.range("Energy", prediction_size)
+                )
+            output_map = metatensor.torch.TensorMap(
+                keys = metatensor.torch.Labels.single(),
+                blocks = [output_block]
+            )
+            dataset_info.targets['mtt::dos'].layout = output_map
+
         self.new_outputs = list(dataset_info.targets.keys())
         self.atomic_types = dataset_info.atomic_types
 
@@ -559,7 +577,7 @@ class NanoPET(torch.nn.Module):
         self.to(dtype)
 
         # Additionally, the composition model contains some `TensorMap`s that cannot
-        # be registered correctly with Pytorch. This funciton moves them:
+        # be registered correctly with Pytorch. This function moves them:
         self.additive_models[0]._move_weights_to_device_and_dtype(
             torch.device("cpu"), torch.float64
         )
@@ -598,7 +616,6 @@ class NanoPET(torch.nn.Module):
             self.output_shapes[target_name][dict_key] = [
                 len(comp.values) for comp in block.components
             ] + [len(block.properties.values)]
-
         self.outputs[target_name] = ModelOutput(
             quantity=target_info.quantity,
             unit=target_info.unit,
