@@ -27,7 +27,7 @@ from ...utils.transfer import (
     systems_and_targets_to_device,
     systems_and_targets_to_dtype,
 )
-from .model import NanoPETMD
+from .model import NanoPETImplicit
 from .modules.augmentation import RotationalAugmenter
 
 
@@ -46,14 +46,14 @@ class Trainer:
 
     def train(
         self,
-        model: NanoPETMD,
+        model: NanoPETImplicit,
         dtype: torch.dtype,
         devices: List[torch.device],
         train_datasets: List[Union[Dataset, torch.utils.data.Subset]],
         val_datasets: List[Union[Dataset, torch.utils.data.Subset]],
         checkpoint_dir: str,
     ):
-        assert dtype in NanoPETMD.__supported_dtypes__
+        assert dtype in NanoPETImplicit.__supported_dtypes__
 
         is_distributed = self.hypers["distributed"]
 

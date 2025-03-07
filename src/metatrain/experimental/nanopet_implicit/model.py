@@ -37,7 +37,7 @@ import warnings
 warnings.filterwarnings("ignore")
 
 
-class NanoPETMD(torch.nn.Module):
+class NanoPETImplicit(torch.nn.Module):
     """
     Re-implementation of the PET architecture (https://arxiv.org/pdf/2305.19302).
 
@@ -82,46 +82,11 @@ class NanoPETMD(torch.nn.Module):
         for target_name, target_info in dataset_info.targets.items():
             self._add_output(target_name, target_info)
 
-        self.is_direct = False
-        self.is_separable = False
-        self.kinetic_model = None
-
-        dataset_info_for_nanopet = {}
-        if model_hypers["hamiltonian"] == "direct":
-            dataset_info_for_nanopet = DatasetInfo(
-                length_unit=dataset_info.length_unit,
-                atomic_types=dataset_info.atomic_types,
-                targets={"mtt::delta_q": dataset_info.targets["mtt::delta_q"], "mtt::delta_p": dataset_info.targets["mtt::delta_p"]}
-            )
-            self.is_direct = True
-        elif model_hypers["hamiltonian"] == "separable":
-            dataset_info_for_nanopet = DatasetInfo(
-                length_unit=dataset_info.length_unit,
-                atomic_types=dataset_info.atomic_types,
-                targets={"energy": get_energy_target_info({"quantity": "energy", "unit": ""})}
-            )
-            self.is_separable = True
-            self.kinetic_model = ...
-        elif model_hypers["hamiltonian"] == "generic":
-            dataset_info_for_nanopet = DatasetInfo(
-                length_unit=dataset_info.length_unit,
-                atomic_types=dataset_info.atomic_types,
-                targets={"mtt::hamiltonian": get_energy_target_info({"quantity": "energy", "unit": ""})}
-            )
-        else:
-            raise ValueError()
-        
-        self.is_euler = False
-        self.is_vv = False
-        self.is_nsi = False
-        if model_hypers["integrator"] == "euler":
-            self.is_euler = True
-        elif model_hypers["integrator"] == "vv":
-            self.is_vv = True
-        elif model_hypers["integrator"] == "nsi":
-            self.is_nsi = True
-        else:
-            raise ValueError()
+        dataset_info_for_nanopet = DatasetInfo(
+            length_unit=dataset_info.length_unit,
+            atomic_types=dataset_info.atomic_types,
+            targets={"mtt::hamiltonian": get_energy_target_info({"quantity": "energy", "unit": ""})}
+        )
 
         self.model = NanoPET(model_hypers, dataset_info=dataset_info_for_nanopet)
 
@@ -157,88 +122,67 @@ class NanoPETMD(torch.nn.Module):
         assert "mtt::delta_p" in outputs.keys()
 
         return_dict: Dict[str, TensorMap] = {}
-        if self.is_direct:
-            return_dict = self.model(systems, outputs, selected_atoms)
-        else:
-            qs = [system.positions.detach() for system in systems]
-            ps = [system.get_data("momenta").block().values.squeeze(-1).detach() for system in systems]
 
-            if self.is_euler:
-                dHdqs, dHdps = self._get_H_derivatives(systems, qs, ps)
-                qs = [q + dHdp for q, dHdp in zip(qs, dHdps)]
-                ps = [p - dHdq for p, dHdq in zip(ps, dHdqs)]
+        qs = [system.positions.detach() for system in systems]
+        ps = [system.get_data("momenta").block().values.squeeze(-1).detach() for system in systems]
 
-            elif self.is_vv:
-                dHdqs = self._get_dHdq(systems, qs, ps)
-                ps = [p - 0.5*dHdq for p, dHdq in zip(ps, dHdqs)]
+        dHdqs, dHdps = self._get_H_derivatives(systems, qs, ps)
 
-                dHdps = self._get_dHdp(systems, qs, ps)
-                qs = [q + dHdp for q, dHdp in zip(qs, dHdps)]
+        delta_qs = torch.concatenate(dHdps)
+        delta_ps = -torch.concatenate(dHdqs)
 
-                dHdqs = self._get_dHdq(systems, qs, ps)
-                ps = [p - 0.5*dHdq for p, dHdq in zip(ps, dHdqs)]
-            
-            else:
-                raise ValueError()
-
-            delta_qs = [q - system.positions for q, system in zip(qs, systems)]
-            delta_ps = [p - system.get_data("momenta").block().values.squeeze(-1) for p, system in zip(ps, systems)]
-
-            delta_qs = torch.concatenate(delta_qs)
-            delta_ps = torch.concatenate(delta_ps)
-
-            system_indices = torch.concatenate(
-                [
-                    torch.full(
-                        (len(system),),
-                        i_system,
-                        device=system.device,
-                    )
-                    for i_system, system in enumerate(systems)
-                ],
-            )
-
-            sample_values = torch.stack(
-                [
-                    system_indices,
-                    torch.concatenate(
-                        [
-                            torch.arange(
-                                len(system),
-                                device=system.device,
-                            )
-                            for system in systems
-                        ],
-                    ),
-                ],
-                dim=1,
-            )
-            sample_labels = Labels(
-                names=["system", "atom"],
-                values=sample_values,
-            )
-
-            for output_name in outputs:
-                atomic_features = (delta_qs if output_name == "mtt::delta_q" else delta_ps)
-                atomic_properties_by_block = [atomic_features]
-                blocks = [
-                    TensorBlock(
-                        values=atomic_property.reshape([-1] + shape),
-                        samples=sample_labels,
-                        components=components,
-                        properties=properties,
-                    )
-                    for atomic_property, shape, components, properties in zip(
-                        atomic_properties_by_block,
-                        self.output_shapes[output_name].values(),
-                        self.component_labels[output_name],
-                        self.property_labels[output_name],
-                    )
-                ]
-                return_dict[output_name] = TensorMap(
-                    keys=self.key_labels[output_name],
-                    blocks=blocks,
+        system_indices = torch.concatenate(
+            [
+                torch.full(
+                    (len(system),),
+                    i_system,
+                    device=system.device,
                 )
+                for i_system, system in enumerate(systems)
+            ],
+        )
+
+        sample_values = torch.stack(
+            [
+                system_indices,
+                torch.concatenate(
+                    [
+                        torch.arange(
+                            len(system),
+                            device=system.device,
+                        )
+                        for system in systems
+                    ],
+                ),
+            ],
+            dim=1,
+        )
+        sample_labels = Labels(
+            names=["system", "atom"],
+            values=sample_values,
+        )
+
+        for output_name in outputs:
+            atomic_features = (delta_qs if output_name == "mtt::delta_q" else delta_ps)
+            atomic_properties_by_block = [atomic_features]
+            blocks = [
+                TensorBlock(
+                    values=atomic_property.reshape([-1] + shape),
+                    samples=sample_labels,
+                    components=components,
+                    properties=properties,
+                )
+                for atomic_property, shape, components, properties in zip(
+                    atomic_properties_by_block,
+                    self.output_shapes[output_name].values(),
+                    self.component_labels[output_name],
+                    self.property_labels[output_name],
+                )
+            ]
+            return_dict[output_name] = TensorMap(
+                keys=self.key_labels[output_name],
+                blocks=blocks,
+            )
 
         if not self.training:
             # at evaluation, we also introduce the scaler
