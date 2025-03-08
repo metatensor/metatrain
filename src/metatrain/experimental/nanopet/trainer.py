@@ -405,7 +405,9 @@ class Trainer:
 
                 if is_distributed:
                     # sum the loss over all processes
-                    torch.distributed.all_reduce(train_loss_batch)
+                    torch.distributed.all_reduce(dos_loss)
+                    torch.distributed.all_reduce(int_MSE)
+                    torch.distributed.all_reduce(gradient_loss)
                 train_loss += (dos_loss + int_MSE).detach().cpu().numpy() * len(dos_target)
                 # train_rmse_calculator.update(predictions, targets)
                 # if self.hypers["log_mae"]:
