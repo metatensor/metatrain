@@ -16,6 +16,7 @@ from metatensor.torch.atomistic import (
 
 from ...utils.additive import ZBL, CompositionModel
 from ...utils.data import DatasetInfo, TargetInfo
+from ...utils.data.target_info import get_energy_target_info
 from ...utils.dtype import dtype_to_str
 from ...utils.long_range import DummyLongRangeFeaturizer, LongRangeFeaturizer
 from ...utils.metadata import append_metadata_references
@@ -32,7 +33,7 @@ from .modules.structures import concatenate_structures
 from .modules.transformer import Transformer
 
 
-class NanoPET(torch.nn.Module):
+class NanoPETImplicit2(torch.nn.Module):
     """
     Re-implementation of the PET architecture (https://arxiv.org/pdf/2305.19302).
 
@@ -122,6 +123,7 @@ class NanoPET(torch.nn.Module):
         self.key_labels: Dict[str, Labels] = {}
         self.component_labels: Dict[str, List[List[Labels]]] = {}
         self.property_labels: Dict[str, List[Labels]] = {}
+        self._add_output("mtt::hamiltonian", get_energy_target_info({"quantity": "energy", "unit": ""}))
         for target_name, target_info in dataset_info.targets.items():
             self._add_output(target_name, target_info)
 
@@ -184,7 +186,7 @@ class NanoPET(torch.nn.Module):
 
         self.single_label = Labels.single()
 
-    def restart(self, dataset_info: DatasetInfo) -> "NanoPET":
+    def restart(self, dataset_info: DatasetInfo) -> "NanoPETImplicit2":
         # merge old and new dataset info
         merged_info = self.dataset_info.union(dataset_info)
         new_atomic_types = [
@@ -233,6 +235,8 @@ class NanoPET(torch.nn.Module):
     ) -> Dict[str, TensorMap]:
         # Checks on systems (species) and outputs are done in the
         # MetatensorAtomisticModel wrapper
+
+        outputs = {"mtt::hamiltonian": ModelOutput()}
 
         device = systems[0].device
 
@@ -293,6 +297,7 @@ class NanoPET(torch.nn.Module):
             cells,
             cell_shifts,
         ) = concatenate_structures(systems, self.requested_nl)
+        positions.requires_grad_(True)
 
         # somehow the backward of this operation is very slow at evaluation,
         # where there is only one cell, therefore we simplify the calculation
@@ -344,15 +349,16 @@ class NanoPET(torch.nn.Module):
             momenta = torch.concatenate(
                 [system.get_data("momenta").block().values.squeeze(-1) for system in systems]
             )
+            momenta.requires_grad_(True)
         else:
             raise ValueError("Didn't find momenta :(")
             momenta = [torch.zeros_like(system.positions) for system in systems]
-        momenta = momenta[neighbors]
-        momenta = edge_array_to_nef(momenta, nef_indices)
+        momenta_edge = momenta[neighbors]
+        momenta_edge = edge_array_to_nef(momenta_edge, nef_indices)
 
         features = {
             "cartesian": edge_vectors,
-            "momenta": momenta,
+            "momenta": momenta_edge,
             "center": element_indices_centers,
             "neighbor": element_indices_neighbors,
         }
@@ -515,6 +521,32 @@ class NanoPET(torch.nn.Module):
                     atomic_property, ["atom"]
                 )
 
+        ham_sum = return_dict["mtt::hamiltonian"].block().values.sum()
+        dHdq, dHdp = torch.autograd.grad(ham_sum, [positions, momenta], retain_graph=self.training, create_graph=self.training)
+        return_dict["mtt::delta_q"] = TensorMap(
+            keys=self.single_label,
+            blocks=[
+                TensorBlock(
+                    values=dHdp.unsqueeze(-1),
+                    samples=sample_labels,
+                    components=[Labels(names="xyz", values=torch.tensor([[0], [1], [2]], device=device))],
+                    properties=self.single_label,
+                )
+            ],
+        )
+        return_dict["mtt::delta_p"] = TensorMap(
+            keys=self.single_label,
+            blocks=[
+                TensorBlock(
+                    values=-dHdq.unsqueeze(-1),
+                    samples=sample_labels,
+                    components=[Labels(names="xyz", values=torch.tensor([[0], [1], [2]], device=device))],
+                    properties=self.single_label,
+                )
+            ],
+        )
+        return_dict.pop("mtt::hamiltonian")
+
         if not self.training:
             # at evaluation, we also introduce the scaler and additive contributions
             return_dict = self.scaler(return_dict)
@@ -542,7 +574,7 @@ class NanoPET(torch.nn.Module):
         return [self.requested_nl]
 
     @classmethod
-    def load_checkpoint(cls, path: Union[str, Path]) -> "NanoPET":
+    def load_checkpoint(cls, path: Union[str, Path]) -> "NanoPETImplicit2":
         # Load the checkpoint
         checkpoint = torch.load(path, weights_only=False, map_location="cpu")
         model_data = checkpoint["model_data"]
@@ -562,7 +594,7 @@ class NanoPET(torch.nn.Module):
     ) -> MetatensorAtomisticModel:
         dtype = next(self.parameters()).dtype
         if dtype not in self.__supported_dtypes__:
-            raise ValueError(f"unsupported dtype {dtype} for NanoPET")
+            raise ValueError(f"unsupported dtype {dtype} for NanoPETImplicit2")
 
         # Make sure the model is all in the same dtype
         # For example, after training, the additive models could still be in
@@ -615,43 +647,45 @@ class NanoPET(torch.nn.Module):
             unit=target_info.unit,
             per_atom=True,
         )
-        if (
-            target_name not in self.head_types  # default to MLP
-            or self.head_types[target_name] == "mlp"
-        ):
-            self.heads[target_name] = torch.nn.Sequential(
-                torch.nn.Linear(
-                    self.hypers["d_pet"], 4 * self.hypers["d_pet"], bias=False
-                ),
-                torch.nn.SiLU(),
-                torch.nn.Linear(
-                    4 * self.hypers["d_pet"], self.hypers["d_pet"], bias=False
-                ),
-                torch.nn.SiLU(),
-            )
-        elif self.head_types[target_name] == "linear":
-            self.heads[target_name] = torch.nn.Sequential()
-        else:
-            raise ValueError(
-                f"Unsupported head type {self.head_types[target_name]} "
-                f"for target {target_name}"
-            )
 
-        ll_features_name = (
-            f"mtt::aux::{target_name.replace('mtt::', '')}_last_layer_features"
-        )
-        self.outputs[ll_features_name] = ModelOutput(per_atom=True)
-
-        self.last_layers[target_name] = torch.nn.ModuleDict(
-            {
-                key: torch.nn.Linear(
-                    self.hypers["d_pet"],
-                    prod(shape),
-                    bias=False,
+        if target_name == "mtt::hamiltonian":
+            if (
+                target_name not in self.head_types  # default to MLP
+                or self.head_types[target_name] == "mlp"
+            ):
+                self.heads[target_name] = torch.nn.Sequential(
+                    torch.nn.Linear(
+                        self.hypers["d_pet"], 4 * self.hypers["d_pet"], bias=False
+                    ),
+                    torch.nn.SiLU(),
+                    torch.nn.Linear(
+                        4 * self.hypers["d_pet"], self.hypers["d_pet"], bias=False
+                    ),
+                    torch.nn.SiLU(),
                 )
-                for key, shape in self.output_shapes[target_name].items()
-            }
-        )
+            elif self.head_types[target_name] == "linear":
+                self.heads[target_name] = torch.nn.Sequential()
+            else:
+                raise ValueError(
+                    f"Unsupported head type {self.head_types[target_name]} "
+                    f"for target {target_name}"
+                )
+
+            ll_features_name = (
+                f"mtt::aux::{target_name.replace('mtt::', '')}_last_layer_features"
+            )
+            self.outputs[ll_features_name] = ModelOutput(per_atom=True)
+
+            self.last_layers[target_name] = torch.nn.ModuleDict(
+                {
+                    key: torch.nn.Linear(
+                        self.hypers["d_pet"],
+                        prod(shape),
+                        bias=False,
+                    )
+                    for key, shape in self.output_shapes[target_name].items()
+                }
+            )
 
         self.key_labels[target_name] = target_info.layout.keys
         self.component_labels[target_name] = [

@@ -268,6 +268,64 @@ class NanoPETImplicit(torch.nn.Module):
             new_systems,
             {"mtt::hamiltonian": ModelOutput()}
         )["mtt::hamiltonian"].block().values
+    
+    @classmethod
+    def load_checkpoint(cls, path: Union[str, Path]) -> "NanoPET":
+        # Load the checkpoint
+        checkpoint = torch.load(path, weights_only=False, map_location="cpu")
+        model_data = checkpoint["model_data"]
+        model_state_dict = checkpoint["model_state_dict"]
+
+        # Create the model
+        model = cls(**model_data)
+        state_dict_iter = iter(model_state_dict.values())
+        next(state_dict_iter)  # skip `species_to_species_index` buffer (int)
+        dtype = next(state_dict_iter).dtype
+        model.to(dtype).load_state_dict(model_state_dict)
+
+        return model
+
+    def export(
+        self, metadata: Optional[ModelMetadata] = None
+    ) -> MetatensorAtomisticModel:
+        dtype = next(self.parameters()).dtype
+        if dtype not in self.__supported_dtypes__:
+            raise ValueError(f"unsupported dtype {dtype} for NanoPET")
+
+        # Make sure the model is all in the same dtype
+        # For example, after training, the additive models could still be in
+        # float64
+        self.to(dtype)
+
+        # Additionally, the composition model contains some `TensorMap`s that cannot
+        # be registered correctly with Pytorch. This funciton moves them:
+        self.model.additive_models[0]._move_weights_to_device_and_dtype(
+            torch.device("cpu"), torch.float64
+        )
+
+        interaction_ranges = [self.hypers["num_gnn_layers"] * self.hypers["cutoff"]]
+        for additive_model in self.model.additive_models:
+            if hasattr(additive_model, "cutoff_radius"):
+                interaction_ranges.append(additive_model.cutoff_radius)
+            if self.model.long_range:
+                interaction_ranges.append(torch.inf)
+        interaction_range = max(interaction_ranges)
+
+        capabilities = ModelCapabilities(
+            outputs=self.outputs,
+            atomic_types=self.model.atomic_types,
+            interaction_range=interaction_range,
+            length_unit=self.dataset_info.length_unit,
+            supported_devices=self.__supported_devices__,
+            dtype=dtype_to_str(dtype),
+        )
+
+        if metadata is None:
+            metadata = ModelMetadata()
+
+        append_metadata_references(metadata, self.__default_metadata__)
+
+        return MetatensorAtomisticModel(self.eval(), metadata, capabilities)
 
     def _add_output(self, target_name: str, target_info: TargetInfo) -> None:
         # one output shape for each tensor block, grouped by target (i.e. tensormap)

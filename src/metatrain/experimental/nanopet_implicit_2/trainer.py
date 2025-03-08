@@ -27,7 +27,7 @@ from ...utils.transfer import (
     systems_and_targets_to_device,
     systems_and_targets_to_dtype,
 )
-from .model import NanoPETImplicit
+from .model import NanoPETImplicit2
 from .modules.augmentation import RotationalAugmenter
 
 
@@ -46,14 +46,14 @@ class Trainer:
 
     def train(
         self,
-        model: NanoPETImplicit,
+        model: NanoPETImplicit2,
         dtype: torch.dtype,
         devices: List[torch.device],
         train_datasets: List[Union[Dataset, torch.utils.data.Subset]],
         val_datasets: List[Union[Dataset, torch.utils.data.Subset]],
         checkpoint_dir: str,
     ):
-        assert dtype in NanoPETImplicit.__supported_dtypes__
+        assert dtype in NanoPETImplicit2.__supported_dtypes__
 
         is_distributed = self.hypers["distributed"]
 
@@ -115,21 +115,22 @@ class Trainer:
         model.to(device=device, dtype=dtype)
         # The additive models of the SOAP-BPNN are always in float64 (to avoid
         # numerical errors in the composition weights, which can be very large).
-        # for additive_model in model.additive_models:
-        #     additive_model.to(dtype=torch.float64)
+        for additive_model in model.additive_models:
+            additive_model.to(dtype=torch.float64)
 
-        # logger.info("Calculating composition weights")
-        # model.additive_models[0].train_model(  # this is the composition model
-        #     train_datasets,
-        #     model.additive_models[1:],
-        #     self.hypers["fixed_composition_weights"],
-        # )
+        logger.info("Calculating composition weights")
+        model.additive_models[0].train_model(  # this is the composition model
+            train_datasets,
+            model.additive_models[1:],
+            self.hypers["fixed_composition_weights"],
+        )
 
         if self.hypers["scale_targets"]:
             logger.info("Calculating scaling weights")
-            model.scaler.train_model(
-                train_datasets, [], treat_as_additive=True
-            )
+            # model.scaler.train_model(
+            #     train_datasets, model.additive_models, treat_as_additive=True
+            # )
+            print(model.scaler.scales)
 
         if is_distributed:
             model = DistributedDataParallel(model, device_ids=[device])
@@ -286,12 +287,12 @@ class Trainer:
                 systems, targets = systems_and_targets_to_device(
                     systems, targets, device
                 )
-                # for additive_model in (
-                #     model.module if is_distributed else model
-                # ).additive_models:
-                #     targets = remove_additive(
-                #         systems, targets, additive_model, train_targets
-                #     )
+                for additive_model in (
+                    model.module if is_distributed else model
+                ).additive_models:
+                    targets = remove_additive(
+                        systems, targets, additive_model, train_targets
+                    )
                 targets = remove_scale(
                     targets, (model.module if is_distributed else model).scaler
                 )
@@ -343,12 +344,12 @@ class Trainer:
                 targets = {
                     key: value.to(device=device) for key, value in targets.items()
                 }
-                # for additive_model in (
-                #     model.module if is_distributed else model
-                # ).additive_models:
-                #     targets = remove_additive(
-                #         systems, targets, additive_model, train_targets
-                #     )
+                for additive_model in (
+                    model.module if is_distributed else model
+                ).additive_models:
+                    targets = remove_additive(
+                        systems, targets, additive_model, train_targets
+                    )
                 targets = remove_scale(
                     targets, (model.module if is_distributed else model).scaler
                 )
@@ -476,7 +477,7 @@ class Trainer:
 
     def save_checkpoint(self, model, path: Union[str, Path]):
         checkpoint = {
-            "architecture_name": "experimental.nanopet",
+            "architecture_name": "experimental.nanopet_implicit_2",
             "model_data": {
                 "model_hypers": model.hypers,
                 "dataset_info": model.dataset_info,

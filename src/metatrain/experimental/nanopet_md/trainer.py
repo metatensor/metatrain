@@ -277,7 +277,6 @@ class Trainer:
 
             train_loss = 0.0
             for batch in train_dataloader:
-                print("batch")
                 optimizer.zero_grad()
 
                 systems, targets = batch
