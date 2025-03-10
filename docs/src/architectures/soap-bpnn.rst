@@ -89,8 +89,7 @@ model
   (faster for smaller systems); ``smearing``: the width of the Gaussian function used
   to approximate the charge distribution in Fourier space; ``kspace_resolution``: the
   spatial resolution of the Fourier-space used for calculating long-range interactions;
-  ``prefactor``: conversion factor from Gaussian units used in the long-range calculator
-  to user's units; ``interpolation_nodes``: the number of grid points used in spline
+  ``interpolation_nodes``: the number of grid points used in spline
   interpolation for the P3M method.
 
 soap
