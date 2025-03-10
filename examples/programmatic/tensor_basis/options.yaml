@@ -1,0 +1,41 @@
+device: cpu
+base_precision: 32
+seed: 42
+
+architecture:
+  name: soap_bpnn
+  model:
+    soap:
+      cutoff:
+        radius: 5.0
+      basis:
+        max_angular: 6
+        radial:
+          max_radial: 7
+    bpnn:
+      layernorm: true
+      num_hidden_layers: 2
+      num_neurons_per_layer: 32
+    
+  training:
+    log_mae: true
+    checkpoint_interval: 10
+    num_epochs: 10
+
+training_set:
+  systems:
+    read_from: qm7x_reduced_100.xyz
+    length_unit: angstrom
+  targets:
+    mtt::polarizability:
+      quantity: polarizability
+      read_from: spherical_polarizability.mts
+      per_atom: False
+      type: 
+        spherical:
+          irreps:
+            - {"o3_lambda": 0, "o3_sigma": 1}
+            - {"o3_lambda": 2, "o3_sigma": 1}
+
+test_set: 0.1
+validation_set: 0.1
