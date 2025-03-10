@@ -55,9 +55,6 @@
             "kspace_resolution": {
               "type": "number"
             },
-            "prefactor": {
-              "type": "number"
-            },
             "interpolation_nodes": {
               "type": "integer"
             }

@@ -34,7 +34,6 @@ architecture:
       use_ewald: false
       smearing: 1.4
       kspace_resolution: 1.33
-      prefactor: 1.0
       interpolation_nodes: 5
 
   training:

@@ -35,7 +35,6 @@ class LongRangeFeaturizer(torch.nn.Module):
                 ),
                 full_neighbor_list=neighbor_list_options.full_list,
                 lr_wavelength=hypers["kspace_resolution"],
-                prefactor=hypers["prefactor"],
             )
         else:
             self.calculator = P3MCalculator(
@@ -46,9 +45,21 @@ class LongRangeFeaturizer(torch.nn.Module):
                 interpolation_nodes=hypers["interpolation_nodes"],
                 full_neighbor_list=neighbor_list_options.full_list,
                 mesh_spacing=hypers["kspace_resolution"],
-                prefactor=hypers["prefactor"],
             )
-
+        # this calculator will be used during inference as system
+        # sizes can be bigger than those used in training making Ewald
+        # a bad choice. The parameters here are pre-tuned and should be
+        # OK for most systems.
+        self.forward_calculator = P3MCalculator(
+            potential=CoulombPotential(
+                smearing=1.4,
+                exclusion_radius=neighbor_list_options.cutoff,
+            ),
+            interpolation_nodes=5,
+            full_neighbor_list=neighbor_list_options.full_list,
+            mesh_spacing=1.33,
+        )
+        self.use_ewald = hypers["use_ewald"]
         self.direct_calculator = Calculator(
             potential=CoulombPotential(
                 smearing=None,
@@ -102,13 +113,22 @@ class LongRangeFeaturizer(torch.nn.Module):
                 )
 
             if system.pbc.all():  # periodic
-                potential = self.calculator.forward(
-                    charges=system_charges,
-                    cell=system.cell,
-                    positions=system.positions,
-                    neighbor_indices=neighbor_indices_system,
-                    neighbor_distances=neighbor_distances_system,
-                )
+                if self.use_ewald and not self.training:
+                    potential = self.forward_calculator.forward(
+                        charges=system_charges,
+                        cell=system.cell,
+                        positions=system.positions,
+                        neighbor_indices=neighbor_indices_system,
+                        neighbor_distances=neighbor_distances_system,
+                    )
+                else:
+                    potential = self.calculator.forward(
+                        charges=system_charges,
+                        cell=system.cell,
+                        positions=system.positions,
+                        neighbor_indices=neighbor_indices_system,
+                        neighbor_distances=neighbor_distances_system,
+                    )
             else:  # non-periodic
                 # compute the distance between all pairs of atoms
                 neighbor_indices_system = torch.combinations(
