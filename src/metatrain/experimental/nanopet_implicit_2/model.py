@@ -356,9 +356,21 @@ class NanoPETImplicit2(torch.nn.Module):
         momenta_edge = momenta[neighbors]
         momenta_edge = edge_array_to_nef(momenta_edge, nef_indices)
 
+        if "time_lag" in systems[0].known_data():
+            time_lag = torch.concatenate(
+                [system.get_data("time_lag").block().values for system in systems]
+            )
+            assert torch.max(time_lag - time_lag[0]) < 1e-6  # all the same
+            time_lag_int = int(time_lag[0])
+        else:
+            raise ValueError("Didn't find time_lag :(")
+        time_lag_edge = time_lag[sample_labels.column("system")][neighbors]
+        time_lag_edge = edge_array_to_nef(time_lag_edge, nef_indices)
+
         features = {
             "cartesian": edge_vectors,
             "momenta": momenta_edge,
+            "time_lag": time_lag_edge,
             "center": element_indices_centers,
             "neighbor": element_indices_neighbors,
         }
@@ -523,7 +535,7 @@ class NanoPETImplicit2(torch.nn.Module):
 
         ham_sum = return_dict["mtt::hamiltonian"].block().values.sum()
         dHdq, dHdp = torch.autograd.grad(ham_sum, [positions, momenta], retain_graph=self.training, create_graph=self.training)
-        return_dict["mtt::delta_q"] = TensorMap(
+        return_dict[f"mtt::delta_{time_lag_int}_q"] = TensorMap(
             keys=self.single_label,
             blocks=[
                 TensorBlock(
@@ -534,7 +546,7 @@ class NanoPETImplicit2(torch.nn.Module):
                 )
             ],
         )
-        return_dict["mtt::delta_p"] = TensorMap(
+        return_dict[f"mtt::delta_{time_lag_int}_p"] = TensorMap(
             keys=self.single_label,
             blocks=[
                 TensorBlock(

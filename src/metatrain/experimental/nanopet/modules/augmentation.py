@@ -186,18 +186,24 @@ def _apply_random_augmentations(
                 ),
             )
         for key in system.known_data():
-            new_system.add_data(
-                key,
-                TensorMap(
-                    keys=system.get_data(key).keys,
-                    blocks=[TensorBlock(
-                        values=(system.get_data(key).block().values.squeeze(-1) @ transformation.T).unsqueeze(-1),
-                        samples=system.get_data(key).block().samples,
-                        components=system.get_data(key).block().components,
-                        properties=system.get_data(key).block().properties,
-                    )],
-                ),
-            )
+            if key == "momenta":
+                new_system.add_data(
+                    key,
+                    TensorMap(
+                        keys=system.get_data(key).keys,
+                        blocks=[TensorBlock(
+                            values=(system.get_data(key).block().values.squeeze(-1) @ transformation.T).unsqueeze(-1),
+                            samples=system.get_data(key).block().samples,
+                            components=system.get_data(key).block().components,
+                            properties=system.get_data(key).block().properties,
+                        )],
+                    ),
+                )
+            else:
+                new_system.add_data(
+                    key,
+                    system.get_data(key),
+                )
         new_systems.append(new_system)
 
     # Apply the transformation to the targets
