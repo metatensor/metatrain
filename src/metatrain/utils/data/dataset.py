@@ -4,6 +4,8 @@ import warnings
 import zipfile
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple, Union
+from torch.utils.data import DataLoader, DistributedSampler
+from ..distributed import is_distributed
 
 import numpy as np
 import torch
@@ -196,13 +198,81 @@ def get_atomic_types(datasets: Union[Dataset, List[Dataset]]) -> List[int]:
     if not isinstance(datasets, list):
         datasets = [datasets]
 
-    types = set()
-    for dataset in datasets:
-        for sample in dataset:
-            system = sample["system"]
-            types.update(set(system.types.tolist()))
+        is_distributed = is_distributed()
 
-    return sorted(types)
+        if is_distributed:
+            torch.distributed.init_process_group(backend="nccl")
+            samplers = [
+                DistributedSampler(
+                    dataset,
+                    num_replicas=torch.distributed.get_world_size(),
+                    rank=torch.distributed.get_rank(),
+                    shuffle=False,
+                    drop_last=False,
+                )
+                for dataset in datasets
+            ]
+            dataloaders = [
+                DataLoader(
+                    dataset,
+                    sampler=sampler,
+                )
+                for dataset, sampler in zip(datasets, samplers)
+            ]
+            local_types = set()
+
+            # Process only the assigned data chunk
+            for dataloader in dataloaders:
+                for sample in dataloader:
+                    system = sample["system"]
+                    local_types.update(set(system.types.tolist()))
+
+            # Convert set to a list for communication
+            local_types_list = sorted(types)
+
+            # Use all_gather_object to collect results from all processes
+            gathered_types = [None] * torch.distributed.get_world_size()
+            torch.distributed.all_gather_object(gathered_types, local_types_list)
+
+            # Merge results from all ranks
+            global_types = set()
+            for types in gathered_types:
+                global_types.update(types)
+            
+            torch.distributed.destroy_process_group()
+            return sorted(global_types)
+        else:
+            types = set()
+            for dataset in datasets:
+                for sample in dataset:
+                    system = sample["system"]
+                    types.update(set(system.types.tolist()))
+
+            return sorted(types)
+
+def compute_unique_types(dataloader):
+    """Computes unique types in parallel using PyTorch distributed"""
+    local_types = set()
+
+    # Process only the assigned data chunk
+    for batch in dataloader:
+        for types_list in batch:
+            local_types.update(types_list)
+
+    # Convert set to a list for communication
+    local_types_list = sorted(local_types)
+
+    # Use all_gather_object to collect results from all processes
+    gathered_types = [None] * dist.get_world_size()
+    dist.all_gather_object(gathered_types, local_types_list)
+
+    # Merge results from all ranks
+    global_types = set()
+    for types in gathered_types:
+        global_types.update(types)
+
+    return sorted(global_types)
+
 
 
 def get_all_targets(datasets: Union[Dataset, List[Dataset]]) -> List[str]:
