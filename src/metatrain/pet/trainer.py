@@ -39,7 +39,7 @@ from .modules.utilities import (
     string2dtype,
 )
 from .utils import dataset_to_ase, load_raw_pet_model, update_hypers
-from .utils.fine_tuning import LoRAWrapper, HeadsFTWrapper
+from .utils.fine_tuning import HeadsFTWrapper, LoRAWrapper
 
 
 logger = logging.getLogger(__name__)
@@ -280,16 +280,14 @@ Units of the Energy and Forces are the same units given in input"""
                 "Number of trainable parameters: "
                 + f"{num_trainable_params} [{fraction:.2f}%]"
             )
-        
+
         if FITTING_SCHEME.FINETUNE_HEADS:
             pet_model = HeadsFTWrapper(pet_model)
             num_trainable_params = sum(
                 [p.numel() for p in pet_model.parameters() if p.requires_grad]
             )
             fraction = num_trainable_params / num_params * 100
-            logging.info(
-                f"Training only heads"
-            )
+            logging.info("Training only heads")
             logging.info(
                 "Number of trainable parameters: "
                 + f"{num_trainable_params} [{fraction:.2f}%]"
