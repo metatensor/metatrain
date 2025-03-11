@@ -20,22 +20,31 @@ class LongRangeFeaturizer(torch.nn.Module):
 
         try:
             from torchpme import CoulombPotential
-            from torchpme.calculators import Calculator, P3MCalculator
+            from torchpme.calculators import Calculator, EwaldCalculator, P3MCalculator
         except ImportError:
             raise ImportError(
                 "`torch-pme` is required for long-range models. "
                 "Please install it with `pip install torch-pme`."
             )
 
-        self.calculator = P3MCalculator(
+        self.ewald_calculator = EwaldCalculator(
+            potential=CoulombPotential(
+                smearing=hypers["smearing"],
+                exclusion_radius=neighbor_list_options.cutoff,
+            ),
+            full_neighbor_list=neighbor_list_options.full_list,
+            lr_wavelength=hypers["kspace_resolution"],
+        )
+        self.p3m_calculator = P3MCalculator(
             potential=CoulombPotential(
                 smearing=hypers["smearing"],
                 exclusion_radius=neighbor_list_options.cutoff,
             ),
             interpolation_nodes=hypers["interpolation_nodes"],
             full_neighbor_list=neighbor_list_options.full_list,
-            mesh_spacing=hypers["mesh_spacing"],
+            mesh_spacing=hypers["kspace_resolution"],
         )
+        self.use_ewald = hypers["use_ewald"]
         self.direct_calculator = Calculator(
             potential=CoulombPotential(
                 smearing=None,
@@ -89,13 +98,22 @@ class LongRangeFeaturizer(torch.nn.Module):
                 )
 
             if system.pbc.all():  # periodic
-                potential = self.calculator.forward(
-                    charges=system_charges,
-                    cell=system.cell,
-                    positions=system.positions,
-                    neighbor_indices=neighbor_indices_system,
-                    neighbor_distances=neighbor_distances_system,
-                )
+                if self.use_ewald and self.training:  # use Ewald for training only
+                    potential = self.ewald_calculator.forward(
+                        charges=system_charges,
+                        cell=system.cell,
+                        positions=system.positions,
+                        neighbor_indices=neighbor_indices_system,
+                        neighbor_distances=neighbor_distances_system,
+                    )
+                else:
+                    potential = self.p3m_calculator.forward(
+                        charges=system_charges,
+                        cell=system.cell,
+                        positions=system.positions,
+                        neighbor_indices=neighbor_indices_system,
+                        neighbor_distances=neighbor_distances_system,
+                    )
             else:  # non-periodic
                 # compute the distance between all pairs of atoms
                 neighbor_indices_system = torch.combinations(
