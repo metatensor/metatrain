@@ -27,37 +27,22 @@ class LongRangeFeaturizer(torch.nn.Module):
                 "Please install it with `pip install torch-pme`."
             )
 
-        if hypers["use_ewald"]:
-            self.calculator = EwaldCalculator(
-                potential=CoulombPotential(
-                    smearing=hypers["smearing"],
-                    exclusion_radius=neighbor_list_options.cutoff,
-                ),
-                full_neighbor_list=neighbor_list_options.full_list,
-                lr_wavelength=hypers["kspace_resolution"],
-            )
-        else:
-            self.calculator = P3MCalculator(
-                potential=CoulombPotential(
-                    smearing=hypers["smearing"],
-                    exclusion_radius=neighbor_list_options.cutoff,
-                ),
-                interpolation_nodes=hypers["interpolation_nodes"],
-                full_neighbor_list=neighbor_list_options.full_list,
-                mesh_spacing=hypers["kspace_resolution"],
-            )
-        # this calculator will be used during inference as system
-        # sizes can be bigger than those used in training making Ewald
-        # a bad choice. The parameters here are pre-tuned and should be
-        # OK for most systems.
-        self.forward_calculator = P3MCalculator(
+        self.ewald_calculator = EwaldCalculator(
             potential=CoulombPotential(
-                smearing=1.4,
+                smearing=hypers["smearing"],
                 exclusion_radius=neighbor_list_options.cutoff,
             ),
-            interpolation_nodes=5,
             full_neighbor_list=neighbor_list_options.full_list,
-            mesh_spacing=1.33,
+            lr_wavelength=hypers["kspace_resolution"],
+        )
+        self.p3m_calculator = P3MCalculator(
+            potential=CoulombPotential(
+                smearing=hypers["smearing"],
+                exclusion_radius=neighbor_list_options.cutoff,
+            ),
+            interpolation_nodes=hypers["interpolation_nodes"],
+            full_neighbor_list=neighbor_list_options.full_list,
+            mesh_spacing=hypers["kspace_resolution"],
         )
         self.use_ewald = hypers["use_ewald"]
         self.direct_calculator = Calculator(
@@ -113,8 +98,8 @@ class LongRangeFeaturizer(torch.nn.Module):
                 )
 
             if system.pbc.all():  # periodic
-                if self.use_ewald and not self.training:
-                    potential = self.forward_calculator.forward(
+                if self.use_ewald and self.training:  # use Ewald for training only
+                    potential = self.ewald_calculator.forward(
                         charges=system_charges,
                         cell=system.cell,
                         positions=system.positions,
@@ -122,7 +107,7 @@ class LongRangeFeaturizer(torch.nn.Module):
                         neighbor_distances=neighbor_distances_system,
                     )
                 else:
-                    potential = self.calculator.forward(
+                    potential = self.p3m_calculator.forward(
                         charges=system_charges,
                         cell=system.cell,
                         positions=system.positions,
