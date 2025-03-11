@@ -349,3 +349,29 @@ def test_spherical_outputs(per_atom):
         {"spherical_target": model.outputs["spherical_target"]},
     )
     assert len(outputs["spherical_target"]) == 2
+
+
+def test_soap_bpnn_single_atom():
+    """Tests that the model predicts zero energies on a single atom."""
+    # (note that no composition energies are supplied or calculated here)
+
+    dataset_info = DatasetInfo(
+        length_unit="Angstrom",
+        atomic_types=[1, 6, 7, 8],
+        targets={
+            "energy": get_energy_target_info({"quantity": "energy", "unit": "eV"})
+        },
+    )
+    hypers = copy.deepcopy(MODEL_HYPERS)
+    hypers["soap"]["density"]["center_atom_weight"] = 0.0
+    model = SoapBpnn(hypers, dataset_info)
+
+    system = System(
+        types=torch.tensor([6]),
+        positions=torch.tensor([[0.0, 0.0, 1.0]]),
+        cell=torch.zeros(3, 3),
+        pbc=torch.tensor([False, False, False]),
+    )
+    outputs = {"energy": ModelOutput(per_atom=False)}
+    energy = model([system], outputs)["energy"].block().values.item()
+    assert energy == 0.0
