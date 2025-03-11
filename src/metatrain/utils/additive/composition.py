@@ -131,9 +131,10 @@ class CompositionModel(torch.nn.Module):
                 weights_tensor = torch.tensor(
                     [fixed_weights[target_key][i] for i in self.atomic_types],
                     dtype=self.dummy_buffer.dtype,
+                    device=device,
                 ).reshape(-1, 1)
                 self.weights[target_key] = TensorMap(
-                    keys=Labels.single(),
+                    keys=Labels.single().to(device=device),
                     blocks=[
                         TensorBlock(
                             values=weights_tensor,
@@ -144,10 +145,10 @@ class CompositionModel(torch.nn.Module):
                                 ).reshape(-1, 1),
                             ),
                             components=self.dataset_info.targets[target_key]
-                            .layout.block()
+                            .layout.block().to(device=device)
                             .components,
                             properties=self.dataset_info.targets[target_key]
-                            .layout.block()
+                            .layout.block().to(device=device)
                             .properties,
                         )
                     ],
