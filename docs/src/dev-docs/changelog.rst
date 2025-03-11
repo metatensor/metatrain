@@ -24,6 +24,26 @@ Unreleased
 .. Removed
 .. #######
 
+Version 2025.2 - 2025-03-11
+---------------------------
+
+Added
+#####
+
+- Implement a long-range featurizer as a utility for all models
+- Speed up system preparation
+
+Changed
+#######
+
+- Remove biases in SOAP-BPNN's linear layers
+
+Fixed
+#####
+
+- Fix NanoPET multi-GPU error message
+- Fix ``device`` for fixed composition weights
+
 
 Version 2025.1 - 2025-02-20
 ---------------------------
