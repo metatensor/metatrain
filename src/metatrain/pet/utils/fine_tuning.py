@@ -58,3 +58,24 @@ class LoRAWrapper(torch.nn.Module):
         rotations: Optional[torch.Tensor] = None,
     ):
         return self.model(batch_dict, rotations)
+    
+class HeadsFTWrapper(torch.nn.Module):
+    def __init__(self, model: torch.nn.Module):
+        super(HeadsFTWrapper, self).__init__()
+        self.model = model
+        self.hypers = model.hypers
+        self.hidden_dim = model.hypers.TRANSFORMER_D_MODEL
+        self.num_hidden_layers = model.hypers.N_GNN_LAYERS * model.hypers.N_TRANS_LAYERS
+        for param in model.parameters():
+            param.requires_grad = False
+            
+        for head in model.heads:
+            for param in head.parameters():
+                param.requires_grad = True
+
+    def forward(
+        self,
+        batch_dict: Dict[str, torch.Tensor],
+        rotations: Optional[torch.Tensor] = None,
+    ):
+        return self.model(batch_dict, rotations)
