@@ -123,7 +123,13 @@ class NanoPET(torch.nn.Module):
         self.component_labels: Dict[str, List[List[Labels]]] = {}
         self.property_labels: Dict[str, List[Labels]] = {}
         for target_name, target_info in dataset_info.targets.items():
-            self._add_output(target_name, target_info)
+            self.outputs[target_name] = ModelOutput(
+                quantity=target_info.quantity,
+                unit=target_info.unit,
+                per_atom=True,
+            )
+        self._add_output("mtt::delta_q", dataset_info.targets["mtt::delta_1_q"])
+        self._add_output("mtt::delta_p", dataset_info.targets["mtt::delta_1_p"])
 
         self.register_buffer(
             "species_to_species_index",
@@ -487,7 +493,17 @@ class NanoPET(torch.nn.Module):
 
         atomic_properties_tmap_dict: Dict[str, TensorMap] = {}
         for output_name, last_layer in self.last_layers.items():
-            if output_name in outputs:
+            requested = False
+            true_output_name = ""
+            for requested_output_name in outputs:
+                if (
+                    requested_output_name.startswith("mtt::delta_")
+                    and 
+                    requested_output_name.endswith(output_name[-2:])  # _q or _p
+                ):
+                    requested = True
+                    true_output_name = requested_output_name
+            if requested:
                 atomic_features = atomic_features_dict[output_name]
                 atomic_properties_by_block = []
                 for last_layer_by_block in last_layer.values():
@@ -508,7 +524,7 @@ class NanoPET(torch.nn.Module):
                         self.property_labels[output_name],
                     )
                 ]
-                atomic_properties_tmap_dict[output_name] = TensorMap(
+                atomic_properties_tmap_dict[true_output_name] = TensorMap(
                     keys=self.key_labels[output_name],
                     blocks=blocks,
                 )
@@ -622,11 +638,6 @@ class NanoPET(torch.nn.Module):
                 len(comp.values) for comp in block.components
             ] + [len(block.properties.values)]
 
-        self.outputs[target_name] = ModelOutput(
-            quantity=target_info.quantity,
-            unit=target_info.unit,
-            per_atom=True,
-        )
         if (
             target_name not in self.head_types  # default to MLP
             or self.head_types[target_name] == "mlp"
