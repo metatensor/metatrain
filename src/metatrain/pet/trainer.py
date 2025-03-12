@@ -39,7 +39,7 @@ from .modules.utilities import (
     string2dtype,
 )
 from .utils import dataset_to_ase, load_raw_pet_model, update_hypers
-from .utils.fine_tuning import LoRAWrapper
+from .utils.fine_tuning import HeadsFTWrapper, LoRAWrapper
 
 
 logger = logging.getLogger(__name__)
@@ -130,6 +130,12 @@ class Trainer:
             raise ValueError(
                 "LoRA is applied to the model, but the USE_LORA_PEFT is False"
                 " in the training hyperparameters. Please set USE_LORA_PEFT to True"
+            )
+
+        if FITTING_SCHEME.USE_LORA_PEFT and FITTING_SCHEME.FINETUNE_HEADS:
+            raise ValueError(
+                "USE_LORA_PEFT and FINETUNE_HEADS are True"
+                " in the training hyperparameters. Please decide which finetuning option to use"
             )
 
         if FITTING_SCHEME.USE_SHIFT_AGNOSTIC_LOSS:
@@ -250,7 +256,7 @@ Units of the Energy and Forces are the same units given in input"""
         logging.info("Initializing the model...")
         if model.pet is not None:
             pet_model = model.pet.model
-            if model.is_lora_applied:
+            if model.is_ft_applied:
                 pet_model.model.hypers.TARGET_TYPE = "structural"
                 pet_model.model.TARGET_TYPE = "structural"
             else:
@@ -280,6 +286,20 @@ Units of the Energy and Forces are the same units given in input"""
                 "Number of trainable parameters: "
                 + f"{num_trainable_params} [{fraction:.2f}%]"
             )
+
+        if FITTING_SCHEME.FINETUNE_HEADS:
+            pet_model = HeadsFTWrapper(pet_model)
+            model.finetune_heads = True
+            num_trainable_params = sum(
+                [p.numel() for p in pet_model.parameters() if p.requires_grad]
+            )
+            fraction = num_trainable_params / num_params * 100
+            logging.info("Training only heads")
+            logging.info(
+                "Number of trainable parameters: "
+                + f"{num_trainable_params} [{fraction:.2f}%]"
+            )
+
         pet_model = pet_model.to(device=device, dtype=dtype)
         pet_model = PETUtilityWrapper(pet_model, FITTING_SCHEME.GLOBAL_AUG)
 
@@ -729,6 +749,7 @@ Units of the Energy and Forces are the same units given in input"""
             use_lora_peft=FITTING_SCHEME.USE_LORA_PEFT,
             lora_rank=FITTING_SCHEME.LORA_RANK,
             lora_alpha=FITTING_SCHEME.LORA_ALPHA,
+            finetune_heads=FITTING_SCHEME.FINETUNE_HEADS,
         )
         model.set_trained_model(wrapper)
 

@@ -5,7 +5,7 @@ import torch
 
 from ..modules.hypers import Hypers
 from ..modules.pet import PET, SelfContributionsWrapper
-from .fine_tuning import LoRAWrapper
+from .fine_tuning import HeadsFTWrapper, LoRAWrapper
 from .update_state_dict import update_state_dict
 
 
@@ -29,6 +29,9 @@ def load_raw_pet_model(
         lora_rank = kwargs["lora_rank"]
         lora_alpha = kwargs["lora_alpha"]
         raw_pet = LoRAWrapper(raw_pet, lora_rank, lora_alpha)
+
+    if "finetune_heads" in kwargs and kwargs["finetune_heads"] is True:
+        raw_pet = HeadsFTWrapper(raw_pet)
 
     new_state_dict = update_state_dict(state_dict)
     dtype = next(iter(new_state_dict.values())).dtype

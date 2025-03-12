@@ -133,6 +133,9 @@
     "training": {
       "type": "object",
       "properties": {
+        "FINETUNE_HEADS": {
+          "type": "boolean"
+        },
         "USE_LORA_PEFT": {
           "type": "boolean"
         },
