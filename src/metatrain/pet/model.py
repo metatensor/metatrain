@@ -66,6 +66,7 @@ class PET(torch.nn.Module):
         self.dataset_info = dataset_info
         self.pet = None
         self.is_lora_applied = False
+        self.finetune_heads = False
         self.checkpoint_path: Optional[str] = None
 
         # last-layer feature size (for LLPR module)
@@ -270,6 +271,7 @@ class PET(torch.nn.Module):
             model.atomic_types,
             checkpoint["self_contributions"],
             use_lora_peft=model.is_lora_applied,
+            finetune_heads=model.finetune_heads,
             **lora_state_dict,
         )
 

@@ -132,6 +132,12 @@ class Trainer:
                 " in the training hyperparameters. Please set USE_LORA_PEFT to True"
             )
 
+        if FITTING_SCHEME.USE_LORA_PEFT and FITTING_SCHEME.FINETUNE_HEADS:
+            raise ValueError(
+                "USE_LORA_PEFT and FINETUNE_HEADS are True"
+                " in the training hyperparameters. Please decide which finetuning option to use"
+            )
+
         if FITTING_SCHEME.USE_SHIFT_AGNOSTIC_LOSS:
             raise ValueError(
                 "shift agnostic loss is intended only for general target training"
@@ -250,7 +256,7 @@ Units of the Energy and Forces are the same units given in input"""
         logging.info("Initializing the model...")
         if model.pet is not None:
             pet_model = model.pet.model
-            if model.is_lora_applied:
+            if model.is_ft_applied:
                 pet_model.model.hypers.TARGET_TYPE = "structural"
                 pet_model.model.TARGET_TYPE = "structural"
             else:
@@ -283,6 +289,7 @@ Units of the Energy and Forces are the same units given in input"""
 
         if FITTING_SCHEME.FINETUNE_HEADS:
             pet_model = HeadsFTWrapper(pet_model)
+            model.finetune_heads = True
             num_trainable_params = sum(
                 [p.numel() for p in pet_model.parameters() if p.requires_grad]
             )
@@ -742,6 +749,7 @@ Units of the Energy and Forces are the same units given in input"""
             use_lora_peft=FITTING_SCHEME.USE_LORA_PEFT,
             lora_rank=FITTING_SCHEME.LORA_RANK,
             lora_alpha=FITTING_SCHEME.LORA_ALPHA,
+            finetune_heads=FITTING_SCHEME.FINETUNE_HEADS,
         )
         model.set_trained_model(wrapper)
 
