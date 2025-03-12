@@ -60,7 +60,6 @@ build-backend = "setuptools.build_meta"
 [project.optional-dependencies]
 soap-bpnn = [
     "featomic-torch >=0.6,<0.7",
-    "torch-pme",
     "wigners",
 ]
 pet = [
@@ -71,7 +70,7 @@ pet = [
     "pathos",
     "scipy",
 ]
-nanopet = ["torch-pme"]
+nanopet = []
 gap = [
     "featomic-torch >=0.6,<0.7",
     "skmatter",

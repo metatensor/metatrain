@@ -371,14 +371,14 @@ def train_model(
     #         f"Training dataset{index}:\n    {get_stats(train_dataset, dataset_info)}"
     #     )
 
-    for i, val_dataset in enumerate(val_datasets):
-        if len(val_datasets) == 1:
-            index = ""
-        else:
-            index = f" {i}"
-        logger.info(
-            f"Validation dataset{index}:\n    {get_stats(val_dataset, dataset_info)}"
-        )
+    # for i, val_dataset in enumerate(val_datasets):
+    #     if len(val_datasets) == 1:
+    #         index = ""
+    #     else:
+    #         index = f" {i}"
+    #     logger.info(
+    #         f"Validation dataset{index}:\n    {get_stats(val_dataset, dataset_info)}"
+    #     )
 
     # for i, test_dataset in enumerate(test_datasets):
     #     if len(test_datasets) == 1:

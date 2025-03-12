@@ -130,7 +130,6 @@ class Trainer:
             # model.scaler.train_model(
             #     train_datasets, model.additive_models, treat_as_additive=True
             # )
-            print(model.scaler.scales)
 
         if is_distributed:
             model = DistributedDataParallel(model, device_ids=[device])
@@ -277,7 +276,8 @@ class Trainer:
                 val_mae_calculator = MAEAccumulator(self.hypers["log_separate_blocks"])
 
             train_loss = 0.0
-            for batch in train_dataloader:
+            for i, batch in enumerate(train_dataloader):
+                print("batch", i, rank, flush=True)
                 optimizer.zero_grad()
 
                 systems, targets = batch
