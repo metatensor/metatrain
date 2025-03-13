@@ -6,8 +6,9 @@ import torch
 from metatensor.torch import Labels, TensorBlock, TensorMap
 
 from .cg import cg_combine_l1l2L
-from .layers import Linear
+from .layers import LinearList as Linear
 from .radial_basis import RadialBasis
+from .tensor_product import combine_uncoupled_features, uncouple_features
 from .tensor_sum import EquivariantTensorAdd
 
 
@@ -120,9 +121,7 @@ class EquivariantMessagePasser(torch.nn.Module):
         self,
         hypers: Dict,
         all_species: List[int],
-        irreps_in_features: List[Tuple[int, int]],
-        nu_triplet: Tuple[int, int, int],
-        cgs,
+        padded_l_list,
         mp_scaling,
     ) -> None:
         super().__init__()
@@ -142,49 +141,16 @@ class EquivariantMessagePasser(torch.nn.Module):
         ]
         self.l_max = len(self.n_max_l) - 1
 
-        self.cgs = cgs
-        self.irreps_out: List[Tuple[int, int]] = []
-        self.irreps_in_vector_expansion = [
-            (l, 1) for l in range(self.l_max + 1)  # noqa: E741
-        ]
-        self.irreps_in_features = irreps_in_features
-
-        self.sizes_by_lam_sig: Dict[str, int] = {}
-        for l1, s1 in self.irreps_in_vector_expansion:
-            for l2, s2 in self.irreps_in_features:
-                for L in range(abs(l1 - l2), min(l1 + l2, self.l_max) + 1):
-                    S = s1 * s2 * (-1) ** (l1 + l2 + L)
-                    if S == -1:
-                        continue
-                    if (L, S) not in self.irreps_out:
-                        self.irreps_out.append((L, S))
-                    larger_l = max(l1, l2)
-                    size = self.k_max_l[larger_l]
-                    if (str(L) + "_" + str(S)) not in self.sizes_by_lam_sig:
-                        self.sizes_by_lam_sig[(str(L) + "_" + str(S))] = size
-                    else:
-                        self.sizes_by_lam_sig[(str(L) + "_" + str(S))] += size
-
-        # Register linear layers for contraction:
-        self.linear_contractions = torch.nn.ModuleDict(
-            {
-                LS_string: torch.nn.Sequential(
-                    Linear(size_LS, self.k_max_l[int(LS_string.split("_")[0])]),
-                )
-                for LS_string, size_LS in self.sizes_by_lam_sig.items()
-            }
-        )
-        self.nu_out = nu_triplet[2]
-
-        common_irreps = [
-            irrep for irrep in self.irreps_out if irrep in irreps_in_features
-        ]
-        self.adder = EquivariantTensorAdd(common_irreps, self.k_max_l)
-        # self.adder = EquivariantTensorAdd()
+        self.k_max_l_max = [0] * (self.l_max + 1)
+        previous = 0
+        for l in range(self.l_max, -1, -1):
+            self.k_max_l_max[l] = self.k_max_l[l] - previous
+            previous = self.k_max_l[l]
 
         self.mp_scaling = mp_scaling
+        self.padded_l_list = padded_l_list
 
-        self.irreps_out = list(set(self.irreps_out + self.irreps_in_features))
+        self.linear = Linear(self.k_max_l_max)
 
     def forward(
         self,
@@ -192,118 +158,64 @@ class EquivariantMessagePasser(torch.nn.Module):
         sh: TensorMap,
         centers,
         neighbors,
-        n_atoms: int,
-        features: TensorMap,
-        samples: Labels,  # TODO: can this go?
-    ) -> TensorMap:
-        # handle dtype and device of the cgs
-        if self.cgs["0_0_0"].device != r.device:
-            self.cgs = {
-                key: value.to(device=r.device) for key, value in self.cgs.items()
-            }
-        if self.cgs["0_0_0"].dtype != r.dtype:
-            self.cgs = {
-                key: value.to(dtype=r.values.dtype) for key, value in self.cgs.items()
-            }
+        features: List[torch.Tensor],
+        U_dict: Dict[int, torch.Tensor],
+    ) -> List[torch.Tensor]:
 
         radial_basis = self.radial_basis_calculator(r.values.squeeze(-1), r.samples)
-
         vector_expansion = [
             sh.block({"o3_lambda": l}).values * radial_basis[l].unsqueeze(1)
             for l in range(self.l_max + 1)  # noqa: E741
         ]
 
-        results_by_lam_sig: Dict[str, List[torch.Tensor]] = {}
-        for l1, s1 in self.irreps_in_vector_expansion:
-            block_ls_1 = vector_expansion[l1]
-            for key_ls_2, block_ls_2 in features.items():
-                l2s2 = key_ls_2.values
-                l2, s2 = int(l2s2[1]), int(l2s2[2])
-                min_size = min(block_ls_1.shape[2], block_ls_2.values.shape[2])
-                tensor1 = block_ls_1[:, :, :min_size]
-                tensor2 = block_ls_2.values[neighbors, :, :min_size]
-                tensor12 = tensor1.swapaxes(1, 2).unsqueeze(3) * tensor2.swapaxes(
-                    1, 2
-                ).unsqueeze(2)
-                tensor12 = tensor12.reshape(
-                    tensor12.shape[0],
-                    tensor12.shape[1],
-                    tensor12.shape[2] * tensor12.shape[3],
-                )
-                for L in range(abs(l1 - l2), min(l1 + l2, self.l_max) + 1):
-                    S = int(s1 * s2 * (-1) ** (l1 + l2 + L))
-                    result = cg_combine_l1l2L(
-                        tensor12, self.cgs[str(l1) + "_" + str(l2) + "_" + str(L)]
-                    )
-                    pooled_result = torch.zeros(
-                        (n_atoms, result.shape[1], result.shape[2]),
-                        device=result.device,
-                        dtype=result.dtype,
-                    )
-                    pooled_result.index_add_(
-                        dim=0,
-                        index=centers,
-                        source=result,
-                    )
-                    pooled_result = pooled_result
-                    if (str(L) + "_" + str(S)) not in results_by_lam_sig:
-                        results_by_lam_sig[(str(L) + "_" + str(S))] = [pooled_result]
-                    else:
-                        results_by_lam_sig[(str(L) + "_" + str(S))].append(
-                            pooled_result
-                        )
+        split_vector_expansion: List[List[torch.Tensor]] = []
+        for l in range(self.l_max, -1, -1):
+            lower_bound = self.k_max_l[l + 1] if l < self.l_max else 0
+            upper_bound = self.k_max_l[l]
+            split_vector_expansion = [
+                [
+                    vector_expansion[lp][:, :, lower_bound:upper_bound]
+                    for lp in range(l + 1)
+                ]
+            ] + split_vector_expansion
 
-        compressed_results_by_lam_sig: Dict[str, torch.Tensor] = {}
-        for LS_string, linear_LS in self.linear_contractions.items():
-            split_LS_string = LS_string.split("_")
-            L = int(split_LS_string[0])
-            S = int(split_LS_string[1])
-            concatenated_tensor = torch.concatenate(
-                results_by_lam_sig[LS_string], dim=2
-            )
-            compressed_tensor = linear_LS(concatenated_tensor)
-            compressed_results_by_lam_sig[(str(L) + "_" + str(S))] = compressed_tensor
-
-        keys: List[List[int]] = []
-        blocks: List[TensorBlock] = []
-        for LS_string, compressed_tensor_LS in compressed_results_by_lam_sig.items():
-            split_LS_string = LS_string.split("_")
-            L = int(split_LS_string[0])
-            S = int(split_LS_string[1])
-            blocks.append(
-                TensorBlock(
-                    values=compressed_tensor_LS,
-                    samples=features.block({"o3_lambda": 0, "o3_sigma": 1}).samples,
-                    components=[
-                        Labels(
-                            names=["o3_mu"],
-                            values=torch.arange(
-                                start=-L,
-                                end=L + 1,
-                                dtype=torch.int,
-                                device=compressed_tensor_LS.device,
-                            ).reshape(2 * L + 1, 1),
-                        ).to(compressed_tensor_LS.device)
-                    ],
-                    properties=Labels(
-                        "properties",
-                        torch.arange(
-                            compressed_tensor_LS.shape[2],
-                            dtype=torch.int,
-                            device=compressed_tensor_LS.device,
-                        ).unsqueeze(-1),
-                    ),
+        uncoupled_vector_expansion = []
+        for l in range(self.l_max + 1):
+            uncoupled_vector_expansion.append(
+                uncouple_features(
+                    split_vector_expansion[l],
+                    U_dict[self.padded_l_list[l]],
+                    self.padded_l_list[l],
                 )
             )
-            keys.append([self.nu_out, L, S])
 
-        pooled_result = TensorMap(
-            keys=Labels(
-                names=["nu", "o3_lambda", "o3_sigma"],
-                values=torch.tensor(keys, device=blocks[0].values.device),
-            ),
-            blocks=blocks,
+        n_atoms = features[0].shape[0]
+
+        indexed_features = []
+        for feature in features:
+            indexed_features.append(feature[neighbors])
+
+        # TODO: maybe it would be a good idea to break these up to limit memory usage
+        combined_features = combine_uncoupled_features(
+            uncoupled_vector_expansion, indexed_features
         )
-        pooled_result = metatensor.torch.multiply(pooled_result, self.mp_scaling)
-        pooled_result = self.adder(pooled_result, features)
-        return pooled_result
+
+        combined_features_pooled = []
+        for cf in combined_features:
+            combined_features_pooled.append(
+                torch.zeros(
+                    (n_atoms,) + cf.shape[1:],
+                    device=cf.device,
+                    dtype=cf.dtype,
+                )
+            )
+            combined_features_pooled[-1].index_add_(
+                dim=0,
+                index=centers,
+                source=cf,
+            )
+
+        features_out = self.linear(combined_features_pooled)
+        features_out = [fi + fo for fi, fo in zip(features, features_out)]
+
+        return features_out

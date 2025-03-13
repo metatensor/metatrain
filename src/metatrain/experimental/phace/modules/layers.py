@@ -10,10 +10,25 @@ class Linear(torch.nn.Module):
         super().__init__()
         self.linear_layer = torch.nn.Linear(n_feat_in, n_feat_out, bias=False)
         self.linear_layer.weight.data.normal_(0.0, 1.0)
-        self.n_feat_in = n_feat_in
+        self.n_feat_in = n_feat_in if n_feat_in > 0 else 1
 
     def forward(self, x):
         return self.linear_layer(x) * self.n_feat_in ** (-0.5)
+
+
+class LinearList(torch.nn.Module):
+    def __init__(self, k_max_l_max: List[int]) -> None:
+        super().__init__()
+        self.linears = torch.nn.ModuleList(
+            [Linear(k_max_l, k_max_l) for k_max_l in k_max_l_max]
+        )
+
+    def forward(self, features_list: List[torch.Tensor]) -> List[torch.Tensor]:
+        # return features_list
+        new_features_list = []
+        for i, linear in enumerate(self.linears):
+            new_features_list.append(linear(features_list[i]))
+        return new_features_list
 
 
 class InvariantMLP(torch.nn.Module):
@@ -55,6 +70,9 @@ class InvariantMLP(torch.nn.Module):
             ),
             blocks=[new_block],
         )
+
+
+# TODO: one of EquivariantLinear or EquivariantLastLayer is not used
 
 
 class EquivariantLinear(torch.nn.Module):

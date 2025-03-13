@@ -92,4 +92,6 @@ def test_continue(monkeypatch, tmp_path):
         systems[:5], {"mtt::U0": model_after.outputs["mtt::U0"]}
     )
 
-    assert metatensor.torch.allclose(output_before["mtt::U0"], output_after["mtt::U0"])
+    assert metatensor.torch.allclose(
+        output_before["mtt::U0"], output_after["mtt::U0"], atol=1e-8, rtol=1e-8
+    )

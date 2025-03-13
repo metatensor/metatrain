@@ -3,6 +3,7 @@ from pathlib import Path
 from typing import Dict, List, Optional, Tuple, Union
 
 import metatensor.torch
+import numpy as np
 import torch
 from metatensor.torch import Labels, TensorBlock, TensorMap
 from metatensor.torch.atomistic import (
@@ -13,20 +14,23 @@ from metatensor.torch.atomistic import (
     NeighborListOptions,
     System,
 )
-import numpy as np
 
 from ...utils.additive import ZBL, CompositionModel
 from ...utils.data.dataset import DatasetInfo, TargetInfo
 from ...utils.dtype import dtype_to_str
 from ...utils.io import check_file_extension
 from ...utils.scaler import Scaler
-from .modules.center_embedding import embed_centers
+from .modules.center_embedding import embed_centers, embed_centers_tensor_map
 from .modules.cg import get_cg_coefficients
 from .modules.cg_iterator import CGIterator
 from .modules.initial_features import get_initial_features
 from .modules.layers import EquivariantLastLayer, Identity, InvariantMLP
 from .modules.message_passing import EquivariantMessagePasser, InvariantMessagePasser
 from .modules.precomputations import Precomputer
+from .modules.tensor_product import (
+    couple_features,
+    uncouple_features,
+)
 from .utils import systems_to_batch
 
 
@@ -38,26 +42,6 @@ warnings.filterwarnings(
     ),
 )
 
-
-def uncouple_features(features: List[torch.Tensor], U, padded_l_max: int):
-    # features is a list of [..., 2*l+1, n_features] for l = 0, 1, ..., padded_l_max
-    # U is dense and [(padded_l_max+1)**2, (padded_l_max+1)**2]
-    if len(features) < padded_l_max+1:
-        features.append(torch.zeros((features[0].shape[0], 2*padded_l_max+1, features[0].shape[2]), dtype=features[0].dtype, device=features[0].device))
-    stacked_features = torch.cat(features, dim=1)
-    stacked_features = stacked_features.swapaxes(1, 2)
-    return (stacked_features @ U.T).reshape(stacked_features.shape[:-1] + (padded_l_max+1, padded_l_max+1))
-
-def combine_uncoupled_features(uncoupled_features):
-    return uncoupled_features @ uncoupled_features
-
-def couple_features(features, U, padded_l_max: int):
-    # features is [..., (padded_l_max+1, padded_l_max+1)]
-    # U is dense and [(padded_l_max+1)**2, (padded_l_max+1)**2]
-    stacked_features = features.reshape(features.shape[:-2] + ((padded_l_max+1)*(padded_l_max+1),)) @ U
-    stacked_features = stacked_features.swapaxes(1, 2)
-    split_sizes = [2*l+1 for l in range(padded_l_max+1)]
-    return torch.split(stacked_features, split_sizes, dim=1)
 
 class PhACE(torch.nn.Module):
 
@@ -115,6 +99,13 @@ class PhACE(torch.nn.Module):
         self.k_max_l = [
             n_channels * n_max[l] for l in range(self.l_max + 1)  # noqa: E741
         ]
+        print(self.k_max_l)
+        self.k_max_l_max = [0] * (self.l_max + 1)
+        previous = 0
+        for l in range(self.l_max, -1, -1):
+            self.k_max_l_max[l] = self.k_max_l[l] - previous
+            previous = self.k_max_l[l]
+        print(self.k_max_l_max)
 
         cgs = get_cg_coefficients(self.l_max)
         cgs = {
@@ -150,45 +141,44 @@ class PhACE(torch.nn.Module):
         )
 
         self.cg_iterator = CGIterator(
-            self.k_max_l,
+            self.k_max_l_max,
             self.nu_max - 1,
-            cgs,
-            irreps_in=[(l, 1) for l in range(self.l_max + 1)],  # noqa: E741
-            requested_LS=(
-                self.requested_LS_tuples
-                if self.num_message_passing_layers == 1
-                else None
-            ),
         )
+
+        cg_calculator = get_cg_coefficients(2 * ((self.l_max + 1) // 2))
+        print(self.l_max)
+        self.padded_l_list = [2 * ((l + 1) // 2) for l in range(self.l_max + 1)]
+        self.U_dict = {}
+        for padded_l in np.unique(self.padded_l_list):
+            cg_tensors = [
+                cg_calculator._cgs[(padded_l // 2, padded_l // 2, L)]
+                for L in range(padded_l + 1)
+            ]
+            U = torch.concatenate(
+                [cg_tensor for cg_tensor in cg_tensors], dim=2
+            ).reshape((padded_l + 1) ** 2, (padded_l + 1) ** 2)
+            assert torch.allclose(
+                U @ U.T, torch.eye((padded_l + 1) ** 2, dtype=U.dtype)
+            )
+            assert torch.allclose(
+                U.T @ U, torch.eye((padded_l + 1) ** 2, dtype=U.dtype)
+            )
+            self.U_dict[padded_l] = U
 
         # Subsequent message-passing layers
         equivariant_message_passers: List[EquivariantMessagePasser] = []
         generalized_cg_iterators: List[CGIterator] = []
-        for idx in range(self.num_message_passing_layers - 1):
-            if idx == 0:
-                irreps_equiv_mp = self.cg_iterator.irreps_out
-            else:
-                irreps_equiv_mp = generalized_cg_iterators[-1].irreps_out
+        for _ in range(self.num_message_passing_layers - 1):
             equivariant_message_passer = EquivariantMessagePasser(
                 model_hypers,
                 self.atomic_types,
-                irreps_equiv_mp,
-                (1, self.nu_max, self.nu_max + 1),
-                cgs,
+                self.padded_l_list,
                 self.mp_scaling,
             )
             equivariant_message_passers.append(equivariant_message_passer)
             generalized_cg_iterator = CGIterator(
-                self.k_max_l,
+                self.k_max_l_max,
                 self.nu_max - 1,
-                cgs,
-                irreps_in=equivariant_message_passer.irreps_out,
-                # TODO: speed up with something like this?
-                requested_LS=(
-                    self.requested_LS_tuples
-                    if idx == self.num_message_passing_layers - 2
-                    else None
-                ),
             )
             generalized_cg_iterators.append(generalized_cg_iterator)
         self.equivariant_message_passers = torch.nn.ModuleList(
@@ -221,17 +211,6 @@ class PhACE(torch.nn.Module):
         self.scaler = Scaler(model_hypers={}, dataset_info=dataset_info)
 
         self.single_label = Labels.single()
-
-        cg_calculator = get_cg_coefficients(2*((self.l_max+1)//2))
-        print(self.l_max)
-        self.padded_l_list = [2*((l+1)//2) for l in range(self.l_max+1)]
-        self.U_dict = {}
-        for padded_l in np.unique(self.padded_l_list):
-            cg_tensors = [cg_calculator._cgs[(padded_l//2, padded_l//2, L)] for L in range(padded_l+1)]
-            U = torch.concatenate([cg_tensor for cg_tensor in cg_tensors], dim=2).reshape((padded_l+1)**2, (padded_l+1)**2)
-            assert torch.allclose(U @ U.T, torch.eye((padded_l+1)**2, dtype=U.dtype))
-            assert torch.allclose(U.T @ U, torch.eye((padded_l+1)**2, dtype=U.dtype))
-            self.U_dict[padded_l] = U
 
     def restart(self, dataset_info: DatasetInfo) -> "PhACE":
         # merge old and new dataset info
@@ -302,16 +281,12 @@ class PhACE(torch.nn.Module):
             }
         if self.U_dict[0].device != device:
             self.U_dict = {
-                padded_l: U.to(device)
-                for padded_l, U in self.U_dict.items()
+                padded_l: U.to(device) for padded_l, U in self.U_dict.items()
             }
 
         dtype = systems[0].dtype
         if self.U_dict[0].dtype != dtype:
-            self.U_dict = {
-                padded_l: U.to(dtype)
-                for padded_l, U in self.U_dict.items()
-            }
+            self.U_dict = {padded_l: U.to(dtype) for padded_l, U in self.U_dict.items()}
 
         neighbor_list_options = self.requested_neighbor_lists()[0]  # there is only one
         structures = systems_to_batch(systems, neighbor_list_options)
@@ -358,7 +333,9 @@ class PhACE(torch.nn.Module):
             structures["positions"].dtype,
             self.k_max_l[0],
         )  # these features are all one
-        initial_element_embedding = embed_centers(initial_features, center_embeddings)
+        initial_element_embedding = embed_centers_tensor_map(
+            initial_features, center_embeddings
+        )
         # now they are all the same as the center embeddings
 
         # ACE-like features
@@ -374,54 +351,68 @@ class PhACE(torch.nn.Module):
             samples,
         )
 
-        split_features: Dict[int, List[torch.Tensor]] = {}
-        past_idx = 0
-        current_idx = 0
+        split_features: List[List[torch.Tensor]] = []
         for l in range(self.l_max, -1, -1):
-            current_idx = self.k_max_l[l]
-            split_features[l] = [spherical_expansion.block({"o3_lambda": lp}).values[:, :, past_idx:current_idx] for lp in range(l+1)]
-            past_idx = current_idx
+            lower_bound = self.k_max_l[l + 1] if l < self.l_max else 0
+            upper_bound = self.k_max_l[l]
+            split_features = [
+                [
+                    spherical_expansion.block({"o3_lambda": lp}).values[
+                        :, :, lower_bound:upper_bound
+                    ]
+                    for lp in range(l + 1)
+                ]
+            ] + split_features
 
+        uncoupled_features = []
+        for l in range(self.l_max + 1):
+            uncoupled_features.append(
+                uncouple_features(
+                    split_features[l],
+                    self.U_dict[self.padded_l_list[l]],
+                    self.padded_l_list[l],
+                )
+            )
 
-        uncoupled_features: Dict[int, torch.Tensor] = {}
-        for l in range(self.l_max+1):
-            uncoupled_features[l] = uncouple_features(split_features[l], self.U_dict[self.padded_l_list[l]], self.padded_l_list[l])
+        features = self.cg_iterator(uncoupled_features)
 
-        for l in range(self.l_max+1):
-            uncoupled_features[l] = combine_uncoupled_features(uncoupled_features[l]) + uncoupled_features[l]
-            uncoupled_features[l] = combine_uncoupled_features(uncoupled_features[l]) + uncoupled_features[l]
+        # message passing
+        for message_passer, generalized_cg_iterator in zip(
+            self.equivariant_message_passers, self.generalized_cg_iterators
+        ):
+            embedded_features = embed_centers(features, center_embeddings)
+            mp_features = message_passer(
+                r,
+                sh,
+                structures["structure_offsets"][structures["structure_pairs"]]
+                + structures["pairs"][:, 0],
+                structures["structure_offsets"][structures["structure_pairs"]]
+                + structures["pairs"][:, 1],
+                embedded_features,
+                self.U_dict,
+            )
+            iterated_features = generalized_cg_iterator(mp_features)
+            features = iterated_features
 
-        coupled_features: Dict[int, List[torch.Tensor]] = {}
-        for l in range(self.l_max+1):
-            coupled_features[l] = couple_features(uncoupled_features[l], self.U_dict[self.padded_l_list[l]], self.padded_l_list[l])
+        # TODO: change position?
+        features = embed_centers(features, center_embeddings)
 
-        # features = self.cg_iterator(spherical_expansion)
-
-        # # message passing
-        # for message_passer, generalized_cg_iterator in zip(
-        #     self.equivariant_message_passers, self.generalized_cg_iterators
-        # ):
-        #     embedded_features = embed_centers(features, center_embeddings)
-        #     mp_features = message_passer(
-        #         r,
-        #         sh,
-        #         structures["structure_offsets"][structures["structure_pairs"]]
-        #         + structures["pairs"][:, 0],
-        #         structures["structure_offsets"][structures["structure_pairs"]]
-        #         + structures["pairs"][:, 1],
-        #         n_atoms,
-        #         embedded_features,
-        #         samples,
-        #     )
-        #     iterated_features = generalized_cg_iterator(mp_features)
-        #     features = iterated_features
-
-        # print(features.keys.values)
+        coupled_features: List[List[torch.Tensor]] = []
+        for l in range(self.l_max + 1):
+            coupled_features.append(
+                couple_features(
+                    features[l],
+                    self.U_dict[self.padded_l_list[l]],
+                    self.padded_l_list[l],
+                )
+            )
 
         concatenated_coupled_features = []
-        for l in range(self.l_max+1):
+        for l in range(self.l_max + 1):
             concatenated_coupled_features.append(
-                torch.concatenate([coupled_features[lp][l] for lp in range(l, self.l_max+1)], dim=-1)
+                torch.concatenate(
+                    [coupled_features[lp][l] for lp in range(l, self.l_max + 1)], dim=-1
+                )
             )
 
         features = TensorMap(
@@ -433,11 +424,9 @@ class PhACE(torch.nn.Module):
                     components=spherical_expansion.block({"o3_lambda": l}).components,
                     properties=spherical_expansion.block({"o3_lambda": l}).properties,
                 )
-                for l in range(self.l_max+1)
-            ]
+                for l in range(self.l_max + 1)
+            ],
         )
-
-        features = embed_centers(features, center_embeddings)
 
         # remove the center_type dimension
         features = metatensor.torch.remove_dimension(features, "samples", "center_type")

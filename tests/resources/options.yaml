@@ -1,24 +1,27 @@
 seed: 42
-device: cuda
-base_precision: 32
 
 architecture:
   name: experimental.phace
   model:
-    num_message_passing_layers: 1
+    num_message_passing_layers: 2
+    num_element_channels: 128
+    radial_basis:
+      max_eigenvalue: 25.0
   training:
-    batch_size: 40
+    batch_size: 5
     num_epochs: 100
+    per_structure_targets: ["energy"]
+    log_mae: true
 
 training_set:
   systems:
-    read_from: carbon_reduced_100.xyz
+    read_from: qm9_reduced_100.xyz
     length_unit: angstrom
   targets:
     energy:
-      key: energy
+      key: U0
       unit: eV
 
-test_set: 0.1
-validation_set: 0.1
+test_set: 0.05
+validation_set: 0.90
 

@@ -133,6 +133,8 @@ def test_equivariance_rotations(o3_lambda, o3_sigma):
 def test_equivariance_inversion(dataset_path, o3_lambda, o3_sigma):
     """Tests that the model is equivariant with respect to inversions."""
 
+    torch.set_default_dtype(torch.float64)  # make sure we have enough precision
+
     dataset_info = DatasetInfo(
         length_unit="Angstrom",
         atomic_types=[1, 6, 7, 8],
@@ -180,11 +182,18 @@ def test_equivariance_inversion(dataset_path, o3_lambda, o3_sigma):
         {"spherical_target": model.outputs["spherical_target"]},
     )
 
+    print(
+        original_output["spherical_target"].block().values
+        - inverted_output["spherical_target"].block().values
+    )
+
     torch.testing.assert_close(
         original_output["spherical_target"].block().values
         * (-1) ** o3_lambda
         * (-1 if o3_sigma == -1 else 1),
         inverted_output["spherical_target"].block().values,
-        atol=1e-5,
-        rtol=1e-5,
+        atol=1e-8,
+        rtol=1e-8,
     )
+
+    torch.set_default_dtype(torch.float32)  # change back
