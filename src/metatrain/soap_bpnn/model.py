@@ -169,19 +169,6 @@ def concatenate_structures(
     )
 
 
-hard_coded_hypers = {
-    "cutoff": 5.0,
-    "max_angular": 5,
-    "radial": {
-        "LaplacianEigenstates": {
-            "max_radial": 5,
-        }
-    },
-    "angular": "SphericalHarmonics",
-    "cutoff_function": {"ShiftedCosine": {"width": 0.5}},
-}
-
-
 class SoapBpnn(torch.nn.Module):
     __supported_devices__ = ["cuda", "cpu"]
     __supported_dtypes__ = [torch.float64, torch.float32]
@@ -211,11 +198,21 @@ class SoapBpnn(torch.nn.Module):
             strict=True,
         )
 
-        spex_soap_vector_hypers = hard_coded_hypers
-        spex_soap_vector_hypers["species"] = {
-            "Orthogonal": {"species": self.atomic_types}
+        spex_soap_hypers = {
+            "cutoff": self.hypers["soap"]["cutoff"]["radius"],
+            "max_angular": self.hypers["soap"]["max_angular"],
+            "radial": {
+                "LaplacianEigenstates": {
+                    "max_radial": self.hypers["soap"]["max_radial"],
+                }
+            },
+            "angular": "SphericalHarmonics",
+            "cutoff_function": {
+                "ShiftedCosine": {"width": self.hypers["soap"]["cutoff"]["width"]}
+            },
+            "species": {"Orthogonal": {"species": self.atomic_types}},
         }
-        self.soap_calculator = SoapPowerSpectrum(**spex_soap_vector_hypers)
+        self.soap_calculator = SoapPowerSpectrum(**spex_soap_hypers)
 
         soap_size = self.soap_calculator.shape * (
             len(self.atomic_types) * (len(self.atomic_types) + 1) // 2

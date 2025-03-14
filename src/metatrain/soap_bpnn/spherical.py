@@ -14,19 +14,6 @@ from metatensor.torch.learn.nn import Linear as LinearMap
 from spex.metatensor import SphericalExpansion
 
 
-hard_coded_hypers = {
-    "cutoff": 5.0,
-    "max_angular": 0,
-    "radial": {
-        "LaplacianEigenstates": {
-            "max_radial": 2,
-        }
-    },
-    "angular": "SphericalHarmonics",
-    "cutoff_function": {"ShiftedCosine": {"width": 0.5}},
-}
-
-
 class VectorBasis(torch.nn.Module):
     """
     This module creates a basis of 3 vectors for each atomic environment.
@@ -41,9 +28,24 @@ class VectorBasis(torch.nn.Module):
         soap_vector_hypers = copy.deepcopy(soap_hypers)
         soap_vector_hypers["basis"]["max_angular"] = 1
 
-        spex_soap_vector_hypers = copy.deepcopy(hard_coded_hypers)
-        spex_soap_vector_hypers["max_angular"] = 1
-        spex_soap_vector_hypers["species"] = {"Orthogonal": {"species": atomic_types}}
+        soap_vector_hypers = copy.deepcopy(soap_hypers)
+        soap_vector_hypers["max_angular"] = 1
+        spex_soap_vector_hypers = {
+            "cutoff": soap_vector_hypers["soap"]["cutoff"]["radius"],
+            "max_angular": soap_vector_hypers["soap"]["max_angular"],
+            "radial": {
+                "LaplacianEigenstates": {
+                    "max_radial": soap_vector_hypers["soap"]["max_radial"],
+                }
+            },
+            "angular": "SphericalHarmonics",
+            "cutoff_function": {
+                "ShiftedCosine": {
+                    "width": soap_vector_hypers["soap"]["cutoff"]["width"]
+                }
+            },
+            "species": {"Orthogonal": {"species": self.atomic_types}},
+        }
 
         self.soap_calculator = SphericalExpansion(**spex_soap_vector_hypers)
 
