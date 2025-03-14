@@ -6,6 +6,7 @@ from typing import List, Union
 
 import torch
 import torch.distributed
+from metatensor.torch.atomistic import NeighborListOptions
 from torch.utils.data import DataLoader, DistributedSampler
 
 from ..utils.additive import remove_additive
@@ -29,8 +30,6 @@ from ..utils.transfer import (
     systems_and_targets_to_dtype,
 )
 from .model import SoapBpnn
-
-from metatensor.torch.atomistic import NeighborListOptions
 
 
 logger = logging.getLogger(__name__)

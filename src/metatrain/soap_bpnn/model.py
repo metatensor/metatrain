@@ -1,8 +1,6 @@
 from pathlib import Path
 from typing import Dict, List, Optional, Union
 
-# import featomic.torch
-from spex import SphericalExpansion
 import metatensor.torch
 import torch
 from metatensor.torch import Labels, TensorBlock, TensorMap
@@ -11,11 +9,14 @@ from metatensor.torch.atomistic import (
     ModelCapabilities,
     ModelMetadata,
     ModelOutput,
-    System,
     NeighborListOptions,
+    System,
 )
 from metatensor.torch.learn.nn import Linear as LinearMap
 from metatensor.torch.learn.nn import ModuleMap
+
+# import featomic.torch
+from spex import SphericalExpansion
 
 from metatrain.utils.data import TargetInfo
 from metatrain.utils.data.dataset import DatasetInfo
@@ -134,7 +135,6 @@ class SoapPowerSpectrum(torch.nn.Module):
         species={"Alchemical": {"pseudo_species": 4}},
         cutoff_function={"ShiftedCosine": {"width": 0.5}},
     ):
-
         super().__init__()
 
         self.spec = {
@@ -158,7 +158,6 @@ class SoapPowerSpectrum(torch.nn.Module):
         self.max_radial = next(iter(radial.values()))["max_radial"]
 
     def forward(self, R_ij, i, j, species, structures, centers):
-
         expansion = self.calculator.forward(R_ij, i, j, species)
         output = [
             torch.einsum("imnc,imNC->inNcC", e, e) for e in expansion
@@ -188,7 +187,6 @@ class SoapPowerSpectrum(torch.nn.Module):
             center_mask = species == species_center
             for i1, species_neighbor_1 in enumerate(all_neighbor_species):
                 for i2, species_neighbor_2 in enumerate(all_neighbor_species):
-
                     data_ = [
                         output[ell][center_mask][..., i1, i2].reshape(
                             sum(center_mask), -1

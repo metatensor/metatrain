@@ -3,16 +3,16 @@
 import copy
 from typing import Dict, List, Optional
 
-# import featomic.torch
-
-from spex.metatensor import SphericalExpansion
 import metatensor.torch
 import numpy as np
 import torch
 import wigners
 from metatensor.torch import Labels
-from metatensor.torch.atomistic import System, NeighborListOptions
+from metatensor.torch.atomistic import NeighborListOptions, System
 from metatensor.torch.learn.nn import Linear as LinearMap
+
+# import featomic.torch
+from spex.metatensor import SphericalExpansion
 
 
 hard_coded_hypers = {
@@ -336,8 +336,9 @@ class TensorBasis(torch.nn.Module):
                     sh_1[:, lam * lam : (lam + 1) * (lam + 1)],
                     sh_2[
                         :,
-                        (self.o3_lambda - lam)
-                        * (self.o3_lambda - lam) : ((self.o3_lambda - lam) + 1)
+                        (self.o3_lambda - lam) * (self.o3_lambda - lam) : (
+                            (self.o3_lambda - lam) + 1
+                        )
                         * ((self.o3_lambda - lam) + 1),
                     ],
                     self.cgs[
@@ -354,8 +355,7 @@ class TensorBasis(torch.nn.Module):
                         sh_1[:, lam * lam : (lam + 1) * (lam + 1)],
                         sh_2[
                             :,
-                            (self.o3_lambda - lam - 1)
-                            * (self.o3_lambda - lam - 1) : (
+                            (self.o3_lambda - lam - 1) * (self.o3_lambda - lam - 1) : (
                                 (self.o3_lambda - lam - 1) + 1
                             )
                             * ((self.o3_lambda - lam - 1) + 1),
