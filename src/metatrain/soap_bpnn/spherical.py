@@ -25,26 +25,25 @@ class VectorBasis(torch.nn.Module):
         super().__init__()
         self.atomic_types = atomic_types
 
-        soap_vector_hypers = copy.deepcopy(soap_hypers)
-        soap_vector_hypers["max_angular"] = 1
-        spex_soap_vector_hypers = {
-            "cutoff": soap_vector_hypers["soap"]["cutoff"]["radius"],
-            "max_angular": soap_vector_hypers["soap"]["max_angular"],
+        soap_hypers = copy.deepcopy(soap_hypers)
+        soap_hypers["max_angular"] = 1
+
+        spex_soap_hypers = {
+            "cutoff": soap_hypers["cutoff"]["radius"],
+            "max_angular": soap_hypers["max_angular"],
             "radial": {
                 "LaplacianEigenstates": {
-                    "max_radial": soap_vector_hypers["soap"]["max_radial"],
+                    "max_radial": soap_hypers["max_radial"],
                 }
             },
             "angular": "SphericalHarmonics",
             "cutoff_function": {
-                "ShiftedCosine": {
-                    "width": soap_vector_hypers["soap"]["cutoff"]["width"]
-                }
+                "ShiftedCosine": {"width": soap_hypers["cutoff"]["width"]}
             },
             "species": {"Orthogonal": {"species": self.atomic_types}},
         }
 
-        self.soap_calculator = SphericalExpansion(**spex_soap_vector_hypers)
+        self.soap_calculator = SphericalExpansion(**spex_soap_hypers)
 
         self.neighbor_species_labels = Labels(
             names=["neighbor_type"],
@@ -285,8 +284,9 @@ class TensorBasis(torch.nn.Module):
                     sh_1[:, lam * lam : (lam + 1) * (lam + 1)],
                     sh_2[
                         :,
-                        (self.o3_lambda - lam)
-                        * (self.o3_lambda - lam) : ((self.o3_lambda - lam) + 1)
+                        (self.o3_lambda - lam) * (self.o3_lambda - lam) : (
+                            (self.o3_lambda - lam) + 1
+                        )
                         * ((self.o3_lambda - lam) + 1),
                     ],
                     self.cgs[
@@ -303,8 +303,7 @@ class TensorBasis(torch.nn.Module):
                         sh_1[:, lam * lam : (lam + 1) * (lam + 1)],
                         sh_2[
                             :,
-                            (self.o3_lambda - lam - 1)
-                            * (self.o3_lambda - lam - 1) : (
+                            (self.o3_lambda - lam - 1) * (self.o3_lambda - lam - 1) : (
                                 (self.o3_lambda - lam - 1) + 1
                             )
                             * ((self.o3_lambda - lam - 1) + 1),
