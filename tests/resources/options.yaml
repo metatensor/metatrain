@@ -1,4 +1,5 @@
 seed: 42
+base_precision: 32
 
 architecture:
   name: experimental.phace
@@ -9,17 +10,17 @@ architecture:
       max_eigenvalue: 25.0
   training:
     batch_size: 5
-    num_epochs: 100
+    num_epochs: 1000
     per_structure_targets: ["energy"]
     log_mae: true
 
 training_set:
   systems:
-    read_from: qm9_reduced_100.xyz
+    read_from: ethanol_train_0.xyz
     length_unit: angstrom
   targets:
     energy:
-      key: U0
+      key: energy
       unit: eV
 
 test_set: 0.05

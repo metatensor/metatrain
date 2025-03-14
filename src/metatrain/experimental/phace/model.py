@@ -50,6 +50,7 @@ class PhACE(torch.nn.Module):
 
     component_labels: Dict[str, List[List[Labels]]]
     U_dict: Dict[int, torch.Tensor]
+    U_dict_parity: Dict[str, torch.Tensor]
 
     def __init__(self, model_hypers: Dict, dataset_info: DatasetInfo) -> None:
         super().__init__()
@@ -164,6 +165,20 @@ class PhACE(torch.nn.Module):
                 U.T @ U, torch.eye((padded_l + 1) ** 2, dtype=U.dtype)
             )
             self.U_dict[padded_l] = U
+
+        self.U_dict_parity: Dict[str, torch.Tensor] = {}
+        for padded_l in list(self.U_dict.keys()):
+            self.U_dict_parity[f"{padded_l}_{1}"] = self.U_dict[padded_l].clone()
+            # mask out odd l values
+            for l in range(1, padded_l + 1, 2):
+                # print(l, padded_l)
+                self.U_dict_parity[f"{padded_l}_{1}"][:, l**2:(l + 1)**2] = 0.0
+                # print(self.U_dict_parity[f"{padded_l}_{1}"])
+            self.U_dict_parity[f"{padded_l}_{-1}"] = self.U_dict[padded_l].clone()
+            # mask out even l values
+            for l in range(0, padded_l + 1, 2):
+                # print(l, padded_l)
+                self.U_dict_parity[f"{padded_l}_{-1}"][:, l**2:(l + 1)**2] = 0.0
 
         # Subsequent message-passing layers
         equivariant_message_passers: List[EquivariantMessagePasser] = []
@@ -283,10 +298,16 @@ class PhACE(torch.nn.Module):
             self.U_dict = {
                 padded_l: U.to(device) for padded_l, U in self.U_dict.items()
             }
+            self.U_dict_parity = {
+                key: U.to(device) for key, U in self.U_dict_parity.items()
+            }
 
         dtype = systems[0].dtype
         if self.U_dict[0].dtype != dtype:
             self.U_dict = {padded_l: U.to(dtype) for padded_l, U in self.U_dict.items()}
+            self.U_dict_parity = {
+                key: U.to(dtype) for key, U in self.U_dict_parity.items()
+            }
 
         neighbor_list_options = self.requested_neighbor_lists()[0]  # there is only one
         structures = systems_to_batch(systems, neighbor_list_options)
@@ -364,12 +385,12 @@ class PhACE(torch.nn.Module):
                 ]
             ] + split_features
 
-        uncoupled_features = []
+        uncoupled_features: List[Tuple[torch.Tensor, torch.Tensor]] = []
         for l in range(self.l_max + 1):
             uncoupled_features.append(
                 uncouple_features(
                     split_features[l],
-                    self.U_dict[self.padded_l_list[l]],
+                    (self.U_dict_parity[f"{self.padded_l_list[l]}_{1}"], self.U_dict_parity[f"{self.padded_l_list[l]}_{-1}"]),
                     self.padded_l_list[l],
                 )
             )
@@ -389,7 +410,7 @@ class PhACE(torch.nn.Module):
                 structures["structure_offsets"][structures["structure_pairs"]]
                 + structures["pairs"][:, 1],
                 embedded_features,
-                self.U_dict,
+                self.U_dict_parity,
             )
             iterated_features = generalized_cg_iterator(mp_features)
             features = iterated_features
@@ -402,9 +423,9 @@ class PhACE(torch.nn.Module):
             coupled_features.append(
                 couple_features(
                     features[l],
-                    self.U_dict[self.padded_l_list[l]],
+                    (self.U_dict_parity[f"{self.padded_l_list[l]}_{1}"], self.U_dict_parity[f"{self.padded_l_list[l]}_{-1}"]),
                     self.padded_l_list[l],
-                )
+                )[0]
             )
 
         concatenated_coupled_features = []

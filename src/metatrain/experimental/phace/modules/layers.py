@@ -1,4 +1,4 @@
-from typing import Dict, List
+from typing import Dict, List, Tuple
 
 import torch
 from metatensor.torch import Labels, TensorBlock, TensorMap
@@ -20,14 +20,16 @@ class LinearList(torch.nn.Module):
     def __init__(self, k_max_l_max: List[int]) -> None:
         super().__init__()
         self.linears = torch.nn.ModuleList(
-            [Linear(k_max_l, k_max_l) for k_max_l in k_max_l_max]
+            [torch.nn.ModuleList([Linear(k_max_l, k_max_l), Linear(k_max_l, k_max_l)]) for k_max_l in k_max_l_max]
         )
 
-    def forward(self, features_list: List[torch.Tensor]) -> List[torch.Tensor]:
-        # return features_list
-        new_features_list = []
+    def forward(self, features_list: List[Tuple[torch.Tensor, torch.Tensor]]) -> List[Tuple[torch.Tensor, torch.Tensor]]:
+        new_features_list: List[Tuple[torch.Tensor, torch.Tensor]] = []
         for i, linear in enumerate(self.linears):
-            new_features_list.append(linear(features_list[i]))
+            current_features = features_list[i]
+            new_features = (linear[0](current_features[0]), linear[1](current_features[1]))
+            new_features_list.append(new_features)
+            
         return new_features_list
 
 

@@ -1,4 +1,4 @@
-from typing import List
+from typing import List, Tuple
 
 import torch
 
@@ -29,10 +29,11 @@ class CGIterator(torch.nn.Module):
             cg_iterations.append(CGIteration(self.k_max_l_max))
         self.cg_iterations = torch.nn.ModuleList(cg_iterations)
 
-    def forward(self, features: List[torch.Tensor]) -> List[torch.Tensor]:
+    def forward(self, features: List[Tuple[torch.Tensor, torch.Tensor]]) -> List[Tuple[torch.Tensor, torch.Tensor]]:
 
         density = features
-        mixed_densities = [mixer(density) for mixer in self.mixers]
+        # mixed_densities = [mixer(density) for mixer in self.mixers]
+        mixed_densities = [density for mixer in self.mixers]
 
         starting_density = mixed_densities[0]
         density_index = 1
@@ -57,9 +58,11 @@ class CGIteration(torch.nn.Module):
         self.linear = Linear(k_max_l_max)
 
     def forward(
-        self, features_1: List[torch.Tensor], features_2: List[torch.Tensor]
-    ) -> List[torch.Tensor]:
+        self, features_1: List[Tuple[torch.Tensor, torch.Tensor]], features_2: List[Tuple[torch.Tensor, torch.Tensor]]
+    ) -> List[Tuple[torch.Tensor, torch.Tensor]]:
         features_out = combine_uncoupled_features(features_1, features_2)
         features_out = self.linear(features_out)
-        features_out = [f1 + fo for f1, fo in zip(features_1, features_out)]
+        features_out = [
+            (f1e + foe, f1o + foo) for (f1e, f1o), (foe, foo) in zip(features_1, features_out)
+        ]
         return features_out

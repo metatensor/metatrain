@@ -108,8 +108,10 @@ class InvariantMessagePasser(torch.nn.Module):
             ).to(device=initial_center_embedding.device),
             blocks=blocks,
         )
-
         pooled_result = metatensor.torch.multiply(pooled_result, self.mp_scaling)
+
+        # TODO: add linear layers here?
+
         if not self.disable_nu_0:
             pooled_result = self.adder(pooled_result, initial_center_embedding)
         return pooled_result
@@ -158,9 +160,9 @@ class EquivariantMessagePasser(torch.nn.Module):
         sh: TensorMap,
         centers,
         neighbors,
-        features: List[torch.Tensor],
-        U_dict: Dict[int, torch.Tensor],
-    ) -> List[torch.Tensor]:
+        features: List[Tuple[torch.Tensor, torch.Tensor]],
+        U_dict_parity: Dict[str, torch.Tensor],
+    ) -> List[Tuple[torch.Tensor, torch.Tensor]]:
 
         radial_basis = self.radial_basis_calculator(r.values.squeeze(-1), r.samples)
         vector_expansion = [
@@ -179,43 +181,62 @@ class EquivariantMessagePasser(torch.nn.Module):
                 ]
             ] + split_vector_expansion
 
-        uncoupled_vector_expansion = []
+        uncoupled_vector_expansion: List[Tuple[torch.Tensor, torch.Tensor]] = []
         for l in range(self.l_max + 1):
             uncoupled_vector_expansion.append(
                 uncouple_features(
                     split_vector_expansion[l],
-                    U_dict[self.padded_l_list[l]],
+                    (U_dict_parity[f"{self.padded_l_list[l]}_{1}"], U_dict_parity[f"{self.padded_l_list[l]}_{-1}"]),
                     self.padded_l_list[l],
                 )
             )
 
-        n_atoms = features[0].shape[0]
+        n_atoms = features[0][0].shape[0]
 
-        indexed_features = []
-        for feature in features:
-            indexed_features.append(feature[neighbors])
+        indexed_features: List[Tuple[torch.Tensor, torch.Tensor]] = []
+        for feature_even, feature_odd in features:
+            indexed_features.append((feature_even[neighbors], feature_odd[neighbors]))
 
         # TODO: maybe it would be a good idea to break these up to limit memory usage
         combined_features = combine_uncoupled_features(
             uncoupled_vector_expansion, indexed_features
         )
 
-        combined_features_pooled = []
-        for cf in combined_features:
+        combined_features_pooled: List[Tuple[torch.Tensor, torch.Tensor]] = []
+        for cfe, cfo in combined_features:
             combined_features_pooled.append(
-                torch.zeros(
-                    (n_atoms,) + cf.shape[1:],
-                    device=cf.device,
-                    dtype=cf.dtype,
+                (
+                    torch.zeros(
+                        (n_atoms,) + cfe.shape[1:],
+                        device=cfe.device,
+                        dtype=cfe.dtype,
+                    ),
+                    torch.zeros(
+                        (n_atoms,) + cfo.shape[1:],
+                        device=cfo.device,
+                        dtype=cfo.dtype,
+                    )
                 )
             )
-            combined_features_pooled[-1].index_add_(
+            combined_features_pooled[-1][0].index_add_(
                 dim=0,
                 index=centers,
-                source=cf,
+                source=cfe,
+            )
+            combined_features_pooled[-1][1].index_add_(
+                dim=0,
+                index=centers,
+                source=cfo,
             )
 
+        # apply mp_scaling
+        combined_features_pooled = [
+            (fe * self.mp_scaling, fo * self.mp_scaling) for fe, fo in combined_features_pooled
+        ]
+
         features_out = self.linear(combined_features_pooled)
-        features_out = [fi + fo for fi, fo in zip(features, features_out)]
+        features_out = [
+            (f1e + foe, f1o + foo) for (f1e, f1o), (foe, foo) in zip(features, features_out)
+        ]
 
         return features_out
