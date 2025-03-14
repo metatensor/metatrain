@@ -210,7 +210,9 @@ class SoapPowerSpectrum(torch.nn.Module):
                     )
                     keys.append(
                         torch.tensor(
-                            [species_center, species_neighbor_1, species_neighbor_2]
+                            [species_center, species_neighbor_1, species_neighbor_2],
+                            dtype=i.dtype,
+                            device=i.device,
                         )
                     )
 
@@ -268,10 +270,10 @@ def concatenate_structures(
 
 hard_coded_hypers = {
     "cutoff": 5.0,
-    "max_angular": 0,
+    "max_angular": 5,
     "radial": {
         "LaplacianEigenstates": {
-            "max_radial": 10,
+            "max_radial": 5,
         }
     },
     "angular": "SphericalHarmonics",
