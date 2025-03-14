@@ -16,7 +16,7 @@ from metatensor.torch.learn.nn import Linear as LinearMap
 from metatensor.torch.learn.nn import ModuleMap
 
 # import featomic.torch
-from spex import SphericalExpansion
+from spex.metatensor import SoapPowerSpectrum
 
 from metatrain.utils.data import TargetInfo
 from metatrain.utils.data.dataset import DatasetInfo
@@ -123,102 +123,6 @@ class MLPHeadMap(ModuleMap):
 
         super().__init__(in_keys, nns_per_species, out_properties)
         self.activation_function = activation_function
-
-
-class SoapPowerSpectrum(torch.nn.Module):
-    def __init__(
-        self,
-        cutoff,
-        max_angular,
-        radial,
-        angular,
-        species,
-        cutoff_function,
-    ):
-        super().__init__()
-
-        self.spec = {
-            "cutoff": cutoff,
-            "max_angular": max_angular,
-            "radial": radial,
-            "angular": angular,
-            "species": species,
-            "cutoff_function": cutoff_function,
-        }
-
-        self.calculator = SphericalExpansion(**self.spec)
-
-        self.l_to_treat = list(range(self.calculator.max_angular + 1))
-        self.n_per_l = self.calculator.radial.n_per_l
-        self.shape = sum(self.n_per_l[ell] ** 2 for ell in self.l_to_treat)
-
-        species = self.calculator.species.species
-        self.register_buffer("species", species, persistent=False)
-
-        self.max_radial = next(iter(radial.values()))["max_radial"]
-
-    def forward(self, R_ij, i, j, species, structures, centers):
-        expansion = self.calculator.forward(R_ij, i, j, species)
-        output = [
-            torch.einsum("imnc,imNC->inNcC", e, e) for e in expansion
-        ]  # -> [[i, n1, n2, c1, c2], [...], ...]
-
-        # Build TensorMap
-        properties_list: List[List[int]] = []
-        for ell in self.l_to_treat:
-            for n1 in range(self.n_per_l[ell]):
-                for n2 in range(self.n_per_l[ell]):
-                    properties_list.append([ell, n1, n2])
-        properties = torch.tensor(
-            properties_list,
-            dtype=i.dtype,
-            device=i.device,
-        )
-        all_center_species: List[int] = torch.unique(species).to(torch.long).tolist()
-        all_neighbor_species: List[int] = self.species.to(torch.long).tolist()
-
-        blocks: list[TensorBlock] = []
-        keys: list[torch.Tensor] = []
-        data_: list[torch.Tensor] = []
-        for species_center in all_center_species:
-            center_mask = species == species_center
-            for i1, species_neighbor_1 in enumerate(all_neighbor_species):
-                for i2, species_neighbor_2 in enumerate(all_neighbor_species):
-                    data_ = [
-                        output[ell][center_mask][..., i1, i2].reshape(
-                            sum(center_mask), -1
-                        )
-                        for ell in self.l_to_treat
-                    ]
-                    data = torch.cat(data_, dim=1)
-
-                    blocks.append(
-                        TensorBlock(
-                            values=data,
-                            samples=Labels(
-                                ["system", "atom"],
-                                torch.stack(
-                                    (structures[center_mask], centers[center_mask])
-                                ).T,
-                            ),
-                            components=[],
-                            properties=Labels(["l", "n_1", "n_2"], properties),
-                        )
-                    )
-                    keys.append(
-                        torch.tensor(
-                            [species_center, species_neighbor_1, species_neighbor_2],
-                            dtype=i.dtype,
-                            device=i.device,
-                        )
-                    )
-
-        return TensorMap(
-            Labels(
-                ["center_type", "neighbor_1_type", "neighbor_2_type"], torch.stack(keys)
-            ),
-            blocks,
-        )
 
 
 def concatenate_structures(
