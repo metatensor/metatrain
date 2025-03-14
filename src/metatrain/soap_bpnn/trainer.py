@@ -30,6 +30,8 @@ from ..utils.transfer import (
 )
 from .model import SoapBpnn
 
+from metatensor.torch.atomistic import NeighborListOptions
+
 
 logger = logging.getLogger(__name__)
 
@@ -102,6 +104,13 @@ class Trainer:
         # might need them):
         logger.info("Calculating neighbor lists for the datasets")
         requested_neighbor_lists = get_requested_neighbor_lists(model)
+        requested_neighbor_lists += [
+            NeighborListOptions(
+                cutoff=requested_neighbor_lists[0].cutoff,
+                full_list=True,
+                strict=requested_neighbor_lists[0].strict,
+            )
+        ]
         for dataset in train_datasets + val_datasets:
             # If the dataset is a disk dataset, the NLs are already attached, we will
             # just check the first system

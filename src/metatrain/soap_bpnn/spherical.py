@@ -3,14 +3,73 @@
 import copy
 from typing import Dict, List, Optional
 
-import featomic.torch
+# import featomic.torch
+
+from spex.metatensor import SphericalExpansion
 import metatensor.torch
 import numpy as np
 import torch
 import wigners
 from metatensor.torch import Labels
-from metatensor.torch.atomistic import System
+from metatensor.torch.atomistic import System, NeighborListOptions
 from metatensor.torch.learn.nn import Linear as LinearMap
+
+
+hard_coded_hypers = {
+    "cutoff": 5.0,
+    "max_angular": 0,
+    "radial": {
+        "LaplacianEigenstates": {
+            "max_radial": 2,
+        }
+    },
+    "angular": "SphericalHarmonics",
+    "cutoff_function": {"ShiftedCosine": {"width": 0.5}},
+}
+
+
+def concatenate_structures(
+    systems: List[System], neighbor_list_options: NeighborListOptions
+):
+    positions = []
+    centers = []
+    neighbors = []
+    species = []
+    cell_shifts = []
+    cells = []
+    node_counter = 0
+
+    for system in systems:
+        positions.append(system.positions)
+        species.append(system.types)
+
+        assert len(system.known_neighbor_lists()) >= 1, "no neighbor list found"
+        neighbor_list = system.get_neighbor_list(neighbor_list_options)
+        nl_values = neighbor_list.samples.values
+
+        centers.append(nl_values[:, 0] + node_counter)
+        neighbors.append(nl_values[:, 1] + node_counter)
+        cell_shifts.append(nl_values[:, 2:])
+
+        cells.append(system.cell)
+
+        node_counter += len(system.positions)
+
+    positions = torch.cat(positions)
+    centers = torch.cat(centers)
+    neighbors = torch.cat(neighbors)
+    species = torch.cat(species)
+    cells = torch.stack(cells)
+    cell_shifts = torch.cat(cell_shifts)
+
+    return (
+        positions,
+        centers,
+        neighbors,
+        species,
+        cells,
+        cell_shifts,
+    )
 
 
 class VectorBasis(torch.nn.Module):
@@ -23,13 +82,21 @@ class VectorBasis(torch.nn.Module):
     def __init__(self, atomic_types, soap_hypers) -> None:
         super().__init__()
         self.atomic_types = atomic_types
+
         soap_vector_hypers = copy.deepcopy(soap_hypers)
         soap_vector_hypers["basis"]["max_angular"] = 1
-        self.soap_calculator = featomic.torch.SphericalExpansion(**soap_vector_hypers)
+
+        spex_soap_vector_hypers = copy.deepcopy(hard_coded_hypers)
+        spex_soap_vector_hypers["max_angular"] = 1
+        spex_soap_vector_hypers["species"] = {"Orthogonal": {"species": atomic_types}}
+
+        self.soap_calculator = SphericalExpansion(**spex_soap_vector_hypers)
+
         self.neighbor_species_labels = Labels(
             names=["neighbor_type"],
             values=torch.tensor(self.atomic_types).reshape(-1, 1),
         )
+
         self.contraction = LinearMap(
             in_keys=Labels(
                 names=["o3_lambda", "o3_sigma", "center_type"],
@@ -42,7 +109,7 @@ class VectorBasis(torch.nn.Module):
                     dim=1,
                 ),
             ),
-            in_features=(soap_vector_hypers["basis"]["radial"]["max_radial"] + 1)
+            in_features=(self.soap_calculator.calculator.radial.n_per_l[1])
             * len(self.atomic_types),
             out_features=3,
             bias=False,
@@ -57,8 +124,60 @@ class VectorBasis(torch.nn.Module):
         if self.neighbor_species_labels.device != device:
             self.neighbor_species_labels = self.neighbor_species_labels.to(device)
 
+        # Torch-spex does not support passing Systems directly
+        neighbor_list_options = systems[0].known_neighbor_lists()[0]
+
+        system_indices = torch.concatenate(
+            [
+                torch.full(
+                    (len(system),),
+                    i_system,
+                    device=device,
+                )
+                for i_system, system in enumerate(systems)
+            ],
+        )
+
+        sample_values = torch.stack(
+            [
+                system_indices,
+                torch.concatenate(
+                    [
+                        torch.arange(
+                            len(system),
+                            device=device,
+                        )
+                        for system in systems
+                    ],
+                ),
+            ],
+            dim=1,
+        )
+
+        (
+            positions,
+            centers,
+            neighbors,
+            species,
+            cells,
+            cell_shifts,
+        ) = concatenate_structures(systems, neighbor_list_options)
+
+        # somehow the backward of this operation is very slow at evaluation,
+        # where there is only one cell, therefore we simplify the calculation
+        # for that case
+        if len(cells) == 1:
+            cell_contributions = cell_shifts.to(cells.dtype) @ cells[0]
+        else:
+            cell_contributions = torch.einsum(
+                "ab, abc -> ac",
+                cell_shifts.to(cells.dtype),
+                cells[system_indices[centers]],
+            )
+
+        R_ij = positions[neighbors] - positions[centers] + cell_contributions
         spherical_expansion = self.soap_calculator(
-            systems, selected_samples=selected_atoms
+            R_ij, centers, neighbors, species, sample_values[:, 0], sample_values[:, 1]
         )
 
         # by calling keys_to_samples and keys_to_properties in the same order as they
@@ -173,6 +292,7 @@ class TensorBasis(torch.nn.Module):
             vector_1_spherical = vector_basis[:, :, 0]
             vector_2_spherical = vector_basis[:, :, 1]
             vector_3_spherical = vector_basis[:, :, 2]
+
             vector_1_spherical = vector_1_spherical / torch.sqrt(
                 torch.sum(torch.square(vector_1_spherical), dim=-1, keepdim=True)
             )
@@ -216,9 +336,8 @@ class TensorBasis(torch.nn.Module):
                     sh_1[:, lam * lam : (lam + 1) * (lam + 1)],
                     sh_2[
                         :,
-                        (self.o3_lambda - lam) * (self.o3_lambda - lam) : (
-                            (self.o3_lambda - lam) + 1
-                        )
+                        (self.o3_lambda - lam)
+                        * (self.o3_lambda - lam) : ((self.o3_lambda - lam) + 1)
                         * ((self.o3_lambda - lam) + 1),
                     ],
                     self.cgs[
@@ -235,7 +354,8 @@ class TensorBasis(torch.nn.Module):
                         sh_1[:, lam * lam : (lam + 1) * (lam + 1)],
                         sh_2[
                             :,
-                            (self.o3_lambda - lam - 1) * (self.o3_lambda - lam - 1) : (
+                            (self.o3_lambda - lam - 1)
+                            * (self.o3_lambda - lam - 1) : (
                                 (self.o3_lambda - lam - 1) + 1
                             )
                             * ((self.o3_lambda - lam - 1) + 1),

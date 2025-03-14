@@ -1,7 +1,8 @@
 from pathlib import Path
 from typing import Dict, List, Optional, Union
 
-import featomic.torch
+# import featomic.torch
+from spex import SphericalExpansion
 import metatensor.torch
 import torch
 from metatensor.torch import Labels, TensorBlock, TensorMap
@@ -11,6 +12,7 @@ from metatensor.torch.atomistic import (
     ModelMetadata,
     ModelOutput,
     System,
+    NeighborListOptions,
 )
 from metatensor.torch.learn.nn import Linear as LinearMap
 from metatensor.torch.learn.nn import ModuleMap
@@ -122,6 +124,163 @@ class MLPHeadMap(ModuleMap):
         self.activation_function = activation_function
 
 
+class SoapPowerSpectrum(torch.nn.Module):
+    def __init__(
+        self,
+        cutoff,
+        max_angular=3,
+        radial={"LaplacianEigenstates": {"max_radial": 8}},
+        angular="SphericalHarmonics",
+        species={"Alchemical": {"pseudo_species": 4}},
+        cutoff_function={"ShiftedCosine": {"width": 0.5}},
+    ):
+
+        super().__init__()
+
+        self.spec = {
+            "cutoff": cutoff,
+            "max_angular": max_angular,
+            "radial": radial,
+            "angular": angular,
+            "species": species,
+            "cutoff_function": cutoff_function,
+        }
+
+        self.calculator = SphericalExpansion(**self.spec)
+
+        l_to_treat = list(range(self.calculator.max_angular + 1))
+        self.n_per_l = self.calculator.radial.n_per_l
+        self.shape = sum(self.n_per_l[ell] ** 2 for ell in l_to_treat)
+
+        species = self.calculator.species.species
+        self.register_buffer("species", species, persistent=False)
+
+        self.max_radial = next(iter(radial.values()))["max_radial"]
+
+    def forward(self, R_ij, i, j, species, structures, centers):
+
+        expansion = self.calculator.forward(R_ij, i, j, species)
+        output = [
+            torch.einsum("imnc,imNC->inNcC", e, e) for e in expansion
+        ]  # -> [[i, n1, n2, c1, c2], [...], ...]
+
+        # Build TensorMap
+        l_to_treat = torch.arange(
+            self.calculator.max_angular + 1, dtype=i.dtype, device=i.device
+        )
+        properties = torch.tensor(
+            [
+                (ell, n1, n2)
+                for ell in l_to_treat
+                for n1 in range(self.n_per_l[ell])
+                for n2 in range(self.n_per_l[ell])
+            ],
+            dtype=i.dtype,
+            device=i.device,
+        )
+        all_center_species = torch.unique(species)
+        all_neighbor_species = self.species
+
+        blocks: list[TensorBlock] = []
+        keys: list[torch.Tensor] = []
+        data_: list[torch.Tensor] = []
+        for species_center in all_center_species:
+            center_mask = species == species_center
+            for i1, species_neighbor_1 in enumerate(all_neighbor_species):
+                for i2, species_neighbor_2 in enumerate(all_neighbor_species):
+
+                    data_ = [
+                        output[ell][center_mask][..., i1, i2].reshape(
+                            sum(center_mask), -1
+                        )
+                        for ell in l_to_treat
+                    ]
+                    data = torch.cat(data_, dim=1)
+
+                    blocks.append(
+                        TensorBlock(
+                            values=data,
+                            samples=Labels(
+                                ["system", "atom"],
+                                torch.stack(
+                                    (structures[center_mask], centers[center_mask])
+                                ).T,
+                            ),
+                            components=[],
+                            properties=Labels(["l", "n_1", "n_2"], properties),
+                        )
+                    )
+                    keys.append(
+                        torch.tensor(
+                            [species_center, species_neighbor_1, species_neighbor_2]
+                        )
+                    )
+
+        return TensorMap(
+            Labels(
+                ["center_type", "neighbor_1_type", "neighbor_2_type"], torch.stack(keys)
+            ),
+            blocks,
+        )
+
+
+def concatenate_structures(
+    systems: List[System], neighbor_list_options: NeighborListOptions
+):
+    positions = []
+    centers = []
+    neighbors = []
+    species = []
+    cell_shifts = []
+    cells = []
+    node_counter = 0
+
+    for system in systems:
+        positions.append(system.positions)
+        species.append(system.types)
+
+        assert len(system.known_neighbor_lists()) >= 1, "no neighbor list found"
+        neighbor_list = system.get_neighbor_list(neighbor_list_options)
+        nl_values = neighbor_list.samples.values
+
+        centers.append(nl_values[:, 0] + node_counter)
+        neighbors.append(nl_values[:, 1] + node_counter)
+        cell_shifts.append(nl_values[:, 2:])
+
+        cells.append(system.cell)
+
+        node_counter += len(system.positions)
+
+    positions = torch.cat(positions)
+    centers = torch.cat(centers)
+    neighbors = torch.cat(neighbors)
+    species = torch.cat(species)
+    cells = torch.stack(cells)
+    cell_shifts = torch.cat(cell_shifts)
+
+    return (
+        positions,
+        centers,
+        neighbors,
+        species,
+        cells,
+        cell_shifts,
+    )
+
+
+hard_coded_hypers = {
+    "cutoff": 5.0,
+    "max_angular": 0,
+    "radial": {
+        "LaplacianEigenstates": {
+            "max_radial": 10,
+        }
+    },
+    "angular": "SphericalHarmonics",
+    "cutoff_function": {"ShiftedCosine": {"width": 0.5}},
+}
+
+
 class SoapBpnn(torch.nn.Module):
     __supported_devices__ = ["cuda", "cpu"]
     __supported_dtypes__ = [torch.float64, torch.float32]
@@ -145,12 +304,20 @@ class SoapBpnn(torch.nn.Module):
         self.dataset_info = dataset_info
         self.atomic_types = dataset_info.atomic_types
 
-        self.soap_calculator = featomic.torch.SoapPowerSpectrum(**self.hypers["soap"])
+        self.requested_nl = NeighborListOptions(
+            cutoff=self.hypers["soap"]["cutoff"]["radius"],
+            full_list=True,
+            strict=True,
+        )
 
-        soap_size = (
-            (len(self.atomic_types) * (len(self.atomic_types) + 1) // 2)
-            * (self.hypers["soap"]["basis"]["radial"]["max_radial"] + 1) ** 2
-            * (self.hypers["soap"]["basis"]["max_angular"] + 1)
+        spex_soap_vector_hypers = hard_coded_hypers
+        spex_soap_vector_hypers["species"] = {
+            "Orthogonal": {"species": self.atomic_types}
+        }
+        self.soap_calculator = SoapPowerSpectrum(**spex_soap_vector_hypers)
+
+        soap_size = self.soap_calculator.shape * (
+            len(self.atomic_types) * (len(self.atomic_types) + 1) // 2
         )
 
         hypers_bpnn = {**self.hypers["bpnn"]}
@@ -181,7 +348,7 @@ class SoapBpnn(torch.nn.Module):
             self.n_inputs_last_layer = hypers_bpnn["num_neurons_per_layer"]
 
         # long-range module
-        self.nl_options = self.soap_calculator.requested_neighbor_lists()[0]
+        self.nl_options = self.requested_neighbor_lists()
         if self.hypers["long_range"]["enable"]:
             self.long_range = True
             self.long_range_featurizer = LongRangeFeaturizer(
@@ -320,7 +487,60 @@ class SoapBpnn(torch.nn.Module):
         # initialize the return dictionary
         return_dict: Dict[str, TensorMap] = {}
 
-        soap_features = self.soap_calculator(systems, selected_samples=selected_atoms)
+        # Compute SOAP features with torch-spex
+        neighbor_list_options = self.requested_neighbor_lists()[0]
+
+        system_indices = torch.concatenate(
+            [
+                torch.full(
+                    (len(system),),
+                    i_system,
+                    device=device,
+                )
+                for i_system, system in enumerate(systems)
+            ],
+        )
+
+        sample_values = torch.stack(
+            [
+                system_indices,
+                torch.concatenate(
+                    [
+                        torch.arange(
+                            len(system),
+                            device=device,
+                        )
+                        for system in systems
+                    ],
+                ),
+            ],
+            dim=1,
+        )
+        (
+            positions,
+            centers,
+            neighbors,
+            species,
+            cells,
+            cell_shifts,
+        ) = concatenate_structures(systems, neighbor_list_options)
+
+        # somehow the backward of this operation is very slow at evaluation,
+        # where there is only one cell, therefore we simplify the calculation
+        # for that case
+        if len(cells) == 1:
+            cell_contributions = cell_shifts.to(cells.dtype) @ cells[0]
+        else:
+            cell_contributions = torch.einsum(
+                "ab, abc -> ac",
+                cell_shifts.to(cells.dtype),
+                cells[system_indices[centers]],
+            )
+
+        R_ij = positions[neighbors] - positions[centers] + cell_contributions
+        soap_features = self.soap_calculator(
+            R_ij, centers, neighbors, species, sample_values[:, 0], sample_values[:, 1]
+        )
 
         device = soap_features.block(0).values.device
         soap_features = soap_features.keys_to_properties(self.neighbors_species_labels)
@@ -529,6 +749,11 @@ class SoapBpnn(torch.nn.Module):
                     )
 
         return return_dict
+
+    def requested_neighbor_lists(
+        self,
+    ) -> List[NeighborListOptions]:
+        return [self.requested_nl]
 
     @classmethod
     def load_checkpoint(cls, path: Union[str, Path]) -> "SoapBpnn":
