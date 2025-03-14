@@ -129,11 +129,11 @@ class SoapPowerSpectrum(torch.nn.Module):
     def __init__(
         self,
         cutoff,
-        max_angular=3,
-        radial={"LaplacianEigenstates": {"max_radial": 8}},
-        angular="SphericalHarmonics",
-        species={"Alchemical": {"pseudo_species": 4}},
-        cutoff_function={"ShiftedCosine": {"width": 0.5}},
+        max_angular,
+        radial,
+        angular,
+        species,
+        cutoff_function,
     ):
         super().__init__()
 
@@ -148,9 +148,9 @@ class SoapPowerSpectrum(torch.nn.Module):
 
         self.calculator = SphericalExpansion(**self.spec)
 
-        l_to_treat = list(range(self.calculator.max_angular + 1))
+        self.l_to_treat = list(range(self.calculator.max_angular + 1))
         self.n_per_l = self.calculator.radial.n_per_l
-        self.shape = sum(self.n_per_l[ell] ** 2 for ell in l_to_treat)
+        self.shape = sum(self.n_per_l[ell] ** 2 for ell in self.l_to_treat)
 
         species = self.calculator.species.species
         self.register_buffer("species", species, persistent=False)
@@ -164,21 +164,18 @@ class SoapPowerSpectrum(torch.nn.Module):
         ]  # -> [[i, n1, n2, c1, c2], [...], ...]
 
         # Build TensorMap
-        l_to_treat = torch.arange(
-            self.calculator.max_angular + 1, dtype=i.dtype, device=i.device
-        )
+        properties_list: List[List[int]] = []
+        for ell in self.l_to_treat:
+            for n1 in range(self.n_per_l[ell]):
+                for n2 in range(self.n_per_l[ell]):
+                    properties_list.append([ell, n1, n2])
         properties = torch.tensor(
-            [
-                (ell, n1, n2)
-                for ell in l_to_treat
-                for n1 in range(self.n_per_l[ell])
-                for n2 in range(self.n_per_l[ell])
-            ],
+            properties_list,
             dtype=i.dtype,
             device=i.device,
         )
-        all_center_species = torch.unique(species)
-        all_neighbor_species = self.species
+        all_center_species: List[int] = torch.unique(species).to(torch.long).tolist()
+        all_neighbor_species: List[int] = self.species.to(torch.long).tolist()
 
         blocks: list[TensorBlock] = []
         keys: list[torch.Tensor] = []
@@ -191,7 +188,7 @@ class SoapPowerSpectrum(torch.nn.Module):
                         output[ell][center_mask][..., i1, i2].reshape(
                             sum(center_mask), -1
                         )
-                        for ell in l_to_treat
+                        for ell in self.l_to_treat
                     ]
                     data = torch.cat(data_, dim=1)
 
@@ -348,13 +345,12 @@ class SoapBpnn(torch.nn.Module):
             self.n_inputs_last_layer = hypers_bpnn["num_neurons_per_layer"]
 
         # long-range module
-        self.nl_options = self.requested_neighbor_lists()
         if self.hypers["long_range"]["enable"]:
             self.long_range = True
             self.long_range_featurizer = LongRangeFeaturizer(
                 self.hypers["long_range"],
                 self.n_inputs_last_layer,
-                self.nl_options,
+                self.requested_nl,
             )
         else:
             self.long_range = False
@@ -487,9 +483,6 @@ class SoapBpnn(torch.nn.Module):
         # initialize the return dictionary
         return_dict: Dict[str, TensorMap] = {}
 
-        # Compute SOAP features with torch-spex
-        neighbor_list_options = self.requested_neighbor_lists()[0]
-
         system_indices = torch.concatenate(
             [
                 torch.full(
@@ -523,7 +516,7 @@ class SoapBpnn(torch.nn.Module):
             species,
             cells,
             cell_shifts,
-        ) = concatenate_structures(systems, neighbor_list_options)
+        ) = concatenate_structures(systems, self.requested_nl)
 
         # somehow the backward of this operation is very slow at evaluation,
         # where there is only one cell, therefore we simplify the calculation
@@ -537,10 +530,21 @@ class SoapBpnn(torch.nn.Module):
                 cells[system_indices[centers]],
             )
 
-        R_ij = positions[neighbors] - positions[centers] + cell_contributions
-        soap_features = self.soap_calculator(
-            R_ij, centers, neighbors, species, sample_values[:, 0], sample_values[:, 1]
+        interatomic_vectors = (
+            positions[neighbors] - positions[centers] + cell_contributions
         )
+        soap_features = self.soap_calculator(
+            interatomic_vectors,
+            centers,
+            neighbors,
+            species,
+            sample_values[:, 0],
+            sample_values[:, 1],
+        )
+        if selected_atoms is not None:
+            soap_features = metatensor.torch.slice(
+                soap_features, "samples", selected_atoms
+            )
 
         device = soap_features.block(0).values.device
         soap_features = soap_features.keys_to_properties(self.neighbors_species_labels)
@@ -563,25 +567,7 @@ class SoapBpnn(torch.nn.Module):
                 .values
             )
 
-            # calculate the distances between all atoms
-            # TODO: replace by something smarter once `register_autograd_neighbors`
-            # is fixed
-            edge_vectors = torch.concatenate(
-                [
-                    system.positions[
-                        system.get_neighbor_list(self.nl_options).samples.values[:, 1]
-                    ]
-                    - system.positions[
-                        system.get_neighbor_list(self.nl_options).samples.values[:, 0]
-                    ]
-                    + system.get_neighbor_list(self.nl_options)
-                    .samples.values[:, 2:]
-                    .to(system.cell.dtype)
-                    @ system.cell
-                    for system in systems
-                ]
-            )
-            distances = torch.sqrt(torch.sum(edge_vectors**2, dim=-1))
+            distances = torch.sqrt(torch.sum(interatomic_vectors**2, dim=-1))
 
             long_range_features_tensor = self.long_range_featurizer(
                 systems, merged_features, distances
@@ -683,7 +669,13 @@ class SoapBpnn(torch.nn.Module):
                             ) in basis_calculators_by_block.items():
                                 if basis_calculator_key == layer_key:
                                     tensor_basis = basis_calculator(
-                                        systems, selected_atoms
+                                        interatomic_vectors,
+                                        centers,
+                                        neighbors,
+                                        species,
+                                        sample_values[:, 0],
+                                        sample_values[:, 1],
+                                        selected_atoms,
                                     )
                     # multiply the invariant coefficients by the elements of the
                     # tensor basis

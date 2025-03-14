@@ -1,14 +1,13 @@
 """Modules to allow SOAP-BPNN to fit arbitrary spherical tensor targets."""
 
 import copy
-from typing import Dict, List, Optional
+from typing import Dict, Optional
 
 import metatensor.torch
 import numpy as np
 import torch
 import wigners
 from metatensor.torch import Labels
-from metatensor.torch.atomistic import NeighborListOptions, System
 from metatensor.torch.learn.nn import Linear as LinearMap
 
 # import featomic.torch
@@ -26,50 +25,6 @@ hard_coded_hypers = {
     "angular": "SphericalHarmonics",
     "cutoff_function": {"ShiftedCosine": {"width": 0.5}},
 }
-
-
-def concatenate_structures(
-    systems: List[System], neighbor_list_options: NeighborListOptions
-):
-    positions = []
-    centers = []
-    neighbors = []
-    species = []
-    cell_shifts = []
-    cells = []
-    node_counter = 0
-
-    for system in systems:
-        positions.append(system.positions)
-        species.append(system.types)
-
-        assert len(system.known_neighbor_lists()) >= 1, "no neighbor list found"
-        neighbor_list = system.get_neighbor_list(neighbor_list_options)
-        nl_values = neighbor_list.samples.values
-
-        centers.append(nl_values[:, 0] + node_counter)
-        neighbors.append(nl_values[:, 1] + node_counter)
-        cell_shifts.append(nl_values[:, 2:])
-
-        cells.append(system.cell)
-
-        node_counter += len(system.positions)
-
-    positions = torch.cat(positions)
-    centers = torch.cat(centers)
-    neighbors = torch.cat(neighbors)
-    species = torch.cat(species)
-    cells = torch.stack(cells)
-    cell_shifts = torch.cat(cell_shifts)
-
-    return (
-        positions,
-        centers,
-        neighbors,
-        species,
-        cells,
-        cell_shifts,
-    )
 
 
 class VectorBasis(torch.nn.Module):
@@ -118,67 +73,31 @@ class VectorBasis(torch.nn.Module):
         # this optimizable basis seems to work much better than a fixed one
 
     def forward(
-        self, systems: List[System], selected_atoms: Optional[Labels]
+        self,
+        interatomic_vectors,
+        centers,
+        neighbors,
+        species,
+        structures,
+        atom_index_in_structure,
+        selected_atoms: Optional[Labels],
     ) -> torch.Tensor:
-        device = systems[0].positions.device
+        device = interatomic_vectors.device
         if self.neighbor_species_labels.device != device:
             self.neighbor_species_labels = self.neighbor_species_labels.to(device)
 
-        # Torch-spex does not support passing Systems directly
-        neighbor_list_options = systems[0].known_neighbor_lists()[0]
-
-        system_indices = torch.concatenate(
-            [
-                torch.full(
-                    (len(system),),
-                    i_system,
-                    device=device,
-                )
-                for i_system, system in enumerate(systems)
-            ],
-        )
-
-        sample_values = torch.stack(
-            [
-                system_indices,
-                torch.concatenate(
-                    [
-                        torch.arange(
-                            len(system),
-                            device=device,
-                        )
-                        for system in systems
-                    ],
-                ),
-            ],
-            dim=1,
-        )
-
-        (
-            positions,
+        spherical_expansion = self.soap_calculator(
+            interatomic_vectors,
             centers,
             neighbors,
             species,
-            cells,
-            cell_shifts,
-        ) = concatenate_structures(systems, neighbor_list_options)
-
-        # somehow the backward of this operation is very slow at evaluation,
-        # where there is only one cell, therefore we simplify the calculation
-        # for that case
-        if len(cells) == 1:
-            cell_contributions = cell_shifts.to(cells.dtype) @ cells[0]
-        else:
-            cell_contributions = torch.einsum(
-                "ab, abc -> ac",
-                cell_shifts.to(cells.dtype),
-                cells[system_indices[centers]],
-            )
-
-        R_ij = positions[neighbors] - positions[centers] + cell_contributions
-        spherical_expansion = self.soap_calculator(
-            R_ij, centers, neighbors, species, sample_values[:, 0], sample_values[:, 1]
+            structures,
+            atom_index_in_structure,
         )
+        if selected_atoms is not None:
+            spherical_expansion = metatensor.torch.slice(
+                spherical_expansion, "samples", selected_atoms
+            )
 
         # by calling keys_to_samples and keys_to_properties in the same order as they
         # are called in the main model, we should ensure that the order of the samples
@@ -252,17 +171,24 @@ class TensorBasis(torch.nn.Module):
             self.cgs = {}  # type: ignore
 
     def forward(
-        self, systems: List[System], selected_atoms: Optional[Labels]
+        self,
+        interatomic_vectors,
+        centers,
+        neighbors,
+        species,
+        structures,
+        atom_index_in_structure,
+        selected_atoms: Optional[Labels],
     ) -> torch.Tensor:
         # transfer cg dict to device and dtype if needed
-        device = systems[0].positions.device
-        dtype = systems[0].positions.dtype
+        device = interatomic_vectors.device
+        dtype = interatomic_vectors.dtype
         for k, v in self.cgs.items():
             if v.device != device or v.dtype != dtype:
                 self.cgs[k] = v.to(device, dtype)
 
         if selected_atoms is None:
-            num_atoms = sum(len(system) for system in systems)
+            num_atoms = len(atom_index_in_structure)
         else:
             num_atoms = len(selected_atoms)
 
@@ -273,7 +199,15 @@ class TensorBasis(torch.nn.Module):
                 dtype=dtype,
             )
         elif self.o3_lambda == 1:
-            basis = self.vector_basis(systems, selected_atoms)
+            basis = self.vector_basis(
+                interatomic_vectors,
+                centers,
+                neighbors,
+                species,
+                structures,
+                atom_index_in_structure,
+                selected_atoms,
+            )
             basis = basis / torch.sqrt(
                 torch.sum(torch.square(basis), dim=1, keepdim=True)
             )
@@ -283,7 +217,15 @@ class TensorBasis(torch.nn.Module):
                 device=device,
                 dtype=dtype,
             )
-            vector_basis = self.vector_basis(systems, selected_atoms)
+            vector_basis = self.vector_basis(
+                interatomic_vectors,
+                centers,
+                neighbors,
+                species,
+                structures,
+                atom_index_in_structure,
+                selected_atoms,
+            )
             # vector_basis is [n_atoms, 3(yzx), 3]
             vector_1_xyz = vector_basis[:, [2, 0, 1], 0]
             vector_2_xyz = vector_basis[:, [2, 0, 1], 1]
@@ -321,7 +263,15 @@ class TensorBasis(torch.nn.Module):
                 device=device,
                 dtype=dtype,
             )
-            vector_basis = self.vector_basis(systems, selected_atoms)
+            vector_basis = self.vector_basis(
+                interatomic_vectors,
+                centers,
+                neighbors,
+                species,
+                structures,
+                atom_index_in_structure,
+                selected_atoms,
+            )
             # vector_basis is [n_atoms, 3(yzx), 3]
             vector_1_xyz = vector_basis[:, [2, 0, 1], 0]
             vector_2_xyz = vector_basis[:, [2, 0, 1], 1]
@@ -375,7 +325,13 @@ class TensorBasis(torch.nn.Module):
         if self.o3_sigma == -1:
             # multiply by pseudoscalar
             vector_basis_pseudotensor = self.vector_basis_pseudotensor(
-                systems, selected_atoms
+                interatomic_vectors,
+                centers,
+                neighbors,
+                species,
+                structures,
+                atom_index_in_structure,
+                selected_atoms,
             )
             vector_1_spherical = vector_basis_pseudotensor[:, :, 0]
             vector_2_spherical = vector_basis_pseudotensor[:, :, 1]
@@ -509,6 +465,13 @@ class FakeVectorBasis(torch.nn.Module):
     # fake class to make torchscript work
 
     def forward(
-        self, systems: List[System], selected_atoms: Optional[Labels]
+        self,
+        interatomic_vectors,
+        centers,
+        neighbors,
+        species,
+        structures,
+        atom_index_in_structure,
+        selected_atoms: Optional[Labels],
     ) -> torch.Tensor:
         return torch.tensor(0)
