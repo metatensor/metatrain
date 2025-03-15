@@ -36,8 +36,7 @@ architecture:
     USE_ZBL: False
 
   training:
-    FINETUNE_HEADS: False
-    USE_LORA_PEFT: False 
+    FINETUNING: null
     LORA_RANK: 4
     LORA_ALPHA: 0.5
     INITIAL_LR: 1e-4

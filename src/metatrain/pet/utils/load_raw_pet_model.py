@@ -5,7 +5,7 @@ import torch
 
 from ..modules.hypers import Hypers
 from ..modules.pet import PET, SelfContributionsWrapper
-from .fine_tuning import HeadsFTWrapper, LoRAWrapper
+from .fine_tuning import FinetuneWrapper
 from .update_state_dict import update_state_dict
 
 
@@ -25,13 +25,8 @@ def load_raw_pet_model(
     ARCHITECTURAL_HYPERS.TARGET_TYPE = "atomic"  # type: ignore
 
     raw_pet = PET(ARCHITECTURAL_HYPERS, 0.0, len(atomic_types))
-    if "use_lora_peft" in kwargs and kwargs["use_lora_peft"] is True:
-        lora_rank = kwargs["lora_rank"]
-        lora_alpha = kwargs["lora_alpha"]
-        raw_pet = LoRAWrapper(raw_pet, lora_rank, lora_alpha)
-
-    if "finetune_heads" in kwargs and kwargs["finetune_heads"] is True:
-        raw_pet = HeadsFTWrapper(raw_pet)
+    if "use_ft" in kwargs and kwargs["use_ft"] is not None:
+        raw_pet = FinetuneWrapper(raw_pet, **kwargs)
 
     new_state_dict = update_state_dict(state_dict)
     dtype = next(iter(new_state_dict.values())).dtype

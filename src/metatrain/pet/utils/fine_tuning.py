@@ -83,22 +83,22 @@ class HeadsFTWrapper(torch.nn.Module):
 
 
 class FinetuneWrapper(torch.nn.Module):
-    def __init__(self, model: torch.nn.Module, FT_type, LORA_rank: int = None, LORA_alpha: float = None):
+    def __init__(self, model: torch.nn.Module, **kwargs):
         super(FinetuneWrapper, self).__init__()
         self.model = model
-
-        self.rank = LORA_rank
-        self.alpha = LORA_alpha
+        ft_type = kwargs['use_ft']
+        self.rank = kwargs.get('lora_rank', None)
+        self.alpha = kwargs.get('lora_alpha', None)
 
         self.hidden_dim = model.hypers.TRANSFORMER_D_MODEL
         self.num_hidden_layers = model.hypers.N_GNN_LAYERS * model.hypers.N_TRANS_LAYERS
-        if FT_type == "FINETUNE_HEADS":
+        if ft_type == "heads":
             for param in model.parameters():
                 param.requires_grad = False
             for head in model.heads:
                 for param in head.parameters():
                     param.requires_grad = True
-        elif FT_type == "LORA":
+        elif ft_type == "lora":
             for param in model.parameters():
                 param.requires_grad = False
             for gnn_layer in model.gnn_layers:

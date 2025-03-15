@@ -39,7 +39,7 @@ from .modules.utilities import (
     string2dtype,
 )
 from .utils import dataset_to_ase, load_raw_pet_model, update_hypers
-from .utils.fine_tuning import HeadsFTWrapper, LoRAWrapper
+from .utils.fine_tuning import FinetuneWrapper
 
 
 logger = logging.getLogger(__name__)
@@ -125,17 +125,12 @@ class Trainer:
         FITTING_SCHEME = hypers.FITTING_SCHEME  # type: ignore
         MLIP_SETTINGS = hypers.MLIP_SETTINGS  # type: ignore
         ARCHITECTURAL_HYPERS = hypers.ARCHITECTURAL_HYPERS  # type: ignore
-
-        if model.is_lora_applied and not FITTING_SCHEME.USE_LORA_PEFT:
+        if FITTING_SCHEME.FINETUNING not in [None, 'lora', 'heads']:
+            raise ValueError("Finetuning only allows 'lora' or 'heads' option")
+        if model.is_ft_applied == 'lora' and not FITTING_SCHEME.FINETUNING == 'lora':
             raise ValueError(
-                "LoRA is applied to the model, but the USE_LORA_PEFT is False"
-                " in the training hyperparameters. Please set USE_LORA_PEFT to True"
-            )
-
-        if FITTING_SCHEME.USE_LORA_PEFT and FITTING_SCHEME.FINETUNE_HEADS:
-            raise ValueError(
-                "USE_LORA_PEFT and FINETUNE_HEADS are True"
-                " in the training hyperparameters. Please decide which finetuning option to use"
+                "LoRA is applied to the model, but the FINETUNING is not 'lora'"
+                " in the training hyperparameters. Please set FINETUNING to 'lora'"
             )
 
         if FITTING_SCHEME.USE_SHIFT_AGNOSTIC_LOSS:
@@ -267,13 +262,13 @@ Units of the Energy and Forces are the same units given in input"""
         num_params = sum([p.numel() for p in pet_model.parameters()])
         logging.info(f"Number of parameters: {num_params}")
 
-        if FITTING_SCHEME.USE_LORA_PEFT:
-            if not model.is_lora_applied:
+        if FITTING_SCHEME.FINETUNING == 'lora':
+            if not model.is_ft_applied == 'lora':
                 lora_rank = FITTING_SCHEME.LORA_RANK
                 lora_alpha = FITTING_SCHEME.LORA_ALPHA
-                pet_model = LoRAWrapper(pet_model, lora_rank, lora_alpha)
-                model.is_lora_applied = True
-
+                model.model.is_ft_applied = 'lora'
+                pet_model = FinetuneWrapper(pet_model, model.is_ft_applied, lora_rank, lora_alpha)
+                
             num_trainable_params = sum(
                 [p.numel() for p in pet_model.parameters() if p.requires_grad]
             )
@@ -287,9 +282,9 @@ Units of the Energy and Forces are the same units given in input"""
                 + f"{num_trainable_params} [{fraction:.2f}%]"
             )
 
-        if FITTING_SCHEME.FINETUNE_HEADS:
-            pet_model = HeadsFTWrapper(pet_model)
-            model.finetune_heads = True
+        if FITTING_SCHEME.FINETUNING == 'heads':
+            model.is_ft_applied = 'heads'
+            pet_model = FinetuneWrapper(pet_model, model.is_ft_applied)
             num_trainable_params = sum(
                 [p.numel() for p in pet_model.parameters() if p.requires_grad]
             )
@@ -621,7 +616,7 @@ Units of the Energy and Forces are the same units given in input"""
                     "scheduler_state_dict": pet_checkpoint["scheduler_state_dict"],
                 }
                 last_model_state_dict = pet_checkpoint["model_state_dict"]
-                if model.is_lora_applied:
+                if model.is_ft_applied == 'lora':
                     lora_state_dict = {
                         "lora_rank": FITTING_SCHEME.LORA_RANK,
                         "lora_alpha": FITTING_SCHEME.LORA_ALPHA,
@@ -765,7 +760,7 @@ Units of the Energy and Forces are the same units given in input"""
             "scheduler_state_dict": pet_checkpoint["scheduler_state_dict"],
         }
         last_model_state_dict = pet_checkpoint["model_state_dict"]
-        if model.is_lora_applied:
+        if model.is_ft_applied == 'lora':
             lora_state_dict = {
                 "lora_rank": model.pet.model.rank,
                 "lora_alpha": model.pet.model.alpha,
