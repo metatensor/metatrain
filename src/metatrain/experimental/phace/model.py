@@ -397,6 +397,26 @@ class PhACE(torch.nn.Module):
 
         features = self.cg_iterator(uncoupled_features)
 
+        coupled_features_0: List[List[torch.Tensor]] = []
+        for l in range(self.l_max + 1):
+            coupled_features_0.append(
+                couple_features(
+                    features[l],
+                    (self.U_dict_parity[f"{self.padded_l_list[l]}_{1}"], self.U_dict_parity[f"{self.padded_l_list[l]}_{-1}"]),
+                    self.padded_l_list[l],
+                )[0]
+            )
+        uncoupled_features_0: List[Tuple[torch.Tensor, torch.Tensor]] = []
+        for l in range(self.l_max + 1):
+            uncoupled_features_0.append(
+                uncouple_features(
+                    coupled_features_0[l],
+                    (self.U_dict_parity[f"{self.padded_l_list[l]}_{1}"], self.U_dict_parity[f"{self.padded_l_list[l]}_{-1}"]),
+                    self.padded_l_list[l],
+                )
+            )
+        features = uncoupled_features_0
+
         # message passing
         for message_passer, generalized_cg_iterator in zip(
             self.equivariant_message_passers, self.generalized_cg_iterators
