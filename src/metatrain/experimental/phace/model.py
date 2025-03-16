@@ -15,6 +15,8 @@ from metatensor.torch.atomistic import (
     System,
 )
 
+from .modules.layers import Linear
+
 from ...utils.additive import ZBL, CompositionModel
 from ...utils.data.dataset import DatasetInfo, TargetInfo
 from ...utils.dtype import dtype_to_str
@@ -227,6 +229,13 @@ class PhACE(torch.nn.Module):
 
         self.single_label = Labels.single()
 
+        self.intermediate_linears = torch.nn.ModuleList(
+            [
+                Linear(self.k_max_l[l], self.k_max_l[l])
+                for l in range(self.l_max + 1)
+            ]
+        )
+
     def restart(self, dataset_info: DatasetInfo) -> "PhACE":
         # merge old and new dataset info
         merged_info = self.dataset_info.union(dataset_info)
@@ -406,6 +415,31 @@ class PhACE(torch.nn.Module):
                     self.padded_l_list[l],
                 )[0]
             )
+
+        concatenated_coupled_features_0 = []
+        for l in range(self.l_max + 1):
+            concatenated_coupled_features_0.append(
+                torch.concatenate(
+                    [coupled_features_0[lp][l] for lp in range(l, self.l_max + 1)], dim=-1
+                )
+            )
+
+        for l, linear in enumerate(self.intermediate_linears):
+            concatenated_coupled_features_0[l] = linear(concatenated_coupled_features_0[l])
+
+        coupled_features_0: List[List[torch.Tensor]] = []
+        for l in range(self.l_max, -1, -1):
+            lower_bound = self.k_max_l[l + 1] if l < self.l_max else 0
+            upper_bound = self.k_max_l[l]
+            coupled_features_0 = [
+                [
+                    concatenated_coupled_features_0[lp][
+                        :, :, lower_bound:upper_bound
+                    ]
+                    for lp in range(l + 1)
+                ]
+            ] + coupled_features_0
+
         uncoupled_features_0: List[Tuple[torch.Tensor, torch.Tensor]] = []
         for l in range(self.l_max + 1):
             uncoupled_features_0.append(
