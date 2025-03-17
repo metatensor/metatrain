@@ -3,7 +3,6 @@ from pathlib import Path
 from typing import Dict, List, Optional, Tuple, Union
 
 import metatensor.torch
-import numpy as np
 import torch
 from metatensor.torch import Labels, TensorBlock, TensorMap
 from metatensor.torch.atomistic import (
@@ -15,7 +14,7 @@ from metatensor.torch.atomistic import (
     System,
 )
 
-from .modules.layers import Linear
+from .modules.tensor_product import TensorProduct
 
 from ...utils.additive import ZBL, CompositionModel
 from ...utils.data.dataset import DatasetInfo, TargetInfo
@@ -143,47 +142,12 @@ class PhACE(torch.nn.Module):
             self.l_max, use_sphericart=model_hypers["use_sphericart"]
         )
 
+        tensor_product = TensorProduct(self.k_max_l)
+
         self.cg_iterator = CGIterator(
-            self.k_max_l_max,
+            tensor_product,
             self.nu_max - 1,
         )
-
-        cg_calculator = get_cg_coefficients(2 * ((self.l_max + 1) // 2))
-        print(self.l_max)
-        self.padded_l_list = [2 * ((l + 1) // 2) for l in range(self.l_max + 1)]
-        self.U_dict = {}
-        for padded_l in np.unique(self.padded_l_list):
-            cg_tensors = [
-                cg_calculator._cgs[(padded_l // 2, padded_l // 2, L)]
-                for L in range(padded_l + 1)
-            ]
-            U = torch.concatenate(
-                [cg_tensor for cg_tensor in cg_tensors], dim=2
-            ).reshape((padded_l + 1) ** 2, (padded_l + 1) ** 2)
-            assert torch.allclose(
-                U @ U.T, torch.eye((padded_l + 1) ** 2, dtype=U.dtype)
-            )
-            assert torch.allclose(
-                U.T @ U, torch.eye((padded_l + 1) ** 2, dtype=U.dtype)
-            )
-            self.U_dict[padded_l] = U
-            # self.U_dict[padded_l] = self.U_dict[padded_l].to_sparse()
-            # print("Sparsity: ", self.U_dict[padded_l]._nnz() / self.U_dict[padded_l].numel())
-
-        self.U_dict_parity: Dict[str, torch.Tensor] = {}
-        for padded_l in list(self.U_dict.keys()):
-            self.U_dict_parity[f"{padded_l}_{1}"] = self.U_dict[padded_l].clone()
-            # mask out odd l values
-            for l in range(1, padded_l + 1, 2):
-                self.U_dict_parity[f"{padded_l}_{1}"][:, l**2:(l + 1)**2] = 0.0
-            self.U_dict_parity[f"{padded_l}_{1}"] = self.U_dict_parity[f"{padded_l}_{1}"].to_sparse()
-            print("Sparsity: ", self.U_dict_parity[f"{padded_l}_{1}"]._nnz() / self.U_dict_parity[f"{padded_l}_{1}"].numel())
-            self.U_dict_parity[f"{padded_l}_{-1}"] = self.U_dict[padded_l].clone()
-            # mask out even l values
-            for l in range(0, padded_l + 1, 2):
-                self.U_dict_parity[f"{padded_l}_{-1}"][:, l**2:(l + 1)**2] = 0.0
-            self.U_dict_parity[f"{padded_l}_{-1}"] = self.U_dict_parity[f"{padded_l}_{-1}"].to_sparse()
-            print("Sparsity: ", self.U_dict_parity[f"{padded_l}_{-1}"]._nnz() / self.U_dict_parity[f"{padded_l}_{-1}"].numel())
 
         # Subsequent message-passing layers
         equivariant_message_passers: List[EquivariantMessagePasser] = []
@@ -192,12 +156,12 @@ class PhACE(torch.nn.Module):
             equivariant_message_passer = EquivariantMessagePasser(
                 model_hypers,
                 self.atomic_types,
-                self.padded_l_list,
+                tensor_product,
                 self.mp_scaling,
             )
             equivariant_message_passers.append(equivariant_message_passer)
             generalized_cg_iterator = CGIterator(
-                self.k_max_l_max,
+                tensor_product,
                 self.nu_max - 1,
             )
             generalized_cg_iterators.append(generalized_cg_iterator)
@@ -231,13 +195,6 @@ class PhACE(torch.nn.Module):
         self.scaler = Scaler(model_hypers={}, dataset_info=dataset_info)
 
         self.single_label = Labels.single()
-
-        self.intermediate_linears = torch.nn.ModuleList(
-            [
-                Linear(self.k_max_l[l], self.k_max_l[l])
-                for l in range(self.l_max + 1)
-            ]
-        )
 
     def restart(self, dataset_info: DatasetInfo) -> "PhACE":
         # merge old and new dataset info
@@ -306,20 +263,6 @@ class PhACE(torch.nn.Module):
                 output_name: [label.to(device) for label in labels]
                 for output_name, labels in self.property_labels.items()
             }
-        if self.U_dict[0].device != device:
-            self.U_dict = {
-                padded_l: U.to(device) for padded_l, U in self.U_dict.items()
-            }
-            self.U_dict_parity = {
-                key: U.to(device) for key, U in self.U_dict_parity.items()
-            }
-
-        dtype = systems[0].dtype
-        if self.U_dict[0].dtype != dtype:
-            self.U_dict = {padded_l: U.to(dtype) for padded_l, U in self.U_dict.items()}
-            self.U_dict_parity = {
-                key: U.to(dtype) for key, U in self.U_dict_parity.items()
-            }
 
         neighbor_list_options = self.requested_neighbor_lists()[0]  # there is only one
         structures = systems_to_batch(systems, neighbor_list_options)
@@ -382,77 +325,10 @@ class PhACE(torch.nn.Module):
             n_atoms,
             initial_element_embedding,
             samples,
-        )
+        )           
 
-        split_features: List[List[torch.Tensor]] = []
-        for l in range(self.l_max, -1, -1):
-            lower_bound = self.k_max_l[l + 1] if l < self.l_max else 0
-            upper_bound = self.k_max_l[l]
-            split_features = [
-                [
-                    spherical_expansion.block({"o3_lambda": lp}).values[
-                        :, :, lower_bound:upper_bound
-                    ]
-                    for lp in range(l + 1)
-                ]
-            ] + split_features
-
-        uncoupled_features: List[Tuple[torch.Tensor, torch.Tensor]] = []
-        for l in range(self.l_max + 1):
-            uncoupled_features.append(
-                uncouple_features(
-                    split_features[l],
-                    (self.U_dict_parity[f"{self.padded_l_list[l]}_{1}"], self.U_dict_parity[f"{self.padded_l_list[l]}_{-1}"]),
-                    self.padded_l_list[l],
-                )
-            )
-
-        features = self.cg_iterator(uncoupled_features)
-
-        # coupled_features_0: List[List[torch.Tensor]] = []
-        # for l in range(self.l_max + 1):
-        #     coupled_features_0.append(
-        #         couple_features(
-        #             features[l],
-        #             (self.U_dict_parity[f"{self.padded_l_list[l]}_{1}"], self.U_dict_parity[f"{self.padded_l_list[l]}_{-1}"]),
-        #             self.padded_l_list[l],
-        #         )[0]
-        #     )
-
-        # concatenated_coupled_features_0 = []
-        # for l in range(self.l_max + 1):
-        #     concatenated_coupled_features_0.append(
-        #         torch.concatenate(
-        #             [coupled_features_0[lp][l] for lp in range(l, self.l_max + 1)], dim=-1
-        #         )
-        #     )
-
-        # # for l, linear in enumerate(self.intermediate_linears):
-        # #     concatenated_coupled_features_0[l] = linear(concatenated_coupled_features_0[l])
-
-        # coupled_features_0: List[List[torch.Tensor]] = []
-        # for l in range(self.l_max, -1, -1):
-        #     lower_bound = self.k_max_l[l + 1] if l < self.l_max else 0
-        #     upper_bound = self.k_max_l[l]
-        #     coupled_features_0 = [
-        #         [
-        #             concatenated_coupled_features_0[lp][
-        #                 :, :, lower_bound:upper_bound
-        #             ]
-        #             for lp in range(l + 1)
-        #         ]
-        #     ] + coupled_features_0
-
-        # uncoupled_features_0: List[Tuple[torch.Tensor, torch.Tensor]] = []
-        # for l in range(self.l_max + 1):
-        #     uncoupled_features_0.append(
-        #         uncouple_features(
-        #             coupled_features_0[l],
-        #             (self.U_dict_parity[f"{self.padded_l_list[l]}_{1}"], self.U_dict_parity[f"{self.padded_l_list[l]}_{-1}"]),
-        #             self.padded_l_list[l],
-        #         )
-        #     )
-        # features = uncoupled_features_0
+        features = [spherical_expansion.block({"o3_lambda": l}).values for l in range(self.l_max + 1)]
+        features = self.cg_iterator(features)
 
         # message passing
         for message_passer, generalized_cg_iterator in zip(
@@ -467,37 +343,18 @@ class PhACE(torch.nn.Module):
                 structures["structure_offsets"][structures["structure_pairs"]]
                 + structures["pairs"][:, 1],
                 embedded_features,
-                self.U_dict_parity,
             )
             iterated_features = generalized_cg_iterator(mp_features)
             features = iterated_features
 
         # TODO: change position?
-        features = embed_centers(features, center_embeddings)
-
-        coupled_features: List[List[torch.Tensor]] = []
-        for l in range(self.l_max + 1):
-            coupled_features.append(
-                couple_features(
-                    features[l],
-                    (self.U_dict_parity[f"{self.padded_l_list[l]}_{1}"], self.U_dict_parity[f"{self.padded_l_list[l]}_{-1}"]),
-                    self.padded_l_list[l],
-                )[0]
-            )
-
-        concatenated_coupled_features = []
-        for l in range(self.l_max + 1):
-            concatenated_coupled_features.append(
-                torch.concatenate(
-                    [coupled_features[lp][l] for lp in range(l, self.l_max + 1)], dim=-1
-                )
-            )
+        embedded_features = embed_centers(features, center_embeddings)
 
         features = TensorMap(
             keys=spherical_expansion.keys,
             blocks=[
                 TensorBlock(
-                    values=concatenated_coupled_features[l],
+                    values=embedded_features[l],
                     samples=spherical_expansion.block({"o3_lambda": l}).samples,
                     components=spherical_expansion.block({"o3_lambda": l}).components,
                     properties=spherical_expansion.block({"o3_lambda": l}).properties,

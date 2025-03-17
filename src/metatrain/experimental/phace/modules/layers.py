@@ -17,17 +17,17 @@ class Linear(torch.nn.Module):
 
 
 class LinearList(torch.nn.Module):
-    def __init__(self, k_max_l_max: List[int]) -> None:
+    def __init__(self, k_max_l: List[int]) -> None:
         super().__init__()
         self.linears = torch.nn.ModuleList(
-            [torch.nn.ModuleList([Linear(k_max_l, k_max_l), Linear(k_max_l, k_max_l)]) for k_max_l in k_max_l_max]
+            [Linear(k_max, k_max) for k_max in k_max_l]
         )
 
-    def forward(self, features_list: List[Tuple[torch.Tensor, torch.Tensor]]) -> List[Tuple[torch.Tensor, torch.Tensor]]:
-        new_features_list: List[Tuple[torch.Tensor, torch.Tensor]] = []
+    def forward(self, features_list: List[torch.Tensor]) -> List[torch.Tensor]:
+        new_features_list: List[torch.Tensor] = []
         for i, linear in enumerate(self.linears):
             current_features = features_list[i]
-            new_features = (linear[0](current_features[0]), linear[1](current_features[1]))
+            new_features = linear(current_features)
             new_features_list.append(new_features)
             
         return new_features_list

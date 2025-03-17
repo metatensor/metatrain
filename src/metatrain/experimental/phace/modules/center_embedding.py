@@ -34,25 +34,19 @@ def embed_centers_tensor_map(equivariants: TensorMap, center_embeddings: torch.T
     )
 
 
-def embed_centers(features: List[Tuple[torch.Tensor, torch.Tensor]], center_embeddings: torch.Tensor):
+def embed_centers(features: List[torch.Tensor], center_embeddings: torch.Tensor):
     # multiplies arbitrary equivariant features by the provided center embeddings
 
     n_channels = center_embeddings.shape[-1]
 
-    new_features: List[Tuple[torch.Tensor, torch.Tensor]] = []
-    for feature_tensor_even, feature_tensor_odd in features:
-        assert feature_tensor_even.shape[-1] % n_channels == 0
-        n_repeats = feature_tensor_even.shape[-1] // n_channels
-        new_block_values_even = feature_tensor_even * center_embeddings.repeat(
+    new_features: List[torch.Tensor] = []
+    for feature_tensor in features:
+        assert feature_tensor.shape[-1] % n_channels == 0
+        n_repeats = feature_tensor.shape[-1] // n_channels
+        new_block_values = feature_tensor * center_embeddings.repeat(
             1, n_repeats
-        ).unsqueeze(1).unsqueeze(2)
+        ).unsqueeze(1)
 
-        assert feature_tensor_odd.shape[-1] % n_channels == 0
-        n_repeats = feature_tensor_odd.shape[-1] // n_channels
-        new_block_values_odd = feature_tensor_odd * center_embeddings.repeat(
-            1, n_repeats
-        ).unsqueeze(1).unsqueeze(2)
-
-        new_features.append((new_block_values_even, new_block_values_odd))
+        new_features.append((new_block_values))
 
     return new_features
