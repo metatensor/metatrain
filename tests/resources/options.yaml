@@ -7,7 +7,7 @@ architecture:
     num_message_passing_layers: 2
     num_element_channels: 128
     radial_basis:
-      max_eigenvalue: 25.0
+      max_eigenvalue: 70.0
   training:
     batch_size: 5
     num_epochs: 1000

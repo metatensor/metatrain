@@ -15,19 +15,27 @@ def uncouple_features(features: List[torch.Tensor], Us: Tuple[torch.Tensor, torc
             )
         )
     stacked_features = torch.cat(features, dim=1)
-    stacked_features = stacked_features.swapaxes(1, 2)
-    uncoupled_features_even = stacked_features @ Us[0].T
-    uncoupled_features_even = uncoupled_features_even.swapaxes(1, 2)
+    stacked_features = stacked_features.swapaxes(0, 1)
+    uncoupled_features_even = (Us[0] @ stacked_features.reshape(
+        (padded_l_max + 1) * (padded_l_max + 1), stacked_features.shape[1] * stacked_features.shape[-1]
+    )).reshape(
+        (padded_l_max + 1) * (padded_l_max + 1), stacked_features.shape[1], stacked_features.shape[-1]
+    )
+    uncoupled_features_even = uncoupled_features_even.swapaxes(0, 1)
     uncoupled_features_even = uncoupled_features_even.reshape(
-        stacked_features.shape[0],
+        uncoupled_features_even.shape[0],
         padded_l_max + 1,
         padded_l_max + 1,
         uncoupled_features_even.shape[-1],
     )
-    uncoupled_features_odd = stacked_features @ Us[1].T
-    uncoupled_features_odd = uncoupled_features_odd.swapaxes(1, 2)
+    uncoupled_features_odd = (Us[1] @ stacked_features.reshape(
+        (padded_l_max + 1) * (padded_l_max + 1), stacked_features.shape[1] * stacked_features.shape[-1]
+    )).reshape(
+        (padded_l_max + 1) * (padded_l_max + 1), stacked_features.shape[1], stacked_features.shape[-1]
+    )
+    uncoupled_features_odd = uncoupled_features_odd.swapaxes(0, 1)
     uncoupled_features_odd = uncoupled_features_odd.reshape(
-        stacked_features.shape[0],
+        uncoupled_features_odd.shape[0],
         padded_l_max + 1,
         padded_l_max + 1,
         uncoupled_features_odd.shape[-1],
@@ -59,18 +67,26 @@ def couple_features(features: Tuple[torch.Tensor, torch.Tensor], Us: Tuple[torch
     features_even = features_even.reshape(
         features_even.shape[0], (padded_l_max + 1) * (padded_l_max + 1), features_even.shape[-1]
     )
-    features_even = features_even.swapaxes(1, 2)
-    stacked_features_from_even_uncoupled = features_even @ Us[0]
-    stacked_features_from_even_uncoupled = stacked_features_from_even_uncoupled.swapaxes(1, 2)
+    features_even = features_even.swapaxes(0, 1)
+    stacked_features_from_even_uncoupled = (Us[0].T @ features_even.reshape(
+        (padded_l_max + 1) * (padded_l_max + 1), features_even.shape[1] * features_even.shape[-1]
+    )).reshape(
+        (padded_l_max + 1) * (padded_l_max + 1), features_even.shape[1], features_even.shape[-1]
+    )
+    stacked_features_from_even_uncoupled = stacked_features_from_even_uncoupled.swapaxes(0, 1)
     features_from_even_uncoupled = torch.split(stacked_features_from_even_uncoupled, split_sizes, dim=1)
 
     features_odd = features[1]
     features_odd = features_odd.reshape(
         features_odd.shape[0], (padded_l_max + 1) * (padded_l_max + 1), features_odd.shape[-1]
     )
-    features_odd = features_odd.swapaxes(1, 2)
-    stacked_features_from_odd_uncoupled = features_odd @ Us[1]
-    stacked_features_from_odd_uncoupled = stacked_features_from_odd_uncoupled.swapaxes(1, 2)
+    features_odd = features_odd.swapaxes(0, 1)
+    stacked_features_from_odd_uncoupled = (Us[1].T @ features_odd.reshape(
+        (padded_l_max + 1) * (padded_l_max + 1), features_odd.shape[1] * features_odd.shape[-1]
+    )).reshape(
+        (padded_l_max + 1) * (padded_l_max + 1), features_odd.shape[1], features_odd.shape[-1]
+    )
+    stacked_features_from_odd_uncoupled = stacked_features_from_odd_uncoupled.swapaxes(0, 1)
     features_from_odd_uncoupled = torch.split(stacked_features_from_odd_uncoupled, split_sizes, dim=1)
 
     even_coupled_features = []

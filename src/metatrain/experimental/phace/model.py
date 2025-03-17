@@ -167,20 +167,23 @@ class PhACE(torch.nn.Module):
                 U.T @ U, torch.eye((padded_l + 1) ** 2, dtype=U.dtype)
             )
             self.U_dict[padded_l] = U
+            # self.U_dict[padded_l] = self.U_dict[padded_l].to_sparse()
+            # print("Sparsity: ", self.U_dict[padded_l]._nnz() / self.U_dict[padded_l].numel())
 
         self.U_dict_parity: Dict[str, torch.Tensor] = {}
         for padded_l in list(self.U_dict.keys()):
             self.U_dict_parity[f"{padded_l}_{1}"] = self.U_dict[padded_l].clone()
             # mask out odd l values
             for l in range(1, padded_l + 1, 2):
-                # print(l, padded_l)
                 self.U_dict_parity[f"{padded_l}_{1}"][:, l**2:(l + 1)**2] = 0.0
-                # print(self.U_dict_parity[f"{padded_l}_{1}"])
+            self.U_dict_parity[f"{padded_l}_{1}"] = self.U_dict_parity[f"{padded_l}_{1}"].to_sparse()
+            print("Sparsity: ", self.U_dict_parity[f"{padded_l}_{1}"]._nnz() / self.U_dict_parity[f"{padded_l}_{1}"].numel())
             self.U_dict_parity[f"{padded_l}_{-1}"] = self.U_dict[padded_l].clone()
             # mask out even l values
             for l in range(0, padded_l + 1, 2):
-                # print(l, padded_l)
                 self.U_dict_parity[f"{padded_l}_{-1}"][:, l**2:(l + 1)**2] = 0.0
+            self.U_dict_parity[f"{padded_l}_{-1}"] = self.U_dict_parity[f"{padded_l}_{-1}"].to_sparse()
+            print("Sparsity: ", self.U_dict_parity[f"{padded_l}_{-1}"]._nnz() / self.U_dict_parity[f"{padded_l}_{-1}"].numel())
 
         # Subsequent message-passing layers
         equivariant_message_passers: List[EquivariantMessagePasser] = []
