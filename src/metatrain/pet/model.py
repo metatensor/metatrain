@@ -65,7 +65,7 @@ class PET(torch.nn.Module):
         self.atomic_types: List[int] = dataset_info.atomic_types
         self.dataset_info = dataset_info
         self.pet = None
-        self.is_ft_applied = False
+        self.ft_type: Optional[str] = None
         self.checkpoint_path: Optional[str] = None
 
         # last-layer feature size (for LLPR module)
@@ -259,18 +259,16 @@ class PET(torch.nn.Module):
         model = cls(model_hypers=model_hypers, dataset_info=dataset_info)
         state_dict = checkpoint["model_state_dict"]
         dtype = next(iter(state_dict.values())).dtype
-        lora_state_dict = checkpoint["lora_state_dict"]
-        if lora_state_dict is not None:
-            model.is_ft_applied = 'lora'
-        else:
-            lora_state_dict = {}
+        ft_state_dict = checkpoint["ft_state_dict"]
+        model.ft_type = ft_state_dict.get("ft_type", None)
+        if model.ft_type is None:
+            ft_state_dict = {}
         wrapper = load_raw_pet_model(
             state_dict,
             model.hypers,
             model.atomic_types,
             checkpoint["self_contributions"],
-            use_ft=model.is_ft_applied,
-            **lora_state_dict,
+            **ft_state_dict,
         )
 
         model.to(dtype).set_trained_model(wrapper)

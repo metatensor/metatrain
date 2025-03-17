@@ -25,7 +25,7 @@ def load_raw_pet_model(
     ARCHITECTURAL_HYPERS.TARGET_TYPE = "atomic"  # type: ignore
 
     raw_pet = PET(ARCHITECTURAL_HYPERS, 0.0, len(atomic_types))
-    if "use_ft" in kwargs and kwargs["use_ft"] is not None:
+    if "ft_type" in kwargs and kwargs["ft_type"] is not None:
         raw_pet = FinetuneWrapper(raw_pet, **kwargs)
 
     new_state_dict = update_state_dict(state_dict)

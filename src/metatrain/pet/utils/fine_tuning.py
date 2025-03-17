@@ -83,28 +83,34 @@ class HeadsFTWrapper(torch.nn.Module):
 
 
 class FinetuneWrapper(torch.nn.Module):
-    def __init__(self, model: torch.nn.Module, **kwargs):
+    def __init__(
+        self,
+        model: torch.nn.Module,
+        **kwargs,
+    ):
         super(FinetuneWrapper, self).__init__()
         self.model = model
-        ft_type = kwargs['use_ft']
-        self.rank = kwargs.get('lora_rank', None)
-        self.alpha = kwargs.get('lora_alpha', None)
-
+        self.hypers = model.hypers
         self.hidden_dim = model.hypers.TRANSFORMER_D_MODEL
         self.num_hidden_layers = model.hypers.N_GNN_LAYERS * model.hypers.N_TRANS_LAYERS
-        if ft_type == "heads":
+        if kwargs["ft_type"] == "heads":
             for param in model.parameters():
                 param.requires_grad = False
             for head in model.heads:
                 for param in head.parameters():
                     param.requires_grad = True
-        elif ft_type == "lora":
+        elif kwargs["ft_type"] == "lora":
+            self.rank = kwargs.get("lora_rank", None)
+            self.alpha = kwargs.get("lora_alpha", None)
             for param in model.parameters():
                 param.requires_grad = False
             for gnn_layer in model.gnn_layers:
                 for trans_layer in gnn_layer.trans.layers:
                     trans_layer.attention = AttentionBlockWithLoRA(
-                        trans_layer.attention, self.rank, self.alpha)
+                        trans_layer.attention,
+                        self.rank,
+                        self.alpha,
+                    )
 
     def forward(
         self,
