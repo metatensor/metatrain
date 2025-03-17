@@ -409,50 +409,50 @@ class PhACE(torch.nn.Module):
 
         features = self.cg_iterator(uncoupled_features)
 
-        coupled_features_0: List[List[torch.Tensor]] = []
-        for l in range(self.l_max + 1):
-            coupled_features_0.append(
-                couple_features(
-                    features[l],
-                    (self.U_dict_parity[f"{self.padded_l_list[l]}_{1}"], self.U_dict_parity[f"{self.padded_l_list[l]}_{-1}"]),
-                    self.padded_l_list[l],
-                )[0]
-            )
+        # coupled_features_0: List[List[torch.Tensor]] = []
+        # for l in range(self.l_max + 1):
+        #     coupled_features_0.append(
+        #         couple_features(
+        #             features[l],
+        #             (self.U_dict_parity[f"{self.padded_l_list[l]}_{1}"], self.U_dict_parity[f"{self.padded_l_list[l]}_{-1}"]),
+        #             self.padded_l_list[l],
+        #         )[0]
+        #     )
 
-        concatenated_coupled_features_0 = []
-        for l in range(self.l_max + 1):
-            concatenated_coupled_features_0.append(
-                torch.concatenate(
-                    [coupled_features_0[lp][l] for lp in range(l, self.l_max + 1)], dim=-1
-                )
-            )
+        # concatenated_coupled_features_0 = []
+        # for l in range(self.l_max + 1):
+        #     concatenated_coupled_features_0.append(
+        #         torch.concatenate(
+        #             [coupled_features_0[lp][l] for lp in range(l, self.l_max + 1)], dim=-1
+        #         )
+        #     )
 
-        # for l, linear in enumerate(self.intermediate_linears):
-        #     concatenated_coupled_features_0[l] = linear(concatenated_coupled_features_0[l])
+        # # for l, linear in enumerate(self.intermediate_linears):
+        # #     concatenated_coupled_features_0[l] = linear(concatenated_coupled_features_0[l])
 
-        coupled_features_0: List[List[torch.Tensor]] = []
-        for l in range(self.l_max, -1, -1):
-            lower_bound = self.k_max_l[l + 1] if l < self.l_max else 0
-            upper_bound = self.k_max_l[l]
-            coupled_features_0 = [
-                [
-                    concatenated_coupled_features_0[lp][
-                        :, :, lower_bound:upper_bound
-                    ]
-                    for lp in range(l + 1)
-                ]
-            ] + coupled_features_0
+        # coupled_features_0: List[List[torch.Tensor]] = []
+        # for l in range(self.l_max, -1, -1):
+        #     lower_bound = self.k_max_l[l + 1] if l < self.l_max else 0
+        #     upper_bound = self.k_max_l[l]
+        #     coupled_features_0 = [
+        #         [
+        #             concatenated_coupled_features_0[lp][
+        #                 :, :, lower_bound:upper_bound
+        #             ]
+        #             for lp in range(l + 1)
+        #         ]
+        #     ] + coupled_features_0
 
-        uncoupled_features_0: List[Tuple[torch.Tensor, torch.Tensor]] = []
-        for l in range(self.l_max + 1):
-            uncoupled_features_0.append(
-                uncouple_features(
-                    coupled_features_0[l],
-                    (self.U_dict_parity[f"{self.padded_l_list[l]}_{1}"], self.U_dict_parity[f"{self.padded_l_list[l]}_{-1}"]),
-                    self.padded_l_list[l],
-                )
-            )
-        features = uncoupled_features_0
+        # uncoupled_features_0: List[Tuple[torch.Tensor, torch.Tensor]] = []
+        # for l in range(self.l_max + 1):
+        #     uncoupled_features_0.append(
+        #         uncouple_features(
+        #             coupled_features_0[l],
+        #             (self.U_dict_parity[f"{self.padded_l_list[l]}_{1}"], self.U_dict_parity[f"{self.padded_l_list[l]}_{-1}"]),
+        #             self.padded_l_list[l],
+        #         )
+        #     )
+        # features = uncoupled_features_0
 
         # message passing
         for message_passer, generalized_cg_iterator in zip(
