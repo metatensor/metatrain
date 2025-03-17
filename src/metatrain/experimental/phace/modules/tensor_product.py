@@ -51,7 +51,7 @@ def combine_uncoupled_features(
         u_even_1, u_odd_1 = u1
         u_even_2, u_odd_2 = u2
         new_uncoupled_features_odd = torch.einsum("...ijf,...jkf->...ikf", u_even_1, u_odd_2) + torch.einsum("...ijf,...jkf->...ikf", u_odd_1, u_even_2)
-        new_uncoupled_features_even = torch.einsum("...ijf,...jkf->...ikf", u_even_1, u_even_2) - torch.einsum("...ijf,...jkf->...ikf", u_odd_1, u_odd_2)
+        new_uncoupled_features_even = torch.einsum("...ijf,...jkf->...ikf", u_even_1, u_even_2) + torch.einsum("...ijf,...jkf->...ikf", u_odd_1, u_odd_2)
         new_uncoupled_features.append(
             (new_uncoupled_features_even, new_uncoupled_features_odd)
         )

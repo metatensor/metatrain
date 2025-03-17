@@ -427,8 +427,8 @@ class PhACE(torch.nn.Module):
                 )
             )
 
-        for l, linear in enumerate(self.intermediate_linears):
-            concatenated_coupled_features_0[l] = linear(concatenated_coupled_features_0[l])
+        # for l, linear in enumerate(self.intermediate_linears):
+        #     concatenated_coupled_features_0[l] = linear(concatenated_coupled_features_0[l])
 
         coupled_features_0: List[List[torch.Tensor]] = []
         for l in range(self.l_max, -1, -1):
