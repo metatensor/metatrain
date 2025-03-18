@@ -132,6 +132,12 @@ class Trainer:
                 "LoRA is applied to the model, but the FINETUNING is not 'lora'"
                 " in the training hyperparameters. Please set FINETUNING to 'lora'"
             )
+        if model.ft_type == "heads" and not FITTING_SCHEME.FINETUNING == "heads":
+            raise ValueError(
+                "Heads-only finetuning is applied to the model, but the FINETUNING"
+                "is not 'heads' in the training hyperparameters. "
+                "Please set FINETUNING to 'heads'"
+            )
 
         if FITTING_SCHEME.USE_SHIFT_AGNOSTIC_LOSS:
             raise ValueError(
@@ -762,18 +768,19 @@ Units of the Energy and Forces are the same units given in input"""
             "scheduler_state_dict": pet_checkpoint["scheduler_state_dict"],
         }
         last_model_state_dict = pet_checkpoint["model_state_dict"]
-        if model.ft_type == "heads":
-            ft_state_dict = {
-                "ft_type": "heads",
-            }
-        elif model.ft_type == "lora":
-            ft_state_dict = {
-                "ft_type": "lora",
-                "lora_rank": model.pet.model.rank,
-                "lora_alpha": model.pet.model.alpha,
-            }
+
+        if model.ft_type is not None:
+            ft_state_dict = {"ft_type": model.ft_type}
+            if model.ft_type == "lora":
+                ft_state_dict.update(
+                    {
+                        "lora_rank": model.pet.model.rank,
+                        "lora_alpha": model.pet.model.alpha,
+                    }
+                )
         else:
             ft_state_dict = None
+
         last_model_checkpoint = {
             "architecture_name": "pet",
             "trainer_state_dict": trainer_state_dict,

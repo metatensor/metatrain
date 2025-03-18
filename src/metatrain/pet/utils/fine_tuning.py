@@ -60,48 +60,28 @@ class LoRAWrapper(torch.nn.Module):
         return self.model(batch_dict, rotations)
 
 
-class HeadsFTWrapper(torch.nn.Module):
-    def __init__(self, model: torch.nn.Module):
-        super(HeadsFTWrapper, self).__init__()
-        self.model = model
-        self.hypers = model.hypers
-        self.hidden_dim = model.hypers.TRANSFORMER_D_MODEL
-        self.num_hidden_layers = model.hypers.N_GNN_LAYERS * model.hypers.N_TRANS_LAYERS
-        for param in model.parameters():
-            param.requires_grad = False
-
-        for head in model.heads:
-            for param in head.parameters():
-                param.requires_grad = True
-
-    def forward(
-        self,
-        batch_dict: Dict[str, torch.Tensor],
-        rotations: Optional[torch.Tensor] = None,
-    ):
-        return self.model(batch_dict, rotations)
-
-
 class FinetuneWrapper(torch.nn.Module):
     def __init__(
         self,
         model: torch.nn.Module,
-        **kwargs,
+        ft_type: str,
+        lora_rank: Optional[int] = None,
+        lora_alpha: Optional[float] = None,
     ):
         super(FinetuneWrapper, self).__init__()
         self.model = model
         self.hypers = model.hypers
         self.hidden_dim = model.hypers.TRANSFORMER_D_MODEL
         self.num_hidden_layers = model.hypers.N_GNN_LAYERS * model.hypers.N_TRANS_LAYERS
-        if kwargs["ft_type"] == "heads":
+        if ft_type == "heads":
             for param in model.parameters():
                 param.requires_grad = False
             for head in model.heads:
                 for param in head.parameters():
                     param.requires_grad = True
-        elif kwargs["ft_type"] == "lora":
-            self.rank = kwargs.get("lora_rank", None)
-            self.alpha = kwargs.get("lora_alpha", None)
+        elif ft_type == "lora":
+            self.rank: int = lora_rank if lora_rank is not None else 0
+            self.alpha: float = lora_alpha if lora_alpha is not None else 0
             for param in model.parameters():
                 param.requires_grad = False
             for gnn_layer in model.gnn_layers:

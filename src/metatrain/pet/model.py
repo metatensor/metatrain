@@ -263,6 +263,7 @@ class PET(torch.nn.Module):
         model.ft_type = ft_state_dict.get("ft_type", None)
         if model.ft_type is None:
             ft_state_dict = {}
+
         wrapper = load_raw_pet_model(
             state_dict,
             model.hypers,
