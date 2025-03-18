@@ -128,8 +128,8 @@ class NanoPET(torch.nn.Module):
                 unit=target_info.unit,
                 per_atom=True,
             )
-        self._add_output("mtt::delta_q", dataset_info.targets["mtt::delta_1_q"])
-        self._add_output("mtt::delta_p", dataset_info.targets["mtt::delta_1_p"])
+        self._add_output("mtt::delta_q", dataset_info.targets["mtt::delta_10_q"])
+        self._add_output("mtt::delta_p", dataset_info.targets["mtt::delta_10_p"])
 
         self.register_buffer(
             "species_to_species_index",
