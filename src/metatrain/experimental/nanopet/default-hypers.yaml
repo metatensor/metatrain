@@ -13,9 +13,10 @@ architecture:
     zbl: False
     long_range: 
       enable: false
+      use_ewald: false
       smearing: 1.4
+      kspace_resolution: 1.33
       interpolation_nodes: 5
-      mesh_spacing: 1.33
 
   training:
     distributed: False

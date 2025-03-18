@@ -47,7 +47,9 @@ class MLPMap(ModuleMap):
                 if len(module_list) == 0:
                     module_list.append(
                         torch.nn.Linear(
-                            hypers["input_size"], hypers["num_neurons_per_layer"]
+                            hypers["input_size"],
+                            hypers["num_neurons_per_layer"],
+                            bias=False,
                         )
                     )
                 else:
@@ -55,6 +57,7 @@ class MLPMap(ModuleMap):
                         torch.nn.Linear(
                             hypers["num_neurons_per_layer"],
                             hypers["num_neurons_per_layer"],
+                            bias=False,
                         )
                     )
                 module_list.append(activation_function)
@@ -110,7 +113,7 @@ class MLPHeadMap(ModuleMap):
         for _ in in_keys:
             nns_per_species.append(
                 torch.nn.Sequential(
-                    torch.nn.Linear(num_features, num_features),
+                    torch.nn.Linear(num_features, num_features, bias=False),
                     activation_function,
                 )
             )

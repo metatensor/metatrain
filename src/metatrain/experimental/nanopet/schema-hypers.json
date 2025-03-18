@@ -46,14 +46,17 @@
             "enable": {
               "type": "boolean"
             },
+            "use_ewald": {
+              "type": "boolean"
+            },
             "smearing": {
+              "type": "number"
+            },
+            "kspace_resolution": {
               "type": "number"
             },
             "interpolation_nodes": {
               "type": "integer"
-            },
-            "mesh_spacing": {
-              "type": "number"
             }
           }
         }
