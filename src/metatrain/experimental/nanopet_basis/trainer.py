@@ -54,7 +54,7 @@ class Trainer:
         train_datasets: List[Union[Dataset, torch.utils.data.Subset]],
         val_datasets: List[Union[Dataset, torch.utils.data.Subset]],
         checkpoint_dir: str,
-        loss_fn: torch.nn.Module,
+        loss_fn: torch.nn.Module = None,
     ):
         assert dtype in NanoPETBasis.__supported_dtypes__
 
@@ -306,8 +306,8 @@ class Trainer:
             val_loss = 0.0
             for batch in val_dataloader:
                 systems, targets = batch
-                systems_, targets = systems_and_targets_to_device(
-                    systems_, targets, device
+                systems, targets = systems_and_targets_to_device(
+                    systems, targets, device
                 )
                 
                 # TODO: remove sorting!

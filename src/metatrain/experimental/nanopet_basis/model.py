@@ -18,7 +18,6 @@ from ...utils.dtype import dtype_to_str
 from ...utils.metadata import append_metadata_references
 
 from ..nanopet import NanoPET
-from metatrain.utils.architectures import get_default_hypers
 from metatrain.utils.data import DatasetInfo
 from metatrain.utils.neighbor_lists import (
     get_requested_neighbor_lists,

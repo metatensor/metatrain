@@ -1,6 +1,6 @@
 architecture:
 
-  name: experimental.nanopet
+  name: experimental.nanopet_basis
 
   model:
     nanopet:
@@ -38,5 +38,5 @@ architecture:
     best_model_metric: rmse_prod
     loss:
       type: mse
-      weights: {}
-      reduction: mean
+      weights: {"node": 1.0, "edge": 1.0}
+      reduction: sum
