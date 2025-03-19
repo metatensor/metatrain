@@ -276,8 +276,7 @@ class Trainer:
                 val_mae_calculator = MAEAccumulator(self.hypers["log_separate_blocks"])
 
             train_loss = 0.0
-            for i, batch in enumerate(train_dataloader):
-                print("batch", i, rank, flush=True)
+            for batch in train_dataloader:
                 optimizer.zero_grad()
 
                 systems, targets = batch
