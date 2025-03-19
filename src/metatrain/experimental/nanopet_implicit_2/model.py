@@ -576,7 +576,15 @@ class NanoPETImplicit2(torch.nn.Module):
                 )
 
         ham_sum = return_dict["mtt::hamiltonian"].block().values.sum()
-        dHdq, dHdp = torch.autograd.grad(ham_sum, [positions, momenta], retain_graph=self.training, create_graph=self.training)
+        dHdq_opt, dHdp_opt = torch.autograd.grad([ham_sum], [positions, momenta], retain_graph=self.training, create_graph=self.training)
+        if dHdq_opt is not None:
+            dHdq = dHdq_opt
+        else:
+            raise ValueError("Error dHdq :(")
+        if dHdp_opt is not None:
+            dHdp = dHdp_opt
+        else:
+            raise ValueError("Error dHdp :(")
         return_dict[f"mtt::delta_{time_lag_int}_q"] = TensorMap(
             keys=self.single_label,
             blocks=[
