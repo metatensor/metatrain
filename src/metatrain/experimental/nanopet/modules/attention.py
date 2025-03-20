@@ -18,8 +18,13 @@ class AttentionBlock(torch.nn.Module):
         super().__init__()
 
         self.num_heads = num_heads
-        self.in_proj = torch.nn.Linear(hidden_size, 3 * hidden_size, bias=False)
-        self.out_proj = torch.nn.Linear(hidden_size, hidden_size, bias=False)
+        self.in_proj = torch.nn.Linear(hidden_size, 3 * hidden_size, bias=True)
+        self.out_proj = torch.nn.Linear(hidden_size, hidden_size, bias=True)
+
+        torch.nn.init.xavier_uniform_(self.in_proj.weight)
+        torch.nn.init.constant_(self.in_proj.bias, 0.0)
+        torch.nn.init.constant_(self.out_proj.bias, 0.0)
+
         self.layernorm = torch.nn.LayerNorm(normalized_shape=hidden_size)
         self.attention_dropout_rate = attention_dropout_rate
 
@@ -64,9 +69,4 @@ class AttentionBlock(torch.nn.Module):
         )
 
         # Output projection
-        outputs = self.out_proj(attention_output)
-
-        # Residual connection
-        outputs = (outputs + inputs) * 0.5**0.5
-
-        return outputs
+        return self.out_proj(attention_output)
