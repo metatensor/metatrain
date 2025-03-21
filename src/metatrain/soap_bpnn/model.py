@@ -15,7 +15,6 @@ from metatensor.torch.atomistic import (
 from metatensor.torch.learn.nn import Linear as LinearMap
 from metatensor.torch.learn.nn import ModuleMap
 
-# import featomic.torch
 from spex.metatensor import SoapPowerSpectrum
 
 from metatrain.utils.data import TargetInfo

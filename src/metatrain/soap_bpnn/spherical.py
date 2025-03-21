@@ -10,7 +10,6 @@ import wigners
 from metatensor.torch import Labels
 from metatensor.torch.learn.nn import Linear as LinearMap
 
-# import featomic.torch
 from spex.metatensor import SphericalExpansion
 
 
@@ -206,9 +205,9 @@ class TensorBasis(torch.nn.Module):
                 atom_index_in_structure,
                 selected_atoms,
             )
-            basis = basis / torch.sqrt(
-                torch.sum(torch.square(basis), dim=1, keepdim=True)
-            )
+            basis = basis  # / (
+            #     torch.sqrt(torch.sum(torch.square(basis), dim=1, keepdim=True)) + 1.0e-4
+            # )
         elif self.o3_lambda == 2:
             basis = torch.empty(
                 (num_atoms, 5, 5),
@@ -233,15 +232,24 @@ class TensorBasis(torch.nn.Module):
             vector_2_spherical = vector_basis[:, :, 1]
             vector_3_spherical = vector_basis[:, :, 2]
 
-            vector_1_spherical = vector_1_spherical / torch.sqrt(
-                torch.sum(torch.square(vector_1_spherical), dim=-1, keepdim=True)
-            )
-            vector_2_spherical = vector_2_spherical / torch.sqrt(
-                torch.sum(torch.square(vector_2_spherical), dim=-1, keepdim=True)
-            )
-            vector_3_spherical = vector_3_spherical / torch.sqrt(
-                torch.sum(torch.square(vector_3_spherical), dim=-1, keepdim=True)
-            )
+            vector_1_spherical = vector_1_spherical  # / (
+            #     torch.sqrt(
+            #         torch.sum(torch.square(vector_1_spherical), dim=-1, keepdim=True)
+            #     )
+            #     + 1.0e-4
+            # )
+            vector_2_spherical = vector_2_spherical  # / (
+            #     torch.sqrt(
+            #         torch.sum(torch.square(vector_2_spherical), dim=-1, keepdim=True)
+            #     )
+            #     + 1.0e-4
+            # )
+            vector_3_spherical = vector_3_spherical  # / (
+            #     torch.sqrt(
+            #         torch.sum(torch.square(vector_3_spherical), dim=-1, keepdim=True)
+            #     )
+            #     + 1.0e-4
+            # )
             basis[:, :, 2] = cg_combine(
                 vector_1_spherical, vector_2_spherical, self.cgs["1_1_2"]
             )
@@ -274,9 +282,12 @@ class TensorBasis(torch.nn.Module):
             vector_1_xyz = vector_basis[:, [2, 0, 1], 0]
             vector_2_xyz = vector_basis[:, [2, 0, 1], 1]
             vector_3_spherical = vector_basis[:, :, 2]
-            vector_3_spherical = vector_3_spherical / torch.sqrt(
-                torch.sum(torch.square(vector_3_spherical), dim=-1, keepdim=True)
-            )
+            vector_3_spherical = vector_3_spherical  # / (
+            #     torch.sqrt(
+            #         torch.sum(torch.square(vector_3_spherical), dim=-1, keepdim=True)
+            #     )
+            #     + 1.0e-4
+            # )
             sh_1 = self.spherical_hamonics_calculator(vector_1_xyz)
             sh_2 = self.spherical_hamonics_calculator(vector_2_xyz)
             for lam in range(self.o3_lambda + 1):
@@ -284,9 +295,8 @@ class TensorBasis(torch.nn.Module):
                     sh_1[:, lam * lam : (lam + 1) * (lam + 1)],
                     sh_2[
                         :,
-                        (self.o3_lambda - lam) * (self.o3_lambda - lam) : (
-                            (self.o3_lambda - lam) + 1
-                        )
+                        (self.o3_lambda - lam)
+                        * (self.o3_lambda - lam) : ((self.o3_lambda - lam) + 1)
                         * ((self.o3_lambda - lam) + 1),
                     ],
                     self.cgs[
@@ -303,7 +313,8 @@ class TensorBasis(torch.nn.Module):
                         sh_1[:, lam * lam : (lam + 1) * (lam + 1)],
                         sh_2[
                             :,
-                            (self.o3_lambda - lam - 1) * (self.o3_lambda - lam - 1) : (
+                            (self.o3_lambda - lam - 1)
+                            * (self.o3_lambda - lam - 1) : (
                                 (self.o3_lambda - lam - 1) + 1
                             )
                             * ((self.o3_lambda - lam - 1) + 1),
@@ -334,15 +345,24 @@ class TensorBasis(torch.nn.Module):
             vector_1_spherical = vector_basis_pseudotensor[:, :, 0]
             vector_2_spherical = vector_basis_pseudotensor[:, :, 1]
             vector_3_spherical = vector_basis_pseudotensor[:, :, 2]
-            vector_1_spherical = vector_1_spherical / torch.sqrt(
-                torch.sum(torch.square(vector_1_spherical), dim=-1, keepdim=True)
-            )
-            vector_2_spherical = vector_2_spherical / torch.sqrt(
-                torch.sum(torch.square(vector_2_spherical), dim=-1, keepdim=True)
-            )
-            vector_3_spherical = vector_3_spherical / torch.sqrt(
-                torch.sum(torch.square(vector_3_spherical), dim=-1, keepdim=True)
-            )
+            vector_1_spherical = vector_1_spherical  # / (
+            #     torch.sqrt(
+            #         torch.sum(torch.square(vector_1_spherical), dim=-1, keepdim=True)
+            #     )
+            #     + 1.0e-4
+            # )
+            vector_2_spherical = vector_2_spherical  # / (
+            #     torch.sqrt(
+            #         torch.sum(torch.square(vector_2_spherical), dim=-1, keepdim=True)
+            #     )
+            #     + 1.0e-4
+            # )
+            vector_3_spherical = vector_3_spherical  # / (
+            #     torch.sqrt(
+            #         torch.sum(torch.square(vector_3_spherical), dim=-1, keepdim=True)
+            #     )
+            #     + 1.0e-4
+            # )
             pseudoscalar = cg_combine(
                 cg_combine(vector_1_spherical, vector_2_spherical, self.cgs["1_1_1"]),
                 vector_3_spherical,
