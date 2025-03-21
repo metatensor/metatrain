@@ -71,15 +71,27 @@ class TargetInfo:
     def _check_layout(self, layout: TensorMap) -> None:
         """Check that the layout is a valid layout."""
 
+        valid_sample_names = [
+            ["system"],
+            ["system", "atom"],
+            [
+                "system",
+                "first_atom",
+                "second_atom",
+                "cell_shift_a",
+                "cell_shift_b",
+                "cell_shift_c",
+            ],
+        ]
+        if layout.sample_names not in valid_sample_names:
+            raise ValueError(
+                "The layout ``TensorMap`` of a target should have samples "
+                f"names corresponding to one of: {valid_sample_names}, but found "
+                f"'{layout.sample_names}' instead."
+            )
+
         # examine basic properties of all blocks
         for block in layout.blocks():
-            for sample_name in block.samples.names:
-                if sample_name not in ["system", "atom"]:
-                    raise ValueError(
-                        "The layout ``TensorMap`` of a target should only have samples "
-                        "named 'system' or 'atom', but found "
-                        f"'{sample_name}' instead."
-                    )
             if len(block.values) != 0:
                 raise ValueError(
                     "The layout ``TensorMap`` of a target should have 0 "
@@ -87,7 +99,8 @@ class TargetInfo:
                 )
 
         # examine the components of the first block to decide whether this is
-        # a scalar, a Cartesian tensor or a spherical tensor
+        # a scalar, a Cartesian tensor, a spherical tensor, or an atomic-basis
+        # spherical tensor
 
         if len(layout) == 0:
             raise ValueError(
@@ -103,11 +116,50 @@ class TargetInfo:
             len(components_first_block) == 1
             and components_first_block[0].names[0] == "o3_mu"
         ):
-            self.is_spherical = True
+            # keys of just "o3_lambda" and "o3_sigma" is a spherical target
+            if layout.keys.names == [
+                "o3_lambda",
+                "o3_sigma",
+            ]:
+                self.is_spherical = True
+
+            # keys with "o3_lambda" and "o3_sigma", but arbitrary other keys (i.e.
+            # "center_type", "first_atom_type", "second_atom_type", "s2_pi", etc) is an
+            # atomic-basis spherical target.
+            elif "o3_lambda" in layout.keys.names and "o3_sigma" in layout.keys.names:
+                self.is_atomic_basis_spherical = True
+            else:
+                raise ValueError(
+                    f"invalid key names: {layout.keys.names}. "
+                    "Targets with 1 'o3_mu' components axis are "
+                    "treated as either spherical targets or atomic "
+                    "spherical basis targets, and are expected to have "
+                    "at least 'o3_lambda' and 'o3_sigma' key dimensions."
+                )
+        elif (
+            len(components_first_block) == 2
+            and components_first_block[0].names[0] == "o3_mu_1"
+            and components_first_block[1].names[0] == "o3_mu_2"
+        ):
+            if (
+                "o3_lambda_1" in layout.keys.names
+                and "o3_lambda_2" in layout.keys.names
+                and "o3_sigma" in layout.keys.names
+            ):
+                self.is_atomic_basis_spherical = True
+            else:
+                raise ValueError(
+                    f"invalid key names: {layout.keys.names}. "
+                    "Targets with 2 'o3_mu_{x}' components axes are "
+                    "treated as atomic spherical basis targets, and are "
+                    "expected to have at least 'o3_lambda_1', 'o3_lambda_2', "
+                    "and 'o3_sigma' key dimensions."
+                )
         else:
             raise ValueError(
                 "The layout ``TensorMap`` of a target should be "
-                "either scalars, Cartesian tensors or spherical tensors. The type of "
+                "either scalars, Cartesian tensors, spherical tensors, "
+                "or atomic-basis spherical targets. The type of "
                 "the target could not be determined."
             )
 
@@ -186,6 +238,120 @@ class TargetInfo:
                     raise ValueError(
                         "Gradients of spherical tensor targets are not supported."
                     )
+
+        if self.is_atomic_basis_spherical:
+            o3_lambda_like_dims = [
+                name for name in layout.keys.names if name.startswith("o3_lambda")
+            ]
+            # If "o3_lambda" is in the keys, there should be one "o3_mu" component
+            if o3_lambda_like_dims == ["o3_lambda"]:
+                for key, block in layout.items():
+                    o3_lambda, o3_sigma = (
+                        int(key.values[layout.keys.names.index("o3_lambda")].item()),
+                        int(key.values[layout.keys.names.index("o3_sigma")].item()),
+                    )
+                    if o3_sigma not in [-1, 1]:
+                        raise ValueError(
+                            "The layout ``TensorMap`` of an atomic-basis spherical "
+                            "tensor target should have a key dimension 'o3_sigma' "
+                            f"that is either -1 or 1. Found '{o3_sigma}' instead."
+                        )
+                    if o3_lambda < 0:
+                        raise ValueError(
+                            "The layout ``TensorMap`` of an atomic-basis spherical "
+                            "tensor target should have a key sample 'o3_lambda' that "
+                            f"is non-negative. Found '{o3_lambda}' instead."
+                        )
+                    components = block.components
+                    if len(components) != 1:
+                        raise ValueError(
+                            "The layout ``TensorMap`` of an atomic-basis spherical "
+                            "tensor target should have a single component."
+                        )
+                    if len(components[0]) != 2 * o3_lambda + 1:
+                        raise ValueError(
+                            "Each ``TensorBlock`` of an atomic-basis spherical "
+                            "tensor target should have a component with 2*o3_lambda "
+                            f"+ 1 elements. Found '{len(components[0])}' elements "
+                            "instead."
+                        )
+                    if len(block.gradients_list()) > 0:
+                        raise ValueError(
+                            "Gradients of an atomic-basis spherical tensor "
+                            "targets are not supported."
+                        )
+
+            # If "o3_lambda_1" and "o3_lambda_2" is in the keys, there should be two
+            # components, "o3_mu_1" and "o3_mu_2"
+            elif o3_lambda_like_dims == ["o3_lambda_1", "o3_lambda_2"]:
+                for key, block in layout.items():
+                    o3_lambda_1, o3_lambda_2, o3_sigma = (
+                        int(key.values[layout.keys.names.index("o3_lambda_1")].item()),
+                        int(key.values[layout.keys.names.index("o3_lambda_2")].item()),
+                        int(key.values[layout.keys.names.index("o3_sigma")].item()),
+                    )
+                    if o3_sigma not in [-1, 1]:
+                        raise ValueError(
+                            "The layout ``TensorMap`` of a spherical tensor target "
+                            "should have a key sample 'o3_sigma' that is either -1 "
+                            f"or 1. Found '{o3_sigma}' instead."
+                        )
+                    if len(block.components) != 2:
+                        raise ValueError(
+                            "The layout ``TensorMap`` of an atomic-basis spherical "
+                            "tensor target should have a single component."
+                        )
+                    for o3_mu_i, o3_lambda in enumerate([o3_lambda_1, o3_lambda_2]):
+                        if o3_lambda < 0:
+                            raise ValueError(
+                                "The layout ``TensorMap`` of an atomic-basis spherical "
+                                "tensor target should have a key dimension 'o3_lambda' "
+                                f"that is non-negative. Found '{o3_lambda}' instead."
+                            )
+                        components = block.components[o3_mu_i]
+
+                        if len(components) != 2 * o3_lambda + 1:
+                            raise ValueError(
+                                "Each ``TensorBlock`` of an atomic-basis spherical "
+                                f"tensor target should have component axis {o3_mu_i} "
+                                f"with 2*o3_lambda_{o3_mu_i} + 1 elements. Found "
+                                f"'{len(components)}' elements instead."
+                            )
+                    if len(block.gradients_list()) > 0:
+                        raise ValueError(
+                            "Gradients of an atomic-basis spherical tensor "
+                            "targets are not supported."
+                        )
+
+            else:
+                raise ValueError(
+                    "atomic basis spherical tensors should only have 'o3_lambda' or "
+                    "['o3_lambda_1', 'o3_lambda_2'] key dimensions for spherical "
+                    "symmetry"
+                )
+
+            # For edges, check that atom types are triangularized in the keys
+            if (
+                "first_atom" in layout.sample_names
+                and "second_atom" in layout.sample_names
+            ):
+                assert (
+                    "first_atom_type" in layout.keys.names
+                    and "second_atom_type" in layout.keys.names
+                ), (
+                    "atomic basis spherical edge targets must have "
+                    "'first_atom_type' and 'second_atom_type' in the keys, and "
+                    "'first_atom' and 'second_atom' in the samples"
+                )
+                assert all(
+                    layout.keys.values[:, layout.keys.names.index("first_atom_type")]
+                    <= layout.keys.values[
+                        :, layout.keys.names.index("second_atom_type")
+                    ]
+                ), (
+                    "atom type key dimensions should be triangularized such that"
+                    " 'first_atom_type' <= 'second_atom_type'"
+                )
 
     def is_compatible_with(self, other: "TargetInfo") -> bool:
         """Check if two targets are compatible.
@@ -295,10 +461,16 @@ def get_generic_target_info(target: DictConfig) -> TargetInfo:
         return _get_cartesian_target_info(target)
     elif len(target["type"]) == 1 and next(iter(target["type"])) == "spherical":
         return _get_spherical_target_info(target)
+    elif (
+        len(target["type"]) == 1
+        and next(iter(target["type"])) == "atomic_basis_spherical"
+    ):
+        return _get_atomic_basis_spherical_target_info(target)
     else:
         raise ValueError(
             f"Target type {target['type']} is not supported. "
-            "Supported types are 'scalar', 'cartesian' and 'spherical'."
+            "Supported types are 'scalar', 'cartesian', 'spherical', "
+            "and 'atomic_basis_spherical'"
         )
 
 
@@ -412,6 +584,106 @@ def _get_spherical_target_info(target: DictConfig) -> TargetInfo:
 
     layout = TensorMap(
         keys=Labels(["o3_lambda", "o3_sigma"], torch.tensor(keys, dtype=torch.int32)),
+        blocks=blocks,
+    )
+
+    target_info = TargetInfo(
+        quantity=target["quantity"],
+        unit=target["unit"],
+        layout=layout,
+    )
+    return target_info
+
+
+def _get_atomic_basis_spherical_target_info(target: DictConfig) -> TargetInfo:
+    # Define the sample names
+    sample_names = ["system"]
+    if target["type"]["atomic_basis_spherical"]["n_center"] == 1:
+        sample_names += ["atom"]
+    elif target["type"]["atomic_basis_spherical"]["n_center"] == 2:
+        sample_names += [
+            "first_atom",
+            "second_atom",
+            "cell_shift_a",
+            "cell_shift_b",
+            "cell_shift_c",
+        ]
+    else:
+        raise ValueError(
+            "'atomic_basis_spherical' option 'n_center' must be 0, 1, or 2"
+        )
+
+    basis = target["type"]["atomic_basis_spherical"]["basis"]
+    keys = []
+    blocks = []
+    basis_key_names = list(basis[0]["key"].keys())
+    for basis_block in basis:
+        basis_key = basis_block["key"]
+        num_subtargets = basis_block["num_subtargets"]
+        # Check consistency between key names
+        assert list(basis_key.keys()) == basis_key_names, (
+            "all named key dimensions of 'basis' must be consistent."
+        )
+
+        # Check key names that are 'o3_lambda'-like. Only allow
+        for name in basis_key:
+            if name.startswith("o3_lambda"):
+                assert name in ["o3_lambda", "o3_lambda_1", "o3_lambda_2"], (
+                    "only 'o3_lambda' or ['o3_lambda_1', 'o3_lambda_2'] "
+                    "are allowed at present."
+                )
+
+        # Build the components
+        components = []
+        if "o3_lambda" in basis_key:
+            assert "o3_lambda_1" not in basis_key and "o3_lambda_2" not in basis_key, (
+                "if passing 'o3_lambda' as a basis key, "
+                "cannot also specify 'o3_lambda_{1,2}"
+            )
+            components += [
+                Labels(
+                    names=["o3_mu"],
+                    values=torch.arange(
+                        -basis_key["o3_lambda"],
+                        basis_key["o3_lambda"] + 1,
+                        dtype=torch.int32,
+                    ).reshape(-1, 1),
+                )
+            ]
+        else:
+            for rank in [1, 2]:
+                if f"o3_lambda_{rank}" in basis_key:
+                    components += [
+                        Labels(
+                            names=[f"o3_mu_{rank}"],
+                            values=torch.arange(
+                                -basis_key[f"o3_lambda_{rank}"],
+                                basis_key[f"o3_lambda_{rank}"] + 1,
+                                dtype=torch.int32,
+                            ).reshape(-1, 1),
+                        )
+                    ]
+
+        block = TensorBlock(
+            # float64: otherwise metatensor can't serialize
+            values=torch.empty(
+                0,
+                *[len(component) for component in components],
+                num_subtargets,
+                dtype=torch.float64,
+            ),
+            samples=Labels(
+                names=sample_names,
+                values=torch.empty((0, len(sample_names)), dtype=torch.int32),
+            ),
+            components=components,
+            properties=Labels.range("properties", num_subtargets),
+        )
+        keys.append(list(basis_key.values()))
+        blocks.append(block)
+
+    layout = TensorMap(
+        keys=Labels(basis_key_names, torch.tensor(keys, dtype=torch.int32)),
         blocks=blocks,
     )
 

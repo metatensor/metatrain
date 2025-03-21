@@ -184,6 +184,42 @@
                       },
                       "required": ["spherical"],
                       "additionalProperties": false
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "atomic_basis_spherical": {
+                          "type": "object",
+                          "properties": {
+                            "n_center": {
+                              "type": "integer",
+                              "items": {
+                                "type": "object"
+                              }
+                            },
+                            "basis": {
+                              "type": "array",
+                              "items": {
+                                "type": "object",
+                                "properties": {
+                                  "key": {
+                                    "type": "object"
+                                  },
+                                  "num_subtargets": {
+                                    "type": "integer"
+                                  }
+                                },
+                                "required": ["key", "num_subtargets"],
+                                "additionalProperties": false
+                              }
+                            }
+                          },
+                          "required": ["n_center", "basis"],
+                          "additionalProperties": false
+                        }
+                      },
+                      "required": ["atomic_basis_spherical"],
+                      "additionalProperties": false
                     }
                   ]
                 },
