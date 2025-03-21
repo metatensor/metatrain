@@ -30,6 +30,7 @@ class TargetInfo:
         self.is_scalar = False
         self.is_cartesian = False
         self.is_spherical = False
+        self.is_atomic_basis_spherical = False
 
         self._check_layout(layout)
 
@@ -620,6 +621,7 @@ def _get_atomic_basis_spherical_target_info(target: DictConfig) -> TargetInfo:
     for basis_block in basis:
         basis_key = basis_block["key"]
         num_subtargets = basis_block["num_subtargets"]
+
         # Check consistency between key names
         assert list(basis_key.keys()) == basis_key_names, (
             "all named key dimensions of 'basis' must be consistent."
