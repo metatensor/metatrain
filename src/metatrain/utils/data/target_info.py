@@ -329,6 +329,23 @@ class TargetInfo:
                     "atomic basis spherical tensors should only have 'o3_lambda' or "
                     "['o3_lambda_1', 'o3_lambda_2'] key dimensions for spherical symmetry"
                 )
+            
+
+            # For edges, check that atom types are triangularized in the keys
+            if "first_atom" in layout.sample_names and "second_atom" in layout.sample_names:
+                assert "first_atom_type" in layout.keys.names and "second_atom_type" in layout.keys.names, (
+                    "atomic basis spherical edge targets must have 'first_atom_type' and 'second_atom_type'"
+                    " in the keys, and 'first_atom' and 'second_atom' in the samples"
+                )
+                assert all(
+                    layout.keys.values[:, layout.keys.names.index("first_atom_type")]
+                    <= layout.keys.values[:, layout.keys.names.index("second_atom_type")]
+                ), (
+                    "atom type key dimensions should be triangularized such that"
+                    " 'first_atom_type' <= 'second_atom_type'"
+                )
+
+
 
     def is_compatible_with(self, other: "TargetInfo") -> bool:
         """Check if two targets are compatible.
