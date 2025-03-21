@@ -1,16 +1,16 @@
 """Modules to allow SOAP-BPNN to fit arbitrary spherical tensor targets."""
 
 import copy
-from typing import Dict, List, Optional
+from typing import Dict, Optional
 
-import featomic.torch
 import metatensor.torch
 import numpy as np
 import torch
 import wigners
 from metatensor.torch import Labels
-from metatensor.torch.atomistic import System
 from metatensor.torch.learn.nn import Linear as LinearMap
+
+from spex.metatensor import SphericalExpansion
 
 
 class VectorBasis(torch.nn.Module):
@@ -23,13 +23,32 @@ class VectorBasis(torch.nn.Module):
     def __init__(self, atomic_types, soap_hypers) -> None:
         super().__init__()
         self.atomic_types = atomic_types
-        soap_vector_hypers = copy.deepcopy(soap_hypers)
-        soap_vector_hypers["basis"]["max_angular"] = 1
-        self.soap_calculator = featomic.torch.SphericalExpansion(**soap_vector_hypers)
+
+        soap_hypers = copy.deepcopy(soap_hypers)
+        soap_hypers["max_angular"] = 1
+
+        spex_soap_hypers = {
+            "cutoff": soap_hypers["cutoff"]["radius"],
+            "max_angular": soap_hypers["max_angular"],
+            "radial": {
+                "LaplacianEigenstates": {
+                    "max_radial": soap_hypers["max_radial"],
+                }
+            },
+            "angular": "SphericalHarmonics",
+            "cutoff_function": {
+                "ShiftedCosine": {"width": soap_hypers["cutoff"]["width"]}
+            },
+            "species": {"Orthogonal": {"species": self.atomic_types}},
+        }
+
+        self.soap_calculator = SphericalExpansion(**spex_soap_hypers)
+
         self.neighbor_species_labels = Labels(
             names=["neighbor_type"],
             values=torch.tensor(self.atomic_types).reshape(-1, 1),
         )
+
         self.contraction = LinearMap(
             in_keys=Labels(
                 names=["o3_lambda", "o3_sigma", "center_type"],
@@ -42,7 +61,7 @@ class VectorBasis(torch.nn.Module):
                     dim=1,
                 ),
             ),
-            in_features=(soap_vector_hypers["basis"]["radial"]["max_radial"] + 1)
+            in_features=(self.soap_calculator.calculator.radial.n_per_l[1])
             * len(self.atomic_types),
             out_features=3,
             bias=False,
@@ -51,15 +70,31 @@ class VectorBasis(torch.nn.Module):
         # this optimizable basis seems to work much better than a fixed one
 
     def forward(
-        self, systems: List[System], selected_atoms: Optional[Labels]
+        self,
+        interatomic_vectors,
+        centers,
+        neighbors,
+        species,
+        structures,
+        atom_index_in_structure,
+        selected_atoms: Optional[Labels],
     ) -> torch.Tensor:
-        device = systems[0].positions.device
+        device = interatomic_vectors.device
         if self.neighbor_species_labels.device != device:
             self.neighbor_species_labels = self.neighbor_species_labels.to(device)
 
         spherical_expansion = self.soap_calculator(
-            systems, selected_samples=selected_atoms
+            interatomic_vectors,
+            centers,
+            neighbors,
+            species,
+            structures,
+            atom_index_in_structure,
         )
+        if selected_atoms is not None:
+            spherical_expansion = metatensor.torch.slice(
+                spherical_expansion, "samples", selected_atoms
+            )
 
         # by calling keys_to_samples and keys_to_properties in the same order as they
         # are called in the main model, we should ensure that the order of the samples
@@ -133,17 +168,24 @@ class TensorBasis(torch.nn.Module):
             self.cgs = {}  # type: ignore
 
     def forward(
-        self, systems: List[System], selected_atoms: Optional[Labels]
+        self,
+        interatomic_vectors,
+        centers,
+        neighbors,
+        species,
+        structures,
+        atom_index_in_structure,
+        selected_atoms: Optional[Labels],
     ) -> torch.Tensor:
         # transfer cg dict to device and dtype if needed
-        device = systems[0].positions.device
-        dtype = systems[0].positions.dtype
+        device = interatomic_vectors.device
+        dtype = interatomic_vectors.dtype
         for k, v in self.cgs.items():
             if v.device != device or v.dtype != dtype:
                 self.cgs[k] = v.to(device, dtype)
 
         if selected_atoms is None:
-            num_atoms = sum(len(system) for system in systems)
+            num_atoms = len(atom_index_in_structure)
         else:
             num_atoms = len(selected_atoms)
 
@@ -154,17 +196,33 @@ class TensorBasis(torch.nn.Module):
                 dtype=dtype,
             )
         elif self.o3_lambda == 1:
-            basis = self.vector_basis(systems, selected_atoms)
-            basis = basis / torch.sqrt(
-                torch.sum(torch.square(basis), dim=1, keepdim=True)
+            basis = self.vector_basis(
+                interatomic_vectors,
+                centers,
+                neighbors,
+                species,
+                structures,
+                atom_index_in_structure,
+                selected_atoms,
             )
+            basis = basis  # / (
+            #     torch.sqrt(torch.sum(torch.square(basis), dim=1, keepdim=True)) + 1.0e-4
+            # )
         elif self.o3_lambda == 2:
             basis = torch.empty(
                 (num_atoms, 5, 5),
                 device=device,
                 dtype=dtype,
             )
-            vector_basis = self.vector_basis(systems, selected_atoms)
+            vector_basis = self.vector_basis(
+                interatomic_vectors,
+                centers,
+                neighbors,
+                species,
+                structures,
+                atom_index_in_structure,
+                selected_atoms,
+            )
             # vector_basis is [n_atoms, 3(yzx), 3]
             vector_1_xyz = vector_basis[:, [2, 0, 1], 0]
             vector_2_xyz = vector_basis[:, [2, 0, 1], 1]
@@ -173,15 +231,25 @@ class TensorBasis(torch.nn.Module):
             vector_1_spherical = vector_basis[:, :, 0]
             vector_2_spherical = vector_basis[:, :, 1]
             vector_3_spherical = vector_basis[:, :, 2]
-            vector_1_spherical = vector_1_spherical / torch.sqrt(
-                torch.sum(torch.square(vector_1_spherical), dim=-1, keepdim=True)
-            )
-            vector_2_spherical = vector_2_spherical / torch.sqrt(
-                torch.sum(torch.square(vector_2_spherical), dim=-1, keepdim=True)
-            )
-            vector_3_spherical = vector_3_spherical / torch.sqrt(
-                torch.sum(torch.square(vector_3_spherical), dim=-1, keepdim=True)
-            )
+
+            vector_1_spherical = vector_1_spherical  # / (
+            #     torch.sqrt(
+            #         torch.sum(torch.square(vector_1_spherical), dim=-1, keepdim=True)
+            #     )
+            #     + 1.0e-4
+            # )
+            vector_2_spherical = vector_2_spherical  # / (
+            #     torch.sqrt(
+            #         torch.sum(torch.square(vector_2_spherical), dim=-1, keepdim=True)
+            #     )
+            #     + 1.0e-4
+            # )
+            vector_3_spherical = vector_3_spherical  # / (
+            #     torch.sqrt(
+            #         torch.sum(torch.square(vector_3_spherical), dim=-1, keepdim=True)
+            #     )
+            #     + 1.0e-4
+            # )
             basis[:, :, 2] = cg_combine(
                 vector_1_spherical, vector_2_spherical, self.cgs["1_1_2"]
             )
@@ -201,14 +269,25 @@ class TensorBasis(torch.nn.Module):
                 device=device,
                 dtype=dtype,
             )
-            vector_basis = self.vector_basis(systems, selected_atoms)
+            vector_basis = self.vector_basis(
+                interatomic_vectors,
+                centers,
+                neighbors,
+                species,
+                structures,
+                atom_index_in_structure,
+                selected_atoms,
+            )
             # vector_basis is [n_atoms, 3(yzx), 3]
             vector_1_xyz = vector_basis[:, [2, 0, 1], 0]
             vector_2_xyz = vector_basis[:, [2, 0, 1], 1]
             vector_3_spherical = vector_basis[:, :, 2]
-            vector_3_spherical = vector_3_spherical / torch.sqrt(
-                torch.sum(torch.square(vector_3_spherical), dim=-1, keepdim=True)
-            )
+            vector_3_spherical = vector_3_spherical  # / (
+            #     torch.sqrt(
+            #         torch.sum(torch.square(vector_3_spherical), dim=-1, keepdim=True)
+            #     )
+            #     + 1.0e-4
+            # )
             sh_1 = self.spherical_hamonics_calculator(vector_1_xyz)
             sh_2 = self.spherical_hamonics_calculator(vector_2_xyz)
             for lam in range(self.o3_lambda + 1):
@@ -216,9 +295,8 @@ class TensorBasis(torch.nn.Module):
                     sh_1[:, lam * lam : (lam + 1) * (lam + 1)],
                     sh_2[
                         :,
-                        (self.o3_lambda - lam) * (self.o3_lambda - lam) : (
-                            (self.o3_lambda - lam) + 1
-                        )
+                        (self.o3_lambda - lam)
+                        * (self.o3_lambda - lam) : ((self.o3_lambda - lam) + 1)
                         * ((self.o3_lambda - lam) + 1),
                     ],
                     self.cgs[
@@ -235,7 +313,8 @@ class TensorBasis(torch.nn.Module):
                         sh_1[:, lam * lam : (lam + 1) * (lam + 1)],
                         sh_2[
                             :,
-                            (self.o3_lambda - lam - 1) * (self.o3_lambda - lam - 1) : (
+                            (self.o3_lambda - lam - 1)
+                            * (self.o3_lambda - lam - 1) : (
                                 (self.o3_lambda - lam - 1) + 1
                             )
                             * ((self.o3_lambda - lam - 1) + 1),
@@ -255,20 +334,35 @@ class TensorBasis(torch.nn.Module):
         if self.o3_sigma == -1:
             # multiply by pseudoscalar
             vector_basis_pseudotensor = self.vector_basis_pseudotensor(
-                systems, selected_atoms
+                interatomic_vectors,
+                centers,
+                neighbors,
+                species,
+                structures,
+                atom_index_in_structure,
+                selected_atoms,
             )
             vector_1_spherical = vector_basis_pseudotensor[:, :, 0]
             vector_2_spherical = vector_basis_pseudotensor[:, :, 1]
             vector_3_spherical = vector_basis_pseudotensor[:, :, 2]
-            vector_1_spherical = vector_1_spherical / torch.sqrt(
-                torch.sum(torch.square(vector_1_spherical), dim=-1, keepdim=True)
-            )
-            vector_2_spherical = vector_2_spherical / torch.sqrt(
-                torch.sum(torch.square(vector_2_spherical), dim=-1, keepdim=True)
-            )
-            vector_3_spherical = vector_3_spherical / torch.sqrt(
-                torch.sum(torch.square(vector_3_spherical), dim=-1, keepdim=True)
-            )
+            vector_1_spherical = vector_1_spherical  # / (
+            #     torch.sqrt(
+            #         torch.sum(torch.square(vector_1_spherical), dim=-1, keepdim=True)
+            #     )
+            #     + 1.0e-4
+            # )
+            vector_2_spherical = vector_2_spherical  # / (
+            #     torch.sqrt(
+            #         torch.sum(torch.square(vector_2_spherical), dim=-1, keepdim=True)
+            #     )
+            #     + 1.0e-4
+            # )
+            vector_3_spherical = vector_3_spherical  # / (
+            #     torch.sqrt(
+            #         torch.sum(torch.square(vector_3_spherical), dim=-1, keepdim=True)
+            #     )
+            #     + 1.0e-4
+            # )
             pseudoscalar = cg_combine(
                 cg_combine(vector_1_spherical, vector_2_spherical, self.cgs["1_1_1"]),
                 vector_3_spherical,
@@ -389,6 +483,13 @@ class FakeVectorBasis(torch.nn.Module):
     # fake class to make torchscript work
 
     def forward(
-        self, systems: List[System], selected_atoms: Optional[Labels]
+        self,
+        interatomic_vectors,
+        centers,
+        neighbors,
+        species,
+        structures,
+        atom_index_in_structure,
+        selected_atoms: Optional[Labels],
     ) -> torch.Tensor:
         return torch.tensor(0)
