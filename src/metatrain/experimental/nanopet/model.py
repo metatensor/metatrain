@@ -75,27 +75,16 @@ class NanoPET(torch.nn.Module):
         self.cutoff = float(self.hypers["cutoff"])
         self.cutoff_width = float(self.hypers["cutoff_width"])
 
-        self.encoder = Encoder(len(self.atomic_types), self.hypers["d_pet"])
-
-        self.transformer = Transformer(
-            self.hypers["d_pet"],
-            4 * self.hypers["d_pet"],
-            self.hypers["num_heads"],
-            self.hypers["num_attention_layers"],
-            0.0,  # MLP dropout rate
-            0.0,  # attention dropout rate
+        self.initial_encoder = torch.nn.Embedding(
+            num_embeddings=len(self.atomic_types), embedding_dim=self.hypers["d_pet"]
         )
-        # empirically, the model seems to perform better without dropout
 
+        # empirically, the model seems to perform better without dropout
         self.num_mp_layers = self.hypers["num_gnn_layers"] - 1
-        gnn_contractions = []
         gnn_transformers = []
+        encoders = []
         for _ in range(self.num_mp_layers):
-            gnn_contractions.append(
-                torch.nn.Linear(
-                    2 * self.hypers["d_pet"], self.hypers["d_pet"], bias=False
-                )
-            )
+            encoders.append(Encoder(len(self.atomic_types), self.hypers["d_pet"]))
             gnn_transformers.append(
                 Transformer(
                     self.hypers["d_pet"],
@@ -106,7 +95,7 @@ class NanoPET(torch.nn.Module):
                     0.0,  # attention dropout rate
                 )
             )
-        self.gnn_contractions = torch.nn.ModuleList(gnn_contractions)
+        self.encoders = torch.nn.ModuleList(encoders)
         self.gnn_transformers = torch.nn.ModuleList(gnn_transformers)
 
         self.last_layer_feature_size = self.hypers["d_pet"]
@@ -333,6 +322,7 @@ class NanoPET(torch.nn.Module):
         radial_mask = edge_array_to_nef(
             radial_mask, nef_indices, nef_mask, fill_value=0.0
         )
+
         element_indices_centers = edge_array_to_nef(
             element_indices_centers, nef_indices
         )
@@ -340,19 +330,15 @@ class NanoPET(torch.nn.Module):
             element_indices_neighbors, nef_indices
         )
 
-        features = {
+        # fixed geometric/composition features
+        fixed = {
             "cartesian": edge_vectors,
-            "center": element_indices_centers,
+            "center": element_indices_nodes,
             "neighbor": element_indices_neighbors,
         }
 
-        # Encode
-        features = self.encoder(features)
+        features = self.initial_encoder(element_indices_centers)
 
-        # Transformer
-        features = self.transformer(features, radial_mask)
-
-        # GNN
         if self.num_mp_layers > 0:
             corresponding_edges = get_corresponding_edges(
                 torch.concatenate(
@@ -360,23 +346,39 @@ class NanoPET(torch.nn.Module):
                     dim=-1,
                 )
             )
-            for contraction, transformer in zip(
-                self.gnn_contractions, self.gnn_transformers
-            ):
+            mask_with_center = torch.concatenate(
+                [
+                    torch.ones(
+                        (len(radial_mask), 1),
+                        device=radial_mask.device,
+                        dtype=radial_mask.dtype,
+                    ),
+                    radial_mask,
+                ],
+                dim=-1,
+            )
+
+            for encoder, transformer in zip(self.encoders, self.gnn_transformers):
+                in_features = encoder(fixed, features)
+                new_features = transformer(in_features, mask_with_center)
+                central_features = new_features[:, -1]
+                new_features = new_features[:, :-1]
+
                 new_features = nef_array_to_edges(
                     features, centers, nef_to_edges_neighbor
                 )
                 corresponding_new_features = new_features[corresponding_edges]
-                new_features = torch.concatenate(
-                    [new_features, corresponding_new_features], dim=-1
+                corresponding_new_features = edge_array_to_nef(
+                    corresponding_new_features, nef_indices
                 )
-                new_features = contraction(new_features)
-                new_features = edge_array_to_nef(new_features, nef_indices)
-                new_features = transformer(new_features, radial_mask)
-                features = (features + new_features) * 0.5**0.5
 
-        edge_features = features * radial_mask[:, :, None]
-        node_features = torch.sum(edge_features, dim=1)
+                features = (features + corresponding_new_features) * 0.5
+        else:
+            central_features = features[:, 0]
+
+        # edge_features = features * radial_mask[:, :, None]
+        node_features = central_features
+        # todo -- predict energies on edge and node features
 
         if self.long_range:
             long_range_node_features = self.long_range_featurizer(
