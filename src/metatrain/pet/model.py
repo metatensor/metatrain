@@ -259,7 +259,7 @@ class PET(torch.nn.Module):
         model = cls(model_hypers=model_hypers, dataset_info=dataset_info)
         state_dict = checkpoint["model_state_dict"]
         dtype = next(iter(state_dict.values())).dtype
-        ft_state_dict = checkpoint["ft_state_dict"]
+        ft_state_dict = checkpoint.get("ft_state_dict", {})
         model.ft_type = ft_state_dict.get("ft_type", None)
         if model.ft_type is None:
             ft_state_dict = {}
@@ -316,5 +316,4 @@ class PET(torch.nn.Module):
             metadata = ModelMetadata()
 
         append_metadata_references(metadata, self.__default_metadata__)
-
         return MetatensorAtomisticModel(self.eval(), metadata, capabilities)
