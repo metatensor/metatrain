@@ -127,11 +127,3 @@ exclude = [
 ]
 follow_imports = 'skip'
 ignore_missing_imports = true
-
-[tool.pytest.ini_options]
-# ignore" a bunch of internal warnings with Python 3.13 and PyTorch
-filterwarnings = [
-    "ignore:ast.Str is deprecated and will be removed in Python 3.14:DeprecationWarning",
-    "ignore:Attribute s is deprecated and will be removed in Python 3.14:DeprecationWarning",
-    "ignore:ast.NameConstant is deprecated and will be removed in Python 3.14:DeprecationWarning",
-]
