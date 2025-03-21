@@ -3,11 +3,14 @@ import logging
 from pathlib import Path
 from typing import List, Union
 
+import metatensor.torch as mts
 import torch
 import torch.distributed
 from torch.utils.data import DataLoader, DistributedSampler
 
-from ...utils.additive import remove_additive
+from ...utils.data import _is_disk_dataset
+from ...utils.data.dataset import DatasetInfo
+from ...utils.data.target_info import TargetInfo
 from ...utils.data import CombinedDataLoader, Dataset, _is_disk_dataset, collate_fn
 from ...utils.distributed.distributed_data_parallel import DistributedDataParallel
 from ...utils.distributed.slurm import DistributedEnvironment
@@ -16,19 +19,18 @@ from ...utils.external_naming import to_external_name
 from ...utils.io import check_file_extension
 from ...utils.logging import MetricLogger
 from ...utils.loss import TensorMapDictLoss
-from ...utils.metrics import MAEAccumulator, RMSEAccumulator, get_selected_metric
+from ...utils.metrics import RMSEAccumulator, get_selected_metric
 from ...utils.neighbor_lists import (
     get_requested_neighbor_lists,
     get_system_with_neighbor_lists,
 )
-from ...utils.per_atom import average_by_num_atoms
-from ...utils.scaler import remove_scale
+from .utils import get_system_transformations  # , group_and_join_nonetypes  # TODO: collate needed?
 from ...utils.transfer import (
     systems_and_targets_to_device,
     systems_and_targets_to_dtype,
 )
-from .model import NanoPET
-from .modules.augmentation import RotationalAugmenter
+from .model import NanoPETBasis
+from ..nanopet.modules.augmentation import RotationalAugmenter
 
 
 logger = logging.getLogger(__name__)
@@ -46,14 +48,15 @@ class Trainer:
 
     def train(
         self,
-        model: NanoPET,
+        model: NanoPETBasis,
         dtype: torch.dtype,
         devices: List[torch.device],
         train_datasets: List[Union[Dataset, torch.utils.data.Subset]],
         val_datasets: List[Union[Dataset, torch.utils.data.Subset]],
         checkpoint_dir: str,
+        loss_fn: torch.nn.Module = None,
     ):
-        assert dtype in NanoPET.__supported_dtypes__
+        assert dtype in NanoPETBasis.__supported_dtypes__
 
         is_distributed = self.hypers["distributed"]
 
@@ -69,7 +72,7 @@ class Trainer:
             if len(devices) > 1:
                 raise ValueError(
                     "Requested distributed training with the `multi-gpu` device. "
-                    " If you want to run distributed training with NanoPET, please "
+                    " If you want to run distributed training with SOAP-BPNN, please "
                     "set `device` to cuda."
                 )
             # the calculation of the device number works both when GPUs on different
@@ -113,23 +116,6 @@ class Trainer:
 
         # Move the model to the device and dtype:
         model.to(device=device, dtype=dtype)
-        # The additive models of the SOAP-BPNN are always in float64 (to avoid
-        # numerical errors in the composition weights, which can be very large).
-        for additive_model in model.additive_models:
-            additive_model.to(dtype=torch.float64)
-
-        logger.info("Calculating composition weights")
-        model.additive_models[0].train_model(  # this is the composition model
-            train_datasets,
-            model.additive_models[1:],
-            self.hypers["fixed_composition_weights"],
-        )
-
-        if self.hypers["scale_targets"]:
-            logger.info("Calculating scaling weights")
-            model.scaler.train_model(
-                train_datasets, model.additive_models, treat_as_additive=True
-            )
 
         if is_distributed:
             model = DistributedDataParallel(model, device_ids=[device])
@@ -195,37 +181,11 @@ class Trainer:
             )
         val_dataloader = CombinedDataLoader(val_dataloaders, shuffle=False)
 
-        # Extract all the possible outputs and their gradients:
         train_targets = (model.module if is_distributed else model).dataset_info.targets
-        outputs_list = []
-        for target_name, target_info in train_targets.items():
-            outputs_list.append(target_name)
-            for gradient_name in target_info.gradients:
-                outputs_list.append(f"{target_name}_{gradient_name}_gradients")
-        # Create a loss weight dict:
-        loss_weights_dict = {}
-        for output_name in outputs_list:
-            loss_weights_dict[output_name] = (
-                self.hypers["loss"]["weights"][
-                    to_external_name(output_name, train_targets)
-                ]
-                if to_external_name(output_name, train_targets)
-                in self.hypers["loss"]["weights"]
-                else 1.0
-            )
-        loss_weights_dict_external = {
-            to_external_name(key, train_targets): value
-            for key, value in loss_weights_dict.items()
-        }
-        loss_hypers = copy.deepcopy(self.hypers["loss"])
-        loss_hypers["weights"] = loss_weights_dict
-        logging.info(f"Training with loss weights: {loss_weights_dict_external}")
-
+        
         # Create a loss function:
-        loss_fn = TensorMapDictLoss(
-            **loss_hypers,
-        )
-
+        if loss_fn is None:
+            loss_fn = TensorMapDictLoss(**self.hypers["loss"])
         # Create an optimizer:
         optimizer = torch.optim.Adam(
             model.parameters(), lr=self.hypers["learning_rate"]
@@ -247,9 +207,6 @@ class Trainer:
             if not (model.module if is_distributed else model).has_new_targets:
                 lr_scheduler.load_state_dict(self.scheduler_state_dict)
 
-        # per-atom targets:
-        per_structure_targets = self.hypers["per_structure_targets"]
-
         # Log the initial learning rate:
         old_lr = optimizer.param_groups[0]["lr"]
         logger.info(f"Initial learning rate: {old_lr}")
@@ -269,47 +226,68 @@ class Trainer:
 
             train_rmse_calculator = RMSEAccumulator(self.hypers["log_separate_blocks"])
             val_rmse_calculator = RMSEAccumulator(self.hypers["log_separate_blocks"])
-            if self.hypers["log_mae"]:
-                train_mae_calculator = MAEAccumulator(
-                    self.hypers["log_separate_blocks"]
-                )
-                val_mae_calculator = MAEAccumulator(self.hypers["log_separate_blocks"])
 
+            model.train()
             train_loss = 0.0
             for batch in train_dataloader:
                 optimizer.zero_grad()
 
-                systems, targets = batch
-                systems, targets = rotational_augmenter.apply_random_augmentations(
-                    systems, targets
+                systems_, targets = batch
+                systems_, targets = systems_and_targets_to_device(
+                    systems_, targets, device
                 )
-                systems, targets = systems_and_targets_to_device(
-                    systems, targets, device
+                systems_, targets = systems_and_targets_to_dtype(
+                    systems_, targets, dtype
                 )
-                for additive_model in (
-                    model.module if is_distributed else model
-                ).additive_models:
-                    targets = remove_additive(
-                        systems, targets, additive_model, train_targets
+
+                # TODO: remove sorting!
+                targets["node"] = mts.sort(targets["node"])
+                targets["edge"] = mts.sort(targets["edge"])
+
+                # TODO: use `evaluate_model` instead?
+                # Define a random transformation for each training system. This needs to
+                # be done outside of the augmenter as the same transformations need to
+                # be applied to both nodes and edges.
+                rotations, inversions = get_system_transformations(systems_)
+
+                # Apply rotational augmentation - node
+                if model.in_keys_node is not None:
+                    # TODO: pass both node and edges here?
+                    systems, targets_node = (
+                        rotational_augmenter.apply_augmentations(
+                            systems_,
+                            {"node": targets["node"]},
+                            rotations,
+                            inversions,
+                        )
                     )
-                targets = remove_scale(
-                    targets, (model.module if is_distributed else model).scaler
-                )
-                systems, targets = systems_and_targets_to_dtype(systems, targets, dtype)
-                predictions = evaluate_model(
-                    model,
-                    systems,
-                    {key: train_targets[key] for key in targets.keys()},
-                    is_training=True,
-                )
+                    targets_node = targets_node["node"]
+                    assert mts.equal_metadata(targets["node"], targets_node)
+                    assert not mts.allclose(targets["node"], targets_node)
+                    targets["node"] = targets_node
 
-                # average by the number of atoms
-                predictions = average_by_num_atoms(
-                    predictions, systems, per_structure_targets
-                )
-                targets = average_by_num_atoms(targets, systems, per_structure_targets)
+                # Apply rotational augmentation - edge
+                if model.in_keys_edge is not None:
+                    _, targets_edge = rotational_augmenter.apply_augmentations(
+                        systems_,
+                        {"edge": targets["edge"]},
+                        rotations,
+                        inversions,
+                    )
+                    targets_edge = targets_edge["edge"]
+                    assert mts.equal_metadata(targets["edge"], targets_edge)
+                    assert not mts.allclose(targets["edge"], targets_edge)
+                    targets["edge"] = targets_edge
 
-                train_loss_batch = loss_fn(predictions, targets)
+                predictions = model(systems, {}, selected_atoms=None)
+
+                # TODO: remove sorting!
+                predictions["node"] = mts.sort(predictions["node"])
+                predictions["edge"] = mts.sort(predictions["edge"])
+
+                train_loss_batch = loss_fn(
+                    predictions, targets, self.hypers["loss"]["weights"],
+                )
                 train_loss_batch.backward()
                 torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
                 optimizer.step()
@@ -319,22 +297,11 @@ class Trainer:
                     torch.distributed.all_reduce(train_loss_batch)
                 train_loss += train_loss_batch.item()
                 train_rmse_calculator.update(predictions, targets)
-                if self.hypers["log_mae"]:
-                    train_mae_calculator.update(predictions, targets)
 
             finalized_train_info = train_rmse_calculator.finalize(
-                not_per_atom=["positions_gradients"] + per_structure_targets,
-                is_distributed=is_distributed,
+                ["node", "edge"],
                 device=device,
             )
-            if self.hypers["log_mae"]:
-                finalized_train_info.update(
-                    train_mae_calculator.finalize(
-                        not_per_atom=["positions_gradients"] + per_structure_targets,
-                        is_distributed=is_distributed,
-                        device=device,
-                    )
-                )
 
             val_loss = 0.0
             for batch in val_dataloader:
@@ -342,54 +309,30 @@ class Trainer:
                 systems, targets = systems_and_targets_to_device(
                     systems, targets, device
                 )
-                for additive_model in (
-                    model.module if is_distributed else model
-                ).additive_models:
-                    targets = remove_additive(
-                        systems, targets, additive_model, train_targets
-                    )
-                targets = remove_scale(
-                    targets, (model.module if is_distributed else model).scaler
-                )
-                systems, targets = systems_and_targets_to_dtype(systems, targets, dtype)
-                predictions = evaluate_model(
-                    model,
-                    systems,
-                    {key: train_targets[key] for key in targets.keys()},
-                    is_training=False,
-                )
+                
+                # TODO: remove sorting!
+                targets["node"] = mts.sort(targets["node"])
+                targets["edge"] = mts.sort(targets["edge"])
 
-                # average by the number of atoms
-                predictions = average_by_num_atoms(
-                    predictions, systems, per_structure_targets
+                model.eval()
+                node_predictions, edge_predictions = model(systems, {}, None)
+                
+                # TODO: remove sorting!
+                predictions_node = mts.sort(predictions_node)
+                predictions_edge = mts.sort(predictions_edge)
+                predictions = {"node": node_predictions, "edge": edge_predictions}
+                targets = {"node": targets["node"], "edge": targets["edge"]}
+
+                val_loss_batch = loss_fn(
+                    predictions, targets, self.hypers["loss"]["weights"]
                 )
-                targets = average_by_num_atoms(targets, systems, per_structure_targets)
-
-                val_loss_batch = loss_fn(predictions, targets)
-
-                if is_distributed:
-                    # sum the loss over all processes
-                    torch.distributed.all_reduce(val_loss_batch)
                 val_loss += val_loss_batch.item()
                 val_rmse_calculator.update(predictions, targets)
-                if self.hypers["log_mae"]:
-                    val_mae_calculator.update(predictions, targets)
 
             finalized_val_info = val_rmse_calculator.finalize(
-                not_per_atom=["positions_gradients"] + per_structure_targets,
-                is_distributed=is_distributed,
-                device=device,
+                ["node", "edge"], device=device
             )
-            if self.hypers["log_mae"]:
-                finalized_val_info.update(
-                    val_mae_calculator.finalize(
-                        not_per_atom=["positions_gradients"] + per_structure_targets,
-                        is_distributed=is_distributed,
-                        device=device,
-                    )
-                )
 
-            # Now we log the information:
             finalized_train_info = {"loss": train_loss, **finalized_train_info}
             finalized_val_info = {
                 "loss": val_loss,
@@ -397,9 +340,6 @@ class Trainer:
             }
 
             if epoch == start_epoch:
-                scaler_scales = (
-                    model.module if is_distributed else model
-                ).scaler.get_scales_dict()
                 metric_logger = MetricLogger(
                     log_obj=logger,
                     dataset_info=(
@@ -407,14 +347,6 @@ class Trainer:
                     ).dataset_info,
                     initial_metrics=[finalized_train_info, finalized_val_info],
                     names=["training", "validation"],
-                    scales={
-                        key: (
-                            scaler_scales[key.split(" ")[0]]
-                            if ("MAE" in key or "RMSE" in key)
-                            else 1.0
-                        )
-                        for key in finalized_train_info.keys()
-                    },
                 )
             if epoch % self.hypers["log_interval"] == 0:
                 metric_logger.log(
@@ -474,7 +406,7 @@ class Trainer:
 
     def save_checkpoint(self, model, path: Union[str, Path]):
         checkpoint = {
-            "architecture_name": "experimental.nanopet",
+            "architecture_name": "experimental.nanopet_basis",
             "model_data": {
                 "model_hypers": model.hypers,
                 "dataset_info": model.dataset_info,

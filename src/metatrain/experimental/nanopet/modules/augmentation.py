@@ -34,7 +34,9 @@ class RotationalAugmenter:
         self.wigner = None
         self.complex_to_real_spherical_harmonics_transforms = {}
         is_any_target_spherical = any(
-            target_info.is_spherical for target_info in target_info_dict.values()
+            target_info.is_spherical 
+            or target_info.is_atomic_basis_spherical
+            for target_info in target_info_dict.values()
         )
         if is_any_target_spherical:
             try:
@@ -48,7 +50,10 @@ class RotationalAugmenter:
             largest_l = max(
                 (len(block.components[0]) - 1) // 2
                 for target_info in target_info_dict.values()
-                if target_info.is_spherical
+                if (
+                    target_info.is_spherical
+                    or target_info.is_atomic_basis_spherical
+                )
                 for block in target_info.layout.blocks()
             )
             self.wigner = spherical.Wigner(largest_l)
@@ -58,7 +63,7 @@ class RotationalAugmenter:
                 )
 
     def apply_random_augmentations(
-        self, systems: List[System], targets: Dict[str, TensorMap]
+        self, systems: List[System], targets: Dict[str, TensorMap],
     ) -> Tuple[List[System], Dict[str, TensorMap]]:
         """
         Apply a random augmentation to a number of ``System`` objects and its targets.
@@ -79,9 +84,21 @@ class RotationalAugmenter:
             wigner_D_matrices_complex = [
                 self.wigner.D(q) for q in quaternionic_quaternions
             ]
+            target_types: Dict[str, str] = {}
             for target_name in targets.keys():
                 target_info = self.target_info_dict[target_name]
-                if target_info.is_spherical:
+
+                # Store the target type
+                if target_info.is_scalar:
+                    target_types[target_name] = "scalar"
+                elif target_info.is_spherical:
+                    target_types[target_name] = "spherical"
+                elif target_info.is_atomic_basis_spherical:
+                    target_types[target_name] = "atomic_basis_spherical"
+                else:
+                    raise ValueError("unexpected target type")
+
+                if target_types[target_name] in ["spherical", "atomic_basis_spherical"]:
                     for block in target_info.layout.blocks():
                         ell = (len(block.components[0]) - 1) // 2
                         if ell not in wigner_D_matrices:  # skip if already computed
@@ -109,7 +126,7 @@ class RotationalAugmenter:
                             wigner_D_matrices[ell] = wigner_D_matrices_l
 
         return _apply_random_augmentations(
-            systems, targets, transformations, wigner_D_matrices
+            systems, targets, transformations, wigner_D_matrices, target_types
         )
 
 
@@ -118,17 +135,61 @@ def _apply_wigner_D_matrices(
     target_tmap: TensorMap,
     transformations: List[torch.Tensor],
     wigner_D_matrices: Dict[int, List[torch.Tensor]],
+    target_type: str
 ) -> TensorMap:
+    """
+    For the given target ``target_tmap``, for each of its blocks, splits the values by
+    system and applies a SO(3) transformation by action of a Wigner-D matrix.
+    """
+    # Iterate over blocks in the target
     new_blocks: List[TensorBlock] = []
     for key, block in target_tmap.items():
         ell, sigma = int(key[0]), int(key[1])
         values = block.values
-        if "atom" in block.samples.names:
-            split_values = torch.split(
-                values, [len(system.positions) for system in systems]
-            )
+        
+        # First, split the block values by structure
+
+        if target_type == "spherical":
+            
+            if "atom" in block.samples.names:  # per-atom
+                split_values = torch.split(
+                    values, [len(system.positions) for system in systems]
+                )
+            else:  # global
+                split_values = torch.split(values, [1 for _ in systems])
+
+        elif target_type == "atomic_basis_spherical":
+
+            split_indices: List[int] = []
+
+            if "atom" in block.samples.names:  # node target
+                for system in systems:
+                    split_indices.append(
+                        int(
+                            torch.sum(
+                                system.types == int(key["center_type"]),
+                            )
+                        )
+                    )
+            elif "first_atom" in block.samples.names and "second_atom" in block.samples.names:  # edge target
+                for system in systems:
+                    split_indices.append(
+                        int(
+                            torch.sum(
+                                system.types == int(key["center_type"]),
+                            )
+                        )
+                    )
+
+            assert sum(split_indices) == len(values), (sum(split_indices), len(values), key, block)
+            split_values = torch.split(values, split_indices)
+        
         else:
-            split_values = torch.split(values, [1 for _ in systems])
+            raise ValueError(
+                "unexpected target type. Must be a 'spherical' or 'atomic_basis_spherical' target."
+            )
+
+        # Transform the per-system values separately
         new_values = []
         ell = (len(block.components[0]) - 1) // 2
         for v, transformation, wigner_D_matrix in zip(
@@ -143,6 +204,12 @@ def _apply_wigner_D_matrices(
             new_v = new_v @ wigner_D_matrix.T
             new_v = new_v.transpose(1, 2)
             new_values.append(new_v)
+        
+        if len(new_values) == 0:
+            # Empty block
+            new_values = [block.values]
+
+        # Concatenate the per-system transformed values and build the new TensorBlock
         new_values = torch.concatenate(new_values)
         new_block = TensorBlock(
             values=new_values,
@@ -164,6 +231,7 @@ def _apply_random_augmentations(
     targets: Dict[str, TensorMap],
     transformations: List[torch.Tensor],
     wigner_D_matrices: Dict[int, List[torch.Tensor]],
+    target_type: Dict[str, str]
 ) -> Tuple[List[System], Dict[str, TensorMap]]:
     # Apply the transformations to the systems
     new_systems: List[System] = []
@@ -190,17 +258,8 @@ def _apply_random_augmentations(
     # Apply the transformation to the targets
     new_targets: Dict[str, TensorMap] = {}
     for name, target_tmap in targets.items():
-        is_scalar = False
-        if len(target_tmap.blocks()) == 1:
-            if len(target_tmap.block().components) == 0:
-                is_scalar = True
 
-        is_spherical = all(
-            len(block.components) == 1 and block.components[0].names == ["o3_mu"]
-            for block in target_tmap.blocks()
-        )
-
-        if is_scalar:
+        if target_type[name] == "scalar":
             # no change for energies
             energy_block = TensorBlock(
                 values=target_tmap.block().values,
@@ -259,9 +318,10 @@ def _apply_random_augmentations(
                 blocks=[energy_block],
             )
 
-        elif is_spherical:
+        elif target_type[name] in ["spherical", "atomic_basis_spherical"]:
             new_targets[name] = _apply_wigner_D_matrices(
-                systems, target_tmap, transformations, wigner_D_matrices
+                systems, target_tmap, transformations, wigner_D_matrices,
+                target_type[name],
             )
 
         else:

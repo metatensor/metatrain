@@ -76,12 +76,15 @@ def read_generic(target: DictConfig) -> Tuple[List[TensorMap], TargetInfo]:
     # actual properties of the tensor maps
     target_info.layout = _empty_tensor_map_like(tensor_map)
 
+    # Use metatensor.torch.unique_metadata to get the unique "system" IDs because for a
+    # generic target (i.e. an atomic basis spherical target) a given block may not
+    # contain all the systems.
     selections = [
         Labels(
             names=["system"],
             values=torch.tensor([[int(i)]]),
         )
-        for i in torch.unique(tensor_map.block(0).samples.column("system"))
+        for i in metatensor.torch.unique_metadata(tensor_map, "samples", "system").values
     ]
     tensor_maps = metatensor.torch.split(tensor_map, "samples", selections)
     return tensor_maps, target_info
