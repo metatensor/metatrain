@@ -156,7 +156,7 @@ class NativePET(torch.nn.Module):
         if len(new_atomic_types) > 0:
             raise ValueError(
                 f"New atomic types found in the dataset: {new_atomic_types}. "
-                "The nanoPET model does not support adding new atomic types."
+                "The NativePET model does not support adding new atomic types."
             )
 
         # register new outputs as new last layers
