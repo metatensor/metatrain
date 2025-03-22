@@ -282,9 +282,6 @@ def test_embeddings_compatibility():
     nativepet_embeddings = nativepet_model.embedding(neighbor_species)
     pet_embeddings = pet_model.pet.embedding(neighbor_species)
 
-    print("NATIVEPET: ", nativepet_embeddings)
-    print("PET: ", pet_embeddings)
-
     torch.testing.assert_close(nativepet_embeddings, pet_embeddings)
 
 
@@ -305,7 +302,14 @@ def test_cartesian_transformer_compatibility():
     nativepet_cartesian_transformer = nativepet_model.gnn_layers[0]
     pet_cartesian_transformer = pet_model.pet.gnn_layers[0]
 
-    nativepet_result = nativepet_cartesian_transformer(batch_dict)
+    nativepet_result = nativepet_cartesian_transformer(
+        batch_dict["x"],
+        batch_dict["central_species"],
+        batch_dict["neighbor_species"],
+        batch_dict["input_messages"],
+        batch_dict["mask"],
+        batch_dict["nums"],
+    )
     pet_result = pet_cartesian_transformer(batch_dict)
     torch.testing.assert_close(
         nativepet_result["central_token"], pet_result["central_token"]
@@ -342,7 +346,14 @@ def test_gnn_layers_compatibility():
     for nativepet_gnn_layer, pet_gnn_layer in zip(
         nativepet_model.gnn_layers, pet_model.pet.gnn_layers
     ):
-        nativepet_result = nativepet_gnn_layer(nativepet_batch_dict)
+        nativepet_result = nativepet_gnn_layer(
+            nativepet_batch_dict["x"],
+            nativepet_batch_dict["central_species"],
+            nativepet_batch_dict["neighbor_species"],
+            nativepet_batch_dict["input_messages"],
+            nativepet_batch_dict["mask"],
+            nativepet_batch_dict["nums"],
+        )
         pet_result = pet_gnn_layer(pet_batch_dict)
         new_nativepet_input_messages = nativepet_result["output_messages"][
             neighbors_index, neighbors_pos
@@ -382,7 +393,14 @@ def test_heads():
     batch_dict["input_messages"] = nativepet_model.embedding(
         batch_dict["neighbor_species"]
     )
-    gnn_result = nativepet_model.gnn_layers[0](batch_dict)
+    gnn_result = nativepet_model.gnn_layers[0](
+        batch_dict["x"],
+        batch_dict["central_species"],
+        batch_dict["neighbor_species"],
+        batch_dict["input_messages"],
+        batch_dict["mask"],
+        batch_dict["nums"],
+    )
     pet_atomic_predictions = torch.zeros(1)
     nativepet_atomic_predictions = torch.zeros(1)
 
@@ -425,7 +443,14 @@ def test_bond_heads():
         batch_dict["neighbor_species"]
     )
 
-    gnn_result = nativepet_model.gnn_layers[0](batch_dict)
+    gnn_result = nativepet_model.gnn_layers[0](
+        batch_dict["x"],
+        batch_dict["central_species"],
+        batch_dict["neighbor_species"],
+        batch_dict["input_messages"],
+        batch_dict["mask"],
+        batch_dict["nums"],
+    )
 
     pet_atomic_predictions = torch.zeros(1)
     nativepet_atomic_predictions = torch.zeros(1)
