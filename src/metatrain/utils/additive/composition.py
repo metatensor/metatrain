@@ -131,9 +131,10 @@ class CompositionModel(torch.nn.Module):
                 weights_tensor = torch.tensor(
                     [fixed_weights[target_key][i] for i in self.atomic_types],
                     dtype=self.dummy_buffer.dtype,
+                    device=device,
                 ).reshape(-1, 1)
                 self.weights[target_key] = TensorMap(
-                    keys=Labels.single(),
+                    keys=Labels.single().to(device),
                     blocks=[
                         TensorBlock(
                             values=weights_tensor,
@@ -143,12 +144,15 @@ class CompositionModel(torch.nn.Module):
                                     self.atomic_types, dtype=torch.int, device=device
                                 ).reshape(-1, 1),
                             ),
-                            components=self.dataset_info.targets[target_key]
-                            .layout.block()
-                            .components,
+                            components=[
+                                c.to(device)
+                                for c in self.dataset_info.targets[target_key]
+                                .layout.block()
+                                .components
+                            ],
                             properties=self.dataset_info.targets[target_key]
                             .layout.block()
-                            .properties,
+                            .properties.to(device),
                         )
                     ],
                 )
@@ -284,32 +288,16 @@ class CompositionModel(torch.nn.Module):
                                 axis="samples",
                                 remove_tensor_name=True,
                             ).block()
-                            # This code doesn't work because mean_over_samples_block
-                            # actually does a sum...
-                            # weights_tensor = (
-                            #     metatensor.torch.sort_block(
-                            #         metatensor.torch.mean_over_samples_block(
-                            #             joined_blocks,
-                            #             [
-                            #                 n
-                            #                 for n in joined_blocks.samples.names
-                            #                 if n != "center_type"
-                            #             ],
-                            #         )
-                            #     )
-                            #     .values
-                            # )
-                            weights_tensor = torch.empty(
-                                len(self.atomic_types), len(metadata_block.properties)
-                            )
-                            for i_type, atomic_type in enumerate(self.atomic_types):
-                                mask = (
-                                    joined_blocks.samples.column("center_type")
-                                    == atomic_type
+                            weights_tensor = metatensor.torch.sort_block(
+                                metatensor.torch.mean_over_samples_block(
+                                    joined_blocks,
+                                    [
+                                        n
+                                        for n in joined_blocks.samples.names
+                                        if n != "center_type"
+                                    ],
                                 )
-                                weights_tensor[i_type] = joined_blocks.values[
-                                    mask
-                                ].mean(dim=0)
+                            ).values
                         else:
                             # concatenate samples, for each block
                             all_targets = torch.concatenate(tensor_list)

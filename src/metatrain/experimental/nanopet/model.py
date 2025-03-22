@@ -139,7 +139,7 @@ class NanoPET(torch.nn.Module):
         if self.hypers["long_range"]["enable"]:
             self.long_range = True
             self.long_range_featurizer = LongRangeFeaturizer(
-                self.hypers["long_range"],
+                hypers=self.hypers["long_range"],
                 feature_dim=self.hypers["d_pet"],
                 neighbor_list_options=self.requested_nl,
             )
