@@ -6,6 +6,14 @@ import torch
 from metatensor.torch import Labels
 from metatensor.torch.atomistic import NeighborListOptions, System
 
+from .nef import (
+    compute_neighbors_pos,
+    edge_array_to_nef,
+    get_corresponding_edges,
+    get_nef_indices,
+)
+from .structures import concatenate_structures
+
 
 def cutoff_func(grid: torch.Tensor, r_cut: float, delta: float):
     mask_bigger = grid >= r_cut
@@ -394,3 +402,94 @@ def systems_to_batch_dict(
         )
         batch.append(system_dict)
     return collate_graph_dicts(batch)
+
+
+@torch.jit.script
+def native_systems_to_batch_dict(
+    systems: List[System],
+    options: NeighborListOptions,
+    all_species_list: List[int],
+) -> Dict[str, torch.Tensor]:
+    device = systems[0].positions.device
+    species_to_species_index = torch.full(
+        (max(all_species_list) + 1,),
+        -1,
+        device=device,
+    )
+    for i, species in enumerate(all_species_list):
+        species_to_species_index[species] = i
+
+    system_indices = torch.concatenate(
+        [
+            torch.full(
+                (len(system),),
+                i_system,
+                device=device,
+            )
+            for i_system, system in enumerate(systems)
+        ],
+    )
+    (
+        positions,
+        centers,
+        neighbors,
+        species,
+        cells,
+        cell_shifts,
+    ) = concatenate_structures(systems, options)
+
+    # somehow the backward of this operation is very slow at evaluation,
+    # where there is only one cell, therefore we simplify the calculation
+    # for that case
+    if len(cells) == 1:
+        cell_contributions = cell_shifts.to(cells.dtype) @ cells[0]
+    else:
+        cell_contributions = torch.einsum(
+            "ab, abc -> ac",
+            cell_shifts.to(cells.dtype),
+            cells[system_indices[centers]],
+        )
+
+    edge_vectors = positions[neighbors] - positions[centers] + cell_contributions
+
+    bincount = torch.bincount(centers)
+    if bincount.numel() == 0:  # no edges
+        max_edges_per_node = 0
+    else:
+        max_edges_per_node = int(torch.max(bincount))
+
+    # Convert to NEF (Node-Edge-Feature) format:
+    nef_indices, nef_to_edges_neighbor, nef_mask = get_nef_indices(
+        centers, len(positions), max_edges_per_node
+    )
+
+    # Element indices
+    element_indices_nodes = species_to_species_index[species]
+    element_indices_neighbors = element_indices_nodes[neighbors]
+
+    # Send everything to NEF:
+    edge_vectors = edge_array_to_nef(edge_vectors, nef_indices)
+    element_indices_neighbors = edge_array_to_nef(
+        element_indices_neighbors, nef_indices
+    )
+
+    corresponding_edges = get_corresponding_edges(
+        torch.concatenate(
+            [centers.unsqueeze(-1), neighbors.unsqueeze(-1), cell_shifts],
+            dim=-1,
+        )
+    )
+
+    neighbors_pos = compute_neighbors_pos(nef_indices, corresponding_edges, nef_mask)
+
+    native_batch_dict = {
+        "central_species": element_indices_nodes,
+        "mask": torch.logical_not(nef_mask),
+        "x": edge_vectors,
+        "neighbor_species": element_indices_neighbors,
+        "neighbors_index": edge_array_to_nef(neighbors, nef_indices).to(torch.int64),
+        "nums": bincount,
+        "neighbors_pos": neighbors_pos,
+        "batch": system_indices,
+    }
+    return native_batch_dict

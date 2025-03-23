@@ -23,15 +23,8 @@ from ...utils.scaler import Scaler
 from .modules.heads import (
     Head,
 )
-from .modules.nef import (
-    compute_neighbors_pos,
-    edge_array_to_nef,
-    get_corresponding_edges,
-    get_nef_indices,
-)
-from .modules.structures import concatenate_structures
 from .modules.transformer import CartesianTransformer
-from .modules.utilities import cutoff_func
+from .modules.utilities import cutoff_func, native_systems_to_batch_dict
 
 
 logger = logging.getLogger(__name__)
@@ -109,16 +102,6 @@ class NativePET(torch.nn.Module):
         for target_name, target_info in dataset_info.targets.items():
             self.target_names.append(target_name)
             self._add_output(target_name, target_info)
-
-        self.register_buffer(
-            "species_to_species_index",
-            torch.full(
-                (max(self.atomic_types) + 1,),
-                -1,
-            ),
-        )
-        for i, species in enumerate(self.atomic_types):
-            self.species_to_species_index[species] = i
 
         # additive models: these are handled by the trainer at training
         # time, and they are added to the output at evaluation time
@@ -263,86 +246,32 @@ class NativePET(torch.nn.Module):
 
         nl_options = self.requested_neighbor_lists()[0]
 
-        (
-            positions,
-            centers,
-            neighbors,
-            species,
-            cells,
-            cell_shifts,
-        ) = concatenate_structures(systems, nl_options)
-
-        # somehow the backward of this operation is very slow at evaluation,
-        # where there is only one cell, therefore we simplify the calculation
-        # for that case
-        if len(cells) == 1:
-            cell_contributions = cell_shifts.to(cells.dtype) @ cells[0]
-        else:
-            cell_contributions = torch.einsum(
-                "ab, abc -> ac",
-                cell_shifts.to(cells.dtype),
-                cells[system_indices[centers]],
-            )
-
-        edge_vectors = positions[neighbors] - positions[centers] + cell_contributions
-
-        bincount = torch.bincount(centers)
-        if bincount.numel() == 0:  # no edges
-            max_edges_per_node = 0
-        else:
-            max_edges_per_node = int(torch.max(bincount))
-
-        # Convert to NEF (Node-Edge-Feature) format:
-        nef_indices, nef_to_edges_neighbor, nef_mask = get_nef_indices(
-            centers, len(positions), max_edges_per_node
+        batch_dict = native_systems_to_batch_dict(
+            systems, nl_options, self.atomic_types
         )
 
-        # Element indices
-        element_indices_nodes = self.species_to_species_index[species]
-        element_indices_neighbors = element_indices_nodes[neighbors]
+        x = batch_dict["x"]
+        mask = batch_dict["mask"]
+        neighbor_species = batch_dict["neighbor_species"]
+        neighbors_index = batch_dict["neighbors_index"]
+        neighbors_pos = batch_dict["neighbors_pos"]
 
-        # Send everything to NEF:
-        edge_vectors = edge_array_to_nef(edge_vectors, nef_indices)
-        element_indices_neighbors = edge_array_to_nef(
-            element_indices_neighbors, nef_indices
-        )
-
-        corresponding_edges = get_corresponding_edges(
-            torch.concatenate(
-                [centers.unsqueeze(-1), neighbors.unsqueeze(-1), cell_shifts],
-                dim=-1,
-            )
-        )
-        neighbors_index = edge_array_to_nef(neighbors, nef_indices)
-        neighbors_pos = compute_neighbors_pos(
-            nef_indices, corresponding_edges, nef_mask
-        )
-
-        mask = torch.logical_not(nef_mask)
-
-        lengths = torch.sqrt(torch.sum(edge_vectors * edge_vectors, dim=2) + 1e-16)
+        lengths = torch.sqrt(torch.sum(x * x, dim=2) + 1e-16)
         multipliers = cutoff_func(lengths, self.cutoff, self.cutoff_width)
         multipliers[mask] = 0.0
 
-        input_messages = self.embedding(element_indices_neighbors)
+        batch_dict["input_messages"] = self.embedding(neighbor_species)
 
         return_dict: Dict[str, TensorMap] = {}
         central_tokens_list = []
         output_messages_list = []
 
         for gnn_layer in self.gnn_layers:
-            result = gnn_layer(
-                edge_vectors,
-                element_indices_nodes,
-                element_indices_neighbors,
-                input_messages,
-                mask,
-                bincount,
-            )
+            result = gnn_layer(batch_dict)
             output_messages = result["output_messages"]
             new_input_messages = output_messages[neighbors_index, neighbors_pos]
-            input_messages = self.residual_factor * (
-                input_messages + new_input_messages
+            batch_dict["input_messages"] = self.residual_factor * (
+                batch_dict["input_messages"] + new_input_messages
             )
             central_tokens_list.append(result["central_token"])
             output_messages_list.append(output_messages)
@@ -511,9 +440,7 @@ class NativePET(torch.nn.Module):
         for output_name in self.target_names:
             if output_name in outputs:
                 atomic_properties_by_block = {
-                    key: torch.zeros(
-                        1, dtype=edge_vectors.dtype, device=edge_vectors.device
-                    )
+                    key: torch.zeros(1, dtype=x.dtype, device=x.device)
                     for key in self.output_shapes[output_name].keys()
                 }
 

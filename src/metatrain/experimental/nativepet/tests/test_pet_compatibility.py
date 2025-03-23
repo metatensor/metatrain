@@ -1,18 +1,21 @@
 import torch
-from metatensor.torch.atomistic import ModelOutput, System
+from metatensor.torch.atomistic import ModelOutput
 
 from metatrain.experimental.nativepet import NativePET
 from metatrain.experimental.nativepet.modules.utilities import (
     cutoff_func,
+    native_systems_to_batch_dict,
     systems_to_batch_dict,
 )
 from metatrain.pet import PET
 from metatrain.pet.modules.hypers import Hypers
 from metatrain.pet.modules.pet import PET as RawPET
 from metatrain.utils.architectures import get_default_hypers
-from metatrain.utils.data import DatasetInfo
+from metatrain.utils.data import DatasetInfo, read_systems
 from metatrain.utils.data.target_info import get_energy_target_info
 from metatrain.utils.neighbor_lists import get_system_with_neighbor_lists
+
+from . import DATASET_PATH, DATASET_WITH_FORCES_PATH
 
 
 DEFAULT_PET_HYPERS = get_default_hypers("pet")
@@ -32,14 +35,18 @@ DEFAULT_PET_HYPERS["model"]["N_TRANS_LAYERS"] = DEFAULT_NATIVEPET_HYPERS["model"
 
 
 def set_embedding_weights(nativepet_state_dict, pet_state_dict):
-    pet_state_dict["pet.embedding.weight"] = nativepet_state_dict["embedding.weight"]
+    weight = nativepet_state_dict["embedding.weight"].detach().clone()
+    weight.requires_grad = True
+    pet_state_dict["pet.embedding.weight"] = weight
     return pet_state_dict
 
 
 def set_gnn_weights(nativepet_state_dict, pet_state_dict):
     for key in nativepet_state_dict.keys():
         if "gnn_layers" in key:
-            pet_state_dict["pet." + key] = nativepet_state_dict[key]
+            weight = nativepet_state_dict[key].detach().clone()
+            weight.requires_grad = True
+            pet_state_dict["pet." + key] = weight
     return pet_state_dict
 
 
@@ -47,7 +54,9 @@ def set_heads_weights(nativepet_state_dict, pet_state_dict):
     for key in nativepet_state_dict.keys():
         if "head" in key and "linear" not in key:
             pet_key = "pet." + key.replace("energy.", "")
-            pet_state_dict[pet_key] = nativepet_state_dict[key]
+            weight = nativepet_state_dict[key].detach().clone()
+            weight.requires_grad = True
+            pet_state_dict[pet_key] = weight
     return pet_state_dict
 
 
@@ -63,7 +72,9 @@ def set_last_layers_weights(nativepet_state_dict, pet_state_dict):
                 pet_key += "weight"
             else:
                 pet_key += "bias"
-            pet_state_dict[pet_key] = nativepet_state_dict[key]
+            weight = nativepet_state_dict[key].detach().clone()
+            weight.requires_grad = True
+            pet_state_dict[pet_key] = weight
     return pet_state_dict
 
 
@@ -255,32 +266,55 @@ def get_identical_pet_models():
 def get_test_environment():
     nativepet_model, pet_model = get_identical_pet_models()
 
-    system = System(
-        types=torch.tensor([6, 6]),
-        positions=torch.tensor([[0.0, 0.0, 0.0], [0.0, 0.0, 1.0]]),
-        cell=torch.zeros(3, 3),
-        pbc=torch.tensor([False, False, False]),
+    systems_1 = read_systems(DATASET_PATH)[:5]
+    systems_2 = read_systems(DATASET_WITH_FORCES_PATH)[:5]
+    systems = systems_1 + systems_2
+    for system in systems:
+        system.positions.requires_grad_(True)
+        get_system_with_neighbor_lists(
+            system, nativepet_model.requested_neighbor_lists()
+        )
+    systems = [system.to(torch.float32) for system in systems]
+    return nativepet_model, pet_model, systems
+
+
+def test_batch_dict_compatability():
+    """Tests that the batch dictionaries created by the
+    PET and NativePET models are the same"""
+    nativepet_model, pet_model, systems = get_test_environment()
+
+    nl_options = nativepet_model.requested_neighbor_lists()[0]
+    nativepet_batch_dict = native_systems_to_batch_dict(
+        systems, nl_options, nativepet_model.atomic_types
     )
-    system.positions.requires_grad_(True)
-    system = get_system_with_neighbor_lists(
-        system, nativepet_model.requested_neighbor_lists()
+    pet_batch_dict = systems_to_batch_dict(
+        systems, nl_options, pet_model.atomic_types, None
     )
-    return nativepet_model, pet_model, system
+
+    for key in nativepet_batch_dict:
+        if key in ["nums", "batch", "central_species", "mask"]:
+            assert torch.allclose(nativepet_batch_dict[key], pet_batch_dict[key])
+        else:
+            nativepet_mask = nativepet_batch_dict["mask"] is False
+            pet_mask = pet_batch_dict["mask"] is False
+            assert torch.allclose(
+                nativepet_batch_dict[key][nativepet_mask],
+                pet_batch_dict[key][pet_mask],
+            )
 
 
 def test_embeddings_compatibility():
     """Tests that neighbor species embeddings are the same for
     the PET and NativePET models"""
-    nativepet_model, pet_model, system = get_test_environment()
+    nativepet_model, pet_model, systems = get_test_environment()
 
     nl_options = nativepet_model.requested_neighbor_lists()[0]
     batch_dict = systems_to_batch_dict(
-        [system], nl_options, nativepet_model.atomic_types, None
+        systems, nl_options, nativepet_model.atomic_types, None
     )
-    neighbor_species = batch_dict["neighbor_species"]
 
-    nativepet_embeddings = nativepet_model.embedding(neighbor_species)
-    pet_embeddings = pet_model.pet.embedding(neighbor_species)
+    nativepet_embeddings = nativepet_model.embedding(batch_dict["neighbor_species"])
+    pet_embeddings = pet_model.pet.embedding(batch_dict["neighbor_species"])
 
     torch.testing.assert_close(nativepet_embeddings, pet_embeddings)
 
@@ -289,11 +323,11 @@ def test_cartesian_transformer_compatibility():
     """Tests that the Cartesian transformer layers in the PET
     and NativePET models give the same predictions"""
     torch.manual_seed(0)
-    nativepet_model, pet_model, system = get_test_environment()
+    nativepet_model, pet_model, systems = get_test_environment()
 
     nl_options = nativepet_model.requested_neighbor_lists()[0]
     batch_dict = systems_to_batch_dict(
-        [system], nl_options, nativepet_model.atomic_types, None
+        systems, nl_options, nativepet_model.atomic_types, None
     )
     batch_dict["input_messages"] = nativepet_model.embedding(
         batch_dict["neighbor_species"]
@@ -302,14 +336,7 @@ def test_cartesian_transformer_compatibility():
     nativepet_cartesian_transformer = nativepet_model.gnn_layers[0]
     pet_cartesian_transformer = pet_model.pet.gnn_layers[0]
 
-    nativepet_result = nativepet_cartesian_transformer(
-        batch_dict["x"],
-        batch_dict["central_species"],
-        batch_dict["neighbor_species"],
-        batch_dict["input_messages"],
-        batch_dict["mask"],
-        batch_dict["nums"],
-    )
+    nativepet_result = nativepet_cartesian_transformer(batch_dict)
     pet_result = pet_cartesian_transformer(batch_dict)
     torch.testing.assert_close(
         nativepet_result["central_token"], pet_result["central_token"]
@@ -322,14 +349,14 @@ def test_cartesian_transformer_compatibility():
 def test_gnn_layers_compatibility():
     """Tests that the GNN layers in the PET and NativePET models
     give the same predictions"""
-    nativepet_model, pet_model, system = get_test_environment()
+    nativepet_model, pet_model, systems = get_test_environment()
 
     nl_options = nativepet_model.requested_neighbor_lists()[0]
     nativepet_batch_dict = systems_to_batch_dict(
-        [system], nl_options, nativepet_model.atomic_types, None
+        systems, nl_options, nativepet_model.atomic_types, None
     )
     pet_batch_dict = systems_to_batch_dict(
-        [system], nl_options, pet_model.atomic_types, None
+        systems, nl_options, pet_model.atomic_types, None
     )
 
     neighbors_index = nativepet_batch_dict["neighbors_index"]
@@ -346,14 +373,7 @@ def test_gnn_layers_compatibility():
     for nativepet_gnn_layer, pet_gnn_layer in zip(
         nativepet_model.gnn_layers, pet_model.pet.gnn_layers
     ):
-        nativepet_result = nativepet_gnn_layer(
-            nativepet_batch_dict["x"],
-            nativepet_batch_dict["central_species"],
-            nativepet_batch_dict["neighbor_species"],
-            nativepet_batch_dict["input_messages"],
-            nativepet_batch_dict["mask"],
-            nativepet_batch_dict["nums"],
-        )
+        nativepet_result = nativepet_gnn_layer(nativepet_batch_dict)
         pet_result = pet_gnn_layer(pet_batch_dict)
         new_nativepet_input_messages = nativepet_result["output_messages"][
             neighbors_index, neighbors_pos
@@ -384,23 +404,16 @@ def test_gnn_layers_compatibility():
 def test_heads():
     """Tests that the heads in the PET and NativePET models
     give the same predictions"""
-    nativepet_model, pet_model, system = get_test_environment()
+    nativepet_model, pet_model, systems = get_test_environment()
 
     nl_options = nativepet_model.requested_neighbor_lists()[0]
     batch_dict = systems_to_batch_dict(
-        [system], nl_options, nativepet_model.atomic_types, None
+        systems, nl_options, nativepet_model.atomic_types, None
     )
     batch_dict["input_messages"] = nativepet_model.embedding(
         batch_dict["neighbor_species"]
     )
-    gnn_result = nativepet_model.gnn_layers[0](
-        batch_dict["x"],
-        batch_dict["central_species"],
-        batch_dict["neighbor_species"],
-        batch_dict["input_messages"],
-        batch_dict["mask"],
-        batch_dict["nums"],
-    )
+    gnn_result = nativepet_model.gnn_layers[0](batch_dict)
     pet_atomic_predictions = torch.zeros(1)
     nativepet_atomic_predictions = torch.zeros(1)
 
@@ -424,11 +437,11 @@ def test_heads():
 def test_bond_heads():
     """Tests that the bond heads in the PET and NativePET models
     give the same predictions"""
-    nativepet_model, pet_model, system = get_test_environment()
+    nativepet_model, pet_model, systems = get_test_environment()
 
     nl_options = nativepet_model.requested_neighbor_lists()[0]
     batch_dict = systems_to_batch_dict(
-        [system], nl_options, nativepet_model.atomic_types, None
+        systems, nl_options, nativepet_model.atomic_types, None
     )
     x = batch_dict["x"]
     central_species = batch_dict["central_species"]
@@ -443,14 +456,7 @@ def test_bond_heads():
         batch_dict["neighbor_species"]
     )
 
-    gnn_result = nativepet_model.gnn_layers[0](
-        batch_dict["x"],
-        batch_dict["central_species"],
-        batch_dict["neighbor_species"],
-        batch_dict["input_messages"],
-        batch_dict["mask"],
-        batch_dict["nums"],
-    )
+    gnn_result = nativepet_model.gnn_layers[0](batch_dict)
 
     pet_atomic_predictions = torch.zeros(1)
     nativepet_atomic_predictions = torch.zeros(1)
@@ -470,17 +476,19 @@ def test_bond_heads():
     nativepet_head_output = nativepet_model.bond_heads["energy"][0](
         gnn_result["output_messages"]
     )
+    nativepet_last_layer_output = nativepet_model.bond_last_layers["energy"][0][
+        "energy___0"
+    ](nativepet_head_output)
 
-    mask_expanded = mask[..., None].repeat(1, 1, nativepet_head_output.shape[2])
-    nativepet_head_output = torch.where(mask_expanded, 0.0, nativepet_head_output)
-    nativepet_head_output = nativepet_head_output * multipliers[:, :, None]
-    nativepet_head_output = nativepet_head_output.sum(dim=1)
+    mask_expanded = mask[..., None].repeat(1, 1, nativepet_last_layer_output.shape[2])
+    nativepet_last_layer_output = torch.where(
+        mask_expanded, 0.0, nativepet_last_layer_output
+    )
+    nativepet_last_layer_output = nativepet_last_layer_output * multipliers[:, :, None]
+    nativepet_last_layer_output = nativepet_last_layer_output.sum(dim=1)
 
     nativepet_atomic_predictions = (
-        nativepet_atomic_predictions
-        + nativepet_model.bond_last_layers["energy"][0]["energy___0"](
-            nativepet_head_output
-        )
+        nativepet_atomic_predictions + nativepet_last_layer_output
     )
 
     torch.testing.assert_close(nativepet_atomic_predictions, pet_atomic_predictions)
@@ -489,12 +497,12 @@ def test_bond_heads():
 def test_predictions_compatibility():
     """Tests that the predictions of the PET and NativePET models
     are the same"""
-    nativepet_model, pet_model, system = get_test_environment()
+    nativepet_model, pet_model, systems = get_test_environment()
 
     outputs = {"energy": ModelOutput(per_atom=False)}
 
-    nativepet_predictions = nativepet_model([system, system], outputs)
-    pet_predictions = pet_model([system, system], outputs)
+    nativepet_predictions = nativepet_model(systems, outputs)
+    pet_predictions = pet_model(systems, outputs)
 
     torch.testing.assert_close(
         nativepet_predictions["energy"].block().values,
@@ -505,7 +513,8 @@ def test_predictions_compatibility():
 def test_positions_gradients_compatibility():
     """Tests that the gradients w.r.t positions of the
     PET and NativePET models are the same"""
-    nativepet_model, pet_model, system = get_test_environment()
+    nativepet_model, pet_model, systems = get_test_environment()
+    system = systems[0]
 
     outputs = {"energy": ModelOutput(per_atom=False)}
 
@@ -550,3 +559,99 @@ def test_positions_gradients_compatibility():
         nativepet_gradients,
         pet_gradients,
     )
+
+
+def test_energy_loss_grads_compatibility():
+    """Tests that the gradients of the energy loss produced by
+    PET and NativePET models are the same"""
+    nativepet_model, pet_model, systems = get_test_environment()
+
+    outputs = {"energy": ModelOutput(per_atom=False)}
+
+    nativepet_predictions = nativepet_model(systems, outputs)
+    nativepet_loss = (
+        nativepet_predictions["energy"].block().values.sum()
+    )  # Artificial loss
+    nativepet_loss.backward()
+
+    pet_predictions = pet_model(systems, outputs)
+    pet_loss = pet_predictions["energy"].block().values.sum()  # Artificial loss
+    pet_loss.backward()
+
+    nativepet_params = dict(nativepet_model.named_parameters())
+    pet_params = dict(pet_model.named_parameters())
+
+    for key, nativepet_param in nativepet_params.items():
+        if "last_layers" in key:
+            continue
+        pet_key = "pet." + key
+        if "heads" in key:
+            pet_key = pet_key.replace(".energy", "")
+        if pet_key in pet_params:
+            pet_param = pet_params.pop(pet_key)
+            torch.testing.assert_close(nativepet_param.grad, pet_param.grad)
+
+
+def test_forces_loss_grads_compatibility():
+    """Tests that the gradients of the loss produced by PET and NativePET
+    models are the same"""
+    nativepet_model, pet_model, systems = get_test_environment()
+    system = systems[0]
+
+    outputs = {"energy": ModelOutput(per_atom=False)}
+
+    nativepet_predictions = nativepet_model([system], outputs)
+
+    nativepet_gradients = -torch.autograd.grad(
+        nativepet_predictions["energy"].block().values[0][0],
+        system.positions,
+        torch.ones_like(nativepet_predictions["energy"].block().values[0][0]),
+        create_graph=True,
+        retain_graph=True,
+    )[0]
+
+    nl_options = nativepet_model.requested_neighbor_lists()[0]
+    batch_dict = systems_to_batch_dict(
+        [system], nl_options, nativepet_model.atomic_types, None
+    )
+    x = batch_dict["x"]
+    x.requires_grad_(True)
+
+    pet_predictions = pet_model.pet(batch_dict)["prediction"]
+
+    pet_grads_wrt_x = torch.autograd.grad(
+        pet_predictions,
+        x,
+        grad_outputs=torch.ones_like(pet_predictions),
+        create_graph=True,
+        retain_graph=True,
+    )[0]
+
+    neighbors_index = batch_dict["neighbors_index"]  # .transpose(0, 1)
+    neighbors_pos = batch_dict["neighbors_pos"]
+    grads_messaged = pet_grads_wrt_x[neighbors_index, neighbors_pos]
+    pet_grads_wrt_x[batch_dict["mask"]] = 0.0
+
+    grads_messaged[batch_dict["mask"]] = 0.0
+    first = pet_grads_wrt_x.sum(dim=1)
+    second = grads_messaged.sum(dim=1)
+    pet_gradients = first - second
+
+    nativepet_loss = nativepet_gradients.sum()
+    nativepet_loss.backward()
+
+    pet_loss = pet_gradients.sum()
+    pet_loss.backward()
+
+    nativepet_params = dict(nativepet_model.named_parameters())
+    pet_params = dict(pet_model.named_parameters())
+
+    for key, nativepet_param in nativepet_params.items():
+        if "last_layers" in key:
+            continue
+        pet_key = "pet." + key
+        if "heads" in key:
+            pet_key = pet_key.replace(".energy", "")
+        if pet_key in pet_params:
+            pet_param = pet_params.pop(pet_key)
+            torch.testing.assert_close(nativepet_param.grad, pet_param.grad)

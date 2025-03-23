@@ -1,4 +1,4 @@
-from typing import Optional
+from typing import Dict, Optional
 
 import numpy as np
 import torch
@@ -183,13 +183,14 @@ class CartesianTransformer(torch.nn.Module):
 
     def forward(
         self,
-        x: torch.Tensor,
-        central_species: torch.Tensor,
-        neighbor_species: torch.Tensor,
-        input_messages: torch.Tensor,
-        mask: torch.Tensor,
-        nums: torch.Tensor,
+        batch_dict: Dict[str, torch.Tensor],
     ):
+        x = batch_dict["x"]
+        mask = batch_dict["mask"]
+        nums = batch_dict["nums"]
+        central_species = batch_dict["central_species"]
+        neighbor_species = batch_dict["neighbor_species"]
+        input_messages = batch_dict["input_messages"]
         neighbor_lengths = torch.sqrt(torch.sum(x**2, dim=2) + 1e-15)[:, :, None]
         if not self.is_first:
             neighbor_embedding = self.neighbor_embedder(neighbor_species)

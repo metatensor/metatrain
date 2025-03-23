@@ -20,6 +20,7 @@ from ...utils.loss import TensorMapDictLoss
 from ...utils.metrics import MAEAccumulator, RMSEAccumulator, get_selected_metric
 from ...utils.neighbor_lists import (
     get_requested_neighbor_lists,
+    get_system_with_neighbor_lists,
 )
 from ...utils.per_atom import average_by_num_atoms
 from ...utils.scaler import remove_scale
@@ -28,7 +29,6 @@ from ...utils.transfer import (
     systems_and_targets_to_dtype,
 )
 from .model import NativePET
-from .utilities.neighbor_lists import get_system_with_neighbor_lists
 
 
 logger = logging.getLogger(__name__)
