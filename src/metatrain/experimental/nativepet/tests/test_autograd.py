@@ -30,10 +30,10 @@ def test_autograd_positions():
 
     def compute(positions):
         system = System(
-            types=torch.tensor([6, 6]),
+            types=torch.tensor([6, 6], device=positions.device),
             positions=positions,
-            cell=torch.eye(3, dtype=torch.float64),
-            pbc=torch.tensor([True, True, True]),
+            cell=torch.eye(3, dtype=torch.float64, device=positions.device),
+            pbc=torch.tensor([True, True, True], device=positions.device),
         )
 
         system = get_system_with_neighbor_lists(
@@ -71,14 +71,15 @@ def test_autograd_cell():
 
     def compute(cell):
         system = System(
-            types=torch.tensor([6, 6]),
+            types=torch.tensor([6, 6], device=cell.device),
             positions=torch.tensor(
                 [[0.0, 0.0, 0.0], [0.5, 0.5, 0.5]],
+                device=cell.device,
                 dtype=torch.float64,
                 requires_grad=True,
             ),
             cell=cell,
-            pbc=torch.tensor([True, True, True]),
+            pbc=torch.tensor([True, True, True], device=cell.device),
         )
 
         system = get_system_with_neighbor_lists(
