@@ -14,7 +14,6 @@ from metatensor.torch.atomistic import (
 )
 from metatensor.torch.learn.nn import Linear as LinearMap
 from metatensor.torch.learn.nn import ModuleMap
-
 from spex.metatensor import SoapPowerSpectrum
 
 from metatrain.utils.data import TargetInfo
@@ -212,10 +211,7 @@ class SoapBpnn(torch.nn.Module):
             "species": {"Orthogonal": {"species": self.atomic_types}},
         }
         self.soap_calculator = SoapPowerSpectrum(**spex_soap_hypers)
-
-        soap_size = self.soap_calculator.shape * (
-            len(self.atomic_types) * (len(self.atomic_types) + 1) // 2
-        )
+        soap_size = self.soap_calculator.shape
 
         hypers_bpnn = {**self.hypers["bpnn"]}
         hypers_bpnn["input_size"] = soap_size
@@ -447,7 +443,6 @@ class SoapBpnn(torch.nn.Module):
             )
 
         device = soap_features.block(0).values.device
-        soap_features = soap_features.keys_to_properties(self.neighbors_species_labels)
 
         soap_features = self.layernorm(soap_features)
         features = self.bpnn(soap_features)
