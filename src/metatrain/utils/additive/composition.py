@@ -519,7 +519,15 @@ class CompositionModel(torch.nn.Module):
             )
             return False
         return True
+    
+    def state_dict(self, *args, **kwargs):
+        _state_dict = super().state_dict(*args, **kwargs)
+        _state_dict.update({"composition_weight_dict": {k: v.to("cpu", torch.float64) for k, v in self.weights.items()}})
+        return _state_dict
 
+    def load_state_dict(self, state_dict, *args, **kwargs):
+        self.weights = state_dict.pop("composition_weight_dict")
+        super().load_state_dict(state_dict, *args, **kwargs)
 
 def _solve_linear_system(composition_features, all_targets) -> torch.Tensor:
     compf_t_at_compf = composition_features.T @ composition_features
