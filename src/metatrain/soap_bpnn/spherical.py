@@ -205,7 +205,8 @@ class TensorBasis(torch.nn.Module):
                 selected_atoms,
             )
             basis = basis  # / (
-            #     torch.sqrt(torch.sum(torch.square(basis), dim=1, keepdim=True)) + 1.0e-4
+            #     torch.sqrt(torch.sum(torch.square(basis), dim=1, keepdim=True))
+            # + 1.0e-4
             # )
         elif self.o3_lambda == 2:
             basis = torch.empty(
