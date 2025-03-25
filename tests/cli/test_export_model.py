@@ -6,11 +6,10 @@ Actual unit tests for the function are performed in `tests/utils/test_export`.
 import glob
 import logging
 import os
-import shutil
 import subprocess
 from pathlib import Path
+from subprocess import CalledProcessError
 
-import huggingface_hub
 import pytest
 import torch
 from omegaconf import OmegaConf
@@ -82,6 +81,23 @@ def test_export_cli(monkeypatch, tmp_path, output, dtype):
     assert next(model.parameters()).device.type == "cpu"
 
 
+def test_export_with_env(monkeypatch, tmp_path):
+    """Test that export with env variable works for local file."""
+    monkeypatch.chdir(tmp_path)
+
+    command = [
+        "mtt",
+        "export",
+        str(RESOURCES_PATH / "model-32-bit.ckpt"),
+    ]
+
+    env = os.environ.copy()
+    env["HF_TOKEN"] = "1234"
+
+    subprocess.check_call(command, env=env)
+    assert Path("model-32-bit.pt").is_file()
+
+
 def test_export_cli_unknown_architecture(tmpdir):
     with tmpdir.as_cwd():
         torch.save({"architecture_name": "foo"}, "fake.ckpt")
@@ -114,7 +130,7 @@ def test_reexport(monkeypatch, tmp_path):
     assert Path("exported_new.pt").is_file()
 
 
-def test_private_huggingface(monkeypatch, tmp_path):
+def test_huggingface(monkeypatch, tmp_path):
     """Test that the export cli succeeds when exporting a private
     model from HuggingFace."""
     monkeypatch.chdir(tmp_path)
@@ -124,19 +140,11 @@ def test_private_huggingface(monkeypatch, tmp_path):
         pytest.skip("HuggingFace token not found in environment.")
     assert len(HF_TOKEN) > 0
 
-    huggingface_hub.upload_file(
-        path_or_fileobj=str(RESOURCES_PATH / "model-32-bit.ckpt"),
-        path_in_repo="model.ckpt",
-        repo_id="metatensor/metatrain-test",
-        commit_message="Overwrite test model with new version",
-        token=HF_TOKEN,
-    )
-
     command = [
         "mtt",
         "export",
         "https://huggingface.co/metatensor/metatrain-test/resolve/main/model.ckpt",
-        f"--huggingface_api_token={HF_TOKEN}",
+        f"--token={HF_TOKEN}",
     ]
 
     output = "model.pt"
@@ -151,15 +159,26 @@ def test_private_huggingface(monkeypatch, tmp_path):
     # Test that the model can be loaded
     load_model(output, extensions_directory="extensions/")
 
-    # also test with the token in the environment variable
-    os.environ["HF_TOKEN"] = HF_TOKEN
 
-    # remove output file and extensions
-    os.remove(output)
-    shutil.rmtree("extensions/")
+def test_huggingface_env(monkeypatch, tmp_path):
+    """Test that huggingphase export works with env variable."""
+    monkeypatch.chdir(tmp_path)
 
-    command = command[:-1]  # remove the token from the command line
-    subprocess.check_call(command)
+    env = os.environ.copy()
+    env["HF_TOKEN"] = env["HUGGINGFACE_TOKEN_METATRAIN"]
+    if env["HF_TOKEN"] is None:
+        pytest.skip("HuggingFace token not found in environment.")
+    assert len(env["HF_TOKEN"]) > 0
+
+    command = [
+        "mtt",
+        "export",
+        "https://huggingface.co/metatensor/metatrain-test/resolve/main/model.ckpt",
+    ]
+
+    output = "model.pt"
+
+    subprocess.check_call(command, env=env)
     assert Path(output).is_file()
 
     # Test if extensions are saved
@@ -168,6 +187,21 @@ def test_private_huggingface(monkeypatch, tmp_path):
 
     # Test that the model can be loaded
     load_model(output, extensions_directory="extensions/")
+
+
+def test_token_env_error():
+    command = [
+        "mtt",
+        "export",
+        "https://huggingface.co/metatensor/metatrain-test/resolve/main/model.ckpt",
+        "--token=1234",
+    ]
+
+    env = os.environ.copy()
+    env["HF_TOKEN"] = "1234"
+
+    with pytest.raises(CalledProcessError):
+        subprocess.check_call(command, env=env)
 
 
 def test_metadata(monkeypatch, tmp_path):

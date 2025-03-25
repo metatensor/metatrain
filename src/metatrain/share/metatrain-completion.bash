@@ -53,7 +53,7 @@ print(' '.join(find_all_architectures()))
           fi
           ;;
       esac
-      local opts="-h --help -o --output -m --metadata --huggingface_api_token"
+      local opts="-h --help -o --output -m --metadata --token"
       COMPREPLY=( $(compgen -W "${opts}" -- "${cur_word}") )
       return 0
       ;;
