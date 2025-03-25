@@ -247,23 +247,6 @@ class SoapBpnn(torch.nn.Module):
         # scaler: this is also handled by the trainer at training time
         self.scaler = Scaler(model_hypers={}, dataset_info=dataset_info)
 
-    # Modify state_dict handling to save composition weights in checkpoints
-    def state_dict(self, *args, **kwargs):
-        _state_dict = super().state_dict(*args, **kwargs)
-        comp_weight_dict = {}
-        for key in self.additive_models[0].weights.keys():
-            comp_weight_dict[key] = self.additive_models[0].weights[key].to("cpu")
-        _state_dict.update({"composition_weight_dict": comp_weight_dict})
-        return _state_dict
-
-    def load_state_dict(self, state_dict, *args, **kwargs):
-        comp_weight_dict = state_dict["composition_weight_dict"]
-        for key in comp_weight_dict.keys():
-            self.additive_models[0].weights[key] = comp_weight_dict[key]
-        state_dict.pop("composition_weight_dict")
-        super().load_state_dict(state_dict, *args, **kwargs)
-        return
-
     def restart(self, dataset_info: DatasetInfo) -> "SoapBpnn":
         # merge old and new dataset info
         merged_info = self.dataset_info.union(dataset_info)
@@ -558,6 +541,7 @@ class SoapBpnn(torch.nn.Module):
         model = cls(**model_data)
         dtype = next(iter(model_state_dict.values())).dtype
         model.to(dtype).load_state_dict(model_state_dict)
+
         return model
 
     def export(

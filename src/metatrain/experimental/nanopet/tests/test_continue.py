@@ -56,7 +56,7 @@ def test_continue(monkeypatch, tmp_path):
     dataset = Dataset.from_dict({"system": systems, "mtt::U0": targets["mtt::U0"]})
 
     hypers = DEFAULT_HYPERS.copy()
-    hypers["training"]["num_epochs"] = 5
+    hypers["training"]["num_epochs"] = 0
     trainer = Trainer(hypers["training"])
     trainer.train(
         model=model,
@@ -69,6 +69,7 @@ def test_continue(monkeypatch, tmp_path):
 
     trainer.save_checkpoint(model, "temp.ckpt")
     model_after = NanoPET.load_checkpoint("temp.ckpt")
+    model_after.restart(dataset_info)
 
     hypers["training"]["num_epochs"] = 0
     trainer = Trainer(hypers["training"])
@@ -85,6 +86,9 @@ def test_continue(monkeypatch, tmp_path):
     systems = [system.to(torch.float32) for system in systems]
     for system in systems:
         get_system_with_neighbor_lists(system, model.requested_neighbor_lists())
+
+    model.eval()
+    model_after.eval()
 
     # Predict on the first five systems
     output_before = model(systems[:5], {"mtt::U0": model.outputs["mtt::U0"]})

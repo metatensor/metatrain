@@ -184,23 +184,6 @@ class NanoPET(torch.nn.Module):
 
         self.single_label = Labels.single()
 
-    # Modify state_dict handling to save composition weights in checkpoints
-    def state_dict(self, *args, **kwargs):
-        _state_dict = super().state_dict(*args, **kwargs)
-        comp_weight_dict = {}
-        for key in self.additive_models[0].weights.keys():
-            comp_weight_dict[key] = self.additive_models[0].weights[key].to("cpu")
-        _state_dict.update({"composition_weight_dict": comp_weight_dict})
-        return _state_dict
-
-    def load_state_dict(self, state_dict, *args, **kwargs):
-        comp_weight_dict = state_dict["composition_weight_dict"]
-        for key in comp_weight_dict.keys():
-            self.additive_models[0].weights[key] = comp_weight_dict[key]
-        state_dict.pop("composition_weight_dict")
-        super().load_state_dict(state_dict, *args, **kwargs)
-        return
-
     def restart(self, dataset_info: DatasetInfo) -> "NanoPET":
         # merge old and new dataset info
         merged_info = self.dataset_info.union(dataset_info)
@@ -560,6 +543,7 @@ class NanoPET(torch.nn.Module):
         next(state_dict_iter)  # skip `species_to_species_index` buffer (int)
         dtype = next(state_dict_iter).dtype
         model.to(dtype).load_state_dict(model_state_dict)
+
         return model
 
     def export(
