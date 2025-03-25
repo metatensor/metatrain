@@ -308,7 +308,8 @@ class CompositionModel(torch.nn.Module):
                         weights_tensor = weights_tensor.unsqueeze(1)
                     weight_blocks.append(
                         TensorBlock(
-                            values=weights_tensor,
+                            values=weights_tensor.contiguous(),
+                            # TODO: remove the .contiguous() when metatensor supports it
                             samples=Labels(
                                 ["center_type"],
                                 values=torch.tensor(
