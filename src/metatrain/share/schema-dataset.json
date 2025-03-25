@@ -191,12 +191,6 @@
                         "atomic_basis_spherical": {
                           "type": "object",
                           "properties": {
-                            "n_center": {
-                              "type": "integer",
-                              "items": {
-                                "type": "object"
-                              }
-                            },
                             "basis": {
                               "type": "array",
                               "items": {
@@ -214,7 +208,7 @@
                               }
                             }
                           },
-                          "required": ["n_center", "basis"],
+                          "required": ["basis"],
                           "additionalProperties": false
                         }
                       },

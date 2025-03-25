@@ -48,8 +48,14 @@ class TargetInfo:
 
     @property
     def per_atom(self) -> bool:
-        """Whether the target is per atom."""
-        return "atom" in self.layout.block(0).samples.names
+        """Whether the target is per atom. Also applies to per atom pair quantities."""
+        return "atom" in self.layout.block(0).samples.names or (
+            "first_atom" in self.layout.block(0).samples.names and
+            "second_atom" in self.layout.block(0).samples.names and
+            "cell_shift_a" in self.layout.block(0).samples.names and
+            "cell_shift_b" in self.layout.block(0).samples.names and
+            "cell_shift_c" in self.layout.block(0).samples.names
+        )
 
     def __repr__(self):
         return (
@@ -599,20 +605,17 @@ def _get_spherical_target_info(target: DictConfig) -> TargetInfo:
 def _get_atomic_basis_spherical_target_info(target: DictConfig) -> TargetInfo:
     # Define the sample names
     sample_names = ["system"]
-    if target["type"]["atomic_basis_spherical"]["n_center"] == 1:
-        sample_names += ["atom"]
-    elif target["type"]["atomic_basis_spherical"]["n_center"] == 2:
-        sample_names += [
-            "first_atom",
-            "second_atom",
-            "cell_shift_a",
-            "cell_shift_b",
-            "cell_shift_c",
-        ]
-    else:
-        raise ValueError(
-            "'atomic_basis_spherical' option 'n_center' must be 0, 1, or 2"
-        )
+    if target["per_atom"]:
+        if target["quantity"] == "node":
+            sample_names += ["atom"]
+        elif target["quantity"] == "edge":
+            sample_names += [
+                "first_atom",
+                "second_atom",
+                "cell_shift_a",
+                "cell_shift_b",
+                "cell_shift_c",
+            ]
 
     basis = target["type"]["atomic_basis_spherical"]["basis"]
     keys = []

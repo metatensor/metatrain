@@ -197,7 +197,7 @@ def _apply_wigner_D_matrices(
                                     )
                                 )
                             )
-                            // 2  # as samples should be triangulated
+                            // (2 if key["first_atom_type"] == key["second_atom_type"] else 1)  # as samples should be triangulated
                         )
                 else:
                     raise ValueError(f"unexpected samples: {block.samples}")
