@@ -1,5 +1,6 @@
 import argparse
 import logging
+import os
 from pathlib import Path
 from typing import Any, Optional, Union
 
@@ -59,22 +60,35 @@ def _add_export_model_parser(subparser: argparse._SubParsersAction) -> None:
         help="Metatdata YAML file to be appended to the model.",
     )
     parser.add_argument(
-        "--huggingface_api_token",
-        dest="huggingface_api_token",
+        "--token",
+        dest="token",
         type=str,
         required=False,
-        default="",
-        help="API token to download a private model from HuggingFace.",
+        default=None,
+        help="HuggingFace API token to download (private )models from HuggingFace. "
+        "You can also set a environment variable `HF_TOKEN` to avoid passing it every "
+        "time.",
     )
 
 
 def _prepare_export_model_args(args: argparse.Namespace) -> None:
     """Prepare arguments for export_model."""
+
     path = args.__dict__.pop("path")
-    args.model = load_model(
-        path=path,
-        **args.__dict__,
-    )
+    token = args.__dict__.pop("token")
+
+    # use env variable if available
+    env_token = os.environ.get("HF_TOKEN")
+    if env_token:
+        if token is None:
+            token = env_token
+        else:
+            raise ValueError(
+                "Both CLI and environment variable tokens are set for HuggingFace. "
+                "Please use only one."
+            )
+
+    args.model = load_model(path=path, token=token)
 
     if args.metadata is not None:
         args.metadata = ModelMetadata(**OmegaConf.load(args.metadata))

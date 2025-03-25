@@ -326,6 +326,12 @@ class CompositionModel(torch.nn.Module):
                     blocks=weight_blocks,
                 )
 
+            # make sure to update the weights buffer with the new weights
+            self.register_buffer(
+                target_key + "_composition_buffer",
+                metatensor.torch.save_buffer(self.weights[target_key]),
+            )
+
     def restart(self, dataset_info: DatasetInfo) -> "CompositionModel":
         """Restart the model with a new dataset info.
 
@@ -349,6 +355,13 @@ class CompositionModel(torch.nn.Module):
             raise ValueError(
                 f"New atomic types found in the dataset: {new_atomic_types}. "
                 "The composition model does not support adding new atomic types."
+            )
+
+        # Reload the weights of the old targets, which are not stored in the model
+        # state_dict, from the buffers
+        for k in self.dataset_info.targets:
+            self.weights[k] = metatensor.torch.load_buffer(
+                self.__getattr__(k + "_composition_buffer")
             )
 
         self.new_targets = {
@@ -485,6 +498,33 @@ class CompositionModel(torch.nn.Module):
                 )
                 for b in target_info.layout.blocks()
             ],
+        )
+
+        # register a buffer to store the weights; this is necessary because the weights
+        # are TensorMaps and cannot be stored in the state_dict
+        fake_weights = TensorMap(
+            keys=self.dataset_info.targets[target_name].layout.keys,
+            blocks=[
+                TensorBlock(
+                    values=torch.zeros(
+                        (len(self.atomic_types),) + b.values.shape[1:],
+                        dtype=torch.float64,
+                    ),
+                    samples=Labels(
+                        names=["center_type"],
+                        values=torch.tensor(self.atomic_types, dtype=torch.int).reshape(
+                            -1, 1
+                        ),
+                    ),
+                    components=b.components,
+                    properties=b.properties,
+                )
+                for b in target_info.layout.blocks()
+            ],
+        )
+        self.register_buffer(
+            target_name + "_composition_buffer",
+            metatensor.torch.save_buffer(fake_weights),
         )
 
     def _move_weights_to_device_and_dtype(
