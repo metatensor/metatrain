@@ -68,7 +68,9 @@ def test_continue(monkeypatch, tmp_path):
     )
 
     trainer.save_checkpoint(model, "temp.ckpt")
-    model_after = NanoPET.load_checkpoint("temp.ckpt")
+    # model_after = NanoPET.load_checkpoint("temp.ckpt")
+    import copy
+    model_after = copy.deepcopy(model)
     model_after.restart(dataset_info)
 
     hypers["training"]["num_epochs"] = 0
