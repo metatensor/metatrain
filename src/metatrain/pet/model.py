@@ -259,7 +259,9 @@ class PET(torch.nn.Module):
         model = cls(model_hypers=model_hypers, dataset_info=dataset_info)
         state_dict = checkpoint["model_state_dict"]
         dtype = next(iter(state_dict.values())).dtype
-        ft_state_dict = checkpoint.get("ft_state_dict", {})
+        ft_state_dict = checkpoint.get("ft_state_dict", None)
+        if ft_state_dict is None:
+            ft_state_dict = {}
         model.ft_type = ft_state_dict.get("ft_type", None)
         if model.ft_type is None:
             ft_state_dict = {}
