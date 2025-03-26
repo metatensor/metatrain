@@ -49,14 +49,16 @@ class SphericalContraction(torch.nn.Module):
         self, spherical_expansion: TensorMap, device: torch.device, dtype: torch.dtype
     ) -> TensorMap:
         # transfer cg dict to device and dtype if needed
-        for k, v in self.cgs.items():
-            if v.device != device or v.dtype != dtype:
-                self.cgs[k] = v.to(device, dtype)
 
         if self.max_angular == 1:
             return self.contraction(spherical_expansion)
 
         else:  # self.max_angular > 1:
+            # The cgs are defined only when max_angular > 1
+            for k, v in self.cgs.items():
+                if v.device != device or v.dtype != dtype:
+                    self.cgs[k] = v.to(device, dtype)
+
             t_dict: Dict[int, List[torch.Tensor]] = {}
 
             # We need the samples to build the TensorMap
