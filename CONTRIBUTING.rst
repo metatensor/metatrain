@@ -149,11 +149,15 @@ How to Perform a Release
 
 3. **Merge the PR and Create a Tag**
 
-   - After the release PR is merged, create a Git tag and push it to GitHub. For example
-     for a release of version ``2025.3``:
+   - Merge the release PR.
+   - Update the ``main`` branch
+   - Create a Git tag on directly the ``main`` branch.
+   - Push the tag to GitHub. For example for a release of version ``2025.3``:
 
      .. code-block:: bash
 
+        git checkout main
+        git pull
         git tag -a v2025.3 -m "Release v2025.3"
         git push --tags
 
