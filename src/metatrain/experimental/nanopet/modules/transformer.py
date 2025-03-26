@@ -1,7 +1,6 @@
 import torch
 
 from .attention import AttentionBlock
-from .feedforward import FeedForwardBlock
 
 
 class TransformerLayer(torch.nn.Module):
@@ -23,11 +22,14 @@ class TransformerLayer(torch.nn.Module):
             dropout_rate=dropout_rate,
             attention_dropout_rate=attention_dropout_rate,
         )
-        self.ff_block = FeedForwardBlock(
-            hidden_size=hidden_size,
-            intermediate_size=intermediate_size,
-            dropout_rate=dropout_rate,
+        self.ff_block = torch.nn.Sequential(
+            torch.nn.Linear(in_features=hidden_size, out_features=intermediate_size),
+            torch.nn.SiLU(),
+            torch.nn.Linear(in_features=intermediate_size, out_features=hidden_size),
         )
+
+        self.layernorm1 = torch.nn.LayerNorm(normalized_shape=hidden_size)
+        self.layernorm2 = torch.nn.LayerNorm(normalized_shape=hidden_size)
 
     def forward(
         self,
@@ -35,9 +37,11 @@ class TransformerLayer(torch.nn.Module):
         radial_mask: torch.Tensor,
     ) -> torch.Tensor:
         attention_output = self.attention_block(inputs, radial_mask)
-        output = self.ff_block(attention_output)
+        output = inputs + attention_output
+        output = self.layernorm1(output)
+        output = output + self.ff_block(output)
 
-        return output
+        return self.layernorm2(output)
 
 
 class Transformer(torch.nn.Module):
