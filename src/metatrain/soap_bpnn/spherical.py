@@ -1,15 +1,138 @@
 """Modules to allow SOAP-BPNN to fit arbitrary spherical tensor targets."""
 
 import copy
-from typing import Dict, Optional
+from typing import Dict, List, Optional
 
 import metatensor.torch
 import numpy as np
 import torch
 import wigners
-from metatensor.torch import Labels
+from metatensor.torch import Labels, TensorBlock, TensorMap
 from metatensor.torch.learn.nn import Linear as LinearMap
 from spex.metatensor import SphericalExpansion
+
+
+class SphericalContraction(torch.nn.Module):
+    cgs: Dict[str, torch.Tensor]
+
+    def __init__(
+        self,
+        in_keys,
+        in_features,
+        out_features,
+        out_properties,
+        atomic_types,
+        max_angular,
+    ) -> None:
+        super().__init__()
+
+        self.atomic_types = atomic_types
+        self.max_angular = max_angular
+
+        if self.max_angular > 1:
+            self.cgs = {
+                f"{l1}_{l2}_{L}": cg_tensor
+                for (l1, l2, L), cg_tensor in get_cg_coefficients(
+                    max(self.max_angular, 1)  # need at least 1 for pseudoscalar case
+                )._cgs.items()
+            }
+
+        self.contraction = LinearMap(
+            in_keys=in_keys,
+            in_features=in_features,
+            out_features=out_features,
+            bias=False,
+            out_properties=out_properties,
+        )
+
+    def forward(
+        self, spherical_expansion: TensorMap, device: torch.device, dtype: torch.dtype
+    ) -> TensorMap:
+        # transfer cg dict to device and dtype if needed
+        for k, v in self.cgs.items():
+            if v.device != device or v.dtype != dtype:
+                self.cgs[k] = v.to(device, dtype)
+
+        if self.max_angular == 1:
+            return self.contraction(spherical_expansion)
+
+        else:  # self.max_angular > 1:
+            t_dict: Dict[int, List[torch.Tensor]] = {}
+
+            # We need the samples to build the TensorMap
+            samples_list: List[Labels] = []
+
+            for z in self.atomic_types:
+                t_dict[z] = []
+
+            for l1 in range(0, self.max_angular):
+                blocks_l = spherical_expansion.blocks(
+                    {
+                        "o3_lambda": l1,
+                    }
+                )
+                blocks_l1 = spherical_expansion.blocks(
+                    {
+                        "o3_lambda": l1 + 1,
+                    }
+                )
+
+                # Taking the samples from here, this case is always there
+                if l1 == 0:
+                    for b1 in blocks_l1:
+                        samples_list.append(b1.samples)
+
+                for z, b1, b2 in zip(
+                    self.atomic_types, blocks_l, blocks_l1, strict=True
+                ):
+                    cg = self.cgs[f"{l1}_{l1 + 1}_1"]
+
+                    contracted = torch.einsum(
+                        "cCm, scp, sCP -> smpP", cg, b1.values, b2.values
+                    )
+                    t_dict[z].append(
+                        contracted.reshape(
+                            contracted.shape[0],
+                            contracted.shape[1],
+                            contracted.shape[2] * contracted.shape[3],
+                        )
+                    )
+
+            tensor = TensorMap(
+                Labels(
+                    ["o3_lambda", "o3_sigma", "center_type"],
+                    torch.tensor(
+                        [[1, 1, z] for z in self.atomic_types],
+                        dtype=torch.int32,
+                        device=device,
+                    ),
+                ),
+                [
+                    TensorBlock(
+                        samples=samples,
+                        components=[
+                            Labels(
+                                "o3_mu",
+                                torch.arange(
+                                    -1, 2, dtype=torch.int32, device=device
+                                ).unsqueeze(1),
+                            )
+                        ],
+                        properties=Labels(
+                            "_",
+                            torch.arange(
+                                sum([t.shape[-1] for t in t_dict[z]]),
+                                dtype=torch.int32,
+                                device=device,
+                            ).unsqueeze(1),
+                        ),
+                        values=torch.cat(t_dict[z], dim=2),
+                    )
+                    for z, samples in zip(self.atomic_types, samples_list)
+                ],
+            )
+
+            return self.contraction(tensor)
 
 
 class VectorBasis(torch.nn.Module):
@@ -22,13 +145,13 @@ class VectorBasis(torch.nn.Module):
     def __init__(self, atomic_types, soap_hypers) -> None:
         super().__init__()
         self.atomic_types = atomic_types
-
+        # Define a new hyper-parameter for the basis part of the expansion
+        self.max_angular = soap_hypers["max_angular_basis"]
         soap_hypers = copy.deepcopy(soap_hypers)
-        soap_hypers["max_angular"] = 1
 
         spex_soap_hypers = {
             "cutoff": soap_hypers["cutoff"]["radius"],
-            "max_angular": soap_hypers["max_angular"],
+            "max_angular": soap_hypers["max_angular_basis"],
             "radial": {
                 "LaplacianEigenstates": {
                     "max_radial": soap_hypers["max_radial"],
@@ -48,25 +171,41 @@ class VectorBasis(torch.nn.Module):
             values=torch.tensor(self.atomic_types).reshape(-1, 1),
         )
 
-        self.contraction = LinearMap(
-            in_keys=Labels(
-                names=["o3_lambda", "o3_sigma", "center_type"],
-                values=torch.stack(
-                    [
-                        torch.tensor([1] * len(self.atomic_types)),
-                        torch.tensor([1] * len(self.atomic_types)),
-                        torch.tensor(self.atomic_types),
-                    ],
-                    dim=1,
-                ),
+        # Define what to pass to SphericalContraction
+        in_keys = Labels(
+            names=["o3_lambda", "o3_sigma", "center_type"],
+            values=torch.stack(
+                [
+                    torch.tensor([1] * len(self.atomic_types)),
+                    torch.tensor([1] * len(self.atomic_types)),
+                    torch.tensor(self.atomic_types),
+                ],
+                dim=1,
             ),
-            in_features=(self.soap_calculator.calculator.radial.n_per_l[1])
-            * len(self.atomic_types),
-            out_features=3,
-            bias=False,
-            out_properties=[Labels.range("basis", 3) for _ in self.atomic_types],
         )
-        # this optimizable basis seems to work much better than a fixed one
+        if self.max_angular == 1:
+            in_features = (self.soap_calculator.calculator.radial.n_per_l[1]) * len(
+                self.atomic_types
+            )
+        else:  # self.max_angular > 1
+            in_features = sum(
+                self.soap_calculator.calculator.radial.n_per_l[l1]
+                * self.soap_calculator.calculator.radial.n_per_l[l1 + 1]
+                * len(self.atomic_types) ** 2
+                for l1 in range(0, self.max_angular)
+            )
+
+        out_features = 3
+        out_properties = [Labels.range("basis", 3) for _ in self.atomic_types]
+
+        self.contraction = SphericalContraction(
+            in_keys,
+            in_features,
+            out_features,
+            out_properties,
+            self.atomic_types,
+            self.max_angular,
+        )
 
     def forward(
         self,
@@ -79,6 +218,8 @@ class VectorBasis(torch.nn.Module):
         selected_atoms: Optional[Labels],
     ) -> torch.Tensor:
         device = interatomic_vectors.device
+        dtype = interatomic_vectors.dtype
+
         if self.neighbor_species_labels.device != device:
             self.neighbor_species_labels = self.neighbor_species_labels.to(device)
 
@@ -103,14 +244,15 @@ class VectorBasis(torch.nn.Module):
         )
 
         # drop all L=0 blocks
-        spherical_expansion = metatensor.torch.drop_blocks(
-            spherical_expansion,
-            keys=Labels(
-                ["o3_lambda", "o3_sigma"], torch.tensor([[0, 1]], device=device)
-            ),
-        )
+        if self.max_angular == 1:
+            spherical_expansion = metatensor.torch.drop_blocks(
+                spherical_expansion,
+                keys=Labels(
+                    ["o3_lambda", "o3_sigma"], torch.tensor([[0, 1]], device=device)
+                ),
+            )
 
-        basis_vectors = self.contraction(spherical_expansion)
+        basis_vectors = self.contraction(spherical_expansion, device, dtype)
         basis_vectors = basis_vectors.keys_to_samples("center_type")
 
         basis_vectors_as_tensor = basis_vectors.block({"o3_lambda": 1}).values

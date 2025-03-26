@@ -29,6 +29,9 @@
             },
             "max_angular": {
               "type": "integer"
+            },
+            "max_angular_basis": {
+              "type": "integer"
             }
           },
           "additionalProperties": false

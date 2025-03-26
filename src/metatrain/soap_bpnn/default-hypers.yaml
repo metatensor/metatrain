@@ -3,6 +3,7 @@ architecture:
 
   model:
     soap:
+      max_angular_basis: 4
       max_angular: 5
       max_radial: 5
       cutoff:
