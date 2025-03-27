@@ -555,7 +555,7 @@ class CompositionModel(torch.nn.Module):
             )
             return False
         return True
-    
+
     def sync_tensor_maps(self):
         # Reload the weights of the (old) targets, which are not stored in the model
         # state_dict, from the buffers
