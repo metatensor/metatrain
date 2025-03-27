@@ -36,6 +36,9 @@ class SphericalContraction(torch.nn.Module):
                     max(self.max_angular, 1)  # need at least 1 for pseudoscalar case
                 )._cgs.items()
             }
+        else:
+            # needed to make torchscript work
+            self.cgs = {}  # type: ignore
 
         self.contraction = LinearMap(
             in_keys=in_keys,
