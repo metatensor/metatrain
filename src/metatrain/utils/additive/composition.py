@@ -330,7 +330,9 @@ class CompositionModel(torch.nn.Module):
             # make sure to update the weights buffer with the new weights
             self.register_buffer(
                 target_key + "_composition_buffer",
-                metatensor.torch.save_buffer(self.weights[target_key]),
+                metatensor.torch.save_buffer(
+                    self.weights[target_key].to("cpu", torch.float64)
+                ),
             )
 
     def restart(self, dataset_info: DatasetInfo) -> "CompositionModel":
