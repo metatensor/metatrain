@@ -292,12 +292,12 @@ class TensorBasis(torch.nn.Module):
                     "To use spherical tensors with lambda > 1 with SOAP-BPNN, please "
                     "install the `sphericart-torch` package."
                 )
-            self.spherical_hamonics_calculator = sphericart.torch.SphericalHarmonics(
+            self.spherical_harmonics_calculator = sphericart.torch.SphericalHarmonics(
                 l_max=self.o3_lambda
             )
         else:
             # needed to make torchscript work
-            self.spherical_hamonics_calculator = torch.nn.Identity()
+            self.spherical_harmonics_calculator = torch.nn.Identity()
 
         if self.o3_lambda > 1 or self.o3_sigma == -1:
             self.cgs = {
@@ -370,8 +370,8 @@ class TensorBasis(torch.nn.Module):
             # vector_basis is [n_atoms, 3(yzx), 3]
             vector_1_xyz = vector_basis[:, [2, 0, 1], 0]
             vector_2_xyz = vector_basis[:, [2, 0, 1], 1]
-            basis[:, :, 0] = self.spherical_hamonics_calculator(vector_1_xyz)[:, 4:]
-            basis[:, :, 1] = self.spherical_hamonics_calculator(vector_2_xyz)[:, 4:]
+            basis[:, :, 0] = self.spherical_harmonics_calculator(vector_1_xyz)[:, 4:]
+            basis[:, :, 1] = self.spherical_harmonics_calculator(vector_2_xyz)[:, 4:]
             vector_1_spherical = vector_basis[:, :, 0]
             vector_2_spherical = vector_basis[:, :, 1]
             vector_3_spherical = vector_basis[:, :, 2]
@@ -432,8 +432,8 @@ class TensorBasis(torch.nn.Module):
             #     )
             #     + 1.0e-4
             # )
-            sh_1 = self.spherical_hamonics_calculator(vector_1_xyz)
-            sh_2 = self.spherical_hamonics_calculator(vector_2_xyz)
+            sh_1 = self.spherical_harmonics_calculator(vector_1_xyz)
+            sh_2 = self.spherical_harmonics_calculator(vector_2_xyz)
             for lam in range(self.o3_lambda + 1):
                 basis[:, :, lam] = cg_combine(
                     sh_1[:, lam * lam : (lam + 1) * (lam + 1)],
