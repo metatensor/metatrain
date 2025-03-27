@@ -62,12 +62,20 @@ class SphericalContraction(torch.nn.Module):
                 if v.device != device or v.dtype != dtype:
                     self.cgs[k] = v.to(device, dtype)
 
+            present_atomic_types: List[int] = (
+                torch.sort(
+                    torch.unique(spherical_expansion.keys.column("center_type"))
+                )[0]
+                .to(torch.long)
+                .tolist()
+            )
+
             t_dict: Dict[int, List[torch.Tensor]] = {}
 
             # We need the samples to build the TensorMap
             samples_list: List[Labels] = []
 
-            for z in self.atomic_types:
+            for z in present_atomic_types:
                 t_dict[z] = []
 
             for l1 in range(0, self.max_angular):
@@ -88,7 +96,7 @@ class SphericalContraction(torch.nn.Module):
                         samples_list.append(b1.samples)
 
                 for z, b1, b2 in zip(
-                    self.atomic_types, blocks_l, blocks_l1, strict=True
+                    present_atomic_types, blocks_l, blocks_l1, strict=True
                 ):
                     cg = self.cgs[f"{l1}_{l1 + 1}_1"]
 
@@ -107,7 +115,7 @@ class SphericalContraction(torch.nn.Module):
                 Labels(
                     ["o3_lambda", "o3_sigma", "center_type"],
                     torch.tensor(
-                        [[1, 1, z] for z in self.atomic_types],
+                        [[1, 1, z] for z in present_atomic_types],
                         dtype=torch.int32,
                         device=device,
                     ),
@@ -133,7 +141,7 @@ class SphericalContraction(torch.nn.Module):
                         ),
                         values=torch.cat(t_dict[z], dim=2),
                     )
-                    for z, samples in zip(self.atomic_types, samples_list)
+                    for z, samples in zip(present_atomic_types, samples_list)
                 ],
             )
 
