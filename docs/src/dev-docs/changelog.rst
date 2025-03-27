@@ -24,6 +24,14 @@ changelog <https://keepachangelog.com/en/1.1.0/>`_ format. This project follows
 Unreleased
 ----------
 
+Version 2025.3 - 2025-03-11
+---------------------------
+
+Fixed
+#####
+
+- Fixed a bug in the composition model, affecting SOAP-BPNN and nanoPET
+
 Changed
 #######
 
