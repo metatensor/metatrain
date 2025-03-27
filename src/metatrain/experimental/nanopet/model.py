@@ -543,6 +543,7 @@ class NanoPET(torch.nn.Module):
         next(state_dict_iter)  # skip `species_to_species_index` buffer (int)
         dtype = next(state_dict_iter).dtype
         model.to(dtype).load_state_dict(model_state_dict)
+        model.additive_models[0].sync_tensor_maps()
 
         return model
 
