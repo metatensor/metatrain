@@ -332,7 +332,7 @@ class CompositionModel(torch.nn.Module):
                 target_key + "_composition_buffer",
                 metatensor.torch.save_buffer(
                     self.weights[target_key].to("cpu", torch.float64)
-                ),
+                ).to(device),
             )
 
     def restart(self, dataset_info: DatasetInfo) -> "CompositionModel":
