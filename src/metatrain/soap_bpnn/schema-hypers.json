@@ -18,7 +18,7 @@
                 "radius": {
                   "type": "number"
                 },
-                "cutoff": {
+                "width": {
                   "type": "number"
                 }
               },
