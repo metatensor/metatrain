@@ -1,4 +1,3 @@
-import copy
 import shutil
 
 import metatensor
@@ -58,9 +57,19 @@ def test_continue(monkeypatch, tmp_path):
 
     hypers = DEFAULT_HYPERS.copy()
     hypers["training"]["num_epochs"] = 0
+    trainer = Trainer(hypers["training"])
+    trainer.train(
+        model=model,
+        dtype=torch.float32,
+        devices=[torch.device("cpu")],
+        train_datasets=[dataset],
+        val_datasets=[dataset],
+        checkpoint_dir=".",
+    )
 
-    model_before = copy.deepcopy(model)
-    model_after = model.restart(dataset_info)
+    trainer.save_checkpoint(model, "temp.ckpt")
+    model_after = NativePET.load_checkpoint("temp.ckpt")
+    model_after.restart(dataset_info)
 
     hypers["training"]["num_epochs"] = 0
     trainer = Trainer(hypers["training"])
@@ -78,10 +87,11 @@ def test_continue(monkeypatch, tmp_path):
     for system in systems:
         get_system_with_neighbor_lists(system, model.requested_neighbor_lists())
 
+    model.eval()
+    model_after.eval()
+
     # Predict on the first five systems
-    output_before = model_before(
-        systems[:5], {"mtt::U0": model_before.outputs["mtt::U0"]}
-    )
+    output_before = model(systems[:5], {"mtt::U0": model.outputs["mtt::U0"]})
     output_after = model_after(systems[:5], {"mtt::U0": model_after.outputs["mtt::U0"]})
 
     assert metatensor.torch.allclose(output_before["mtt::U0"], output_after["mtt::U0"])
