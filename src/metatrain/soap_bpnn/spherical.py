@@ -303,7 +303,7 @@ class TensorBasis(torch.nn.Module):
                     "To use spherical tensors with lambda > 1 with SOAP-BPNN, please "
                     "install the `sphericart-torch` package."
                 )
-            self.spherical_harmonics_calculator = sphericart.torch.SphericalHarmonics(
+            self.spherical_harmonics_calculator = sphericart.torch.SolidHarmonics(
                 l_max=self.o3_lambda
             )
         else:
@@ -499,8 +499,6 @@ class ClebschGordanReal:
         self._cgs = {}
 
     def _add(self, l1, l2, L):
-        # print(f"Adding new CGs with l1={l1}, l2={l2}, L={L}")
-
         if self._cgs is None:
             raise ValueError("Trying to add CGs when not initialized... exiting")
 
