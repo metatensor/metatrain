@@ -30,6 +30,7 @@ from .modules.nef import (
 from .modules.radial_mask import get_radial_mask
 from .modules.structures import concatenate_structures
 from .modules.transformer import Transformer
+from .modules.baseline import Baseline
 
 
 class NanoPET(torch.nn.Module):
@@ -129,8 +130,9 @@ class NanoPET(torch.nn.Module):
                 unit=target_info.unit,
                 per_atom=True,
             )
-        self._add_output("mtt::delta_q", dataset_info.targets["mtt::delta_3_q"])
-        self._add_output("mtt::delta_p", dataset_info.targets["mtt::delta_3_p"])
+        self._add_output("mtt::delta_q", dataset_info.targets[[k for k in dataset_info.targets.keys() if "_q" in k][0]])
+        # self._add_output("mtt::delta_p", dataset_info.targets[[k for k in dataset_info.targets.keys() if "_p" in k][0]])
+        self._add_output("mtt::p", dataset_info.targets[[k for k in dataset_info.targets.keys() if "p_" in k][0]])
 
         self.register_buffer(
             "species_to_species_index",
@@ -184,6 +186,7 @@ class NanoPET(torch.nn.Module):
                     ),
                 )
             )
+        # additive_models.append(Baseline({}, dataset_info))
         self.additive_models = torch.nn.ModuleList(additive_models)
 
         # scaler: this is also handled by the trainer at training time
@@ -536,6 +539,10 @@ class NanoPET(torch.nn.Module):
                     requested_output_name.startswith("mtt::delta_")
                     and 
                     requested_output_name.endswith(output_name[-2:])  # _q or _p
+                ) or (
+                    requested_output_name.startswith("mtt::p_")
+                    and
+                    output_name == "mtt::p"
                 ):
                     requested = True
                     true_output_name = requested_output_name
