@@ -444,15 +444,6 @@ class Trainer:
                 else:
                     logger.info(f"Changing learning rate from {old_lr} to {new_lr}")
                     old_lr = new_lr
-                    # load best model and optimizer state dict, re-initialize scheduler
-                    if epoch > self.hypers["num_epochs_warmup"]:
-                        (model.module if is_distributed else model).load_state_dict(
-                            self.best_model_state_dict
-                        )
-                        optimizer.load_state_dict(self.best_optimizer_state_dict)
-                        for param_group in optimizer.param_groups:
-                            param_group["lr"] = new_lr
-                        lr_scheduler = get_scheduler(optimizer, self.hypers)
 
             val_metric = get_selected_metric(
                 finalized_val_info, self.hypers["best_model_metric"]
