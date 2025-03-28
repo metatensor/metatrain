@@ -1,7 +1,13 @@
+from urllib.parse import urlparse
+from urllib.request import urlretrieve
+
 import torch
 from metatensor.torch.atomistic import ModelOutput
 
 from metatrain.experimental.nativepet import NativePET
+from metatrain.experimental.nativepet.modules.compatibility import (
+    convert_checkpoint_from_legacy_pet,
+)
 from metatrain.experimental.nativepet.modules.utilities import (
     cutoff_func,
     native_systems_to_batch_dict,
@@ -14,6 +20,7 @@ from metatrain.utils.architectures import get_default_hypers
 from metatrain.utils.data import DatasetInfo, read_systems
 from metatrain.utils.data.target_info import get_energy_target_info
 from metatrain.utils.neighbor_lists import get_system_with_neighbor_lists
+from metatrain.utils.output_gradient import compute_gradient
 
 from . import DATASET_PATH, DATASET_WITH_FORCES_PATH
 
@@ -655,3 +662,56 @@ def test_forces_loss_grads_compatibility():
         if pet_key in pet_params:
             pet_param = pet_params.pop(pet_key)
             torch.testing.assert_close(nativepet_param.grad, pet_param.grad)
+
+
+def test_pet_mad_model_compatibility(monkeypatch, tmp_path):
+    monkeypatch.chdir(tmp_path)
+
+    path = "https://huggingface.co/lab-cosmo/pet-mad/resolve/main/models/pet-mad-latest.ckpt"
+
+    if urlparse(path).scheme:
+        path, _ = urlretrieve(path)
+
+    pet_model = PET.load_checkpoint(path).eval()
+
+    nativepet_checkpoint = torch.load(path, map_location="cpu", weights_only=False)
+    nativepet_checkpoint = convert_checkpoint_from_legacy_pet(nativepet_checkpoint)
+    torch.save(
+        nativepet_checkpoint,
+        "nativepet_checkpoint.ckpt",
+    )
+    nativepet_model = NativePET.load_checkpoint("nativepet_checkpoint.ckpt").eval()
+
+    systems_1 = read_systems(DATASET_PATH)[:5]
+    systems_2 = read_systems(DATASET_WITH_FORCES_PATH)[:5]
+    systems = systems_1 + systems_2
+    for system in systems:
+        system.positions.requires_grad_(True)
+        get_system_with_neighbor_lists(
+            system, nativepet_model.requested_neighbor_lists()
+        )
+    systems = [system.to(torch.float32) for system in systems]
+
+    outputs = {"energy": ModelOutput(per_atom=False)}
+
+    nativepet_predictions = nativepet_model(systems, outputs)
+    pet_predictions = pet_model(systems, outputs)
+
+    nativepet_gradients = compute_gradient(
+        nativepet_predictions["energy"].block().values,
+        [system.positions for system in systems],
+        is_training=True,
+    )
+
+    pet_gradients = compute_gradient(
+        pet_predictions["energy"].block().values,
+        [system.positions for system in systems],
+        is_training=True,
+    )
+
+    torch.testing.assert_close(
+        nativepet_predictions["energy"].block().values,
+        pet_predictions["energy"].block().values,
+    )
+
+    torch.testing.assert_close(nativepet_gradients, pet_gradients)

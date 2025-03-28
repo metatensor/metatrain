@@ -525,9 +525,14 @@ class NativePET(torch.nn.Module):
         # Create the model
         model = cls(**model_data)
         state_dict_iter = iter(model_state_dict.values())
-        next(state_dict_iter)  # skip `species_to_species_index` buffer (int)
         dtype = next(state_dict_iter).dtype
         model.to(dtype).load_state_dict(model_state_dict)
+
+        # Sync the composition model
+        for k in model.additive_models[0].dataset_info.targets:
+            model.additive_models[0].weights[k] = metatensor.torch.load_buffer(
+                model.additive_models[0].__getattr__(k + "_composition_buffer")
+            )
 
         return model
 
