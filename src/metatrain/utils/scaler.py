@@ -60,6 +60,7 @@ class Scaler(torch.nn.Module):
         self,
         datasets: List[Union[Dataset, torch.utils.data.Subset]],
         additive_models: List[torch.nn.Module],
+        fixed_scaling_weights: Dict[str, float],
         treat_as_additive: bool,
     ) -> None:
         """
@@ -88,6 +89,12 @@ class Scaler(torch.nn.Module):
         # Fill the scales for each "new" target (i.e. those that do not already
         # have scales from a previous training run)
         for target_key in self.new_targets:
+            if target_key in fixed_scaling_weights:
+                # fixed scaling weights are provided
+                self.scales[self.output_name_to_output_index[target_key]] = (
+                    fixed_scaling_weights[target_key]
+                )
+                continue
             datasets_with_target = []
             for dataset in datasets:
                 if target_key in get_all_targets(dataset):

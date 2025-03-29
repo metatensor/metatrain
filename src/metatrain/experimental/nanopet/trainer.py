@@ -128,7 +128,7 @@ class Trainer:
         if self.hypers["scale_targets"]:
             logger.info("Calculating scaling weights")
             model.scaler.train_model(
-                train_datasets, model.additive_models, treat_as_additive=True
+                train_datasets, model.additive_models, self.hypers["fixed_scaling_weights"], treat_as_additive=True
             )
 
         if is_distributed:

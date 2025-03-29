@@ -108,6 +108,15 @@
           },
           "additionalProperties": false
         },
+        "fixed_scaling_weights": {
+          "type": "object",
+          "patternProperties": {
+            "^.*$": {
+              "type": "number"
+            }
+          },
+          "additionalProperties": false
+        },
         "per_structure_targets": {
           "type": "array",
           "items": {

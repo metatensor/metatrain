@@ -29,6 +29,7 @@ architecture:
     checkpoint_interval: 100
     scale_targets: true
     fixed_composition_weights: {}
+    fixed_scaling_weights: {}
     per_structure_targets: []
     log_mae: False
     log_separate_blocks: false
