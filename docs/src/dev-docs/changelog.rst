@@ -24,7 +24,15 @@ changelog <https://keepachangelog.com/en/1.1.0/>`_ format. This project follows
 Unreleased
 ----------
 
-Version 2025.3 - 2025-03-11
+Version 2025.4 - 2025-03-29
+---------------------------
+
+Changed
+#######
+
+- upgraded to ``metatensor.torch`` 0.7.4, which gives access to batched ASE evaluation
+
+Version 2025.3 - 2025-03-25
 ---------------------------
 
 Fixed
