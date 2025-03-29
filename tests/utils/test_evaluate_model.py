@@ -39,11 +39,12 @@ def test_evaluate_model(training, exported):
 
     if exported:
         model = model.export()
-        requested_neighbor_lists = get_requested_neighbor_lists(model)
-        systems = [
-            get_system_with_neighbor_lists(system, requested_neighbor_lists)
-            for system in systems
-        ]
+
+    requested_neighbor_lists = get_requested_neighbor_lists(model)
+    systems = [
+        get_system_with_neighbor_lists(system, requested_neighbor_lists)
+        for system in systems
+    ]
 
     systems = [system.to(torch.float32) for system in systems]
     outputs = evaluate_model(

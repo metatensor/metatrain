@@ -608,7 +608,6 @@ def test_composition_model_train_per_atom(where_is_center_type):
 
     composition_model.train_model(dataset, [])
     assert composition_model.atomic_types == [1, 8]
-    print(composition_model.weights["energy"].block().values)
     output_H = composition_model(
         [system_H], {"energy": ModelOutput(quantity="energy", unit="", per_atom=False)}
     )
