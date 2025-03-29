@@ -291,8 +291,9 @@ Units of the Energy and Forces are the same units given in input"""
             )
 
         if FITTING_SCHEME.FINETUNING == "heads":
-            model.ft_type = "heads"
-            pet_model = FinetuneWrapper(pet_model, ft_type=model.ft_type)
+            if not model.ft_type == "heads":
+                model.ft_type = "heads"
+                pet_model = FinetuneWrapper(pet_model, ft_type=model.ft_type)
             num_trainable_params = sum(
                 [p.numel() for p in pet_model.parameters() if p.requires_grad]
             )
