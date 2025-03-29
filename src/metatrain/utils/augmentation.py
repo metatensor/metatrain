@@ -7,7 +7,7 @@ from metatensor.torch import TensorBlock, TensorMap
 from metatensor.torch.atomistic import System
 from scipy.spatial.transform import Rotation
 
-from ....utils.data import TargetInfo
+from .data import TargetInfo
 
 
 def get_random_rotation():
