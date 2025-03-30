@@ -20,6 +20,7 @@ from ...utils.data import DatasetInfo, TargetInfo
 from ...utils.dtype import dtype_to_str
 from ...utils.metadata import append_metadata_references
 from ...utils.scaler import Scaler
+from .modules.finetuning import apply_finetuning_strategy
 from .modules.heads import (
     Head,
 )
@@ -521,9 +522,13 @@ class NativePET(torch.nn.Module):
         checkpoint = torch.load(path, weights_only=False, map_location="cpu")
         model_data = checkpoint["model_data"]
         model_state_dict = checkpoint["model_state_dict"]
+        finetune_config = checkpoint["train_hypers"].get("finetune", {})
 
         # Create the model
         model = cls(**model_data)
+        if finetune_config:
+            # Apply the finetuning strategy
+            model = apply_finetuning_strategy(model, finetune_config)
         state_dict_iter = iter(model_state_dict.values())
         dtype = next(state_dict_iter).dtype
         model.to(dtype).load_state_dict(model_state_dict)

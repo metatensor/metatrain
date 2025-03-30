@@ -29,6 +29,7 @@ from ...utils.transfer import (
     systems_and_targets_to_dtype,
 )
 from .model import NativePET
+from .modules.finetuning import apply_finetuning_strategy
 
 
 logger = logging.getLogger(__name__)
@@ -120,6 +121,10 @@ class Trainer:
                     # The following line attaches the neighbors lists to the system,
                     # and doesn't require to reassign the system to the dataset:
                     get_system_with_neighbor_lists(system, requested_neighbor_lists)
+
+        # Apply fine-tuning strategy if provided
+        if self.hypers["finetune"]:
+            model = apply_finetuning_strategy(model, self.hypers["finetune"])
 
         # Move the model to the device and dtype:
         model.to(device=device, dtype=dtype)

@@ -118,6 +118,64 @@
             "loss"
           ]
         },
+        "finetune": {
+          "type": "object",
+          "properties": {
+            "method": {
+              "type": "string",
+              "enum": [
+                "lora",
+                "heads"
+              ]
+            },
+            "config": {
+              "type": "object",
+              "oneOf": [
+                {
+                  "properties": {
+                    "alpha": {
+                      "type": "number"
+                    },
+                    "rank": {
+                      "type": "integer"
+                    }
+                  },
+                  "required": [
+                    "alpha",
+                    "rank"
+                  ],
+                  "additionalProperties": false
+                },
+                {
+                  "properties": {
+                    "head_modules": {
+                      "type": "array",
+                      "items": {
+                        "type": "string"
+                      }
+                    },
+                    "last_layer_modules": {
+                      "type": "array",
+                      "items": {
+                        "type": "string"
+                      }
+                    }
+                  },
+                  "required": [
+                    "head_modules",
+                    "last_layer_modules"
+                  ],
+                  "additionalProperties": false
+                }
+              ]
+            }
+          },
+          "required": [
+            "method",
+            "config"
+          ],
+          "additionalProperties": false
+        },
         "loss": {
           "type": "object",
           "properties": {
