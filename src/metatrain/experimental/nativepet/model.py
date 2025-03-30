@@ -532,6 +532,7 @@ class NativePET(torch.nn.Module):
         state_dict_iter = iter(model_state_dict.values())
         dtype = next(state_dict_iter).dtype
         model.to(dtype).load_state_dict(model_state_dict)
+        model.additive_models[0].sync_tensor_maps()
 
         # Sync the composition model
         for k in model.additive_models[0].dataset_info.targets:
