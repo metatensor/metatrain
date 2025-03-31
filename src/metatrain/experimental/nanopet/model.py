@@ -65,9 +65,9 @@ class NanoPET(torch.nn.Module):
         self.dataset_info = dataset_info
         # LOL!
         for i in self.hypers["excess_targets"]:
-            additional_output = int(self.hypers["excess_targets"][i])
-            target_size = dataset_info.targets[i].layout[0].values.shape[1]
-            prediction_size = target_size + additional_output
+            # additional_output = int(self.hypers["excess_targets"][i])
+            # target_size = dataset_info.targets[i].layout[0].values.shape[1]
+            prediction_size = int(self.hypers["excess_targets"][i])
             output_block = metatensor.torch.TensorBlock(
                 values= torch.empty(0, prediction_size).double(),
                 samples=metatensor.torch.Labels.empty('system'),
@@ -204,7 +204,7 @@ class NanoPET(torch.nn.Module):
 
     def restart(self, dataset_info: DatasetInfo) -> "NanoPET":
         # merge old and new dataset info
-        merged_info = self.dataset_info.union(dataset_info)
+        merged_info = self.dataset_info#.union(dataset_info) #!
         new_atomic_types = [
             at for at in merged_info.atomic_types if at not in self.atomic_types
         ]
@@ -228,7 +228,21 @@ class NanoPET(torch.nn.Module):
         self.dataset_info = merged_info
 
         # restart the composition and scaler models
-        self.additive_models[0].restart(
+        # self.additive_models[0].restart(
+        #     dataset_info=DatasetInfo(
+        #         length_unit=dataset_info.length_unit,
+        #         atomic_types=self.atomic_types,
+        #         targets={
+        #             target_name: target_info
+        #             for target_name, target_info in dataset_info.targets.items()
+        #             if CompositionModel.is_valid_target(target_name, target_info)
+        #         },
+        #     ),
+        # )
+        # self.scaler.restart(dataset_info)
+
+        composition_model = CompositionModel(
+            model_hypers={},
             dataset_info=DatasetInfo(
                 length_unit=dataset_info.length_unit,
                 atomic_types=self.atomic_types,
@@ -239,7 +253,24 @@ class NanoPET(torch.nn.Module):
                 },
             ),
         )
-        self.scaler.restart(dataset_info)
+        additive_models = [composition_model]
+        if self.hypers["zbl"]:
+            additive_models.append(
+                ZBL(
+                    {},
+                    dataset_info=DatasetInfo(
+                        length_unit=dataset_info.length_unit,
+                        atomic_types=self.atomic_types,
+                        targets={
+                            target_name: target_info
+                            for target_name, target_info in dataset_info.targets.items()
+                            if ZBL.is_valid_target(target_name, target_info)
+                        },
+                    ),
+                )
+            )
+        self.additive_models = torch.nn.ModuleList(additive_models)
+
 
         return self
 

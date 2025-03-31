@@ -57,6 +57,11 @@ class Trainer:
         assert dtype in NanoPET.__supported_dtypes__
 
         is_distributed = self.hypers["distributed"]
+        print ("Distributed: ", is_distributed)
+        print("Torch version:", torch.__version__)
+        print("CUDA available:", torch.cuda.is_available())
+        print("Number of GPUs:", torch.cuda.device_count())
+
 
         if is_distributed:
             distr_env = DistributedEnvironment(self.hypers["distributed_port"])
@@ -133,7 +138,7 @@ class Trainer:
         #     )
 
         if is_distributed:
-            model = DistributedDataParallel(model, device_ids=[device])
+            model = DistributedDataParallel(model, device_ids=[device], static_graph=True)
         # LOL! Only works with 1 train set, assumes permanent samples are placed at the end of the training set
         if self.hypers['use_permanent']:
             n_samples = self.hypers['use_permanent']['n_samples']
@@ -251,7 +256,10 @@ class Trainer:
 
         # Extract all the possible outputs and their gradients:
         train_targets = (model.module if is_distributed else model).dataset_info.targets
-        del train_targets["mtt::mask"] # LOL!
+        try:
+            del train_targets["mtt::mask"] # LOL!
+        except:
+            pass
         outputs_list = []
         for target_name, target_info in train_targets.items():
             outputs_list.append(target_name)
@@ -403,12 +411,15 @@ class Trainer:
                 torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
                 optimizer.step()
 
+                # for i in range(torch.cuda.device_count()):
+                #     print ("Training: ", train_count)
+                #     print(f"GPU {i}, rank {rank}: {torch.cuda.memory_allocated(i) / 1024**2:.2f} MB allocated")
+                    
+
                 if is_distributed:
                     # sum the loss over all processes
-                    torch.distributed.all_reduce(dos_loss)
-                    torch.distributed.all_reduce(int_MSE)
-                    torch.distributed.all_reduce(gradient_loss)
-                train_loss += (dos_loss + int_MSE).detach().cpu().numpy() * len(dos_target)
+                    torch.distributed.all_reduce(total_loss)
+                train_loss += total_loss * len(dos_target)
                 # train_rmse_calculator.update(predictions, targets)
                 # if self.hypers["log_mae"]:
                 #     train_mae_calculator.update(predictions, targets)
@@ -475,81 +486,92 @@ class Trainer:
                     total_loss = dos_loss + gradient_loss + int_MSE
                     total_loss.backward()
                     torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
-                    optimizer.step()
+
+                    # for i in range(torch.cuda.device_count()):
+                    #     print ("Permanent: ", train_count)
+                    #     print(f"GPU {i}, rank {rank}: {torch.cuda.memory_allocated(i) / 1024**2:.2f} MB allocated")
+
 
                     if is_distributed:
                         # sum the loss over all processes
-                        torch.distributed.all_reduce(dos_loss)
-                        torch.distributed.all_reduce(int_MSE)
-                        torch.distributed.all_reduce(gradient_loss)
-                    train_loss += (dos_loss + int_MSE).detach().cpu().numpy() * len(dos_target)
+                        torch.distributed.all_reduce(total_loss)
+                    train_loss += total_loss * len(dos_target)
                         
             train_loss /= train_count
             val_loss = 0.0
             val_count = 0.0
             for batch in val_dataloader:
-                systems, targets = batch
-                systems = [system.to(device=device) for system in systems]
-                targets = {
-                    key: value.to(device=device) for key, value in targets.items()
-                }
-                # for additive_model in (
-                #     model.module if is_distributed else model
-                # ).additive_models:
-                #     targets = remove_additive(
-                #         systems, targets, additive_model, train_targets
-                #     )
-                # targets = remove_scale(
-                #     targets, (model.module if is_distributed else model).scaler
-                # )
-                systems = [system.to(dtype=dtype) for system in systems]
-                targets = {key: value.to(dtype=dtype) for key, value in targets.items()}
-                predictions = evaluate_model(
-                    model,
-                    systems,
-#                    {key: train_targets[key] for key in targets.keys()}, #LOL!
-                    {key: train_targets[key] for key in train_targets.keys()}, # LOL!
-                    is_training=False,
-                )
+                with torch.no_grad():
+                    systems, targets = batch
+                    # systems = [system.to(device=device) for system in systems]
+                    # targets = {
+                    #     key: value.to(device=device) for key, value in targets.items()
+                    # }
+                    systems, targets = systems_and_targets_to_device(
+                        systems, targets, device
+                    )
+                    # for additive_model in (
+                    #     model.module if is_distributed else model
+                    # ).additive_models:
+                    #     targets = remove_additive(
+                    #         systems, targets, additive_model, train_targets
+                    #     )
+                    # targets = remove_scale(
+                    #     targets, (model.module if is_distributed else model).scaler
+                    # )
+                    # systems = [system.to(dtype=dtype) for system in systems]
+                    # targets = {key: value.to(dtype=dtype) for key, value in targets.items()}
+                    target_dos_batch, mask_batch = targets['mtt::dos'], targets['mtt::mask'] # LOL!
+                    predictions = evaluate_model(
+                        model,
+                        systems,
+    #                    {key: train_targets[key] for key in targets.keys()}, #LOL!
+                        {key: train_targets[key] for key in train_targets.keys()}, # LOL!
+                        is_training=False,
+                    )
 
-                # average by the number of atoms
-                predictions = average_by_num_atoms(
-                    predictions, systems, per_structure_targets
-                )
-                
-                # targets = average_by_num_atoms(targets, systems, per_structure_targets)
+                    # average by the number of atoms
+                    predictions = average_by_num_atoms(
+                        predictions, systems, per_structure_targets
+                    )
+                    
+                    # targets = average_by_num_atoms(targets, systems, per_structure_targets)
 
-                # val_loss_batch = loss_fn(predictions, targets)
-                dos_predictions = predictions['mtt::dos'][0].values
-                dos_target = target_dos_batch[0].values
-                dos_mask = (mask_batch[0].values).int()
+                    # val_loss_batch = loss_fn(predictions, targets)
+                    dos_predictions = predictions['mtt::dos'][0].values
+                    # print ("Validation dos_predictions shape: ", dos_predictions.shape)
+                    dos_target = target_dos_batch[0].values
+                    # print ("Validation dos_target shape: ", dos_target.shape)
+                    dos_mask = (mask_batch[0].values).int()
+                    # print ("Validation dos_mask shape: ", dos_mask.shape)
+                    dos_loss, discrete_shift = get_dynamic_shift_agnostic_mse(dos_predictions, dos_target, dos_mask, return_shift = True)
+                    # Obtain aligned targets
+                    aligned_predictions = []
+                    for index, prediction in enumerate(dos_predictions):
+                        aligned_prediction = prediction[discrete_shift[index]:discrete_shift[index] + dos_mask.shape[1]]
+                        aligned_predictions.append(aligned_prediction)
+                    aligned_predictions = torch.vstack(aligned_predictions)
+                    int_aligned_predictions = torch.cumulative_trapezoid(aligned_predictions, dx = 0.05, dim = 1)
+                    int_aligned_targets = torch.cumulative_trapezoid(dos_target, dx = 0.05, dim = 1)
+                    int_error = (int_aligned_predictions - int_aligned_targets)**2
+                    int_error = int_error * dos_mask[:,1:].unsqueeze(dim=1) # only penalize the integral where the DOS is defined
+                    int_MSE = torch.mean(torch.trapezoid(int_error, dx = 0.05, dim = 1)) * self.hypers['integral_penalty']
+                    val_count += len(dos_target)
+                    # Calculate gradient loss
+                    gradient_losses = torch.nn.functional.conv1d(aligned_predictions.unsqueeze(dim = 1), t4).squeeze(dim = 1)
+                    dim_loss = dos_mask.shape[1] - gradient_losses.shape[1]
+                    gradient_loss = torch.mean(torch.trapezoid(((gradient_losses * (~dos_mask[:, dim_loss:]))**2),
+                                                                        dx = 0.05, dim = 1)) * self.hypers['gradient_penalty']
+                    batch_loss = (dos_loss + int_MSE) * len(dos_target)
+                    # for i in range(torch.cuda.device_count()):
+                    #     print ("Validation: ", val_count)
+                    #     print(f"GPU {i}, rank {rank}: {torch.cuda.memory_allocated(i) / 1024**2:.2f} MB allocated")
+                    if is_distributed:
+                        # sum the loss over all processes
+                        torch.distributed.all_reduce(batch_loss)
+                    val_loss += batch_loss
 
-                dos_loss, discrete_shift = get_dynamic_shift_agnostic_mse(dos_predictions, dos_target, dos_mask, return_shift = True)
-                # Obtain aligned targets
-                aligned_predictions = []
-                for index, prediction in enumerate(dos_predictions):
-                    aligned_prediction = prediction[discrete_shift[index]:discrete_shift[index] + dos_mask.shape[1]]
-                    aligned_predictions.append(aligned_prediction)
-                aligned_predictions = torch.vstack(aligned_predictions)
-                int_aligned_predictions = torch.cumulative_trapezoid(aligned_predictions, dx = 0.05, dim = 1)
-                int_aligned_targets = torch.cumulative_trapezoid(dos_target, dx = 0.05, dim = 1)
-                int_error = (int_aligned_predictions - int_aligned_targets)**2
-                int_error = int_error * dos_mask[:,1:].unsqueeze(dim=1) # only penalize the integral where the DOS is defined
-                int_MSE = torch.mean(torch.trapezoid(int_error, dx = 0.05, dim = 1)) * self.hypers['integral_penalty']
-                val_count += len(dos_target)
-                # Calculate gradient loss
-                # gradient_losses = torch.nn.functional.conv1d(aligned_predictions.unsqueeze(dim = 1), t4).squeeze(dim = 1)
-                # dim_loss = dos_mask.shape[1] - gradient_losses.shape[1]
-                # gradient_loss = torch.mean(torch.trapezoid(((gradient_losses * (~dos_mask[:, dim_loss:]))**2),
-                #                                                     dx = 0.05, dim = 1)) * self.hypers['gradient_penalty']
-                val_loss += (dos_loss + int_MSE).detach().cpu().numpy() * len(dos_target)
 
-
-                if is_distributed:
-                    # sum the loss over all processes
-                    torch.distributed.all_reduce(dos_loss)
-                    torch.distributed.all_reduce(int_MSE)
-                    torch.distributed.all_reduce(gradient_loss)
                 # val_loss += val_loss_batch.item()
                 # val_rmse_calculator.update(predictions, targets)
                 # if self.hypers["log_mae"]:
