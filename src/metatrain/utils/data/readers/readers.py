@@ -1,5 +1,4 @@
 import importlib
-import logging
 import warnings
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
@@ -10,8 +9,6 @@ from omegaconf import DictConfig
 
 from ..target_info import TargetInfo
 
-
-logger = logging.getLogger(__name__)
 
 AVAILABLE_READERS = ["ase", "metatensor"]
 """:py:class:`list`: list containing all implemented reader libraries"""

@@ -24,6 +24,11 @@ changelog <https://keepachangelog.com/en/1.1.0/>`_ format. This project follows
 Unreleased
 ----------
 
+Added
+#####
+
+- Save loss history in a ``.csv`` file
+
 Version 2025.4 - 2025-03-29
 ---------------------------
 

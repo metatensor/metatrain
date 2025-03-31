@@ -183,7 +183,7 @@ def _eval_targets(
     """
 
     if len(dataset) == 0:
-        logger.info("This dataset is empty. No evaluation will be performed.")
+        logging.info("This dataset is empty. No evaluation will be performed.")
         return None
 
     # Attach neighbor lists to the systems:
@@ -199,13 +199,13 @@ def _eval_targets(
     device = "cpu"
     if torch.cuda.is_available() and "cuda" in model.capabilities().supported_devices:
         device = "cuda"
-    logger.info(f"Running on device {device} with dtype {dtype}")
+    logging.info(f"Running on device {device} with dtype {dtype}")
     model.to(dtype=dtype, device=device)
 
     if len(dataset) % batch_size != 0:
         # debug level: we don't want to clutter the output at the end of training
         # gross issues will still show up in the standard deviation of the timings
-        logger.debug(
+        logging.debug(
             f"The dataset size ({len(dataset)}) is not a multiple of the batch size "
             f"({batch_size}). {len(dataset) // batch_size} batches will be "
             f"constructed with a batch size of {batch_size}, and the last batch will "
@@ -305,7 +305,7 @@ def _eval_targets(
     timings_per_atom = np.array(timings_per_atom)
     mean_per_atom = np.mean(timings_per_atom)
     std_per_atom = np.std(timings_per_atom)
-    logger.info(
+    logging.info(
         f"evaluation time: {total_time:.2f} s "
         f"[{1000.0 * mean_per_atom:.4f} ± "
         f"{1000.0 * std_per_atom:.4f} ms per atom]"
@@ -337,7 +337,7 @@ def eval_model(
     :param output: Path to save the predicted values.
     :param check_consistency: Whether to run consistency checks during model evaluation.
     """
-    logger.info("Setting up evaluation set.")
+    logging.info("Setting up evaluation set.")
 
     if isinstance(output, str):
         output = Path(output)
@@ -350,7 +350,7 @@ def eval_model(
         else:
             extra_log_message = f" with index {i}"
             file_index_suffix = f"_{i}"
-        logger.info(f"Evaluating dataset{extra_log_message}")
+        logging.info(f"Evaluating dataset{extra_log_message}")
 
         eval_systems = read_systems(
             filename=options["systems"]["read_from"],

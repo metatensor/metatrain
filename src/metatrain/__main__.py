@@ -17,10 +17,7 @@ from .cli.export import (
 )
 from .cli.train import _add_train_model_parser, _prepare_train_model_args, train_model
 from .utils.distributed.logging import is_main_process
-from .utils.logging import get_cli_input, setup_logging
-
-
-logger = logging.getLogger(__name__)
+from .utils.logging import ROOT_LOGGER, setup_logging
 
 
 def _datetime_output_path(now: datetime) -> Path:
@@ -103,12 +100,7 @@ def main():
         log_file = checkpoint_dir / "train.log"
         error_file = checkpoint_dir / error_file
 
-    with setup_logging(logger, log_file=log_file, level=level):
-        logging.info(f"Package directory: {PACKAGE_ROOT}")
-        logging.info(f"Working directory: {Path('.').absolute()}")
-        logging.info(f"Metatrain version: {__version__}")
-        logging.info(f"Executed command: {get_cli_input()}")
-
+    with setup_logging(ROOT_LOGGER, log_file=log_file, level=level):
         try:
             if callable == "eval_model":
                 _prepare_eval_model_args(args)

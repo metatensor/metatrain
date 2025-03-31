@@ -11,9 +11,6 @@ from ..utils.io import check_file_extension, load_model
 from .formatter import CustomHelpFormatter
 
 
-logger = logging.getLogger(__name__)
-
-
 def _add_export_model_parser(subparser: argparse._SubParsersAction) -> None:
     """Add `export_model` paramaters to an argparse (sub)-parser."""
 
@@ -128,4 +125,4 @@ def export_model(
         model = model.export(metadata)
 
     model.save(path, collect_extensions=extensions_path)
-    logger.info(f"Model exported to '{path}' and extensions to '{extensions_path}'")
+    logging.info(f"Model exported to '{path}' and extensions to '{extensions_path}'")
