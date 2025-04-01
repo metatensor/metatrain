@@ -712,7 +712,11 @@ class SoapBpnn(torch.nn.Module):
                     block.properties.values
                 )
                 self.basis_calculators[target_name][dict_key] = TensorBasis(
-                    self.atomic_types, self.hypers["soap"], o3_lambda=0, o3_sigma=1
+                    self.atomic_types,
+                    self.hypers["soap"],
+                    o3_lambda=0,
+                    o3_sigma=1,
+                    add_lambda_basis=self.hypers["add_lambda_basis"],
                 )
         elif target.is_spherical:
             for key, block in target.layout.items():
@@ -725,7 +729,11 @@ class SoapBpnn(torch.nn.Module):
                 o3_lambda = int(key[0])
                 o3_sigma = int(key[1])
                 self.basis_calculators[target_name][dict_key] = TensorBasis(
-                    self.atomic_types, self.hypers["soap"], o3_lambda, o3_sigma
+                    self.atomic_types,
+                    self.hypers["soap"],
+                    o3_lambda,
+                    o3_sigma,
+                    self.hypers["add_lambda_basis"],
                 )
         else:
             raise ValueError("SOAP-BPNN only supports scalar and spherical targets.")
@@ -772,11 +780,24 @@ class SoapBpnn(torch.nn.Module):
             for n, k in zip(key.names, key.values):
                 dict_key += f"_{n}_{int(k)}"
             # the spherical tensor basis is made of 2*l+1 tensors, same as the number
-            # of components
+            # of components. The lambda basis adds a further 2*l+1 tensors, but only
+            # if lambda > 1
+            basis_size = (
+                1
+                if target.is_scalar
+                else (
+                    len(block.components[0])
+                    if (len(block.components[0]) == 1 or len(block.components[0]) == 3)
+                    else (
+                        2 * len(block.components[0])
+                        if self.hypers["add_lambda_basis"]
+                        else len(block.components[0])
+                    )
+                )
+            )
             out_properties = Labels.range(
                 "property",
-                len(block.properties.values)
-                * (1 if target.is_scalar else len(block.components[0])),
+                len(block.properties.values) * basis_size,
             )
             last_layer_arguments = {
                 "in_keys": Labels(
@@ -784,8 +805,7 @@ class SoapBpnn(torch.nn.Module):
                     values=torch.tensor(self.atomic_types).reshape(-1, 1),
                 ),
                 "in_features": self.n_inputs_last_layer,
-                "out_features": len(block.properties.values)
-                * (1 if target.is_scalar else len(block.components[0])),
+                "out_features": len(block.properties.values) * basis_size,
                 "bias": False,
                 "out_properties": [out_properties for _ in self.atomic_types],
             }

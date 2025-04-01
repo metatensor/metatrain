@@ -29,9 +29,6 @@
             },
             "max_angular": {
               "type": "integer"
-            },
-            "max_angular_basis": {
-              "type": "integer"
             }
           },
           "additionalProperties": false
@@ -60,6 +57,9 @@
             }
           },
           "additionalProperties": false
+        },
+        "add_lambda_basis": {
+          "type": "boolean"
         },
         "zbl": {
           "type": "boolean"
