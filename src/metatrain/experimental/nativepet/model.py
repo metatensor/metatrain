@@ -20,6 +20,7 @@ from ...utils.data import DatasetInfo, TargetInfo
 from ...utils.dtype import dtype_to_str
 from ...utils.metadata import append_metadata_references
 from ...utils.scaler import Scaler
+from ...utils.sum_over_atoms import sum_over_atoms
 from .modules.finetuning import apply_finetuning_strategy
 from .modules.heads import (
     Head,
@@ -305,9 +306,10 @@ class NativePET(torch.nn.Module):
             if features_options.per_atom:
                 return_dict["features"] = feature_tmap
             else:
-                return_dict["features"] = metatensor.torch.sum_over_samples(
-                    feature_tmap, ["atom"]
-                )
+                # return_dict["features"] = metatensor.torch.sum_over_samples(
+                #     feature_tmap, ["atom"]
+                # )
+                return_dict["features"] = sum_over_atoms(feature_tmap)
 
         central_tokens_features_dict: Dict[str, List[torch.Tensor]] = {}
         messages_bonds_features_dict: Dict[str, List[torch.Tensor]] = {}
