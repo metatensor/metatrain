@@ -158,6 +158,14 @@ def test_equivariance_inversion(o3_lambda, o3_sigma):
         pbc=original_system.pbc,
     )
 
+    requested_neighbor_lists = get_requested_neighbor_lists(model)
+    original_system = get_system_with_neighbor_lists(
+        original_system, requested_neighbor_lists
+    )
+    inverted_system = get_system_with_neighbor_lists(
+        inverted_system, requested_neighbor_lists
+    )
+
     original_output = model(
         [original_system],
         {"spherical_target": model.outputs["spherical_target"]},

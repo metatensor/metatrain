@@ -202,7 +202,7 @@ class TensorBasis(torch.nn.Module):
                         dim=1,
                     ),
                 ),
-                in_features=(self.spex_calculator.calculator.radial.n_per_l[1])
+                in_features=(self.spex_calculator.calculator.radial.n_per_l[o3_lambda])
                 * len(self.atomic_types),
                 out_features=2 * o3_lambda + 1,
                 bias=False,
