@@ -13,6 +13,12 @@ architecture:
     num_gnn_layers: 2
     residual_factor: 0.5
     zbl: false
+    long_range: 
+      enable: false
+      use_ewald: false
+      smearing: 1.4
+      kspace_resolution: 1.33
+      interpolation_nodes: 5
 
   training:
     distributed: false

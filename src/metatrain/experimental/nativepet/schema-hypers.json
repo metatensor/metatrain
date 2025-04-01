@@ -40,6 +40,26 @@
         },
         "zbl": {
           "type": "boolean"
+        },
+        "long_range": {
+          "type": "object",
+          "properties": {
+            "enable": {
+              "type": "boolean"
+            },
+            "use_ewald": {
+              "type": "boolean"
+            },
+            "smearing": {
+              "type": "number"
+            },
+            "kspace_resolution": {
+              "type": "number"
+            },
+            "interpolation_nodes": {
+              "type": "integer"
+            }
+          }
         }
       },
       "additionalProperties": false
@@ -170,10 +190,6 @@
               ]
             }
           },
-          "required": [
-            "method",
-            "config"
-          ],
           "additionalProperties": false
         },
         "loss": {

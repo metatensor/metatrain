@@ -449,9 +449,7 @@ def native_systems_to_batch_dict(
             cell_shifts.to(cells.dtype),
             cells[system_indices[centers]],
         )
-
     edge_vectors = positions[neighbors] - positions[centers] + cell_contributions
-
     bincount = torch.bincount(centers)
     if bincount.numel() == 0:  # no edges
         max_edges_per_node = 0

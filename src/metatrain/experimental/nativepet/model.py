@@ -18,6 +18,7 @@ from metatensor.torch.atomistic import (
 from ...utils.additive import ZBL, CompositionModel
 from ...utils.data import DatasetInfo, TargetInfo
 from ...utils.dtype import dtype_to_str
+from ...utils.long_range import DummyLongRangeFeaturizer, LongRangeFeaturizer
 from ...utils.metadata import append_metadata_references
 from ...utils.scaler import Scaler
 from .modules.finetuning import apply_finetuning_strategy
@@ -103,6 +104,18 @@ class NativePET(torch.nn.Module):
         for target_name, target_info in dataset_info.targets.items():
             self.target_names.append(target_name)
             self._add_output(target_name, target_info)
+
+        # long-range module
+        if self.hypers["long_range"]["enable"]:
+            self.long_range = True
+            self.long_range_featurizer = LongRangeFeaturizer(
+                hypers=self.hypers["long_range"],
+                feature_dim=self.hypers["d_pet"],
+                neighbor_list_options=self.requested_nl,
+            )
+        else:
+            self.long_range = False
+            self.long_range_featurizer = DummyLongRangeFeaturizer()  # for torchscript
 
         # additive models: these are handled by the trainer at training
         # time, and they are added to the output at evaluation time
@@ -276,6 +289,17 @@ class NativePET(torch.nn.Module):
             )
             central_tokens_list.append(result["central_token"])
             output_messages_list.append(output_messages)
+
+        if self.long_range:
+            flattened_lengths = lengths[~mask]
+            for i in range(len(self.gnn_layers)):
+                central_tokens_lr_features = self.long_range_featurizer(
+                    systems, central_tokens_list[i], flattened_lengths
+                )
+                print(central_tokens_lr_features)
+                central_tokens_list[i] = (
+                    central_tokens_list[i] + central_tokens_lr_features
+                ) * 0.5**0.5
 
         central_tokens_features = torch.cat(central_tokens_list, dim=1)
         output_messages_features = torch.cat(output_messages_list, dim=2)
