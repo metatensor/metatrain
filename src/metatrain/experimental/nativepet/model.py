@@ -388,9 +388,10 @@ class NativePET(torch.nn.Module):
             if last_layer_features_options.per_atom:
                 return_dict[output_name] = last_layer_feature_tmap
             else:
-                return_dict[output_name] = metatensor.torch.sum_over_samples(
-                    last_layer_feature_tmap, ["atom"]
-                )
+                # return_dict[output_name] = metatensor.torch.sum_over_samples(
+                #     last_layer_feature_tmap, ["atom"]
+                # )
+                return_dict[output_name] = sum_over_atoms(last_layer_feature_tmap)
 
         atomic_properties_tmap_dict: Dict[str, TensorMap] = {}
 
@@ -494,9 +495,10 @@ class NativePET(torch.nn.Module):
             if outputs[output_name].per_atom:
                 return_dict[output_name] = atomic_property
             else:
-                return_dict[output_name] = metatensor.torch.sum_over_samples(
-                    atomic_property, ["atom"]
-                )
+                # return_dict[output_name] = metatensor.torch.sum_over_samples(
+                #     atomic_property, ["atom"]
+                # )
+                return_dict[output_name] = sum_over_atoms(atomic_property)
 
         if not self.training:
             # at evaluation, we also introduce the scaler and additive contributions
