@@ -1,6 +1,7 @@
 from urllib.parse import urlparse
 from urllib.request import urlretrieve
 
+import metatensor.torch
 import torch
 from metatensor.torch.atomistic import ModelOutput
 
@@ -662,6 +663,28 @@ def test_forces_loss_grads_compatibility():
         if pet_key in pet_params:
             pet_param = pet_params.pop(pet_key)
             torch.testing.assert_close(nativepet_param.grad, pet_param.grad)
+
+
+def test_last_layer_features_compatibility():
+    nativepet_model, pet_model, systems = get_test_environment()
+    system = systems[0]
+    outputs = {
+        "energy": ModelOutput(per_atom=False),
+        "mtt::aux::energy_last_layer_features": ModelOutput(per_atom=False),
+    }
+
+    nativepet_predictions = nativepet_model([system], outputs)
+    pet_predictions = pet_model([system], outputs)
+
+    nativepet_last_layer_features = nativepet_predictions[
+        "mtt::aux::energy_last_layer_features"
+    ]
+
+    pet_last_layer_features = pet_predictions["mtt::aux::energy_last_layer_features"]
+
+    assert metatensor.torch.equal(
+        nativepet_last_layer_features, pet_last_layer_features
+    )
 
 
 def test_pet_mad_model_compatibility(monkeypatch, tmp_path):
