@@ -8,6 +8,7 @@ from metatensor.torch.atomistic import ModelOutput, System
 
 from ..data import Dataset, DatasetInfo, TargetInfo, get_all_targets, get_atomic_types
 from ..jsonschema import validate
+from ..sum_over_atoms import sum_over_atoms
 from ..transfer import systems_and_targets_to_device
 from .remove import remove_additive
 
@@ -462,9 +463,10 @@ class CompositionModel(torch.nn.Module):
 
             if not output_options.per_atom:  # sum over atoms if needed
                 composition_result_dict[output_name] = (
-                    metatensor.torch.sum_over_samples(
-                        composition_result_dict[output_name], sample_names="atom"
-                    )
+                    # metatensor.torch.sum_over_samples(
+                    #     composition_result_dict[output_name], sample_names="atom"
+                    # )
+                    sum_over_atoms(composition_result_dict[output_name])
                 )
 
         return composition_result_dict
