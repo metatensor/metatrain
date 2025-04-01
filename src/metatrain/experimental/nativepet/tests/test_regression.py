@@ -210,3 +210,5 @@ def test_regression_energies_forces_train():
         output["energy"].block().gradient("positions").values[0, :, 0],
         expected_gradients_output,
     )
+
+    raise RuntimeError

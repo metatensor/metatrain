@@ -86,6 +86,13 @@ def convert_model_data_from_legacy_pet(
         "num_gnn_layers": hypers["N_GNN_LAYERS"],
         "residual_factor": hypers["RESIDUAL_FACTOR"],
         "zbl": hypers["USE_ZBL"],
+        "long_range": {
+            "enable": False,
+            "use_ewald": False,
+            "smearing": 1.4,
+            "kspace_resolution": 1.33,
+            "interpolation_nodes": 5,
+        },
     }
 
     return new_model_data
