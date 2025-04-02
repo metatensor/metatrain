@@ -488,66 +488,66 @@ def train_model(
     # EVALUATE FINAL MODEL ####
     ###########################
 
-    mts_atomistic_model = load_model(
-        path=output_checked,
-        extensions_directory=extensions_path,
-    )
-    mts_atomistic_model = mts_atomistic_model.to(final_device)
+    # mts_atomistic_model = load_model(
+    #     path=output_checked,
+    #     extensions_directory=extensions_path,
+    # )
+    # mts_atomistic_model = mts_atomistic_model.to(final_device)
 
-    batch_size = _get_batch_size_from_hypers(hypers)
-    if batch_size is None:
-        logger.warning(
-            "Could not find batch size in hypers dictionary. "
-            "Using default value of 1 for final evaluation."
-        )
-        batch_size = 1
-    else:
-        logger.info(f"Running final evaluation with batch size {batch_size}")
+    # batch_size = _get_batch_size_from_hypers(hypers)
+    # if batch_size is None:
+    #     logger.warning(
+    #         "Could not find batch size in hypers dictionary. "
+    #         "Using default value of 1 for final evaluation."
+    #     )
+    #     batch_size = 1
+    # else:
+    #     logger.info(f"Running final evaluation with batch size {batch_size}")
 
-    for i, train_dataset in enumerate(train_datasets):
-        if len(train_datasets) == 1:
-            extra_log_message = ""
-        else:
-            extra_log_message = f" with index {i}"
+    # for i, train_dataset in enumerate(train_datasets):
+    #     if len(train_datasets) == 1:
+    #         extra_log_message = ""
+    #     else:
+    #         extra_log_message = f" with index {i}"
 
-        logger.info(f"Evaluating training dataset{extra_log_message}")
-        _eval_targets(
-            mts_atomistic_model,
-            train_dataset,
-            dataset_info.targets,
-            return_predictions=False,
-            batch_size=batch_size,
-        )
+    #     logger.info(f"Evaluating training dataset{extra_log_message}")
+    #     _eval_targets(
+    #         mts_atomistic_model,
+    #         train_dataset,
+    #         dataset_info.targets,
+    #         return_predictions=False,
+    #         batch_size=batch_size,
+    #     )
 
-    for i, val_dataset in enumerate(val_datasets):
-        if len(val_datasets) == 1:
-            extra_log_message = ""
-        else:
-            extra_log_message = f" with index {i}"
+    # for i, val_dataset in enumerate(val_datasets):
+    #     if len(val_datasets) == 1:
+    #         extra_log_message = ""
+    #     else:
+    #         extra_log_message = f" with index {i}"
 
-        logger.info(f"Evaluating validation dataset{extra_log_message}")
-        _eval_targets(
-            mts_atomistic_model,
-            val_dataset,
-            dataset_info.targets,
-            return_predictions=False,
-            batch_size=batch_size,
-        )
+    #     logger.info(f"Evaluating validation dataset{extra_log_message}")
+    #     _eval_targets(
+    #         mts_atomistic_model,
+    #         val_dataset,
+    #         dataset_info.targets,
+    #         return_predictions=False,
+    #         batch_size=batch_size,
+    #     )
 
-    for i, test_dataset in enumerate(test_datasets):
-        if len(test_datasets) == 1:
-            extra_log_message = ""
-        else:
-            extra_log_message = f" with index {i}"
+    # for i, test_dataset in enumerate(test_datasets):
+    #     if len(test_datasets) == 1:
+    #         extra_log_message = ""
+    #     else:
+    #         extra_log_message = f" with index {i}"
 
-        logger.info(f"Evaluating test dataset{extra_log_message}")
-        _eval_targets(
-            mts_atomistic_model,
-            test_dataset,
-            dataset_info.targets,
-            return_predictions=False,
-            batch_size=batch_size,
-        )
+    #     logger.info(f"Evaluating test dataset{extra_log_message}")
+    #     _eval_targets(
+    #         mts_atomistic_model,
+    #         test_dataset,
+    #         dataset_info.targets,
+    #         return_predictions=False,
+    #         batch_size=batch_size,
+    #     )
 
 
 def _get_batch_size_from_hypers(hypers: Union[Dict, DictConfig]) -> Optional[int]:
