@@ -136,12 +136,17 @@ def nef_array_to_edges(nef_array, centers, nef_to_edges_neighbor):
     return nef_array[centers, nef_to_edges_neighbor]
 
 
-@torch.jit.script
 def compute_neighbors_pos(
     nef_indices: torch.Tensor,
     corresponding_edges: torch.Tensor,
     nef_mask: torch.Tensor,
 ) -> torch.Tensor:
+    """
+    Creates a reversed neighborlist, where for each
+    center atom `i` and its neighbor `j` in the original
+    neighborlist, the position of atom `i` in the list
+    of neighbors of atom `j` is returned.
+    """
     N, K = nef_indices.shape
 
     flat_edge_indices = nef_indices.reshape(-1)
@@ -149,7 +154,7 @@ def compute_neighbors_pos(
     flat_mask = nef_mask.reshape(-1)
 
     max_edge_index = int(flat_edge_indices.max().item()) + 1
-    size: List[int] = [max_edge_index]  # ✅ convert to List[int]
+    size: List[int] = [max_edge_index]
 
     edge_index_to_position = torch.full(
         size,

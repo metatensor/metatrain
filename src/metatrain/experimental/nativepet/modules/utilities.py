@@ -40,6 +40,19 @@ def systems_to_batch_dict(
     all_species_list: List[int],
     species_to_species_index: torch.Tensor,
 ) -> Dict[str, torch.Tensor]:
+    """
+    Converts a list of systems to a batch dictionary,
+    required for the NativePET model. The batch dictionary
+    consists of the following keys:
+    - `central_species`: The atomic species of the central atoms
+    - `neighbor_species`: The atomic species of the neighboring atoms
+    - `x`: The cartedian edge vectors between the central atoms and their neighbors
+    - `mask`: A padding mask indicating which neighbors are real, and which are padded
+    - `neighbors_index`: The indices of the neighboring atoms for each central atom
+    - `nums`: The number of neighbors for each central atom
+    - `neighbors_pos`: The reversed neighbor list
+    - `batch`: The batch indices for each atom
+    """
     device = systems[0].positions.device
     system_indices = torch.concatenate(
         [
