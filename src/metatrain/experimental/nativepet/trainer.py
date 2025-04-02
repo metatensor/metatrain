@@ -31,7 +31,8 @@ from ...utils.transfer import (
 from .model import NativePET
 from .modules.finetuning import apply_finetuning_strategy
 from .DOSutils import get_dynamic_shift_agnostic_mse
-
+import psutil
+import os
 
 logger = logging.getLogger(__name__)
 
@@ -423,6 +424,13 @@ class Trainer:
                 total_loss.backward()
                 # torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
                 optimizer.step()
+                # print ("Training")
+                # process = psutil.Process(os.getpid())
+
+                # # Get memory info of the process
+                # memory_info = process.memory_info()
+                # print(f"RSS (Resident Set Size): {memory_info.rss / (1024 ** 2)} MB")
+                # print(f"VMS (Virtual Memory Size): {memory_info.vms / (1024 ** 2)} MB")
 
                 if is_distributed:
                     # sum the loss over all processes
@@ -510,6 +518,7 @@ class Trainer:
             val_loss = 0.0
             val_count = 0.0
             for batch in val_dataloader:
+                # with torch.no_grad():
                 systems, targets = batch
                 # systems = [system.to(device=device) for system in systems]
                 # targets = {
@@ -536,7 +545,7 @@ class Trainer:
                     systems,
 #                    {key: train_targets[key] for key in targets.keys()}, #LOL!
                     {key: train_targets[key] for key in train_targets.keys()}, # LOL!
-                    is_training=True,
+                    is_training=False,
                 )
 
                 # average by the number of atoms
@@ -545,7 +554,7 @@ class Trainer:
                 )
                 # targets = average_by_num_atoms(targets, systems, per_structure_targets)
 
-                # val_loss_batch = loss_fn(predictions, targets)
+#                 # val_loss_batch = loss_fn(predictions, targets)
                 dos_predictions = predictions['mtt::dos'][0].values
                 dos_target = target_dos_batch[0].values
                 dos_mask = (mask_batch[0].values).bool()
@@ -563,22 +572,28 @@ class Trainer:
                 int_MSE = torch.mean(torch.trapezoid(int_error, dx = 0.05, dim = 1)) * self.hypers['integral_penalty']
                 val_count += len(dos_target)
                 # Calculate gradient loss
-                gradient_losses = torch.nn.functional.conv1d(aligned_predictions.unsqueeze(dim = 1), t4).squeeze(dim = 1)
-                dim_loss = dos_mask.shape[1] - gradient_losses.shape[1]
-                gradient_loss = torch.mean(torch.trapezoid(((gradient_losses * (~dos_mask[:, dim_loss:]))**2),
-                                                                    dx = 0.05, dim = 1)) * self.hypers['gradient_penalty']
-                batch_loss = (dos_loss + int_MSE) * len(dos_target)
-                for i in range(torch.cuda.device_count()):
-                    print ("Validation: ", val_count)
-                    print(f"GPU {i}, rank {rank}: {torch.cuda.memory_allocated(i) / 1024**2:.2f} MB allocated")
+                # gradient_losses = torch.nn.functional.conv1d(aligned_predictions.unsqueeze(dim = 1), t4).squeeze(dim = 1)
+                # dim_loss = dos_mask.shape[1] - gradient_losses.shape[1]
+                # gradient_loss = torch.mean(torch.trapezoid(((gradient_losses * (~dos_mask[:, dim_loss:]))**2),
+                #                                                     dx = 0.05, dim = 1)) * self.hypers['gradient_penalty']
+                batch_loss = ((dos_loss + int_MSE) * len(dos_target)).detach()
+                # for i in range(torch.cuda.device_count()):
+                #     print ("Validation: ", val_count)
+                #     print(f"GPU {i}, rank {rank}: {torch.cuda.memory_allocated(i) / 1024**2:.2f} MB allocated")
                 if is_distributed:
                     # sum the loss over all processes
                     torch.distributed.all_reduce(batch_loss)
                 val_loss += batch_loss
-                # val_rmse_calculator.update(predictions, targets)
-                # if self.hypers["log_mae"]:
-                #     val_mae_calculator.update(predictions, targets)
-            val_loss /= val_count
+    #             print ("Validation")
+    #             process = psutil.Process(os.getpid())
+    #             # Get memory info of the process
+    #             memory_info = process.memory_info()
+    #             print(f"RSS (Resident Set Size): {memory_info.rss / (1024 ** 2)} MB")
+    #             print(f"VMS (Virtual Memory Size): {memory_info.vms / (1024 ** 2)} MB")
+                    # val_rmse_calculator.update(predictions, targets)
+                    # if self.hypers["log_mae"]:
+                    #     val_mae_calculator.update(predictions, targets)
+                val_loss /= val_count
 
             # finalized_val_info = val_rmse_calculator.finalize(
             #     not_per_atom=["positions_gradients"] + per_structure_targets,
