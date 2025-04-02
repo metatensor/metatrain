@@ -541,6 +541,13 @@ class SoapBpnn(torch.nn.Module):
         model = cls(**model_data)
         dtype = next(iter(model_state_dict.values())).dtype
         model.to(dtype).load_state_dict(model_state_dict)
+        model.additive_models[0].sync_tensor_maps()
+
+        # Sync the composition model
+        for k in model.additive_models[0].dataset_info.targets:
+            model.additive_models[0].weights[k] = metatensor.torch.load_buffer(
+                model.additive_models[0].__getattr__(k + "_composition_buffer")
+            )
 
         return model
 
