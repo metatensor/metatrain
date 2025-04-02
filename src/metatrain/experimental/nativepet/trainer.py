@@ -421,7 +421,7 @@ class Trainer:
                                                                     dx = 0.05, dim = 1)) * self.hypers['gradient_penalty']
                 total_loss = dos_loss + gradient_loss + int_MSE
                 total_loss.backward()
-                torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
+                # torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
                 optimizer.step()
 
                 if is_distributed:
@@ -494,7 +494,7 @@ class Trainer:
                                                                         dx = 0.05, dim = 1)) * self.hypers['gradient_penalty']
                     total_loss = dos_loss + gradient_loss + int_MSE
                     total_loss.backward()
-                    torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
+                    # torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
 
                     # for i in range(torch.cuda.device_count()):
                     #     print ("Permanent: ", train_count)
@@ -525,17 +525,18 @@ class Trainer:
                 #     targets, (model.module if is_distributed else model).scaler
                 # )
                 # LOL
-                systems, targets = systems_and_targets_to_dtype(systems, targets, dtype)
+                
                 systems, targets = systems_and_targets_to_device(
                         systems, targets, device
                 )
+                systems, targets = systems_and_targets_to_dtype(systems, targets, dtype)
                 target_dos_batch, mask_batch = targets['mtt::dos'], targets['mtt::mask'] # LOL!
                 predictions = evaluate_model(
                     model,
                     systems,
 #                    {key: train_targets[key] for key in targets.keys()}, #LOL!
                     {key: train_targets[key] for key in train_targets.keys()}, # LOL!
-                    is_training=False,
+                    is_training=True,
                 )
 
                 # average by the number of atoms
