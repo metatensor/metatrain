@@ -62,7 +62,6 @@ class NativePET(torch.nn.Module):
 
         self.cutoff = float(self.hypers["cutoff"])
         self.cutoff_width = float(self.hypers["cutoff_width"])
-        self.residual_factor = float(self.hypers["residual_factor"])
         self.embedding = torch.nn.Embedding(
             len(self.atomic_types) + 1, self.hypers["d_pet"]
         )
@@ -302,7 +301,7 @@ class NativePET(torch.nn.Module):
             result = gnn_layer(batch_dict)
             output_messages = result["output_messages"]
             new_input_messages = output_messages[neighbors_index, neighbors_pos]
-            batch_dict["input_messages"] = self.residual_factor * (
+            batch_dict["input_messages"] = 0.5 * (
                 batch_dict["input_messages"] + new_input_messages
             )
             central_tokens_list.append(result["central_token"])

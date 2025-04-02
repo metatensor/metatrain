@@ -26,9 +26,6 @@
         "d_feedforward": {
           "type": "integer"
         },
-        "residual_factor": {
-          "type": "number"
-        },
         "num_heads": {
           "type": "integer"
         },
