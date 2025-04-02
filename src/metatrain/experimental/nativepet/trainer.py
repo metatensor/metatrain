@@ -524,14 +524,11 @@ class Trainer:
                 # targets = remove_scale(
                 #     targets, (model.module if is_distributed else model).scaler
                 # )
-                # systems = [system.to(dtype=dtype) for system in systems]
-                # targets = {key: value.to(dtype=dtype) for key, value in targets.items()}
                 # LOL
+                systems, targets = systems_and_targets_to_dtype(systems, targets, dtype)
                 systems, targets = systems_and_targets_to_device(
                         systems, targets, device
                 )
-                systems, targets = systems_and_targets_to_dtype(systems, targets, dtype)
-
                 target_dos_batch, mask_batch = targets['mtt::dos'], targets['mtt::mask'] # LOL!
                 predictions = evaluate_model(
                     model,
@@ -570,9 +567,9 @@ class Trainer:
                 gradient_loss = torch.mean(torch.trapezoid(((gradient_losses * (~dos_mask[:, dim_loss:]))**2),
                                                                     dx = 0.05, dim = 1)) * self.hypers['gradient_penalty']
                 batch_loss = (dos_loss + int_MSE) * len(dos_target)
-                # for i in range(torch.cuda.device_count()):
-                #     print ("Validation: ", val_count)
-                #     print(f"GPU {i}, rank {rank}: {torch.cuda.memory_allocated(i) / 1024**2:.2f} MB allocated")
+                for i in range(torch.cuda.device_count()):
+                    print ("Validation: ", val_count)
+                    print(f"GPU {i}, rank {rank}: {torch.cuda.memory_allocated(i) / 1024**2:.2f} MB allocated")
                 if is_distributed:
                     # sum the loss over all processes
                     torch.distributed.all_reduce(batch_loss)

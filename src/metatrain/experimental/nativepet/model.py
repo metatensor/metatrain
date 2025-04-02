@@ -576,24 +576,25 @@ class NativePET(torch.nn.Module):
                 # )
                 return_dict[output_name] = sum_over_atoms(atomic_property)
 
-        if not self.training:
-            # at evaluation, we also introduce the scaler and additive contributions
-            return_dict = self.scaler(return_dict)
-            for additive_model in self.additive_models:
-                outputs_for_additive_model: Dict[str, ModelOutput] = {}
-                for name, output in outputs.items():
-                    if name in additive_model.outputs:
-                        outputs_for_additive_model[name] = output
-                additive_contributions = additive_model(
-                    systems,
-                    outputs_for_additive_model,
-                    selected_atoms,
-                )
-                for name in additive_contributions:
-                    return_dict[name] = metatensor.torch.add(
-                        return_dict[name],
-                        additive_contributions[name],
-                    )
+        # LOL!
+        # if not self.training:
+        #     # at evaluation, we also introduce the scaler and additive contributions
+        #     return_dict = self.scaler(return_dict)
+        #     for additive_model in self.additive_models:
+        #         outputs_for_additive_model: Dict[str, ModelOutput] = {}
+        #         for name, output in outputs.items():
+        #             if name in additive_model.outputs:
+        #                 outputs_for_additive_model[name] = output
+        #         additive_contributions = additive_model(
+        #             systems,
+        #             outputs_for_additive_model,
+        #             selected_atoms,
+        #         )
+        #         for name in additive_contributions:
+        #             return_dict[name] = metatensor.torch.add(
+        #                 return_dict[name],
+        #                 additive_contributions[name],
+        #             )
 
         return return_dict
 
