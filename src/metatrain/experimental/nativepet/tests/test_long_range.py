@@ -2,6 +2,7 @@ import pytest
 
 
 pytest.importorskip("torchpme")
+
 import copy
 
 import torch

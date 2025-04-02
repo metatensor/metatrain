@@ -1,4 +1,4 @@
-from typing import Dict, Optional
+from typing import Dict
 
 import numpy as np
 import torch
@@ -9,11 +9,10 @@ from .utilities import NeverRun, cutoff_func
 
 
 class AttentionBlock(nn.Module):
-    def __init__(self, total_dim, num_heads, dropout=0.0, epsilon=1e-15):
+    def __init__(self, total_dim, num_heads, epsilon=1e-15):
         super(AttentionBlock, self).__init__()
 
         self.input_linear = nn.Linear(total_dim, 3 * total_dim)
-        self.dropout = nn.Dropout(dropout)
         self.output_linear = nn.Linear(total_dim, total_dim)
 
         nn.init.xavier_uniform_(self.input_linear.weight)
@@ -28,7 +27,7 @@ class AttentionBlock(nn.Module):
         self.head_dim = total_dim // num_heads
         self.preconditioning = 1.0 / np.sqrt(self.head_dim)
 
-    def forward(self, x, multipliers: Optional[torch.Tensor] = None):
+    def forward(self, x, multipliers: torch.Tensor):
         initial_shape = x.shape
         x = self.input_linear(x)
         x = x.reshape(
@@ -37,15 +36,16 @@ class AttentionBlock(nn.Module):
         x = x.permute(2, 0, 3, 1, 4)
 
         queries, keys, values = x[0], x[1], x[2]
-        alpha = torch.matmul(queries, keys.transpose(-2, -1)) * self.preconditioning
-        alpha = F.softmax(alpha, dim=-1)
-        alpha = self.dropout(alpha)
-
-        if multipliers is not None:
-            alpha = alpha * multipliers[:, None, :, :]
-            alpha = alpha / (alpha.sum(dim=-1)[..., None] + self.epsilon)
-
-        x = torch.matmul(alpha, values).transpose(1, 2).reshape(initial_shape)
+        attn_weights = torch.clamp(multipliers[:, None, :, :], self.epsilon)
+        attn_weights = torch.log(attn_weights)
+        x = torch.nn.functional.scaled_dot_product_attention(
+            queries,
+            keys,
+            values,
+            attn_weights,
+            scale=self.preconditioning,
+        )
+        x = x.transpose(1, 2).reshape(initial_shape)
         x = self.output_linear(x)
         return x
 
@@ -61,7 +61,7 @@ class TransformerLayer(torch.nn.Module):
         transformer_type="PostLN",
     ):
         super(TransformerLayer, self).__init__()
-        self.attention = AttentionBlock(d_model, n_heads, dropout=dropout)
+        self.attention = AttentionBlock(d_model, n_heads)
 
         if transformer_type not in ["PostLN", "PreLN"]:
             raise ValueError("unknown transformer type")
@@ -81,7 +81,7 @@ class TransformerLayer(torch.nn.Module):
             nn.Dropout(dropout),
         )
 
-    def forward(self, x, multipliers: Optional[torch.Tensor] = None):
+    def forward(self, x: torch.Tensor, multipliers: torch.Tensor) -> torch.Tensor:
         if self.transformer_type == "PostLN":
             x = self.norm_attention(x + self.dropout(self.attention(x, multipliers)))
             x = self.norm_mlp(x + self.mlp(x))
@@ -122,7 +122,7 @@ class Transformer(torch.nn.Module):
             ]
         )
 
-    def forward(self, x: torch.Tensor, multipliers: Optional[torch.Tensor] = None):
+    def forward(self, x: torch.Tensor, multipliers: torch.Tensor) -> torch.Tensor:
         for layer in self.layers:
             x = layer(x, multipliers)
         if self.transformer_type == "PreLN":
