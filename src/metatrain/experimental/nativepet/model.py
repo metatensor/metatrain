@@ -66,6 +66,26 @@ class NativePET(torch.nn.Module):
         self.embedding = torch.nn.Embedding(
             len(self.atomic_types) + 1, self.hypers["d_pet"]
         )
+
+        # LOL!
+        for i in self.hypers["excess_targets"]:
+            # additional_output = int(self.hypers["excess_targets"][i])
+            # target_size = dataset_info.targets[i].layout[0].values.shape[1]
+            prediction_size = int(self.hypers["excess_targets"][i])
+            output_block = metatensor.torch.TensorBlock(
+                values= torch.empty(0, prediction_size).double(),
+                samples=metatensor.torch.Labels.empty('system'),
+                components=[],
+                # properties=metatensor.torch.Labels.single(),
+                properties=metatensor.torch.Labels.range("Energy", prediction_size)
+                )
+            output_map = metatensor.torch.TensorMap(
+                keys = metatensor.torch.Labels.single(),
+                blocks = [output_block]
+            )
+            dataset_info.targets[i].layout = output_map
+        del dataset_info.targets["mtt::mask"]
+
         gnn_layers = []
         for layer_index in range(self.hypers["num_gnn_layers"]):
             transformer_layer = CartesianTransformer(

@@ -465,6 +465,10 @@ def train_model(
             mts_atomistic_model.buffers(),
         )
     ).device
+    try: # LOL!
+        mts_atomistic_model.module.additive_models[0].weights['mtt::dos'] = mt.make_contiguous(mts_atomistic_model.module.additive_models[0].weights['mtt::dos'])
+    except:
+        print ("Failed to make DOS additive model contiguous, the target probably does not exist")
     mts_atomistic_model.save(str(output_checked), collect_extensions=extensions_path)
     # the model is first saved and then reloaded 1) for good practice and 2) because
     # MetatensorAtomisticModel only torchscripts (makes faster) during save()
