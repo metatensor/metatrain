@@ -31,8 +31,6 @@ from ...utils.transfer import (
 from .model import NativePET
 from .modules.finetuning import apply_finetuning_strategy
 from .DOSutils import get_dynamic_shift_agnostic_mse
-import psutil
-import os
 
 logger = logging.getLogger(__name__)
 
