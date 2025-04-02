@@ -18,14 +18,13 @@ from metatrain.utils.neighbor_lists import get_system_with_neighbor_lists
 from . import DATASET_PATH, DATASET_WITH_FORCES_PATH, DEFAULT_HYPERS, MODEL_HYPERS
 
 
-# reproducibility
-random.seed(0)
-np.random.seed(0)
-torch.manual_seed(0)
-
-
 def test_regression_init():
     """Perform a regression test on the model at initialization"""
+
+    # reproducibility
+    random.seed(0)
+    np.random.seed(0)
+    torch.manual_seed(0)
 
     targets = {}
     targets["mtt::U0"] = get_energy_target_info({"quantity": "energy", "unit": "eV"})
@@ -48,11 +47,11 @@ def test_regression_init():
 
     expected_output = torch.tensor(
         [
-            [-1.078435063362],
-            [-0.317467212677],
-            [-0.009214524180],
-            [-0.139793321490],
-            [0.306694746017],
+            [3.015289306641],
+            [1.845376491547],
+            [0.776397109032],
+            [1.858697414398],
+            [1.014655113220],
         ]
     )
 
@@ -66,6 +65,11 @@ def test_regression_init():
 def test_regression_energies_train():
     """Perform a regression test on the model when
     trained for 2 epoch on a small dataset, energies only"""
+
+    # reproducibility
+    random.seed(0)
+    np.random.seed(0)
+    torch.manual_seed(0)
 
     systems = read_systems(DATASET_PATH)
 
@@ -117,11 +121,11 @@ def test_regression_energies_train():
 
     expected_output = torch.tensor(
         [
-            [-1.291026473045],
-            [-0.624189734459],
-            [-0.130295157433],
-            [-0.546850562096],
-            [0.038485154510],
+            [3.012795209885],
+            [1.843898773193],
+            [0.775631427765],
+            [1.857149720192],
+            [1.013873577118],
         ]
     )
 
@@ -136,6 +140,11 @@ def test_regression_energies_forces_train():
     """Perform a regression test on the model when
     trained for 2 epoch on a small dataset with energies
     and forces"""
+
+    # reproducibility
+    random.seed(0)
+    np.random.seed(0)
+    torch.manual_seed(0)
 
     systems = read_systems(DATASET_WITH_FORCES_PATH)
 
@@ -188,16 +197,16 @@ def test_regression_energies_forces_train():
 
     expected_output = torch.tensor(
         [
-            [5.294215679169],
-            [5.291574001312],
-            [5.340648651123],
-            [5.216050148010],
-            [5.168249607086],
+            [20.381122589111],
+            [20.348577499390],
+            [20.298955917358],
+            [20.408367156982],
+            [20.313867568970],
         ]
     )
 
     expected_gradients_output = torch.tensor(
-        [0.081520952284, -0.054038479924, -0.113303303719]
+        [0.208486080170, -0.117339581251, -0.278596490622]
     )
 
     # if you need to change the hardcoded values:
@@ -210,5 +219,3 @@ def test_regression_energies_forces_train():
         output["energy"].block().gradient("positions").values[0, :, 0],
         expected_gradients_output,
     )
-
-    raise RuntimeError

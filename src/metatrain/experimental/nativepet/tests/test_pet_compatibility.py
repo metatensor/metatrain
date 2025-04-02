@@ -1,3 +1,7 @@
+import pytest
+
+
+pytest.importorskip("pet-neighbors-convert")
 from urllib.parse import urlparse
 from urllib.request import urlretrieve
 

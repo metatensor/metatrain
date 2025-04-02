@@ -27,7 +27,7 @@ from .modules.heads import (
     Head,
 )
 from .modules.transformer import CartesianTransformer
-from .modules.utilities import cutoff_func, native_systems_to_batch_dict
+from .modules.utilities import cutoff_func, systems_to_batch_dict
 
 
 logger = logging.getLogger(__name__)
@@ -106,9 +106,26 @@ class NativePET(torch.nn.Module):
             self.target_names.append(target_name)
             self._add_output(target_name, target_info)
 
+        self.register_buffer(
+            "species_to_species_index",
+            torch.full(
+                (max(self.atomic_types) + 1,),
+                -1,
+            ),
+        )
+        for i, species in enumerate(self.atomic_types):
+            self.species_to_species_index[species] = i
+
         # long-range module
         if self.hypers["long_range"]["enable"]:
             self.long_range = True
+            if not self.hypers["long_range"]["use_ewald"]:
+                logger.warning(
+                    "Training NativePET with the LongRangeFeaturizer initialized "
+                    "with `use_ewald=False` causes instabilities during training. "
+                    "The `use_ewald` variable will be force-switched to `True`. "
+                    "during training."
+                )
             self.long_range_featurizer = LongRangeFeaturizer(
                 hypers=self.hypers["long_range"],
                 feature_dim=self.hypers["d_pet"],
@@ -261,8 +278,8 @@ class NativePET(torch.nn.Module):
 
         nl_options = self.requested_neighbor_lists()[0]
 
-        batch_dict = native_systems_to_batch_dict(
-            systems, nl_options, self.atomic_types
+        batch_dict = systems_to_batch_dict(
+            systems, nl_options, self.atomic_types, self.species_to_species_index
         )
 
         x = batch_dict["x"]
@@ -292,14 +309,19 @@ class NativePET(torch.nn.Module):
             output_messages_list.append(output_messages)
 
         if self.long_range:
+            if self.training:
+                self.long_range_featurizer.use_ewald = True
             flattened_lengths = lengths[~mask]
+            short_range_features = (
+                torch.stack(central_tokens_list).sum(dim=0)
+                * (1 / len(central_tokens_list)) ** 0.5
+            )
+            long_range_features = self.long_range_featurizer(
+                systems, short_range_features, flattened_lengths
+            )
             for i in range(len(self.gnn_layers)):
-                central_tokens_lr_features = self.long_range_featurizer(
-                    systems, central_tokens_list[i], flattened_lengths
-                )
-                print(central_tokens_lr_features)
                 central_tokens_list[i] = (
-                    central_tokens_list[i] + central_tokens_lr_features
+                    central_tokens_list[i] + long_range_features
                 ) * 0.5**0.5
 
         central_tokens_features = torch.cat(central_tokens_list, dim=1)
@@ -556,6 +578,7 @@ class NativePET(torch.nn.Module):
             # Apply the finetuning strategy
             model = apply_finetuning_strategy(model, finetune_config)
         state_dict_iter = iter(model_state_dict.values())
+        next(state_dict_iter)  # skip the species_to_species_index
         dtype = next(state_dict_iter).dtype
         model.to(dtype).load_state_dict(model_state_dict)
         model.additive_models[0].sync_tensor_maps()

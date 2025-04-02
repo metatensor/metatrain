@@ -144,6 +144,7 @@ class DummyLongRangeFeaturizer(torch.nn.Module):
     # a dummy class for torchscript
     def __init__(self):
         super().__init__()
+        self.use_ewald = True
 
     def forward(
         self,

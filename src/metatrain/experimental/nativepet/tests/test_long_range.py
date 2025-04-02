@@ -1,6 +1,9 @@
+import pytest
+
+
+pytest.importorskip("torchpme")
 import copy
 
-import pytest
 import torch
 from metatensor.torch.atomistic import ModelOutput, System
 from omegaconf import OmegaConf
@@ -14,6 +17,7 @@ from metatrain.utils.data.readers import (
 from metatrain.utils.data.target_info import (
     get_energy_target_info,
 )
+from metatrain.utils.evaluate_model import evaluate_model
 from metatrain.utils.neighbor_lists import get_system_with_neighbor_lists
 
 from . import DATASET_WITH_FORCES_PATH, DEFAULT_HYPERS, MODEL_HYPERS
@@ -47,10 +51,10 @@ def test_long_range_features(use_ewald):
     model([system, system], outputs)
 
 
-@pytest.mark.parametrize("use_ewald", [False])
+@pytest.mark.parametrize("use_ewald", [True, False])
 def test_long_range_training(use_ewald):
     """Tests that long-range features can be computed."""
-
+    pytest.importorskip("torch", minversion="1.20")
     systems = read_systems(DATASET_WITH_FORCES_PATH)
 
     conf = {
@@ -101,6 +105,4 @@ def test_long_range_training(use_ewald):
     for system in systems:
         get_system_with_neighbor_lists(system, model.requested_neighbor_lists())
 
-    # evaluate_model(model, systems[:5], targets=target_info_dict, is_training=False)
-
-    raise RuntimeError
+    evaluate_model(model, systems[:5], targets=target_info_dict, is_training=False)
