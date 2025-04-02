@@ -41,6 +41,12 @@ class CompositionModel(torch.nn.Module):
         self.dataset_info = dataset_info
         self.atomic_types = sorted(dataset_info.atomic_types)
 
+        self.register_buffer(
+            "type_to_index", torch.empty(max(self.atomic_types) + 1, dtype=torch.long)
+        )
+        for i, atomic_type in enumerate(self.atomic_types):
+            self.type_to_index[atomic_type] = i
+
         for target_name, target_info in dataset_info.targets.items():
             if not self.is_valid_target(target_name, target_info):
                 raise ValueError(
@@ -433,15 +439,9 @@ class CompositionModel(torch.nn.Module):
             blocks: List[TensorBlock] = []
             for weight_key, weight_block in self.weights[output_name].items():
                 weights_tensor = self.weights[output_name].block(weight_key).values
-                composition_values_per_atom = torch.empty(
-                    [len(concatenated_types)] + weight_block.shape[1:],
-                    dtype=dtype,
-                    device=device,
-                )
-                for i_type, atomic_type in enumerate(self.atomic_types):
-                    composition_values_per_atom[concatenated_types == atomic_type] = (
-                        weights_tensor[i_type]
-                    )
+                composition_values_per_atom = weights_tensor[
+                    self.type_to_index[concatenated_types]
+                ]
                 blocks.append(
                     TensorBlock(
                         values=composition_values_per_atom,

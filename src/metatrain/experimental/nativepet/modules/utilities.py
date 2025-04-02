@@ -1,6 +1,5 @@
 from typing import Dict, List
 
-import numpy as np
 import torch
 from metatensor.torch.atomistic import NeighborListOptions, System
 
@@ -17,7 +16,7 @@ def cutoff_func(grid: torch.Tensor, r_cut: float, delta: float):
     mask_bigger = grid >= r_cut
     mask_smaller = grid <= r_cut - delta
     grid = (grid - r_cut + delta) / delta
-    f = 1 / 2.0 + torch.cos(np.pi * grid) / 2.0
+    f = 0.5 + 0.5 * torch.cos(torch.pi * grid)
 
     f[mask_bigger] = 0.0
     f[mask_smaller] = 1.0

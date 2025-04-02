@@ -187,7 +187,6 @@ class CartesianTransformer(torch.nn.Module):
     ):
         x = batch_dict["x"]
         mask = batch_dict["mask"]
-        nums = batch_dict["nums"]
         central_species = batch_dict["central_species"]
         neighbor_species = batch_dict["neighbor_species"]
         input_messages = batch_dict["input_messages"]
@@ -200,7 +199,7 @@ class CartesianTransformer(torch.nn.Module):
             )  # for torch script
 
         initial_n_tokens = x.shape[1]
-        max_number = int(torch.max(nums))
+        max_number = input_messages.shape[1]
         coordinates = [x, neighbor_lengths]
         coordinates = torch.cat(coordinates, dim=2)
         coordinates = self.r_embedding(coordinates)
@@ -216,11 +215,12 @@ class CartesianTransformer(torch.nn.Module):
 
         tokens = torch.cat([central_token[:, None, :], tokens], dim=1)
 
-        submask = torch.zeros(mask.shape[0], dtype=torch.bool).to(mask.device)
+        submask = torch.zeros(mask.shape[0], dtype=torch.bool, device=mask.device)
         total_mask = torch.cat([submask[:, None], mask], dim=1)
 
         lengths = torch.sqrt(torch.sum(x * x, dim=2) + 1e-16)
-        multipliers = cutoff_func(lengths, self.cutoff, self.cutoff_width)
+        with torch.profiler.record_function("cutoff_func"):
+            multipliers = cutoff_func(lengths, self.cutoff, self.cutoff_width)
         sub_multipliers = torch.ones(mask.shape[0], device=mask.device)
         multipliers = torch.cat([sub_multipliers[:, None], multipliers], dim=1)
         multipliers[total_mask] = 0.0
