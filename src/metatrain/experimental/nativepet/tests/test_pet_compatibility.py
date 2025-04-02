@@ -15,7 +15,6 @@ from metatrain.experimental.nativepet.modules.compatibility import (
 )
 from metatrain.experimental.nativepet.modules.utilities import (
     cutoff_func,
-    native_systems_to_batch_dict,
     systems_to_batch_dict,
 )
 from metatrain.pet import PET
@@ -296,7 +295,7 @@ def test_batch_dict_compatability():
     nativepet_model, pet_model, systems = get_test_environment()
 
     nl_options = nativepet_model.requested_neighbor_lists()[0]
-    nativepet_batch_dict = native_systems_to_batch_dict(
+    nativepet_batch_dict = systems_to_batch_dict(
         systems, nl_options, nativepet_model.atomic_types
     )
     pet_batch_dict = systems_to_batch_dict(
