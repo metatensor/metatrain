@@ -379,7 +379,7 @@ class Trainer:
                 #     targets, (model.module if is_distributed else model).scaler
                 # )
                 systems, targets = systems_and_targets_to_dtype(systems, targets, dtype)
-                target_dos_batch, mask_batch = targets['mtt::dos'], targets['mtt::mask'] # LOL!
+                target_dos_batch, mask_batch = targets['mtt::dos'], targets['mtt::mask'].bool() # LOL!
                 predictions = evaluate_model(
                     model,
                     systems,
@@ -457,7 +457,7 @@ class Trainer:
                     )
                     systems, targets = systems_and_targets_to_dtype(systems, targets, dtype)
 
-                    target_dos_batch, mask_batch = targets['mtt::dos'], targets['mtt::mask'] # LOL!
+                    target_dos_batch, mask_batch = targets['mtt::dos'], targets['mtt::mask'].bool() # LOL!
                     predictions = evaluate_model(
                         model,
                         systems,
@@ -532,7 +532,7 @@ class Trainer:
                 )
                 systems, targets = systems_and_targets_to_dtype(systems, targets, dtype)
 
-                target_dos_batch, mask_batch = targets['mtt::dos'], targets['mtt::mask'] # LOL!
+                target_dos_batch, mask_batch = targets['mtt::dos'], targets['mtt::mask'].bool() # LOL!
                 predictions = evaluate_model(
                     model,
                     systems,
