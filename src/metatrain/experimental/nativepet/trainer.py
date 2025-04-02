@@ -379,7 +379,7 @@ class Trainer:
                 #     targets, (model.module if is_distributed else model).scaler
                 # )
                 systems, targets = systems_and_targets_to_dtype(systems, targets, dtype)
-                target_dos_batch, mask_batch = targets['mtt::dos'], targets['mtt::mask'].bool() # LOL!
+                target_dos_batch, mask_batch = targets['mtt::dos'], targets['mtt::mask'] # LOL!
                 predictions = evaluate_model(
                     model,
                     systems,
@@ -395,7 +395,7 @@ class Trainer:
                 # LOL!
                 dos_predictions = predictions['mtt::dos'][0].values
                 dos_target = target_dos_batch[0].values
-                dos_mask = (mask_batch[0].values).int()
+                dos_mask = (mask_batch[0].values).bool()
                 # targets = average_by_num_atoms(targets, systems, per_structure_targets) # LOL!
                 # LOL!
                 # Calculate DOS Loss
@@ -457,7 +457,7 @@ class Trainer:
                     )
                     systems, targets = systems_and_targets_to_dtype(systems, targets, dtype)
 
-                    target_dos_batch, mask_batch = targets['mtt::dos'], targets['mtt::mask'].bool() # LOL!
+                    target_dos_batch, mask_batch = targets['mtt::dos'], targets['mtt::mask'] # LOL!
                     predictions = evaluate_model(
                         model,
                         systems,
@@ -470,7 +470,7 @@ class Trainer:
                     )
                     dos_predictions = predictions['mtt::dos'][0].values
                     dos_target = target_dos_batch[0].values
-                    dos_mask = (mask_batch[0].values).int()
+                    dos_mask = (mask_batch[0].values).bool()
 
                     dos_loss, discrete_shift = get_dynamic_shift_agnostic_mse(dos_predictions, dos_target, dos_mask, return_shift = True)
                     # Obtain aligned targets
@@ -532,7 +532,7 @@ class Trainer:
                 )
                 systems, targets = systems_and_targets_to_dtype(systems, targets, dtype)
 
-                target_dos_batch, mask_batch = targets['mtt::dos'], targets['mtt::mask'].bool() # LOL!
+                target_dos_batch, mask_batch = targets['mtt::dos'], targets['mtt::mask'] # LOL!
                 predictions = evaluate_model(
                     model,
                     systems,
@@ -550,7 +550,7 @@ class Trainer:
                 # val_loss_batch = loss_fn(predictions, targets)
                 dos_predictions = predictions['mtt::dos'][0].values
                 dos_target = target_dos_batch[0].values
-                dos_mask = (mask_batch[0].values).int()
+                dos_mask = (mask_batch[0].values).bool()
                 dos_loss, discrete_shift = get_dynamic_shift_agnostic_mse(dos_predictions, dos_target, dos_mask, return_shift = True)
                 # Obtain aligned targets
                 aligned_predictions = []
