@@ -62,6 +62,17 @@ def convert_model_state_dict_from_legacy_pet(
         metatensor.torch.save_buffer(weights)
     )
 
+    species_to_species_index = torch.full(
+        (max(atomic_types) + 1,),
+        -1,
+        dtype=torch.int64,
+    )
+    for i, species in enumerate(atomic_types):
+        species_to_species_index[species] = i
+
+    new_model_state_dict["species_to_species_index"] = species_to_species_index
+    new_model_state_dict["additive_models.0.type_to_index"] = species_to_species_index
+
     return new_model_state_dict
 
 
