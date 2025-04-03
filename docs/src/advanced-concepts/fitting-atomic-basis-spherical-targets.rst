@@ -16,9 +16,8 @@ and crucially with a size that is dependent on the atomic type(s) of the atom ce
 Preparing generic targets for reading by metatrain
 --------------------------------------------------
 
-
-See `elearn` for details on automatically generating input files and targets in
-``TensorMap`` format.
+Spherical targets on an atomic basis must be read stored in TensorMap format and written
+to a DiskDataset
 
 
 Input file
