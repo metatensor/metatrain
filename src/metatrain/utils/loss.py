@@ -70,6 +70,7 @@ class TensorMapLoss:
         if tensor_map_1.keys != tensor_map_2.keys:
             raise ValueError(
                 "TensorMapLoss requires the two TensorMaps to have the same keys."
+                f" Got: {tensor_map_1.keys} and {tensor_map_2.keys}"
             )
         for block_1, block_2 in zip(tensor_map_1.blocks(), tensor_map_2.blocks()):
             if block_1.properties != block_2.properties:

@@ -142,7 +142,7 @@
                   "oneOf": [
                     {
                       "type": "string",
-                      "enum": ["scalar"]
+                      "enum": ["scalar", "atomic_basis_spherical"]
                     },
                     {
                       "type": "object",
@@ -183,36 +183,6 @@
                         }
                       },
                       "required": ["spherical"],
-                      "additionalProperties": false
-                    },
-                    {
-                      "type": "object",
-                      "properties": {
-                        "atomic_basis_spherical": {
-                          "type": "object",
-                          "properties": {
-                            "basis": {
-                              "type": "array",
-                              "items": {
-                                "type": "object",
-                                "properties": {
-                                  "key": {
-                                    "type": "object"
-                                  },
-                                  "num_subtargets": {
-                                    "type": "integer"
-                                  }
-                                },
-                                "required": ["key", "num_subtargets"],
-                                "additionalProperties": false
-                              }
-                            }
-                          },
-                          "required": ["basis"],
-                          "additionalProperties": false
-                        }
-                      },
-                      "required": ["atomic_basis_spherical"],
                       "additionalProperties": false
                     }
                   ]

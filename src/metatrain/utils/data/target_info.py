@@ -50,11 +50,11 @@ class TargetInfo:
     def per_atom(self) -> bool:
         """Whether the target is per atom. Also applies to per atom pair quantities."""
         return "atom" in self.layout.block(0).samples.names or (
-            "first_atom" in self.layout.block(0).samples.names and
-            "second_atom" in self.layout.block(0).samples.names and
-            "cell_shift_a" in self.layout.block(0).samples.names and
-            "cell_shift_b" in self.layout.block(0).samples.names and
-            "cell_shift_c" in self.layout.block(0).samples.names
+            "first_atom" in self.layout.block(0).samples.names
+            and "second_atom" in self.layout.block(0).samples.names
+            and "cell_shift_a" in self.layout.block(0).samples.names
+            and "cell_shift_b" in self.layout.block(0).samples.names
+            and "cell_shift_c" in self.layout.block(0).samples.names
         )
 
     def __repr__(self):
@@ -468,11 +468,14 @@ def get_generic_target_info(target: DictConfig) -> TargetInfo:
         return _get_cartesian_target_info(target)
     elif len(target["type"]) == 1 and next(iter(target["type"])) == "spherical":
         return _get_spherical_target_info(target)
-    elif (
-        len(target["type"]) == 1
-        and next(iter(target["type"])) == "atomic_basis_spherical"
-    ):
-        return _get_atomic_basis_spherical_target_info(target)
+    elif target["type"] == "atomic_basis_spherical":
+        raise ValueError(
+            "while 'atomic_basis_spherical' targets are supported, "
+            "generic TargetInfo cannot be constructed due to the "
+            "flexibility in this target's metadata. Please construct "
+            "a TargetInfo object directly using metadata inferred from "
+            "target TensorMaps."
+        )
     else:
         raise ValueError(
             f"Target type {target['type']} is not supported. "
@@ -591,104 +594,6 @@ def _get_spherical_target_info(target: DictConfig) -> TargetInfo:
 
     layout = TensorMap(
         keys=Labels(["o3_lambda", "o3_sigma"], torch.tensor(keys, dtype=torch.int32)),
-        blocks=blocks,
-    )
-
-    target_info = TargetInfo(
-        quantity=target["quantity"],
-        unit=target["unit"],
-        layout=layout,
-    )
-    return target_info
-
-
-def _get_atomic_basis_spherical_target_info(target: DictConfig) -> TargetInfo:
-    # Define the sample names
-    sample_names = ["system"]
-    if target["per_atom"]:
-        if target["quantity"] == "node":
-            sample_names += ["atom"]
-        elif target["quantity"] == "edge":
-            sample_names += [
-                "first_atom",
-                "second_atom",
-                "cell_shift_a",
-                "cell_shift_b",
-                "cell_shift_c",
-            ]
-
-    basis = target["type"]["atomic_basis_spherical"]["basis"]
-    keys = []
-    blocks = []
-    basis_key_names = list(basis[0]["key"].keys())
-    for basis_block in basis:
-        basis_key = basis_block["key"]
-        num_subtargets = basis_block["num_subtargets"]
-
-        # Check consistency between key names
-        assert list(basis_key.keys()) == basis_key_names, (
-            "all named key dimensions of 'basis' must be consistent."
-        )
-
-        # Check key names that are 'o3_lambda'-like. Only allow
-        for name in basis_key:
-            if name.startswith("o3_lambda"):
-                assert name in ["o3_lambda", "o3_lambda_1", "o3_lambda_2"], (
-                    "only 'o3_lambda' or ['o3_lambda_1', 'o3_lambda_2'] "
-                    "are allowed at present."
-                )
-
-        # Build the components
-        components = []
-        if "o3_lambda" in basis_key:
-            assert "o3_lambda_1" not in basis_key and "o3_lambda_2" not in basis_key, (
-                "if passing 'o3_lambda' as a basis key, "
-                "cannot also specify 'o3_lambda_{1,2}"
-            )
-            components += [
-                Labels(
-                    names=["o3_mu"],
-                    values=torch.arange(
-                        -basis_key["o3_lambda"],
-                        basis_key["o3_lambda"] + 1,
-                        dtype=torch.int32,
-                    ).reshape(-1, 1),
-                )
-            ]
-        else:
-            for rank in [1, 2]:
-                if f"o3_lambda_{rank}" in basis_key:
-                    components += [
-                        Labels(
-                            names=[f"o3_mu_{rank}"],
-                            values=torch.arange(
-                                -basis_key[f"o3_lambda_{rank}"],
-                                basis_key[f"o3_lambda_{rank}"] + 1,
-                                dtype=torch.int32,
-                            ).reshape(-1, 1),
-                        )
-                    ]
-
-        block = TensorBlock(
-            # float64: otherwise metatensor can't serialize
-            values=torch.empty(
-                0,
-                *[len(component) for component in components],
-                num_subtargets,
-                dtype=torch.float64,
-            ),
-            samples=Labels(
-                names=sample_names,
-                values=torch.empty((0, len(sample_names)), dtype=torch.int32),
-            ),
-            components=components,
-            properties=Labels.range("properties", num_subtargets),
-        )
-        keys.append(list(basis_key.values()))
-        blocks.append(block)
-
-    layout = TensorMap(
-        keys=Labels(basis_key_names, torch.tensor(keys, dtype=torch.int32)),
         blocks=blocks,
     )
 

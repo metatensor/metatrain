@@ -9,7 +9,7 @@ import numpy as np
 import torch
 from metatensor.learn.data import Dataset, group_and_join
 from metatensor.learn.data._namedtuple import namedtuple
-from metatensor.torch import TensorMap, load_buffer
+from metatensor.torch import TensorMap, join, load_buffer
 from metatensor.torch import save_buffer as mts_save_buffer
 from metatensor.torch.atomistic import System, load_system
 from metatensor.torch.atomistic import save as mta_save
@@ -410,6 +410,7 @@ class DiskDataset(torch.utils.data.Dataset):
         :param target_config: The user-provided (through the yaml file) target
             configuration.
         """
+
         target_info_dict = {}
         for target_key, target in target_config.items():
             is_energy = (
@@ -418,8 +419,8 @@ class DiskDataset(torch.utils.data.Dataset):
                 and target["num_subtargets"] == 1
                 and target["type"] == "scalar"
             )
-            tensor_map = self[0][target_key]  # always > 0 samples, see above
             if is_energy:
+                tensor_map = self[0][target_key]  # always > 0 samples, see above
                 if len(tensor_map) != 1:
                     raise ValueError("Energy TensorMaps should have exactly one block.")
                 add_position_gradients = tensor_map.block().has_gradient("positions")
@@ -430,12 +431,37 @@ class DiskDataset(torch.utils.data.Dataset):
                 _check_tensor_map_metadata(tensor_map, target_info.layout)
                 target_info_dict[target_key] = target_info
             else:
-                target_info = get_generic_target_info(target)
-                _check_tensor_map_metadata(tensor_map, target_info.layout)
-                # make sure that the properties of the target_info.layout also match the
-                # actual properties of the tensor maps
-                target_info.layout = _empty_tensor_map_like(tensor_map)
-                target_info_dict[target_key] = target_info
+                # generic targets may have different keys metadata across samples, so
+                # the layout TensorMap needs to be constructed by the union join of keys
+                tensor_map = join(
+                    [
+                        _empty_tensor_map_like(self[tensor_i][target_key])
+                        for tensor_i in range(len(self))
+                    ],
+                    "samples",
+                    remove_tensor_name=True,
+                    different_keys="union",
+                )
+                # if an "atomic_basis_spherical" target, the rules on metadata are
+                # relaxed such that 'generic' target info with the correct metadata
+                # cannot be constructed from the information in `target_config`.
+                # Instead, construct a TargetInfo object directly, inferring the
+                # metadata from the target `tensor_map`. In any case, the metadata
+                # structure will be checked in the constructor of `TargetInfo`.
+                if target["type"] == "atomic_basis_spherical":
+                    target_info_dict[target_key] = TargetInfo(
+                        quantity=target["quantity"],
+                        unit=target["unit"],
+                        layout=tensor_map,
+                    )
+                else:
+                    target_info = get_generic_target_info(target)
+                    _check_tensor_map_metadata(tensor_map, target_info.layout)
+                    # make sure that the properties of the target_info.layout also match
+                    # the actual properties of the tensor maps
+                    target_info.layout = tensor_map
+                    target_info_dict[target_key] = target_info
+
         return target_info_dict
 
 
