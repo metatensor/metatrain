@@ -550,7 +550,7 @@ class NativePET(torch.nn.Module):
                     metatensor.torch.sum_over_samples(
                         atomic_property, sample_names="atom"
                     )
-                    if len(atomic_property.components) > 0
+                    if any(len(b.components) for b in atomic_property.blocks()) > 0
                     else sum_over_atoms(atomic_property)
                 )
 

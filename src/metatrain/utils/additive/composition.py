@@ -467,7 +467,11 @@ class CompositionModel(torch.nn.Module):
                     metatensor.torch.sum_over_samples(
                         composition_result_dict[output_name], sample_names="atom"
                     )
-                    if len(composition_result_dict[output_name].components) > 0
+                    if any(
+                        len(b.components)
+                        for b in composition_result_dict[output_name].blocks()
+                    )
+                    > 0
                     else sum_over_atoms(composition_result_dict[output_name])
                 )
 
