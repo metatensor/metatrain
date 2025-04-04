@@ -6,6 +6,7 @@ from metatensor.torch.atomistic import ModelOutput, System
 from omegaconf import OmegaConf
 
 from metatrain.experimental.nativepet import NativePET
+from metatrain.experimental.nativepet.modules.transformer import AttentionBlock
 from metatrain.utils.architectures import check_architecture_options
 from metatrain.utils.data import DatasetInfo
 from metatrain.utils.data.target_info import (
@@ -483,3 +484,24 @@ def test_spherical_output_multi_block(per_atom):
         {"spherical_tensor": model.outputs["spherical_tensor"]},
     )
     assert len(outputs["spherical_tensor"]) == 3
+
+
+def test_consistency():
+    """Tests that the two implementations of attention are consistent."""
+
+    num_centers = 100
+    num_neighbors_per_center = 50
+    hidden_size = 128
+    num_heads = 4
+
+    attention = AttentionBlock(hidden_size, num_heads)
+
+    inputs = torch.randn(num_centers, num_neighbors_per_center, hidden_size)
+    radial_mask = torch.rand(
+        num_centers, num_neighbors_per_center, num_neighbors_per_center
+    )
+
+    attention_output_torch = attention(inputs, radial_mask, use_manual_attention=False)
+    attention_output_manual = attention(inputs, radial_mask, use_manual_attention=True)
+
+    assert torch.allclose(attention_output_torch, attention_output_manual, atol=1e-6)
