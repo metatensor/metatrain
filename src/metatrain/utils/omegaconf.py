@@ -96,7 +96,7 @@ CONF_TARGET_FIELDS = OmegaConf.create(
         "reader": None,
         "key": None,
         "unit": None,
-        "per_atom": False,
+        "sample_kind": ["system"],
         "type": "scalar",
         "num_subtargets": 1,
     }

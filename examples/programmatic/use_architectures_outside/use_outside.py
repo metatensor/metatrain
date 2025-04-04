@@ -59,7 +59,7 @@ class NanoPETWithTanh(torch.nn.Module):
         model_outputs = self.nanopet(
             systems,
             {"features": ModelOutput()},
-            # ModelOutput(per_atom=True) would give per-atom features
+            # ModelOutput(sample_kind=["atom"]) would give per-atom features
         )
         features = model_outputs["features"].block().values
         return self.tanh(self.linear(features))

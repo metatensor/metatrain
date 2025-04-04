@@ -136,7 +136,7 @@ def test_write_components_and_properties_xyz_per_atom(monkeypatch, tmp_path):
 
     capabilities = ModelCapabilities(
         length_unit="angstrom",
-        outputs={"energy": ModelOutput(quantity="dos", unit="", per_atom=True)},
+        outputs={"energy": ModelOutput(quantity="dos", unit="", sample_kind=["atom"])},
         interaction_range=1.0,
         dtype="float32",
     )

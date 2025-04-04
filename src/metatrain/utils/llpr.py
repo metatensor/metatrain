@@ -50,7 +50,7 @@ class LLPRUncertaintyModel(torch.nn.Module):
             additional_capabilities[uncertainty_name] = ModelOutput(
                 quantity="",
                 unit=f"({output.unit})^2",
-                per_atom=True,
+                sample_kind=["atom"],
             )
             self.uncertainty_multipliers[uncertainty_name] = 1.0
         self.capabilities = ModelCapabilities(
@@ -116,14 +116,17 @@ class LLPRUncertaintyModel(torch.nn.Module):
             )
             return self.model(systems, options, check_consistency=False)
 
-        per_atom_all_targets = [output.per_atom for output in outputs.values()]
+        sample_kind_all_targets = [output.sample_kind for output in outputs.values()]
         # impose either all per atom or all not per atom
-        if not all(per_atom_all_targets) and any(per_atom_all_targets):
+        if not (
+            all([i == ["system"] for i in sample_kind_all_targets])
+            or all([i == ["atom"] for i in sample_kind_all_targets])
+        ):
             raise ValueError(
                 "All output uncertainties must be either be requested per "
-                "atom or not per atom with LLPR."
+                "system or per atom LLPR."
             )
-        per_atom = per_atom_all_targets[0]
+        sample_kind = sample_kind_all_targets[0]
         outputs_for_model: Dict[str, ModelOutput] = {}
         for name in outputs.keys():
             if name.endswith("_uncertainty"):
@@ -139,7 +142,7 @@ class LLPRUncertaintyModel(torch.nn.Module):
                     ModelOutput(
                         quantity="",
                         unit="",
-                        per_atom=per_atom,
+                        sample_kind=sample_kind,
                     )
                 )
         for name, output in outputs.items():
@@ -298,7 +301,7 @@ class LLPRUncertaintyModel(torch.nn.Module):
                 name: ModelOutput(
                     quantity="",
                     unit="",
-                    per_atom=False,
+                    sample_kind=["system"],
                 )
                 for name in targets.keys()
             }
@@ -307,7 +310,7 @@ class LLPRUncertaintyModel(torch.nn.Module):
                 "_layer_features": ModelOutput(
                     quantity="",
                     unit="",
-                    per_atom=False,
+                    sample_kind=["system"],
                 )
                 for name in targets.keys()
             }
@@ -506,19 +509,19 @@ class LLPRUncertaintyModel(torch.nn.Module):
                 name: target.to(device=device, dtype=dtype)
                 for name, target in targets.items()
             }
-            # evaluate the targets and their uncertainties, not per atom
+            # evaluate the targets and their uncertainties, per system
             requested_outputs = {}
             for name in targets:
                 requested_outputs[name] = ModelOutput(
                     quantity="",
                     unit="",
-                    per_atom=False,
+                    sample_kind=["system"],
                 )
                 uncertainty_name = f"mtt::aux::{name.replace('mtt::', '')}_uncertainty"
                 requested_outputs[uncertainty_name] = ModelOutput(
                     quantity="",
                     unit="",
-                    per_atom=False,
+                    sample_kind=["system"],
                 )
             outputs = self.forward(systems, requested_outputs)
             for name, target in targets.items():
@@ -617,7 +620,7 @@ class LLPRUncertaintyModel(torch.nn.Module):
             new_outputs[ensemble_name] = ModelOutput(
                 quantity=old_outputs[name].quantity,
                 unit=old_outputs[name].unit,
-                per_atom=old_outputs[name].per_atom,
+                sample_kind=old_outputs[name].sample_kind,
             )
         self.capabilities = ModelCapabilities(
             outputs={**old_outputs, **new_outputs},

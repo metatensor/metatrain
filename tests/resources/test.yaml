@@ -14,7 +14,7 @@ training_set:
     forces:
       quantity: force
       key: forces
-      per_atom: true
+      sample_kind: ["atom"]
       num_subtargets: 3
 
 test_set: 0.5

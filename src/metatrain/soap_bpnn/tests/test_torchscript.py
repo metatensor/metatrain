@@ -85,7 +85,7 @@ def test_torchscript_spherical(o3_lambda, o3_sigma):
                         }
                     },
                     "num_subtargets": 100,
-                    "per_atom": False,
+                    "sample_kind": ["system"],
                 }
             )
         },

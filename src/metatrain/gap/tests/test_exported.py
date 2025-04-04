@@ -23,7 +23,7 @@ def test_export():
             "key": "U0",
             "unit": "kcal/mol",
             "type": "scalar",
-            "per_atom": False,
+            "sample_kind": ["system"],
             "num_subtargets": 1,
             "forces": False,
             "stress": False,

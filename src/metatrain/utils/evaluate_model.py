@@ -237,7 +237,9 @@ def _get_model_outputs(
             length_unit="",  # this is only needed for unit conversions in MD engines
             outputs={
                 key: ModelOutput(
-                    quantity=value.quantity, unit=value.unit, per_atom=value.per_atom
+                    quantity=value.quantity,
+                    unit=value.unit,
+                    sample_kind=value.sample_kind,
                 )
                 for key, value in targets.items()
             },
@@ -248,7 +250,9 @@ def _get_model_outputs(
             systems,
             {
                 key: ModelOutput(
-                    quantity=value.quantity, unit=value.unit, per_atom=value.per_atom
+                    quantity=value.quantity,
+                    unit=value.unit,
+                    sample_kind=value.sample_kind,
                 )
                 for key, value in targets.items()
             },

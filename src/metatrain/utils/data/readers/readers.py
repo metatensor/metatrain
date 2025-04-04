@@ -131,7 +131,7 @@ def read_targets(
 
         is_energy = (
             (target["quantity"] == "energy")
-            and (not target["per_atom"])
+            and (target["sample_kind"] == ["system"])
             and target["num_subtargets"] == 1
             and target["type"] == "scalar"
         )

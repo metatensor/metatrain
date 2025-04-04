@@ -208,7 +208,8 @@ class CompositionModel(torch.nn.Module):
                                 systems[0].types == t
                             )
                         system_index += 1
-                        if self.dataset_info.targets[target_key].per_atom:
+                        # TODO: also for sample_kind == ["pair"]
+                        if self.dataset_info.targets[target_key].sample_kind == "atom":
                             # we need the center type in the samples to do
                             # mean_over_samples
                             if "center_type" in targets[target_key].keys.names:
@@ -274,7 +275,9 @@ class CompositionModel(torch.nn.Module):
                             device=device,
                         )
                     else:
-                        if self.dataset_info.targets[target_key].per_atom:
+                        if self.dataset_info.targets[target_key].sample_kind == [
+                            "atom"
+                        ]:
                             # hack: metatensor.join doesn't work on single blocks;
                             # create TensorMaps, join, and then extract the joined block
                             joined_blocks = metatensor.torch.join(
@@ -465,7 +468,7 @@ class CompositionModel(torch.nn.Module):
                     composition_result_dict[output_name], "samples", selected_atoms
                 )
 
-            if not output_options.per_atom:  # sum over atoms if needed
+            if output_options.sample_kind == ["system"]:  # sum over atoms if needed
                 composition_result_dict[output_name] = (
                     metatensor.torch.sum_over_samples(
                         composition_result_dict[output_name], sample_names="atom"
@@ -478,7 +481,7 @@ class CompositionModel(torch.nn.Module):
         self.outputs[target_name] = ModelOutput(
             quantity=target_info.quantity,
             unit=target_info.unit,
-            per_atom=True,
+            sample_kind=["atom"],
         )
         self.weights[target_name] = TensorMap(
             keys=target_info.layout.keys,

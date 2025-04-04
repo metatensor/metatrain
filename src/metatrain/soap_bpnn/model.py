@@ -196,7 +196,7 @@ class SoapBpnn(torch.nn.Module):
         self.last_layer_feature_size = self.n_inputs_last_layer * len(self.atomic_types)
 
         self.outputs = {
-            "features": ModelOutput(unit="", per_atom=True)
+            "features": ModelOutput(unit="", sample_kind=["atom"])
         }  # the model is always capable of outputting the internal features
 
         self.single_label = Labels.single()
@@ -398,7 +398,7 @@ class SoapBpnn(torch.nn.Module):
         if "features" in outputs:
             features_options = outputs["features"]
             out_features = features.keys_to_properties(self.center_type_labels)
-            if not features_options.per_atom:
+            if features_options.sample_kind == ["system"]:
                 out_features = metatensor.torch.sum_over_samples(out_features, ["atom"])
             return_dict["features"] = _remove_center_type_from_properties(out_features)
 
@@ -431,7 +431,7 @@ class SoapBpnn(torch.nn.Module):
             out_features = features_by_output[base_name].keys_to_properties(
                 self.center_type_labels
             )
-            if not features_options.per_atom:
+            if features_options.sample_kind == ["system"]:
                 out_features = metatensor.torch.sum_over_samples(out_features, ["atom"])
             return_dict[output_name] = _remove_center_type_from_properties(out_features)
 
@@ -501,7 +501,7 @@ class SoapBpnn(torch.nn.Module):
                 )
 
         for output_name, atomic_property in atomic_properties.items():
-            if outputs[output_name].per_atom:
+            if outputs[output_name].sample_kind == ["atom"]:
                 return_dict[output_name] = atomic_property
             else:
                 # sum the atomic property to get the total property
@@ -650,7 +650,7 @@ class SoapBpnn(torch.nn.Module):
         ll_features_name = (
             f"mtt::aux::{target_name.replace('mtt::', '')}_last_layer_features"
         )
-        self.outputs[ll_features_name] = ModelOutput(per_atom=True)
+        self.outputs[ll_features_name] = ModelOutput(sample_kind=["atom"])
 
         # last linear layers, one per block
         self.last_layers[target_name] = torch.nn.ModuleDict({})
@@ -689,7 +689,7 @@ class SoapBpnn(torch.nn.Module):
         self.outputs[target_name] = ModelOutput(
             quantity=target.quantity,
             unit=target.unit,
-            per_atom=True,
+            sample_kind=["atom"],
         )
 
 

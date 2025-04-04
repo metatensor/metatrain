@@ -49,7 +49,7 @@ class PET(torch.nn.Module):
                 "PET only supports total-energy-like outputs, "
                 f"but a {target.quantity} was provided"
             )
-        if target.per_atom:
+        if target.sample_kind == ["atom"]:
             raise ValueError(
                 "PET only supports per-structure outputs, "
                 "but a per-atom output was provided"
@@ -194,7 +194,7 @@ class PET(torch.nn.Module):
             )
             if ll_output_name in outputs:
                 ll_features_options = outputs[ll_output_name]
-                if not ll_features_options.per_atom:
+                if ll_features_options.sample_kind == ["system"]:
                     processed_output_tmap = metatensor.torch.sum_over_samples(
                         output_tmap, "atom"
                     )
@@ -203,7 +203,7 @@ class PET(torch.nn.Module):
                 output_quantities[ll_output_name] = processed_output_tmap
             if "features" in outputs:
                 features_options = outputs["features"]
-                if not features_options.per_atom:
+                if features_options.sample_kind == ["system"]:
                     processed_output_tmap = metatensor.torch.sum_over_samples(
                         output_tmap, "atom"
                     )
@@ -226,7 +226,7 @@ class PET(torch.nn.Module):
             if selected_atoms is not None:
                 block = metatensor.torch.slice_block(block, "samples", selected_atoms)
             output_tmap = TensorMap(keys=empty_labels, blocks=[block])
-            if not outputs[output_name].per_atom:
+            if outputs[output_name].sample_kind == ["system"]:
                 output_tmap = metatensor.torch.sum_over_samples(output_tmap, "atom")
             output_quantities[output_name] = output_tmap
 
@@ -300,10 +300,10 @@ class PET(torch.nn.Module):
                 self.target_name: ModelOutput(
                     quantity=self.dataset_info.targets[self.target_name].quantity,
                     unit=self.dataset_info.targets[self.target_name].unit,
-                    per_atom=False,
+                    sample_kind=["system"],
                 ),
                 f"mtt::aux::{self.target_name.replace('mtt::', '')}_last_layer_features": ModelOutput(  # noqa: E501
-                    unit="unitless", per_atom=True
+                    unit="unitless", sample_kind=["atom"]
                 ),
             },
             atomic_types=self.atomic_types,
