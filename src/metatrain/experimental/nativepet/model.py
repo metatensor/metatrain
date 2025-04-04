@@ -44,7 +44,7 @@ class NativePET(torch.nn.Module):
     """
 
     __supported_devices__ = ["cuda", "cpu"]
-    __supported_dtypes__ = [torch.float32]
+    __supported_dtypes__ = [torch.float32, torch.float64]
     __default_metadata__ = ModelMetadata(
         references={"architecture": ["https://arxiv.org/abs/2305.19302v3"]}
     )
