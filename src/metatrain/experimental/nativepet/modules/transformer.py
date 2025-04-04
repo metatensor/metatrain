@@ -1,6 +1,5 @@
 from typing import Dict
 
-import numpy as np
 import torch
 import torch.nn.functional as F
 from torch import nn
@@ -25,9 +24,8 @@ class AttentionBlock(nn.Module):
         if total_dim % num_heads != 0:
             raise ValueError("total dimension is not divisible by the number of heads")
         self.head_dim = total_dim // num_heads
-        self.preconditioning = 1.0 / np.sqrt(self.head_dim)
 
-    def forward(self, x, multipliers: torch.Tensor):
+    def forward(self, x, multipliers: torch.Tensor, use_manual_attention: bool):
         initial_shape = x.shape
         x = self.input_linear(x)
         x = x.reshape(
@@ -38,13 +36,15 @@ class AttentionBlock(nn.Module):
         queries, keys, values = x[0], x[1], x[2]
         attn_weights = torch.clamp(multipliers[:, None, :, :], self.epsilon)
         attn_weights = torch.log(attn_weights)
-        x = torch.nn.functional.scaled_dot_product_attention(
-            queries,
-            keys,
-            values,
-            attn_weights,
-            scale=self.preconditioning,
-        )
+        if use_manual_attention:
+            x = manual_attention(queries, keys, values, attn_weights)
+        else:
+            x = torch.nn.functional.scaled_dot_product_attention(
+                queries,
+                keys,
+                values,
+                attn_mask=attn_weights,
+            )
         x = x.transpose(1, 2).reshape(initial_shape)
         x = self.output_linear(x)
         return x
@@ -81,12 +81,20 @@ class TransformerLayer(torch.nn.Module):
             nn.Dropout(dropout),
         )
 
-    def forward(self, x: torch.Tensor, multipliers: torch.Tensor) -> torch.Tensor:
+    def forward(
+        self, x: torch.Tensor, multipliers: torch.Tensor, use_manual_attention: bool
+    ) -> torch.Tensor:
         if self.transformer_type == "PostLN":
-            x = self.norm_attention(x + self.dropout(self.attention(x, multipliers)))
+            x = self.norm_attention(
+                x + self.dropout(self.attention(x, multipliers, use_manual_attention))
+            )
             x = self.norm_mlp(x + self.mlp(x))
         if self.transformer_type == "PreLN":
-            x = x + self.dropout(self.attention(self.norm_attention(x), multipliers))
+            x = x + self.dropout(
+                self.attention(
+                    self.norm_attention(x), multipliers, use_manual_attention
+                )
+            )
             x = x + self.mlp(self.norm_mlp(x))
         return x
 
@@ -122,9 +130,11 @@ class Transformer(torch.nn.Module):
             ]
         )
 
-    def forward(self, x: torch.Tensor, multipliers: torch.Tensor) -> torch.Tensor:
+    def forward(
+        self, x: torch.Tensor, multipliers: torch.Tensor, use_manual_attention: bool
+    ) -> torch.Tensor:
         for layer in self.layers:
-            x = layer(x, multipliers)
+            x = layer(x, multipliers, use_manual_attention)
         if self.transformer_type == "PreLN":
             x = self.final_norm(x)
         return x
@@ -184,6 +194,7 @@ class CartesianTransformer(torch.nn.Module):
     def forward(
         self,
         batch_dict: Dict[str, torch.Tensor],
+        use_manual_attention: bool,
     ):
         x = batch_dict["x"]
         mask = batch_dict["mask"]
@@ -231,6 +242,7 @@ class CartesianTransformer(torch.nn.Module):
         output_messages = self.trans(
             tokens[:, : (max_number + 1), :],
             multipliers=multipliers[:, : (max_number + 1), : (max_number + 1)],
+            use_manual_attention=use_manual_attention,
         )
         if max_number < initial_n_tokens:
             padding = torch.zeros(
@@ -245,3 +257,13 @@ class CartesianTransformer(torch.nn.Module):
             "output_messages": output_messages[:, 1:, :],
             "central_token": output_messages[:, 0, :],
         }
+
+
+def manual_attention(q, k, v, attn_mask):
+    # needed for double backward (training with conservative forces)
+    attention_weights = (
+        torch.matmul(q, k.transpose(-2, -1)) / (k.size(-1) ** 0.5)
+    ) + attn_mask
+    attention_weights = attention_weights.softmax(dim=-1)
+    attention_output = torch.matmul(attention_weights, v)
+    return attention_output

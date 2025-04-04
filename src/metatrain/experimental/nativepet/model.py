@@ -287,6 +287,10 @@ class NativePET(torch.nn.Module):
         neighbors_index = batch_dict["neighbors_index"]
         neighbors_pos = batch_dict["neighbors_pos"]
 
+        # the scaled_dot_product_attention function from torch cannot do
+        # double backward, so we will use manual attention if needed
+        use_manual_attention = x.requires_grad and self.training
+
         lengths = torch.sqrt(torch.sum(x * x, dim=2) + 1e-16)
         multipliers = cutoff_func(lengths, self.cutoff, self.cutoff_width)
         multipliers[mask] = 0.0
@@ -298,7 +302,7 @@ class NativePET(torch.nn.Module):
         output_messages_list = []
 
         for gnn_layer in self.gnn_layers:
-            result = gnn_layer(batch_dict)
+            result = gnn_layer(batch_dict, use_manual_attention)
             output_messages = result["output_messages"]
             new_input_messages = output_messages[neighbors_index, neighbors_pos]
             batch_dict["input_messages"] = 0.5 * (
