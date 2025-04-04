@@ -132,8 +132,30 @@
                     }
                   ]
                 },
-                "per_atom": {
-                  "type": "boolean"
+                "sample_kind": {
+                  "oneOf": [
+                    {
+                      "type": "array",
+                      "items": {
+                        "type": "string",
+                        "enum": ["system"]
+                      }
+                    },
+                    {
+                      "type": "array",
+                      "items": {
+                        "type": "string",
+                        "enum": ["atom"]
+                      }
+                    },
+                    {
+                      "type": "array",
+                      "items": {
+                        "type": "string",
+                        "enum": ["pair"]
+                      }
+                    }
+                  ]
                 },
                 "num_subtargets": {
                   "type": "integer"

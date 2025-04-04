@@ -41,7 +41,7 @@ def test_ethanol_regression_train_and_invariance():
             "key": "energy",
             "unit": "kcal/mol",
             "type": "scalar",
-            "per_atom": False,
+            "sample_kind": ["system"],
             "num_subtargets": 1,
             "forces": {
                 "read_from": DATASET_ETHANOL_PATH,
@@ -90,8 +90,8 @@ def test_ethanol_regression_train_and_invariance():
         )
 
 
-@pytest.mark.parametrize("per_atom", [True, False])
-def test_vector_output(per_atom):
+@pytest.mark.parametrize("sample_kind", [["system"], ["atom"]])
+def test_vector_output(sample_kind):
     """Tests that the model can predict a (spherical) vector output."""
 
     dataset_info = DatasetInfo(
@@ -106,7 +106,7 @@ def test_vector_output(per_atom):
                         "spherical": {"irreps": [{"o3_lambda": 1, "o3_sigma": 1}]}
                     },
                     "num_subtargets": 100,
-                    "per_atom": per_atom,
+                    "sample_kind": sample_kind,
                 }
             )
         },

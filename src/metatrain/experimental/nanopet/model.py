@@ -112,7 +112,7 @@ class NanoPET(torch.nn.Module):
         self.last_layer_feature_size = self.hypers["d_pet"]
 
         self.outputs = {
-            "features": ModelOutput(unit="", per_atom=True)
+            "features": ModelOutput(unit="", sample_kind=["atom"])
         }  # the model is always capable of outputting the internal features
 
         self.heads = torch.nn.ModuleDict()
@@ -405,7 +405,7 @@ class NanoPET(torch.nn.Module):
                 ],
             )
             features_options = outputs["features"]
-            if features_options.per_atom:
+            if features_options.sample_kind == ["atom"]:
                 return_dict["features"] = feature_tmap
             else:
                 return_dict["features"] = metatensor.torch.sum_over_samples(
@@ -455,7 +455,7 @@ class NanoPET(torch.nn.Module):
                 ],
             )
             last_layer_features_options = outputs[output_name]
-            if last_layer_features_options.per_atom:
+            if last_layer_features_options.sample_kind == ["atom"]:
                 return_dict[output_name] = last_layer_feature_tmap
             else:
                 return_dict[output_name] = metatensor.torch.sum_over_samples(
@@ -497,7 +497,7 @@ class NanoPET(torch.nn.Module):
                 )
 
         for output_name, atomic_property in atomic_properties_tmap_dict.items():
-            if outputs[output_name].per_atom:
+            if outputs[output_name].sample_kind == ["atom"]:
                 return_dict[output_name] = atomic_property
             else:
                 return_dict[output_name] = metatensor.torch.sum_over_samples(
@@ -602,7 +602,7 @@ class NanoPET(torch.nn.Module):
         self.outputs[target_name] = ModelOutput(
             quantity=target_info.quantity,
             unit=target_info.unit,
-            per_atom=True,
+            sample_kind=["atom"],
         )
         if (
             target_name not in self.head_types  # default to MLP
@@ -629,7 +629,7 @@ class NanoPET(torch.nn.Module):
         ll_features_name = (
             f"mtt::aux::{target_name.replace('mtt::', '')}_last_layer_features"
         )
-        self.outputs[ll_features_name] = ModelOutput(per_atom=True)
+        self.outputs[ll_features_name] = ModelOutput(sample_kind=["atom"])
 
         self.last_layers[target_name] = torch.nn.ModuleDict(
             {

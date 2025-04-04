@@ -638,7 +638,7 @@ def test_train_generic_target(monkeypatch, tmp_path):
     options["training_set"]["targets"]["energy"]["type"] = {
         "spherical": {"irreps": [{"o3_lambda": 1, "o3_sigma": 1}]}
     }
-    options["training_set"]["targets"]["energy"]["per_atom"] = True
+    options["training_set"]["targets"]["energy"]["sample_kind"] = ["atom"]
     options["training_set"]["targets"]["energy"]["key"] = "forces"
 
     train_model(options)

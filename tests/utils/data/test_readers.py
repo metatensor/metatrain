@@ -88,7 +88,7 @@ def test_read_targets(stress_dict, virial_dict, monkeypatch, tmp_path, caplog):
         "key": "true_energy",
         "unit": "eV",
         "type": "scalar",
-        "per_atom": False,
+        "sample_kind": ["system"],
         "num_subtargets": 1,
         "forces": {"read_from": filename, "reader": "ase", "key": "forces"},
         "stress": stress_dict,
@@ -120,7 +120,7 @@ def test_read_targets(stress_dict, virial_dict, monkeypatch, tmp_path, caplog):
         assert type(target_info) is TargetInfo
         assert target_info.quantity == target_section["quantity"]
         assert target_info.unit == target_section["unit"]
-        assert target_info.per_atom is False
+        assert target_info.sample_kind == ["system"]
         assert target_info.gradients == ["positions", "strain"]
 
         assert type(target_list) is list
@@ -175,7 +175,7 @@ def test_read_targets_warnings(stress_dict, virial_dict, monkeypatch, tmp_path, 
         "key": "true_energy",
         "unit": "eV",
         "type": "scalar",
-        "per_atom": False,
+        "sample_kind": ["system"],
         "num_subtargets": 1,
         "forces": {"read_from": filename, "reader": "ase", "key": "forces"},
         "stress": stress_dict,
@@ -208,7 +208,7 @@ def test_read_targets_error(monkeypatch, tmp_path):
         "reader": "ase",
         "key": "true_energy",
         "type": "scalar",
-        "per_atom": False,
+        "sample_kind": ["system"],
         "num_subtargets": 1,
         "forces": {"read_from": filename, "reader": "ase", "key": "forces"},
         "stress": True,
@@ -244,7 +244,7 @@ def test_read_targets_generic_1(key, monkeypatch, tmp_path):
                 "rank": 1,
             }
         },
-        "per_atom": False,
+        "sample_kind": ["system"],
         "num_subtargets": 3,
     }
     conf = {"stress": stress_section}
@@ -283,7 +283,7 @@ def test_read_targets_generic_2(key, monkeypatch, tmp_path):
                 "rank": 2,
             }
         },
-        "per_atom": False,
+        "sample_kind": ["system"],
         "num_subtargets": 1,
     }
     conf = {"stress": stress_section}
@@ -318,7 +318,7 @@ def test_read_targets_generic_3(key, monkeypatch, tmp_path):
         "key": key,
         "unit": "GPa",
         "type": "scalar",
-        "per_atom": False,
+        "sample_kind": ["system"],
         "num_subtargets": 9,
     }
     conf = {"stress": stress_section}
@@ -349,7 +349,7 @@ def test_read_targets_generic_errors(monkeypatch, tmp_path):
                 ]
             }
         },
-        "per_atom": False,
+        "sample_kind": ["system"],
         "num_subtargets": 9,
     }
     conf = {"stress": stress_section}

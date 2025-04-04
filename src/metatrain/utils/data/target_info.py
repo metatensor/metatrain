@@ -46,9 +46,22 @@ class TargetInfo:
             return []
 
     @property
-    def per_atom(self) -> bool:
-        """Whether the target is per atom."""
-        return "atom" in self.layout.block(0).samples.names
+    def sample_kind(self) -> List[str]:
+        """List of sample kinds in the layout."""
+        if self.layout.sample_names == ["system"]:
+            return ["system"]
+        elif self.layout.sample_names == ["system", "atom"]:
+            return ["atom"]
+
+        assert self.layout.sample_names == [
+            "system",
+            "first_atom",
+            "second_atom",
+            "cell_shift_a",
+            "cell_shift_b",
+            "cell_shift_c",
+        ]
+        return ["pair"]
 
     def __repr__(self):
         return (
@@ -304,7 +317,7 @@ def get_generic_target_info(target: DictConfig) -> TargetInfo:
 
 def _get_scalar_target_info(target: DictConfig) -> TargetInfo:
     sample_names = ["system"]
-    if target["per_atom"]:
+    if target["sample_kind"] == ["atom"]:
         sample_names.append("atom")
 
     block = TensorBlock(
@@ -332,7 +345,7 @@ def _get_scalar_target_info(target: DictConfig) -> TargetInfo:
 
 def _get_cartesian_target_info(target: DictConfig) -> TargetInfo:
     sample_names = ["system"]
-    if target["per_atom"]:
+    if target["sample_kind"] == ["atom"]:
         sample_names.append("atom")
 
     cartesian_key = next(iter(target["type"]))
@@ -377,7 +390,7 @@ def _get_cartesian_target_info(target: DictConfig) -> TargetInfo:
 
 def _get_spherical_target_info(target: DictConfig) -> TargetInfo:
     sample_names = ["system"]
-    if target["per_atom"]:
+    if target["sample_kind"] == ["atom"]:
         sample_names.append("atom")
 
     irreps = target["type"]["spherical"]["irreps"]

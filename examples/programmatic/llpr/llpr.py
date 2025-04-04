@@ -65,7 +65,7 @@ target_config = {
         "key": "energy",
         "unit": "kcal/mol",
         "type": "scalar",
-        "per_atom": False,
+        "sample_kind": ["system"],
         "num_subtargets": 1,
         "forces": False,
         "stress": False,
@@ -147,12 +147,14 @@ evaluation_options = ModelEvaluationOptions(
     length_unit="angstrom",
     outputs={
         # request the uncertainty in the atomic energy predictions
-        "energy": ModelOutput(per_atom=True),  # needed to request the uncertainties
-        "mtt::aux::energy_uncertainty": ModelOutput(per_atom=True),
-        # `per_atom=False` would return the total uncertainty for the system,
+        "energy": ModelOutput(
+            sample_kind=["atom"]
+        ),  # needed to request the uncertainties
+        "mtt::aux::energy_uncertainty": ModelOutput(sample_kind=["atom"]),
+        # `sample_kind=["system"]` would return the total uncertainty for the system,
         # or (the inverse of) the TPR (total prediction rigidity)
         # you also can request other outputs from the model here, for example:
-        # "mtt::aux::energy_last_layer_features": ModelOutput(per_atom=True),
+        # "mtt::aux::energy_last_layer_features": ModelOutput(sample_kind=["atom"]),
     },
     selected_atoms=None,
 )

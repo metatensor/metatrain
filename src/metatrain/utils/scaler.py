@@ -205,7 +205,7 @@ class Scaler(torch.nn.Module):
         self.outputs[target_name] = ModelOutput(
             quantity=target_info.quantity,
             unit=target_info.unit,
-            per_atom=True,
+            sample_kind=["atom"],
         )
 
         self.scales = torch.cat(

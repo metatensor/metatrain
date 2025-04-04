@@ -68,7 +68,7 @@ def test_prediction_subset_atoms():
 
     energy_monomer = model(
         [system_monomer],
-        {"energy": ModelOutput(per_atom=False)},
+        {"energy": ModelOutput(sample_kind=["system"])},
     )
 
     system_far_away_dimer = System(
@@ -94,12 +94,12 @@ def test_prediction_subset_atoms():
 
     energy_dimer = model(
         [system_far_away_dimer],
-        {"energy": ModelOutput(per_atom=False)},
+        {"energy": ModelOutput(sample_kind=["system"])},
     )
 
     energy_monomer_in_dimer = model(
         [system_far_away_dimer],
-        {"energy": ModelOutput(per_atom=False)},
+        {"energy": ModelOutput(sample_kind=["system"])},
         selected_atoms=selection_labels,
     )
 
@@ -135,7 +135,7 @@ def test_output_last_layer_features():
     ll_output_options = ModelOutput(
         quantity="",
         unit="unitless",
-        per_atom=True,
+        sample_kind=["atom"],
     )
     outputs = model(
         [system],
@@ -179,7 +179,7 @@ def test_output_last_layer_features():
     ll_output_options = ModelOutput(
         quantity="",
         unit="unitless",
-        per_atom=False,
+        sample_kind=["system"],
     )
     outputs = model(
         [system],
@@ -273,8 +273,8 @@ def test_fixed_composition_weights_error():
         )
 
 
-@pytest.mark.parametrize("per_atom", [True, False])
-def test_vector_output(per_atom):
+@pytest.mark.parametrize("sample_kind", [["system"], ["atom"]])
+def test_vector_output(sample_kind):
     """Tests that the model can predict a (spherical) vector output."""
 
     dataset_info = DatasetInfo(
@@ -289,7 +289,7 @@ def test_vector_output(per_atom):
                         "spherical": {"irreps": [{"o3_lambda": 1, "o3_sigma": 1}]}
                     },
                     "num_subtargets": 100,
-                    "per_atom": per_atom,
+                    "sample_kind": sample_kind,
                 }
             )
         },
@@ -309,8 +309,8 @@ def test_vector_output(per_atom):
     )
 
 
-@pytest.mark.parametrize("per_atom", [True, False])
-def test_spherical_outputs(per_atom):
+@pytest.mark.parametrize("sample_kind", [["system"], ["atom"]])
+def test_spherical_outputs(sample_kind):
     """Tests that the model can predict a spherical target with multiple blocks."""
 
     dataset_info = DatasetInfo(
@@ -330,7 +330,7 @@ def test_spherical_outputs(per_atom):
                         }
                     },
                     "num_subtargets": 100,
-                    "per_atom": per_atom,
+                    "sample_kind": sample_kind,
                 }
             )
         },
@@ -372,6 +372,6 @@ def test_soap_bpnn_single_atom():
         cell=torch.zeros(3, 3),
         pbc=torch.tensor([False, False, False]),
     )
-    outputs = {"energy": ModelOutput(per_atom=False)}
+    outputs = {"energy": ModelOutput(sample_kind=["system"])}
     energy = model([system], outputs)["energy"].block().values.item()
     assert energy == 0.0

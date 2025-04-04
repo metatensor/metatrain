@@ -51,7 +51,7 @@ def test_regression_train_and_invariance():
             "key": "U0",
             "unit": "kcal/mol",
             "type": "scalar",
-            "per_atom": False,
+            "sample_kind": ["system"],
             "num_subtargets": 1,
             "forces": False,
             "stress": False,
@@ -126,7 +126,7 @@ def test_ethanol_regression_train_and_invariance():
             "reader": "ase",
             "key": "energy",
             "type": "scalar",
-            "per_atom": False,
+            "sample_kind": ["system"],
             "num_subtargets": 1,
             "forces": {
                 "read_from": DATASET_ETHANOL_PATH,

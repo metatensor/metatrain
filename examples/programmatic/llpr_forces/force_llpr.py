@@ -28,7 +28,7 @@ train_target_config = {
         "key": "energy",
         "unit": "kcal/mol",
         "type": "scalar",
-        "per_atom": False,
+        "sample_kind": ["system"],
         "num_subtargets": 1,
         "forces": {
             "read_from": "train.xyz",
@@ -57,7 +57,7 @@ valid_target_config = {
         "key": "energy",
         "unit": "kcal/mol",
         "type": "scalar",
-        "per_atom": False,
+        "sample_kind": ["system"],
         "num_subtargets": 1,
         "forces": {
             "read_from": "valid.xyz",
@@ -86,7 +86,7 @@ test_target_config = {
         "key": "energy",
         "unit": "kcal/mol",
         "type": "scalar",
-        "per_atom": False,
+        "sample_kind": ["system"],
         "num_subtargets": 1,
         "forces": {
             "read_from": "test.xyz",
@@ -172,9 +172,9 @@ exported_model = MetatensorAtomisticModel(
 evaluation_options = ModelEvaluationOptions(
     length_unit="angstrom",
     outputs={
-        "mtt::aux::energy_last_layer_features": ModelOutput(per_atom=False),
-        "mtt::aux::energy_uncertainty": ModelOutput(per_atom=False),
-        "energy": ModelOutput(per_atom=False),
+        "mtt::aux::energy_last_layer_features": ModelOutput(sample_kind=["system"]),
+        "mtt::aux::energy_uncertainty": ModelOutput(sample_kind=["system"]),
+        "energy": ModelOutput(sample_kind=["system"]),
     },
     selected_atoms=None,
 )

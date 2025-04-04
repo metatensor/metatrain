@@ -319,22 +319,22 @@ def read_generic(target: DictConfig) -> Tuple[List[TensorMap], TargetInfo]:
     components = target_info.layout.block().components
     properties = target_info.layout.block().properties
     shape_after_samples = target_info.layout.block().shape[1:]
-    per_atom = target_info.per_atom
+    sample_kind = target_info.sample_kind
     keys = target_info.layout.keys
 
     target_key = target["key"]
 
     tensor_maps = []
     for i_system, atoms in enumerate(frames):
-        if (per_atom and target_key not in atoms.arrays) or (
-            not per_atom and target_key not in atoms.info
+        if (sample_kind == ["atom"] and target_key not in atoms.arrays) or (
+            sample_kind == ["system"] and target_key not in atoms.info
         ):
             raise ValueError(
                 f"Target key {target_key!r} was not found in system {filename!r} at "
                 f"index {i_system}"
             )
 
-        if per_atom:
+        if sample_kind == ["atom"]:
             data = atoms.arrays[target_key]
         else:
             data = atoms.info[target_key]
@@ -350,7 +350,7 @@ def read_generic(target: DictConfig) -> Tuple[List[TensorMap], TargetInfo]:
                 ["system", "atom"],
                 torch.tensor([[i_system, a] for a in range(len(values))]),
             )
-            if per_atom
+            if sample_kind == ["atom"]
             else Labels(
                 ["system"],
                 torch.tensor([[i_system]]),

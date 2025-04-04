@@ -35,7 +35,7 @@ def test_llpr(tmpdir):
             "key": "U0",
             "unit": "kcal/mol",
             "type": "scalar",
-            "per_atom": False,
+            "sample_kind": ["system"],
             "num_subtargets": 1,
             "forces": False,
             "stress": False,
@@ -69,9 +69,9 @@ def test_llpr(tmpdir):
     evaluation_options = ModelEvaluationOptions(
         length_unit="angstrom",
         outputs={
-            "mtt::aux::energy_uncertainty": ModelOutput(per_atom=True),
-            "energy": ModelOutput(per_atom=True),
-            "mtt::aux::energy_last_layer_features": ModelOutput(per_atom=True),
+            "mtt::aux::energy_uncertainty": ModelOutput(sample_kind=["atom"]),
+            "energy": ModelOutput(sample_kind=["atom"]),
+            "mtt::aux::energy_last_layer_features": ModelOutput(sample_kind=["atom"]),
         },
         selected_atoms=None,
     )
@@ -119,9 +119,9 @@ def test_llpr(tmpdir):
     evaluation_options = ModelEvaluationOptions(
         length_unit="angstrom",
         outputs={
-            "energy": ModelOutput(per_atom=False),
-            "mtt::aux::energy_uncertainty": ModelOutput(per_atom=False),
-            "energy_ensemble": ModelOutput(per_atom=False),
+            "energy": ModelOutput(sample_kind=["system"]),
+            "mtt::aux::energy_uncertainty": ModelOutput(sample_kind=["system"]),
+            "energy_ensemble": ModelOutput(sample_kind=["system"]),
         },
         selected_atoms=None,
     )
@@ -156,7 +156,7 @@ def test_llpr_covariance_as_pseudo_hessian(tmpdir):
             "key": "U0",
             "unit": "kcal/mol",
             "type": "scalar",
-            "per_atom": False,
+            "sample_kind": ["system"],
             "num_subtargets": 1,
             "forces": False,
             "stress": False,
@@ -205,9 +205,9 @@ def test_llpr_covariance_as_pseudo_hessian(tmpdir):
     evaluation_options = ModelEvaluationOptions(
         length_unit="angstrom",
         outputs={
-            "mtt::aux::energy_uncertainty": ModelOutput(per_atom=True),
-            "energy": ModelOutput(per_atom=True),
-            "mtt::aux::energy_last_layer_features": ModelOutput(per_atom=True),
+            "mtt::aux::energy_uncertainty": ModelOutput(sample_kind=["atom"]),
+            "energy": ModelOutput(sample_kind=["atom"]),
+            "mtt::aux::energy_last_layer_features": ModelOutput(sample_kind=["atom"]),
         },
         selected_atoms=None,
     )
@@ -255,9 +255,9 @@ def test_llpr_covariance_as_pseudo_hessian(tmpdir):
     evaluation_options = ModelEvaluationOptions(
         length_unit="angstrom",
         outputs={
-            "energy": ModelOutput(per_atom=False),
-            "mtt::aux::energy_uncertainty": ModelOutput(per_atom=False),
-            "energy_ensemble": ModelOutput(per_atom=False),
+            "energy": ModelOutput(sample_kind=["system"]),
+            "mtt::aux::energy_uncertainty": ModelOutput(sample_kind=["system"]),
+            "energy_ensemble": ModelOutput(sample_kind=["system"]),
         },
         selected_atoms=None,
     )

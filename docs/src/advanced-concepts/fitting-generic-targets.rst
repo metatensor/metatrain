@@ -63,7 +63,7 @@ like this:
         key: my_target
         quantity: ""
         unit: ""
-        per_atom: True
+        sample_kind: ["atom"]
         type:
           cartesian:
             rank: 1
@@ -71,8 +71,8 @@ like this:
 
 The crucial fields here are:
 
-- ``per_atom``: This field should be set to ``True`` if the target is a per-atom
-    property. Otherwise, it should be set to ``False``.
+- ``sample_kind``: This field should be set to ``["atom"]`` if the target is a per-atom
+    property. Otherwise, it should be set to ``["system"]``.
 - ``type``: This field specifies the type of the target. In this case, the target is
     a Cartesian vector. The ``rank`` field specifies the rank of the target. For
     Cartesian vectors, the rank is 1. Other possibilities for the ``type`` are
@@ -98,7 +98,7 @@ the target section should would look like this:
         read_from: dataset.xyz
         key: energy
         unit: ""
-        per_atom: True
+        sample_kind: ["atom"]
         type:
           spherical:
             irreps:

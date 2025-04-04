@@ -41,7 +41,7 @@ def test_continue(monkeypatch, tmp_path):
             "key": "U0",
             "unit": "eV",
             "type": "scalar",
-            "per_atom": False,
+            "sample_kind": ["system"],
             "num_subtargets": 1,
             "forces": False,
             "stress": False,

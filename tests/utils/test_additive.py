@@ -107,13 +107,15 @@ def test_composition_model_train():
     composition_model.train_model(dataset, [])
     assert composition_model.atomic_types == [1, 8]
     output_H = composition_model(
-        [system_H], {"energy": ModelOutput(quantity="energy", unit="", per_atom=False)}
+        [system_H],
+        {"energy": ModelOutput(quantity="energy", unit="", sample_kind=["system"])},
     )
     torch.testing.assert_close(
         output_H["energy"].block().values, torch.tensor([[2.0]], dtype=torch.float64)
     )
     output_O = composition_model(
-        [system_O], {"energy": ModelOutput(quantity="energy", unit="", per_atom=False)}
+        [system_O],
+        {"energy": ModelOutput(quantity="energy", unit="", sample_kind=["system"])},
     )
     torch.testing.assert_close(
         output_O["energy"].block().values, torch.tensor([[1.0]], dtype=torch.float64)
@@ -121,13 +123,15 @@ def test_composition_model_train():
 
     composition_model.train_model([dataset], [])
     output_H = composition_model(
-        [system_H], {"energy": ModelOutput(quantity="energy", unit="", per_atom=False)}
+        [system_H],
+        {"energy": ModelOutput(quantity="energy", unit="", sample_kind=["system"])},
     )
     torch.testing.assert_close(
         output_H["energy"].block().values, torch.tensor([[2.0]], dtype=torch.float64)
     )
     output_O = composition_model(
-        [system_O], {"energy": ModelOutput(quantity="energy", unit="", per_atom=False)}
+        [system_O],
+        {"energy": ModelOutput(quantity="energy", unit="", sample_kind=["system"])},
     )
     torch.testing.assert_close(
         output_O["energy"].block().values, torch.tensor([[1.0]], dtype=torch.float64)
@@ -136,13 +140,15 @@ def test_composition_model_train():
     composition_model.train_model([dataset, dataset, dataset], [])
     assert composition_model.atomic_types == [1, 8]
     output_H = composition_model(
-        [system_H], {"energy": ModelOutput(quantity="energy", unit="", per_atom=False)}
+        [system_H],
+        {"energy": ModelOutput(quantity="energy", unit="", sample_kind=["system"])},
     )
     torch.testing.assert_close(
         output_H["energy"].block().values, torch.tensor([[2.0]], dtype=torch.float64)
     )
     output_O = composition_model(
-        [system_O], {"energy": ModelOutput(quantity="energy", unit="", per_atom=False)}
+        [system_O],
+        {"energy": ModelOutput(quantity="energy", unit="", sample_kind=["system"])},
     )
     torch.testing.assert_close(
         output_O["energy"].block().values, torch.tensor([[1.0]], dtype=torch.float64)
@@ -164,7 +170,7 @@ def test_composition_model_predict():
             "key": "U0",
             "unit": "eV",
             "type": "scalar",
-            "per_atom": False,
+            "sample_kind": ["system"],
             "num_subtargets": 1,
             "forces": False,
             "stress": False,
@@ -185,19 +191,19 @@ def test_composition_model_predict():
 
     composition_model.train_model(dataset, [])
 
-    # per_atom = False
+    # sample_kind = ["system"]
     output = composition_model(
         systems[:5],
-        {"mtt::U0": ModelOutput(quantity="energy", unit="", per_atom=False)},
+        {"mtt::U0": ModelOutput(quantity="energy", unit="", sample_kind=["system"])},
     )
     assert "mtt::U0" in output
     assert output["mtt::U0"].block().samples.names == ["system"]
     assert output["mtt::U0"].block().values.shape == (5, 1)
 
-    # per_atom = True
+    # sample_kind = ["atom"]
     output = composition_model(
         systems[:5],
-        {"mtt::U0": ModelOutput(quantity="energy", unit="", per_atom=True)},
+        {"mtt::U0": ModelOutput(quantity="energy", unit="", sample_kind=["atom"])},
     )
     assert "mtt::U0" in output
     assert output["mtt::U0"].block().samples.names == ["system", "atom"]
@@ -211,7 +217,7 @@ def test_composition_model_predict():
 
     output = composition_model(
         systems[:5],
-        {"mtt::U0": ModelOutput(quantity="energy", unit="", per_atom=True)},
+        {"mtt::U0": ModelOutput(quantity="energy", unit="", sample_kind=["atom"])},
         selected_atoms=selected_atoms,
     )
     assert "mtt::U0" in output
@@ -220,7 +226,7 @@ def test_composition_model_predict():
 
     output = composition_model(
         systems[:5],
-        {"mtt::U0": ModelOutput(quantity="energy", unit="", per_atom=False)},
+        {"mtt::U0": ModelOutput(quantity="energy", unit="", sample_kind=["system"])},
         selected_atoms=selected_atoms,
     )
     assert "mtt::U0" in output
@@ -247,7 +253,8 @@ def test_composition_model_torchscript(tmpdir):
     )
     composition_model = torch.jit.script(composition_model)
     composition_model(
-        [system], {"energy": ModelOutput(quantity="energy", unit="", per_atom=False)}
+        [system],
+        {"energy": ModelOutput(quantity="energy", unit="", sample_kind=["system"])},
     )
 
     with tmpdir.as_cwd():
@@ -255,7 +262,8 @@ def test_composition_model_torchscript(tmpdir):
         composition_model = torch.jit.load("composition_model.pt")
 
     composition_model(
-        [system], {"energy": ModelOutput(quantity="energy", unit="", per_atom=False)}
+        [system],
+        {"energy": ModelOutput(quantity="energy", unit="", sample_kind=["system"])},
     )
 
 
@@ -274,7 +282,7 @@ def test_remove_additive():
             "key": "U0",
             "unit": "eV",
             "type": "scalar",
-            "per_atom": False,
+            "sample_kind": ["system"],
             "num_subtargets": 1,
             "forces": False,
             "stress": False,
@@ -412,7 +420,7 @@ def test_composition_model_wrong_target():
                             "unit": "",
                             "type": {"cartesian": {"rank": 1}},
                             "num_subtargets": 1,
-                            "per_atom": True,
+                            "sample_kind": ["atom"],
                         }
                     )
                 },
@@ -436,7 +444,7 @@ def test_zbl():
             "key": "U0",
             "unit": "eV",
             "type": "scalar",
-            "per_atom": False,
+            "sample_kind": ["system"],
             "num_subtargets": 1,
             "forces": False,
             "stress": False,
@@ -458,10 +466,10 @@ def test_zbl():
     for system in systems:
         get_system_with_neighbor_lists(system, requested_neighbor_lists)
 
-    # per_atom = True
+    # sample_kind = ["atom"]
     output = zbl(
         systems,
-        {"mtt::U0": ModelOutput(quantity="energy", unit="", per_atom=True)},
+        {"mtt::U0": ModelOutput(quantity="energy", unit="", sample_kind=["atom"])},
     )
     assert "mtt::U0" in output
     assert output["mtt::U0"].block().samples.names == ["system", "atom"]
@@ -475,17 +483,17 @@ def test_zbl():
 
     output = zbl(
         systems,
-        {"mtt::U0": ModelOutput(quantity="energy", unit="", per_atom=True)},
+        {"mtt::U0": ModelOutput(quantity="energy", unit="", sample_kind=["atom"])},
         selected_atoms=selected_atoms,
     )
     assert "mtt::U0" in output
     assert output["mtt::U0"].block().samples.names == ["system", "atom"]
     assert output["mtt::U0"].block().values.shape == (1, 1)
 
-    # per_atom = False
+    # sample_kind = ["system"]
     output = zbl(
         systems,
-        {"mtt::U0": ModelOutput(quantity="energy", unit="", per_atom=False)},
+        {"mtt::U0": ModelOutput(quantity="energy", unit="", sample_kind=["system"])},
     )
     assert "mtt::U0" in output
     assert output["mtt::U0"].block().samples.names == ["system"]
@@ -496,7 +504,7 @@ def test_zbl():
     system = systems[3]
     output = zbl(
         [system],
-        {"mtt::U0": ModelOutput(quantity="energy", unit="", per_atom=False)},
+        {"mtt::U0": ModelOutput(quantity="energy", unit="", sample_kind=["system"])},
     )
     assert torch.allclose(output["mtt::U0"].block().values[0], expected)
 
@@ -586,7 +594,7 @@ def test_composition_model_train_per_atom(where_is_center_type):
                         "unit": "",
                         "type": "scalar",
                         "num_subtargets": 1,
-                        "per_atom": True,
+                        "sample_kind": ["atom"],
                     }
                 )
             },
@@ -610,13 +618,15 @@ def test_composition_model_train_per_atom(where_is_center_type):
     assert composition_model.atomic_types == [1, 8]
     print(composition_model.weights["energy"].block().values)
     output_H = composition_model(
-        [system_H], {"energy": ModelOutput(quantity="energy", unit="", per_atom=False)}
+        [system_H],
+        {"energy": ModelOutput(quantity="energy", unit="", sample_kind=["system"])},
     )
     torch.testing.assert_close(
         output_H["energy"].block().values, torch.tensor([[1.25]], dtype=torch.float64)
     )
     output_O = composition_model(
-        [system_O], {"energy": ModelOutput(quantity="energy", unit="", per_atom=False)}
+        [system_O],
+        {"energy": ModelOutput(quantity="energy", unit="", sample_kind=["system"])},
     )
     torch.testing.assert_close(
         output_O["energy"].block().values, torch.tensor([[1.5]], dtype=torch.float64)
@@ -695,7 +705,7 @@ def test_composition_many_subtargets():
                         "unit": "",
                         "type": "scalar",
                         "num_subtargets": 2,
-                        "per_atom": False,
+                        "sample_kind": ["system"],
                     }
                 )
             },
@@ -718,14 +728,16 @@ def test_composition_many_subtargets():
     composition_model.train_model(dataset, [])
     assert composition_model.atomic_types == [1, 8]
     output_H = composition_model(
-        [system_H], {"energy": ModelOutput(quantity="energy", unit="", per_atom=False)}
+        [system_H],
+        {"energy": ModelOutput(quantity="energy", unit="", sample_kind=["system"])},
     )
     torch.testing.assert_close(
         output_H["energy"].block().values,
         torch.tensor([[2.0, 0.5]], dtype=torch.float64),
     )
     output_O = composition_model(
-        [system_O], {"energy": ModelOutput(quantity="energy", unit="", per_atom=False)}
+        [system_O],
+        {"energy": ModelOutput(quantity="energy", unit="", sample_kind=["system"])},
     )
     torch.testing.assert_close(
         output_O["energy"].block().values,
@@ -829,7 +841,7 @@ def test_composition_spherical():
                             }
                         },
                         "num_subtargets": 1,
-                        "per_atom": False,
+                        "sample_kind": ["system"],
                     }
                 )
             },
@@ -852,7 +864,8 @@ def test_composition_spherical():
     composition_model.train_model(dataset, [])
     assert composition_model.atomic_types == [1, 8]
     output_H = composition_model(
-        [system_H], {"energy": ModelOutput(quantity="energy", unit="", per_atom=False)}
+        [system_H],
+        {"energy": ModelOutput(quantity="energy", unit="", sample_kind=["system"])},
     )
     torch.testing.assert_close(
         output_H["energy"].block({"o3_lambda": 0}).values,
@@ -863,7 +876,8 @@ def test_composition_spherical():
         torch.zeros_like(output_H["energy"].block({"o3_lambda": 1}).values),
     )
     output_O = composition_model(
-        [system_O], {"energy": ModelOutput(quantity="energy", unit="", per_atom=False)}
+        [system_O],
+        {"energy": ModelOutput(quantity="energy", unit="", sample_kind=["system"])},
     )
     torch.testing.assert_close(
         output_O["energy"].block({"o3_lambda": 0}).values,

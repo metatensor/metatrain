@@ -128,7 +128,7 @@ def test_read_energy(tmpdir, energy_tensor_map):
         "key": "true_energy",
         "unit": "eV",
         "type": "scalar",
-        "per_atom": False,
+        "sample_kind": ["system"],
         "num_subtargets": 1,
         "forces": False,
         "stress": False,
@@ -151,7 +151,7 @@ def test_read_generic_scalar(tmpdir, scalar_tensor_map):
         "read_from": "generic.mts",
         "reader": "metatensor",
         "keys": ["scalar"],
-        "per_atom": True,
+        "sample_kind": ["atom"],
         "unit": "unit",
         "type": "scalar",
         "num_subtargets": 10,
@@ -173,7 +173,7 @@ def test_read_generic_spherical(tmpdir, spherical_tensor_map):
         "read_from": "generic.mts",
         "reader": "metatensor",
         "keys": ["o3_lambda", "o3_sigma"],
-        "per_atom": False,
+        "sample_kind": ["system"],
         "unit": "unit",
         "type": {
             "spherical": {
@@ -202,7 +202,7 @@ def test_read_generic_cartesian(tmpdir, cartesian_tensor_map):
         "read_from": "generic.mts",
         "reader": "metatensor",
         "keys": ["cartesian"],
-        "per_atom": False,
+        "sample_kind": ["system"],
         "unit": "unit",
         "type": {
             "cartesian": {
@@ -234,7 +234,7 @@ def test_read_errors(tmpdir, energy_tensor_map, scalar_tensor_map):
         "key": "true_energy",
         "unit": "eV",
         "type": "scalar",
-        "per_atom": False,
+        "sample_kind": ["system"],
         "num_subtargets": 1,
         "forces": False,
         "stress": False,

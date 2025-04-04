@@ -148,7 +148,7 @@ def test_per_atom_predictions_functionality():
             "energy": ModelOutput(
                 quantity="energy",
                 unit="eV",
-                per_atom=True,
+                sample_kind=["atom"],
             )
         },
         interaction_range=DEFAULT_HYPERS["model"]["N_GNN_LAYERS"]
@@ -227,8 +227,8 @@ def test_selected_atoms_functionality():
     )
 
 
-@pytest.mark.parametrize("per_atom", [True, False])
-def test_vector_output(per_atom):
+@pytest.mark.parametrize("sample_kind", [["system"], ["atom"]])
+def test_vector_output(sample_kind):
     """Tests that the model can predict a (spherical) vector output."""
 
     dataset_info = DatasetInfo(
@@ -243,7 +243,7 @@ def test_vector_output(per_atom):
                         "spherical": {"irreps": [{"o3_lambda": 1, "o3_sigma": 1}]}
                     },
                     "num_subtargets": 100,
-                    "per_atom": per_atom,
+                    "sample_kind": sample_kind,
                 }
             )
         },
@@ -282,12 +282,12 @@ def test_output_features():
     ll_output_options = ModelOutput(
         quantity="",
         unit="unitless",
-        per_atom=True,
+        sample_kind=["atom"],
     )
     outputs = model(
         [system],
         {
-            "energy": ModelOutput(quantity="energy", unit="eV", per_atom=True),
+            "energy": ModelOutput(quantity="energy", unit="eV", sample_kind=["atom"]),
             "mtt::aux::energy_last_layer_features": ll_output_options,
             "features": ll_output_options,
         },
@@ -314,12 +314,12 @@ def test_output_features():
     ll_output_options = ModelOutput(
         quantity="",
         unit="unitless",
-        per_atom=False,
+        sample_kind=["system"],
     )
     outputs = model(
         [system],
         {
-            "energy": ModelOutput(quantity="energy", unit="eV", per_atom=True),
+            "energy": ModelOutput(quantity="energy", unit="eV", sample_kind=["atom"]),
             "mtt::aux::energy_last_layer_features": ll_output_options,
             "features": ll_output_options,
         },

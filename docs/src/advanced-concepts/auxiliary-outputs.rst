@@ -63,8 +63,9 @@ mtt::aux::{target}_last_layer_features
 
   * - samples
     - ``["system", "atom"]`` or ``["system"]``
-    - if a ``per_atom`` output is requested, the sample names will be
-      ``["system", "atom"]``, otherwise they will be ``["system"]``.
+    - if an output with ``sample_kind=["atom"]`` is requested, the sample names will be
+      ``["system", "atom"]``, otherwise if ``sample_kind=["system"]`` they will be
+      ``["system"]``.
 
       ``"system"`` ranges from 0 to the number of systems given as input to
       the model. ``"atom"`` ranges between 0 and the number of
