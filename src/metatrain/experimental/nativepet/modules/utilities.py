@@ -1,6 +1,7 @@
-from typing import Dict, List
+from typing import Dict, List, Optional
 
 import torch
+from metatensor.torch import Labels
 from metatensor.torch.atomistic import NeighborListOptions, System
 
 from .nef import (
@@ -38,7 +39,9 @@ def systems_to_batch_dict(
     systems: List[System],
     options: NeighborListOptions,
     all_species_list: List[int],
+    system_indices: torch.Tensor,
     species_to_species_index: torch.Tensor,
+    selected_atoms: Optional[Labels] = None,
 ) -> Dict[str, torch.Tensor]:
     """
     Converts a list of systems to a batch dictionary,
@@ -53,17 +56,6 @@ def systems_to_batch_dict(
     - `neighbors_pos`: The reversed neighbor list
     - `batch`: The batch indices for each atom
     """
-    device = systems[0].positions.device
-    system_indices = torch.concatenate(
-        [
-            torch.full(
-                (len(system),),
-                i_system,
-                device=device,
-            )
-            for i_system, system in enumerate(systems)
-        ],
-    )
     (
         positions,
         centers,
@@ -125,4 +117,5 @@ def systems_to_batch_dict(
         "neighbors_pos": neighbors_pos,
         "batch": system_indices,
     }
+
     return native_batch_dict

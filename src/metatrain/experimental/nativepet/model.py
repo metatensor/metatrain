@@ -26,6 +26,7 @@ from .modules.finetuning import apply_finetuning_strategy
 from .modules.heads import (
     Head,
 )
+from .modules.structures import remap_neighborlists
 from .modules.transformer import CartesianTransformer
 from .modules.utilities import cutoff_func, systems_to_batch_dict
 
@@ -225,6 +226,10 @@ class NativePET(torch.nn.Module):
         selected_atoms: Optional[Labels] = None,
     ) -> Dict[str, TensorMap]:
         device = systems[0].device
+        nl_options = self.requested_neighbor_lists()[0]
+
+        if not self.training:
+            systems = remap_neighborlists(systems, nl_options, selected_atoms)
 
         if self.single_label.values.device != device:
             self.single_label = self.single_label.to(device)
@@ -275,10 +280,13 @@ class NativePET(torch.nn.Module):
             values=sample_values,
         )
 
-        nl_options = self.requested_neighbor_lists()[0]
-
         batch_dict = systems_to_batch_dict(
-            systems, nl_options, self.atomic_types, self.species_to_species_index
+            systems,
+            nl_options,
+            self.atomic_types,
+            system_indices,
+            self.species_to_species_index,
+            selected_atoms,
         )
 
         x = batch_dict["x"]
@@ -485,7 +493,6 @@ class NativePET(torch.nn.Module):
                     messages_bonds_properties_by_layer.append(
                         messages_bonds_properties_by_block
                     )
-
         for output_name in self.target_names:
             if output_name in outputs:
                 atomic_properties_by_block = {
