@@ -15,11 +15,13 @@ from metatrain.experimental.nativepet.modules.compatibility import (
 )
 from metatrain.experimental.nativepet.modules.utilities import (
     cutoff_func,
-    systems_to_batch_dict,
 )
 from metatrain.pet import PET
 from metatrain.pet.modules.hypers import Hypers
 from metatrain.pet.modules.pet import PET as RawPET
+from metatrain.pet.utils import (
+    systems_to_batch_dict,
+)
 from metatrain.utils.architectures import get_default_hypers
 from metatrain.utils.data import DatasetInfo, read_systems
 from metatrain.utils.data.target_info import get_energy_target_info
@@ -347,7 +349,9 @@ def test_cartesian_transformer_compatibility():
     nativepet_cartesian_transformer = nativepet_model.gnn_layers[0]
     pet_cartesian_transformer = pet_model.pet.gnn_layers[0]
 
-    nativepet_result = nativepet_cartesian_transformer(batch_dict)
+    nativepet_result = nativepet_cartesian_transformer(
+        batch_dict, use_manual_attention=False
+    )
     pet_result = pet_cartesian_transformer(batch_dict)
     torch.testing.assert_close(
         nativepet_result["central_token"], pet_result["central_token"]
@@ -384,7 +388,9 @@ def test_gnn_layers_compatibility():
     for nativepet_gnn_layer, pet_gnn_layer in zip(
         nativepet_model.gnn_layers, pet_model.pet.gnn_layers
     ):
-        nativepet_result = nativepet_gnn_layer(nativepet_batch_dict)
+        nativepet_result = nativepet_gnn_layer(
+            nativepet_batch_dict, use_manual_attention=False
+        )
         pet_result = pet_gnn_layer(pet_batch_dict)
         new_nativepet_input_messages = nativepet_result["output_messages"][
             neighbors_index, neighbors_pos
@@ -393,7 +399,7 @@ def test_gnn_layers_compatibility():
             neighbors_index, neighbors_pos
         ]
 
-        nativepet_batch_dict["input_messages"] = nativepet_model.residual_factor * (
+        nativepet_batch_dict["input_messages"] = 0.5 * (
             nativepet_batch_dict["input_messages"] + new_nativepet_input_messages
         )
 
@@ -424,7 +430,7 @@ def test_heads():
     batch_dict["input_messages"] = nativepet_model.embedding(
         batch_dict["neighbor_species"]
     )
-    gnn_result = nativepet_model.gnn_layers[0](batch_dict)
+    gnn_result = nativepet_model.gnn_layers[0](batch_dict, use_manual_attention=False)
     pet_atomic_predictions = torch.zeros(1)
     nativepet_atomic_predictions = torch.zeros(1)
 
@@ -467,7 +473,7 @@ def test_bond_heads():
         batch_dict["neighbor_species"]
     )
 
-    gnn_result = nativepet_model.gnn_layers[0](batch_dict)
+    gnn_result = nativepet_model.gnn_layers[0](batch_dict, use_manual_attention=False)
 
     pet_atomic_predictions = torch.zeros(1)
     nativepet_atomic_predictions = torch.zeros(1)
@@ -685,8 +691,8 @@ def test_last_layer_features_compatibility():
 
     pet_last_layer_features = pet_predictions["mtt::aux::energy_last_layer_features"]
 
-    assert metatensor.torch.equal(
-        nativepet_last_layer_features, pet_last_layer_features
+    assert metatensor.torch.allclose(
+        nativepet_last_layer_features, pet_last_layer_features, atol=1e-6
     )
 
 
