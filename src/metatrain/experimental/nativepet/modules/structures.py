@@ -4,6 +4,13 @@ import torch
 from metatensor.torch import Labels, TensorBlock
 from metatensor.torch.atomistic import NeighborListOptions, System
 
+from .nef import (
+    compute_reversed_neighbor_list,
+    edge_array_to_nef,
+    get_corresponding_edges,
+    get_nef_indices,
+)
+
 
 def concatenate_structures(
     systems: List[System],
@@ -174,3 +181,88 @@ def remap_to_contiguous_indexing(
     neighbors = index_map[neighbors]
     unique_neighbors_index = index_map[unique_neighbors_index]
     return centers, neighbors, unique_neighbors_index
+
+
+def systems_to_batch(
+    systems: List[System],
+    options: NeighborListOptions,
+    all_species_list: List[int],
+    system_indices: torch.Tensor,
+    species_to_species_index: torch.Tensor,
+    selected_atoms: Optional[Labels] = None,
+):
+    """
+    Converts a list of systems to a batch required for the NativePET model.
+    The batch consists of the following tensors:
+    - `element_indices_nodes`: The atomic species of the central atoms
+    - `element_indices_neighbors`: The atomic species of the neighboring atoms
+    - `edge_vectors`: The cartedian edge vectors between the central atoms and their
+      neighbors
+    - `padding_mask`: A padding mask indicating which neighbors are real, and which are
+      padded
+    - `neighbors_index`: The indices of the neighboring atoms for each central atom
+    - `num_neghbors`: The number of neighbors for each central atom
+    - `reversed_neighbor_list`: The reversed neighbor list for each central atom
+    """
+    (
+        positions,
+        centers,
+        neighbors,
+        species,
+        cells,
+        cell_shifts,
+    ) = concatenate_structures(systems, options)
+
+    # somehow the backward of this operation is very slow at evaluation,
+    # where there is only one cell, therefore we simplify the calculation
+    # for that case
+    if len(cells) == 1:
+        cell_contributions = cell_shifts.to(cells.dtype) @ cells[0]
+    else:
+        cell_contributions = torch.einsum(
+            "ab, abc -> ac",
+            cell_shifts.to(cells.dtype),
+            cells[system_indices[centers]],
+        )
+    edge_vectors = positions[neighbors] - positions[centers] + cell_contributions
+    num_neghbors = torch.bincount(centers)
+    if num_neghbors.numel() == 0:  # no edges
+        max_edges_per_node = 0
+    else:
+        max_edges_per_node = int(torch.max(num_neghbors))
+
+    # Convert to NEF (Node-Edge-Feature) format:
+    nef_indices, nef_to_edges_neighbor, nef_mask = get_nef_indices(
+        centers, len(positions), max_edges_per_node
+    )
+
+    # Element indices
+    element_indices_nodes = species_to_species_index[species]
+    element_indices_neighbors = element_indices_nodes[neighbors]
+
+    # Send everything to NEF:
+    edge_vectors = edge_array_to_nef(edge_vectors, nef_indices)
+    element_indices_neighbors = edge_array_to_nef(
+        element_indices_neighbors, nef_indices
+    )
+
+    corresponding_edges = get_corresponding_edges(
+        torch.concatenate(
+            [centers.unsqueeze(-1), neighbors.unsqueeze(-1), cell_shifts],
+            dim=-1,
+        )
+    )
+
+    reversed_neighbor_list = compute_reversed_neighbor_list(
+        nef_indices, corresponding_edges, nef_mask
+    )
+    neighbors_index = edge_array_to_nef(neighbors, nef_indices).to(torch.int64)
+    return (
+        element_indices_nodes,
+        element_indices_neighbors,
+        edge_vectors,
+        nef_mask,
+        neighbors_index,
+        num_neghbors,
+        reversed_neighbor_list,
+    )

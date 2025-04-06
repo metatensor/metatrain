@@ -1,10 +1,8 @@
-from typing import Dict
-
 import torch
 import torch.nn.functional as F
 from torch import nn
 
-from .utilities import NeverRun, cutoff_func
+from .utilities import DummyModule
 
 
 class AttentionBlock(nn.Module):
@@ -25,7 +23,7 @@ class AttentionBlock(nn.Module):
             raise ValueError("total dimension is not divisible by the number of heads")
         self.head_dim = total_dim // num_heads
 
-    def forward(self, x, multipliers: torch.Tensor, use_manual_attention: bool):
+    def forward(self, x, cutoff_factors: torch.Tensor, use_manual_attention: bool):
         initial_shape = x.shape
         x = self.input_linear(x)
         x = x.reshape(
@@ -34,7 +32,7 @@ class AttentionBlock(nn.Module):
         x = x.permute(2, 0, 3, 1, 4)
 
         queries, keys, values = x[0], x[1], x[2]
-        attn_weights = torch.clamp(multipliers[:, None, :, :], self.epsilon)
+        attn_weights = torch.clamp(cutoff_factors[:, None, :, :], self.epsilon)
         attn_weights = torch.log(attn_weights)
         if use_manual_attention:
             x = manual_attention(queries, keys, values, attn_weights)
@@ -82,21 +80,27 @@ class TransformerLayer(torch.nn.Module):
         )
 
     def forward(
-        self, x: torch.Tensor, multipliers: torch.Tensor, use_manual_attention: bool
+        self,
+        tokens: torch.Tensor,
+        cutoff_factors: torch.Tensor,
+        use_manual_attention: bool,
     ) -> torch.Tensor:
         if self.transformer_type == "PostLN":
-            x = self.norm_attention(
-                x + self.dropout(self.attention(x, multipliers, use_manual_attention))
-            )
-            x = self.norm_mlp(x + self.mlp(x))
-        if self.transformer_type == "PreLN":
-            x = x + self.dropout(
-                self.attention(
-                    self.norm_attention(x), multipliers, use_manual_attention
+            tokens = self.norm_attention(
+                tokens
+                + self.dropout(
+                    self.attention(tokens, cutoff_factors, use_manual_attention)
                 )
             )
-            x = x + self.mlp(self.norm_mlp(x))
-        return x
+            tokens = self.norm_mlp(tokens + self.mlp(tokens))
+        if self.transformer_type == "PreLN":
+            tokens = tokens + self.dropout(
+                self.attention(
+                    self.norm_attention(tokens), cutoff_factors, use_manual_attention
+                )
+            )
+            tokens = tokens + self.mlp(self.norm_mlp(tokens))
+        return tokens
 
 
 class Transformer(torch.nn.Module):
@@ -113,7 +117,7 @@ class Transformer(torch.nn.Module):
         super(Transformer, self).__init__()
         self.transformer_type = transformer_type
 
-        self.final_norm = NeverRun()  # for torchscript
+        self.final_norm = DummyModule()  # for torchscript
         if transformer_type == "PreLN":
             self.final_norm = nn.LayerNorm(d_model)
         self.layers = nn.ModuleList(
@@ -131,13 +135,16 @@ class Transformer(torch.nn.Module):
         )
 
     def forward(
-        self, x: torch.Tensor, multipliers: torch.Tensor, use_manual_attention: bool
+        self,
+        tokens: torch.Tensor,
+        cutoff_factors: torch.Tensor,
+        use_manual_attention: bool,
     ) -> torch.Tensor:
         for layer in self.layers:
-            x = layer(x, multipliers, use_manual_attention)
+            tokens = layer(tokens, cutoff_factors, use_manual_attention)
         if self.transformer_type == "PreLN":
-            x = self.final_norm(x)
-        return x
+            tokens = self.final_norm(tokens)
+        return tokens
 
 
 class CartesianTransformer(torch.nn.Module):
@@ -166,9 +173,7 @@ class CartesianTransformer(torch.nn.Module):
             transformer_type="PostLN",
         )
 
-        input_dim = 4  # x, y, z, r
-
-        self.r_embedding = nn.Linear(input_dim, d_model)
+        self.edge_embedder = nn.Linear(4, d_model)
 
         if not is_first:
             n_merge = 3
@@ -181,82 +186,81 @@ class CartesianTransformer(torch.nn.Module):
             nn.Linear(d_model, d_model),
         )
 
-        self.neighbor_embedder = NeverRun()  # for torchscript
+        self.neighbor_embedder = DummyModule()  # for torchscript
         if not is_first:
             self.neighbor_embedder = nn.Embedding(n_atomic_species + 1, d_model)
 
-        self.central_embedder = NeverRun()  # for torchscript
-        self.central_scalar_embedding = NeverRun()  # for torchscript
-        self.central_compress = NeverRun()  # for torchscript
-
-        self.central_embedder = nn.Embedding(n_atomic_species + 1, d_model)
+        self.node_embedder = nn.Embedding(n_atomic_species + 1, d_model)
 
     def forward(
         self,
-        batch_dict: Dict[str, torch.Tensor],
+        input_messages: torch.Tensor,
+        element_indices_nodes: torch.Tensor,
+        element_indices_neighbors: torch.Tensor,
+        edge_vectors: torch.Tensor,
+        padding_mask: torch.Tensor,
+        edge_distances: torch.Tensor,
+        cutoff_factors: torch.Tensor,
         use_manual_attention: bool,
     ):
-        x = batch_dict["x"]
-        mask = batch_dict["mask"]
-        central_species = batch_dict["central_species"]
-        neighbor_species = batch_dict["neighbor_species"]
-        input_messages = batch_dict["input_messages"]
-        neighbor_lengths = torch.sqrt(torch.sum(x**2, dim=2) + 1e-15)[:, :, None]
+        node_elements_embedding = self.node_embedder(element_indices_nodes)
+        edge_embedding = [edge_vectors, edge_distances[:, :, None]]
+        edge_embedding = torch.cat(edge_embedding, dim=2)
+        edge_embedding = self.edge_embedder(edge_embedding)
+
         if not self.is_first:
-            neighbor_embedding = self.neighbor_embedder(neighbor_species)
+            neighbor_elements_embedding = self.neighbor_embedder(
+                element_indices_neighbors
+            )
+            tokens = torch.cat(
+                [edge_embedding, neighbor_elements_embedding, input_messages], dim=2
+            )
         else:
-            neighbor_embedding = torch.empty(
-                0, device=x.device, dtype=x.dtype
+            neighbor_elements_embedding = torch.empty(
+                0, device=edge_vectors.device, dtype=edge_vectors.dtype
             )  # for torch script
-
-        initial_n_tokens = x.shape[1]
-        max_number = input_messages.shape[1]
-        coordinates = [x, neighbor_lengths]
-        coordinates = torch.cat(coordinates, dim=2)
-        coordinates = self.r_embedding(coordinates)
-
-        if not self.is_first:
-            tokens = torch.cat([coordinates, neighbor_embedding, input_messages], dim=2)
-        else:
-            tokens = torch.cat([coordinates, input_messages], dim=2)
+            tokens = torch.cat([edge_embedding, input_messages], dim=2)
 
         tokens = self.compress(tokens)
-        central_specie_embedding = self.central_embedder(central_species)
-        central_token = central_specie_embedding
+        tokens = torch.cat([node_elements_embedding[:, None, :], tokens], dim=1)
 
-        tokens = torch.cat([central_token[:, None, :], tokens], dim=1)
+        padding_submask = torch.ones(
+            padding_mask.shape[0], dtype=torch.bool, device=padding_mask.device
+        )
+        total_padding_mask = torch.cat([padding_submask[:, None], padding_mask], dim=1)
 
-        submask = torch.zeros(mask.shape[0], dtype=torch.bool, device=mask.device)
-        total_mask = torch.cat([submask[:, None], mask], dim=1)
+        cutoff_subfactors = torch.ones(
+            padding_mask.shape[0], device=padding_mask.device
+        )
+        cutoff_factors = torch.cat([cutoff_subfactors[:, None], cutoff_factors], dim=1)
+        cutoff_factors[~total_padding_mask] = 0.0
 
-        lengths = torch.sqrt(torch.sum(x * x, dim=2) + 1e-16)
-        with torch.profiler.record_function("cutoff_func"):
-            multipliers = cutoff_func(lengths, self.cutoff, self.cutoff_width)
-        sub_multipliers = torch.ones(mask.shape[0], device=mask.device)
-        multipliers = torch.cat([sub_multipliers[:, None], multipliers], dim=1)
-        multipliers[total_mask] = 0.0
+        cutoff_factors = cutoff_factors[:, None, :]
+        cutoff_factors = cutoff_factors.repeat(1, cutoff_factors.shape[2], 1)
 
-        multipliers = multipliers[:, None, :]
-        multipliers = multipliers.repeat(1, multipliers.shape[2], 1)
+        initial_num_tokens = edge_vectors.shape[1]
+        max_num_tokens = input_messages.shape[1]
 
         output_messages = self.trans(
-            tokens[:, : (max_number + 1), :],
-            multipliers=multipliers[:, : (max_number + 1), : (max_number + 1)],
+            tokens[:, : (max_num_tokens + 1), :],
+            cutoff_factors=cutoff_factors[
+                :, : (max_num_tokens + 1), : (max_num_tokens + 1)
+            ],
             use_manual_attention=use_manual_attention,
         )
-        if max_number < initial_n_tokens:
+        # print("[NATIVEPET] output_messages", output_messages[0][:6])
+        if max_num_tokens < initial_num_tokens:
             padding = torch.zeros(
                 output_messages.shape[0],
-                initial_n_tokens - max_number,
+                initial_num_tokens - max_num_tokens,
                 output_messages.shape[2],
                 device=output_messages.device,
             )
             output_messages = torch.cat([output_messages, padding], dim=1)
 
-        return {
-            "output_messages": output_messages[:, 1:, :],
-            "central_token": output_messages[:, 0, :],
-        }
+        output_node_embeddings = output_messages[:, 0, :]
+        output_edge_embeddings = output_messages[:, 1:, :]
+        return output_node_embeddings, output_edge_embeddings
 
 
 def manual_attention(q, k, v, attn_mask):

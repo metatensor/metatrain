@@ -26,9 +26,9 @@ from .modules.finetuning import apply_finetuning_strategy
 from .modules.heads import (
     Head,
 )
-from .modules.structures import remap_neighborlists
+from .modules.structures import remap_neighborlists, systems_to_batch
 from .modules.transformer import CartesianTransformer
-from .modules.utilities import cutoff_func, systems_to_batch_dict
+from .modules.utilities import cutoff_func
 
 
 logger = logging.getLogger(__name__)
@@ -82,16 +82,13 @@ class NativePET(torch.nn.Module):
 
         self.gnn_layers = torch.nn.ModuleList(gnn_layers)
 
-        self.heads = torch.nn.ModuleDict()
-        self.bond_heads = torch.nn.ModuleDict()
-        self.last_layers = torch.nn.ModuleDict()
-        self.bond_last_layers = torch.nn.ModuleDict()
-        # last-layer feature size (for LLPR module)
+        self.node_heads = torch.nn.ModuleDict()
+        self.edge_heads = torch.nn.ModuleDict()
+        self.node_last_layers = torch.nn.ModuleDict()
+        self.edge_last_layers = torch.nn.ModuleDict()
         self.last_layer_feature_size = (
             self.hypers["num_gnn_layers"] * self.hypers["d_head"] * 2
         )
-        # if they are enabled, the edge features are concatenated
-        # to the node features
 
         self.outputs = {
             "features": ModelOutput(unit="", per_atom=True)
@@ -150,6 +147,8 @@ class NativePET(torch.nn.Module):
             ),
         )
         additive_models = [composition_model]
+
+        # Adds the ZBL repulsion model if requested
         if self.hypers["zbl"]:
             additive_models.append(
                 ZBL(
@@ -226,9 +225,14 @@ class NativePET(torch.nn.Module):
         selected_atoms: Optional[Labels] = None,
     ) -> Dict[str, TensorMap]:
         device = systems[0].device
+        return_dict: Dict[str, TensorMap] = {}
         nl_options = self.requested_neighbor_lists()[0]
 
         if not self.training:
+            # While running the model with LAMMPS, we need to remap the
+            # neighbor lists from LAMMPS to ASE format. By default, LAMMPS
+            # treats all ghost atoms as real (central), what creates a
+            # singificant computational overhead.
             systems = remap_neighborlists(systems, nl_options, selected_atoms)
 
         if self.single_label.values.device != device:
@@ -249,38 +253,38 @@ class NativePET(torch.nn.Module):
                 for output_name, properties_tmap in self.property_labels.items()
             }
 
-        system_indices = torch.concatenate(
-            [
-                torch.full(
-                    (len(system),),
-                    i_system,
-                    device=device,
-                )
-                for i_system, system in enumerate(systems)
-            ],
+        system_indices, sample_labels = self._get_system_indices_and_labels(
+            systems, device
         )
 
-        sample_values = torch.stack(
-            [
-                system_indices,
-                torch.concatenate(
-                    [
-                        torch.arange(
-                            len(system),
-                            device=device,
-                        )
-                        for system in systems
-                    ],
-                ),
-            ],
-            dim=1,
-        )
-        sample_labels = Labels(
-            names=["system", "atom"],
-            values=sample_values,
-        )
+        # We convert a list of systems to a batch required for the NativePET model.
+        # The batch consists of the following tensors:
+        # - `element_indices_nodes` [n_atoms]: The atomic species of the central atoms
+        # - `element_indices_neighbors` [n_atoms]: The atomic species of the neighboring
+        #   atoms
+        # - `edge_vectors` [n_atoms, max_num_neighbors, 3]: The cartedian edge vectors
+        #   between the central atoms and their neighbors
+        # - `padding_mask` [n_atoms, max_num_neighbors]: A padding mask indicating which
+        #   neighbors are real, and which are padded
+        # - `neighbors_index` [n_atoms, max_num_neighbors]: The indices of the
+        #   neighboring atoms for each central atom
+        # - `num_neghbors` [n_atoms]: The number of neighbors for each central atom
+        # - `reversed_neighbor_list` [n_atoms, max_num_neighbors]: The reversed neighbor
+        #   list for each central atom, where for each center atom `i` and its neighbor
+        #   `j` in the original neighborlist, the position of atom `i` in the list of
+        #   neighbors of atom `j` is returned.
+        # - `system_indices` [n_atoms]: Indices of each atom in the original list of
+        #   systems
 
-        batch_dict = systems_to_batch_dict(
+        (
+            element_indices_nodes,
+            element_indices_neighbors,
+            edge_vectors,
+            padding_mask,
+            neighbors_index,
+            num_neghbors,
+            reversed_neighbor_list,
+        ) = systems_to_batch(
             systems,
             nl_options,
             self.atomic_types,
@@ -289,60 +293,80 @@ class NativePET(torch.nn.Module):
             selected_atoms,
         )
 
-        x = batch_dict["x"]
-        mask = batch_dict["mask"]
-        neighbor_species = batch_dict["neighbor_species"]
-        neighbors_index = batch_dict["neighbors_index"]
-        neighbors_pos = batch_dict["neighbors_pos"]
-
         # the scaled_dot_product_attention function from torch cannot do
         # double backward, so we will use manual attention if needed
-        use_manual_attention = x.requires_grad and self.training
+        use_manual_attention = edge_vectors.requires_grad and self.training
 
-        lengths = torch.sqrt(torch.sum(x * x, dim=2) + 1e-16)
-        multipliers = cutoff_func(lengths, self.cutoff, self.cutoff_width)
-        multipliers[mask] = 0.0
+        edge_distances = torch.sqrt(torch.sum(edge_vectors**2, dim=2) + 1e-15)
+        cutoff_factors = cutoff_func(edge_distances, self.cutoff, self.cutoff_width)
+        cutoff_factors[~padding_mask] = 0.0
 
-        batch_dict["input_messages"] = self.embedding(neighbor_species)
+        # Stage 1. We iterate over the GNN layers and calculate the node and edge
+        # representations for structures, while saving the intermediate node and edge
+        # features from each layer to the corresponding lists.
 
-        return_dict: Dict[str, TensorMap] = {}
-        central_tokens_list = []
-        output_messages_list = []
+        node_features_list: List[torch.Tensor] = []
+        edge_features_list: List[torch.Tensor] = []
 
+        input_messages = self.embedding(element_indices_neighbors)
         for gnn_layer in self.gnn_layers:
-            result = gnn_layer(batch_dict, use_manual_attention)
-            output_messages = result["output_messages"]
-            new_input_messages = output_messages[neighbors_index, neighbors_pos]
-            batch_dict["input_messages"] = 0.5 * (
-                batch_dict["input_messages"] + new_input_messages
+            output_node_embeddings, output_edge_embeddings = gnn_layer(
+                input_messages,
+                element_indices_nodes,
+                element_indices_neighbors,
+                edge_vectors,
+                padding_mask,
+                edge_distances,
+                cutoff_factors,
+                use_manual_attention,
             )
-            central_tokens_list.append(result["central_token"])
-            output_messages_list.append(output_messages)
+            node_features_list.append(output_node_embeddings)
+            edge_features_list.append(output_edge_embeddings)
+
+            # The GNN contraction happens by reordering the messages,
+            # using a reversed neighbor list, so the new input message
+            # from atom `j` to atom `i` in on the GNN layer N+1 is a
+            # reversed message from atom `i` to atom `j` on the GNN layer N.
+            new_input_messages = output_edge_embeddings[
+                neighbors_index, reversed_neighbor_list
+            ]
+            input_messages = 0.5 * (input_messages + new_input_messages)
+
+        # If the long-range module is actuvated, we add the long-range features
+        # on top of the node features
 
         if self.long_range:
             if self.training:
+                # Currently, the long-range implementation show instabilities
+                # during training if P3MCalculator is used instead of the
+                # EwaldCalculator. We will use the EwaldCalculator for training.
                 self.long_range_featurizer.use_ewald = True
-            flattened_lengths = lengths[~mask]
+            flattened_lengths = edge_distances[padding_mask]
             short_range_features = (
-                torch.stack(central_tokens_list).sum(dim=0)
-                * (1 / len(central_tokens_list)) ** 0.5
+                torch.stack(node_features_list).sum(dim=0)
+                * (1 / len(node_features_list)) ** 0.5
             )
             long_range_features = self.long_range_featurizer(
                 systems, short_range_features, flattened_lengths
             )
             for i in range(len(self.gnn_layers)):
-                central_tokens_list[i] = (
-                    central_tokens_list[i] + long_range_features
+                node_features_list[i] = (
+                    node_features_list[i] + long_range_features
                 ) * 0.5**0.5
 
-        central_tokens_features = torch.cat(central_tokens_list, dim=1)
-        output_messages_features = torch.cat(output_messages_list, dim=2)
-        output_messages_features = output_messages_features * multipliers[:, :, None]
-        output_messages_features = output_messages_features.sum(dim=1)
-        features = torch.cat([central_tokens_features, output_messages_features], dim=1)
+        # Stage 2. If `features` requested in the model outputs, we concatenate
+        # the node and edge representations from all layers to provide the intermediate
+        # representation of the systems. Since edge features are calculated for each
+        # pair of atoms, we sum them up with cutoff factors to get their per-node
+        # contribution.
 
-        # output the hidden features, if requested:
         if "features" in outputs:
+            node_features = torch.cat(node_features_list, dim=1)
+            edge_features = torch.cat(edge_features_list, dim=2)
+            edge_features = edge_features * cutoff_factors[:, :, None]
+            edge_features = edge_features.sum(dim=1)
+            features = torch.cat([node_features, edge_features], dim=1)
+
             feature_tmap = TensorMap(
                 keys=self.single_label,
                 blocks=[
@@ -365,41 +389,51 @@ class NativePET(torch.nn.Module):
             else:
                 return_dict["features"] = sum_over_atoms(feature_tmap)
 
-        central_tokens_features_dict: Dict[str, List[torch.Tensor]] = {}
-        messages_bonds_features_dict: Dict[str, List[torch.Tensor]] = {}
+        # Stage 3. We compute last layer features for each requested output,
+        # for both node and edge features from each GNN layer. To do this, apply the
+        # corresponding heads to both node and edge features, and save the results
+        # to the corresponsing dicts. Finally, we stack all the last layer features
+        # to get the final last-layer-features tensor.
 
-        for output_name, heads in self.heads.items():
-            if output_name not in central_tokens_features_dict:
-                central_tokens_features_dict[output_name] = []
-            for i, head in enumerate(heads):
-                central_tokens = central_tokens_list[i]
-                central_tokens_feature = head(central_tokens)
-                central_tokens_features_dict[output_name].append(central_tokens_feature)
+        node_last_layer_features_dict: Dict[str, List[torch.Tensor]] = {}
+        edge_last_layer_features_dict: Dict[str, List[torch.Tensor]] = {}
 
-        for output_name, bond_heads in self.bond_heads.items():
-            if output_name not in messages_bonds_features_dict:
-                messages_bonds_features_dict[output_name] = []
-            for i, bond_head in enumerate(bond_heads):
-                output_messages = output_messages_list[i]
-                messages_bond_feature = bond_head(output_messages)
-                messages_bonds_features_dict[output_name].append(messages_bond_feature)
+        # Calculating node last layer features
+        for output_name, node_heads in self.node_heads.items():
+            if output_name not in node_last_layer_features_dict:
+                node_last_layer_features_dict[output_name] = []
+            for i, node_head in enumerate(node_heads):
+                node_last_layer_features_dict[output_name].append(
+                    node_head(node_features_list[i])
+                )
+
+        # Calculating edge last layer features
+        for output_name, edge_heads in self.edge_heads.items():
+            if output_name not in edge_last_layer_features_dict:
+                edge_last_layer_features_dict[output_name] = []
+            for i, edge_head in enumerate(edge_heads):
+                edge_last_layer_features_dict[output_name].append(
+                    edge_head(edge_features_list[i])
+                )
+
+        # Stacking node and edge last layer features to get the final
+        # last-layer-features tensor. As was done earlier to `features`
+        # tensor, we sum the edge features with cutoff factors to get their
+        # per-node contribution.
 
         last_layer_features_dict: Dict[str, List[torch.Tensor]] = {}
-        last_layer_features: Dict[str, torch.Tensor] = {}
-
         for output_name in self.target_names:
             if output_name not in last_layer_features_dict:
                 last_layer_features_dict[output_name] = []
-            for i in range(len(central_tokens_features_dict[output_name])):
-                central_tokens_feature = central_tokens_features_dict[output_name][i]
-                messages_bond_feature = messages_bonds_features_dict[output_name][i]
-                messages_bond_feature = messages_bond_feature * multipliers[:, :, None]
-                messages_bond_feature = messages_bond_feature.sum(dim=1)
-                last_layer_features_dict[output_name].append(central_tokens_feature)
-                last_layer_features_dict[output_name].append(messages_bond_feature)
-            last_layer_features[output_name] = torch.cat(
-                last_layer_features_dict[output_name], dim=1
-            )
+            for i in range(len(node_last_layer_features_dict[output_name])):
+                node_last_layer_features = node_last_layer_features_dict[output_name][i]
+                edge_last_layer_features = edge_last_layer_features_dict[output_name][i]
+                edge_last_layer_features = (
+                    edge_last_layer_features * cutoff_factors[:, :, None]
+                )
+                edge_last_layer_features = edge_last_layer_features.sum(dim=1)
+                last_layer_features_dict[output_name].append(node_last_layer_features)
+                last_layer_features_dict[output_name].append(edge_last_layer_features)
 
         for output_name in outputs.keys():
             if not (
@@ -412,27 +446,30 @@ class NativePET(torch.nn.Module):
             )
             # the corresponding output could be base_name or mtt::base_name
             if (
-                f"mtt::{base_name}" not in last_layer_features
-                and base_name not in last_layer_features
+                f"mtt::{base_name}" not in last_layer_features_dict
+                and base_name not in last_layer_features_dict
             ):
                 raise ValueError(
                     f"Features {output_name} can only be requested "
                     f"if the corresponding output {base_name} is also requested."
                 )
-            if f"mtt::{base_name}" in last_layer_features:
+            if f"mtt::{base_name}" in last_layer_features_dict:
                 base_name = f"mtt::{base_name}"
+            last_layer_features_values = torch.cat(
+                last_layer_features_dict[base_name], dim=1
+            )
             last_layer_feature_tmap = TensorMap(
                 keys=self.single_label,
                 blocks=[
                     TensorBlock(
-                        values=last_layer_features[base_name],
+                        values=last_layer_features_values,
                         samples=sample_labels,
                         components=[],
                         properties=Labels(
                             names=["properties"],
                             values=torch.arange(
-                                last_layer_features[base_name].shape[-1],
-                                device=last_layer_features[base_name].device,
+                                last_layer_features_values.shape[-1],
+                                device=last_layer_features_values.device,
                             ).reshape(-1, 1),
                         ),
                     )
@@ -444,81 +481,93 @@ class NativePET(torch.nn.Module):
             else:
                 return_dict[output_name] = sum_over_atoms(last_layer_feature_tmap)
 
-        atomic_properties_tmap_dict: Dict[str, TensorMap] = {}
+        # Stage 4. We compute the per-atom predictions by applying the
+        # linear layers to both node and edge last layer features. To do this,
+        # we iterate over the last layer features (both node and edge), and
+        # apply the corresponding last layer to each feature for each requested
+        # output.
 
-        central_tokens_properties_by_layer: List[List[torch.Tensor]] = []
-        messages_bonds_properties_by_layer: List[List[torch.Tensor]] = []
+        atomic_predictions_tmap_dict: Dict[str, TensorMap] = {}
 
-        for output_name, last_layers in self.last_layers.items():
+        node_atomic_predictions_list: List[List[torch.Tensor]] = []
+        edge_atomic_predictions_list: List[List[torch.Tensor]] = []
+
+        # Computing node atomic predictions. Since we have last layer features
+        # for each GNN layer, and each last layer can have multiple blocks,
+        # we apply each last layer block to each of the last layer features.
+
+        for output_name, node_last_layers in self.node_last_layers.items():
             if output_name in outputs:
-                for i, last_layer in enumerate(last_layers):
-                    central_tokens_features = central_tokens_features_dict[output_name][
-                        i
-                    ]
-                    central_tokens_properties_by_block: List[torch.Tensor] = []
-                    for last_layer_by_block in last_layer.values():
-                        central_tokens_properties_by_block.append(
-                            last_layer_by_block(central_tokens_features)
+                for i, node_last_layer in enumerate(node_last_layers):
+                    node_last_layer_features = node_last_layer_features_dict[
+                        output_name
+                    ][i]
+                    node_atomic_predictions_by_block: List[torch.Tensor] = []
+                    for node_last_layer_by_block in node_last_layer.values():
+                        node_atomic_predictions_by_block.append(
+                            node_last_layer_by_block(node_last_layer_features)
                         )
 
-                    central_tokens_properties_by_layer.append(
-                        central_tokens_properties_by_block
+                    node_atomic_predictions_list.append(
+                        node_atomic_predictions_by_block
                     )
 
-        for output_name, last_layers in self.bond_last_layers.items():
+        # Computing edge atomic predictions. Following the same logic as above,
+        # we (1) iterate over the last layer features and last layer blocks, and (2)
+        # sum the edge features with cutoff factors to get their per-node contribution.
+
+        for output_name, edge_last_layers in self.edge_last_layers.items():
             if output_name in outputs:
-                for i, last_layer in enumerate(last_layers):
-                    messages_bonds_features = messages_bonds_features_dict[output_name][
-                        i
-                    ]
-                    messages_bonds_properties_by_block: List[torch.Tensor] = []
-                    for last_layer_by_block in last_layer.values():
-                        messages_bonds_properties = last_layer_by_block(
-                            messages_bonds_features
+                for i, edge_last_layer in enumerate(edge_last_layers):
+                    edge_last_layer_features = edge_last_layer_features_dict[
+                        output_name
+                    ][i]
+                    edge_atomic_predictions_by_block: List[torch.Tensor] = []
+                    for edge_last_layer_by_block in edge_last_layer.values():
+                        edge_atomic_predictions = edge_last_layer_by_block(
+                            edge_last_layer_features
                         )
-                        mask_expanded = mask[..., None].repeat(
-                            1, 1, messages_bonds_properties.shape[2]
+                        expanded_padding_mask = padding_mask[..., None].repeat(
+                            1, 1, edge_atomic_predictions.shape[2]
                         )
-                        messages_bonds_properties = torch.where(
-                            mask_expanded, 0.0, messages_bonds_properties
+                        edge_atomic_predictions = torch.where(
+                            ~expanded_padding_mask, 0.0, edge_atomic_predictions
                         )
-                        messages_bonds_properties = (
-                            messages_bonds_properties * multipliers[:, :, None]
+                        edge_atomic_predictions = (
+                            edge_atomic_predictions * cutoff_factors[:, :, None]
                         )
-                        messages_bonds_properties_by_block.append(
-                            messages_bonds_properties.sum(dim=1)
+                        edge_atomic_predictions_by_block.append(
+                            edge_atomic_predictions.sum(dim=1)
                         )
-                    messages_bonds_properties_by_layer.append(
-                        messages_bonds_properties_by_block
+                    edge_atomic_predictions_list.append(
+                        edge_atomic_predictions_by_block
                     )
+
+        # Finally, we sum all the node and edge atomic predictions from each GNN
+        # layer to a single atomic predictions tensor.
+
         for output_name in self.target_names:
             if output_name in outputs:
-                atomic_properties_by_block = {
-                    key: torch.zeros(1, dtype=x.dtype, device=x.device)
+                atomic_predictions_by_block = {
+                    key: torch.zeros(
+                        1, dtype=edge_vectors.dtype, device=edge_vectors.device
+                    )
                     for key in self.output_shapes[output_name].keys()
                 }
 
-                for i in range(len(central_tokens_properties_by_layer)):
-                    central_tokens_properties_by_block = (
-                        central_tokens_properties_by_layer[i]
-                    )
-                    messages_bonds_properties_by_block = (
-                        messages_bonds_properties_by_layer[i]
-                    )
-                    for j, key in enumerate(atomic_properties_by_block):
-                        central_tokens_properties = central_tokens_properties_by_block[
-                            j
-                        ]
-                        messages_bonds_properties = messages_bonds_properties_by_block[
-                            j
-                        ]
-                        atomic_properties_by_block[key] = atomic_properties_by_block[
+                for i in range(len(node_atomic_predictions_list)):
+                    node_atomic_prediction_by_block = node_atomic_predictions_list[i]
+                    edge_atomic_prediction_by_block = edge_atomic_predictions_list[i]
+                    for j, key in enumerate(atomic_predictions_by_block):
+                        node_atomic_predictions = node_atomic_prediction_by_block[j]
+                        edge_atomic_predictions = edge_atomic_prediction_by_block[j]
+                        atomic_predictions_by_block[key] = atomic_predictions_by_block[
                             key
-                        ] + (central_tokens_properties + messages_bonds_properties)
+                        ] + (node_atomic_predictions + edge_atomic_predictions)
 
                 blocks = [
                     TensorBlock(
-                        values=atomic_properties_by_block[key].reshape([-1] + shape),
+                        values=atomic_predictions_by_block[key].reshape([-1] + shape),
                         samples=sample_labels,
                         components=components,
                         properties=properties,
@@ -530,18 +579,25 @@ class NativePET(torch.nn.Module):
                         self.property_labels[output_name],
                     )
                 ]
-                atomic_properties_tmap_dict[output_name] = TensorMap(
+                atomic_predictions_tmap_dict[output_name] = TensorMap(
                     keys=self.key_labels[output_name],
                     blocks=blocks,
                 )
 
+        # If selected atoms request is provided, we slice the atomic predictions
+        # tensor maps to get the predictions for the selected atoms only.
+
         if selected_atoms is not None:
-            for output_name, tmap in atomic_properties_tmap_dict.items():
-                atomic_properties_tmap_dict[output_name] = metatensor.torch.slice(
+            for output_name, tmap in atomic_predictions_tmap_dict.items():
+                atomic_predictions_tmap_dict[output_name] = metatensor.torch.slice(
                     tmap, axis="samples", selection=selected_atoms
                 )
 
-        for output_name, atomic_property in atomic_properties_tmap_dict.items():
+        # If per-atom predictions are requested, we return the atomic predictions
+        # tensor maps. Otherwise, we sum the atomic predictions over the atoms
+        # to get the final per-structure predictions for each requested output.
+
+        for output_name, atomic_property in atomic_predictions_tmap_dict.items():
             if outputs[output_name].per_atom:
                 return_dict[output_name] = atomic_property
             else:
@@ -658,21 +714,21 @@ class NativePET(torch.nn.Module):
             per_atom=True,
         )
 
-        self.heads[target_name] = torch.nn.ModuleList(
+        self.node_heads[target_name] = torch.nn.ModuleList(
             [
                 Head(self.hypers["d_pet"], self.hypers["d_head"])
                 for _ in range(self.hypers["num_gnn_layers"])
             ]
         )
 
-        self.bond_heads[target_name] = torch.nn.ModuleList(
+        self.edge_heads[target_name] = torch.nn.ModuleList(
             [
                 Head(self.hypers["d_pet"], self.hypers["d_head"])
                 for _ in range(self.hypers["num_gnn_layers"])
             ]
         )
 
-        self.last_layers[target_name] = torch.nn.ModuleList(
+        self.node_last_layers[target_name] = torch.nn.ModuleList(
             [
                 torch.nn.ModuleDict(
                     {
@@ -688,7 +744,7 @@ class NativePET(torch.nn.Module):
             ]
         )
 
-        self.bond_last_layers[target_name] = torch.nn.ModuleList(
+        self.edge_last_layers[target_name] = torch.nn.ModuleList(
             [
                 torch.nn.ModuleDict(
                     {
@@ -715,3 +771,38 @@ class NativePET(torch.nn.Module):
         self.property_labels[target_name] = [
             block.properties for block in target_info.layout.blocks()
         ]
+
+    def _get_system_indices_and_labels(
+        self, systems: List[System], device: torch.device
+    ):
+        system_indices = torch.concatenate(
+            [
+                torch.full(
+                    (len(system),),
+                    i_system,
+                    device=device,
+                )
+                for i_system, system in enumerate(systems)
+            ],
+        )
+
+        sample_values = torch.stack(
+            [
+                system_indices,
+                torch.concatenate(
+                    [
+                        torch.arange(
+                            len(system),
+                            device=device,
+                        )
+                        for system in systems
+                    ],
+                ),
+            ],
+            dim=1,
+        )
+        sample_labels = Labels(
+            names=["system", "atom"],
+            values=sample_values,
+        )
+        return system_indices, sample_labels

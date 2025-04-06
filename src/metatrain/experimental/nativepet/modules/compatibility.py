@@ -16,24 +16,32 @@ def convert_model_state_dict_from_legacy_pet(
     model_state_dict = checkpoint["model_state_dict"]
     for key, value in model_state_dict.items():
         new_key = key.replace("module.model.model.pet_model.", "")
-        if "embedding" in new_key:
+        if "embedding" in new_key and "gnn_layers" not in new_key:
             new_model_state_dict[new_key] = value
         if "gnn_layers" in new_key and "trans_layer" not in new_key:
+            if "r_embedding" in new_key:
+                new_key = new_key.replace("r_embedding", "edge_embedder")
+            if "central_embedder" in new_key:
+                new_key = new_key.replace("central_embedder", "node_embedder")
             new_model_state_dict[new_key] = value
+
         if "heads" in new_key:
             if "linear" in new_key:
                 layer_num = int(new_key.split(".")[1])
                 if "bond" in new_key:
-                    last_layer_key = f"bond_last_layers.energy.{layer_num}.energy___0"
+                    last_layer_key = f"edge_last_layers.energy.{layer_num}.energy___0"
                 else:
-                    last_layer_key = f"last_layers.energy.{layer_num}.energy___0"
+                    last_layer_key = f"node_last_layers.energy.{layer_num}.energy___0"
                 if "weight" in new_key:
                     last_layer_key += ".weight"
                 if "bias" in new_key:
                     last_layer_key += ".bias"
                 new_model_state_dict[last_layer_key] = value
             else:
-                new_key = new_key.replace("heads.", "heads.energy.")
+                if "bond" in new_key:
+                    new_key = new_key.replace("bond_heads.", "edge_heads.energy.")
+                else:
+                    new_key = new_key.replace("heads.", "node_heads.energy.")
                 new_model_state_dict[new_key] = value
 
     new_model_state_dict["scaler.scales"] = torch.tensor([1.0], dtype=torch.float32)
@@ -72,6 +80,10 @@ def convert_model_state_dict_from_legacy_pet(
 
     new_model_state_dict["species_to_species_index"] = species_to_species_index
     new_model_state_dict["additive_models.0.type_to_index"] = species_to_species_index
+
+    for key, value in new_model_state_dict.items():
+        if "r_embedding" in key:
+            print(key)
 
     return new_model_state_dict
 

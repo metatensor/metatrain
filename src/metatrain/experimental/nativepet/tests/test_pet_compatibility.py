@@ -2,6 +2,7 @@ import pytest
 
 
 pytest.importorskip("pet_neighbors_convert")
+
 from urllib.parse import urlparse
 from urllib.request import urlretrieve
 
@@ -13,9 +14,8 @@ from metatrain.experimental.nativepet import NativePET
 from metatrain.experimental.nativepet.modules.compatibility import (
     convert_checkpoint_from_legacy_pet,
 )
-from metatrain.experimental.nativepet.modules.utilities import (
-    cutoff_func,
-)
+from metatrain.experimental.nativepet.modules.structures import systems_to_batch
+from metatrain.experimental.nativepet.modules.utilities import cutoff_func
 from metatrain.pet import PET
 from metatrain.pet.modules.hypers import Hypers
 from metatrain.pet.modules.pet import PET as RawPET
@@ -59,7 +59,12 @@ def set_gnn_weights(nativepet_state_dict, pet_state_dict):
         if "gnn_layers" in key:
             weight = nativepet_state_dict[key].detach().clone()
             weight.requires_grad = True
-            pet_state_dict["pet." + key] = weight
+            pet_key = "pet." + key
+            if "edge_embedder" in pet_key:
+                pet_key = pet_key.replace("edge_embedder", "r_embedding")
+            if "node_embedder" in pet_key:
+                pet_key = pet_key.replace("node_embedder", "central_embedder")
+            pet_state_dict[pet_key] = weight
     return pet_state_dict
 
 
@@ -67,6 +72,11 @@ def set_heads_weights(nativepet_state_dict, pet_state_dict):
     for key in nativepet_state_dict.keys():
         if "head" in key and "linear" not in key:
             pet_key = "pet." + key.replace("energy.", "")
+            if "node" in key:
+                pet_key = pet_key.replace("node_", "")
+            if "edge" in key:
+                pet_key = pet_key.replace("edge_", "bond_")
+            pet_key = pet_key.replace("node_", "")
             weight = nativepet_state_dict[key].detach().clone()
             weight.requires_grad = True
             pet_state_dict[pet_key] = weight
@@ -77,7 +87,7 @@ def set_last_layers_weights(nativepet_state_dict, pet_state_dict):
     for key in nativepet_state_dict.keys():
         if "last_layer" in key:
             layer_num = key.split(".")[2]
-            if "bond" in key:
+            if "edge" in key:
                 pet_key = f"pet.bond_heads.{layer_num}.nn.4.linear."
             else:
                 pet_key = f"pet.heads.{layer_num}.nn.4.linear."
@@ -103,10 +113,10 @@ def ensure_gnn_layers_weights_equality(nativepet_model, pet_model):
         pet_gnn_layer = pet_model.pet.gnn_layers[i]
         # Testing if the r_embedding layers are the same
         torch.testing.assert_close(
-            nativepet_gnn_layer.r_embedding.weight, pet_gnn_layer.r_embedding.weight
+            nativepet_gnn_layer.edge_embedder.weight, pet_gnn_layer.r_embedding.weight
         )
         torch.testing.assert_close(
-            nativepet_gnn_layer.r_embedding.bias, pet_gnn_layer.r_embedding.bias
+            nativepet_gnn_layer.edge_embedder.bias, pet_gnn_layer.r_embedding.bias
         )
         # Testing if the compress layers are the same
         for j in range(len(nativepet_gnn_layer.compress)):
@@ -177,9 +187,9 @@ def ensure_gnn_layers_weights_equality(nativepet_model, pet_model):
             )
 
 
-def ensure_heads_weights_equality(nativepet_model, pet_model):
-    for i in range(len(nativepet_model.heads["energy"])):
-        nativepet_head = nativepet_model.heads["energy"][i]
+def ensure_node_heads_weights_equality(nativepet_model, pet_model):
+    for i in range(len(nativepet_model.node_heads["energy"])):
+        nativepet_head = nativepet_model.node_heads["energy"][i]
         pet_head = pet_model.pet.heads[i]
         # Testing if the linear layers are the same
         for j in range(len(nativepet_head.nn)):
@@ -195,9 +205,9 @@ def ensure_heads_weights_equality(nativepet_model, pet_model):
             )
 
 
-def ensure_bonds_weights_equality(nativepet_model, pet_model):
-    for i in range(len(nativepet_model.bond_heads["energy"])):
-        nativepet_bond_head = nativepet_model.bond_heads["energy"][i]
+def ensure_edge_heads_weights_equality(nativepet_model, pet_model):
+    for i in range(len(nativepet_model.edge_heads["energy"])):
+        nativepet_bond_head = nativepet_model.edge_heads["energy"][i]
         pet_bond_head = pet_model.pet.bond_heads[i]
         # Testing if the linear layers are the same
         for j in range(len(nativepet_bond_head.nn)):
@@ -213,17 +223,19 @@ def ensure_bonds_weights_equality(nativepet_model, pet_model):
             )
 
 
-def ensure_last_layers_weights_equality(nativepet_model, pet_model):
-    for i in range(len(nativepet_model.last_layers["energy"])):
-        nativepet_last_layer = nativepet_model.last_layers["energy"][i]["energy___0"]
+def ensure_node_last_layers_weights_equality(nativepet_model, pet_model):
+    for i in range(len(nativepet_model.node_last_layers["energy"])):
+        nativepet_last_layer = nativepet_model.node_last_layers["energy"][i][
+            "energy___0"
+        ]
         pet_last_layer = pet_model.pet.heads[i].nn[-1].linear
         torch.testing.assert_close(nativepet_last_layer.weight, pet_last_layer.weight)
         torch.testing.assert_close(nativepet_last_layer.bias, pet_last_layer.bias)
 
 
-def ensure_bond_last_layers_weights_equality(nativepet_model, pet_model):
-    for i in range(len(nativepet_model.bond_last_layers["energy"])):
-        nativepet_last_layer = nativepet_model.bond_last_layers["energy"][i][
+def ensure_edge_last_layers_weights_equality(nativepet_model, pet_model):
+    for i in range(len(nativepet_model.edge_last_layers["energy"])):
+        nativepet_last_layer = nativepet_model.edge_last_layers["energy"][i][
             "energy___0"
         ]
         pet_last_layer = pet_model.pet.bond_heads[i].nn[-1].linear
@@ -265,13 +277,13 @@ def get_identical_pet_models():
     # Testing if GNN layers are the same
     ensure_gnn_layers_weights_equality(nativepet_model, pet_model)
     # Testing if the heads are the same
-    ensure_heads_weights_equality(nativepet_model, pet_model)
+    ensure_node_heads_weights_equality(nativepet_model, pet_model)
     # Testing if the bond heads are the same
-    ensure_bonds_weights_equality(nativepet_model, pet_model)
+    ensure_edge_heads_weights_equality(nativepet_model, pet_model)
     # Testing if the last layers are the same
-    ensure_last_layers_weights_equality(nativepet_model, pet_model)
+    ensure_node_last_layers_weights_equality(nativepet_model, pet_model)
     # Testing if the bond last layers are the same
-    ensure_bond_last_layers_weights_equality(nativepet_model, pet_model)
+    ensure_edge_last_layers_weights_equality(nativepet_model, pet_model)
 
     return nativepet_model, pet_model
 
@@ -297,9 +309,39 @@ def test_batch_dict_compatability():
     nativepet_model, pet_model, systems = get_test_environment()
 
     nl_options = nativepet_model.requested_neighbor_lists()[0]
-    nativepet_batch_dict = systems_to_batch_dict(
-        systems, nl_options, nativepet_model.atomic_types
+
+    system_indices, sample_labels = nativepet_model._get_system_indices_and_labels(
+        systems, device="cpu"
     )
+
+    (
+        element_indices_nodes,
+        element_indices_neighbors,
+        edge_vectors,
+        padding_mask,
+        neighbors_index,
+        num_neghbors,
+        reversed_neighbor_list,
+    ) = systems_to_batch(
+        systems,
+        nl_options,
+        nativepet_model.atomic_types,
+        system_indices,
+        nativepet_model.species_to_species_index,
+        None,
+    )
+
+    nativepet_batch_dict = {
+        "central_species": element_indices_nodes,
+        "neighbor_species": element_indices_neighbors,
+        "x": edge_vectors,
+        "mask": ~padding_mask,
+        "neighbors_index": neighbors_index,
+        "nums": num_neghbors,
+        "batch": system_indices,
+        "neighbors_pos": reversed_neighbor_list,
+    }
+
     pet_batch_dict = systems_to_batch_dict(
         systems, nl_options, pet_model.atomic_types, None
     )
@@ -349,16 +391,29 @@ def test_cartesian_transformer_compatibility():
     nativepet_cartesian_transformer = nativepet_model.gnn_layers[0]
     pet_cartesian_transformer = pet_model.pet.gnn_layers[0]
 
-    nativepet_result = nativepet_cartesian_transformer(
-        batch_dict, use_manual_attention=False
+    edge_distances = torch.sqrt(torch.sum(batch_dict["x"] ** 2, dim=2) + 1e-16)
+    cutoff_factors = cutoff_func(
+        edge_distances, nativepet_model.cutoff, nativepet_model.cutoff_width
+    )
+    cutoff_factors[batch_dict["mask"]] = 0.0
+
+    nativepet_output_node_embeddings, nativepet_output_messages = (
+        nativepet_cartesian_transformer(
+            input_messages=batch_dict["input_messages"],
+            element_indices_nodes=batch_dict["central_species"],
+            element_indices_neighbors=batch_dict["neighbor_species"],
+            edge_vectors=batch_dict["x"],
+            padding_mask=~batch_dict["mask"],
+            edge_distances=edge_distances,
+            cutoff_factors=cutoff_factors,
+            use_manual_attention=False,
+        )
     )
     pet_result = pet_cartesian_transformer(batch_dict)
     torch.testing.assert_close(
-        nativepet_result["central_token"], pet_result["central_token"]
+        nativepet_output_node_embeddings, pet_result["central_token"]
     )
-    torch.testing.assert_close(
-        nativepet_result["output_messages"], pet_result["output_messages"]
-    )
+    torch.testing.assert_close(nativepet_output_messages, pet_result["output_messages"])
 
 
 def test_gnn_layers_compatibility():
@@ -385,14 +440,29 @@ def test_gnn_layers_compatibility():
         pet_batch_dict["neighbor_species"]
     )
 
+    edge_distances = torch.sqrt(
+        torch.sum(nativepet_batch_dict["x"] ** 2, dim=2) + 1e-15
+    )
+    cutoff_factors = cutoff_func(
+        edge_distances, nativepet_model.cutoff, nativepet_model.cutoff_width
+    )
+    cutoff_factors[nativepet_batch_dict["mask"]] = 0.0
+
     for nativepet_gnn_layer, pet_gnn_layer in zip(
         nativepet_model.gnn_layers, pet_model.pet.gnn_layers
     ):
-        nativepet_result = nativepet_gnn_layer(
-            nativepet_batch_dict, use_manual_attention=False
+        output_node_embeddings, output_edge_embeddings = nativepet_gnn_layer(
+            input_messages=nativepet_batch_dict["input_messages"],
+            element_indices_nodes=nativepet_batch_dict["central_species"],
+            element_indices_neighbors=nativepet_batch_dict["neighbor_species"],
+            edge_vectors=nativepet_batch_dict["x"],
+            padding_mask=~nativepet_batch_dict["mask"],
+            edge_distances=edge_distances,
+            cutoff_factors=cutoff_factors,
+            use_manual_attention=False,
         )
         pet_result = pet_gnn_layer(pet_batch_dict)
-        new_nativepet_input_messages = nativepet_result["output_messages"][
+        new_nativepet_input_messages = output_edge_embeddings[
             neighbors_index, neighbors_pos
         ]
         new_pet_input_messages = pet_result["output_messages"][
@@ -407,18 +477,16 @@ def test_gnn_layers_compatibility():
             pet_batch_dict["input_messages"] + new_pet_input_messages
         )
 
+        torch.testing.assert_close(output_node_embeddings, pet_result["central_token"])
         torch.testing.assert_close(
-            nativepet_result["central_token"], pet_result["central_token"]
-        )
-        torch.testing.assert_close(
-            nativepet_result["output_messages"], pet_result["output_messages"]
+            output_edge_embeddings, pet_result["output_messages"]
         )
         torch.testing.assert_close(
             nativepet_batch_dict["input_messages"], pet_batch_dict["input_messages"]
         )
 
 
-def test_heads():
+def test_node_heads():
     """Tests that the heads in the PET and NativePET models
     give the same predictions"""
     nativepet_model, pet_model, systems = get_test_environment()
@@ -430,7 +498,7 @@ def test_heads():
     batch_dict["input_messages"] = nativepet_model.embedding(
         batch_dict["neighbor_species"]
     )
-    gnn_result = nativepet_model.gnn_layers[0](batch_dict, use_manual_attention=False)
+    gnn_result = pet_model.pet.gnn_layers[0](batch_dict)
     pet_atomic_predictions = torch.zeros(1)
     nativepet_atomic_predictions = torch.zeros(1)
 
@@ -440,18 +508,20 @@ def test_heads():
     pet_atomic_predictions = (
         pet_atomic_predictions + pet_precitor_output["atomic_predictions"]
     )
-    nativepet_head_output = nativepet_model.heads["energy"][0](
+    nativepet_head_output = nativepet_model.node_heads["energy"][0](
         gnn_result["central_token"]
     )
     nativepet_atomic_predictions = (
         nativepet_atomic_predictions
-        + nativepet_model.last_layers["energy"][0]["energy___0"](nativepet_head_output)
+        + nativepet_model.node_last_layers["energy"][0]["energy___0"](
+            nativepet_head_output
+        )
     )
 
     torch.testing.assert_close(nativepet_atomic_predictions, pet_atomic_predictions)
 
 
-def test_bond_heads():
+def test_edge_heads():
     """Tests that the bond heads in the PET and NativePET models
     give the same predictions"""
     nativepet_model, pet_model, systems = get_test_environment()
@@ -469,11 +539,11 @@ def test_bond_heads():
     multipliers = cutoff_func(lengths, pet_model.pet.R_CUT, pet_model.pet.CUTOFF_DELTA)
     multipliers[mask] = 0.0
 
-    batch_dict["input_messages"] = nativepet_model.embedding(
+    batch_dict["input_messages"] = pet_model.pet.embedding(
         batch_dict["neighbor_species"]
     )
 
-    gnn_result = nativepet_model.gnn_layers[0](batch_dict, use_manual_attention=False)
+    gnn_result = pet_model.pet.gnn_layers[0](batch_dict)
 
     pet_atomic_predictions = torch.zeros(1)
     nativepet_atomic_predictions = torch.zeros(1)
@@ -490,10 +560,10 @@ def test_bond_heads():
         pet_atomic_predictions + pet_precitor_output["atomic_predictions"]
     )
 
-    nativepet_head_output = nativepet_model.bond_heads["energy"][0](
+    nativepet_head_output = nativepet_model.edge_heads["energy"][0](
         gnn_result["output_messages"]
     )
-    nativepet_last_layer_output = nativepet_model.bond_last_layers["energy"][0][
+    nativepet_last_layer_output = nativepet_model.edge_last_layers["energy"][0][
         "energy___0"
     ](nativepet_head_output)
 

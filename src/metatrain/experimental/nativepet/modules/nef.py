@@ -136,7 +136,7 @@ def nef_array_to_edges(nef_array, centers, nef_to_edges_neighbor):
     return nef_array[centers, nef_to_edges_neighbor]
 
 
-def compute_neighbors_pos(
+def compute_reversed_neighbor_list(
     nef_indices: torch.Tensor,
     corresponding_edges: torch.Tensor,
     nef_mask: torch.Tensor,
@@ -165,7 +165,7 @@ def compute_neighbors_pos(
     edge_index_to_position[flat_edge_indices[flat_mask]] = flat_positions[flat_mask]
 
     reverse_edge_idx = corresponding_edges[nef_indices]
-    neighbors_pos = edge_index_to_position[reverse_edge_idx]
-    neighbors_pos = neighbors_pos.masked_fill(~nef_mask, 0)
+    reversed_neighbor_list = edge_index_to_position[reverse_edge_idx]
+    reversed_neighbor_list = reversed_neighbor_list.masked_fill(~nef_mask, 0)
 
-    return neighbors_pos
+    return reversed_neighbor_list
