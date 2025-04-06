@@ -13,9 +13,6 @@ from ..transfer import systems_and_targets_to_device
 from .remove import remove_additive
 
 
-logger = logging.getLogger(__name__)
-
-
 class CompositionModel(torch.nn.Module):
     """A simple model that calculates the contributions to scalar targets
     based on the stoichiometry in a system.
@@ -105,7 +102,7 @@ class CompositionModel(torch.nn.Module):
 
         missing_types = sorted(set(self.atomic_types) - set(get_atomic_types(datasets)))
         if missing_types:
-            logger.warning(
+            logging.warning(
                 f"Provided `datasets` do not contain atomic types {missing_types}. "
                 f"Known types from initialization are {self.atomic_types}."
             )
@@ -170,7 +167,7 @@ class CompositionModel(torch.nn.Module):
                         datasets_with_target.append(dataset)
                 if len(datasets_with_target) == 0:
                     # this is a possibility when transfer learning
-                    logger.warning(
+                    logging.warning(
                         f"Target {target_key} in the model's new capabilities is not "
                         "present in any of the training datasets."
                     )
@@ -548,7 +545,7 @@ class CompositionModel(torch.nn.Module):
         """
         # only scalars can have composition contributions
         if not target_info.is_scalar and not target_info.is_spherical:
-            logger.debug(
+            logging.debug(
                 f"Composition model does not support target {target_name} "
                 "since it is not either scalar or spherical."
             )
@@ -557,7 +554,7 @@ class CompositionModel(torch.nn.Module):
             target_info.is_spherical
             and len(target_info.layout.blocks({"o3_lambda": 0, "o3_sigma": 1})) == 0
         ):
-            logger.debug(
+            logging.debug(
                 f"Composition model does not support spherical target {target_name} "
                 "since it does not have any invariant blocks."
             )

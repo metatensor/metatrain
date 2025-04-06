@@ -1,4 +1,3 @@
-import logging
 from pathlib import Path
 from typing import Dict, List, Optional, Union
 
@@ -22,9 +21,6 @@ from ..utils.dtype import dtype_to_str
 from ..utils.metadata import append_metadata_references
 from .modules.pet import PET as RawPET
 from .utils import load_raw_pet_model, systems_to_batch_dict
-
-
-logger = logging.getLogger(__name__)
 
 
 class PET(torch.nn.Module):

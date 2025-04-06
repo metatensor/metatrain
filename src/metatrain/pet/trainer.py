@@ -42,9 +42,6 @@ from .utils import dataset_to_ase, load_raw_pet_model, update_hypers
 from .utils.fine_tuning import LoRAWrapper
 
 
-logger = logging.getLogger(__name__)
-
-
 class Trainer:
     def __init__(self, train_hypers):
         self.hypers = {"FITTING_SCHEME": train_hypers}
@@ -79,7 +76,7 @@ class Trainer:
                 stacklevel=1,
             )
 
-        logger.info("Checking datasets for consistency")
+        logging.info("Checking datasets for consistency")
         check_datasets(train_datasets, val_datasets)
 
         train_dataset = train_datasets[0]
@@ -805,7 +802,7 @@ Units of the Energy and Forces are the same units given in input"""
         for key in new_fitting_scheme:
             if key in ["USE_ENERGIES", "USE_FORCES"]:
                 if new_fitting_scheme[key] != old_fitting_scheme[key]:
-                    logger.warning(
+                    logging.warning(
                         f"The {key} training hyperparameter was changed from "
                         f"{old_fitting_scheme[key]} to {new_fitting_scheme[key]} "
                         "inbetween the last checkpoint and the current training. "

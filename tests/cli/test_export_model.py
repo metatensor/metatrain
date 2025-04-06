@@ -162,12 +162,15 @@ def test_huggingface(monkeypatch, tmp_path):
 
 def test_huggingface_env(monkeypatch, tmp_path):
     """Test that huggingphase export works with env variable."""
-    monkeypatch.chdir(tmp_path)
 
-    env = os.environ.copy()
-    env["HF_TOKEN"] = env["HUGGINGFACE_TOKEN_METATRAIN"]
-    if env["HF_TOKEN"] is None:
+    token = os.getenv("HUGGINGFACE_TOKEN_METATRAIN")
+    if token is None:
         pytest.skip("HuggingFace token not found in environment.")
+
+    monkeypatch.chdir(tmp_path)
+    env = os.environ.copy()
+    env["HF_TOKEN"] = token
+
     assert len(env["HF_TOKEN"]) > 0
 
     command = [
