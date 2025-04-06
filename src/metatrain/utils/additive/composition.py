@@ -330,7 +330,9 @@ class CompositionModel(torch.nn.Module):
             # make sure to update the weights buffer with the new weights
             self.register_buffer(
                 target_key + "_composition_buffer",
-                metatensor.torch.save_buffer(self.weights[target_key]),
+                metatensor.torch.save_buffer(
+                    self.weights[target_key].to("cpu", torch.float64)
+                ).to(device),
             )
 
     def restart(self, dataset_info: DatasetInfo) -> "CompositionModel":
@@ -356,13 +358,6 @@ class CompositionModel(torch.nn.Module):
             raise ValueError(
                 f"New atomic types found in the dataset: {new_atomic_types}. "
                 "The composition model does not support adding new atomic types."
-            )
-
-        # Reload the weights of the old targets, which are not stored in the model
-        # state_dict, from the buffers
-        for k in self.dataset_info.targets:
-            self.weights[k] = metatensor.torch.load_buffer(
-                self.__getattr__(k + "_composition_buffer")
             )
 
         self.new_targets = {
@@ -560,6 +555,14 @@ class CompositionModel(torch.nn.Module):
             )
             return False
         return True
+
+    def sync_tensor_maps(self):
+        # Reload the weights of the (old) targets, which are not stored in the model
+        # state_dict, from the buffers
+        for k in self.dataset_info.targets:
+            self.weights[k] = metatensor.torch.load_buffer(
+                self.__getattr__(k + "_composition_buffer")
+            )
 
 
 def _solve_linear_system(composition_features, all_targets) -> torch.Tensor:
