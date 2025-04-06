@@ -49,6 +49,9 @@ model.
   * - NanoPET (*experimental*)
     - re-implementation of the original PET with slightly improved training and
       evaluation speed
+  * - NativePET (*experimental*)
+    - re-implementation of the original PET, preserving the original architecture
+      and providing a clean code implementation and additional features
   * - SOAP BPNN
     - A Behler-Parrinello neural network with SOAP features
 
