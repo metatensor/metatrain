@@ -80,11 +80,6 @@ def convert_model_state_dict_from_legacy_pet(
 
     new_model_state_dict["species_to_species_index"] = species_to_species_index
     new_model_state_dict["additive_models.0.type_to_index"] = species_to_species_index
-
-    for key, value in new_model_state_dict.items():
-        if "r_embedding" in key:
-            print(key)
-
     return new_model_state_dict
 
 
