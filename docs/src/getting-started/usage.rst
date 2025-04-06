@@ -46,9 +46,9 @@ training using the default hyperparameters of an SOAP BPNN model
 
 For each training run a new output directory in the format
 ``outputs/YYYY-MM-DD/HH-MM-SS`` based on the current *date* and *time* is created. We
-use this output directory to store checkpoints, the ``train.log`` log file  as well
-the restart ``options_restart.yaml`` file. To start the training create an
-``options.yaml`` file in the current directory and type
+use this output directory to store checkpoints, the restart ``options_restart.yaml``
+file as well as the log files. To start the training create an ``options.yaml`` file in
+the current directory and type
 
 .. literalinclude:: ../../../examples/basic_usage/usage.sh
     :language: bash

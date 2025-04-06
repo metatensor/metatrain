@@ -16,5 +16,14 @@ be adjusted. They should be written without indentation in the ``options.yaml`` 
     ``random``, ``torch`` and ``torch.cuda`` (if available) to the same value ``seed``.
     If ``seed`` is not the initial seed will be set to a random number. This initial
     seed will be reported in the output folder
+:param wandb: If you want to use Weights and Biases (wandb) for logging, create new
+    section with this name. The parameters of section are the same as of the `wandb.init
+    <https://docs.wandb.ai/ref/python/init/>`_ method.
+
+    .. note::
+
+        You need to install wandb with ``pip install wandb``. If you want to use this
+        logger. Before running also set up your credentials with `wandb login
+        <https://docs.wandb.ai/ref/cli/wandb-login/>`_.
 
 In the next tutorials we show how to override the default parameters of an architecture.

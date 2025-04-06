@@ -719,3 +719,24 @@ def test_train_disk_dataset(monkeypatch, tmp_path, options):
 
     options["training_set"]["systems"]["read_from"] = "qm9_reduced_100.zip"
     train_model(options)
+
+
+def test_train_wandb_logger(monkeypatch, tmp_path):
+    """Test that training via the training cli runs with an attached wandb logger."""
+    monkeypatch.chdir(tmp_path)
+    shutil.copy(DATASET_PATH_QM9, "qm9_reduced_100.xyz")
+
+    # Add wandb logger to the options
+    options = OmegaConf.load(OPTIONS_PATH)
+    options["wandb"] = {"mode": "offline"}
+    OmegaConf.save(config=options, f="options.yaml")
+
+    command = ["mtt", "train", "options.yaml"]
+    subprocess.check_call(command)
+
+    # test that logfile contains options
+    with open("wandb/latest-run/logs/debug.log") as f:
+        file_log = f.read()
+
+    assert "'base_precision': 64" in file_log
+    assert "'seed': 42" in file_log
