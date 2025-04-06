@@ -525,6 +525,8 @@ def test_model_consistency_with_seed(options, monkeypatch, tmp_path, seed):
     m2 = torch.load("model2.ckpt", weights_only=False)
 
     for i in m1["model_state_dict"]:
+        if "type_to_index" in i:
+            continue  # this one is the same for both models
         tensor1 = m1["model_state_dict"][i]
         tensor2 = m2["model_state_dict"][i]
 

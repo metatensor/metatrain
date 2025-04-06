@@ -363,9 +363,6 @@ class NativePET(torch.nn.Module):
             if features_options.per_atom:
                 return_dict["features"] = feature_tmap
             else:
-                # return_dict["features"] = metatensor.torch.sum_over_samples(
-                #     feature_tmap, ["atom"]
-                # )
                 return_dict["features"] = sum_over_atoms(feature_tmap)
 
         central_tokens_features_dict: Dict[str, List[torch.Tensor]] = {}
@@ -445,9 +442,6 @@ class NativePET(torch.nn.Module):
             if last_layer_features_options.per_atom:
                 return_dict[output_name] = last_layer_feature_tmap
             else:
-                # return_dict[output_name] = metatensor.torch.sum_over_samples(
-                #     last_layer_feature_tmap, ["atom"]
-                # )
                 return_dict[output_name] = sum_over_atoms(last_layer_feature_tmap)
 
         atomic_properties_tmap_dict: Dict[str, TensorMap] = {}
@@ -551,10 +545,14 @@ class NativePET(torch.nn.Module):
             if outputs[output_name].per_atom:
                 return_dict[output_name] = atomic_property
             else:
-                # return_dict[output_name] = metatensor.torch.sum_over_samples(
-                #     atomic_property, ["atom"]
-                # )
-                return_dict[output_name] = sum_over_atoms(atomic_property)
+                return_dict[output_name] = (
+                    # we use a faster, more specialized version for scalars
+                    metatensor.torch.sum_over_samples(
+                        atomic_property, sample_names="atom"
+                    )
+                    if any(len(b.components) for b in atomic_property.blocks()) > 0
+                    else sum_over_atoms(atomic_property)
+                )
 
         if not self.training:
             # at evaluation, we also introduce the scaler and additive contributions

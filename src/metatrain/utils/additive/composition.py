@@ -463,10 +463,16 @@ class CompositionModel(torch.nn.Module):
 
             if not output_options.per_atom:  # sum over atoms if needed
                 composition_result_dict[output_name] = (
-                    # metatensor.torch.sum_over_samples(
-                    #     composition_result_dict[output_name], sample_names="atom"
-                    # )
-                    sum_over_atoms(composition_result_dict[output_name])
+                    # we use a faster, more specialized version for scalars
+                    metatensor.torch.sum_over_samples(
+                        composition_result_dict[output_name], sample_names="atom"
+                    )
+                    if any(
+                        len(b.components)
+                        for b in composition_result_dict[output_name].blocks()
+                    )
+                    > 0
+                    else sum_over_atoms(composition_result_dict[output_name])
                 )
 
         return composition_result_dict
