@@ -98,7 +98,7 @@ def test_train(capfd, monkeypatch, tmp_path, output):
 
     assert file_log == stdout_log
 
-    assert "This log is also available" in stdout_log
+    assert stdout_log.count("This log is also available") == 1  # only once
     assert "Running training for 'soap_bpnn' architecture"
     assert re.search(r"Random seed of this run is [1-9]\d*", stdout_log)
     assert "Training dataset:" in stdout_log
@@ -108,13 +108,22 @@ def test_train(capfd, monkeypatch, tmp_path, output):
     assert "mean " in stdout_log
     assert "std " in stdout_log
     assert "[INFO]" in stdout_log
-    assert "Epoch" in stdout_log
+    assert stdout_log.count("Epoch:    0") == 1
     assert "loss" in stdout_log
     assert "validation" in stdout_log
     assert "train" in stdout_log
     assert "energy" in stdout_log
     assert "with index" not in stdout_log  # index only printed for more than 1 dataset
     assert "Running final evaluation with batch size 2" in stdout_log
+
+    # Open the CSV log file and check if the logging is correct
+    csv_glob = glob.glob("outputs/*/*/train.csv")
+    assert len(csv_glob) == 1
+
+    with open(csv_glob[0]) as f:
+        csv_log = f.read()
+
+    assert "Epoch" in csv_log
 
 
 @pytest.mark.parametrize(

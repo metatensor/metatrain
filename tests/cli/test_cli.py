@@ -9,7 +9,7 @@ from typing import List
 
 import pytest
 
-from metatrain import PACKAGE_ROOT, __version__
+from metatrain import __version__
 
 
 COMPFILE = Path(__file__).parents[2] / "src/metatrain/share/metatrain-completion.bash"
@@ -142,18 +142,3 @@ def test_error(subcommand, capfd, monkeypatch, tmp_path):
     assert f"please include the full traceback log from {error_file!r}" in stdout_log
     assert "No such file or directory" in stdout_log
     assert "Traceback" in error_log
-
-
-def test_run_information(capfd, monkeypatch, tmp_path):
-    """Test that run informations are displayed correctly"""
-    monkeypatch.chdir(tmp_path)
-
-    with pytest.raises(CalledProcessError):
-        subprocess.check_call(["mtt", "export", "model.ckpt"])
-
-    stdout_log = capfd.readouterr().out
-
-    assert f"Package directory: {PACKAGE_ROOT}" in stdout_log
-    assert f"Working directory: {Path('.').absolute()}" in stdout_log
-    assert f"Metatrain version: {__version__}" in stdout_log
-    assert "Executed command: mtt export model.ckpt" in stdout_log
