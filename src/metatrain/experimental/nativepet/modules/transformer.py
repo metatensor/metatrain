@@ -224,10 +224,12 @@ class CartesianTransformer(torch.nn.Module):
         tokens = self.compress(tokens)
         tokens = torch.cat([node_elements_embedding[:, None, :], tokens], dim=1)
 
-        padding_submask = torch.ones(
+        padding_mask_with_central_token = torch.ones(
             padding_mask.shape[0], dtype=torch.bool, device=padding_mask.device
         )
-        total_padding_mask = torch.cat([padding_submask[:, None], padding_mask], dim=1)
+        total_padding_mask = torch.cat(
+            [padding_mask_with_central_token[:, None], padding_mask], dim=1
+        )
 
         cutoff_subfactors = torch.ones(
             padding_mask.shape[0], device=padding_mask.device

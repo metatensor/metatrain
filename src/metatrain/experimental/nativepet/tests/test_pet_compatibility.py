@@ -77,6 +77,9 @@ def set_heads_weights(nativepet_state_dict, pet_state_dict):
             if "edge" in key:
                 pet_key = pet_key.replace("edge_", "bond_")
             pet_key = pet_key.replace("node_", "")
+            split_key = pet_key.split(".")
+            split_key.insert(3, "nn")
+            pet_key = ".".join(split_key)
             weight = nativepet_state_dict[key].detach().clone()
             weight.requires_grad = True
             pet_state_dict[pet_key] = weight
@@ -192,10 +195,10 @@ def ensure_node_heads_weights_equality(nativepet_model, pet_model):
         nativepet_head = nativepet_model.node_heads["energy"][i]
         pet_head = pet_model.pet.heads[i]
         # Testing if the linear layers are the same
-        for j in range(len(nativepet_head.nn)):
-            if not hasattr(nativepet_head.nn[j], "weight"):
+        for j in range(len(nativepet_head)):
+            if not hasattr(nativepet_head[j], "weight"):
                 continue
-            nativepet_linear_layer = nativepet_head.nn[j]
+            nativepet_linear_layer = nativepet_head[j]
             pet_linear_layer = pet_head.nn[j]
             torch.testing.assert_close(
                 nativepet_linear_layer.weight, pet_linear_layer.weight
@@ -210,10 +213,10 @@ def ensure_edge_heads_weights_equality(nativepet_model, pet_model):
         nativepet_bond_head = nativepet_model.edge_heads["energy"][i]
         pet_bond_head = pet_model.pet.bond_heads[i]
         # Testing if the linear layers are the same
-        for j in range(len(nativepet_bond_head.nn)):
-            if not hasattr(nativepet_bond_head.nn[j], "weight"):
+        for j in range(len(nativepet_bond_head)):
+            if not hasattr(nativepet_bond_head[j], "weight"):
                 continue
-            nativepet_linear_layer = nativepet_bond_head.nn[j]
+            nativepet_linear_layer = nativepet_bond_head[j]
             pet_linear_layer = pet_bond_head.nn[j]
             torch.testing.assert_close(
                 nativepet_linear_layer.weight, pet_linear_layer.weight

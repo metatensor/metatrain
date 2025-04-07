@@ -42,6 +42,7 @@ def convert_model_state_dict_from_legacy_pet(
                     new_key = new_key.replace("bond_heads.", "edge_heads.energy.")
                 else:
                     new_key = new_key.replace("heads.", "node_heads.energy.")
+                new_key = new_key.replace("nn.", "")
                 new_model_state_dict[new_key] = value
 
     new_model_state_dict["scaler.scales"] = torch.tensor([1.0], dtype=torch.float32)

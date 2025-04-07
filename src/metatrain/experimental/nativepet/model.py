@@ -14,6 +14,7 @@ from metatensor.torch.atomistic import (
     NeighborListOptions,
     System,
 )
+from torch import nn
 
 from ...utils.additive import ZBL, CompositionModel
 from ...utils.data import DatasetInfo, TargetInfo
@@ -23,9 +24,6 @@ from ...utils.metadata import append_metadata_references
 from ...utils.scaler import Scaler
 from ...utils.sum_over_atoms import sum_over_atoms
 from .modules.finetuning import apply_finetuning_strategy
-from .modules.heads import (
-    Head,
-)
 from .modules.structures import remap_neighborlists, systems_to_batch
 from .modules.transformer import CartesianTransformer
 from .modules.utilities import cutoff_func
@@ -708,25 +706,35 @@ class NativePET(torch.nn.Module):
             per_atom=True,
         )
 
-        self.node_heads[target_name] = torch.nn.ModuleList(
+        self.node_heads[target_name] = nn.ModuleList(
             [
-                Head(self.hypers["d_pet"], self.hypers["d_head"])
+                nn.Sequential(
+                    nn.Linear(self.hypers["d_pet"], self.hypers["d_head"]),
+                    nn.SiLU(),
+                    nn.Linear(self.hypers["d_head"], self.hypers["d_head"]),
+                    nn.SiLU(),
+                )
                 for _ in range(self.hypers["num_gnn_layers"])
             ]
         )
 
-        self.edge_heads[target_name] = torch.nn.ModuleList(
+        self.edge_heads[target_name] = nn.ModuleList(
             [
-                Head(self.hypers["d_pet"], self.hypers["d_head"])
+                nn.Sequential(
+                    nn.Linear(self.hypers["d_pet"], self.hypers["d_head"]),
+                    nn.SiLU(),
+                    nn.Linear(self.hypers["d_head"], self.hypers["d_head"]),
+                    nn.SiLU(),
+                )
                 for _ in range(self.hypers["num_gnn_layers"])
             ]
         )
 
-        self.node_last_layers[target_name] = torch.nn.ModuleList(
+        self.node_last_layers[target_name] = nn.ModuleList(
             [
-                torch.nn.ModuleDict(
+                nn.ModuleDict(
                     {
-                        key: torch.nn.Linear(
+                        key: nn.Linear(
                             self.hypers["d_head"],
                             prod(shape),
                             bias=True,
@@ -738,11 +746,11 @@ class NativePET(torch.nn.Module):
             ]
         )
 
-        self.edge_last_layers[target_name] = torch.nn.ModuleList(
+        self.edge_last_layers[target_name] = nn.ModuleList(
             [
-                torch.nn.ModuleDict(
+                nn.ModuleDict(
                     {
-                        key: torch.nn.Linear(
+                        key: nn.Linear(
                             self.hypers["d_head"],
                             prod(shape),
                             bias=True,
