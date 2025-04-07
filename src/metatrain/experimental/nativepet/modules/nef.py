@@ -147,10 +147,12 @@ def compute_reversed_neighbor_list(
     neighborlist, the position of atom `i` in the list
     of neighbors of atom `j` is returned.
     """
-    N, K = nef_indices.shape
+    num_atoms, max_num_neighbors = nef_indices.shape
 
     flat_edge_indices = nef_indices.reshape(-1)
-    flat_positions = torch.arange(K, device=nef_indices.device).repeat(N)
+    flat_positions = torch.arange(max_num_neighbors, device=nef_indices.device).repeat(
+        num_atoms
+    )
     flat_mask = nef_mask.reshape(-1)
 
     max_edge_index = int(flat_edge_indices.max().item()) + 1
