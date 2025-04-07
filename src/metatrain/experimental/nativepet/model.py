@@ -597,14 +597,7 @@ class NativePET(torch.nn.Module):
             if outputs[output_name].per_atom:
                 return_dict[output_name] = atomic_property
             else:
-                return_dict[output_name] = (
-                    # we use a faster, more specialized version for scalars
-                    metatensor.torch.sum_over_samples(
-                        atomic_property, sample_names="atom"
-                    )
-                    if any(len(b.components) for b in atomic_property.blocks()) > 0
-                    else sum_over_atoms(atomic_property)
-                )
+                return_dict[output_name] = sum_over_atoms(atomic_property)
 
         if not self.training:
             # at evaluation, we also introduce the scaler and additive contributions

@@ -23,6 +23,7 @@ from ..utils.dtype import dtype_to_str
 from ..utils.long_range import DummyLongRangeFeaturizer, LongRangeFeaturizer
 from ..utils.metadata import append_metadata_references
 from ..utils.scaler import Scaler
+from ..utils.sum_over_atoms import sum_over_atoms
 from .spherical import TensorBasis
 
 
@@ -399,7 +400,7 @@ class SoapBpnn(torch.nn.Module):
             features_options = outputs["features"]
             out_features = features.keys_to_properties(self.center_type_labels)
             if not features_options.per_atom:
-                out_features = metatensor.torch.sum_over_samples(out_features, ["atom"])
+                out_features = sum_over_atoms(out_features)
             return_dict["features"] = _remove_center_type_from_properties(out_features)
 
         features_by_output: Dict[str, TensorMap] = {}
@@ -432,7 +433,7 @@ class SoapBpnn(torch.nn.Module):
                 self.center_type_labels
             )
             if not features_options.per_atom:
-                out_features = metatensor.torch.sum_over_samples(out_features, ["atom"])
+                out_features = sum_over_atoms(out_features)
             return_dict[output_name] = _remove_center_type_from_properties(out_features)
 
         atomic_properties: Dict[str, TensorMap] = {}
@@ -505,9 +506,7 @@ class SoapBpnn(torch.nn.Module):
                 return_dict[output_name] = atomic_property
             else:
                 # sum the atomic property to get the total property
-                return_dict[output_name] = metatensor.torch.sum_over_samples(
-                    atomic_property, ["atom"]
-                )
+                return_dict[output_name] = sum_over_atoms(atomic_property)
 
         if not self.training:
             # at evaluation, we also introduce the scaler and additive contributions

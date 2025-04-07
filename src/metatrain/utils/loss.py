@@ -24,6 +24,13 @@ class TensorMapLoss:
         See :py:class:`torch.nn.MSELoss`.
     :param weight: The weight to apply to the loss on the block values.
     :param gradient_weights: The weights to apply to the loss on the gradients.
+    :param sliding_factor: The factor to apply to the sliding weights.
+    :param type: The type of loss to use. This can be either "mse" or "mae".
+        If a dictionary is provided, it must contain the key "huber" and
+        the value must be a dictionary with the key "deltas" and the value
+        must be a dictionary with the keys "values" and the gradient keys.
+        The values of the dictionary must be the deltas to use for the
+        Huber loss.
 
     :returns: The loss as a zero-dimensional :py:class:`torch.Tensor`
         (with one entry).
@@ -120,6 +127,8 @@ class TensorMapLoss:
                         "TensorMapSlidingLoss requires the two TensorMaps "
                         "to have the same gradient components."
                     )
+
+        # First time the function is called: compute the sliding weights
         if self.sliding_factor is not None and self.sliding_weights is None:
             self.sliding_weights = get_sliding_weights(
                 self.losses,
