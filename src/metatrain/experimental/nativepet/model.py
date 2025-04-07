@@ -271,8 +271,6 @@ class NativePET(torch.nn.Module):
         #   list for each central atom, where for each center atom `i` and its neighbor
         #   `j` in the original neighborlist, the position of atom `i` in the list of
         #   neighbors of atom `j` is returned.
-        # - `system_indices` [n_atoms]: Indices of each atom in the original list of
-        #   systems
 
         (
             element_indices_nodes,
