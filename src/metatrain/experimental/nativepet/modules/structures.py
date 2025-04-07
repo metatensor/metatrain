@@ -80,7 +80,7 @@ def remap_neighborlists(
     new_systems: List[System] = []
     for i, system in enumerate(systems):
         assert len(system.known_neighbor_lists()) >= 1, (
-            "only one neighbor list is supported"
+            "the system must have at least one neighbor list"
         )
         if selected_atoms is not None:
             selected_atoms_index = selected_atoms.values[:, 1][

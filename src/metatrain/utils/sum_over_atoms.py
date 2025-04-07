@@ -7,7 +7,8 @@ from metatensor.torch import Labels, TensorBlock, TensorMap
 @torch.jit.script
 def sum_over_atoms(tensor_map: TensorMap):
     """
-    Faster version of the metatensor.torch.sum_over_samples
+    Faster version of metatensor.torch.sum_over_samples, specialized for graph-like
+    TensorMaps and summing over atoms.
     """
     new_blocks: List[TensorBlock] = []
     for block in tensor_map.blocks():
