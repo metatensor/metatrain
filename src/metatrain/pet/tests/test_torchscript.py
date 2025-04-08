@@ -1,6 +1,7 @@
 import copy
 
 import torch
+import pytest
 
 from metatrain.pet import PET as WrappedPET
 from metatrain.pet.modules.hypers import Hypers
@@ -41,6 +42,7 @@ def test_torchscript_save_load(tmpdir):
     raw_pet = PET(ARCHITECTURAL_HYPERS, 0.0, len(model.atomic_types))
     model.set_trained_model(raw_pet)
     torch.jit.script(model)
+
     with tmpdir.as_cwd():
         torch.jit.save(torch.jit.script(model), "pet.pt")
         torch.jit.load("pet.pt")

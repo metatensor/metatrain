@@ -6,6 +6,7 @@ import warnings
 from pathlib import Path
 from typing import List
 
+import pytest
 from metatensor.torch.atomistic import ModelCapabilities, ModelOutput
 
 from metatrain import PACKAGE_ROOT
@@ -30,7 +31,7 @@ def assert_log_entry(logtext: str, loglevel: str, message: str) -> None:
         raise AssertionError(f"{message!r} and {loglevel!r} not found in {logtext!r}")
 
 
-def test_warnings_in_log(caplog):
+def test_warnings_in_log():
     """Test that warnings are forwarded to the logger.
 
     Keep this test at the top since it seems otherwise there are some pytest issues...
@@ -38,9 +39,11 @@ def test_warnings_in_log(caplog):
     logger = logging.getLogger()
 
     with setup_logging(logger):
-        warnings.warn("A warning", stacklevel=1)
+        with pytest.warns(Warning) as record:
+            warnings.warn("A warning", stacklevel=1)
 
-    assert "A warning" in caplog.text
+    assert len(record) == 1
+    assert record[0].message.args[0] == "A warning"
 
 
 def test_default_log(caplog, capsys):
