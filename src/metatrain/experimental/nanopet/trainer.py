@@ -203,7 +203,7 @@ class Trainer:
         else:
             train_samplers = [None] * len(train_datasets)
             val_samplers = [None] * len(val_datasets)
-            if self.hypers['use_permanent']:
+            if self.hypers['use_permanent']: #LOL!
                 permanent_samplers = [None] * len(permanent_datasets)
 
         # Create dataloader for the training datasets:

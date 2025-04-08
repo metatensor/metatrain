@@ -80,6 +80,7 @@ class NanoPET(torch.nn.Module):
                 blocks = [output_block]
             )
             dataset_info.targets['mtt::dos'].layout = output_map
+            
 
         self.new_outputs = list(dataset_info.targets.keys())
         self.atomic_types = dataset_info.atomic_types
@@ -204,7 +205,7 @@ class NanoPET(torch.nn.Module):
 
     def restart(self, dataset_info: DatasetInfo) -> "NanoPET":
         # merge old and new dataset info
-        merged_info = self.dataset_info#.union(dataset_info) #!
+        merged_info = self.dataset_info#.union(dataset_info) # LOL
         new_atomic_types = [
             at for at in merged_info.atomic_types if at not in self.atomic_types
         ]
