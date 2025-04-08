@@ -8,9 +8,6 @@ from torch.nn.modules.loss import _Loss
 from metatrain.utils.external_naming import to_internal_name
 
 
-# This file defines losses for metatensor models.
-
-
 class TensorMapLoss:
     """A loss function that operates on two ``metatensor.torch.TensorMap``.
 
@@ -24,9 +21,13 @@ class TensorMapLoss:
         See :py:class:`torch.nn.MSELoss`.
     :param weight: The weight to apply to the loss on the block values.
     :param gradient_weights: The weights to apply to the loss on the gradients.
-    :param sliding_factor: The factor to apply to the sliding weights.
+    :param sliding_factor: The factor to apply to the exponential moving average
+        of the "sliding" weights. These are weights that act on different components of
+        the loss (for example, energies and forces), based on their individual recent
+        history. If ``None``, no sliding weights are used in the computation of the
+        loss.
     :param type: The type of loss to use. This can be either "mse" or "mae".
-        If a dictionary is provided, it must contain the key "huber" and
+        A Huber loss can also be requested as a dictionary with the key "huber" and
         the value must be a dictionary with the key "deltas" and the value
         must be a dictionary with the keys "values" and the gradient keys.
         The values of the dictionary must be the deltas to use for the
@@ -128,13 +129,15 @@ class TensorMapLoss:
                         "to have the same gradient components."
                     )
 
-        # First time the function is called: compute the sliding weights
+        # First time the function is called: compute the sliding weights only
+        # from the targets (if they are enabled)
         if self.sliding_factor is not None and self.sliding_weights is None:
             self.sliding_weights = get_sliding_weights(
                 self.losses,
                 self.sliding_factor,
                 targets_tensor_map,
             )
+
         # Compute the loss:
         loss = torch.zeros(
             (),
@@ -146,6 +149,7 @@ class TensorMapLoss:
             block_2 = targets_tensor_map.block(key)
             values_1 = block_1.values
             values_2 = block_2.values
+            # sliding weights: default to 1.0 if not used/provided for this target
             sliding_weight = (
                 1.0
                 if self.sliding_weights is None
@@ -157,6 +161,7 @@ class TensorMapLoss:
             for gradient_name, gradient_weight in self.gradient_weights.items():
                 values_1 = block_1.gradient(gradient_name).values
                 values_2 = block_2.gradient(gradient_name).values
+                # sliding weights: default to 1.0 if not used/provided for this target
                 sliding_weigths_value = (
                     1.0
                     if self.sliding_weights is None
@@ -189,6 +194,11 @@ class TensorMapDictLoss:
 
     :param weights: A dictionary mapping keys to weights. This might contain
         gradient keys, in the form ``<output_name>_<gradient_name>_gradients``.
+    :param sliding_factor: The factor to apply to the exponential moving average
+        of the "sliding" weights. These are weights that act on different components of
+        the loss (for example, energies and forces), based on their individual recent
+        history. If ``None``, no sliding weights are used in the computation of the
+        loss.
     :param reduction: The reduction to apply to the loss.
         See :py:class:`torch.nn.MSELoss`.
 
