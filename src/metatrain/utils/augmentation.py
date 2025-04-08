@@ -159,7 +159,7 @@ def _apply_wigner_D_matrices(
 
 
 @torch.jit.script  # script for speed
-def _apply_random_augmentations(
+def _apply_random_augmentations(  # pragma: no cover
     systems: List[System],
     targets: Dict[str, TensorMap],
     transformations: List[torch.Tensor],

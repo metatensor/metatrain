@@ -6,7 +6,7 @@ from metatensor.torch.atomistic import System
 
 
 @torch.jit.script
-def systems_and_targets_to_device(
+def systems_and_targets_to_device(  # pragma: no cover
     systems: List[System],
     targets: Dict[str, TensorMap],
     device: torch.device,
@@ -25,7 +25,7 @@ def systems_and_targets_to_device(
 
 
 @torch.jit.script
-def systems_and_targets_to_dtype(
+def systems_and_targets_to_dtype(  # pragma: no cover
     systems: List[System],
     targets: Dict[str, TensorMap],
     dtype: torch.dtype,

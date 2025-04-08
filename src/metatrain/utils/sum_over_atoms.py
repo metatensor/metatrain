@@ -5,7 +5,7 @@ from metatensor.torch import Labels, TensorBlock, TensorMap
 
 
 @torch.jit.script
-def sum_over_atoms(tensor_map: TensorMap):
+def sum_over_atoms(tensor_map: TensorMap):  # pragma: no cover
     """
     A faster version of ``metatensor.torch.sum_over_samples``, specialized for
     summing over atoms in graph-like TensorMaps.
