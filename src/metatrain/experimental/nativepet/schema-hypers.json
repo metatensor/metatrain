@@ -1,0 +1,261 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "type": "object",
+  "properties": {
+    "name": {
+      "type": "string",
+      "enum": [
+        "experimental.nativepet"
+      ]
+    },
+    "model": {
+      "type": "object",
+      "properties": {
+        "cutoff": {
+          "type": "number"
+        },
+        "cutoff_width": {
+          "type": "number"
+        },
+        "d_pet": {
+          "type": "integer"
+        },
+        "d_head": {
+          "type": "integer"
+        },
+        "d_feedforward": {
+          "type": "integer"
+        },
+        "num_heads": {
+          "type": "integer"
+        },
+        "num_attention_layers": {
+          "type": "integer"
+        },
+        "num_gnn_layers": {
+          "type": "integer"
+        },
+        "zbl": {
+          "type": "boolean"
+        },
+        "long_range": {
+          "type": "object",
+          "properties": {
+            "enable": {
+              "type": "boolean"
+            },
+            "use_ewald": {
+              "type": "boolean"
+            },
+            "smearing": {
+              "type": "number"
+            },
+            "kspace_resolution": {
+              "type": "number"
+            },
+            "interpolation_nodes": {
+              "type": "integer"
+            }
+          }
+        }
+      },
+      "additionalProperties": false
+    },
+    "training": {
+      "type": "object",
+      "properties": {
+        "distributed": {
+          "type": "boolean"
+        },
+        "distributed_port": {
+          "type": "integer"
+        },
+        "batch_size": {
+          "type": "integer"
+        },
+        "num_epochs": {
+          "type": "integer"
+        },
+        "num_epochs_warmup": {
+          "type": "integer"
+        },
+        "learning_rate": {
+          "type": "number"
+        },
+        "weight_decay": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "scheduler_patience": {
+          "type": "integer"
+        },
+        "log_interval": {
+          "type": "integer"
+        },
+        "checkpoint_interval": {
+          "type": "integer"
+        },
+        "scale_targets": {
+          "type": "boolean"
+        },
+        "fixed_composition_weights": {
+          "type": "object",
+          "patternProperties": {
+            "^.*$": {
+              "type": "object",
+              "propertyNames": {
+                "pattern": "^[0-9]+$"
+              },
+              "additionalProperties": {
+                "type": "number"
+              }
+            }
+          },
+          "additionalProperties": false
+        },
+        "per_structure_targets": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "log_mae": {
+          "type": "boolean"
+        },
+        "log_separate_blocks": {
+          "type": "boolean"
+        },
+        "best_model_metric": {
+          "type": "string",
+          "enum": [
+            "rmse_prod",
+            "mae_prod",
+            "loss"
+          ]
+        },
+        "finetune": {
+          "type": "object",
+          "properties": {
+            "method": {
+              "type": "string",
+              "enum": [
+                "lora",
+                "heads"
+              ]
+            },
+            "config": {
+              "type": "object",
+              "oneOf": [
+                {
+                  "properties": {
+                    "alpha": {
+                      "type": "number"
+                    },
+                    "rank": {
+                      "type": "integer"
+                    }
+                  },
+                  "required": [
+                    "alpha",
+                    "rank"
+                  ],
+                  "additionalProperties": false
+                },
+                {
+                  "properties": {
+                    "head_modules": {
+                      "type": "array",
+                      "items": {
+                        "type": "string"
+                      }
+                    },
+                    "last_layer_modules": {
+                      "type": "array",
+                      "items": {
+                        "type": "string"
+                      }
+                    }
+                  },
+                  "required": [
+                    "head_modules",
+                    "last_layer_modules"
+                  ],
+                  "additionalProperties": false
+                }
+              ]
+            }
+          },
+          "additionalProperties": false
+        },
+        "loss": {
+          "type": "object",
+          "properties": {
+            "weights": {
+              "type": "object",
+              "patternProperties": {
+                ".*": {
+                  "type": "number"
+                }
+              },
+              "additionalProperties": false
+            },
+            "reduction": {
+              "type": "string",
+              "enum": [
+                "sum",
+                "mean",
+                "none"
+              ]
+            },
+            "type": {
+              "oneOf": [
+                {
+                  "type": "string",
+                  "enum": [
+                    "mse",
+                    "mae"
+                  ]
+                },
+                {
+                  "type": "object",
+                  "properties": {
+                    "huber": {
+                      "type": "object",
+                      "properties": {
+                        "deltas": {
+                          "type": "object",
+                          "patternProperties": {
+                            ".*": {
+                              "type": "number"
+                            }
+                          },
+                          "additionalProperties": false
+                        }
+                      },
+                      "required": [
+                        "deltas"
+                      ],
+                      "additionalProperties": false
+                    }
+                  },
+                  "additionalProperties": false
+                }
+              ]
+            },
+            "sliding_factor": {
+              "type": [
+                "number",
+                "null"
+              ]
+            }
+          },
+          "additionalProperties": false
+        }
+      },
+      "additionalProperties": false
+    }
+  },
+  "additionalProperties": false
+}

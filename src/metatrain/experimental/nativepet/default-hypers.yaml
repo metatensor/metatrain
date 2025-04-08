@@ -1,0 +1,44 @@
+architecture:
+
+  name: experimental.nativepet
+
+  model:
+    cutoff: 4.5
+    cutoff_width: 0.2
+    d_pet: 128
+    d_head: 128
+    d_feedforward: 512
+    num_heads: 8
+    num_attention_layers: 2
+    num_gnn_layers: 2
+    zbl: false
+    long_range: 
+      enable: false
+      use_ewald: false
+      smearing: 1.4
+      kspace_resolution: 1.33
+      interpolation_nodes: 5
+
+  training:
+    distributed: false
+    distributed_port: 39591
+    batch_size: 16
+    num_epochs: 10000
+    num_epochs_warmup: 100
+    learning_rate: 1e-4
+    weight_decay: null
+    scheduler_patience: 250
+    log_interval: 1
+    checkpoint_interval: 100
+    scale_targets: false
+    fixed_composition_weights: {}
+    per_structure_targets: []
+    log_mae: true
+    log_separate_blocks: false
+    best_model_metric: rmse_prod
+    finetune: {}
+    loss:
+      type: mse
+      weights: {}
+      reduction: mean
+      sliding_factor: 0.7

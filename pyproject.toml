@@ -71,6 +71,7 @@ pet = [
     "pathos",
     "scipy",
 ]
+nativepet = []
 nanopet = []
 gap = [
     "featomic-torch >=0.6,<0.7",

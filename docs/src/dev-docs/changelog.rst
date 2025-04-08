@@ -29,6 +29,8 @@ Added
 
 - Save loss history in a ``.csv`` file
 
+- Add ``NativePET`` as a readable, efficient, backward-compatible PET implementation
+
 Version 2025.4 - 2025-03-29
 ---------------------------
 

@@ -9,6 +9,7 @@ from metatensor.torch.atomistic import ModelOutput, NeighborListOptions, System
 
 from ..data import DatasetInfo, TargetInfo
 from ..jsonschema import validate
+from ..sum_over_atoms import sum_over_atoms
 
 
 class ZBL(torch.nn.Module):
@@ -200,9 +201,7 @@ class ZBL(torch.nn.Module):
                 )
 
             if not target.per_atom:
-                targets_out[target_key] = metatensor.torch.sum_over_samples(
-                    targets_out[target_key], sample_names="atom"
-                )
+                targets_out[target_key] = sum_over_atoms(targets_out[target_key])
 
         return targets_out
 

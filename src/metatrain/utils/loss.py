@@ -3,11 +3,9 @@ from typing import Dict, Optional, Tuple, Union
 import torch
 from metatensor.torch import TensorMap
 from omegaconf import DictConfig
+from torch.nn.modules.loss import _Loss
 
 from metatrain.utils.external_naming import to_internal_name
-
-
-# This file defines losses for metatensor models.
 
 
 class TensorMapLoss:
@@ -23,6 +21,17 @@ class TensorMapLoss:
         See :py:class:`torch.nn.MSELoss`.
     :param weight: The weight to apply to the loss on the block values.
     :param gradient_weights: The weights to apply to the loss on the gradients.
+    :param sliding_factor: The factor to apply to the exponential moving average
+        of the "sliding" weights. These are weights that act on different components of
+        the loss (for example, energies and forces), based on their individual recent
+        history. If ``None``, no sliding weights are used in the computation of the
+        loss.
+    :param type: The type of loss to use. This can be either "mse" or "mae".
+        A Huber loss can also be requested as a dictionary with the key "huber" and
+        the value must be a dictionary with the key "deltas" and the value
+        must be a dictionary with the keys "values" and the gradient keys.
+        The values of the dictionary must be the deltas to use for the
+        Huber loss.
 
     :returns: The loss as a zero-dimensional :py:class:`torch.Tensor`
         (with one entry).
@@ -33,6 +42,7 @@ class TensorMapLoss:
         reduction: str = "mean",
         weight: float = 1.0,
         gradient_weights: Optional[Dict[str, float]] = None,
+        sliding_factor: Optional[float] = None,
         type: Union[str, dict] = "mse",
     ):
         if gradient_weights is None:
@@ -61,30 +71,37 @@ class TensorMapLoss:
         self.losses = losses
         self.weight = weight
         self.gradient_weights = gradient_weights
+        self.sliding_factor = sliding_factor
+        self.sliding_weights: Optional[Dict[str, TensorMap]] = None
 
     def __call__(
-        self, tensor_map_1: TensorMap, tensor_map_2: TensorMap
+        self,
+        predictions_tensor_map: TensorMap,
+        targets_tensor_map: TensorMap,
     ) -> Tuple[torch.Tensor, Dict[str, Tuple[float, int]]]:
         # Check that the two have the same metadata, except for the samples,
         # which can be different due to batching, but must have the same size:
-        if tensor_map_1.keys != tensor_map_2.keys:
+        if predictions_tensor_map.keys != targets_tensor_map.keys:
             raise ValueError(
-                "TensorMapLoss requires the two TensorMaps to have the same keys."
+                "TensorMapSlidingLoss requires the two TensorMaps to have the "
+                "same keys."
             )
-        for block_1, block_2 in zip(tensor_map_1.blocks(), tensor_map_2.blocks()):
+        for block_1, block_2 in zip(
+            predictions_tensor_map.blocks(), targets_tensor_map.blocks()
+        ):
             if block_1.properties != block_2.properties:
                 raise ValueError(
-                    "TensorMapLoss requires the two TensorMaps to have the same "
+                    "TensorMapSlidingLoss requires the two TensorMaps to have the same "
                     "properties."
                 )
             if block_1.components != block_2.components:
                 raise ValueError(
-                    "TensorMapLoss requires the two TensorMaps to have the same "
+                    "TensorMapSlidingLoss requires the two TensorMaps to have the same "
                     "components."
                 )
             if len(block_1.samples) != len(block_2.samples):
                 raise ValueError(
-                    "TensorMapLoss requires the two TensorMaps "
+                    "TensorMapSlidingLoss requires the two TensorMaps "
                     "to have the same number of samples."
                 )
             for gradient_name in self.gradient_weights.keys():
@@ -92,7 +109,7 @@ class TensorMapLoss:
                     block_2.gradient(gradient_name).samples
                 ):
                     raise ValueError(
-                        "TensorMapLoss requires the two TensorMaps "
+                        "TensorMapSlidingLoss requires the two TensorMaps "
                         "to have the same number of gradient samples."
                     )
                 if (
@@ -100,7 +117,7 @@ class TensorMapLoss:
                     != block_2.gradient(gradient_name).properties
                 ):
                     raise ValueError(
-                        "TensorMapLoss requires the two TensorMaps "
+                        "TensorMapSlidingLoss requires the two TensorMaps "
                         "to have the same gradient properties."
                     )
                 if (
@@ -108,26 +125,61 @@ class TensorMapLoss:
                     != block_2.gradient(gradient_name).components
                 ):
                     raise ValueError(
-                        "TensorMapLoss requires the two TensorMaps "
+                        "TensorMapSlidingLoss requires the two TensorMaps "
                         "to have the same gradient components."
                     )
+
+        # First time the function is called: compute the sliding weights only
+        # from the targets (if they are enabled)
+        if self.sliding_factor is not None and self.sliding_weights is None:
+            self.sliding_weights = get_sliding_weights(
+                self.losses,
+                self.sliding_factor,
+                targets_tensor_map,
+            )
 
         # Compute the loss:
         loss = torch.zeros(
             (),
-            dtype=tensor_map_1.block(0).values.dtype,
-            device=tensor_map_1.block(0).values.device,
+            dtype=predictions_tensor_map.block(0).values.dtype,
+            device=predictions_tensor_map.block(0).values.device,
         )
-
-        for block_1, block_2 in zip(tensor_map_1.blocks(), tensor_map_2.blocks()):
+        for key in targets_tensor_map.keys:
+            block_1 = predictions_tensor_map.block(key)
+            block_2 = targets_tensor_map.block(key)
             values_1 = block_1.values
             values_2 = block_2.values
-            loss += self.weight * self.losses["values"](values_1, values_2)
+            # sliding weights: default to 1.0 if not used/provided for this target
+            sliding_weight = (
+                1.0
+                if self.sliding_weights is None
+                else self.sliding_weights.get("values", 1.0)
+            )
+            loss += (
+                self.weight * self.losses["values"](values_1, values_2) / sliding_weight
+            )
             for gradient_name, gradient_weight in self.gradient_weights.items():
                 values_1 = block_1.gradient(gradient_name).values
                 values_2 = block_2.gradient(gradient_name).values
-                loss += gradient_weight * self.losses[gradient_name](values_1, values_2)
-
+                # sliding weights: default to 1.0 if not used/provided for this target
+                sliding_weigths_value = (
+                    1.0
+                    if self.sliding_weights is None
+                    else self.sliding_weights.get(gradient_name, 1.0)
+                )
+                loss += (
+                    gradient_weight
+                    * self.losses[gradient_name](values_1, values_2)
+                    / sliding_weigths_value
+                )
+        if self.sliding_factor is not None:
+            self.sliding_weights = get_sliding_weights(
+                self.losses,
+                self.sliding_factor,
+                targets_tensor_map,
+                predictions_tensor_map,
+                self.sliding_weights,
+            )
         return loss
 
 
@@ -142,6 +194,11 @@ class TensorMapDictLoss:
 
     :param weights: A dictionary mapping keys to weights. This might contain
         gradient keys, in the form ``<output_name>_<gradient_name>_gradients``.
+    :param sliding_factor: The factor to apply to the exponential moving average
+        of the "sliding" weights. These are weights that act on different components of
+        the loss (for example, energies and forces), based on their individual recent
+        history. If ``None``, no sliding weights are used in the computation of the
+        loss.
     :param reduction: The reduction to apply to the loss.
         See :py:class:`torch.nn.MSELoss`.
 
@@ -152,6 +209,7 @@ class TensorMapDictLoss:
     def __init__(
         self,
         weights: Dict[str, float],
+        sliding_factor: Optional[float] = None,
         reduction: str = "mean",
         type: Union[str, dict] = "mse",
     ):
@@ -167,12 +225,21 @@ class TensorMapDictLoss:
                     )
                     gradient_weights[gradient_name] = weight
             type_output = _process_type(type, output)
-            self.losses[output] = TensorMapLoss(
-                reduction=reduction,
-                weight=value_weight,
-                gradient_weights=gradient_weights,
-                type=type_output,
-            )
+            if output == "energy" and sliding_factor is not None:
+                self.losses[output] = TensorMapLoss(
+                    reduction=reduction,
+                    weight=value_weight,
+                    gradient_weights=gradient_weights,
+                    sliding_factor=sliding_factor,
+                    type=type_output,
+                )
+            else:
+                self.losses[output] = TensorMapLoss(
+                    reduction=reduction,
+                    weight=value_weight,
+                    gradient_weights=gradient_weights,
+                    type=type_output,
+                )
 
     def __call__(
         self,
@@ -194,6 +261,67 @@ class TensorMapDictLoss:
             loss += target_loss
 
         return loss
+
+
+def get_sliding_weights(
+    losses: Dict[str, _Loss],
+    sliding_factor: float,
+    targets: TensorMap,
+    predictions: Optional[TensorMap] = None,
+    previous_sliding_weights: Optional[Dict[str, float]] = None,
+) -> Dict[str, float]:
+    """
+    Compute the sliding weights for the loss function.
+
+    The sliding weights are computed as the absolute difference between the
+    predictions and the targets.
+
+    :param predictions: The predictions.
+    :param targets: The targets.
+
+    :return: The sliding weights.
+    """
+    sliding_weights = {}
+    if predictions is None:
+        for block in targets.blocks():
+            values = block.values
+            sliding_weights["values"] = (
+                losses["values"](values, values.mean() * torch.ones_like(values)) + 1e-6
+            )
+            for gradient_name, gradient_block in block.gradients():
+                values = gradient_block.values
+                sliding_weights[gradient_name] = losses[gradient_name](
+                    values, torch.zeros_like(values)
+                )
+    elif predictions is not None:
+        if previous_sliding_weights is None:
+            raise RuntimeError(
+                "previous_sliding_weights must be provided if predictions is not None"
+            )
+        else:
+            for predictions_block, target_block in zip(
+                predictions.blocks(), targets.blocks()
+            ):
+                target_values = target_block.values
+                predictions_values = predictions_block.values
+                sliding_weights["values"] = (
+                    sliding_factor * previous_sliding_weights["values"]
+                    + (1 - sliding_factor)
+                    * losses["values"](predictions_values, target_values).detach()
+                )
+                for gradient_name, gradient_block in target_block.gradients():
+                    target_values = gradient_block.values
+                    predictions_values = predictions_block.gradient(
+                        gradient_name
+                    ).values
+                    sliding_weights[gradient_name] = (
+                        sliding_factor * previous_sliding_weights[gradient_name]
+                        + (1 - sliding_factor)
+                        * losses[gradient_name](
+                            predictions_values, target_values
+                        ).detach()
+                    )
+    return sliding_weights
 
 
 def _process_type(type: Union[str, DictConfig], output: str) -> Union[str, dict]:
