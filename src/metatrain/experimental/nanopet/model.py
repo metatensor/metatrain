@@ -120,6 +120,7 @@ class NanoPET(torch.nn.Module):
         self.head_types = self.hypers["heads"]
         self.last_layers = torch.nn.ModuleDict()
         self.output_shapes: Dict[str, Dict[str, List[int]]] = {}
+        self.atomic_types_by_block: Dict[str, Dict[str, str]] = {}
         self.key_labels: Dict[str, Labels] = {}
         self.component_labels: Dict[str, List[List[Labels]]] = {}
         self.property_labels: Dict[str, List[Labels]] = {}
@@ -255,6 +256,16 @@ class NanoPET(torch.nn.Module):
                 for output_name, properties_tmap in self.property_labels.items()
             }
 
+        # get system info arrays
+        (
+            positions,
+            centers,
+            neighbors,
+            species,
+            cells,
+            cell_shifts,
+        ) = concatenate_structures(systems, self.requested_nl)
+
         system_indices = torch.concatenate(
             [
                 torch.full(
@@ -266,34 +277,35 @@ class NanoPET(torch.nn.Module):
             ],
         )
 
-        sample_values = torch.stack(
-            [
-                system_indices,
-                torch.concatenate(
-                    [
-                        torch.arange(
-                            len(system),
-                            device=device,
-                        )
-                        for system in systems
-                    ],
-                ),
-            ],
-            dim=1,
-        )
-        sample_labels = Labels(
-            names=["system", "atom"],
-            values=sample_values,
-        )
+        # Create samples labels for the PET node features, and the edge features if any
+        # edge tarets are requested.
+        node_sample_labels = _get_node_sample_labels(system_indices, systems)
+        edge_sample_labels = Labels(
+            ["_"], torch.empty((0, 1), dtype=node_sample_labels.values.dtype)
+        )  # dummy for torchscript
+        if any([output.quantity == "edge" for output in self.outputs.values()]):
+            edge_sample_labels = _get_edge_sample_labels(system_indices, systems)
 
-        (
-            positions,
-            centers,
-            neighbors,
-            species,
-            cells,
-            cell_shifts,
-        ) = concatenate_structures(systems, self.requested_nl)
+        # Store node and edge labels sliced by atomic type if any of the targets are on
+        # an atomic basis
+        node_samples_by_type: Dict[str, Labels] = {
+            "": Labels(
+                ["_"], torch.empty((0, 1), dtype=node_sample_labels.values.dtype)
+            )
+        }
+        edge_samples_by_type: Dict[str, Labels] = {
+            "": Labels(
+                ["_"], torch.empty((0, 1), dtype=node_sample_labels.values.dtype)
+            )
+        }
+        if any([output.quantity == "node" for output in self.outputs.values()]):
+            node_samples_by_type = _slice_node_samples_by_atomic_type(
+                systems, node_sample_labels, self.atomic_types
+            )
+        if any([output.quantity == "edge" for output in self.outputs.values()]):
+            edge_samples_by_type = _slice_edge_samples_by_atomic_type(
+                systems, edge_sample_labels, self.atomic_types
+            )
 
         # somehow the backward of this operation is very slow at evaluation,
         # where there is only one cell, therefore we simplify the calculation
@@ -394,7 +406,7 @@ class NanoPET(torch.nn.Module):
                 blocks=[
                     TensorBlock(
                         values=node_features,
-                        samples=sample_labels,
+                        samples=node_sample_labels,
                         components=[],
                         properties=Labels(
                             names=["properties"],
@@ -413,7 +425,13 @@ class NanoPET(torch.nn.Module):
 
         atomic_features_dict: Dict[str, torch.Tensor] = {}
         for output_name, head in self.heads.items():
-            atomic_features_dict[output_name] = head(node_features)
+            output_info = self.outputs[output_name]
+            if output_info.quantity == "edge":
+                atomic_features_dict[output_name] = head(
+                    nef_array_to_edges(edge_features, centers, nef_to_edges_neighbor)
+                )
+            else:
+                atomic_features_dict[output_name] = head(node_features)
 
         # output the last-layer features for the outputs, if requested:
         for output_name in outputs.keys():
@@ -436,6 +454,13 @@ class NanoPET(torch.nn.Module):
                 )
             if f"mtt::{base_name}" in atomic_features_dict:
                 base_name = f"mtt::{base_name}"
+
+            # Choose the correct sample labels based on whether these are node or edge
+            # features
+            if self.outputs[output_name].quantity == "edge":
+                sample_labels = edge_sample_labels
+            else:
+                sample_labels = node_sample_labels
             last_layer_feature_tmap = TensorMap(
                 keys=self.single_label,
                 blocks=[
@@ -466,10 +491,49 @@ class NanoPET(torch.nn.Module):
             if output_name in outputs:
                 atomic_features = atomic_features_dict[output_name]
                 atomic_properties_by_block = []
-                for last_layer_by_block in last_layer.values():
+                sample_labels_by_block: List[Labels] = []
+
+                for last_layer_key, last_layer_by_block in last_layer.items():
+                    # If this is a node or edge feature on an atomic basis, the samples
+                    # need to be sliced to the atoms / atom pairs that correspond to the
+                    # atomic type / pair of types the block corresponds to
+                    if self.outputs[output_name].quantity == "node":
+                        # Get the sliced sample labels
+                        samples_labels = node_samples_by_type[
+                            self.atomic_types_by_block[output_name][last_layer_key]
+                        ]
+                        sample_labels_by_block.append(samples_labels)
+
+                        # Slice the atomic features based on the labels selection
+                        atomic_features_sliced = atomic_features[
+                            node_sample_labels.select(samples_labels)
+                        ]
+
+                    elif self.outputs[output_name].quantity == "edge":
+                        # Get the sliced sample labels
+                        samples_labels = edge_samples_by_type[
+                            self.atomic_types_by_block[output_name][last_layer_key]
+                        ]
+                        sample_labels_by_block.append(samples_labels)
+
+                        # Slice the atomic features based on the labels selection
+                        atomic_features_sliced = atomic_features[
+                            edge_sample_labels.select(samples_labels)
+                        ]
+
+                    # In the usual case, the last layers correspond to all atom types so
+                    # no slicing needs to be done and the default node samples labels
+                    # are assumed
+                    else:
+                        sample_labels_by_block.append(node_sample_labels)
+                        atomic_features_sliced = atomic_features
+
+                    # Apply the last layer of the head to the (sliced) atomic features
                     atomic_properties_by_block.append(
-                        last_layer_by_block(atomic_features)
+                        last_layer_by_block(atomic_features_sliced)
                     )
+
+                # Build the prediction blocks
                 blocks = [
                     TensorBlock(
                         values=atomic_property.reshape([-1] + shape),
@@ -477,8 +541,15 @@ class NanoPET(torch.nn.Module):
                         components=components,
                         properties=properties,
                     )
-                    for atomic_property, shape, components, properties in zip(
+                    for (
+                        atomic_property,
+                        sample_labels,
+                        shape,
+                        components,
+                        properties,
+                    ) in zip(
                         atomic_properties_by_block,
+                        sample_labels_by_block,
                         self.output_shapes[output_name].values(),
                         self.component_labels[output_name],
                         self.property_labels[output_name],
@@ -589,6 +660,7 @@ class NanoPET(torch.nn.Module):
     def _add_output(self, target_name: str, target_info: TargetInfo) -> None:
         # one output shape for each tensor block, grouped by target (i.e. tensormap)
         self.output_shapes[target_name] = {}
+        self.atomic_types_by_block[target_name] = {}
         for key, block in target_info.layout.items():
             dict_key = target_name
             for n, k in zip(key.names, key.values):
@@ -596,6 +668,24 @@ class NanoPET(torch.nn.Module):
             self.output_shapes[target_name][dict_key] = [
                 len(comp.values) for comp in block.components
             ] + [len(block.properties.values)]
+
+            # also store the atomic type(s) each block corresponds to
+            if target_info.quantity == "node":
+                # assert target_info.per_atom and not target_info.per_atom_pair
+                assert "center_type" in target_info.layout.keys.names
+                atomic_types_by_block = f"{key['center_type']}"
+            elif target_info.quantity == "edge":
+                # assert not target_info.per_atom and target_info.per_atom_pair
+                assert (
+                    "first_atom_type" in target_info.layout.keys.names
+                    and "second_atom_type" in target_info.layout.keys.names
+                )
+                atomic_types_by_block = (
+                    f"{key['first_atom_type']}_{key['second_atom_type']}"
+                )
+            else:
+                atomic_types_by_block = ""
+            self.atomic_types_by_block[target_name][dict_key] = atomic_types_by_block
 
         self.outputs[target_name] = ModelOutput(
             quantity=target_info.quantity,
@@ -628,6 +718,7 @@ class NanoPET(torch.nn.Module):
             f"mtt::aux::{target_name.replace('mtt::', '')}_last_layer_features"
         )
         self.outputs[ll_features_name] = ModelOutput(per_atom=True)
+        assert self.outputs[ll_features_name].per_atom is True
 
         self.last_layers[target_name] = torch.nn.ModuleDict(
             {
@@ -655,3 +746,138 @@ def manual_prod(shape: List[int]) -> int:
     for dim in shape:
         result *= dim
     return result
+
+
+def _get_node_sample_labels(
+    system_indices: torch.Tensor,
+    systems: List[System],
+) -> Labels:
+    sample_values_node = torch.stack(
+        [
+            system_indices,
+            torch.concatenate(
+                [
+                    torch.arange(
+                        len(system),
+                        device=system_indices.device,
+                    )
+                    for system in systems
+                ],
+            ),
+        ],
+        dim=1,
+    ).to(dtype=system_indices.dtype)
+    return Labels(
+        names=["system", "atom"],
+        values=sample_values_node,
+    )
+
+
+def _get_edge_sample_labels(
+    system_indices: torch.Tensor,
+    systems: List[System],
+) -> Labels:
+    sample_values_edge = []
+    for system_id, system in zip(system_indices, systems):
+        sample_values_edge_system = system.get_neighbor_list(
+            system.known_neighbor_lists()[0]
+        ).samples.values
+        system_id = (
+            torch.ones(sample_values_edge_system.shape[0], device=system_indices.device)
+            * system_id
+        )
+        sample_values_edge.append(
+            torch.cat(
+                (system_id.unsqueeze(1), sample_values_edge_system),
+                dim=1,
+            ).to(dtype=system_indices.dtype)
+        )
+    sample_values_edge = torch.vstack(sample_values_edge)
+
+    return Labels(
+        names=[
+            "system",
+            "first_atom",
+            "second_atom",
+            "cell_shift_a",
+            "cell_shift_b",
+            "cell_shift_c",
+        ],
+        values=sample_values_edge,
+    )
+
+
+def _slice_node_samples_by_atomic_type(
+    systems: List[System],
+    node_sample_labels: Labels,
+    atomic_types: List[int],
+) -> Dict[str, Labels]:
+    return {
+        f"{atomic_type}": Labels(
+            node_sample_labels.names,
+            node_sample_labels.values[
+                torch.concatenate([system.types == atomic_type for system in systems])
+            ],
+        )
+        for atomic_type in atomic_types
+    }
+
+
+def _slice_edge_samples_by_atomic_type(
+    systems: List[System],
+    edge_sample_labels: Labels,
+    atomic_types: List[int],
+) -> Dict[str, Labels]:
+    edge_samples_by_type: Dict[str, Labels] = {}
+    for atomic_type_1 in atomic_types:
+        for atomic_type_2 in atomic_types:
+            if atomic_type_1 > atomic_type_2:  # edge keys are triangular in atomic type
+                continue
+            edge_samples = Labels(
+                edge_sample_labels.names,
+                edge_sample_labels.values[
+                    torch.concatenate(
+                        [
+                            (
+                                (
+                                    system.types[edge_sample_labels.values[:, 1]]
+                                    == atomic_type_1
+                                )
+                                & (
+                                    system.types[edge_sample_labels.values[:, 2]]
+                                    == atomic_type_2
+                                )
+                            )
+                            for system in systems
+                        ]
+                    )
+                ],
+            )
+            # TODO: fix this properly for the different permutational symmetrization
+            # methods. In the case of the same atom type, we need to remove redundant
+            # pair swaps for the same unit cell
+            if atomic_type_1 == atomic_type_2:
+                # Define criteria under which a sample should be kept
+                #   1) "first_atom" < "second_atom" in the same cell, T = [0, 0, 0]
+                #   2) "first_atom" <= "second_atom" in a different cell, T != [0, 0, 0]
+                # and mask by either 1) or 2):
+                samples_mask = (
+                    (edge_samples.values[:, 1] < edge_samples.values[:, 2])
+                    & torch.isclose(
+                        torch.linalg.norm(1.0 * edge_samples.values[:, -3:]),
+                        torch.tensor(0.0).to(device=edge_samples.values.device),
+                    )
+                ) | (
+                    (edge_samples.values[:, 1] <= edge_samples.values[:, 2])
+                    & ~torch.isclose(
+                        torch.linalg.norm(1.0 * edge_samples.values[:, -3:]),
+                        torch.tensor(0.0).to(device=edge_samples.values.device),
+                    )
+                )
+                edge_samples = Labels(
+                    edge_samples.names,
+                    edge_samples.values[samples_mask],
+                )
+            edge_samples_by_type[f"{atomic_type_1}_{atomic_type_2}"] = edge_samples
+
+    return edge_samples_by_type

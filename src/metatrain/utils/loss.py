@@ -149,6 +149,9 @@ class TensorMapLoss:
             block_2 = targets_tensor_map.block(key)
             values_1 = block_1.values
             values_2 = block_2.values
+            if values_1.shape[0] == 0:
+                assert values_2.shape[0] == 0
+                continue
             # sliding weights: default to 1.0 if not used/provided for this target
             sliding_weight = (
                 1.0
