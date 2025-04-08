@@ -20,6 +20,7 @@ from ...utils.dtype import dtype_to_str
 from ...utils.long_range import DummyLongRangeFeaturizer, LongRangeFeaturizer
 from ...utils.metadata import append_metadata_references
 from ...utils.scaler import Scaler
+from ...utils.sum_over_atoms import sum_over_atoms
 from .modules.encoder import Encoder
 from .modules.nef import (
     edge_array_to_nef,
@@ -420,9 +421,7 @@ class NanoPET(torch.nn.Module):
             if features_options.per_atom:
                 return_dict["features"] = feature_tmap
             else:
-                return_dict["features"] = metatensor.torch.sum_over_samples(
-                    feature_tmap, ["atom"]
-                )
+                return_dict["features"] = sum_over_atoms(feature_tmap)
 
         atomic_features_dict: Dict[str, torch.Tensor] = {}
         for output_name, head in self.heads.items():
@@ -483,8 +482,8 @@ class NanoPET(torch.nn.Module):
             if last_layer_features_options.per_atom:
                 return_dict[output_name] = last_layer_feature_tmap
             else:
-                return_dict[output_name] = metatensor.torch.sum_over_samples(
-                    last_layer_feature_tmap, ["atom"]
+                return_dict[output_name] = sum_over_atoms(
+                    last_layer_feature_tmap,
                 )
 
         atomic_properties_tmap_dict: Dict[str, TensorMap] = {}
@@ -571,9 +570,7 @@ class NanoPET(torch.nn.Module):
             if outputs[output_name].per_atom:
                 return_dict[output_name] = atomic_property
             else:
-                return_dict[output_name] = metatensor.torch.sum_over_samples(
-                    atomic_property, ["atom"]
-                )
+                return_dict[output_name] = sum_over_atoms(atomic_property)
 
         if not self.training:
             # at evaluation, we also introduce the scaler and additive contributions
@@ -614,6 +611,7 @@ class NanoPET(torch.nn.Module):
         next(state_dict_iter)  # skip `species_to_species_index` buffer (int)
         dtype = next(state_dict_iter).dtype
         model.to(dtype).load_state_dict(model_state_dict)
+        model.additive_models[0].sync_tensor_maps()
 
         return model
 

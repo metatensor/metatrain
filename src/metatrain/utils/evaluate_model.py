@@ -256,7 +256,7 @@ def _get_model_outputs(
 
 
 @torch.jit.script
-def _prepare_system(
+def _prepare_system(  # pragma: no cover
     system: System, positions_grad: bool, strain_grad: bool, check_consistency: bool
 ):
     """

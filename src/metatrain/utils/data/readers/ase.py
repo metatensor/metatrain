@@ -13,9 +13,6 @@ from omegaconf import DictConfig
 from ..target_info import TargetInfo, get_energy_target_info, get_generic_target_info
 
 
-logger = logging.getLogger(__name__)
-
-
 def read(filename: Union[str, PurePath, IO], *args, **kwargs) -> List[ase.Atoms]:
     """Wrapper around the :func:`ase.io.read` function.
 
@@ -233,10 +230,10 @@ def read_energy(target: DictConfig) -> Tuple[List[TensorMap], TargetInfo]:
                 key=target["forces"]["key"],
             )
         except Exception:
-            logger.warning(f"No forces found in section {target_key!r}.")
+            logging.warning(f"No forces found in section {target_key!r}.")
             add_position_gradients = False
         else:
-            logger.info(
+            logging.info(
                 f"Forces found in section {target_key!r}, "
                 "we will use this gradient to train the model"
             )
@@ -256,10 +253,10 @@ def read_energy(target: DictConfig) -> Tuple[List[TensorMap], TargetInfo]:
                 key=target["stress"]["key"],
             )
         except Exception:
-            logger.warning(f"No stress found in section {target_key!r}.")
+            logging.warning(f"No stress found in section {target_key!r}.")
             add_strain_gradients = False
         else:
-            logger.info(
+            logging.info(
                 f"Stress found in section {target_key!r}, "
                 "we will use this gradient to train the model"
             )
@@ -274,10 +271,10 @@ def read_energy(target: DictConfig) -> Tuple[List[TensorMap], TargetInfo]:
                 key=target["virial"]["key"],
             )
         except Exception:
-            logger.warning(f"No virial found in section {target_key!r}.")
+            logging.warning(f"No virial found in section {target_key!r}.")
             add_strain_gradients = False
         else:
-            logger.info(
+            logging.info(
                 f"Virial found in section {target_key!r}, "
                 "we will use this gradient to train the model"
             )

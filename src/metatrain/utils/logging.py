@@ -1,6 +1,7 @@
 """Logging."""
 
 import contextlib
+import csv
 import logging
 import sys
 from pathlib import Path
@@ -10,6 +11,7 @@ import numpy as np
 import torch
 from metatensor.torch.atomistic import ModelCapabilities
 
+from .. import PACKAGE_ROOT, __version__
 from .data import DatasetInfo
 from .distributed.logging import is_main_process
 from .external_naming import to_external_name
@@ -17,10 +19,66 @@ from .io import check_file_extension
 from .units import ev_to_mev, get_gradient_units
 
 
+class CSVFileHandler(logging.FileHandler):
+    """A custom FileHandler for logging data in CSV format."""
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self._header_written = False
+
+    def emit(self, record: logging.LogRecord):
+        """Override the default behavior preventing any output to the default log."""
+        pass
+
+    def emit_data(self, keys: List[str], values: List[str], units: List[str]):
+        """Write structured data to the CSV file.
+
+        ``keys`` and ``values`` are written only the first time this methods is called.
+
+        :param keys: Column header names
+        :param values: Data values to write
+        :param units: Units for each column
+        """
+        with self._open() as file:
+            writer = csv.writer(file)
+
+            if not self._header_written:
+                writer.writerow(keys)
+                writer.writerow(units)
+                self._header_written = True
+
+            writer.writerow(values)
+
+
+class CustomLogger(logging.Logger):
+    """Custom logger to log structured data."""
+
+    def data(self, keys: List[str], values: List[str], units: List[str]):
+        """Logs data entries to handlers that support an ``emit_data`` method.
+
+        :param keys: Column header names
+        :param values: Data values to write
+        :param units: Units for each column
+        """
+        for handler in self.handlers:
+            if hasattr(handler, "emit_data"):
+                handler.emit_data(keys, values, units)
+
+
+# Use `CustomLogger` as default class. The line below will NOT (!) change the `root`
+# logger behaviour. It only applies for loggers that are created with a specific `name`
+# like for example `logging.getLogger("metatrain")`. `logging.getLogger()` will still
+# return the root logger (a `logging.Logger` instance).
+logging.setLoggerClass(CustomLogger)
+
+
+ROOT_LOGGER = logging.getLogger(name="metatrain")
+
+
 class MetricLogger:
     def __init__(
         self,
-        log_obj: logging.Logger,
+        log_obj: Union[logging.Logger, CustomLogger],
         dataset_info: Union[ModelCapabilities, DatasetInfo],
         initial_metrics: Union[Dict[str, float], List[Dict[str, float]]],
         names: Union[str, List[str]] = "",
@@ -97,54 +155,65 @@ class MetricLogger:
         The metrics are automatically aligned to make them easier to read, based on
         the order of magnitude of each metric given to the class at initialization.
 
-        :param metrics: The current metrics to be printed.
+        :param metrics: The current metrics to be logged.
         :param epoch: The current epoch (optional). If :py:class:`None`, the epoch
             will not be printed, and the logging string will start with the first
             metric in the ``metrics`` dictionary.
         :param rank: The rank of the process, if the training is distributed. In that
             case, the logger will only print the metrics for the process with rank 0.
         """
+        if rank and rank != 0:
+            return
+
+        keys = []
+        values = []
+        units = []
+
+        if epoch is not None:
+            keys.append("Epoch")
+            values.append(f"{epoch:4}")
+            units.append("")
 
         if isinstance(metrics, dict):
             metrics = [metrics]
 
-        if epoch is None:
-            logging_string = ""
-        else:
-            # The epoch is printed with 4 digits, assuming that the training
-            # will not last more than 9999 epochs
-            logging_string = f"Epoch {epoch:4}"
-
+        is_loss = False
         for name, metrics_dict in zip(self.names, metrics):
             for key in _sort_metric_names(metrics_dict.keys()):
                 value = metrics_dict[key] * self.scales[key]
 
-                new_key = key
-                if key != "loss":  # special case: not a metric associated with a target
-                    target_name, metric = new_key.split(" ", 1)
-                    external_name = to_external_name(target_name, self.model_outputs)  # type: ignore # noqa: E501
-                    new_key = f"{external_name} {metric}"
+                if key == "loss":
+                    is_loss = True
 
-                if name == "":
-                    logging_string += f", {new_key}: "
-                else:
-                    logging_string += f", {name} {new_key}: "
-                if key == "loss":  # print losses with scientific notation
-                    logging_string += f"{value:.3e}"
-                else:
+                    # avoiding double spaces: only include non-empty strings (`if p`),
+                    keys.append(" ".join(p for p in [name, key] if p))
+                    values.append(f"{value:.3e}")
+                    units.append("")
+
+                else:  # special case: not a metric associated with a target
+                    target_name, metric = key.split(" ", 1)
+                    external_name = to_external_name(target_name, self.model_outputs)  # type: ignore # noqa: E501
+                    keys.append(" ".join(p for p in [name, external_name, metric] if p))
+
                     unit = self._get_units(target_name)
                     value, unit = ev_to_mev(value, unit)
-                    logging_string += (
+
+                    values.append(
                         f"{value:{self.digits[f'{name}_{key}'][0]}.{self.digits[f'{name}_{key}'][1]}f}"  # noqa: E501
-                        + (f" {unit}" if unit != "" else "")
                     )
+                    units.append(unit)
 
-        # If there is no epoch, the string will start with a comma. Remove it:
-        if logging_string.startswith(", "):
-            logging_string = logging_string[2:]
+        if is_loss and isinstance(self.log_obj, CustomLogger):
+            self.log_obj.data(keys, values, units)
 
-        if rank is None or rank == 0:
-            self.log_obj.info(logging_string)
+        # add space between value and unit only if the unit is not empty. Avoiding
+        # double space when joining metric below
+        formatted_metrics = [
+            f"{key}: {value}{f' {unit}' if unit else ''}"
+            for key, value, unit in zip(keys, values, units)
+        ]
+
+        logging.info(" | ".join(formatted_metrics))
 
     def _get_units(self, output: str) -> str:
         # Gets the units of an output
@@ -233,10 +302,15 @@ def setup_logging(
             file_handler.setFormatter(formatter)
             handlers.append(file_handler)
 
+            csv_file = Path(log_file).with_suffix(".csv")
+            csv_handler = CSVFileHandler(str(csv_file))
+            handlers.append(csv_handler)
+
         # hide logging up to ERROR from secondary processes in distributed environments:
         if not is_main_process():
             level = logging.ERROR
 
+        # set the level for root logger
         logging.basicConfig(format=format, handlers=handlers, level=level, style="{")
         logging.captureWarnings(True)
 
@@ -244,8 +318,14 @@ def setup_logging(
             abs_path = str(Path(log_file).absolute().resolve())
             log_obj.info(f"This log is also available at {abs_path!r}.")
         else:
-            log_obj.debug("Logging to file is disabled.")
+            log_obj.info("Logging to file is disabled.")
 
+        log_obj.info(f"Package version: {__version__}")
+        log_obj.info(f"Package directory: {PACKAGE_ROOT}")
+        log_obj.info(f"Working directory: {Path('.').absolute()}")
+        log_obj.info(f"Executed command: {get_cli_input()}")
+
+        # keep in the end to avoid double logging
         for handler in handlers:
             log_obj.addHandler(handler)
 

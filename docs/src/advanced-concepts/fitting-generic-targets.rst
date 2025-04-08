@@ -70,7 +70,7 @@ like this:
         unit: ""
         per_atom: True
         type:
-          cartiesian:
+          cartesian:
             rank: 1
         num_subtargets: 10
 

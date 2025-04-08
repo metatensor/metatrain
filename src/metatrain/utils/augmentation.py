@@ -7,7 +7,7 @@ from metatensor.torch import TensorBlock, TensorMap
 from metatensor.torch.atomistic import System
 from scipy.spatial.transform import Rotation
 
-from ....utils.data import TargetInfo
+from .data import TargetInfo
 
 
 def get_random_rotation():
@@ -278,7 +278,7 @@ def _apply_wigner_D_matrices(
 
 
 @torch.jit.script  # script for speed
-def _apply_random_augmentations(
+def _apply_random_augmentations(  # pragma: no cover
     systems: List[System],
     targets: Dict[str, TensorMap],
     transformations: List[torch.Tensor],

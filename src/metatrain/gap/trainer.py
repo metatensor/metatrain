@@ -19,9 +19,6 @@ from . import GAP
 from .model import torch_tensor_map_to_core
 
 
-logger = logging.getLogger(__name__)
-
-
 class Trainer:
     def __init__(self, train_hypers):
         self.hypers = train_hypers
@@ -49,17 +46,17 @@ class Trainer:
         output_name = next(iter(outputs_dict.keys()))
 
         # Perform checks on the datasets:
-        logger.info("Checking datasets for consistency")
+        logging.info("Checking datasets for consistency")
         check_datasets(train_datasets, val_datasets)
 
-        logger.info(f"Training on device cpu with dtype {dtype}")
+        logging.info(f"Training on device cpu with dtype {dtype}")
 
         # Calculate and set the composition weights:
-        logger.info("Calculating composition weights")
+        logging.info("Calculating composition weights")
         # model.additive_models[0] is the composition model
         model.additive_models[0].train_model(train_datasets, model.additive_models[1:])
 
-        logger.info("Setting up data loaders")
+        logging.info("Setting up data loaders")
         if len(train_datasets[0][0][output_name].keys) > 1:
             raise NotImplementedError(
                 "Found more than 1 key in targets. Assuming "
@@ -74,7 +71,7 @@ class Trainer:
         model._keys = train_y.keys
         train_structures = [sample["system"] for sample in train_dataset]
 
-        logger.info("Calculating neighbor lists for the datasets")
+        logging.info("Calculating neighbor lists for the datasets")
         requested_neighbor_lists = get_requested_neighbor_lists(model)
         for dataset in train_datasets + val_datasets:
             for i in range(len(dataset)):
@@ -83,7 +80,7 @@ class Trainer:
                 # and doesn't require to reassign the system to the dataset:
                 _ = get_system_with_neighbor_lists(system, requested_neighbor_lists)
 
-        logger.info("Subtracting composition energies")  # and potentially ZBL
+        logging.info("Subtracting composition energies")  # and potentially ZBL
         train_targets = {target_name: train_y}
         for additive_model in model.additive_models:
             train_targets = remove_additive(
@@ -94,7 +91,7 @@ class Trainer:
             )
         train_y = train_targets[target_name]
 
-        logger.info("Calculating SOAP features")
+        logging.info("Calculating SOAP features")
         if len(train_y[0].gradients_list()) > 0:
             train_tensor = model._soap_torch_calculator.compute(
                 train_structures, gradients=["positions"]
@@ -114,7 +111,7 @@ class Trainer:
         train_tensor = torch_tensor_map_to_core(train_tensor)
         train_y = torch_tensor_map_to_core(train_y)
 
-        logger.info("Selecting sparse points")
+        logging.info("Selecting sparse points")
         lens = len(train_tensor[0].values)
         if model._sampler._n_to_select > lens:
             raise ValueError(
@@ -129,7 +126,7 @@ class Trainer:
         else:
             alpha_forces = self.hypers["regularizer_forces"]
 
-        logger.info("Fitting GAP model")
+        logging.info("Fitting GAP model")
         model._subset_of_regressors.fit(
             train_tensor,
             sparse_points,
