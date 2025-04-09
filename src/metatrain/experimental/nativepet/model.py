@@ -485,8 +485,8 @@ class NativePET(torch.nn.Module):
 
         atomic_predictions_tmap_dict: Dict[str, TensorMap] = {}
 
-        node_atomic_predictions_list: List[List[torch.Tensor]] = []
-        edge_atomic_predictions_list: List[List[torch.Tensor]] = []
+        node_atomic_predictions_dict: Dict[str, List[torch.Tensor]] = {}
+        edge_atomic_predictions_dict: Dict[str, List[torch.Tensor]] = {}
 
         # Computing node atomic predictions. Since we have last layer features
         # for each GNN layer, and each last layer can have multiple blocks,
@@ -504,7 +504,7 @@ class NativePET(torch.nn.Module):
                             node_last_layer_by_block(node_last_layer_features)
                         )
 
-                    node_atomic_predictions_list.append(
+                    node_atomic_predictions_dict[output_name] = (
                         node_atomic_predictions_by_block
                     )
 
@@ -535,7 +535,7 @@ class NativePET(torch.nn.Module):
                         edge_atomic_predictions_by_block.append(
                             edge_atomic_predictions.sum(dim=1)
                         )
-                    edge_atomic_predictions_list.append(
+                    edge_atomic_predictions_dict[output_name] = (
                         edge_atomic_predictions_by_block
                     )
 
@@ -551,15 +551,18 @@ class NativePET(torch.nn.Module):
                     for key in self.output_shapes[output_name].keys()
                 }
 
-                for i in range(len(node_atomic_predictions_list)):
-                    node_atomic_prediction_by_block = node_atomic_predictions_list[i]
-                    edge_atomic_prediction_by_block = edge_atomic_predictions_list[i]
-                    for j, key in enumerate(atomic_predictions_by_block):
-                        node_atomic_predictions = node_atomic_prediction_by_block[j]
-                        edge_atomic_predictions = edge_atomic_prediction_by_block[j]
-                        atomic_predictions_by_block[key] = atomic_predictions_by_block[
-                            key
-                        ] + (node_atomic_predictions + edge_atomic_predictions)
+                node_atomic_predictions_by_block = node_atomic_predictions_dict[
+                    output_name
+                ]
+                edge_atomic_predictions_by_block = edge_atomic_predictions_dict[
+                    output_name
+                ]
+                for j, key in enumerate(atomic_predictions_by_block):
+                    node_atomic_predictions = node_atomic_predictions_by_block[j]
+                    edge_atomic_predictions = edge_atomic_predictions_by_block[j]
+                    atomic_predictions_by_block[key] = atomic_predictions_by_block[
+                        key
+                    ] + (node_atomic_predictions + edge_atomic_predictions)
 
                 blocks = [
                     TensorBlock(
