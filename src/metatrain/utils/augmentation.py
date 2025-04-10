@@ -34,7 +34,9 @@ class RotationalAugmenter:
         self.wigner = None
         self.complex_to_real_spherical_harmonics_transforms = {}
         is_any_target_spherical = any(
-            target_info.is_spherical or target_info.is_atomic_basis_spherical
+            target_info.is_spherical 
+            or target_info.is_atomic_basis_spherical_node
+            or target_info.is_atomic_basis_spherical_edge
             for target_info in target_info_dict.values()
         )
         if is_any_target_spherical:
@@ -49,7 +51,6 @@ class RotationalAugmenter:
             largest_l = max(
                 (len(block.components[0]) - 1) // 2
                 for target_info in target_info_dict.values()
-                if (target_info.is_spherical or target_info.is_atomic_basis_spherical)
                 for block in target_info.layout.blocks()
             )
             self.wigner = spherical.Wigner(largest_l)
@@ -89,7 +90,10 @@ class RotationalAugmenter:
                     target_types[target_name] = "scalar"
                 elif target_info.is_spherical:
                     target_types[target_name] = "spherical"
-                elif target_info.is_atomic_basis_spherical:
+                elif (
+                    target_info.is_atomic_basis_spherical_node 
+                    or target_info.is_atomic_basis_spherical_edge
+                ):
                     target_types[target_name] = "atomic_basis_spherical"
                 else:
                     raise ValueError("unexpected target type")
@@ -155,6 +159,19 @@ def _apply_wigner_D_matrices(
                     split_indices.append(1)
 
         elif target_type == "atomic_basis_spherical":
+            symmetry_divisor = 1
+            # if "first_atom_type" in key.names and "second_atom_type" in key.names:
+
+            #     if "s2_pi" in key.names:
+            #         if (
+            #             key["first_atom_type"] == key["second_atom_type"] 
+            #             and key["s2_pi"] != 0
+            #         ):
+            #             symmetry_divisor = 2
+            #     else:
+            #         if key["first_atom_type"] == key["second_atom_type"]:
+            #             symmetry_divisor = 2
+
             if "o3_lambda" in target_tmap.keys.names:  # single "o3_mu" component
                 if "atom" in block.samples.names:  # node target
                     for system in systems:
@@ -179,6 +196,7 @@ def _apply_wigner_D_matrices(
                         if len(neighbor_lists) > 1:
                             raise ValueError("more than one neighbor list found")
 
+                        # TODO: add nodes to neighbor samples
                         neighbor_samples = system.get_neighbor_list(
                             neighbor_lists[0]
                         ).samples
@@ -197,11 +215,7 @@ def _apply_wigner_D_matrices(
                                     )
                                 )
                             )
-                            // (
-                                2
-                                if key["first_atom_type"] == key["second_atom_type"]
-                                else 1
-                            )  # as samples should be triangulated
+                            // symmetry_divisor
                         )
                 else:
                     raise ValueError(f"unexpected samples: {block.samples}")
@@ -237,7 +251,7 @@ def _apply_wigner_D_matrices(
         assert sum(split_indices) == len(values), (
             sum(split_indices),
             len(values),
-            key,
+            key.values,
             block,
         )
         split_values = torch.split(values, split_indices)

@@ -30,7 +30,8 @@ class TargetInfo:
         self.is_scalar = False
         self.is_cartesian = False
         self.is_spherical = False
-        self.is_atomic_basis_spherical = False
+        self.is_atomic_basis_spherical_node = False
+        self.is_atomic_basis_spherical_edge = False
 
         self._check_layout(layout)
 
@@ -130,11 +131,24 @@ class TargetInfo:
             ]:
                 self.is_spherical = True
 
-            # keys with "o3_lambda" and "o3_sigma", but arbitrary other keys (i.e.
-            # "center_type", "first_atom_type", "second_atom_type", "s2_pi", etc) is an
+            # keys with "o3_lambda" and "o3_sigma" and keys that indicate center types
+            # (i.e. "center_type", "first_atom_type", "second_atom_type") plus
+            # (optionally) other arbitrary key dimensions (i.e. "s2_pi", etc) is an
             # atomic-basis spherical target.
             elif "o3_lambda" in layout.keys.names and "o3_sigma" in layout.keys.names:
-                self.is_atomic_basis_spherical = True
+                if "center_type" in layout.keys.names:
+                    self.is_atomic_basis_spherical_node = True
+                elif (
+                    "first_atom_type" in layout.keys.names
+                    and "second_atom_type" in layout.keys.names
+                ):
+                    self.is_atomic_basis_spherical_edge = True
+                else:
+                    raise ValueError(
+                        "invalid key names. If specifying a spherical target "
+                        "on an atomic basis, the keys should include either "
+                        "'center_type' or ['first_atom_type', 'second_atom_type']"
+                    )
             else:
                 raise ValueError(
                     f"invalid key names: {layout.keys.names}. "
@@ -153,7 +167,19 @@ class TargetInfo:
                 and "o3_lambda_2" in layout.keys.names
                 and "o3_sigma" in layout.keys.names
             ):
-                self.is_atomic_basis_spherical = True
+                if "center_type" in layout.keys.names:
+                    self.is_atomic_basis_spherical_node = True
+                elif (
+                    "first_atom_type" in layout.keys.names
+                    and "second_atom_type" in layout.keys.names
+                ):
+                    self.is_atomic_basis_spherical_edge = True
+                else:
+                    raise ValueError(
+                        "invalid key names. If specifying a spherical target "
+                        "on an atomic basis, the keys should include either "
+                        "'center_type' or ['first_atom_type', 'second_atom_type']"
+                    )
             else:
                 raise ValueError(
                     f"invalid key names: {layout.keys.names}. "
@@ -246,7 +272,7 @@ class TargetInfo:
                         "Gradients of spherical tensor targets are not supported."
                     )
 
-        if self.is_atomic_basis_spherical:
+        if self.is_atomic_basis_spherical_node or self.is_atomic_basis_spherical_edge:
             o3_lambda_like_dims = [
                 name for name in layout.keys.names if name.startswith("o3_lambda")
             ]
@@ -326,13 +352,13 @@ class TargetInfo:
                             )
                     if len(block.gradients_list()) > 0:
                         raise ValueError(
-                            "Gradients of an atomic-basis spherical tensor "
+                            "Gradients of an atomic-basis spherical "
                             "targets are not supported."
                         )
 
             else:
                 raise ValueError(
-                    "atomic basis spherical tensors should only have 'o3_lambda' or "
+                    "atomic basis spherical targets should only have 'o3_lambda' or "
                     "['o3_lambda_1', 'o3_lambda_2'] key dimensions for spherical "
                     "symmetry"
                 )

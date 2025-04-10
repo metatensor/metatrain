@@ -278,9 +278,9 @@ class Trainer:
                 optimizer.zero_grad()
 
                 systems, targets = batch
-                systems, targets = rotational_augmenter.apply_random_augmentations(
-                    systems, targets
-                )
+                # systems, targets = rotational_augmenter.apply_random_augmentations(
+                #     systems, targets
+                # )
                 systems, targets = systems_and_targets_to_device(
                     systems, targets, device
                 )
@@ -319,6 +319,11 @@ class Trainer:
                             predictions[target_name], keys=targets[target_name].keys
                         )
 
+                import metatensor.torch as mts
+                for name in predictions.keys():
+                    mts.save(f"{name}_pred.mts", predictions[name])
+                    mts.save(f"{name}_targ.mts", targets[name])
+                    print(name)
                 train_loss_batch = loss_fn(predictions, targets)
                 train_loss_batch.backward()
                 torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)

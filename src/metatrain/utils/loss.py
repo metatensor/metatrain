@@ -103,6 +103,7 @@ class TensorMapLoss:
                 raise ValueError(
                     "TensorMapSlidingLoss requires the two TensorMaps "
                     "to have the same number of samples."
+                    f"{block_1.samples}, {block_2.samples}"
                 )
             for gradient_name in self.gradient_weights.keys():
                 if len(block_1.gradient(gradient_name).samples) != len(
