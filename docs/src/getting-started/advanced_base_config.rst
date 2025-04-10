@@ -16,7 +16,7 @@ be adjusted. They should be written without indentation in the ``options.yaml`` 
     ``random``, ``torch`` and ``torch.cuda`` (if available) to the same value ``seed``.
     If ``seed`` is not the initial seed will be set to a random number. This initial
     seed will be reported in the output folder
-:param wandb: If you want to use Weights and Biases (wandb) for logging, create new
+:param wandb: If you want to use Weights and Biases (wandb) for logging, create a new
     section with this name. The parameters of section are the same as of the `wandb.init
     <https://docs.wandb.ai/ref/python/init/>`_ method.
 
