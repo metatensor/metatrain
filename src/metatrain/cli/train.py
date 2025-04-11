@@ -32,6 +32,7 @@ from ..utils.distributed.logging import is_main_process
 from ..utils.errors import ArchitectureError
 from ..utils.io import check_file_extension, load_model
 from ..utils.jsonschema import validate
+from ..utils.logging import ROOT_LOGGER, WandbHandler
 from ..utils.omegaconf import BASE_OPTIONS, check_units, expand_dataset_config
 from .eval import _eval_targets
 from .formatter import CustomHelpFormatter
@@ -217,6 +218,22 @@ def train_model(
     if torch.cuda.is_available():
         torch.cuda.manual_seed(options["seed"])
         torch.cuda.manual_seed_all(options["seed"])
+
+    # setup wandb logging
+    if hasattr(options, "wandb"):
+        try:
+            import wandb
+        except ImportError:
+            raise ImportError(
+                "Wandb is enabled but not installed. "
+                "Please install wandb using `pip install wandb` to use this logger."
+            )
+        logging.info("Setting up wandb logging")
+
+        run = wandb.init(
+            **options["wandb"], config=OmegaConf.to_container(options, resolve=True)
+        )
+        ROOT_LOGGER.addHandler(WandbHandler(run))
 
     ############################
     # SET UP TRAINING SET ######

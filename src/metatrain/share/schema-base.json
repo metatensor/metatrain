@@ -30,6 +30,41 @@
       "type": "integer",
       "minimum": 0
     },
+    "wandb": {
+      "type": "object",
+      "additionalProperties": true,
+      "propertyNames": {
+        "not": {
+          "const": "config"
+        }
+      },
+      "allOf": [
+        {
+          "if": { "required": ["entity"] },
+          "then": {
+            "properties": {
+              "entity": { "type": "string" }
+            }
+          }
+        },
+        {
+          "if": { "required": ["project"] },
+          "then": {
+            "properties": {
+              "project": { "type": "string" }
+            }
+          }
+        },
+        {
+          "if": { "required": ["name"] },
+          "then": {
+            "properties": {
+              "name": { "type": "string" }
+            }
+          }
+        }
+      ]
+    },
     "architecture": {
       "type": "object",
       "properties": {
