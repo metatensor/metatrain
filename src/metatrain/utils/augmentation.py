@@ -23,10 +23,10 @@ class RotationalAugmenter:
         # checks on targets
         for target_info in target_info_dict.values():
             if target_info.is_cartesian:
-                if len(target_info.layout.block(0).components) != 1:
+                if len(target_info.layout.block(0).components) > 2:
                     raise ValueError(
                         "RotationalAugmenter only supports Cartesian targets "
-                        "with `rank=1`."
+                        "with `rank<=2`."
                     )
 
         self.target_info_dict = target_info_dict
@@ -138,7 +138,8 @@ def _apply_wigner_D_matrices(
             new_v = v.clone()
             if is_inverted:  # inversion
                 new_v = new_v * (-1) ** ell * sigma
-            # fold property dimension in, apply transformation, unfold property dim
+            # fold property dimension in, apply transformation,
+            # unfold property dimension
             new_v = new_v.transpose(1, 2)
             new_v = new_v @ wigner_D_matrix.T
             new_v = new_v.transpose(1, 2)
@@ -195,6 +196,12 @@ def _apply_random_augmentations(  # pragma: no cover
             if len(target_tmap.block().components) == 0:
                 is_scalar = True
 
+        is_cartesian = False
+        if len(target_tmap.blocks()) == 1:
+            if len(target_tmap.block().components) > 0:
+                if "xyz" in target_tmap.block().components[0].names[0]:
+                    is_cartesian = True
+
         is_spherical = all(
             len(block.components) == 1 and block.components[0].names == ["o3_mu"]
             for block in target_tmap.blocks()
@@ -232,7 +239,7 @@ def _apply_random_augmentations(  # pragma: no cover
                     ),
                 )
             if target_tmap.block().has_gradient("strain"):
-                # transform strain gradients (rank 2 tensor):
+                # transform strain gradients (rank-2 tensor):
                 block = target_tmap.block().gradient("strain")
                 strain_gradients = block.values.squeeze(-1)
                 split_strain_gradients = torch.split(strain_gradients, 1)
@@ -264,35 +271,66 @@ def _apply_random_augmentations(  # pragma: no cover
                 systems, target_tmap, transformations, wigner_D_matrices
             )
 
-        else:
-            # transform Cartesian vector:
-            block = target_tmap.block()
-            vectors = block.values
-            if "atom" in target_tmap.block().samples.names:
-                split_vectors = torch.split(
-                    vectors, [len(system.positions) for system in systems]
-                )
-            else:
-                split_vectors = torch.split(vectors, [1 for _ in systems])
-            new_vectors = []
-            for v, transformation in zip(split_vectors, transformations):
-                # fold property dimension in, apply transformation, unfold property dim
-                new_v = v.transpose(1, 2)
-                new_v = new_v @ transformation.T
-                new_v = new_v.transpose(1, 2)
-                new_vectors.append(new_v)
-            new_vectors = torch.cat(new_vectors)
-            new_targets[name] = TensorMap(
-                keys=target_tmap.keys,
-                blocks=[
-                    TensorBlock(
-                        values=new_vectors,
-                        samples=block.samples,
-                        components=block.components,
-                        properties=block.properties,
+        elif is_cartesian:
+            rank = len(target_tmap.block().components)
+            if rank == 1:
+                # transform Cartesian vector:
+                block = target_tmap.block()
+                vectors = block.values
+                if "atom" in target_tmap.block().samples.names:
+                    split_vectors = torch.split(
+                        vectors, [len(system.positions) for system in systems]
                     )
-                ],
-            )
+                else:
+                    split_vectors = torch.split(vectors, [1 for _ in systems])
+                new_vectors = []
+                for v, transformation in zip(split_vectors, transformations):
+                    # fold property dimension in, apply transformation,
+                    # unfold property dimension
+                    new_v = v.transpose(1, 2)
+                    new_v = new_v @ transformation.T
+                    new_v = new_v.transpose(1, 2)
+                    new_vectors.append(new_v)
+                new_vectors = torch.cat(new_vectors)
+                new_targets[name] = TensorMap(
+                    keys=target_tmap.keys,
+                    blocks=[
+                        TensorBlock(
+                            values=new_vectors,
+                            samples=block.samples,
+                            components=block.components,
+                            properties=block.properties,
+                        )
+                    ],
+                )
+            elif rank == 2:
+                # transform Cartesian rank-2 tensor:
+                block = target_tmap.block()
+                tensor = block.values
+                if "atom" in target_tmap.block().samples.names:
+                    split_tensors = torch.split(
+                        tensor, [len(system.positions) for system in systems]
+                    )
+                else:
+                    split_tensors = torch.split(tensor, [1 for _ in systems])
+                new_tensors = []
+                for tensor, transformation in zip(split_tensors, transformations):
+                    new_tensor = torch.einsum(
+                        "Aa,iabp,bB->iABp", transformation, tensor, transformation.T
+                    )
+                    new_tensors.append(new_tensor)
+                new_tensors = torch.cat(new_tensors)
+                new_targets[name] = TensorMap(
+                    keys=target_tmap.keys,
+                    blocks=[
+                        TensorBlock(
+                            values=new_tensors,
+                            samples=block.samples,
+                            components=block.components,
+                            properties=block.properties,
+                        )
+                    ],
+                )
 
     return new_systems, new_targets
 
