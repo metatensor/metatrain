@@ -97,7 +97,11 @@ def read_targets(
     """
     target_dictionary = {}
     target_info_dictionary = {}
-    standard_outputs_list = ["energy"]
+    standard_outputs_list = [
+        "energy",
+        "non_conservative_forces",
+        "non_conservative_stress",
+    ]
 
     for target_key, target in conf.items():
         is_standard_target = target_key in standard_outputs_list
