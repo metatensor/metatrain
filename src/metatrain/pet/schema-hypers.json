@@ -133,8 +133,15 @@
     "training": {
       "type": "object",
       "properties": {
-        "USE_LORA_PEFT": {
-          "type": "boolean"
+        "FINETUNING": {
+          "oneOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
         },
         "LORA_RANK": {
           "type": "integer"
