@@ -64,6 +64,31 @@ class NativePET(torch.nn.Module):
         self.embedding = torch.nn.Embedding(
             len(self.atomic_types) + 1, self.hypers["d_pet"]
         )
+
+        # LOL!
+        for i in self.hypers["excess_targets"]:
+            # additional_output = int(self.hypers["excess_targets"][i])
+            # target_size = dataset_info.targets[i].layout[0].values.shape[1]
+            prediction_size = int(self.hypers["excess_targets"][i])
+            output_block = metatensor.torch.TensorBlock(
+                values= torch.empty(0, prediction_size).double(),
+                samples=metatensor.torch.Labels.empty('system'),
+                components=[],
+                # properties=metatensor.torch.Labels.single(),
+                properties=metatensor.torch.Labels.range("Energy", prediction_size)
+                )
+            output_map = metatensor.torch.TensorMap(
+                keys = metatensor.torch.Labels.single(),
+                blocks = [output_block]
+            )
+            dataset_info.targets[i].layout = output_map
+        try:
+            del dataset_info.targets["mtt::mask"]
+        except:
+            print ("Did not manage to delete mtt::mask from dataset_info.targets")
+
+
+
         gnn_layers = []
         for layer_index in range(self.hypers["num_gnn_layers"]):
             transformer_layer = CartesianTransformer(
@@ -610,24 +635,25 @@ class NativePET(torch.nn.Module):
             else:
                 return_dict[output_name] = sum_over_atoms(atomic_property)
 
-        if not self.training:
-            # at evaluation, we also introduce the scaler and additive contributions
-            return_dict = self.scaler(return_dict)
-            for additive_model in self.additive_models:
-                outputs_for_additive_model: Dict[str, ModelOutput] = {}
-                for name, output in outputs.items():
-                    if name in additive_model.outputs:
-                        outputs_for_additive_model[name] = output
-                additive_contributions = additive_model(
-                    systems,
-                    outputs_for_additive_model,
-                    selected_atoms,
-                )
-                for name in additive_contributions:
-                    return_dict[name] = metatensor.torch.add(
-                        return_dict[name],
-                        additive_contributions[name],
-                    )
+        # LOL!
+        # if not self.training:
+        #     # at evaluation, we also introduce the scaler and additive contributions
+        #     return_dict = self.scaler(return_dict)
+        #     for additive_model in self.additive_models:
+        #         outputs_for_additive_model: Dict[str, ModelOutput] = {}
+        #         for name, output in outputs.items():
+        #             if name in additive_model.outputs:
+        #                 outputs_for_additive_model[name] = output
+        #         additive_contributions = additive_model(
+        #             systems,
+        #             outputs_for_additive_model,
+        #             selected_atoms,
+        #         )
+        #         for name in additive_contributions:
+        #             return_dict[name] = metatensor.torch.add(
+        #                 return_dict[name],
+        #                 additive_contributions[name],
+        #             )
 
         return return_dict
 
