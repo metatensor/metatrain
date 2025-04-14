@@ -485,3 +485,41 @@ def test_nanopet_single_atom():
     outputs = {"energy": ModelOutput(per_atom=False)}
     energy = model([system], outputs)["energy"].block().values.item()
     assert energy == 0.0
+
+
+@pytest.mark.parametrize("per_atom", [True, False])
+def test_nanopet_rank_2(per_atom):
+    """Tests that the model can predict a symmetric rank-2 tensor."""
+    # (note that no composition energies are supplied or calculated here)
+
+    dataset_info = DatasetInfo(
+        length_unit="Angstrom",
+        atomic_types=[1, 6, 7, 8],
+        targets={
+            "stress": get_generic_target_info(
+                {
+                    "quantity": "forces",
+                    "unit": "",
+                    "type": {"cartesian": {"rank": 2}},
+                    "num_subtargets": 100,
+                    "per_atom": per_atom,
+                }
+            )
+        },
+    )
+    model = NanoPET(MODEL_HYPERS, dataset_info)
+
+    system = System(
+        types=torch.tensor([6]),
+        positions=torch.tensor([[0.0, 0.0, 1.0]]),
+        cell=torch.zeros(3, 3),
+        pbc=torch.tensor([False, False, False]),
+    )
+    system = get_system_with_neighbor_lists(system, model.requested_neighbor_lists())
+    outputs = {"stress": ModelOutput(per_atom=per_atom)}
+    stress = model([system], outputs)["stress"].block().values
+    print(stress.shape)
+    assert torch.allclose(
+        stress,
+        stress.transpose(1, 2),
+    )
