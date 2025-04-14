@@ -555,7 +555,7 @@ def test_nanopet_rank_2(per_atom):
     system = System(
         types=torch.tensor([6]),
         positions=torch.tensor([[0.0, 0.0, 1.0]]),
-        cell=torch.zeros(3, 3),
+        cell=torch.ones(3, 3),
         pbc=torch.tensor([False, False, False]),
     )
     system = get_system_with_neighbor_lists(system, model.requested_neighbor_lists())
