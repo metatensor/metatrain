@@ -19,6 +19,15 @@ def get_random_inversion():
 
 
 class RotationalAugmenter:
+    """
+    A class to apply random rotations and inversions to a set of systems and their
+    targets.
+
+    :param target_info_dict: A dictionary mapping target names to their corresponding
+        :class:`TargetInfo` objects. This is used to determine the type of targets and
+        how to apply the augmentations.
+    """
+
     def __init__(self, target_info_dict: Dict[str, TargetInfo]):
         # checks on targets
         for target_info in target_info_dict.values():
@@ -62,6 +71,12 @@ class RotationalAugmenter:
     ) -> Tuple[List[System], Dict[str, TensorMap]]:
         """
         Apply a random augmentation to a number of ``System`` objects and its targets.
+
+        :param systems: A list of :class:`System` objects to be augmented.
+        :param targets: A dictionary mapping target names to their corresponding
+            :class:`TensorMap` objects. These are the targets to be augmented.
+
+        :return: A tuple containing the augmented systems and targets.
         """
 
         rotations = [get_random_rotation() for _ in range(len(systems))]
