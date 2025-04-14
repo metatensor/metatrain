@@ -1,4 +1,4 @@
-import logging
+import warnings
 from math import prod
 from pathlib import Path
 from typing import Dict, List, Optional, Union
@@ -27,9 +27,6 @@ from .modules.finetuning import apply_finetuning_strategy
 from .modules.structures import remap_neighborlists, systems_to_batch
 from .modules.transformer import CartesianTransformer
 from .modules.utilities import cutoff_func
-
-
-logger = logging.getLogger(__name__)
 
 
 class NativePET(torch.nn.Module):
@@ -115,11 +112,13 @@ class NativePET(torch.nn.Module):
         if self.hypers["long_range"]["enable"]:
             self.long_range = True
             if not self.hypers["long_range"]["use_ewald"]:
-                logger.warning(
+                warnings.warn(
                     "Training NativePET with the LongRangeFeaturizer initialized "
                     "with `use_ewald=False` causes instabilities during training. "
                     "The `use_ewald` variable will be force-switched to `True`. "
-                    "during training."
+                    "during training.",
+                    UserWarning,
+                    stacklevel=2,
                 )
             self.long_range_featurizer = LongRangeFeaturizer(
                 hypers=self.hypers["long_range"],
@@ -561,6 +560,23 @@ class NativePET(torch.nn.Module):
                             key
                         ] + (node_atomic_predictions + edge_atomic_predictions)
 
+                all_components = self.component_labels[output_name]
+                if len(all_components[0]) == 2 and all(
+                    "xyz" in comp.names[0] for comp in all_components[0]
+                ):
+                    block_key = list(atomic_predictions_by_block.keys())[0]
+                    # rank-2 Cartesian tensor, symmetrize
+                    tensor_as_three_by_three = atomic_predictions_by_block[
+                        block_key
+                    ].reshape(
+                        -1, 3, 3, list(self.output_shapes[output_name].values())[0][-1]
+                    )
+                    tensor_as_three_by_three = (
+                        tensor_as_three_by_three
+                        + tensor_as_three_by_three.transpose(1, 2)
+                    ) / 2.0
+                    atomic_predictions_by_block[block_key] = tensor_as_three_by_three
+
                 blocks = [
                     TensorBlock(
                         values=atomic_predictions_by_block[key].reshape([-1] + shape),
@@ -681,6 +697,20 @@ class NativePET(torch.nn.Module):
         return MetatensorAtomisticModel(self.eval(), metadata, capabilities)
 
     def _add_output(self, target_name: str, target_info: TargetInfo) -> None:
+        # warn that, for Cartesian tensors, we assume that they are symmetric
+        if target_info.is_cartesian:
+            warnings.warn(
+                "NativePET assumes that Cartesian tensors of rank > 1 are symmetric. "
+                "If this is not the case, please use a different model.",
+                UserWarning,
+                stacklevel=2,
+            )
+            # error out for rank > 2
+            if len(target_info.layout.block().components) > 2:
+                raise ValueError(
+                    "NativePET does not support Cartesian tensors with rank > 2."
+                )
+
         # one output shape for each tensor block, grouped by target (i.e. tensormap)
         self.output_shapes[target_name] = {}
         for key, block in target_info.layout.items():

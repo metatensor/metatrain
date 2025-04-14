@@ -1,19 +1,21 @@
 seed: 42
 
 architecture:
-  name: soap_bpnn
+  name: experimental.nativepet
   training:
     batch_size: 2
     num_epochs: 1
 
 training_set:
   systems:
-    read_from: qm9_reduced_100.xyz
+    read_from: carbon_reduced_100.xyz
     length_unit: angstrom
   targets:
-    energy:
-      key: U0
-      unit: eV
+    non_conservative_stress:
+      key: virial
+      type:
+        cartesian:
+          rank: 2
 
 test_set: 0.5
 validation_set: 0.1
