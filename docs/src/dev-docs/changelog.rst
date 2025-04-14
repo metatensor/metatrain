@@ -24,6 +24,11 @@ changelog <https://keepachangelog.com/en/1.1.0/>`_ format. This project follows
 Unreleased
 ----------
 
+Added
+#####
+
+- ``NanoPET`` and ``NativePET`` can now train on symmetric rank-2 Cartesian tensors
+
 Version 2025.5 - 2025-04-13
 ---------------------------
 
