@@ -267,6 +267,7 @@ class Trainer:
         # Log the initial learning rate:
         old_lr = optimizer.param_groups[0]["lr"]
         logging.info(f"Base learning rate: {self.hypers['learning_rate']}")
+        logging.info(f"Initial learning rate: {old_lr}")
 
         rotational_augmenter = RotationalAugmenter(train_targets)
 
