@@ -571,6 +571,15 @@ class NativePET(torch.nn.Module):
                     ].reshape(
                         -1, 3, 3, list(self.output_shapes[output_name].values())[0][-1]
                     )
+                    volumes = torch.stack(
+                        [torch.abs(torch.det(system.cell)) for system in systems]
+                    )
+                    volumes_by_atom = (
+                        volumes[system_indices].unsqueeze(1).unsqueeze(2).unsqueeze(3)
+                    )
+                    tensor_as_three_by_three = (
+                        tensor_as_three_by_three / volumes_by_atom
+                    )
                     tensor_as_three_by_three = (
                         tensor_as_three_by_three
                         + tensor_as_three_by_three.transpose(1, 2)
@@ -699,12 +708,14 @@ class NativePET(torch.nn.Module):
     def _add_output(self, target_name: str, target_info: TargetInfo) -> None:
         # warn that, for Cartesian tensors, we assume that they are symmetric
         if target_info.is_cartesian:
-            warnings.warn(
-                "NativePET assumes that Cartesian tensors of rank > 1 are symmetric. "
-                "If this is not the case, please use a different model.",
-                UserWarning,
-                stacklevel=2,
-            )
+            if len(target_info.layout.block().components) == 2:
+                warnings.warn(
+                    "NativePET assumes that Cartesian tensors of rank 2 are "
+                    "stress-like, meaning that they are symmetric and intensive. "
+                    "If this is not the case, please use a different model.",
+                    UserWarning,
+                    stacklevel=2,
+                )
             # error out for rank > 2
             if len(target_info.layout.block().components) > 2:
                 raise ValueError(
