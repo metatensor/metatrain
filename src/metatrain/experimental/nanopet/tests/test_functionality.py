@@ -518,8 +518,4 @@ def test_nanopet_rank_2(per_atom):
     system = get_system_with_neighbor_lists(system, model.requested_neighbor_lists())
     outputs = {"stress": ModelOutput(per_atom=per_atom)}
     stress = model([system], outputs)["stress"].block().values
-    print(stress.shape)
-    assert torch.allclose(
-        stress,
-        stress.transpose(1, 2),
-    )
+    assert torch.allclose(stress, stress.transpose(1, 2))
