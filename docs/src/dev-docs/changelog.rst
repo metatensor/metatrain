@@ -24,6 +24,11 @@ changelog <https://keepachangelog.com/en/1.1.0/>`_ format. This project follows
 Unreleased
 ----------
 
+Fixed
+#####
+
+- ``NativePET`` can now evaluate on single-atom structures without crashing
+
 Version 2025.5 - 2025-04-13
 ---------------------------
 
