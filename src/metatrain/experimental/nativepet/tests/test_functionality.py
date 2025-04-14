@@ -507,6 +507,29 @@ def test_consistency():
     assert torch.allclose(attention_output_torch, attention_output_manual, atol=1e-6)
 
 
+def test_nativepet_single_atom():
+    """Tests that the model predicts correctly on a single atom."""
+
+    dataset_info = DatasetInfo(
+        length_unit="Angstrom",
+        atomic_types=[1, 6, 7, 8],
+        targets={
+            "energy": get_energy_target_info({"quantity": "energy", "unit": "eV"})
+        },
+    )
+    model = NativePET(MODEL_HYPERS, dataset_info)
+
+    system = System(
+        types=torch.tensor([6]),
+        positions=torch.tensor([[0.0, 0.0, 1.0]]),
+        cell=torch.zeros(3, 3),
+        pbc=torch.tensor([False, False, False]),
+    )
+    system = get_system_with_neighbor_lists(system, model.requested_neighbor_lists())
+    outputs = {"energy": ModelOutput(per_atom=False)}
+    model([system], outputs)
+
+
 @pytest.mark.parametrize("per_atom", [True, False])
 def test_nanopet_rank_2(per_atom):
     """Tests that the model can predict a symmetric rank-2 tensor."""
