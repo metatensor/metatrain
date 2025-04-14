@@ -155,7 +155,10 @@ def compute_reversed_neighbor_list(
     )
     flat_mask = nef_mask.reshape(-1)
 
-    max_edge_index = int(flat_edge_indices.max().item()) + 1
+    if flat_edge_indices.numel() == 0:
+        max_edge_index = 0
+    else:
+        max_edge_index = int(flat_edge_indices.max().item()) + 1
     size: List[int] = [max_edge_index]
 
     edge_index_to_position = torch.full(
