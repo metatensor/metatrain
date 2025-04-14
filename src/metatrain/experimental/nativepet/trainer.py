@@ -266,6 +266,7 @@ class Trainer:
 
         # Log the initial learning rate:
         old_lr = optimizer.param_groups[0]["lr"]
+        logging.info(f"Base learning rate: {self.hypers['learning_rate']}")
         logging.info(f"Initial learning rate: {old_lr}")
 
         rotational_augmenter = RotationalAugmenter(train_targets)
@@ -444,10 +445,17 @@ class Trainer:
                     logging.info("Learning rate is too small, stopping training")
                     break
                 else:
-                    if epoch > self.hypers["num_epochs_warmup"]:
+                    if epoch >= self.hypers["num_epochs_warmup"]:
                         logging.info(
                             f"Changing learning rate from {old_lr} to {new_lr}"
                         )
+                    elif epoch == self.hypers["num_epochs_warmup"] - 1:
+                        logging.info(
+                            "Finished warm-up. "
+                            f"Now training with learning rate {new_lr}"
+                        )
+                    else:  # epoch < self.hypers["num_epochs_warmup"] - 1:
+                        pass  # we don't clutter the log at every warm-up step
                     old_lr = new_lr
 
             val_metric = get_selected_metric(

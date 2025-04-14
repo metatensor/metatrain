@@ -484,8 +484,8 @@ class NativePET(torch.nn.Module):
 
         atomic_predictions_tmap_dict: Dict[str, TensorMap] = {}
 
-        node_atomic_predictions_list: List[List[torch.Tensor]] = []
-        edge_atomic_predictions_list: List[List[torch.Tensor]] = []
+        node_atomic_predictions_dict: Dict[str, List[List[torch.Tensor]]] = {}
+        edge_atomic_predictions_dict: Dict[str, List[List[torch.Tensor]]] = {}
 
         # Computing node atomic predictions. Since we have last layer features
         # for each GNN layer, and each last layer can have multiple blocks,
@@ -493,6 +493,9 @@ class NativePET(torch.nn.Module):
 
         for output_name, node_last_layers in self.node_last_layers.items():
             if output_name in outputs:
+                node_atomic_predictions_dict[output_name] = torch.jit.annotate(
+                    List[List[torch.Tensor]], []
+                )
                 for i, node_last_layer in enumerate(node_last_layers):
                     node_last_layer_features = node_last_layer_features_dict[
                         output_name
@@ -502,8 +505,7 @@ class NativePET(torch.nn.Module):
                         node_atomic_predictions_by_block.append(
                             node_last_layer_by_block(node_last_layer_features)
                         )
-
-                    node_atomic_predictions_list.append(
+                    node_atomic_predictions_dict[output_name].append(
                         node_atomic_predictions_by_block
                     )
 
@@ -513,6 +515,9 @@ class NativePET(torch.nn.Module):
 
         for output_name, edge_last_layers in self.edge_last_layers.items():
             if output_name in outputs:
+                edge_atomic_predictions_dict[output_name] = torch.jit.annotate(
+                    List[List[torch.Tensor]], []
+                )
                 for i, edge_last_layer in enumerate(edge_last_layers):
                     edge_last_layer_features = edge_last_layer_features_dict[
                         output_name
@@ -534,7 +539,7 @@ class NativePET(torch.nn.Module):
                         edge_atomic_predictions_by_block.append(
                             edge_atomic_predictions.sum(dim=1)
                         )
-                    edge_atomic_predictions_list.append(
+                    edge_atomic_predictions_dict[output_name].append(
                         edge_atomic_predictions_by_block
                     )
 
@@ -550,12 +555,18 @@ class NativePET(torch.nn.Module):
                     for key in self.output_shapes[output_name].keys()
                 }
 
-                for i in range(len(node_atomic_predictions_list)):
-                    node_atomic_prediction_by_block = node_atomic_predictions_list[i]
-                    edge_atomic_prediction_by_block = edge_atomic_predictions_list[i]
+                node_atomic_predictions_by_block = node_atomic_predictions_dict[
+                    output_name
+                ]
+                edge_atomic_predictions_by_block = edge_atomic_predictions_dict[
+                    output_name
+                ]
+                for i in range(len(node_atomic_predictions_by_block)):
+                    node_atomic_prediction_block = node_atomic_predictions_by_block[i]
+                    edge_atomic_prediction_block = edge_atomic_predictions_by_block[i]
                     for j, key in enumerate(atomic_predictions_by_block):
-                        node_atomic_predictions = node_atomic_prediction_by_block[j]
-                        edge_atomic_predictions = edge_atomic_prediction_by_block[j]
+                        node_atomic_predictions = node_atomic_prediction_block[j]
+                        edge_atomic_predictions = edge_atomic_prediction_block[j]
                         atomic_predictions_by_block[key] = atomic_predictions_by_block[
                             key
                         ] + (node_atomic_predictions + edge_atomic_predictions)
