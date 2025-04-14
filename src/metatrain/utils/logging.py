@@ -19,6 +19,20 @@ from .io import check_file_extension
 from .units import ev_to_mev, get_gradient_units
 
 
+try:
+    from wandb.sdk.wandb_run import Run
+except ImportError:
+    Run = None
+
+
+def _validate_length(keys: List[str], values: List[str], units: List[str]):
+    if not (len(keys) == len(values) == len(units)):
+        raise ValueError(
+            f"keys, values and units must have the same length: "
+            f"{len(keys)}, {len(values)}, {len(units)}"
+        )
+
+
 class CSVFileHandler(logging.FileHandler):
     """A custom FileHandler for logging data in CSV format."""
 
@@ -39,6 +53,8 @@ class CSVFileHandler(logging.FileHandler):
         :param values: Data values to write
         :param units: Units for each column
         """
+        _validate_length(keys, values, units)
+
         with self._open() as file:
             writer = csv.writer(file)
 
@@ -48,6 +64,38 @@ class CSVFileHandler(logging.FileHandler):
                 self._header_written = True
 
             writer.writerow(values)
+
+
+class WandbHandler(logging.Handler):
+    """A custom logging handler that pushes structured logs to Weights & Biases.
+
+    :param run: Weights & Biases run object.
+    """
+
+    def __init__(self, run: Run):
+        super().__init__()
+        self.run = run
+
+    def emit(self, record: logging.LogRecord):
+        """Override default behavior to ignore standard log records."""
+        pass
+
+    def emit_data(self, keys: List[str], values: List[str], units: List[str]):
+        """Log structured data to Weights & Biases.
+
+        :param keys: Column header names
+        :param values: Data values to write
+        :param units: Units for each column
+        """
+        _validate_length(keys, values, units)
+
+        data = {}
+        for key, value, unit in zip(keys, values, units):
+            name = f"{key} [{unit}]" if unit else key
+            data[name] = float(value)
+
+        epoch = int(data.pop("Epoch"))
+        self.run.log(data, step=epoch, commit=True)
 
 
 class CustomLogger(logging.Logger):
@@ -335,6 +383,10 @@ def setup_logging(
         for handler in handlers:
             handler.flush()
             handler.close()
+
+            if isinstance(handler, WandbHandler):
+                handler.run.finish()
+
             log_obj.removeHandler(handler)
 
 
