@@ -59,12 +59,12 @@ section of the ``options.yaml``:
 
   architecture:
     training:
+      FINETUNING: lora
       LORA_RANK: <desired_rank>
       LORA_ALPHA: <desired_alpha>
-      USE_LORA_PEFT: True
 
 These parameters control whether to use LoRA for pre-trained model fine-tuning
-(``USE_LORA_PEFT``), the rank of the low-rank matrices introduced by LoRA
+(``FINETUNGING: lora``), the rank of the low-rank matrices introduced by LoRA
 (``LORA_RANK``), and the regularization factor for the low-rank matrices
 (``LORA_ALPHA``).
 
@@ -74,11 +74,56 @@ The ``-c`` flag specifies the path to the pre-trained model checkpoint.
 Fine-Tuning Options
 ^^^^^^^^^^^^^^^^^^^
 
-When ``USE_LORA_PEFT`` is set to ``True``, the original model's weights will be
+When ``FINETUNING`` is set to ``lora``, the original model's weights will be
 frozen, and only the adapter layers introduced by LoRA will be trained. This
 allows for efficient fine-tuning with fewer parameters. If ``USE_LORA_PEFT`` is
 set to ``False``, all the weights of the model will be trained. This can lead to
 better performance on the specific task but may require more computational
 resources, and the model may be prone to overfitting (i.e. loosing accuracy on
 the original training set).
+
+
+Fine-Tuning heads in the PET Model
+-------------------------------
+
+Fine-tuning only the heads in a PET model aims at obtaining a task specific model
+without changing already learned representations in the transformer layers.
+This also allows for more efficient training, as most layers will be kept frozen.
+Below are the steps to fine-tune a PET model from
+``metatrain.pet`` using LoRA.
+
+Prerequisites
+^^^^^^^^^^^^^
+
+1. Train the Base Model. You can train the base model using the command:
+``mtt train options.yaml``. Alternatively, you can use a pre-trained
+foundational model, if you have access to its checkpoint. After this training,
+you will find the checkpoint file called ``best_model.ckpt`` in the training
+directory.
+
+1. Set the finetuning parameters in the ``architecture.training``
+section of the ``options.yaml``:
+
+.. code-block:: yaml
+
+  architecture:
+    training:
+      FINETUNING: heads
+
+Setting (``FINETUNGING: heads``) ensures that all layers but the heads will be
+frozen.
+
+4. Run ``mtt train options.yaml -c best_model.ckpt`` to fine-tune the model.
+The ``-c`` flag specifies the path to the pre-trained model checkpoint.
+
+Fine-Tuning Options
+^^^^^^^^^^^^^^^^^^^
+
+When ``FINETUNING`` is set to ``heads``, the original model's weights will be
+frozen, and only the heads will be trained. This avoids forgetting general
+representations and allows for efficient fine-tuning with fewer parameters.
+If ``FINETUNING`` is not specified, all the weights of the model will be
+trained. This can lead to better performance on the specific task but may
+require more computational resources, and the model may be prone to overfitting
+(i.e. loosing accuracy on the original training set).
 

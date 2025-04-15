@@ -58,3 +58,43 @@ class LoRAWrapper(torch.nn.Module):
         rotations: Optional[torch.Tensor] = None,
     ):
         return self.model(batch_dict, rotations)
+
+
+class FinetuneWrapper(torch.nn.Module):
+    def __init__(
+        self,
+        model: torch.nn.Module,
+        ft_type: str,
+        lora_rank: Optional[int] = None,
+        lora_alpha: Optional[float] = None,
+    ):
+        super(FinetuneWrapper, self).__init__()
+        self.model = model
+        self.hypers = model.hypers
+        self.hidden_dim = model.hypers.TRANSFORMER_D_MODEL
+        self.num_hidden_layers = model.hypers.N_GNN_LAYERS * model.hypers.N_TRANS_LAYERS
+        if ft_type == "heads":
+            for param in model.parameters():
+                param.requires_grad = False
+            for head in model.heads:
+                for param in head.parameters():
+                    param.requires_grad = True
+        elif ft_type == "lora":
+            self.rank: int = lora_rank if lora_rank is not None else 0
+            self.alpha: float = lora_alpha if lora_alpha is not None else 0
+            for param in model.parameters():
+                param.requires_grad = False
+            for gnn_layer in model.gnn_layers:
+                for trans_layer in gnn_layer.trans.layers:
+                    trans_layer.attention = AttentionBlockWithLoRA(
+                        trans_layer.attention,
+                        self.rank,
+                        self.alpha,
+                    )
+
+    def forward(
+        self,
+        batch_dict: Dict[str, torch.Tensor],
+        rotations: Optional[torch.Tensor] = None,
+    ):
+        return self.model(batch_dict, rotations)

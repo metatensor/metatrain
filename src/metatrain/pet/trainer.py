@@ -39,7 +39,7 @@ from .modules.utilities import (
     string2dtype,
 )
 from .utils import dataset_to_ase, load_raw_pet_model, update_hypers
-from .utils.fine_tuning import LoRAWrapper
+from .utils.fine_tuning import FinetuneWrapper
 
 
 class Trainer:
@@ -122,11 +122,18 @@ class Trainer:
         FITTING_SCHEME = hypers.FITTING_SCHEME  # type: ignore
         MLIP_SETTINGS = hypers.MLIP_SETTINGS  # type: ignore
         ARCHITECTURAL_HYPERS = hypers.ARCHITECTURAL_HYPERS  # type: ignore
-
-        if model.is_lora_applied and not FITTING_SCHEME.USE_LORA_PEFT:
+        if FITTING_SCHEME.FINETUNING not in [None, "lora", "heads"]:
+            raise ValueError("Finetuning only allows 'lora' or 'heads' option")
+        if model.ft_type == "lora" and not FITTING_SCHEME.FINETUNING == "lora":
             raise ValueError(
-                "LoRA is applied to the model, but the USE_LORA_PEFT is False"
-                " in the training hyperparameters. Please set USE_LORA_PEFT to True"
+                "LoRA is applied to the model, but the FINETUNING is not 'lora'"
+                " in the training hyperparameters. Please set FINETUNING to 'lora'"
+            )
+        if model.ft_type == "heads" and not FITTING_SCHEME.FINETUNING == "heads":
+            raise ValueError(
+                "Heads-only finetuning is applied to the model, but the FINETUNING"
+                "is not 'heads' in the training hyperparameters. "
+                "Please set FINETUNING to 'heads'"
             )
 
         if FITTING_SCHEME.USE_SHIFT_AGNOSTIC_LOSS:
@@ -247,7 +254,7 @@ Units of the Energy and Forces are the same units given in input"""
         logging.info("Initializing the model...")
         if model.pet is not None:
             pet_model = model.pet.model
-            if model.is_lora_applied:
+            if model.ft_type:
                 pet_model.model.hypers.TARGET_TYPE = "structural"
                 pet_model.model.TARGET_TYPE = "structural"
             else:
@@ -258,13 +265,15 @@ Units of the Energy and Forces are the same units given in input"""
         num_params = sum([p.numel() for p in pet_model.parameters()])
         logging.info(f"Number of parameters: {num_params}")
 
-        if FITTING_SCHEME.USE_LORA_PEFT:
-            if not model.is_lora_applied:
-                lora_rank = FITTING_SCHEME.LORA_RANK
-                lora_alpha = FITTING_SCHEME.LORA_ALPHA
-                pet_model = LoRAWrapper(pet_model, lora_rank, lora_alpha)
-                model.is_lora_applied = True
-
+        if FITTING_SCHEME.FINETUNING == "lora":
+            if not model.ft_type == "lora":
+                model.ft_type = "lora"
+                pet_model = FinetuneWrapper(
+                    pet_model,
+                    ft_type=model.ft_type,
+                    lora_rank=FITTING_SCHEME.LORA_RANK,
+                    lora_alpha=FITTING_SCHEME.LORA_ALPHA,
+                )
             num_trainable_params = sum(
                 [p.numel() for p in pet_model.parameters() if p.requires_grad]
             )
@@ -277,6 +286,21 @@ Units of the Energy and Forces are the same units given in input"""
                 "Number of trainable parameters: "
                 + f"{num_trainable_params} [{fraction:.2f}%]"
             )
+
+        if FITTING_SCHEME.FINETUNING == "heads":
+            if not model.ft_type == "heads":
+                model.ft_type = "heads"
+                pet_model = FinetuneWrapper(pet_model, ft_type=model.ft_type)
+            num_trainable_params = sum(
+                [p.numel() for p in pet_model.parameters() if p.requires_grad]
+            )
+            fraction = num_trainable_params / num_params * 100
+            logging.info("Training only heads")
+            logging.info(
+                "Number of trainable parameters: "
+                + f"{num_trainable_params} [{fraction:.2f}%]"
+            )
+
         pet_model = pet_model.to(device=device, dtype=dtype)
         pet_model = PETUtilityWrapper(pet_model, FITTING_SCHEME.GLOBAL_AUG)
 
@@ -598,13 +622,14 @@ Units of the Energy and Forces are the same units given in input"""
                     "scheduler_state_dict": pet_checkpoint["scheduler_state_dict"],
                 }
                 last_model_state_dict = pet_checkpoint["model_state_dict"]
-                if model.is_lora_applied:
-                    lora_state_dict = {
+                if model.ft_type:
+                    ft_state_dict = {
+                        "ft_type": FITTING_SCHEME.FINETUNING,
                         "lora_rank": FITTING_SCHEME.LORA_RANK,
                         "lora_alpha": FITTING_SCHEME.LORA_ALPHA,
                     }
                 else:
-                    lora_state_dict = None
+                    ft_state_dict = None
                 last_model_checkpoint = {
                     "architecture_name": "pet",
                     "trainer_state_dict": trainer_state_dict,
@@ -615,7 +640,7 @@ Units of the Energy and Forces are the same units given in input"""
                     "epoch": self.epoch,
                     "dataset_info": model.dataset_info,
                     "self_contributions": self_contributions,
-                    "lora_state_dict": lora_state_dict,
+                    "ft_state_dict": ft_state_dict,
                 }
                 torch.save(
                     last_model_checkpoint,
@@ -723,7 +748,7 @@ Units of the Energy and Forces are the same units given in input"""
             model.hypers,
             all_species,
             self_contributions,
-            use_lora_peft=FITTING_SCHEME.USE_LORA_PEFT,
+            ft_type=FITTING_SCHEME.FINETUNING,
             lora_rank=FITTING_SCHEME.LORA_RANK,
             lora_alpha=FITTING_SCHEME.LORA_ALPHA,
         )
@@ -741,13 +766,19 @@ Units of the Energy and Forces are the same units given in input"""
             "scheduler_state_dict": pet_checkpoint["scheduler_state_dict"],
         }
         last_model_state_dict = pet_checkpoint["model_state_dict"]
-        if model.is_lora_applied:
-            lora_state_dict = {
-                "lora_rank": model.pet.model.rank,
-                "lora_alpha": model.pet.model.alpha,
-            }
+
+        if model.ft_type is not None:
+            ft_state_dict = {"ft_type": model.ft_type}
+            if model.ft_type == "lora":
+                ft_state_dict.update(
+                    {
+                        "lora_rank": model.pet.model.rank,
+                        "lora_alpha": model.pet.model.alpha,
+                    }
+                )
         else:
-            lora_state_dict = None
+            ft_state_dict = None
+
         last_model_checkpoint = {
             "architecture_name": "pet",
             "trainer_state_dict": trainer_state_dict,
@@ -758,7 +789,7 @@ Units of the Energy and Forces are the same units given in input"""
             "epoch": self.epoch,
             "dataset_info": model.dataset_info,
             "self_contributions": model.pet.self_contributions.numpy(),
-            "lora_state_dict": lora_state_dict,
+            "ft_state_dict": ft_state_dict,
         }
         best_model_checkpoint = {
             "architecture_name": "pet",
@@ -770,7 +801,7 @@ Units of the Energy and Forces are the same units given in input"""
             "epoch": None,
             "dataset_info": model.dataset_info,
             "self_contributions": model.pet.self_contributions.numpy(),
-            "lora_state_dict": lora_state_dict,
+            "ft_state_dict": ft_state_dict,
         }
 
         torch.save(
