@@ -40,6 +40,12 @@ def evaluate_model(
     :returns: The predictions of the model for the requested targets.
     """
 
+    # ignore warnings about gradients
+    warnings.filterwarnings(
+        action="ignore",
+        message="This system's positions or cell requires grad, but the neighbors",
+    )
+
     model_outputs = _get_outputs(model)
     # Assert that all targets are within the model's capabilities:
     if not set(targets.keys()).issubset(model_outputs.keys()):
@@ -62,16 +68,12 @@ def evaluate_model(
     new_systems = []
     strains = []
     for system in systems:
-        with warnings.catch_warnings():
-            # this seems to be the only way to filter out the torch-scripted warnings
-            # about neighbors (which are not relevant here), regex fails
-            warnings.simplefilter("ignore")
-            new_system, strain = _prepare_system(
-                system,
-                positions_grad=len(energy_targets_that_require_position_gradients) > 0,
-                strain_grad=len(energy_targets_that_require_strain_gradients) > 0,
-                check_consistency=check_consistency,
-            )
+        new_system, strain = _prepare_system(
+            system,
+            positions_grad=len(energy_targets_that_require_position_gradients) > 0,
+            strain_grad=len(energy_targets_that_require_strain_gradients) > 0,
+            check_consistency=check_consistency,
+        )
         new_systems.append(new_system)
         strains.append(strain)
     systems = new_systems

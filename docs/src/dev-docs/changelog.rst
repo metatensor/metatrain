@@ -24,12 +24,27 @@ changelog <https://keepachangelog.com/en/1.1.0/>`_ format. This project follows
 Unreleased
 ----------
 
+Fixed
+#####
+
+- ``NativePET`` can now evaluate on single-atom structures without crashing
+
+Version 2025.5 - 2025-04-13
+---------------------------
+
+Fixed
+#####
+
+- Fix more composition model issues
+
 Added
 #####
 
-- Save loss history in a ``.csv`` file
-
+- Update to ``metatensor-torch-0.7.5`` to allow training on ``non_conservative_forces``
+  and  ``non_conservative_stress`` targets
 - Add ``NativePET`` as a readable, efficient, backward-compatible PET implementation
+- Added Wandb logger
+- Save loss history in a ``.csv`` file
 
 Version 2025.4 - 2025-03-29
 ---------------------------

@@ -164,6 +164,7 @@ cython_debug/
 *.pt
 *.ckpt
 *.csv
+wandb/
 
 # model output directories and extensions
 outputs/

@@ -15,7 +15,7 @@ from ...utils.distributed.slurm import DistributedEnvironment
 from ...utils.evaluate_model import evaluate_model
 from ...utils.external_naming import to_external_name
 from ...utils.io import check_file_extension
-from ...utils.logging import MetricLogger
+from ...utils.logging import ROOT_LOGGER, MetricLogger
 from ...utils.loss import TensorMapDictLoss
 from ...utils.metrics import MAEAccumulator, RMSEAccumulator, get_selected_metric
 from ...utils.neighbor_lists import (
@@ -30,9 +30,6 @@ from ...utils.transfer import (
 )
 from .model import NativePET
 from .modules.finetuning import apply_finetuning_strategy
-
-
-logger = logging.getLogger(__name__)
 
 
 def get_scheduler(optimizer, train_hypers):
@@ -93,14 +90,14 @@ class Trainer:
             ]  # only one device, as we don't support multi-gpu for now
 
         if is_distributed:
-            logger.info(f"Training on {world_size} devices with dtype {dtype}")
+            logging.info(f"Training on {world_size} devices with dtype {dtype}")
         else:
-            logger.info(f"Training on device {device} with dtype {dtype}")
+            logging.info(f"Training on device {device} with dtype {dtype}")
 
         # Calculate the neighbor lists in advance (in particular, this
         # needs to happen before the additive models are trained, as they
         # might need them):
-        logger.info("Calculating neighbor lists for the datasets")
+        logging.info("Calculating neighbor lists for the datasets")
         requested_neighbor_lists = get_requested_neighbor_lists(model)
         for dataset in train_datasets + val_datasets:
             # If the dataset is a disk dataset, the NLs are already attached, we will
@@ -133,7 +130,7 @@ class Trainer:
         for additive_model in model.additive_models:
             additive_model.to(dtype=torch.float64)
 
-        logger.info("Calculating composition weights")
+        logging.info("Calculating composition weights")
         model.additive_models[0].train_model(  # this is the composition model
             train_datasets,
             model.additive_models[1:],
@@ -141,7 +138,7 @@ class Trainer:
         )
 
         if self.hypers["scale_targets"]:
-            logger.info("Calculating scaling weights")
+            logging.info("Calculating scaling weights")
             model.scaler.train_model(
                 train_datasets, model.additive_models, treat_as_additive=True
             )
@@ -149,7 +146,7 @@ class Trainer:
         if is_distributed:
             model = DistributedDataParallel(model, device_ids=[device])
 
-        logger.info("Setting up data loaders")
+        logging.info("Setting up data loaders")
 
         if is_distributed:
             train_samplers = [
@@ -269,7 +266,8 @@ class Trainer:
 
         # Log the initial learning rate:
         old_lr = optimizer.param_groups[0]["lr"]
-        logger.info(f"Initial learning rate: {old_lr}")
+        logging.info(f"Base learning rate: {self.hypers['learning_rate']}")
+        logging.info(f"Initial learning rate: {old_lr}")
 
         rotational_augmenter = RotationalAugmenter(train_targets)
 
@@ -278,7 +276,7 @@ class Trainer:
         # Train the model:
         if self.best_metric is None:
             self.best_metric = float("inf")
-        logger.info("Starting training")
+        logging.info("Starting training")
         epoch = start_epoch
 
         for epoch in range(start_epoch, start_epoch + self.hypers["num_epochs"]):
@@ -418,7 +416,7 @@ class Trainer:
                     model.module if is_distributed else model
                 ).scaler.get_scales_dict()
                 metric_logger = MetricLogger(
-                    log_obj=logger,
+                    log_obj=ROOT_LOGGER,
                     dataset_info=(
                         model.module if is_distributed else model
                     ).dataset_info,
@@ -444,10 +442,20 @@ class Trainer:
             new_lr = lr_scheduler.get_last_lr()[0]
             if new_lr != old_lr:
                 if new_lr < 1e-7:
-                    logger.info("Learning rate is too small, stopping training")
+                    logging.info("Learning rate is too small, stopping training")
                     break
                 else:
-                    logger.info(f"Changing learning rate from {old_lr} to {new_lr}")
+                    if epoch >= self.hypers["num_epochs_warmup"]:
+                        logging.info(
+                            f"Changing learning rate from {old_lr} to {new_lr}"
+                        )
+                    elif epoch == self.hypers["num_epochs_warmup"] - 1:
+                        logging.info(
+                            "Finished warm-up. "
+                            f"Now training with learning rate {new_lr}"
+                        )
+                    else:  # epoch < self.hypers["num_epochs_warmup"] - 1:
+                        pass  # we don't clutter the log at every warm-up step
                     old_lr = new_lr
 
             val_metric = get_selected_metric(

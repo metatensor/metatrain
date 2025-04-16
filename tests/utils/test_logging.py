@@ -6,6 +6,8 @@ import warnings
 from pathlib import Path
 from typing import List
 
+import pytest
+import wandb
 from metatensor.torch.atomistic import ModelCapabilities, ModelOutput
 
 from metatrain import PACKAGE_ROOT
@@ -13,6 +15,7 @@ from metatrain.utils.logging import (
     CSVFileHandler,
     CustomLogger,
     MetricLogger,
+    WandbHandler,
     get_cli_input,
     setup_logging,
 )
@@ -179,6 +182,84 @@ def test_custom_logger_logs_to_csv_handler(monkeypatch, tmp_path):
 
     rows = read_csv(log_file)
     assert rows == [keys, units, values, values]
+
+
+def test_wandb_handler_emit_data(monkeypatch, tmp_path):
+    monkeypatch.chdir(tmp_path)
+
+    run = wandb.init(mode="offline")
+    handler = WandbHandler(run=run)
+
+    keys = ["Epoch", "loss", "Value"]
+    values = ["10", "0.3", "42"]
+    units = ["", "", "units"]
+
+    # First write
+    handler.emit_data(keys, values, units)
+
+
+def test_wandb_handler_handler_emit_does_nothing(monkeypatch, tmp_path):
+    monkeypatch.chdir(tmp_path)
+
+    run = wandb.init(mode="offline")
+    handler = WandbHandler(run=run)
+
+    record = logging.LogRecord(
+        name="test",
+        level=logging.INFO,
+        pathname="",
+        lineno=0,
+        msg="Test",
+        args=(),
+        exc_info=None,
+    )
+
+    handler.emit(record)
+
+
+def test_custom_logger_logs_to_wandb(monkeypatch, tmp_path):
+    monkeypatch.chdir(tmp_path)
+
+    logger = CustomLogger("test_logger")
+
+    run = wandb.init(mode="offline")
+    handler = WandbHandler(run=run)
+
+    logger.addHandler(handler)
+
+    keys = ["Epoch", "Energy"]
+    values = ["1", "-10.5"]
+    units = ["", "kcal/mol"]
+
+    logger.data(keys, values, units)
+    logger.data(keys, values, units)
+
+    # TODO check that data is written to wandb
+
+
+@pytest.mark.parametrize("handler_cls", [WandbHandler, CSVFileHandler])
+def test_handler_different_lengths(handler_cls, monkeypatch, tmp_path):
+    monkeypatch.chdir(tmp_path)
+
+    if handler_cls is CSVFileHandler:
+        log_file = tmp_path / "log.csv"
+        handler = CSVFileHandler(log_file)
+    elif handler_cls is WandbHandler:
+        run = wandb.init(mode="offline")
+        handler = WandbHandler(run=run)
+    else:
+        raise ValueError("Unknown handler class")
+
+    keys = ["Epoch", "loss", "Value"]
+    values = ["10", "0.3", "42"]
+    units = ["", ""]  # Different lengths
+
+    match = (
+        f"keys, values and units must have the same length: "
+        f"{len(keys)}, {len(values)}, {len(units)}"
+    )
+    with pytest.raises(ValueError, match=match):
+        handler.emit_data(keys, values, units)
 
 
 def test_custom_logger_ignores_handlers_without_emit_data(monkeypatch, tmp_path):
