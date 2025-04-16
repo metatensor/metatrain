@@ -53,35 +53,38 @@ def divide_by_num_atoms(tensor_map: TensorMap, num_atoms: torch.Tensor) -> Tenso
 
     :return: A new tensor map with the values divided by the number of atoms.
     """
+    # Don't do anything if these are "atomic", i.e. per-atom or per-pair
+    if (
+        "atom" in tensor_map.sample_names
+        or (
+            "first_atom" in tensor_map.sample_names
+            and "second_atom" in tensor_map.sample_names
+        )
+    ):
+        return tensor_map
 
     blocks = []
     for block in tensor_map.blocks():
-        if "atom" in block.samples.names:
-            new_block = block
-        else:
-            values = block.values / num_atoms.view(
-                -1, *[1] * (len(block.values.shape) - 1)
+        values = block.values / num_atoms.view(
+            -1, *[1] * (len(block.values.shape) - 1)
+        )
+        new_block = TensorBlock(
+            values=values,
+            samples=block.samples,
+            components=block.components,
+            properties=block.properties,
+        )
+        for gradient_name, gradient in block.gradients():
+            values = gradient.values / num_atoms.view(
+                -1, *[1] * (len(gradient.values.shape) - 1)
             )
-            new_block = TensorBlock(
+            new_gradient = TensorBlock(
                 values=values,
-                samples=block.samples,
-                components=block.components,
-                properties=block.properties,
+                samples=gradient.samples,
+                components=gradient.components,
+                properties=gradient.properties,
             )
-            for gradient_name, gradient in block.gradients():
-                if "atom" in gradient.samples.names:
-                    new_gradient = gradient
-                else:
-                    values = gradient.values / num_atoms.view(
-                        -1, *[1] * (len(gradient.values.shape) - 1)
-                    )
-                    new_gradient = TensorBlock(
-                        values=values,
-                        samples=gradient.samples,
-                        components=gradient.components,
-                        properties=gradient.properties,
-                    )
-                new_block.add_gradient(gradient_name, new_gradient)
+            new_block.add_gradient(gradient_name, new_gradient)
         blocks.append(new_block)
 
     return TensorMap(

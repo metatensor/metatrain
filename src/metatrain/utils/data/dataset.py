@@ -232,11 +232,13 @@ def get_all_targets(datasets: Union[Dataset, List[Dataset]]) -> List[str]:
 def collate_fn(batch: List[Dict[str, Any]]) -> Tuple[List, Dict[str, TensorMap]]:
     """
     Wraps `group_and_join` to
-    return the data fields as a list of systems, and a dictionary of nameed
+    return the data fields as a list of systems, and a dictionary of named
     targets.
     """
 
-    collated_targets = group_and_join(batch, join_kwargs={"remove_tensor_name": True})
+    collated_targets = group_and_join(
+        batch, join_kwargs={"remove_tensor_name": True, "different_keys": "union"}
+    )
     collated_targets = collated_targets._asdict()
     systems = collated_targets.pop("system")
     return systems, collated_targets

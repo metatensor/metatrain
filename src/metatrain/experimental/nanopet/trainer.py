@@ -5,7 +5,7 @@ from typing import List, Union
 
 import torch
 import torch.distributed
-from metatensor.torch import Labels, TensorBlock, TensorMap
+from metatensor.torch import Labels, TensorBlock, TensorMap, filter_blocks
 from torch.utils.data import DataLoader, DistributedSampler
 
 from ...utils.additive import remove_additive
@@ -278,9 +278,9 @@ class Trainer:
                 optimizer.zero_grad()
 
                 systems, targets = batch
-                # systems, targets = rotational_augmenter.apply_random_augmentations(
-                #     systems, targets
-                # )
+                systems, targets = rotational_augmenter.apply_random_augmentations(
+                    systems, targets
+                )
                 systems, targets = systems_and_targets_to_device(
                     systems, targets, device
                 )
@@ -315,15 +315,14 @@ class Trainer:
                     if predictions[target_name].keys != targets[target_name].keys:
                         # TODO: use `metatensor.filter_blocks` once PR #XXX is available
                         # in latest metatensor release.
+                        # predictions[target_name] = filter_blocks(
+                        #     predictions[target_name], keys=targets[target_name].keys
+                        # )
+                        # For now, use a re-implementation
                         predictions[target_name] = _filter_blocks(
                             predictions[target_name], keys=targets[target_name].keys
                         )
 
-                import metatensor.torch as mts
-                for name in predictions.keys():
-                    mts.save(f"{name}_pred.mts", predictions[name])
-                    mts.save(f"{name}_targ.mts", targets[name])
-                    print(name)
                 train_loss_batch = loss_fn(predictions, targets)
                 train_loss_batch.backward()
                 torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)

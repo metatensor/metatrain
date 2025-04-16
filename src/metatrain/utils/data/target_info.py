@@ -30,8 +30,8 @@ class TargetInfo:
         self.is_scalar = False
         self.is_cartesian = False
         self.is_spherical = False
-        self.is_atomic_basis_spherical_node = False
-        self.is_atomic_basis_spherical_edge = False
+        self.is_atomic_basis_spherical_per_atom = False
+        self.is_atomic_basis_spherical_per_pair = False
 
         self._check_layout(layout)
 
@@ -137,12 +137,12 @@ class TargetInfo:
             # atomic-basis spherical target.
             elif "o3_lambda" in layout.keys.names and "o3_sigma" in layout.keys.names:
                 if "center_type" in layout.keys.names:
-                    self.is_atomic_basis_spherical_node = True
+                    self.is_atomic_basis_spherical_per_atom = True
                 elif (
                     "first_atom_type" in layout.keys.names
                     and "second_atom_type" in layout.keys.names
                 ):
-                    self.is_atomic_basis_spherical_edge = True
+                    self.is_atomic_basis_spherical_per_pair = True
                 else:
                     raise ValueError(
                         "invalid key names. If specifying a spherical target "
@@ -168,12 +168,12 @@ class TargetInfo:
                 and "o3_sigma" in layout.keys.names
             ):
                 if "center_type" in layout.keys.names:
-                    self.is_atomic_basis_spherical_node = True
+                    self.is_atomic_basis_spherical_per_atom = True
                 elif (
                     "first_atom_type" in layout.keys.names
                     and "second_atom_type" in layout.keys.names
                 ):
-                    self.is_atomic_basis_spherical_edge = True
+                    self.is_atomic_basis_spherical_per_pair = True
                 else:
                     raise ValueError(
                         "invalid key names. If specifying a spherical target "
@@ -272,7 +272,7 @@ class TargetInfo:
                         "Gradients of spherical tensor targets are not supported."
                     )
 
-        if self.is_atomic_basis_spherical_node or self.is_atomic_basis_spherical_edge:
+        if self.is_atomic_basis_spherical_per_atom or self.is_atomic_basis_spherical_per_pair:
             o3_lambda_like_dims = [
                 name for name in layout.keys.names if name.startswith("o3_lambda")
             ]
