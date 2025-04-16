@@ -25,9 +25,9 @@ Electron density on a basis
 
 First let's consider the electron density (though applicable also to any scalar field),
 decomposed onto an atom-centered basis set. In this case, the model targets a set of
-equivariant expansion coefficients. 
+equivariant expansion coefficients.
 
-These are stored in block-sparse TensorMap format according to the basis set definition. 
+These are stored in block-sparse TensorMap format according to the basis set definition.
 
 For a methane (CH4) molecule, for instance, the keys may look like:
 
@@ -157,8 +157,8 @@ Input file
          type: atomic_basis_spherical
          unit: Ha
 
-Unlike normal spherical targets, the `irreps` do not need to be specified in the input
+Unlike normal spherical targets, the ``irreps`` do not need to be specified in the input
 file and are instead inferred by reading the targets in the dataset. Whether the targets
 are per-atom or per-pair is also inferred from the samples metadata of the targets, so
-only the name (i.e. `mtt::electron_density_basis`) and `unit` of the qunaitity needs to
+only the name (i.e. ``mtt::electron_density_basis``) and ``unit`` of the qunaitity needs to
 be specified.

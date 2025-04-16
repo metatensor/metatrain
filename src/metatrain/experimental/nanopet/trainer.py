@@ -5,7 +5,7 @@ from typing import List, Union
 
 import torch
 import torch.distributed
-from metatensor.torch import Labels, TensorBlock, TensorMap, filter_blocks
+from metatensor.torch import Labels, TensorBlock, TensorMap
 from torch.utils.data import DataLoader, DistributedSampler
 
 from ...utils.additive import remove_additive

@@ -34,7 +34,7 @@ class RotationalAugmenter:
         self.wigner = None
         self.complex_to_real_spherical_harmonics_transforms = {}
         is_any_target_spherical = any(
-            target_info.is_spherical 
+            target_info.is_spherical
             or target_info.is_atomic_basis_spherical_per_atom
             or target_info.is_atomic_basis_spherical_per_pair
             for target_info in target_info_dict.values()
@@ -91,7 +91,7 @@ class RotationalAugmenter:
                 elif target_info.is_spherical:
                     target_types[target_name] = "spherical"
                 elif (
-                    target_info.is_atomic_basis_spherical_per_atom 
+                    target_info.is_atomic_basis_spherical_per_atom
                     or target_info.is_atomic_basis_spherical_per_pair
                 ):
                     target_types[target_name] = "atomic_basis_spherical"
@@ -152,12 +152,15 @@ def _apply_wigner_D_matrices(
 
         if target_type == "spherical":
             if "atom" in block.samples.names:
-                split_indices = _get_system_split_indices(systems, "per_atom", [], -1000)
+                split_indices = _get_system_split_indices(
+                    systems, "per_atom", [], -1000
+                )
             else:
-                split_indices = _get_system_split_indices(systems, "per_structure", [], -1000)
+                split_indices = _get_system_split_indices(
+                    systems, "per_structure", [], -1000
+                )
 
         elif target_type == "atomic_basis_spherical":
-
             if "o3_lambda" in key.names:
                 if "atom" in block.samples.names:  # per_atom
                     split_indices = _get_system_split_indices(
@@ -167,34 +170,26 @@ def _apply_wigner_D_matrices(
                     "first_atom" in block.samples.names
                     and "second_atom" in block.samples.names
                 ):
-
                     if "s2_pi" in key.names:
                         split_indices = _get_system_split_indices(
                             systems,
                             "per_pair",
-                            [
-                                int(key["first_atom_type"]),
-                                int(key["second_atom_type"])
-                            ],
+                            [int(key["first_atom_type"]), int(key["second_atom_type"])],
                             int(key["s2_pi"]),
                         )
                     else:
                         split_indices = _get_system_split_indices(
                             systems,
                             "per_pair",
-                            [
-                                int(key["first_atom_type"]),
-                                int(key["second_atom_type"])
-                            ],
-                            -1000
+                            [int(key["first_atom_type"]), int(key["second_atom_type"])],
+                            -1000,
                         )
                 else:
                     raise ValueError(f"unexpected samples: {block.samples}")
 
             # TODO: implement rotations of 2 component axes
             elif (
-                "o3_lambda_1" in key.names
-                and "o3_lambda_2" in key.names
+                "o3_lambda_1" in key.names and "o3_lambda_2" in key.names
             ):  # two "o3_mu_x" components
                 if "atom" in block.samples.names:  # node target
                     raise NotImplementedError(
@@ -213,9 +208,7 @@ def _apply_wigner_D_matrices(
                     raise ValueError(f"unexpected samples: {block.samples}")
 
             else:
-                raise ValueError(
-                    f"unexpected key dimensions: {key.names}"
-                )
+                raise ValueError(f"unexpected key dimensions: {key.names}")
 
         else:
             raise ValueError(
@@ -232,7 +225,9 @@ def _apply_wigner_D_matrices(
 
         # Check that the split samples values contain only one system index
         for split_sample in torch.split(block.samples.values[:, 0], split_indices)[:-1]:
-            assert len(torch.unique(split_sample)) <= 1, list(torch.unique(split_sample))
+            assert len(torch.unique(split_sample)) <= 1, list(
+                torch.unique(split_sample)
+            )
 
         # Split the block values by system
         split_values = torch.split(values, split_indices)
@@ -271,6 +266,7 @@ def _apply_wigner_D_matrices(
         blocks=new_blocks,
     )
 
+
 @torch.jit.script
 def _get_system_split_indices(
     systems: List[System],
@@ -285,14 +281,14 @@ def _get_system_split_indices(
     split_indices: List[int] = []
 
     if sample_kind == "per_structure":
-        for system in systems:
+        for _ in systems:
             split_indices.append(1)
 
     elif sample_kind == "per_atom":
         if len(atom_types) == 0:  # all blocks have all atom types
             for system in systems:
                 split_indices.append(len(system.positions))
-        
+
         else:  # atomic basis - only count atoms of the correct type
             assert len(atom_types) == 1
             for system in systems:
@@ -308,24 +304,18 @@ def _get_system_split_indices(
         assert len(atom_types) == 2
 
         if not (s2_pi == -1 or s2_pi == 0 or s2_pi == 1):
-
             for system in systems:
-
                 # get neighbor list
                 neighbor_lists = system.known_neighbor_lists()
                 if len(neighbor_lists) == 0:
                     raise ValueError(
-                        "systems must have neighbor lists pre-computed. "
-                        "None found."
+                        "systems must have neighbor lists pre-computed. None found."
                     )
                 if len(neighbor_lists) > 1:
                     raise ValueError("more than one neighbor list found")
-                neighbor_samples = system.get_neighbor_list(
-                    neighbor_lists[0]
-                ).samples
+                neighbor_samples = system.get_neighbor_list(neighbor_lists[0]).samples
 
                 if atom_types[0] == atom_types[1]:
-
                     # the block contains both nodes and edges
                     split_indices.append(
                         int(  # number of nodes
@@ -336,17 +326,14 @@ def _get_system_split_indices(
                         + int(  # number of edges
                             torch.sum(
                                 torch.logical_and(
-                                    system.types[
-                                        neighbor_samples.column("first_atom")
-                                    ]
+                                    system.types[neighbor_samples.column("first_atom")]
                                     == atom_types[0],
-                                    system.types[
-                                        neighbor_samples.column("second_atom")
-                                    ]
+                                    system.types[neighbor_samples.column("second_atom")]
                                     == atom_types[0],
                                 )
                             )
-                        ) // 2  # as triangular in edge samples
+                        )
+                        // 2  # as triangular in edge samples
                     )
                 else:
                     # the block contains only edges
@@ -354,20 +341,16 @@ def _get_system_split_indices(
                         int(
                             torch.sum(
                                 torch.logical_and(
-                                    system.types[
-                                        neighbor_samples.column("first_atom")
-                                    ]
+                                    system.types[neighbor_samples.column("first_atom")]
                                     == atom_types[0],
-                                    system.types[
-                                        neighbor_samples.column("second_atom")
-                                    ]
+                                    system.types[neighbor_samples.column("second_atom")]
                                     == atom_types[0],
                                 )
                             )
-                        ) // 2  # as triangular in edge samples
+                        )
+                        // 2  # as triangular in edge samples
                     )
         else:
-
             if s2_pi == 0 and atom_types[0] == atom_types[1]:  # node block
                 # can be treated as per-atom target
                 for system in systems:
@@ -380,7 +363,6 @@ def _get_system_split_indices(
                     )
 
             else:  # edge block
-
                 if s2_pi == 0:
                     triangle_divisor = 1
                 else:
@@ -391,8 +373,7 @@ def _get_system_split_indices(
                     neighbor_lists = system.known_neighbor_lists()
                     if len(neighbor_lists) == 0:
                         raise ValueError(
-                            "systems must have neighbor lists pre-computed. "
-                            "None found."
+                            "systems must have neighbor lists pre-computed. None found."
                         )
                     if len(neighbor_lists) > 1:
                         raise ValueError("more than one neighbor list found")
@@ -404,13 +385,9 @@ def _get_system_split_indices(
                         int(
                             torch.sum(
                                 torch.logical_and(
-                                    system.types[
-                                        neighbor_samples.column("first_atom")
-                                    ]
+                                    system.types[neighbor_samples.column("first_atom")]
                                     == atom_types[0],
-                                    system.types[
-                                        neighbor_samples.column("second_atom")
-                                    ]
+                                    system.types[neighbor_samples.column("second_atom")]
                                     == atom_types[1],
                                 )
                             )
@@ -420,8 +397,8 @@ def _get_system_split_indices(
     else:
         raise ValueError(f"unexpected sample_kind: {sample_kind}")
 
-
     return split_indices
+
 
 @torch.jit.script  # script for speed
 def _apply_random_augmentations(  # pragma: no cover

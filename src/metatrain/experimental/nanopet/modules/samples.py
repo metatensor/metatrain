@@ -1,20 +1,22 @@
-from typing import Dict, List, Tuple, Union
+from typing import Dict, List, Tuple
 
 import torch
 from metatensor.torch import Labels
 from metatensor.torch.atomistic import System
+
 
 def get_samples(
     systems: List[System],
     atomic_types: List[int],
     atomic_basis_target_info: Dict[str, Dict[str, str]],
 ) -> Tuple[Labels, Labels, Labels, Labels, Labels, Dict[str, Dict[str, Labels]]]:
-
     # node samples as standard
     node_samples: Labels = Labels(
         names=["system", "atom"],
         values=get_node_sample_values(
-            systems, sample_kind="per_atom", include_atom_type=False,
+            systems,
+            sample_kind="per_atom",
+            include_atom_type=False,
         ),
     )
 
@@ -33,7 +35,6 @@ def get_samples(
         ["_"], torch.empty((0, 1), dtype=node_samples.values.dtype)
     )  # dummy for torchscript
 
-
     any_per_atom: bool = any(
         [
             atomic_basis_target_info[output_name]["type"] == "atomic_basis_spherical"
@@ -44,7 +45,9 @@ def get_samples(
     any_per_pair: bool = any(
         [
             atomic_basis_target_info[output_name]["type"] == "atomic_basis_spherical"
-            and atomic_basis_target_info[output_name]["sample_kind"].startswith("per_pair")
+            and atomic_basis_target_info[output_name]["sample_kind"].startswith(
+                "per_pair"
+            )
             for output_name in atomic_basis_target_info.keys()
         ]
     )
@@ -67,9 +70,7 @@ def get_samples(
                 "cell_shift_b",
                 "cell_shift_c",
             ],
-            get_edge_sample_values(
-                systems, include_atom_types=True
-            )
+            get_edge_sample_values(systems, include_atom_types=True),
         )
         # store the samples labels for the last layer PET features for per_pair targets,
         # i.e. the stacked node and edge samples
@@ -82,11 +83,9 @@ def get_samples(
                         sample_kind="per_pair",
                         include_atom_type=True,
                     ),
-                    get_edge_sample_values(
-                        systems, include_atom_types=True
-                    ),
+                    get_edge_sample_values(systems, include_atom_types=True),
                 ]
-            )
+            ),
         )
     if any_per_pair_sym:
         # store the samples labels for the symmetrized PET edge features
@@ -103,10 +102,8 @@ def get_samples(
                 "cell_shift_c",
             ],
             symmetrize_edge_samples(
-                get_edge_sample_values(
-                    systems, include_atom_types=True
-                )
-            )
+                get_edge_sample_values(systems, include_atom_types=True)
+            ),
         )
         # store the samples labels for the last layer PET features for per_pair
         # (symmetrized) targets, i.e. the stacked node and edge samples
@@ -121,7 +118,7 @@ def get_samples(
                     ),
                     edge_samples_sym.values,
                 ]
-            )
+            ),
         )
 
     # if there are spherical targets on an atomic basis, we need to store the sample
@@ -129,19 +126,13 @@ def get_samples(
     # just before application of the output layer
     atomic_basis_samples: Dict[str, Dict[str, Labels]] = {
         "per_atom": {
-            "": Labels(
-                ["_"], torch.empty((0, 1), dtype=node_samples.values.dtype)
-            )
+            "": Labels(["_"], torch.empty((0, 1), dtype=node_samples.values.dtype))
         },
-        "per_pair":  {
-            "": Labels(
-                ["_"], torch.empty((0, 1), dtype=node_samples.values.dtype)
-            )
+        "per_pair": {
+            "": Labels(["_"], torch.empty((0, 1), dtype=node_samples.values.dtype))
         },
-        "per_pair_sym":  {
-            "": Labels(
-                ["_"], torch.empty((0, 1), dtype=node_samples.values.dtype)
-            )
+        "per_pair_sym": {
+            "": Labels(["_"], torch.empty((0, 1), dtype=node_samples.values.dtype))
         },
     }
     if any_per_atom:
@@ -169,6 +160,7 @@ def get_samples(
 
 # ===== Samples labels for the PET node/edge features =====
 
+
 def get_node_sample_values(
     systems: List[System],
     sample_kind: str,
@@ -179,8 +171,8 @@ def get_node_sample_values(
     features.
 
     If ``sample_kind="per_atom"``, the samples values are returned with 2 dimensions
-    corresponding to "system" and "atom". 
-    
+    corresponding to "system" and "atom".
+
     If ``sample_kind="per_pair"``, the dimensions returned correspond to "system",
     "first_atom", "second_atom", "cell_shift_a", "cell_shift_b", "cell_shift_c". As
     these are nodes, the atom indices are equal and the cell shifts are zero.
@@ -244,7 +236,6 @@ def get_node_sample_values(
     ).reshape(-1, 1)
 
     if sample_kind == "per_atom":
-
         node_sample_values = torch.hstack(
             [
                 first_atom_type,
@@ -262,7 +253,9 @@ def get_node_sample_values(
     elif sample_kind == "per_pair_sym":
         node_sample_values = torch.hstack(
             [
-                torch.zeros(len(first_atom_type), dtype=torch.int32).reshape(-1, 1),  # s2_pi = 0
+                torch.zeros(len(first_atom_type), dtype=torch.int32).reshape(
+                    -1, 1
+                ),  # s2_pi = 0
                 first_atom_type,
                 first_atom_type,  # first_atom_type == second_atom_type
                 node_sample_values,
@@ -270,6 +263,7 @@ def get_node_sample_values(
         )
 
     return node_sample_values
+
 
 def get_edge_sample_values(
     systems: List[System],
@@ -288,22 +282,22 @@ def get_edge_sample_values(
     but with prepended dimensions ["first_atom_type", "second_atom_type"] are returned.
     """
     # Use each system's neighbor list to get the indices
-    edge_sample_values = []
+    edge_sample_values_: List[torch.Tensor] = []
     for system_id, system in enumerate(systems):
         sample_values_edge_system = system.get_neighbor_list(
             system.known_neighbor_lists()[0]
         ).samples.values
-        system_id = (
+        system_id_ = (
             torch.ones(sample_values_edge_system.shape[0], device=system.device)
             * system_id
         )
-        edge_sample_values.append(
+        edge_sample_values_.append(
             torch.cat(
-                (system_id.unsqueeze(1), sample_values_edge_system),
+                (system_id_.unsqueeze(1), sample_values_edge_system),
                 dim=1,
             )
         )
-    edge_sample_values = torch.vstack(edge_sample_values).to(dtype=torch.int32)
+    edge_sample_values = torch.vstack(edge_sample_values_).to(dtype=torch.int32)
 
     if not include_atom_types:
         return edge_sample_values
@@ -334,7 +328,7 @@ def get_edge_sample_values(
         ],
         dtype=torch.int32,
     ).reshape(-1, 1)
-    
+
     return torch.hstack(
         [
             edge_first_atom_type,
@@ -351,12 +345,14 @@ def symmetrize_edge_samples(
 
     # 1) first_atom_type < second_atom_type: no symmetrization required. Ensure
     #    triangular in atom type.
-    diff_atom_type = edge_sample_values[:, 0] <  edge_sample_values[:, 1]
+    diff_atom_type = edge_sample_values[:, 0] < edge_sample_values[:, 1]
     edge_sample_values_diff_types = edge_sample_values[diff_atom_type]
     edge_sample_values_diff_types = torch.hstack(
         [
-            torch.zeros(len(edge_sample_values_diff_types), dtype=torch.int32).reshape(-1, 1),  # s2_pi = 0
-            edge_sample_values_diff_types
+            torch.zeros(len(edge_sample_values_diff_types), dtype=torch.int32).reshape(
+                -1, 1
+            ),  # s2_pi = 0
+            edge_sample_values_diff_types,
         ]
     )
 
@@ -368,29 +364,41 @@ def symmetrize_edge_samples(
     # Create the plus and minus combinations
     edge_sample_values_same_types_plus = torch.hstack(
         [
-            torch.ones(len(edge_sample_values_same_types), dtype=torch.int32).reshape(-1, 1),  # s2_pi = +1
+            torch.ones(len(edge_sample_values_same_types), dtype=torch.int32).reshape(
+                -1, 1
+            ),  # s2_pi = +1
             edge_sample_values_same_types,
         ]
     )
     edge_sample_values_same_types_minus = torch.hstack(
         [
-            torch.ones(len(edge_sample_values_same_types), dtype=torch.int32).reshape(-1, 1) * -1,  # s2_pi = -1
+            torch.ones(len(edge_sample_values_same_types), dtype=torch.int32).reshape(
+                -1, 1
+            )
+            * -1,  # s2_pi = -1
             edge_sample_values_same_types,
         ]
     )
 
     # Triangularize in atom index
-    triangle_mask = edge_sample_values_same_types[:, 3] < edge_sample_values_same_types[:, 4]
-    edge_sample_values_same_types_plus = edge_sample_values_same_types_plus[triangle_mask]
-    edge_sample_values_same_types_minus = edge_sample_values_same_types_minus[triangle_mask]
+    triangle_mask = (
+        edge_sample_values_same_types[:, 3] < edge_sample_values_same_types[:, 4]
+    )
+    edge_sample_values_same_types_plus = edge_sample_values_same_types_plus[
+        triangle_mask
+    ]
+    edge_sample_values_same_types_minus = edge_sample_values_same_types_minus[
+        triangle_mask
+    ]
 
     return torch.vstack(
         [
             edge_sample_values_diff_types,
             edge_sample_values_same_types_plus,
-            edge_sample_values_same_types_minus
+            edge_sample_values_same_types_minus,
         ]
     )
+
 
 def symmetrize_edge_features(
     systems: List[System],
@@ -412,7 +420,7 @@ def symmetrize_edge_features(
     ]
 
     # 1) different atom types, no symmetrization required
-    diff_atom_type = edge_samples.values[:, 0] <  edge_samples.values[:, 1]
+    diff_atom_type = edge_samples.values[:, 0] < edge_samples.values[:, 1]
     edge_features_diff_types = edge_features[diff_atom_type]
 
     # 2) same atom type, symmetrized required
@@ -422,15 +430,15 @@ def symmetrize_edge_features(
 
     # Permute the samples values by swapping the atom indices and reversing the sign of
     # the cell shifts
-    edge_samples_values_sym_perm = Labels(sample_names, edge_sample_values_sym).permute(
-        [0, 1, 2, 4, 3, 5, 6, 7]
-    ).values.clone()
+    edge_samples_values_sym_perm = (
+        Labels(sample_names, edge_sample_values_sym)
+        .permute([0, 1, 2, 4, 3, 5, 6, 7])
+        .values.clone()
+    )
     edge_samples_values_sym_perm[:, -3:] *= -1
 
     # Find the indices that map the unpermuted to the permuted samples
-    idx_sym = Labels(
-        sample_names, edge_sample_values_sym
-    ).select(
+    idx_sym = Labels(sample_names, edge_sample_values_sym).select(
         Labels(sample_names, edge_samples_values_sym_perm)
     )
 
@@ -451,6 +459,7 @@ def symmetrize_edge_features(
         ]
     )
 
+
 # ===== Slicing PET node/edge features for an atomic basis =====
 
 
@@ -469,6 +478,7 @@ def samples_for_atomic_basis_per_atom(
         for atomic_type in atomic_types
     }
 
+
 def samples_for_atomic_basis_per_pair(
     systems: List[System],
     edge_samples: Labels,
@@ -482,38 +492,44 @@ def samples_for_atomic_basis_per_pair(
     and atomic types.
     """
     edge_sample_labels_sym_atomic_basis: Dict[str, Labels] = {}
-    
-    for first_atom_type in atomic_types:
 
+    for first_atom_type in atomic_types:
         first_atom_type_mask = edge_samples.column("first_atom_type") == first_atom_type
-        
+
         for second_atom_type in atomic_types:
-            if first_atom_type > second_atom_type:  # edge keys are triangular in atomic type
+            if (
+                first_atom_type > second_atom_type
+            ):  # edge keys are triangular in atomic type
                 continue
-            
-            second_atom_type_mask = edge_samples.column("second_atom_type") == second_atom_type
+
+            second_atom_type_mask = (
+                edge_samples.column("second_atom_type") == second_atom_type
+            )
 
             if sample_kind == "per_pair_sym":
-
                 for s2_pi in [0, 1, -1]:
                     s2_pi_mask = edge_samples.column("s2_pi") == s2_pi
-                    block_mask = (first_atom_type_mask) & (second_atom_type_mask) & (s2_pi_mask)
-                    edge_sample_labels_sym_atomic_basis[f"{s2_pi}_{first_atom_type}_{second_atom_type}"] = Labels(
+                    block_mask = (
+                        (first_atom_type_mask) & (second_atom_type_mask) & (s2_pi_mask)
+                    )
+                    edge_sample_labels_sym_atomic_basis[
+                        f"{s2_pi}_{first_atom_type}_{second_atom_type}"
+                    ] = Labels(
                         edge_samples.names,
                         edge_samples.values[block_mask],
                     )
 
             else:
-
                 assert sample_kind == "per_pair", (
                     "``sample_kind`` must be either 'per_pair' or 'per_pair_sym'"
                 )
 
                 block_mask = (first_atom_type_mask) & (second_atom_type_mask)
-                edge_sample_labels_sym_atomic_basis[f"{first_atom_type}_{second_atom_type}"] = Labels(
+                edge_sample_labels_sym_atomic_basis[
+                    f"{first_atom_type}_{second_atom_type}"
+                ] = Labels(
                     edge_samples.names,
                     edge_samples.values[block_mask],
-                )            
+                )
 
     return edge_sample_labels_sym_atomic_basis
-

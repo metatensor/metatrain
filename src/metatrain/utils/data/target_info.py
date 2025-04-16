@@ -272,7 +272,10 @@ class TargetInfo:
                         "Gradients of spherical tensor targets are not supported."
                     )
 
-        if self.is_atomic_basis_spherical_per_atom or self.is_atomic_basis_spherical_per_pair:
+        if (
+            self.is_atomic_basis_spherical_per_atom
+            or self.is_atomic_basis_spherical_per_pair
+        ):
             o3_lambda_like_dims = [
                 name for name in layout.keys.names if name.startswith("o3_lambda")
             ]

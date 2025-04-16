@@ -1,6 +1,6 @@
 from math import prod
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple, Union
+from typing import Dict, List, Optional, Union
 
 import metatensor.torch
 import torch
@@ -289,9 +289,7 @@ class NanoPET(torch.nn.Module):
             ll_per_pair_samples,
             ll_per_pair_samples_sym,
             atomic_basis_samples,
-        ) = get_samples(
-            systems, self.atomic_types, self.atomic_basis_target_info
-        )
+        ) = get_samples(systems, self.atomic_types, self.atomic_basis_target_info)
 
         # somehow the backward of this operation is very slow at evaluation,
         # where there is only one cell, therefore we simplify the calculation
@@ -411,18 +409,21 @@ class NanoPET(torch.nn.Module):
 
         atomic_features_dict: Dict[str, torch.Tensor] = {}
         for output_name, head in self.heads.items():
-            output_info = self.outputs[output_name]
-            if (
-                self.atomic_basis_target_info[output_name]["type"] == "atomic_basis_spherical"
-                and self.atomic_basis_target_info[output_name]["sample_kind"].startswith("per_pair")
-            ):
+            if self.atomic_basis_target_info[output_name][
+                "type"
+            ] == "atomic_basis_spherical" and self.atomic_basis_target_info[
+                output_name
+            ]["sample_kind"].startswith("per_pair"):
                 # a two-center target on an atomic basis must be treated specially
 
                 # pass the node features through its head
                 ll_node_features = head[0](node_features)
 
                 # symmetrize the PET edge features and pass through its head
-                if self.atomic_basis_target_info[output_name]["sample_kind"] == "per_pair_sym":
+                if (
+                    self.atomic_basis_target_info[output_name]["sample_kind"]
+                    == "per_pair_sym"
+                ):
                     ll_edge_features = head[1](
                         symmetrize_edge_features(
                             systems,
@@ -445,7 +446,7 @@ class NanoPET(torch.nn.Module):
                 atomic_features_dict[output_name] = torch.vstack(
                     [ll_node_features, ll_edge_features]
                 )
-                
+
             else:
                 atomic_features_dict[output_name] = head(node_features)
 
@@ -515,15 +516,27 @@ class NanoPET(torch.nn.Module):
                 # select the appropriate samples labels of the last layer features:
                 # atomic basis spherical targets have different cases depending on
                 # whether they are per-atom or per-pair (and symmetrized or not).
-                if self.atomic_basis_target_info[output_name]["type"] == "atomic_basis_spherical":
-                    if self.atomic_basis_target_info[output_name]["sample_kind"] == "per_atom":
+                if (
+                    self.atomic_basis_target_info[output_name]["type"]
+                    == "atomic_basis_spherical"
+                ):
+                    if (
+                        self.atomic_basis_target_info[output_name]["sample_kind"]
+                        == "per_atom"
+                    ):
                         ll_sample_labels = node_samples
-                    elif self.atomic_basis_target_info[output_name]["sample_kind"] == "per_pair":
+                    elif (
+                        self.atomic_basis_target_info[output_name]["sample_kind"]
+                        == "per_pair"
+                    ):
                         ll_sample_labels = ll_per_pair_samples
                     else:
-                        assert self.atomic_basis_target_info[output_name]["sample_kind"] == "per_pair_sym"
+                        assert (
+                            self.atomic_basis_target_info[output_name]["sample_kind"]
+                            == "per_pair_sym"
+                        )
                         ll_sample_labels = ll_per_pair_samples_sym
-                
+
                 # all other target types have the standard node samples
                 else:
                     ll_sample_labels = node_samples
@@ -533,13 +546,13 @@ class NanoPET(torch.nn.Module):
                     # to be sliced for each output block, depending on the atom type(s)
                     # (and permutational symmetry, if applicable) the block corresponds
                     # to
-                    if self.atomic_basis_target_info[output_name]["type"] == "atomic_basis_spherical":
-
+                    if (
+                        self.atomic_basis_target_info[output_name]["type"]
+                        == "atomic_basis_spherical"
+                    ):
                         output_block_sample_labels = atomic_basis_samples[
                             self.atomic_basis_target_info[output_name]["sample_kind"]
-                        ][
-                            self.atomic_basis_sample_types[output_name][last_layer_key]
-                        ]
+                        ][self.atomic_basis_sample_types[output_name][last_layer_key]]
 
                         atomic_features_sliced = atomic_features[
                             ll_sample_labels.select(output_block_sample_labels)
@@ -547,14 +560,27 @@ class NanoPET(torch.nn.Module):
 
                         # remove superfluous sample dimensions - these are now in the
                         # TensorMap key for this output block
-                        if self.atomic_basis_target_info[output_name]["sample_kind"] == "per_pair":
-                            assert output_block_sample_labels.names[:2] == ["first_atom_type", "second_atom_type"]
+                        if (
+                            self.atomic_basis_target_info[output_name]["sample_kind"]
+                            == "per_pair"
+                        ):
+                            assert output_block_sample_labels.names[:2] == [
+                                "first_atom_type",
+                                "second_atom_type",
+                            ]
                             output_block_sample_labels = Labels(
                                 output_block_sample_labels.names[2:],
                                 output_block_sample_labels.values[:, 2:],
                             )
-                        elif self.atomic_basis_target_info[output_name]["sample_kind"] == "per_pair_sym":
-                            assert output_block_sample_labels.names[:3] == ["s2_pi", "first_atom_type", "second_atom_type"]
+                        elif (
+                            self.atomic_basis_target_info[output_name]["sample_kind"]
+                            == "per_pair_sym"
+                        ):
+                            assert output_block_sample_labels.names[:3] == [
+                                "s2_pi",
+                                "first_atom_type",
+                                "second_atom_type",
+                            ]
                             output_block_sample_labels = Labels(
                                 output_block_sample_labels.names[3:],
                                 output_block_sample_labels.values[:, 3:],
@@ -713,7 +739,9 @@ class NanoPET(torch.nn.Module):
             # features before passing to the heads: store the key dimensions required
             # for this slicing
             if target_info.is_atomic_basis_spherical_per_atom:
-                self.atomic_basis_sample_types[target_name][dict_key] = f"{key['center_type']}"
+                self.atomic_basis_sample_types[target_name][dict_key] = (
+                    f"{key['center_type']}"
+                )
             elif target_info.is_atomic_basis_spherical_per_pair:
                 if "s2_pi" in target_info.layout.keys.names:
                     self.atomic_basis_sample_types[target_name][dict_key] = (
@@ -744,21 +772,29 @@ class NanoPET(torch.nn.Module):
                     [
                         torch.nn.Sequential(  # node
                             torch.nn.Linear(
-                                self.hypers["d_pet"], 4 * self.hypers["d_pet"], bias=False
+                                self.hypers["d_pet"],
+                                4 * self.hypers["d_pet"],
+                                bias=False,
                             ),
                             torch.nn.SiLU(),
                             torch.nn.Linear(
-                                4 * self.hypers["d_pet"], self.hypers["d_pet"], bias=False
+                                4 * self.hypers["d_pet"],
+                                self.hypers["d_pet"],
+                                bias=False,
                             ),
                             torch.nn.SiLU(),
                         ),
                         torch.nn.Sequential(  # edge
                             torch.nn.Linear(
-                                self.hypers["d_pet"], 4 * self.hypers["d_pet"], bias=False
+                                self.hypers["d_pet"],
+                                4 * self.hypers["d_pet"],
+                                bias=False,
                             ),
                             torch.nn.SiLU(),
                             torch.nn.Linear(
-                                4 * self.hypers["d_pet"], self.hypers["d_pet"], bias=False
+                                4 * self.hypers["d_pet"],
+                                self.hypers["d_pet"],
+                                bias=False,
                             ),
                             torch.nn.SiLU(),
                         ),
@@ -782,7 +818,7 @@ class NanoPET(torch.nn.Module):
             if target_info.is_atomic_basis_spherical_per_pair:
                 self.heads[target_name] = torch.nn.ModuleList(
                     [
-                        torch.nn.Sequential(),  # node
+                        torch.nn.Sequential(),  # node
                         torch.nn.Sequential(),  # edge
                     ]
                 )
@@ -842,4 +878,3 @@ def manual_prod(shape: List[int]) -> int:
     for dim in shape:
         result *= dim
     return result
-

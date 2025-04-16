@@ -54,20 +54,15 @@ def divide_by_num_atoms(tensor_map: TensorMap, num_atoms: torch.Tensor) -> Tenso
     :return: A new tensor map with the values divided by the number of atoms.
     """
     # Don't do anything if these are "atomic", i.e. per-atom or per-pair
-    if (
-        "atom" in tensor_map.sample_names
-        or (
-            "first_atom" in tensor_map.sample_names
-            and "second_atom" in tensor_map.sample_names
-        )
+    if "atom" in tensor_map.sample_names or (
+        "first_atom" in tensor_map.sample_names
+        and "second_atom" in tensor_map.sample_names
     ):
         return tensor_map
 
     blocks = []
     for block in tensor_map.blocks():
-        values = block.values / num_atoms.view(
-            -1, *[1] * (len(block.values.shape) - 1)
-        )
+        values = block.values / num_atoms.view(-1, *[1] * (len(block.values.shape) - 1))
         new_block = TensorBlock(
             values=values,
             samples=block.samples,
