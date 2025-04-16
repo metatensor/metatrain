@@ -56,7 +56,7 @@ Input file
 In order to read a generic target, you will have to specify its layout in the input
 file. Suppose you want to learn a target named ``mtt::my_target``, which is
 represented as a set of 10 independent per-atom 3D Cartesian vector (we need to
-learn 3x10 values for each atom). The ``target`` section in the input file
+learn 3x10 values for each atom). The ``targets`` section in the input file
 should look
 like this:
 
