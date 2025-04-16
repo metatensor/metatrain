@@ -6,14 +6,15 @@ from metatensor.torch.atomistic import (
     ModelEvaluationOptions,
     ModelMetadata,
     ModelOutput,
-    load_atomistic_model,
 )
 
 from metatrain.utils.data import Dataset, collate_fn, read_systems, read_targets
 from metatrain.utils.llpr import LLPRUncertaintyModel
 from metatrain.utils.loss import TensorMapDictLoss
-from metatrain.utils.neighbor_lists import get_system_with_neighbor_lists
-from metatrain.utils.neighbor_lists import get_requested_neighbor_lists
+from metatrain.utils.neighbor_lists import (
+    get_requested_neighbor_lists,
+    get_system_with_neighbor_lists,
+)
 
 
 dtype = torch.float64  # matching the model that was trained

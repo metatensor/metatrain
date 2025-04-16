@@ -29,22 +29,17 @@ the :ref:`label_basic_usage` tutorial.
 
 import torch
 
-from metatrain.utils.io import load_model
-
-
 # %%
 #
 # Models can be loaded using the :func:`metatrain.utils.io.load_model` function from
 # the. For already exported models The function requires the path to the exported model
 # and, for many models, also the path to the respective extensions directory. Both are
 # produced during the training process.
-
 # %%
 #
 # In metatrain, a Dataset is composed of a list of systems and a dictionary of targets.
 # The following lines illustrate how to read systems and targets from xyz files, and
 # how to create a Dataset object from them.
-
 from metatrain.utils.data import Dataset, read_systems, read_targets  # noqa: E402
 from metatrain.utils.neighbor_lists import (  # noqa: E402
     get_requested_neighbor_lists,
@@ -71,10 +66,6 @@ target_config = {
 }
 targets, _ = read_targets(target_config)
 
-from metatensor.torch.atomistic import (  # noqa: E402
-    MetatensorAtomisticModel,
-    ModelMetadata,
-)
 
 from metatrain.utils.llpr import LLPRUncertaintyModel  # noqa: E402
 
