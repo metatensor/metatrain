@@ -13,10 +13,11 @@ from metatrain.utils.data import Dataset, collate_fn, read_systems, read_targets
 from metatrain.utils.llpr import LLPRUncertaintyModel
 from metatrain.utils.loss import TensorMapDictLoss
 from metatrain.utils.neighbor_lists import get_system_with_neighbor_lists
+from metatrain.utils.neighbor_lists import get_requested_neighbor_lists
 
 
-model = load_atomistic_model("model.pt", extensions_directory="extensions/")
-model = model.to("cuda")
+dtype = torch.float64  # matching the model that was trained
+device = "cuda" if torch.cuda.is_available() else "cpu"
 
 train_systems = read_systems("train.xyz")
 train_target_config = {
@@ -105,7 +106,10 @@ test_target_config = {
 }
 test_targets, target_info = read_targets(test_target_config)
 
-requested_neighbor_lists = model.requested_neighbor_lists()
+llpr_model = LLPRUncertaintyModel("model.ckpt")
+llpr_model.to(device)
+
+requested_neighbor_lists = get_requested_neighbor_lists(llpr_model)
 train_systems = [
     get_system_with_neighbor_lists(system, requested_neighbor_lists)
     for system in train_systems
@@ -148,8 +152,6 @@ loss_weight_dict = {
 }
 loss_fn = TensorMapDictLoss(loss_weight_dict)
 
-llpr_model = LLPRUncertaintyModel(model)
-
 print("Last layer parameters:")
 parameters = []
 for name, param in llpr_model.named_parameters():
@@ -173,7 +175,7 @@ evaluation_options = ModelEvaluationOptions(
     length_unit="angstrom",
     outputs={
         "mtt::aux::energy_last_layer_features": ModelOutput(per_atom=False),
-        "mtt::aux::energy_uncertainty": ModelOutput(per_atom=False),
+        "energy_uncertainty": ModelOutput(per_atom=False),
         "energy": ModelOutput(per_atom=False),
     },
     selected_atoms=None,
@@ -183,12 +185,11 @@ force_errors = []
 force_uncertainties = []
 
 for batch in test_dataloader:
-    dtype = getattr(torch, model.capabilities().dtype)
     systems, targets = batch
-    systems = [system.to("cuda", dtype) for system in systems]
+    systems = [system.to(device, dtype) for system in systems]
     for system in systems:
         system.positions.requires_grad = True
-    targets = {name: tmap.to("cuda", dtype) for name, tmap in targets.items()}
+    targets = {name: tmap.to(device, dtype) for name, tmap in targets.items()}
 
     outputs = exported_model(systems, evaluation_options, check_consistency=True)
     energy = outputs["energy"].block().values
@@ -221,7 +222,7 @@ for batch in test_dataloader:
     force_uncertainty = torch.einsum(
         "if, fg, ig -> i",
         ll_feature_grads,
-        exported_model.module.inv_covariances["mtt::aux::energy_uncertainty"],
+        exported_model.module._get_inv_covariance("energy_uncertainty"),
         ll_feature_grads,
     )
     force_uncertainties.append(force_uncertainty.detach().clone().cpu().numpy())

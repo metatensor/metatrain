@@ -39,9 +39,6 @@ from metatrain.utils.io import load_model
 # and, for many models, also the path to the respective extensions directory. Both are
 # produced during the training process.
 
-
-model = load_model("model.pt", extensions_directory="extensions/")
-
 # %%
 #
 # In metatrain, a Dataset is composed of a list of systems and a dictionary of targets.
@@ -74,7 +71,17 @@ target_config = {
 }
 targets, _ = read_targets(target_config)
 
-requested_neighbor_lists = get_requested_neighbor_lists(model)
+from metatensor.torch.atomistic import (  # noqa: E402
+    MetatensorAtomisticModel,
+    ModelMetadata,
+)
+
+from metatrain.utils.llpr import LLPRUncertaintyModel  # noqa: E402
+
+
+llpr_model = LLPRUncertaintyModel("model.ckpt")
+
+requested_neighbor_lists = get_requested_neighbor_lists(llpr_model)
 qm9_systems = [
     get_system_with_neighbor_lists(system, requested_neighbor_lists)
     for system in qm9_systems
@@ -111,27 +118,16 @@ dataloader = torch.utils.data.DataLoader(
 # to compute prediction rigidity metrics, which are useful for uncertainty
 # quantification and model introspection.
 
-from metatensor.torch.atomistic import (  # noqa: E402
-    MetatensorAtomisticModel,
-    ModelMetadata,
-)
 
-from metatrain.utils.llpr import LLPRUncertaintyModel  # noqa: E402
-
-
-llpr_model = LLPRUncertaintyModel(model)
 llpr_model.compute_covariance(dataloader)
 llpr_model.compute_inverse_covariance(regularizer=1e-4)
 
 # calibrate on the same dataset for simplicity. In reality, a separate
 # calibration/validation dataset should be used.
+print("Calibrate")
 llpr_model.calibrate(dataloader)
 
-exported_model = MetatensorAtomisticModel(
-    llpr_model.eval(),
-    ModelMetadata(),
-    llpr_model.capabilities,
-)
+exported_model = llpr_model.export()
 
 # %%
 #
@@ -148,7 +144,7 @@ evaluation_options = ModelEvaluationOptions(
     outputs={
         # request the uncertainty in the atomic energy predictions
         "energy": ModelOutput(per_atom=True),  # needed to request the uncertainties
-        "mtt::aux::energy_uncertainty": ModelOutput(per_atom=True),
+        "energy_uncertainty": ModelOutput(per_atom=True),
         # `per_atom=False` would return the total uncertainty for the system,
         # or (the inverse of) the TPR (total prediction rigidity)
         # you also can request other outputs from the model here, for example:
@@ -158,7 +154,7 @@ evaluation_options = ModelEvaluationOptions(
 )
 
 outputs = exported_model([ethanol_system], evaluation_options, check_consistency=False)
-lpr = outputs["mtt::aux::energy_uncertainty"].block().values.detach().cpu().numpy()
+lpr = outputs["energy_uncertainty"].block().values.detach().cpu().numpy()
 
 # %%
 #
