@@ -187,26 +187,6 @@ def _apply_wigner_D_matrices(
                 else:
                     raise ValueError(f"unexpected samples: {block.samples}")
 
-            # TODO: implement rotations of 2 component axes
-            elif (
-                "o3_lambda_1" in key.names and "o3_lambda_2" in key.names
-            ):  # two "o3_mu_x" components
-                if "atom" in block.samples.names:  # node target
-                    raise NotImplementedError(
-                        "rotations with 2 components axes not yet supported"
-                    )
-
-                elif (
-                    "first_atom" in block.samples.names
-                    and "second_atom" in block.samples.names
-                ):  # edge target
-                    raise NotImplementedError(
-                        "rotations with 2 components axes not yet supported"
-                    )
-
-                else:
-                    raise ValueError(f"unexpected samples: {block.samples}")
-
             else:
                 raise ValueError(f"unexpected key dimensions: {key.names}")
 

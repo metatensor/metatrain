@@ -103,7 +103,6 @@ class TensorMapLoss:
                 raise ValueError(
                     "TensorMapSlidingLoss requires the two TensorMaps "
                     "to have the same number of samples."
-                    f"{block_1.samples}, {block_2.samples}"
                 )
             for gradient_name in self.gradient_weights.keys():
                 if len(block_1.gradient(gradient_name).samples) != len(
@@ -150,6 +149,8 @@ class TensorMapLoss:
             block_2 = targets_tensor_map.block(key)
             values_1 = block_1.values
             values_2 = block_2.values
+            # skip in case of empty blocks, which can occur for atomic basis spherical
+            # targets, for instance
             if values_1.shape[0] == 0:
                 assert values_2.shape[0] == 0
                 continue

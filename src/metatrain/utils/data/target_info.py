@@ -49,7 +49,8 @@ class TargetInfo:
 
     @property
     def per_atom(self) -> bool:
-        """Whether the target is per atom. Also applies to per atom pair quantities."""
+        """Whether the target is per atom. Also applies to per-pair quantities."""
+        # TODO: separate once per-pair quantities are supported in ModelOutput
         return "atom" in self.layout.block(0).samples.names or (
             "first_atom" in self.layout.block(0).samples.names
             and "second_atom" in self.layout.block(0).samples.names
@@ -156,37 +157,6 @@ class TargetInfo:
                     "treated as either spherical targets or atomic "
                     "spherical basis targets, and are expected to have "
                     "at least 'o3_lambda' and 'o3_sigma' key dimensions."
-                )
-        elif (
-            len(components_first_block) == 2
-            and components_first_block[0].names[0] == "o3_mu_1"
-            and components_first_block[1].names[0] == "o3_mu_2"
-        ):
-            if (
-                "o3_lambda_1" in layout.keys.names
-                and "o3_lambda_2" in layout.keys.names
-                and "o3_sigma" in layout.keys.names
-            ):
-                if "center_type" in layout.keys.names:
-                    self.is_atomic_basis_spherical_per_atom = True
-                elif (
-                    "first_atom_type" in layout.keys.names
-                    and "second_atom_type" in layout.keys.names
-                ):
-                    self.is_atomic_basis_spherical_per_pair = True
-                else:
-                    raise ValueError(
-                        "invalid key names. If specifying a spherical target "
-                        "on an atomic basis, the keys should include either "
-                        "'center_type' or ['first_atom_type', 'second_atom_type']"
-                    )
-            else:
-                raise ValueError(
-                    f"invalid key names: {layout.keys.names}. "
-                    "Targets with 2 'o3_mu_{x}' components axes are "
-                    "treated as atomic spherical basis targets, and are "
-                    "expected to have at least 'o3_lambda_1', 'o3_lambda_2', "
-                    "and 'o3_sigma' key dimensions."
                 )
         else:
             raise ValueError(
@@ -317,53 +287,10 @@ class TargetInfo:
                             "targets are not supported."
                         )
 
-            # If "o3_lambda_1" and "o3_lambda_2" is in the keys, there should be two
-            # components, "o3_mu_1" and "o3_mu_2"
-            elif o3_lambda_like_dims == ["o3_lambda_1", "o3_lambda_2"]:
-                for key, block in layout.items():
-                    o3_lambda_1, o3_lambda_2, o3_sigma = (
-                        int(key.values[layout.keys.names.index("o3_lambda_1")].item()),
-                        int(key.values[layout.keys.names.index("o3_lambda_2")].item()),
-                        int(key.values[layout.keys.names.index("o3_sigma")].item()),
-                    )
-                    if o3_sigma not in [-1, 1]:
-                        raise ValueError(
-                            "The layout ``TensorMap`` of a spherical tensor target "
-                            "should have a key sample 'o3_sigma' that is either -1 "
-                            f"or 1. Found '{o3_sigma}' instead."
-                        )
-                    if len(block.components) != 2:
-                        raise ValueError(
-                            "The layout ``TensorMap`` of an atomic-basis spherical "
-                            "tensor target should have a single component."
-                        )
-                    for o3_mu_i, o3_lambda in enumerate([o3_lambda_1, o3_lambda_2]):
-                        if o3_lambda < 0:
-                            raise ValueError(
-                                "The layout ``TensorMap`` of an atomic-basis spherical "
-                                "tensor target should have a key dimension 'o3_lambda' "
-                                f"that is non-negative. Found '{o3_lambda}' instead."
-                            )
-                        components = block.components[o3_mu_i]
-
-                        if len(components) != 2 * o3_lambda + 1:
-                            raise ValueError(
-                                "Each ``TensorBlock`` of an atomic-basis spherical "
-                                f"tensor target should have component axis {o3_mu_i} "
-                                f"with 2*o3_lambda_{o3_mu_i} + 1 elements. Found "
-                                f"'{len(components)}' elements instead."
-                            )
-                    if len(block.gradients_list()) > 0:
-                        raise ValueError(
-                            "Gradients of an atomic-basis spherical "
-                            "targets are not supported."
-                        )
-
             else:
                 raise ValueError(
-                    "atomic basis spherical targets should only have 'o3_lambda' or "
-                    "['o3_lambda_1', 'o3_lambda_2'] key dimensions for spherical "
-                    "symmetry"
+                    "atomic basis spherical targets should only have 'o3_lambda' "
+                    "key dimension for spherical symmetry"
                 )
 
             # For edges, check that atom types are triangularized in the keys
