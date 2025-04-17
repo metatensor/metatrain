@@ -31,7 +31,6 @@ def get_dataset(options: DictConfig) -> Tuple[Dataset, Dict[str, TargetInfo]]:
             filename=options["systems"]["read_from"],
             reader=options["systems"]["reader"],
         )
-        print(options["targets"])
         targets, target_info_dictionary = read_targets(conf=options["targets"])
         dataset = Dataset.from_dict({"system": systems, **targets})
 

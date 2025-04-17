@@ -152,6 +152,7 @@ def _apply_wigner_D_matrices(
 
         if target_type == "spherical":
             if "atom" in block.samples.names:
+                # use a dummy s2_pi value of -1000 (for torchscript) when not present
                 split_indices = _get_system_split_indices(
                     systems, "per_atom", [], -1000
                 )
