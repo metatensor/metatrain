@@ -38,8 +38,8 @@ be adjusted. They should be written without indentation in the ``options.yaml`` 
 
         You need to install wandb with ``pip install wandb`` if you want to use this
         logger. **Before** running also set up your credentials with ``wandb login``
-        from the command line. See `wandb init
-        documentation<https://docs.wandb.ai/ref/cli/wandb-login/>`_ for details on the
+        from the command line. See `wandb login
+        documentation <https://docs.wandb.ai/ref/cli/wandb-login/>`_ for details on the
         setup.
 
 In the next tutorials we show how to override the default parameters of an architecture.
