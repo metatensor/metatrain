@@ -6,6 +6,8 @@ from typing import List, Union
 import torch
 import torch.distributed
 from torch.utils.data import DataLoader, DistributedSampler
+import warnings
+import metatensor.torch
 
 from ...utils.additive import remove_additive
 from ...utils.data import CombinedDataLoader, Dataset, _is_disk_dataset, collate_fn
@@ -29,7 +31,12 @@ from ...utils.transfer import (
 )
 from .model import NanoPET
 from .modules.augmentation import RotationalAugmenter
+from metatensor.torch import Labels, TensorBlock, TensorMap
+from ...utils.data import TargetInfo
+from ...utils.data.target_info import get_energy_target_info
 
+from metatensor.torch.atomistic import load_atomistic_model, ModelOutput, ModelEvaluationOptions, System
+from ase.data import atomic_masses
 
 logger = logging.getLogger(__name__)
 
@@ -196,7 +203,7 @@ class Trainer:
         val_dataloader = CombinedDataLoader(val_dataloaders, shuffle=False)
 
         # Extract all the possible outputs and their gradients:
-        train_targets = (model.module if is_distributed else model).dataset_info.targets
+        train_targets = (model.module if is_distributed else model).scaler.dataset_info.targets
         outputs_list = []
         for target_name, target_info in train_targets.items():
             outputs_list.append(target_name)
@@ -258,6 +265,20 @@ class Trainer:
 
         start_epoch = 0 if self.epoch is None else self.epoch + 1
 
+        scaler_scales = (
+            model.module if is_distributed else model
+        ).scaler.get_scales_dict()
+
+        potential_energy_model = load_atomistic_model(
+            self.hypers["energy_model_path"],
+            extensions_directory=self.hypers["energy_model_extensions_path"],
+        ).to(device=device)
+        evaluation_options = ModelEvaluationOptions(
+            length_unit="Angstrom",
+            outputs={"energy": ModelOutput(unit="eV")},
+        )
+        atomic_masses_torch = torch.tensor(atomic_masses, dtype=torch.float32, device="cuda")
+
         # Train the model:
         if self.best_metric is None:
             self.best_metric = float("inf")
@@ -299,9 +320,11 @@ class Trainer:
                 predictions = evaluate_model(
                     model,
                     systems,
-                    {key: train_targets[key] for key in targets.keys()},
+                    {key: train_targets[key] for key in targets.keys() if "energy" not in key},
                     is_training=True,
                 )
+                rescaled_predictions = {k: metatensor.torch.multiply(p, scaler_scales[k]) for k, p in predictions.items()}
+                predictions["mtt::energy_30"] = get_total_energy(systems, rescaled_predictions, potential_energy_model, evaluation_options, atomic_masses_torch)
 
                 # average by the number of atoms
                 predictions = average_by_num_atoms(
@@ -337,45 +360,49 @@ class Trainer:
                 )
 
             val_loss = 0.0
-            for batch in val_dataloader:
-                systems, targets = batch
-                systems = [system.to(device=device) for system in systems]
-                targets = {
-                    key: value.to(device=device) for key, value in targets.items()
-                }
-                for additive_model in (
-                    model.module if is_distributed else model
-                ).additive_models:
-                    targets = remove_additive(
-                        systems, targets, additive_model, train_targets
+            with torch.no_grad():
+                for batch in val_dataloader:
+                    systems, targets = batch
+                    systems = [system.to(device=device) for system in systems]
+                    targets = {
+                        key: value.to(device=device) for key, value in targets.items()
+                    }
+                    for additive_model in (
+                        model.module if is_distributed else model
+                    ).additive_models:
+                        targets = remove_additive(
+                            systems, targets, additive_model, train_targets
+                        )
+                    targets = remove_scale(
+                        targets, (model.module if is_distributed else model).scaler
                     )
-                targets = remove_scale(
-                    targets, (model.module if is_distributed else model).scaler
-                )
-                systems = [system.to(dtype=dtype) for system in systems]
-                targets = {key: value.to(dtype=dtype) for key, value in targets.items()}
-                predictions = evaluate_model(
-                    model,
-                    systems,
-                    {key: train_targets[key] for key in targets.keys()},
-                    is_training=False,
-                )
+                    systems = [system.to(dtype=dtype) for system in systems]
+                    targets = {key: value.to(dtype=dtype) for key, value in targets.items()}
+                    predictions = evaluate_model(
+                        model,
+                        systems,
+                        {key: train_targets[key] for key in targets.keys() if "energy" not in key},
+                        is_training=False,
+                    )
 
-                # average by the number of atoms
-                predictions = average_by_num_atoms(
-                    predictions, systems, per_structure_targets
-                )
-                targets = average_by_num_atoms(targets, systems, per_structure_targets)
+                    rescaled_predictions = {k: metatensor.torch.multiply(p, scaler_scales[k]) for k, p in predictions.items()}
+                    predictions["mtt::energy_30"] = get_total_energy(systems, rescaled_predictions, potential_energy_model, evaluation_options, atomic_masses_torch)
 
-                val_loss_batch = loss_fn(predictions, targets)
+                    # average by the number of atoms
+                    predictions = average_by_num_atoms(
+                        predictions, systems, per_structure_targets
+                    )
+                    targets = average_by_num_atoms(targets, systems, per_structure_targets)
 
-                if is_distributed:
-                    # sum the loss over all processes
-                    torch.distributed.all_reduce(val_loss_batch)
-                val_loss += val_loss_batch.item()
-                val_rmse_calculator.update(predictions, targets)
-                if self.hypers["log_mae"]:
-                    val_mae_calculator.update(predictions, targets)
+                    val_loss_batch = loss_fn(predictions, targets)
+
+                    if is_distributed:
+                        # sum the loss over all processes
+                        torch.distributed.all_reduce(val_loss_batch)
+                    val_loss += val_loss_batch.item()
+                    val_rmse_calculator.update(predictions, targets)
+                    if self.hypers["log_mae"]:
+                        val_mae_calculator.update(predictions, targets)
 
             finalized_val_info = val_rmse_calculator.finalize(
                 not_per_atom=["positions_gradients"] + per_structure_targets,
@@ -399,14 +426,16 @@ class Trainer:
             }
 
             if epoch == start_epoch:
+                dataset_info_for_logging = copy.deepcopy(
+                    model.module if is_distributed else model
+                ).dataset_info
+                dataset_info_for_logging.targets["mtt::energy_30"] = get_energy_target_info({"unit": "eV", "per_atom": False})
                 scaler_scales = (
                     model.module if is_distributed else model
                 ).scaler.get_scales_dict()
                 metric_logger = MetricLogger(
                     log_obj=logger,
-                    dataset_info=(
-                        model.module if is_distributed else model
-                    ).dataset_info,
+                    dataset_info=dataset_info_for_logging,
                     initial_metrics=[finalized_train_info, finalized_val_info],
                     names=["training", "validation"],
                     scales={
@@ -516,3 +545,51 @@ class Trainer:
         trainer.best_optimizer_state_dict = best_optimizer_state_dict
 
         return trainer
+
+
+def get_total_energy(systems, predictions, potential_energy_model, evaluation_options, atomic_masses_torch):
+    for key in predictions.keys():
+        if "mtt::delta_" in key and "_q" in key:
+            delta_q_key = key
+        if "mtt::p_" in key:
+            p_prime_key = key
+    
+    delta_q = torch.split(predictions[delta_q_key].block().values.squeeze(-1), [len(system) for system in systems])
+    p_prime = torch.split(predictions[p_prime_key].block().values.squeeze(-1), [len(system) for system in systems])
+    # p_prime = [system.get_data("momenta").block().values.squeeze(-1) for system in systems]
+
+    new_systems = []
+    for dq, system in zip(delta_q, systems):
+        new_system = System(
+            positions=system.positions + dq,
+            types=system.types,
+            cell=system.cell,
+            pbc=system.pbc,
+        )
+        with warnings.catch_warnings():
+            # this seems to be the only way to filter out the torch-scripted warnings
+            # about neighbors (which are not relevant here), regex fails
+            warnings.simplefilter("ignore")
+            new_system = get_system_with_neighbor_lists(new_system, potential_energy_model.requested_neighbor_lists())
+        new_systems.append(new_system)
+
+    # new_systems = systems
+
+    potential_energies = potential_energy_model(new_systems, evaluation_options, check_consistency=False)["energy"].block().values.squeeze(-1)
+    atomic_numbers = [system.types for system in systems]
+    kinetic_energies = [0.5 * torch.sum((p_prime[i] ** 2) / atomic_masses_torch[atomic_numbers[i]].unsqueeze(-1)) for i in range(len(systems))]
+    kinetic_energies = torch.stack(kinetic_energies)
+    # print("potential_energies", potential_energies)
+    # print("kinetic_energies", kinetic_energies)
+    total_energies = potential_energies + kinetic_energies
+    return TensorMap(
+        keys=Labels.single().to(device=total_energies.device),
+        blocks=[
+            TensorBlock(
+                values=total_energies.unsqueeze(-1),
+                samples=Labels(names=["system"], values=torch.arange(len(systems), device=total_energies.device).unsqueeze(-1)),
+                components=[],
+                properties=Labels.single().to(device=total_energies.device),
+            )
+        ],
+    )
