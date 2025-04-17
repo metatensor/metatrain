@@ -29,6 +29,11 @@ Fixed
 
 - ``NativePET`` can now evaluate on single-atom structures without crashing
 
+Added
+#####
+
+- ``NanoPET`` and ``NativePET`` can now train on non-conservative stresses
+
 Version 2025.5 - 2025-04-13
 ---------------------------
 

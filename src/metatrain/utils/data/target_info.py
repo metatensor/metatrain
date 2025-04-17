@@ -1,6 +1,5 @@
 from typing import List, Union
 
-import metatensor.torch
 import torch
 from metatensor.torch import Labels, TensorBlock, TensorMap
 from omegaconf import DictConfig
@@ -65,7 +64,9 @@ class TargetInfo:
         return (
             self.quantity == other.quantity
             and self.unit == other.unit
-            and metatensor.torch.equal(self.layout, other.layout)
+            # we can't use metatensor.torch.equal here because we want to allow
+            # for potential gradient mismatches (e.g. energy-0nly vs energy+forces)
+            and _is_equal_up_to_gradients(self.layout, other.layout)
         )
 
     def _check_layout(self, layout: TensorMap) -> None:
@@ -428,3 +429,26 @@ def is_auxiliary_output(name: str) -> bool:
         name == "features" or name == "energy_ensemble" or name.startswith("mtt::aux::")
     )
     return is_auxiliary
+
+
+def _is_equal_up_to_gradients(
+    layout1: TensorMap,
+    layout2: TensorMap,
+) -> bool:
+    # checks if the two layouts are equal up to gradients
+    if len(layout1) != len(layout2):
+        return False
+    for key in layout1.keys:
+        if key not in layout2.keys:
+            return False
+        block1 = layout1[key]
+        block2 = layout2[key]
+        if block1.samples != block2.samples:
+            return False
+        if block1.components != block2.components:
+            return False
+        if block1.properties != block2.properties:
+            return False
+        if not torch.allclose(block1.values, block2.values):
+            return False
+    return True

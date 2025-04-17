@@ -60,7 +60,9 @@ def remove_additive(
                 components=old_block.components,
                 properties=old_block.properties,
             )
-            for gradient_name, gradient in old_block.gradients():
+            for gradient_name, gradient in (
+                targets[target_key].block(block_key).gradients()
+            ):
                 block.add_gradient(
                     gradient_name,
                     metatensor.torch.TensorBlock(
