@@ -32,12 +32,10 @@ from ..utils.distributed.logging import is_main_process
 from ..utils.errors import ArchitectureError
 from ..utils.io import check_file_extension, load_model
 from ..utils.jsonschema import validate
+from ..utils.logging import ROOT_LOGGER, WandbHandler
 from ..utils.omegaconf import BASE_OPTIONS, check_units, expand_dataset_config
 from .eval import _eval_targets
 from .formatter import CustomHelpFormatter
-
-
-logger = logging.getLogger(__name__)
 
 
 def _add_train_model_parser(subparser: argparse._SubParsersAction) -> None:
@@ -116,10 +114,10 @@ def _process_continue_from(continue_from: str) -> Optional[str]:
             new_continue_from = str(
                 sorted(dir.glob("*.ckpt"), key=lambda f: f.stat().st_ctime)[-1]
             )
-            logger.info(f"Auto-continuing from `{new_continue_from}`")
+            logging.info(f"Auto-continuing from `{new_continue_from}`")
         else:
             new_continue_from = None
-            logger.info(
+            logging.info(
                 "Auto-continuation did not find any previous runs, "
                 "training from scratch"
             )
@@ -176,7 +174,7 @@ def train_model(
     )
     architecture = import_architecture(architecture_name)
 
-    logger.info(f"Running training for {architecture_name!r} architecture")
+    logging.info(f"Running training for {architecture_name!r} architecture")
 
     Model = architecture.__model__
     Trainer = architecture.__trainer__
@@ -212,7 +210,7 @@ def train_model(
         )
 
     # process random seeds
-    logger.info(f"Random seed of this run is {options['seed']}")
+    logging.info(f"Random seed of this run is {options['seed']}")
     torch.manual_seed(options["seed"])
     np.random.seed(options["seed"])
     random.seed(options["seed"])
@@ -221,11 +219,27 @@ def train_model(
         torch.cuda.manual_seed(options["seed"])
         torch.cuda.manual_seed_all(options["seed"])
 
+    # setup wandb logging
+    if hasattr(options, "wandb"):
+        try:
+            import wandb
+        except ImportError:
+            raise ImportError(
+                "Wandb is enabled but not installed. "
+                "Please install wandb using `pip install wandb` to use this logger."
+            )
+        logging.info("Setting up wandb logging")
+
+        run = wandb.init(
+            **options["wandb"], config=OmegaConf.to_container(options, resolve=True)
+        )
+        ROOT_LOGGER.addHandler(WandbHandler(run))
+
     ############################
     # SET UP TRAINING SET ######
     ############################
 
-    logger.info("Setting up training set")
+    logging.info("Setting up training set")
     options["training_set"] = expand_dataset_config(options["training_set"])
 
     train_datasets = []
@@ -248,7 +262,7 @@ def train_model(
     # SET UP VALIDATION SET ####
     ############################
 
-    logger.info("Setting up validation set")
+    logging.info("Setting up validation set")
     val_datasets = []
     train_indices = []
     val_indices = []
@@ -291,7 +305,7 @@ def train_model(
     # SET UP TEST SET ##########
     ############################
 
-    logger.info("Setting up test set")
+    logging.info("Setting up test set")
     test_datasets = []
     test_indices = []
     if isinstance(options["test_set"], float):
@@ -367,7 +381,7 @@ def train_model(
             index = ""
         else:
             index = f" {i}"
-        logger.info(
+        logging.info(
             f"Training dataset{index}:\n    {get_stats(train_dataset, dataset_info)}"
         )
 
@@ -376,7 +390,7 @@ def train_model(
             index = ""
         else:
             index = f" {i}"
-        logger.info(
+        logging.info(
             f"Validation dataset{index}:\n    {get_stats(val_dataset, dataset_info)}"
         )
 
@@ -385,7 +399,7 @@ def train_model(
             index = ""
         else:
             index = f" {i}"
-        logger.info(
+        logging.info(
             f"Test dataset{index}:\n    {get_stats(test_dataset, dataset_info)}"
         )
 
@@ -404,10 +418,10 @@ def train_model(
     # SETTING UP MODEL ########
     ###########################
 
-    logger.info("Setting up model")
+    logging.info("Setting up model")
     try:
         if continue_from is not None:
-            logger.info(f"Loading checkpoint from `{continue_from}`")
+            logging.info(f"Loading checkpoint from `{continue_from}`")
             trainer = Trainer.load_checkpoint(continue_from, hypers["training"])
             model = Model.load_checkpoint(continue_from)
             model = model.restart(dataset_info)
@@ -421,7 +435,7 @@ def train_model(
     # TRAIN MODEL #############
     ###########################
 
-    logger.info("Calling trainer")
+    logging.info("Calling trainer")
     try:
         trainer.train(
             model=model,
@@ -442,7 +456,7 @@ def train_model(
     ###########################
 
     output_checked = check_file_extension(filename=output, extension=".pt")
-    logger.info(
+    logging.info(
         "Training finished, saving final checkpoint "
         f"to `{str(Path(output_checked).stem)}.ckpt`"
     )
@@ -454,7 +468,7 @@ def train_model(
     mts_atomistic_model = model.export()
     extensions_path = "extensions/"
 
-    logger.info(
+    logging.info(
         f"Exporting model to `{output_checked}` and extensions to `{extensions_path}`"
     )
     # get device from the model. This device could be different from devices[0]
@@ -492,13 +506,13 @@ def train_model(
 
     batch_size = _get_batch_size_from_hypers(hypers)
     if batch_size is None:
-        logger.warning(
+        logging.warning(
             "Could not find batch size in hypers dictionary. "
             "Using default value of 1 for final evaluation."
         )
         batch_size = 1
     else:
-        logger.info(f"Running final evaluation with batch size {batch_size}")
+        logging.info(f"Running final evaluation with batch size {batch_size}")
 
     for i, train_dataset in enumerate(train_datasets):
         if len(train_datasets) == 1:
@@ -506,7 +520,7 @@ def train_model(
         else:
             extra_log_message = f" with index {i}"
 
-        logger.info(f"Evaluating training dataset{extra_log_message}")
+        logging.info(f"Evaluating training dataset{extra_log_message}")
         _eval_targets(
             mts_atomistic_model,
             train_dataset,
@@ -521,7 +535,7 @@ def train_model(
         else:
             extra_log_message = f" with index {i}"
 
-        logger.info(f"Evaluating validation dataset{extra_log_message}")
+        logging.info(f"Evaluating validation dataset{extra_log_message}")
         _eval_targets(
             mts_atomistic_model,
             val_dataset,
@@ -536,7 +550,7 @@ def train_model(
         else:
             extra_log_message = f" with index {i}"
 
-        logger.info(f"Evaluating test dataset{extra_log_message}")
+        logging.info(f"Evaluating test dataset{extra_log_message}")
         _eval_targets(
             mts_atomistic_model,
             test_dataset,

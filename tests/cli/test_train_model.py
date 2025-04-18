@@ -98,7 +98,7 @@ def test_train(capfd, monkeypatch, tmp_path, output):
 
     assert file_log == stdout_log
 
-    assert "This log is also available" in stdout_log
+    assert stdout_log.count("This log is also available") == 1  # only once
     assert "Running training for 'soap_bpnn' architecture"
     assert re.search(r"Random seed of this run is [1-9]\d*", stdout_log)
     assert "Training dataset:" in stdout_log
@@ -108,13 +108,22 @@ def test_train(capfd, monkeypatch, tmp_path, output):
     assert "mean " in stdout_log
     assert "std " in stdout_log
     assert "[INFO]" in stdout_log
-    assert "Epoch" in stdout_log
+    assert stdout_log.count("Epoch:    0") == 1
     assert "loss" in stdout_log
     assert "validation" in stdout_log
     assert "train" in stdout_log
     assert "energy" in stdout_log
     assert "with index" not in stdout_log  # index only printed for more than 1 dataset
     assert "Running final evaluation with batch size 2" in stdout_log
+
+    # Open the CSV log file and check if the logging is correct
+    csv_glob = glob.glob("outputs/*/*/train.csv")
+    assert len(csv_glob) == 1
+
+    with open(csv_glob[0]) as f:
+        csv_log = f.read()
+
+    assert "Epoch" in csv_log
 
 
 @pytest.mark.parametrize(
@@ -525,6 +534,8 @@ def test_model_consistency_with_seed(options, monkeypatch, tmp_path, seed):
     m2 = torch.load("model2.ckpt", weights_only=False)
 
     for i in m1["model_state_dict"]:
+        if "type_to_index" in i:
+            continue  # this one is the same for both models
         tensor1 = m1["model_state_dict"][i]
         tensor2 = m2["model_state_dict"][i]
 
@@ -708,3 +719,24 @@ def test_train_disk_dataset(monkeypatch, tmp_path, options):
 
     options["training_set"]["systems"]["read_from"] = "qm9_reduced_100.zip"
     train_model(options)
+
+
+def test_train_wandb_logger(monkeypatch, tmp_path):
+    """Test that training via the training cli runs with an attached wandb logger."""
+    monkeypatch.chdir(tmp_path)
+    shutil.copy(DATASET_PATH_QM9, "qm9_reduced_100.xyz")
+
+    # Add wandb logger to the options
+    options = OmegaConf.load(OPTIONS_PATH)
+    options["wandb"] = {"mode": "offline"}
+    OmegaConf.save(config=options, f="options.yaml")
+
+    command = ["mtt", "train", "options.yaml"]
+    subprocess.check_call(command)
+
+    # test that logfile contains options
+    with open("wandb/latest-run/logs/debug.log") as f:
+        file_log = f.read()
+
+    assert "'base_precision': 64" in file_log
+    assert "'seed': 42" in file_log

@@ -1,4 +1,3 @@
-import logging
 from pathlib import Path
 from typing import Dict, List, Optional, Union
 
@@ -20,11 +19,9 @@ from metatrain.utils.data.target_info import is_auxiliary_output
 from ..utils.additive import ZBL
 from ..utils.dtype import dtype_to_str
 from ..utils.metadata import append_metadata_references
+from ..utils.sum_over_atoms import sum_over_atoms
 from .modules.pet import PET as RawPET
 from .utils import load_raw_pet_model, systems_to_batch_dict
-
-
-logger = logging.getLogger(__name__)
 
 
 class PET(torch.nn.Module):
@@ -195,18 +192,14 @@ class PET(torch.nn.Module):
             if ll_output_name in outputs:
                 ll_features_options = outputs[ll_output_name]
                 if not ll_features_options.per_atom:
-                    processed_output_tmap = metatensor.torch.sum_over_samples(
-                        output_tmap, "atom"
-                    )
+                    processed_output_tmap = sum_over_atoms(output_tmap)
                 else:
                     processed_output_tmap = output_tmap
                 output_quantities[ll_output_name] = processed_output_tmap
             if "features" in outputs:
                 features_options = outputs["features"]
                 if not features_options.per_atom:
-                    processed_output_tmap = metatensor.torch.sum_over_samples(
-                        output_tmap, "atom"
-                    )
+                    processed_output_tmap = sum_over_atoms(output_tmap)
                 else:
                     processed_output_tmap = output_tmap
                 output_quantities["features"] = processed_output_tmap
@@ -227,7 +220,7 @@ class PET(torch.nn.Module):
                 block = metatensor.torch.slice_block(block, "samples", selected_atoms)
             output_tmap = TensorMap(keys=empty_labels, blocks=[block])
             if not outputs[output_name].per_atom:
-                output_tmap = metatensor.torch.sum_over_samples(output_tmap, "atom")
+                output_tmap = sum_over_atoms(output_tmap)
             output_quantities[output_name] = output_tmap
 
         if not self.training:

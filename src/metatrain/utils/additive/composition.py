@@ -8,11 +8,9 @@ from metatensor.torch.atomistic import ModelOutput, System
 
 from ..data import Dataset, DatasetInfo, TargetInfo, get_all_targets, get_atomic_types
 from ..jsonschema import validate
+from ..sum_over_atoms import sum_over_atoms
 from ..transfer import systems_and_targets_to_device
 from .remove import remove_additive
-
-
-logger = logging.getLogger(__name__)
 
 
 class CompositionModel(torch.nn.Module):
@@ -39,6 +37,12 @@ class CompositionModel(torch.nn.Module):
 
         self.dataset_info = dataset_info
         self.atomic_types = sorted(dataset_info.atomic_types)
+
+        self.register_buffer(
+            "type_to_index", torch.empty(max(self.atomic_types) + 1, dtype=torch.long)
+        )
+        for i, atomic_type in enumerate(self.atomic_types):
+            self.type_to_index[atomic_type] = i
 
         for target_name, target_info in dataset_info.targets.items():
             if not self.is_valid_target(target_name, target_info):
@@ -98,7 +102,7 @@ class CompositionModel(torch.nn.Module):
 
         missing_types = sorted(set(self.atomic_types) - set(get_atomic_types(datasets)))
         if missing_types:
-            logger.warning(
+            logging.warning(
                 f"Provided `datasets` do not contain atomic types {missing_types}. "
                 f"Known types from initialization are {self.atomic_types}."
             )
@@ -163,7 +167,7 @@ class CompositionModel(torch.nn.Module):
                         datasets_with_target.append(dataset)
                 if len(datasets_with_target) == 0:
                     # this is a possibility when transfer learning
-                    logger.warning(
+                    logging.warning(
                         f"Target {target_key} in the model's new capabilities is not "
                         "present in any of the training datasets."
                     )
@@ -432,15 +436,9 @@ class CompositionModel(torch.nn.Module):
             blocks: List[TensorBlock] = []
             for weight_key, weight_block in self.weights[output_name].items():
                 weights_tensor = self.weights[output_name].block(weight_key).values
-                composition_values_per_atom = torch.empty(
-                    [len(concatenated_types)] + weight_block.shape[1:],
-                    dtype=dtype,
-                    device=device,
-                )
-                for i_type, atomic_type in enumerate(self.atomic_types):
-                    composition_values_per_atom[concatenated_types == atomic_type] = (
-                        weights_tensor[i_type]
-                    )
+                composition_values_per_atom = weights_tensor[
+                    self.type_to_index[concatenated_types]
+                ]
                 blocks.append(
                     TensorBlock(
                         values=composition_values_per_atom,
@@ -461,10 +459,8 @@ class CompositionModel(torch.nn.Module):
                 )
 
             if not output_options.per_atom:  # sum over atoms if needed
-                composition_result_dict[output_name] = (
-                    metatensor.torch.sum_over_samples(
-                        composition_result_dict[output_name], sample_names="atom"
-                    )
+                composition_result_dict[output_name] = sum_over_atoms(
+                    composition_result_dict[output_name]
                 )
 
         return composition_result_dict
@@ -540,7 +536,7 @@ class CompositionModel(torch.nn.Module):
         """
         # only scalars can have composition contributions
         if not target_info.is_scalar and not target_info.is_spherical:
-            logger.debug(
+            logging.debug(
                 f"Composition model does not support target {target_name} "
                 "since it is not either scalar or spherical."
             )
@@ -549,7 +545,7 @@ class CompositionModel(torch.nn.Module):
             target_info.is_spherical
             and len(target_info.layout.blocks({"o3_lambda": 0, "o3_sigma": 1})) == 0
         ):
-            logger.debug(
+            logging.debug(
                 f"Composition model does not support spherical target {target_name} "
                 "since it does not have any invariant blocks."
             )

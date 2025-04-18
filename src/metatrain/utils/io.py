@@ -1,4 +1,3 @@
-import logging
 import re
 import warnings
 from pathlib import Path
@@ -11,9 +10,6 @@ from metatensor.torch.atomistic import check_atomistic_model, load_atomistic_mod
 
 from ..utils.architectures import find_all_architectures
 from .architectures import import_architecture
-
-
-logger = logging.getLogger(__name__)
 
 
 def check_file_extension(
