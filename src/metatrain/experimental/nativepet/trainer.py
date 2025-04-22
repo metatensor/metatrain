@@ -325,6 +325,10 @@ class Trainer:
                 targets = average_by_num_atoms(targets, systems, per_structure_targets)
                 train_loss_batch = loss_fn(predictions, targets)
                 train_loss_batch.backward()
+                if self.hypers["grad_clip"]["enable"]:
+                    torch.nn.utils.clip_grad_norm_(
+                        model.parameters(), self.hypers["grad_clip"]["max_grad_norm"]
+                    )
                 optimizer.step()
 
                 if is_distributed:
