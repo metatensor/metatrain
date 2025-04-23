@@ -81,7 +81,17 @@ example, to install the *SOAP-BPNN* model, you can run:
 
     pip install metatrain[soap-bpnn]
 
-You can then use ``mtt`` from the command line to train your models!
+We also offer a conda installation:
+
+.. code-block:: bash
+
+    conda install -c conda-forge metatrain
+
+The conda installation does not install model specific dependencies and will therefore
+only work for architectures without optional dependencies such as ``NanoPET`` or
+``NativePET``.
+
+After installation you can then use ``mtt`` from the command line to train your models!
 
 .. marker-quickstart
 
