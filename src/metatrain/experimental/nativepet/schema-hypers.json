@@ -189,16 +189,8 @@
           },
           "additionalProperties": false
         },
-        "grad_clip": {
-          "type": "object",
-          "properties": {
-            "enable": {
-              "type": "boolean"
-            },
-            "max_grad_norm": {
-              "type": "number"
-            }
-          }
+        "grad_clip_norm": {
+          "type": "number"
         },
         "loss": {
           "type": "object",
