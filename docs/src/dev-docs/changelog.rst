@@ -29,6 +29,18 @@ Fixed
 
 - ``NativePET`` can now evaluate on single-atom structures without crashing
 
+Added
+#####
+
+- Users can now choose the name of the extension directory in ``mtt export`` via the
+  ``--extensions`` (or ``-e``) option
+
+Changed
+#######
+
+- Exporting models without extensions will no longer lead to the creation of an empty
+  directory for the extensions
+
 Version 2025.5 - 2025-04-13
 ---------------------------
 
