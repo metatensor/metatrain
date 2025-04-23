@@ -117,7 +117,7 @@ def _prepare_export_model_args(args: argparse.Namespace) -> None:
 def export_model(
     model: Any,
     output: Union[Path, str],
-    extensions: Union[Path, str],
+    extensions: Union[Path, str] = "extensions/",
     metadata: Optional[ModelMetadata] = None,
 ) -> None:
     """Export a trained model allowing it to make predictions.
