@@ -101,8 +101,7 @@ model
   - ``use_ewald``: Use Ewald summation. If False, P3M is used
   - ``smearing``: Smearing width in Fourier space
   - ``kspace_resolution``: Resolution of the reciprocal space grid
-  - ``interpolation_nodes``: Number of grid points for interpolation (for mesh-based
-    methods only)
+  - ``interpolation_nodes``: Number of grid points for interpolation (for PME only)
 
 training
 ########
