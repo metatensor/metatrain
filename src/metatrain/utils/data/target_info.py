@@ -30,6 +30,9 @@ class TargetInfo:
         self.is_scalar = False
         self.is_cartesian = False
         self.is_spherical = False
+
+        # these following flags are set to true in _check_layout if this is a spherical
+        # target on an atomic basis set, either per-atom or per atom pair (respectively)
         self.is_atomic_basis_spherical_per_atom = False
         self.is_atomic_basis_spherical_per_pair = False
 

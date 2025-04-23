@@ -409,11 +409,14 @@ class NanoPET(torch.nn.Module):
 
         atomic_features_dict: Dict[str, torch.Tensor] = {}
         for output_name, head in self.heads.items():
-            if self.atomic_basis_target_info[output_name][
-                "type"
-            ] == "atomic_basis_spherical" and self.atomic_basis_target_info[
-                output_name
-            ]["sample_kind"].startswith("per_pair"):
+            is_atomic_basis_spherical = (
+                self.atomic_basis_target_info[output_name]["type"]
+                == "atomic_basis_spherical"
+            )
+            sample_is_per_pair = self.atomic_basis_target_info[output_name][
+                "sample_kind"
+            ].startswith("per_pair")
+            if is_atomic_basis_spherical and sample_is_per_pair:
                 # a two-center target on an atomic basis must be treated specially
 
                 # pass the node features through its head
@@ -426,7 +429,6 @@ class NanoPET(torch.nn.Module):
                 ):
                     ll_edge_features = head[1](
                         symmetrize_edge_features(
-                            systems,
                             edge_samples,
                             nef_array_to_edges(
                                 edge_features, centers, nef_to_edges_neighbor

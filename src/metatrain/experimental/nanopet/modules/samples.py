@@ -10,6 +10,25 @@ def get_samples(
     atomic_types: List[int],
     atomic_basis_target_info: Dict[str, Dict[str, str]],
 ) -> Tuple[Labels, Labels, Labels, Labels, Labels, Dict[str, Dict[str, Labels]]]:
+    """
+    Builds the various samples labels for the PET node and edge features, for the given
+    input ``systems``.
+
+    The samples labels for the node features are always returned. For edge features,
+    these are only constructed and returned if there are two-center targets being
+    predicted.
+
+    Furthermore, if spherical targets on an atomic basis are being predicted (either
+    one- or two-center), the samples labels that slice the last layer features are
+    returned too, in a dictionary indexed by strings that describe:
+    
+        - the atomic type of the target block (node features)
+    
+        - pairs of atomic types of the target block (edge features)
+          
+        - pairs of atomic types and the permutational symmetry (edge features,
+          symmetrized)
+    """
     # node samples as standard
     node_samples: Labels = Labels(
         names=["system", "atom"],
@@ -21,19 +40,19 @@ def get_samples(
     )
 
     # edge samples (symmetrized or not) only if two-center targets are being
-    # predicted
+    # predicted. First define dummy labels, for torchscript compatibility.
     edge_samples: Labels = Labels(
         ["_"], torch.empty((0, 1), dtype=node_samples.values.dtype)
-    )  # dummy for torchscript
+    )
     edge_samples_sym: Labels = Labels(
         ["_"], torch.empty((0, 1), dtype=node_samples.values.dtype)
-    )  # dummy for torchscript
+    )
     ll_per_pair_samples: Labels = Labels(
         ["_"], torch.empty((0, 1), dtype=node_samples.values.dtype)
-    )  # dummy for torchscript
+    )
     ll_per_pair_samples_sym: Labels = Labels(
         ["_"], torch.empty((0, 1), dtype=node_samples.values.dtype)
-    )  # dummy for torchscript
+    )
 
     any_per_atom: bool = any(
         [
@@ -141,11 +160,11 @@ def get_samples(
         )
     if any_per_pair:
         atomic_basis_samples["per_pair"] = samples_for_atomic_basis_per_pair(
-            systems, ll_per_pair_samples, atomic_types, sample_kind="per_pair"
+            ll_per_pair_samples, atomic_types, sample_kind="per_pair"
         )
     if any_per_pair_sym:
         atomic_basis_samples["per_pair_sym"] = samples_for_atomic_basis_per_pair(
-            systems, ll_per_pair_samples_sym, atomic_types, sample_kind="per_pair_sym"
+            ll_per_pair_samples_sym, atomic_types, sample_kind="per_pair_sym"
         )
 
     return (
@@ -178,8 +197,8 @@ def get_node_sample_values(
     these are nodes, the atom indices are equal and the cell shifts are zero.
 
     If ``include_atom_type=True``, the atom types are prepended dimensions, either
-    corresponding to "center_type" if ``n_center=1`` or ["first_atom_type",
-    "second_atom_type"] if ``n_center=2``.
+    corresponding to "center_type" if ``sample_kind="per_atom`` or ["first_atom_type",
+    "second_atom_type"] if ``sample_kind="per_pair`` or ``sample_kind="per_pair_sym``.
     """
     assert sample_kind in ["per_atom", "per_pair", "per_pair_sym"]
     node_sample_values = torch.stack(
@@ -253,9 +272,8 @@ def get_node_sample_values(
     elif sample_kind == "per_pair_sym":
         node_sample_values = torch.hstack(
             [
-                torch.zeros(len(first_atom_type), dtype=torch.int32).reshape(
-                    -1, 1
-                ),  # s2_pi = 0
+                # s2_pi = 0
+                torch.zeros((len(first_atom_type), 1), dtype=torch.int32),
                 first_atom_type,
                 first_atom_type,  # first_atom_type == second_atom_type
                 node_sample_values,
@@ -341,7 +359,25 @@ def get_edge_sample_values(
 def symmetrize_edge_samples(
     edge_sample_values: torch.Tensor,
 ) -> torch.Tensor:
-    """Symmetrizes the samples labels for the PET edge features."""
+    """
+    Symmetrizes the samples labels of the raw PET edge features.
+    
+    This takes in the samples labels for the raw PET edge features, i.e. off site atom
+    pairs. The following procedure is applied to the different kinds of pair sample
+    present:
+
+    - atom pairs with different atom types: no symmetrization required. As only unique
+      edge features are needed, keep only the features where the first atom type is less
+      than the second atom type. The s2_pi value is set to 0.
+    
+    - atom pairs with the same atom type: symmetrization required. For each of these
+      pairs, the corresponding permuted sample is found by swapping the atom indices and
+      inverting the sign of the cell shifts. A "plus" and "minus" combination of the
+      features is created by adding or subtracting the feature with its permutation, and
+      the s2_pi value set to +1 and -1 respectively. Once symmetrized, and to only
+      contain unique features, the features are triangularized in atom index by keeping
+      only the features where the first atom index is less than the second atom index.
+    """
 
     # 1) first_atom_type < second_atom_type: no symmetrization required. Ensure
     #    triangular in atom type.
@@ -349,33 +385,29 @@ def symmetrize_edge_samples(
     edge_sample_values_diff_types = edge_sample_values[diff_atom_type]
     edge_sample_values_diff_types = torch.hstack(
         [
-            torch.zeros(len(edge_sample_values_diff_types), dtype=torch.int32).reshape(
-                -1, 1
-            ),  # s2_pi = 0
+            # s2_pi = 0
+            torch.zeros((len(edge_sample_values_diff_types), 1), dtype=torch.int32), 
             edge_sample_values_diff_types,
         ]
     )
 
-    # 2) first_atom_type == second_atom_type: symmetrization required. Ensure triangular
-    #    in atom index
+    # 2) first_atom_type == second_atom_type: symmetrization required, then enforce
+    #    triangular in atom index.
     same_atom_type = edge_sample_values[:, 0] == edge_sample_values[:, 1]
     edge_sample_values_same_types = edge_sample_values[same_atom_type]
 
     # Create the plus and minus combinations
     edge_sample_values_same_types_plus = torch.hstack(
         [
-            torch.ones(len(edge_sample_values_same_types), dtype=torch.int32).reshape(
-                -1, 1
-            ),  # s2_pi = +1
+            # s2_pi = +1
+            torch.ones((len(edge_sample_values_same_types), 1), dtype=torch.int32),
             edge_sample_values_same_types,
         ]
     )
     edge_sample_values_same_types_minus = torch.hstack(
         [
-            torch.ones(len(edge_sample_values_same_types), dtype=torch.int32).reshape(
-                -1, 1
-            )
-            * -1,  # s2_pi = -1
+            # s2_pi = -1
+            torch.ones((len(edge_sample_values_same_types), 1), dtype=torch.int32) * -1,
             edge_sample_values_same_types,
         ]
     )
@@ -401,11 +433,31 @@ def symmetrize_edge_samples(
 
 
 def symmetrize_edge_features(
-    systems: List[System],
     edge_samples: Labels,
     edge_features: torch.Tensor,
 ) -> torch.Tensor:
-    """Symmetrizes the samples labels for the PET edge features."""
+    """
+    Symmetrizes the raw PET edge features.
+    
+    This takes in the raw PET edge features, i.e. features for off site atom pairs. The
+    following procedure is applied to the different kinds of pair sample present:
+
+    - atom pairs with different atom types: no symmetrization required. As only unique
+      edge features are needed, keep only the features where the first atom type is less
+      than the second atom type. These correspond to the samples with s2_pi = 0.
+    
+    - atom pairs with the same atom type: symmetrization required. For each of these
+      pairs, the corresponding permuted sample is found by swapping the atom indices and
+      inverting the sign of the cell shifts. A "plus" and "minus" combination of the
+      features is created by adding or subtracting the feature with its permutation, and
+      the s2_pi value set to +1 and -1 respectively. Once symmetrized, and to only
+      contain unique features, the features are triangularized in atom index by keeping
+      only the features where the first atom index is less than the second atom index.
+
+    This is analogous to the procedure used to symmetrize the samples labels in
+    :py:func:`symmetrize_edge_samples`, except the actual features are symmetrized too
+    here. Only the torch tensor of the features are returned, which are 
+    """
     assert len(edge_samples) == edge_features.shape[0]
 
     sample_names: List[str] = [
@@ -468,6 +520,12 @@ def samples_for_atomic_basis_per_atom(
     node_samples: Labels,
     atomic_types: List[int],
 ) -> Dict[str, Labels]:
+    """
+    For spherical targets on an atomic basis, the PET node features need to be sliced
+    and passed to different heads depending on atom types. This function returns the
+    Labels objects for each atomic basis block.
+    """
+    # dict key contains info on the center type of the node feature
     return {
         f"{atomic_type}": Labels(
             node_samples.names,
@@ -480,7 +538,6 @@ def samples_for_atomic_basis_per_atom(
 
 
 def samples_for_atomic_basis_per_pair(
-    systems: List[System],
     edge_samples: Labels,
     atomic_types: List[int],
     sample_kind: str,
@@ -506,6 +563,7 @@ def samples_for_atomic_basis_per_pair(
                 edge_samples.column("second_atom_type") == second_atom_type
             )
 
+            # dict key contains info on permutational symmetry and pair of atomic types
             if sample_kind == "per_pair_sym":
                 for s2_pi in [0, 1, -1]:
                     s2_pi_mask = edge_samples.column("s2_pi") == s2_pi
@@ -519,6 +577,7 @@ def samples_for_atomic_basis_per_pair(
                         edge_samples.values[block_mask],
                     )
 
+            # dict key contains info only on pair of atomic types
             else:
                 assert sample_kind == "per_pair", (
                     "``sample_kind`` must be either 'per_pair' or 'per_pair_sym'"
