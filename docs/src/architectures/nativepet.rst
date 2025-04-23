@@ -101,7 +101,8 @@ model
   - ``use_ewald``: Use Ewald summation. If False, P3M is used
   - ``smearing``: Smearing width in Fourier space
   - ``kspace_resolution``: Resolution of the reciprocal space grid
-  - ``interpolation_nodes``: Number of grid points for interpolation (for mesh-based methods only)
+  - ``interpolation_nodes``: Number of grid points for interpolation (for mesh-based
+    methods only)
 
 training
 ########
@@ -120,7 +121,7 @@ training
 :param per_structure_targets: Targets to calculate per-structure losses
 :param log_mae: Log MAE alongside RMSE
 :param log_separate_blocks: Log per-block error
-:param grad_clip_norm: Maximum hradient norm value, by default inf (no clipping). 
+:param grad_clip_norm: Maximum hradient norm value, by default inf (no clipping)
 :param loss: Loss configuration (see above)
 :param best_model_metric: Metric used to select best checkpoint (e.g., ``rmse_prod``)
 
