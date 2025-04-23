@@ -79,7 +79,7 @@ def _add_train_model_parser(subparser: argparse._SubParsersAction) -> None:
         default="extensions/",
         help=(
             "Folder where the extensions of the model, if any, will be collected "
-            "(default: `extensions/`)."
+            "(default: %(default)s)"
         ),
     )
     parser.add_argument(
