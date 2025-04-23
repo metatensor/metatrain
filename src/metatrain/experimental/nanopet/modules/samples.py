@@ -21,11 +21,11 @@ def get_samples(
     Furthermore, if spherical targets on an atomic basis are being predicted (either
     one- or two-center), the samples labels that slice the last layer features are
     returned too, in a dictionary indexed by strings that describe:
-    
+
         - the atomic type of the target block (node features)
-    
+
         - pairs of atomic types of the target block (edge features)
-          
+
         - pairs of atomic types and the permutational symmetry (edge features,
           symmetrized)
     """
@@ -361,7 +361,7 @@ def symmetrize_edge_samples(
 ) -> torch.Tensor:
     """
     Symmetrizes the samples labels of the raw PET edge features.
-    
+
     This takes in the samples labels for the raw PET edge features, i.e. off site atom
     pairs. The following procedure is applied to the different kinds of pair sample
     present:
@@ -369,7 +369,7 @@ def symmetrize_edge_samples(
     - atom pairs with different atom types: no symmetrization required. As only unique
       edge features are needed, keep only the features where the first atom type is less
       than the second atom type. The s2_pi value is set to 0.
-    
+
     - atom pairs with the same atom type: symmetrization required. For each of these
       pairs, the corresponding permuted sample is found by swapping the atom indices and
       inverting the sign of the cell shifts. A "plus" and "minus" combination of the
@@ -386,7 +386,7 @@ def symmetrize_edge_samples(
     edge_sample_values_diff_types = torch.hstack(
         [
             # s2_pi = 0
-            torch.zeros((len(edge_sample_values_diff_types), 1), dtype=torch.int32), 
+            torch.zeros((len(edge_sample_values_diff_types), 1), dtype=torch.int32),
             edge_sample_values_diff_types,
         ]
     )
@@ -438,14 +438,14 @@ def symmetrize_edge_features(
 ) -> torch.Tensor:
     """
     Symmetrizes the raw PET edge features.
-    
+
     This takes in the raw PET edge features, i.e. features for off site atom pairs. The
     following procedure is applied to the different kinds of pair sample present:
 
     - atom pairs with different atom types: no symmetrization required. As only unique
       edge features are needed, keep only the features where the first atom type is less
       than the second atom type. These correspond to the samples with s2_pi = 0.
-    
+
     - atom pairs with the same atom type: symmetrization required. For each of these
       pairs, the corresponding permuted sample is found by swapping the atom indices and
       inverting the sign of the cell shifts. A "plus" and "minus" combination of the
@@ -456,7 +456,7 @@ def symmetrize_edge_features(
 
     This is analogous to the procedure used to symmetrize the samples labels in
     :py:func:`symmetrize_edge_samples`, except the actual features are symmetrized too
-    here. Only the torch tensor of the features are returned, which are 
+    here. Only the torch tensor of the features are returned, which are
     """
     assert len(edge_samples) == edge_features.shape[0]
 
