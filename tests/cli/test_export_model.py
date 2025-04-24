@@ -49,35 +49,43 @@ def test_export(monkeypatch, tmp_path, path, caplog):
 
 
 @pytest.mark.parametrize("output", [None, "exported.pt"])
-@pytest.mark.parametrize("dtype", [torch.float32, torch.float64])
-def test_export_cli(monkeypatch, tmp_path, output, dtype):
+@pytest.mark.parametrize("model_type", ["32-bit", "64-bit", "no-extensions"])
+def test_export_cli(monkeypatch, tmp_path, output, model_type):
     """Test that the export cli runs without an error raise."""
     monkeypatch.chdir(tmp_path)
 
-    dtype_string = str(dtype)[-2:]
     command = [
         "mtt",
         "export",
-        str(RESOURCES_PATH / f"model-{dtype_string}-bit.ckpt"),
+        str(RESOURCES_PATH / f"model-{model_type}.ckpt"),
     ]
 
     if output is not None:
         command += ["-o", output]
     else:
-        output = f"model-{dtype_string}-bit.pt"
+        output = f"model-{model_type}.pt"
 
     subprocess.check_call(command)
     assert Path(output).is_file()
 
     # Test if extensions are saved
     extensions_glob = glob.glob("extensions/")
-    assert len(extensions_glob) == 1
+    if model_type == "no-extensions":
+        assert len(extensions_glob) == 0
+    else:
+        assert len(extensions_glob) == 1
 
     # Test that the model can be loaded
     model = load_model(output, extensions_directory="extensions/")
 
     # Check that the model has the correct dtype and is on cpu
-    assert next(model.parameters()).dtype == dtype
+    if model_type == "32-bit":
+        correct_dtype = torch.float32
+    elif model_type == "64-bit":
+        correct_dtype = torch.float64
+    else:
+        correct_dtype = torch.float64
+    assert next(model.parameters()).dtype == correct_dtype
     assert next(model.parameters()).device.type == "cpu"
 
 
