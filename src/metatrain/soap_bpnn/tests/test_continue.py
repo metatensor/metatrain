@@ -8,6 +8,10 @@ from metatrain.soap_bpnn import SoapBpnn, Trainer
 from metatrain.utils.data import Dataset, DatasetInfo
 from metatrain.utils.data.readers import read_systems, read_targets
 from metatrain.utils.data.target_info import get_energy_target_info
+from metatrain.utils.neighbor_lists import (
+    get_requested_neighbor_lists,
+    get_system_with_neighbor_lists,
+)
 
 from . import DATASET_PATH, DEFAULT_HYPERS, MODEL_HYPERS
 
@@ -29,6 +33,12 @@ def test_continue(monkeypatch, tmp_path):
         length_unit="Angstrom", atomic_types=[1, 6, 7, 8], targets=target_info_dict
     )
     model = SoapBpnn(MODEL_HYPERS, dataset_info)
+    requested_neighbor_lists = get_requested_neighbor_lists(model)
+    systems = [
+        get_system_with_neighbor_lists(system, requested_neighbor_lists)
+        for system in systems
+    ]
+
     output_before = model(systems[:5], {"mtt::U0": model.outputs["mtt::U0"]})
 
     conf = {
