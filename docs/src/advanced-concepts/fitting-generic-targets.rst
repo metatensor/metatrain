@@ -18,13 +18,16 @@ capabilities of the architectures in metatrain.
      - Scalars
      - Spherical tensors
      - Cartesian tensors
+     - Atomic basis spherical targets
    * - SOAP-BPNN
      - Energy, forces, stress/virial
      - Yes
      - Yes
      - No
+     - No
    * - GAP
      - Energy, forces
+     - No
      - No
      - No
      - No
@@ -33,11 +36,13 @@ capabilities of the architectures in metatrain.
      - No
      - No
      - No
+     - No
    * - NanoPET
      - Energy, forces, stress/virial
      - Yes
      - Yes
      - Only with ``rank=1`` (vectors)
+     - Yes (*)
 
 
 Preparing generic targets for reading by metatrain
@@ -51,7 +56,7 @@ Input file
 In order to read a generic target, you will have to specify its layout in the input
 file. Suppose you want to learn a target named ``mtt::my_target``, which is
 represented as a set of 10 independent per-atom 3D Cartesian vector (we need to
-learn 3x10 values for each atom). The ``target`` section in the input file
+learn 3x10 values for each atom). The ``targets`` section in the input file
 should look
 like this:
 
@@ -108,6 +113,9 @@ the target section should would look like this:
 
 where ``o3_lambda`` specifies the L value of the spherical tensor and ``o3_sigma`` its
 parity with respect to inversion (1 for proper tensors, -1 for pseudo-tensors).
+
+(*) More information on how to learn targets expressed on an atomic basis of spherical
+harmonics is given in the section on :ref:`learning-atomic-basis-spherical-targets`.
 
 Preparing your targets -- ASE
 #############################
