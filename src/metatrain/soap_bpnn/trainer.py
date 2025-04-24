@@ -6,7 +6,6 @@ from typing import List, Union
 
 import torch
 import torch.distributed
-from metatensor.torch.atomistic import NeighborListOptions
 from torch.utils.data import DataLoader, DistributedSampler
 
 from ..utils.additive import remove_additive
@@ -100,13 +99,6 @@ class Trainer:
         # might need them):
         logging.info("Calculating neighbor lists for the datasets")
         requested_neighbor_lists = get_requested_neighbor_lists(model)
-        requested_neighbor_lists += [
-            NeighborListOptions(
-                cutoff=requested_neighbor_lists[0].cutoff,
-                full_list=True,
-                strict=requested_neighbor_lists[0].strict,
-            )
-        ]
         for dataset in train_datasets + val_datasets:
             # If the dataset is a disk dataset, the NLs are already attached, we will
             # just check the first system

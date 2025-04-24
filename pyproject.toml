@@ -60,7 +60,6 @@ build-backend = "setuptools.build_meta"
 
 [project.optional-dependencies]
 soap-bpnn = [
-    "sphericart-torch",
     "torch-spex>=0.1,<0.2",
     "wigners",
 ]

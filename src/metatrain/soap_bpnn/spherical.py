@@ -5,6 +5,7 @@ from typing import Dict, Optional
 
 import metatensor.torch
 import numpy as np
+import sphericart.torch
 import torch
 import wigners
 from metatensor.torch import Labels, TensorMap
@@ -143,13 +144,6 @@ class TensorBasis(torch.nn.Module):
             self.vector_basis_pseudotensor = FakeVectorBasis()  # make torchscript work
 
         if self.o3_lambda > 1:
-            try:
-                import sphericart.torch
-            except ImportError:
-                raise ImportError(
-                    "To use spherical tensors with lambda > 1 with SOAP-BPNN, please "
-                    "install the `sphericart-torch` package."
-                )
             self.spherical_harmonics_calculator = sphericart.torch.SolidHarmonics(
                 l_max=self.o3_lambda
             )
