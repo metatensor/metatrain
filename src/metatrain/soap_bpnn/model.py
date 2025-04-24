@@ -174,7 +174,7 @@ class SoapBpnn(torch.nn.Module):
     __default_metadata__ = ModelMetadata(
         references={
             "implementation": [
-                "rascaline: https://github.com/Luthaf/rascaline",
+                "torch-spex: https://github.com/lab-cosmo/torch-spex",
             ],
             "architecture": [
                 "SOAP: https://doi.org/10.1002/qua.24927",
@@ -452,6 +452,7 @@ class SoapBpnn(torch.nn.Module):
             # slightly painful because:
             # - the features are split per center type
             # - we have to recompute the edge vectors again outside of featomic
+            #   (TODO: this is not true anymore due to torch-spex, to be optimized)
 
             # first, send center_type to the samples dimension and make sure the
             # ordering is the same as in the systems

@@ -56,8 +56,8 @@ def test_regression_init():
     )
 
     # if you need to change the hardcoded values:
-    torch.set_printoptions(precision=12)
-    print(output["mtt::U0"].block().values)
+    # torch.set_printoptions(precision=12)
+    # print(output["mtt::U0"].block().values)
 
     torch.testing.assert_close(output["mtt::U0"].block().values, expected_output)
 
@@ -135,9 +135,9 @@ def test_regression_energies_forces_train():
     )
 
     # if you need to change the hardcoded values:
-    torch.set_printoptions(precision=12)
-    print(output["energy"].block().values)
-    print(output["energy"].block().gradient("positions").values.squeeze(-1)[0])
+    # torch.set_printoptions(precision=12)
+    # print(output["energy"].block().values)
+    # print(output["energy"].block().gradient("positions").values.squeeze(-1)[0])
 
     torch.testing.assert_close(output["energy"].block().values, expected_output)
     torch.testing.assert_close(

@@ -533,11 +533,11 @@ def test_model_consistency_with_seed(options, monkeypatch, tmp_path, seed):
     m1 = torch.load("model1.ckpt", weights_only=False)
     m2 = torch.load("model2.ckpt", weights_only=False)
 
-    for i in m1["model_state_dict"]:
-        if "type_to_index" in i:
-            continue  # this one is the same for both models
-        tensor1 = m1["model_state_dict"][i]
-        tensor2 = m2["model_state_dict"][i]
+    for tensor_name in m1["model_state_dict"]:
+        if "type_to_index" in tensor_name or "spliner" in tensor_name:
+            continue  # these the same for both models
+        tensor1 = m1["model_state_dict"][tensor_name]
+        tensor2 = m2["model_state_dict"][tensor_name]
 
         if seed is None:
             assert not torch.allclose(tensor1, tensor2)
@@ -698,7 +698,7 @@ def test_train_disk_dataset(monkeypatch, tmp_path, options):
         system = systems_to_torch(frame, dtype=torch.float64)
         system = get_system_with_neighbor_lists(
             system,
-            [NeighborListOptions(cutoff=5.0, full_list=False, strict=False)],
+            [NeighborListOptions(cutoff=5.0, full_list=True, strict=True)],
         )
         energy = TensorMap(
             keys=Labels.single(),
