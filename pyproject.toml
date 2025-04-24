@@ -63,7 +63,7 @@ soap-bpnn = [
     "featomic-torch >=0.6,<0.7",
     "wigners",
 ]
-pet = [
+deprecated-pet = [
     "pet-neighbors-convert",
     "torch_geometric",
     "matscipy",
@@ -71,7 +71,7 @@ pet = [
     "pathos",
     "scipy",
 ]
-nativepet = []
+pet = []
 nanopet = []
 gap = [
     "featomic-torch >=0.6,<0.7",

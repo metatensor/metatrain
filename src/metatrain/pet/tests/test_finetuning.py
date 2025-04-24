@@ -3,8 +3,8 @@ import shutil
 import torch
 from omegaconf import OmegaConf
 
-from metatrain.experimental.nativepet import NativePET, Trainer
-from metatrain.experimental.nativepet.modules.finetuning import (
+from metatrain.pet import PET, Trainer
+from metatrain.pet.modules.finetuning import (
     apply_finetuning_strategy,
 )
 from metatrain.utils.data import Dataset, DatasetInfo
@@ -23,7 +23,7 @@ def test_lora_finetuning_functionality():
         length_unit="Angstrom", atomic_types=[1, 6, 7, 8], targets=target_info_dict
     )
 
-    model = NativePET(MODEL_HYPERS, dataset_info)
+    model = PET(MODEL_HYPERS, dataset_info)
 
     finetuning_strategy = {
         "method": "lora",
@@ -49,7 +49,7 @@ def test_heads_finetuning_functionality():
         length_unit="Angstrom", atomic_types=[1, 6, 7, 8], targets=target_info_dict
     )
 
-    model = NativePET(MODEL_HYPERS, dataset_info)
+    model = PET(MODEL_HYPERS, dataset_info)
 
     finetuning_strategy = {
         "method": "heads",
@@ -84,7 +84,7 @@ def test_finetuning_restart(monkeypatch, tmp_path):
     dataset_info = DatasetInfo(
         length_unit="Angstrom", atomic_types=[1, 6, 7, 8], targets=target_info_dict
     )
-    model = NativePET(MODEL_HYPERS, dataset_info)
+    model = PET(MODEL_HYPERS, dataset_info)
 
     conf = {
         "mtt::U0": {
@@ -125,7 +125,7 @@ def test_finetuning_restart(monkeypatch, tmp_path):
     trainer.save_checkpoint(model, "temp.ckpt")
 
     # Finetuning
-    model_finetune = NativePET.load_checkpoint("temp.ckpt")
+    model_finetune = PET.load_checkpoint("temp.ckpt")
     model_finetune.restart(dataset_info)
 
     hypers = DEFAULT_HYPERS.copy()
@@ -156,7 +156,7 @@ def test_finetuning_restart(monkeypatch, tmp_path):
     assert any(["lora_" in name for name, _ in model_finetune.named_parameters()])
 
     # Finetuning restart
-    model_finetune_restart = NativePET.load_checkpoint("finetuned.ckpt")
+    model_finetune_restart = PET.load_checkpoint("finetuned.ckpt")
     model_finetune_restart.restart(dataset_info)
 
     assert any(

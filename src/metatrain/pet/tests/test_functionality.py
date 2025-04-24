@@ -1,80 +1,34 @@
-import json
-from pathlib import Path
-
+import metatensor.torch
 import pytest
 import torch
 from jsonschema.exceptions import ValidationError
-from metatensor.torch import Labels
-from metatensor.torch.atomistic import (
-    MetatensorAtomisticModel,
-    ModelCapabilities,
-    ModelEvaluationOptions,
-    ModelMetadata,
-    ModelOutput,
-    System,
-)
+from metatensor.torch.atomistic import ModelOutput, System
+from omegaconf import OmegaConf
 
-from metatrain.pet import PET as WrappedPET
-from metatrain.pet.modules.hypers import Hypers
-from metatrain.pet.modules.pet import PET
-from metatrain.utils.architectures import get_default_hypers
+from metatrain.pet import PET
+from metatrain.pet.modules.transformer import AttentionBlock
+from metatrain.utils.architectures import check_architecture_options
 from metatrain.utils.data import DatasetInfo
 from metatrain.utils.data.target_info import (
     get_energy_target_info,
     get_generic_target_info,
 )
-from metatrain.utils.jsonschema import validate
-from metatrain.utils.neighbor_lists import (
-    get_requested_neighbor_lists,
-    get_system_with_neighbor_lists,
-)
+from metatrain.utils.neighbor_lists import get_system_with_neighbor_lists
 
-
-DEFAULT_HYPERS = get_default_hypers("pet")
-with open(Path(__file__).parents[1] / "schema-hypers.json", "r") as f:
-    SCHEMA_HYPERS = json.load(f)
-
-
-@pytest.mark.parametrize(
-    "new_option",
-    [
-        "ATOMIC_BATCH_SIZE",
-        "EPOCH_NUM_ATOMIC",
-        "SCHEDULER_STEP_SIZE_ATOMIC",
-        "EPOCHS_WARMUP_ATOMIC",
-    ],
-)
-def test_exclusive_hypers(new_option):
-    """Test that the `_ATOMIC` is mutually exclusive."""
-
-    options = {
-        "training": {
-            "SCHEDULER_STEP_SIZE": 1,
-            "EPOCH_NUM": 1,
-            "STRUCTURAL_BATCH_SIZE": 1,
-            "EPOCHS_WARMUP": 1,
-        }
-    }
-
-    validate(instance=options, schema=SCHEMA_HYPERS)
-
-    options["training"][new_option] = 1
-    with pytest.raises(ValidationError, match="should not be valid under"):
-        validate(instance=options, schema=SCHEMA_HYPERS)
+from . import DEFAULT_HYPERS, MODEL_HYPERS
 
 
 def test_prediction():
-    """Tests that the model runs without errors."""
-
+    """Tests the basic functionality of the forward pass of the model."""
     dataset_info = DatasetInfo(
         length_unit="Angstrom",
         atomic_types=[1, 6, 7, 8],
-        targets={"energy": get_energy_target_info({"unit": "eV"})},
+        targets={
+            "energy": get_energy_target_info({"quantity": "energy", "unit": "eV"})
+        },
     )
-    model = WrappedPET(DEFAULT_HYPERS["model"], dataset_info)
-    ARCHITECTURAL_HYPERS = Hypers(model.hypers)
-    raw_pet = PET(ARCHITECTURAL_HYPERS, 0.0, len(model.atomic_types))
-    model.set_trained_model(raw_pet)
+
+    model = PET(MODEL_HYPERS, dataset_info)
 
     system = System(
         types=torch.tensor([6, 6]),
@@ -82,189 +36,184 @@ def test_prediction():
         cell=torch.zeros(3, 3),
         pbc=torch.tensor([False, False, False]),
     )
-    requested_neighbor_lists = get_requested_neighbor_lists(model)
-    system = get_system_with_neighbor_lists(system, requested_neighbor_lists)
-
-    evaluation_options = ModelEvaluationOptions(
-        length_unit=dataset_info.length_unit,
-        outputs={"energy": ModelOutput()},
-    )
-
-    capabilities = ModelCapabilities(
-        length_unit="Angstrom",
-        atomic_types=model.atomic_types,
-        outputs={
-            "energy": ModelOutput(
-                quantity="energy",
-                unit="eV",
-            )
-        },
-        interaction_range=DEFAULT_HYPERS["model"]["N_GNN_LAYERS"]
-        * DEFAULT_HYPERS["model"]["R_CUT"],
-        dtype="float32",
-        supported_devices=["cpu", "cuda"],
-    )
-
-    model = MetatensorAtomisticModel(model.eval(), ModelMetadata(), capabilities)
-    model(
-        [system],
-        evaluation_options,
-        check_consistency=True,
-    )
+    system = get_system_with_neighbor_lists(system, model.requested_neighbor_lists())
+    outputs = {"energy": ModelOutput(per_atom=False)}
+    model([system, system], outputs)
 
 
-def test_per_atom_predictions_functionality():
-    """Tests that the model can do predictions in
-    per-atom mode."""
-
-    dataset_info = DatasetInfo(
-        length_unit="Angstrom",
-        atomic_types=[1, 6, 7, 8],
-        targets={"energy": get_energy_target_info({"unit": "eV"})},
-    )
-    model = WrappedPET(DEFAULT_HYPERS["model"], dataset_info)
-    ARCHITECTURAL_HYPERS = Hypers(model.hypers)
-    raw_pet = PET(ARCHITECTURAL_HYPERS, 0.0, len(model.atomic_types))
-    model.set_trained_model(raw_pet)
-
-    system = System(
-        types=torch.tensor([6, 6]),
-        positions=torch.tensor([[0.0, 0.0, 0.0], [0.0, 0.0, 1.0]]),
-        cell=torch.zeros(3, 3),
-        pbc=torch.tensor([False, False, False]),
-    )
-    requested_neighbor_lists = get_requested_neighbor_lists(model)
-    system = get_system_with_neighbor_lists(system, requested_neighbor_lists)
-
-    evaluation_options = ModelEvaluationOptions(
-        length_unit=dataset_info.length_unit,
-        outputs={"energy": ModelOutput()},
-    )
-
-    capabilities = ModelCapabilities(
-        length_unit="Angstrom",
-        atomic_types=model.atomic_types,
-        outputs={
-            "energy": ModelOutput(
-                quantity="energy",
-                unit="eV",
-                per_atom=True,
-            )
-        },
-        interaction_range=DEFAULT_HYPERS["model"]["N_GNN_LAYERS"]
-        * DEFAULT_HYPERS["model"]["R_CUT"],
-        dtype="float32",
-        supported_devices=["cpu", "cuda"],
-    )
-
-    model = MetatensorAtomisticModel(model.eval(), ModelMetadata(), capabilities)
-    model(
-        [system],
-        evaluation_options,
-        check_consistency=True,
-    )
-
-
-def test_selected_atoms_functionality():
-    """Tests that the model can do predictions for a selected
-    subset of the atoms in the system."""
-
-    dataset_info = DatasetInfo(
-        length_unit="Angstrom",
-        atomic_types=[1, 6, 7, 8],
-        targets={"energy": get_energy_target_info({"unit": "eV"})},
-    )
-    model = WrappedPET(DEFAULT_HYPERS["model"], dataset_info)
-    ARCHITECTURAL_HYPERS = Hypers(model.hypers)
-    raw_pet = PET(ARCHITECTURAL_HYPERS, 0.0, len(model.atomic_types))
-    model.set_trained_model(raw_pet)
-
-    system = System(
-        types=torch.tensor([6, 6]),
-        positions=torch.tensor([[0.0, 0.0, 0.0], [0.0, 0.0, 1.0]]),
-        cell=torch.zeros(3, 3),
-        pbc=torch.tensor([False, False, False]),
-    )
-    requested_neighbor_lists = get_requested_neighbor_lists(model)
-    system = get_system_with_neighbor_lists(system, requested_neighbor_lists)
-
-    evaluation_options = ModelEvaluationOptions(
-        length_unit=dataset_info.length_unit,
-        outputs={"energy": ModelOutput()},
-    )
-
-    capabilities = ModelCapabilities(
-        length_unit="Angstrom",
-        atomic_types=model.atomic_types,
-        outputs={
-            "energy": ModelOutput(
-                quantity="energy",
-                unit="eV",
-            )
-        },
-        interaction_range=DEFAULT_HYPERS["model"]["N_GNN_LAYERS"]
-        * DEFAULT_HYPERS["model"]["R_CUT"],
-        dtype="float32",
-        supported_devices=["cpu", "cuda"],
-    )
-
-    selected_atoms = Labels(
-        ["system", "atom"],
-        torch.tensor([[0, a] for a in range(len(system)) if a % 2 == 0]),
-    )
-
-    evaluation_options = ModelEvaluationOptions(
-        length_unit=capabilities.length_unit,
-        outputs=capabilities.outputs,
-        selected_atoms=selected_atoms,
-    )
-
-    model = MetatensorAtomisticModel(model.eval(), ModelMetadata(), capabilities)
-    model(
-        [system],
-        evaluation_options,
-        check_consistency=True,
-    )
-
-
-@pytest.mark.parametrize("per_atom", [True, False])
-def test_vector_output(per_atom):
-    """Tests that the model can predict a (spherical) vector output."""
+def test_pet_padding():
+    """Tests that the model predicts the same energy independently of the
+    padding size."""
 
     dataset_info = DatasetInfo(
         length_unit="Angstrom",
         atomic_types=[1, 6, 7, 8],
         targets={
-            "forces": get_generic_target_info(
-                {
-                    "quantity": "forces",
-                    "unit": "",
-                    "type": {
-                        "spherical": {"irreps": [{"o3_lambda": 1, "o3_sigma": 1}]}
-                    },
-                    "num_subtargets": 100,
-                    "per_atom": per_atom,
-                }
-            )
+            "energy": get_energy_target_info({"quantity": "energy", "unit": "eV"})
         },
     )
 
-    with pytest.raises(ValueError, match="PET only supports total-energy-like outputs"):
-        WrappedPET(DEFAULT_HYPERS["model"], dataset_info)
+    model = PET(MODEL_HYPERS, dataset_info)
+
+    system = System(
+        types=torch.tensor([6, 6]),
+        positions=torch.tensor([[0.0, 0.0, 0.0], [0.0, 0.0, 1.0]]),
+        cell=torch.zeros(3, 3),
+        pbc=torch.tensor([False, False, False]),
+    )
+    system = get_system_with_neighbor_lists(system, model.requested_neighbor_lists())
+    outputs = {"energy": ModelOutput(per_atom=False)}
+    lone_output = model([system], outputs)
+
+    system_2 = System(
+        types=torch.tensor([6, 6, 6, 6, 6, 6, 6]),
+        positions=torch.tensor(
+            [
+                [0.0, 0.0, 0.0],
+                [0.0, 0.0, 1.0],
+                [0.0, 0.0, 2.0],
+                [0.0, 0.0, 3.0],
+                [0.0, 0.0, 4.0],
+                [0.0, 0.0, 5.0],
+                [0.0, 0.0, 6.0],
+            ]
+        ),
+        cell=torch.zeros(3, 3),
+        pbc=torch.tensor([False, False, False]),
+    )
+    system_2 = get_system_with_neighbor_lists(
+        system_2, model.requested_neighbor_lists()
+    )
+    padded_output = model([system, system_2], outputs)
+
+    lone_energy = lone_output["energy"].block().values.squeeze(-1)[0]
+    padded_energy = padded_output["energy"].block().values.squeeze(-1)[0]
+
+    assert torch.allclose(lone_energy, padded_energy, atol=1e-6, rtol=1e-6)
 
 
-def test_output_features():
-    """Tests that the model can output its features and last-layer features."""
+def test_prediction_subset_elements():
+    """Tests that the model can predict on a subset of the elements it was trained
+    on."""
+
     dataset_info = DatasetInfo(
         length_unit="Angstrom",
         atomic_types=[1, 6, 7, 8],
-        targets={"energy": get_energy_target_info({"unit": "eV"})},
+        targets={
+            "energy": get_energy_target_info({"quantity": "energy", "unit": "eV"})
+        },
     )
 
-    model = WrappedPET(DEFAULT_HYPERS["model"], dataset_info)
-    ARCHITECTURAL_HYPERS = Hypers(model.hypers)
-    raw_pet = PET(ARCHITECTURAL_HYPERS, 0.0, len(model.atomic_types))
-    model.set_trained_model(raw_pet)
+    model = PET(MODEL_HYPERS, dataset_info)
+
+    system = System(
+        types=torch.tensor([6, 6]),
+        positions=torch.tensor([[0.0, 0.0, 0.0], [0.0, 0.0, 1.0]]),
+        cell=torch.zeros(3, 3),
+        pbc=torch.tensor([False, False, False]),
+    )
+    system = get_system_with_neighbor_lists(system, model.requested_neighbor_lists())
+    model(
+        [system],
+        {"energy": model.outputs["energy"]},
+    )
+
+
+def test_prediction_subset_atoms():
+    """Tests that the model can predict on a subset
+    of the atoms in a system."""
+
+    # we need float64 for this test, then we will change it back at the end
+    default_dtype_before = torch.get_default_dtype()
+    torch.set_default_dtype(torch.float64)
+
+    dataset_info = DatasetInfo(
+        length_unit="Angstrom",
+        atomic_types=[1, 6, 7, 8],
+        targets={
+            "energy": get_energy_target_info({"quantity": "energy", "unit": "eV"})
+        },
+    )
+
+    model = PET(MODEL_HYPERS, dataset_info)
+
+    # Since we don't yet support atomic predictions, we will test this by
+    # predicting on a system with two monomers at a large distance
+
+    system_monomer = System(
+        types=torch.tensor([7, 8, 8]),
+        positions=torch.tensor(
+            [[0.0, 0.0, 0.0], [0.0, 0.0, 1.0], [0.0, 0.0, 2.0]],
+        ),
+        cell=torch.zeros(3, 3),
+        pbc=torch.tensor([False, False, False]),
+    )
+    system_monomer = get_system_with_neighbor_lists(
+        system_monomer, model.requested_neighbor_lists()
+    )
+
+    energy_monomer = model(
+        [system_monomer],
+        {"energy": ModelOutput(per_atom=False)},
+    )
+
+    system_far_away_dimer = System(
+        types=torch.tensor([7, 7, 8, 8, 8, 8]),
+        positions=torch.tensor(
+            [
+                [0.0, 0.0, 0.0],
+                [0.0, 50.0, 0.0],
+                [0.0, 0.0, 1.0],
+                [0.0, 0.0, 2.0],
+                [0.0, 51.0, 0.0],
+                [0.0, 42.0, 0.0],
+            ],
+        ),
+        cell=torch.zeros(3, 3),
+        pbc=torch.tensor([False, False, False]),
+    )
+    system_far_away_dimer = get_system_with_neighbor_lists(
+        system_far_away_dimer, model.requested_neighbor_lists()
+    )
+
+    selection_labels = metatensor.torch.Labels(
+        names=["system", "atom"],
+        values=torch.tensor([[0, 0], [0, 2], [0, 3]]),
+    )
+
+    energy_dimer = model(
+        [system_far_away_dimer],
+        {"energy": ModelOutput(per_atom=False)},
+    )
+
+    energy_monomer_in_dimer = model(
+        [system_far_away_dimer],
+        {"energy": ModelOutput(per_atom=False)},
+        selected_atoms=selection_labels,
+    )
+
+    assert not metatensor.torch.allclose(
+        energy_monomer["energy"], energy_dimer["energy"]
+    )
+
+    assert metatensor.torch.allclose(
+        energy_monomer["energy"], energy_monomer_in_dimer["energy"]
+    )
+
+    torch.set_default_dtype(default_dtype_before)
+
+
+def test_output_last_layer_features():
+    """Tests that the model can output its last layer features."""
+    dataset_info = DatasetInfo(
+        length_unit="Angstrom",
+        atomic_types=[1, 6, 7, 8],
+        targets={
+            "energy": get_energy_target_info({"quantity": "energy", "unit": "eV"})
+        },
+    )
+
+    model = PET(MODEL_HYPERS, dataset_info)
 
     system = System(
         types=torch.tensor([6, 1, 8, 7]),
@@ -274,9 +223,7 @@ def test_output_features():
         cell=torch.zeros(3, 3),
         pbc=torch.tensor([False, False, False]),
     )
-
-    requested_neighbor_lists = get_requested_neighbor_lists(model)
-    system = get_system_with_neighbor_lists(system, requested_neighbor_lists)
+    system = get_system_with_neighbor_lists(system, model.requested_neighbor_lists())
 
     # last-layer features per atom:
     ll_output_options = ModelOutput(
@@ -287,28 +234,40 @@ def test_output_features():
     outputs = model(
         [system],
         {
-            "energy": ModelOutput(quantity="energy", unit="eV", per_atom=True),
-            "mtt::aux::energy_last_layer_features": ll_output_options,
+            "energy": model.outputs["energy"],
             "features": ll_output_options,
+            "mtt::aux::energy_last_layer_features": ll_output_options,
         },
     )
     assert "energy" in outputs
-    assert "mtt::aux::energy_last_layer_features" in outputs
     assert "features" in outputs
-    last_layer_features = outputs["mtt::aux::energy_last_layer_features"].block()
+    assert "mtt::aux::energy_last_layer_features" in outputs
+
     features = outputs["features"].block()
-    assert last_layer_features.samples.names == ["system", "atom"]
-    assert last_layer_features.values.shape == (
-        4,
-        768,  # 768 = 3 (gnn layers) * 256 (128 for edge repr, 128 for node repr)
-    )
-    assert last_layer_features.properties.names == ["properties"]
-    assert features.samples.names == ["system", "atom"]
+    assert features.samples.names == [
+        "system",
+        "atom",
+    ]
     assert features.values.shape == (
         4,
-        768,  # 768 = 3 (gnn layers) * 256 (128 for edge repr, 128 for node repr)
+        MODEL_HYPERS["d_pet"] * MODEL_HYPERS["num_gnn_layers"] * 2,
     )
-    assert features.properties.names == ["properties"]
+    assert features.properties.names == [
+        "properties",
+    ]
+
+    last_layer_features = outputs["mtt::aux::energy_last_layer_features"].block()
+    assert last_layer_features.samples.names == [
+        "system",
+        "atom",
+    ]
+    assert last_layer_features.values.shape == (
+        4,
+        MODEL_HYPERS["d_head"] * MODEL_HYPERS["num_gnn_layers"] * 2,
+    )
+    assert last_layer_features.properties.names == [
+        "properties",
+    ]
 
     # last-layer features per system:
     ll_output_options = ModelOutput(
@@ -319,27 +278,249 @@ def test_output_features():
     outputs = model(
         [system],
         {
-            "energy": ModelOutput(quantity="energy", unit="eV", per_atom=True),
-            "mtt::aux::energy_last_layer_features": ll_output_options,
+            "energy": model.outputs["energy"],
             "features": ll_output_options,
+            "mtt::aux::energy_last_layer_features": ll_output_options,
         },
     )
     assert "energy" in outputs
-    assert "mtt::aux::energy_last_layer_features" in outputs
     assert "features" in outputs
+    assert "mtt::aux::energy_last_layer_features" in outputs
+
+    features = outputs["features"].block()
+    assert features.samples.names == [
+        "system",
+    ]
+    assert features.values.shape == (
+        1,
+        MODEL_HYPERS["d_pet"] * MODEL_HYPERS["num_gnn_layers"] * 2,
+    )
+
     assert outputs["mtt::aux::energy_last_layer_features"].block().samples.names == [
         "system"
     ]
     assert outputs["mtt::aux::energy_last_layer_features"].block().values.shape == (
         1,
-        768,  # 768 = 3 (gnn layers) * 256 (128 for edge repr, 128 for node repr)
+        MODEL_HYPERS["d_head"] * MODEL_HYPERS["num_gnn_layers"] * 2,
     )
     assert outputs["mtt::aux::energy_last_layer_features"].block().properties.names == [
         "properties",
     ]
-    assert outputs["features"].block().samples.names == ["system"]
-    assert outputs["features"].block().values.shape == (
-        1,
-        768,  # 768 = 3 (gnn layers) * 256 (128 for edge repr, 128 for node repr)
+
+
+def test_output_per_atom():
+    """Tests that the model can output per-atom quantities."""
+    dataset_info = DatasetInfo(
+        length_unit="Angstrom",
+        atomic_types=[1, 6, 7, 8],
+        targets={
+            "energy": get_energy_target_info({"quantity": "energy", "unit": "eV"})
+        },
     )
-    assert outputs["features"].block().properties.names == ["properties"]
+
+    model = PET(MODEL_HYPERS, dataset_info)
+
+    system = System(
+        types=torch.tensor([6, 1, 8, 7]),
+        positions=torch.tensor(
+            [[0.0, 0.0, 0.0], [0.0, 0.0, 1.0], [0.0, 0.0, 2.0], [0.0, 0.0, 3.0]],
+        ),
+        cell=torch.zeros(3, 3),
+        pbc=torch.tensor([False, False, False]),
+    )
+    system = get_system_with_neighbor_lists(system, model.requested_neighbor_lists())
+
+    outputs = model(
+        [system],
+        {"energy": model.outputs["energy"]},
+    )
+
+    assert outputs["energy"].block().samples.names == ["system", "atom"]
+    assert outputs["energy"].block().values.shape == (4, 1)
+
+
+def test_fixed_composition_weights():
+    """Tests the correctness of the json schema for fixed_composition_weights"""
+
+    hypers = DEFAULT_HYPERS.copy()
+    hypers["training"]["fixed_composition_weights"] = {
+        "energy": {
+            1: 1.0,
+            6: 0.0,
+            7: 0.0,
+            8: 0.0,
+            9: 3000.0,
+        }
+    }
+    hypers = OmegaConf.create(hypers)
+    check_architecture_options(name="pet", options=OmegaConf.to_container(hypers))
+
+
+def test_fixed_composition_weights_error():
+    """Test that only inputd of type Dict[str, Dict[int, float]] are allowed."""
+    hypers = DEFAULT_HYPERS.copy()
+    hypers["training"]["fixed_composition_weights"] = {"energy": {"H": 300.0}}
+    hypers = OmegaConf.create(hypers)
+    with pytest.raises(ValidationError, match=r"'H' does not match '\^\[0-9\]\+\$'"):
+        check_architecture_options(name="pet", options=OmegaConf.to_container(hypers))
+
+
+@pytest.mark.parametrize("per_atom", [True, False])
+def test_vector_output(per_atom):
+    """Tests that the model can predict a Cartesian vector output."""
+
+    dataset_info = DatasetInfo(
+        length_unit="Angstrom",
+        atomic_types=[1, 6, 7, 8],
+        targets={
+            "forces": get_generic_target_info(
+                {
+                    "quantity": "forces",
+                    "unit": "",
+                    "type": {"cartesian": {"rank": 1}},
+                    "num_subtargets": 100,
+                    "per_atom": per_atom,
+                }
+            )
+        },
+    )
+
+    model = PET(MODEL_HYPERS, dataset_info)
+
+    system = System(
+        types=torch.tensor([6, 6]),
+        positions=torch.tensor([[0.0, 0.0, 0.0], [0.0, 0.0, 1.0]]),
+        cell=torch.zeros(3, 3),
+        pbc=torch.tensor([False, False, False]),
+    )
+    system = get_system_with_neighbor_lists(system, model.requested_neighbor_lists())
+    model(
+        [system],
+        {"force": model.outputs["forces"]},
+    )
+
+
+@pytest.mark.parametrize("per_atom", [True, False])
+def test_spherical_output(per_atom):
+    """Tests that the model can predict a spherical tensor output."""
+
+    dataset_info = DatasetInfo(
+        length_unit="Angstrom",
+        atomic_types=[1, 6, 7, 8],
+        targets={
+            "spherical_tensor": get_generic_target_info(
+                {
+                    "quantity": "spherical_tensor",
+                    "unit": "",
+                    "type": {
+                        "spherical": {"irreps": [{"o3_lambda": 2, "o3_sigma": 1}]}
+                    },
+                    "num_subtargets": 100,
+                    "per_atom": per_atom,
+                }
+            )
+        },
+    )
+
+    model = PET(MODEL_HYPERS, dataset_info)
+
+    system = System(
+        types=torch.tensor([6, 6]),
+        positions=torch.tensor([[0.0, 0.0, 0.0], [0.0, 0.0, 1.0]]),
+        cell=torch.zeros(3, 3),
+        pbc=torch.tensor([False, False, False]),
+    )
+    system = get_system_with_neighbor_lists(system, model.requested_neighbor_lists())
+    model(
+        [system],
+        {"spherical_tensor": model.outputs["spherical_tensor"]},
+    )
+
+
+@pytest.mark.parametrize("per_atom", [True, False])
+def test_spherical_output_multi_block(per_atom):
+    """Tests that the model can predict a spherical tensor output
+    with multiple irreps."""
+
+    dataset_info = DatasetInfo(
+        length_unit="Angstrom",
+        atomic_types=[1, 6, 7, 8],
+        targets={
+            "spherical_tensor": get_generic_target_info(
+                {
+                    "quantity": "spherical_tensor",
+                    "unit": "",
+                    "type": {
+                        "spherical": {
+                            "irreps": [
+                                {"o3_lambda": 2, "o3_sigma": 1},
+                                {"o3_lambda": 1, "o3_sigma": 1},
+                                {"o3_lambda": 0, "o3_sigma": 1},
+                            ]
+                        }
+                    },
+                    "num_subtargets": 100,
+                    "per_atom": per_atom,
+                }
+            )
+        },
+    )
+
+    model = PET(MODEL_HYPERS, dataset_info)
+
+    system = System(
+        types=torch.tensor([6, 6]),
+        positions=torch.tensor([[0.0, 0.0, 0.0], [0.0, 0.0, 1.0]]),
+        cell=torch.zeros(3, 3),
+        pbc=torch.tensor([False, False, False]),
+    )
+    system = get_system_with_neighbor_lists(system, model.requested_neighbor_lists())
+    outputs = model(
+        [system],
+        {"spherical_tensor": model.outputs["spherical_tensor"]},
+    )
+    assert len(outputs["spherical_tensor"]) == 3
+
+
+def test_consistency():
+    """Tests that the two implementations of attention are consistent."""
+
+    num_centers = 100
+    num_neighbors_per_center = 50
+    hidden_size = 128
+    num_heads = 4
+
+    attention = AttentionBlock(hidden_size, num_heads)
+
+    inputs = torch.randn(num_centers, num_neighbors_per_center, hidden_size)
+    radial_mask = torch.rand(
+        num_centers, num_neighbors_per_center, num_neighbors_per_center
+    )
+
+    attention_output_torch = attention(inputs, radial_mask, use_manual_attention=False)
+    attention_output_manual = attention(inputs, radial_mask, use_manual_attention=True)
+
+    assert torch.allclose(attention_output_torch, attention_output_manual, atol=1e-6)
+
+
+def test_nativepet_single_atom():
+    """Tests that the model predicts correctly on a single atom."""
+
+    dataset_info = DatasetInfo(
+        length_unit="Angstrom",
+        atomic_types=[1, 6, 7, 8],
+        targets={
+            "energy": get_energy_target_info({"quantity": "energy", "unit": "eV"})
+        },
+    )
+    model = PET(MODEL_HYPERS, dataset_info)
+
+    system = System(
+        types=torch.tensor([6]),
+        positions=torch.tensor([[0.0, 0.0, 1.0]]),
+        cell=torch.zeros(3, 3),
+        pbc=torch.tensor([False, False, False]),
+    )
+    system = get_system_with_neighbor_lists(system, model.requested_neighbor_lists())
+    outputs = {"energy": ModelOutput(per_atom=False)}
+    model([system], outputs)

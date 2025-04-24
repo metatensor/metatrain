@@ -17,4 +17,5 @@ __authors__ = [
 
 __maintainers__ = [
     ("Arslan Mazitov <arslan.mazitov@epfl.ch>", "@abmazitov"),
+    ("Filippo Bigi <filippo.bigi@epfl.ch>", "@frostedoyster"),
 ]
