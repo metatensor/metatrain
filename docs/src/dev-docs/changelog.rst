@@ -28,11 +28,18 @@ Fixed
 #####
 
 - ``NativePET`` can now evaluate on single-atom structures without crashing
+- The metatrain dataloader doesn't load all batches ahead of each epoch anymore
+
 
 Added
 #####
 
 - ``NanoPET`` and ``NativePET`` can now train on non-conservative stresses
+- Users can now choose the name of the extension directory in ``mtt train`` and
+  ``mtt export`` via the ``--extensions`` (or ``-e``) option
+
+- Update to ``metatensor-torch-0.7.6``, adding support for torch 2.7
+
 
 Version 2025.5 - 2025-04-13
 ---------------------------

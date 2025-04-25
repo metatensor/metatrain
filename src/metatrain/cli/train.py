@@ -35,6 +35,7 @@ from ..utils.jsonschema import validate
 from ..utils.logging import ROOT_LOGGER, WandbHandler
 from ..utils.omegaconf import BASE_OPTIONS, check_units, expand_dataset_config
 from .eval import _eval_targets
+from .export import _has_extensions
 from .formatter import CustomHelpFormatter
 
 
@@ -68,6 +69,18 @@ def _add_train_model_parser(subparser: argparse._SubParsersAction) -> None:
         required=False,
         default="model.pt",
         help="Path to save the final model (default: %(default)s).",
+    )
+    parser.add_argument(
+        "-e",
+        "--extensions",
+        dest="extensions",
+        type=str,
+        required=False,
+        default="extensions/",
+        help=(
+            "Folder where the extensions of the model, if any, will be collected "
+            "(default: %(default)s)"
+        ),
     )
     parser.add_argument(
         "-c",
@@ -135,6 +148,7 @@ def _process_continue_from(continue_from: str) -> Optional[str]:
 def train_model(
     options: Union[DictConfig, Dict],
     output: str = "model.pt",
+    extensions: str = "extensions/",
     checkpoint_dir: Union[str, Path] = ".",
     continue_from: Optional[str] = None,
 ) -> None:
@@ -466,11 +480,18 @@ def train_model(
         raise ArchitectureError(e)
 
     mts_atomistic_model = model.export()
-    extensions_path = "extensions/"
+    if _has_extensions():
+        extensions_path = str(Path(extensions).absolute().resolve())
+    else:
+        extensions_path = None
 
-    logging.info(
-        f"Exporting model to `{output_checked}` and extensions to `{extensions_path}`"
-    )
+    if extensions_path is not None:
+        logging.info(
+            f"Exporting model to `{output_checked}` and extensions to "
+            f"`{extensions_path}`"
+        )
+    else:
+        logging.info(f"Exporting model to `{output_checked}`")
     # get device from the model. This device could be different from devices[0]
     # defined above in the case of multi-GPU and/or distributed training
     final_device = next(

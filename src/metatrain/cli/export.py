@@ -4,6 +4,7 @@ import os
 from pathlib import Path
 from typing import Any, Optional, Union
 
+import torch
 from metatensor.torch.atomistic import ModelMetadata, is_atomistic_model
 from omegaconf import OmegaConf
 
@@ -45,6 +46,18 @@ def _add_export_model_parser(subparser: argparse._SubParsersAction) -> None:
         help=(
             "Filename of the exported model (default: <stem>.pt, "
             "where <stem> is the name of the checkpoint without the extension)."
+        ),
+    )
+    parser.add_argument(
+        "-e",
+        "--extensions",
+        dest="extensions",
+        type=str,
+        required=False,
+        default="extensions/",
+        help=(
+            "Folder where the extensions of the model, if any, will be collected "
+            "(default: %(default)s)."
         ),
     )
     parser.add_argument(
@@ -91,7 +104,7 @@ def _prepare_export_model_args(args: argparse.Namespace) -> None:
         args.metadata = ModelMetadata(**OmegaConf.load(args.metadata))
 
     # only these are needed for `export_model``
-    keys_to_keep = ["model", "output", "metadata"]
+    keys_to_keep = ["model", "output", "metadata", "extensions"]
     original_keys = list(args.__dict__.keys())
 
     for key in original_keys:
@@ -102,7 +115,10 @@ def _prepare_export_model_args(args: argparse.Namespace) -> None:
 
 
 def export_model(
-    model: Any, output: Union[Path, str], metadata: Optional[ModelMetadata] = None
+    model: Any,
+    output: Union[Path, str],
+    extensions: Union[Path, str] = "extensions/",
+    metadata: Optional[ModelMetadata] = None,
 ) -> None:
     """Export a trained model allowing it to make predictions.
 
@@ -112,6 +128,7 @@ def export_model(
 
     :param model: model to be exported
     :param output: path to save the model
+    :param extensions: path to save the extensions
     :param metadata: metadata to be appended to the model
     """
     path = str(
@@ -119,10 +136,29 @@ def export_model(
         .absolute()
         .resolve()
     )
-    extensions_path = str(Path("extensions/").absolute().resolve())
+
+    if _has_extensions():
+        extensions_path = str(Path(extensions).absolute().resolve())
+    else:
+        extensions_path = None
 
     if not is_atomistic_model(model):
         model = model.export(metadata)
 
     model.save(path, collect_extensions=extensions_path)
-    logging.info(f"Model exported to '{path}' and extensions to '{extensions_path}'")
+    if extensions_path is not None:
+        logging.info(
+            f"Model exported to '{path}' and extensions to '{extensions_path}'"
+        )
+    else:
+        logging.info(f"Model exported to '{path}'")
+
+
+def _has_extensions():
+    """Check if any torch extensions are currently loaded (besides metatensor)."""
+    loaded_libraries = torch.ops.loaded_libraries
+    for lib in loaded_libraries:
+        if "libmetatensor_torch" in lib:
+            continue
+        return True
+    return False
