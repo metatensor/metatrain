@@ -37,6 +37,8 @@ Added
 - Users can now choose the name of the extension directory in ``mtt train`` and
   ``mtt export`` via the ``--extensions`` (or ``-e``) option
 
+- Update to ``metatensor-torch-0.7.6``, adding support for torch 2.7
+
 Changed
 #######
 
