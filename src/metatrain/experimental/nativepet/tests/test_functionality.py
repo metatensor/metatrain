@@ -531,7 +531,7 @@ def test_nativepet_single_atom():
 
 
 @pytest.mark.parametrize("per_atom", [True, False])
-def test_nanopet_rank_2(per_atom):
+def test_nativepet_rank_2(per_atom):
     """Tests that the model can predict a symmetric rank-2 tensor."""
     # (note that no composition energies are supplied or calculated here)
 
