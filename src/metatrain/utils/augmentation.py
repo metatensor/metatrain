@@ -22,7 +22,7 @@ class RotationalAugmenter:
     def __init__(self, target_info_dict: Dict[str, TargetInfo]):
         # checks on targets
         for target_info in target_info_dict.values():
-            if target_info.is_cartesian:
+            if target_info.target_type == "cartesian":
                 if len(target_info.layout.block(0).components) != 1:
                     raise ValueError(
                         "RotationalAugmenter only supports Cartesian targets "
@@ -34,9 +34,7 @@ class RotationalAugmenter:
         self.wigner = None
         self.complex_to_real_spherical_harmonics_transforms = {}
         is_any_target_spherical = any(
-            target_info.is_spherical
-            or target_info.is_atomic_basis_spherical_per_atom
-            or target_info.is_atomic_basis_spherical_per_pair
+            target_info.target_type.startswith("spherical")
             for target_info in target_info_dict.values()
         )
         if is_any_target_spherical:
@@ -51,6 +49,9 @@ class RotationalAugmenter:
             largest_l = max(
                 (len(block.components[0]) - 1) // 2
                 for target_info in target_info_dict.values()
+                if target_info.target_type.startswith(
+                    "spherical"
+                )  # some kind of spherical target
                 for block in target_info.layout.blocks()
             )
             self.wigner = spherical.Wigner(largest_l)
@@ -85,20 +86,9 @@ class RotationalAugmenter:
             for target_name in targets.keys():
                 target_info = self.target_info_dict[target_name]
 
-                # Store the target type
-                if target_info.is_scalar:
-                    target_types[target_name] = "scalar"
-                elif target_info.is_spherical:
-                    target_types[target_name] = "spherical"
-                elif (
-                    target_info.is_atomic_basis_spherical_per_atom
-                    or target_info.is_atomic_basis_spherical_per_pair
-                ):
-                    target_types[target_name] = "atomic_basis_spherical"
-                else:
-                    raise ValueError("unexpected target type")
+                target_types[target_name] = target_info.target_type
 
-                if target_types[target_name] in ["spherical", "atomic_basis_spherical"]:
+                if target_info.target_type.startswith("spherical"):
                     for block in target_info.layout.blocks():
                         ell = (len(block.components[0]) - 1) // 2
                         if ell not in wigner_D_matrices:  # skip if already computed
@@ -139,7 +129,7 @@ def _apply_wigner_D_matrices(
 ) -> TensorMap:
     """
     For the given target ``target_tmap``, for each of its blocks, splits the values by
-    system and applies a SO(3) transformation by action of a Wigner-D matrix.
+    system and applies an O(3) transformation by action of a Wigner-D matrix.
     """
     # Iterate over blocks in the target
     new_blocks: List[TensorBlock] = []
@@ -161,41 +151,32 @@ def _apply_wigner_D_matrices(
                     systems, "per_structure", [], -1000
                 )
 
-        elif target_type == "atomic_basis_spherical":
-            if "o3_lambda" in key.names:
-                if "atom" in block.samples.names:  # per_atom
+        elif target_type == "spherical_atomic_basis":
+            if "atom" in block.samples.names:
+                split_indices = _get_system_split_indices(
+                    systems, "per_atom", [int(key["center_type"])], -1000
+                )
+            elif (
+                "first_atom" in block.samples.names
+                and "second_atom" in block.samples.names
+            ):
+                if "s2_pi" in key.names:
                     split_indices = _get_system_split_indices(
-                        systems, "per_atom", [int(key["center_type"])], -1000
+                        systems,
+                        "per_pair",
+                        [int(key["first_atom_type"]), int(key["second_atom_type"])],
+                        int(key["s2_pi"]),
                     )
-                elif (  # per_pair
-                    "first_atom" in block.samples.names
-                    and "second_atom" in block.samples.names
-                ):
-                    if "s2_pi" in key.names:
-                        split_indices = _get_system_split_indices(
-                            systems,
-                            "per_pair",
-                            [int(key["first_atom_type"]), int(key["second_atom_type"])],
-                            int(key["s2_pi"]),
-                        )
-                    else:
-                        split_indices = _get_system_split_indices(
-                            systems,
-                            "per_pair",
-                            [int(key["first_atom_type"]), int(key["second_atom_type"])],
-                            -1000,
-                        )
                 else:
-                    raise ValueError(f"unexpected samples: {block.samples}")
-
-            else:
-                raise ValueError(f"unexpected key dimensions: {key.names}")
+                    split_indices = _get_system_split_indices(
+                        systems,
+                        "per_pair",
+                        [int(key["first_atom_type"]), int(key["second_atom_type"])],
+                        -1000,
+                    )
 
         else:
-            raise ValueError(
-                "unexpected target type. Must be a 'spherical' or "
-                " 'atomic_basis_spherical' target."
-            )
+            raise ValueError(f"unexpected target type: {target_type}.")
 
         assert sum(split_indices) == len(values), (
             sum(split_indices),
@@ -258,6 +239,7 @@ def _get_system_split_indices(
     """
     Finds the indices that splits a TensorBlock along the samples axis by system index.
     """
+    # TODO: use this function to write a `split_by` function in metatensor.
 
     split_indices: List[int] = []
 
@@ -473,7 +455,7 @@ def _apply_random_augmentations(  # pragma: no cover
                 blocks=[energy_block],
             )
 
-        elif target_types[name] in ["spherical", "atomic_basis_spherical"]:
+        elif target_types[name].startswith("spherical"):
             new_targets[name] = _apply_wigner_D_matrices(
                 systems,
                 target_tmap,
@@ -482,7 +464,7 @@ def _apply_random_augmentations(  # pragma: no cover
                 target_types[name],
             )
 
-        else:
+        elif target_types[name] == "cartesian":
             # transform Cartesian vector:
             block = target_tmap.block()
             vectors = block.values
@@ -511,6 +493,9 @@ def _apply_random_augmentations(  # pragma: no cover
                     )
                 ],
             )
+
+        else:
+            raise ValueError(f"unexpected target type: {target_types[name]}")
 
     return new_systems, new_targets
 

@@ -1,4 +1,4 @@
-from typing import Dict, List, Tuple
+from typing import Dict, List
 
 import torch
 from metatensor.torch import Labels
@@ -7,9 +7,9 @@ from metatensor.torch.atomistic import System
 
 def get_samples(
     systems: List[System],
-    atomic_types: List[int],
-    atomic_basis_target_info: Dict[str, Dict[str, str]],
-) -> Tuple[Labels, Labels, Labels, Labels, Labels, Dict[str, Dict[str, Labels]]]:
+    atomic_types: torch.Tensor,
+    output_info: Dict[str, Dict[str, str]],
+):
     """
     Builds the various samples labels for the PET node and edge features, for the given
     input ``systems``.
@@ -56,25 +56,24 @@ def get_samples(
 
     any_per_atom: bool = any(
         [
-            atomic_basis_target_info[output_name]["type"] == "atomic_basis_spherical"
-            and atomic_basis_target_info[output_name]["sample_kind"] == "per_atom"
-            for output_name in atomic_basis_target_info.keys()
+            info["target_type"] == "spherical_atomic_basis"
+            and info["sample_kind"] == "per_atom"
+            for info in output_info.values()
         ]
     )
     any_per_pair: bool = any(
         [
-            atomic_basis_target_info[output_name]["type"] == "atomic_basis_spherical"
-            and atomic_basis_target_info[output_name]["sample_kind"].startswith(
-                "per_pair"
-            )
-            for output_name in atomic_basis_target_info.keys()
+            info["target_type"] == "spherical_atomic_basis"
+            and info["sample_kind"] == "per_pair"
+            for info in output_info.values()
         ]
     )
     any_per_pair_sym: bool = any(
         [
-            atomic_basis_target_info[output_name]["type"] == "atomic_basis_spherical"
-            and atomic_basis_target_info[output_name]["sample_kind"] == "per_pair_sym"
-            for output_name in atomic_basis_target_info.keys()
+            info["target_type"] == "spherical_atomic_basis"
+            and info["sample_kind"] == "per_pair"
+            and info["symmetrized"] == "true"
+            for info in output_info.values()
         ]
     )
     if any_per_pair:  # store the samples labels for the raw PET edge features
@@ -518,7 +517,7 @@ def symmetrize_edge_features(
 def samples_for_atomic_basis_per_atom(
     systems: List[System],
     node_samples: Labels,
-    atomic_types: List[int],
+    atomic_types: torch.Tensor,
 ) -> Dict[str, Labels]:
     """
     For spherical targets on an atomic basis, the PET node features need to be sliced
@@ -539,7 +538,7 @@ def samples_for_atomic_basis_per_atom(
 
 def samples_for_atomic_basis_per_pair(
     edge_samples: Labels,
-    atomic_types: List[int],
+    atomic_types: torch.Tensor,
     sample_kind: str,
 ) -> Dict[str, Labels]:
     """

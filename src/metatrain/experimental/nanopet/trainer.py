@@ -5,7 +5,6 @@ from typing import List, Union
 
 import torch
 import torch.distributed
-from metatensor.torch import Labels, TensorBlock, TensorMap
 from torch.utils.data import DataLoader, DistributedSampler
 
 from ...utils.additive import remove_additive
@@ -307,22 +306,6 @@ class Trainer:
                 )
                 targets = average_by_num_atoms(targets, systems, per_structure_targets)
 
-                # as the model may predict empty blocks - exemplar case is for spherical
-                # targets on an atomic basis for blocks corresponding to atomic types
-                # not in the current batch - drop these empty blocks according to the
-                # target keys.
-                for target_name in targets.keys():
-                    if predictions[target_name].keys != targets[target_name].keys:
-                        # TODO: use `metatensor.filter_blocks` once PR #XXX is available
-                        # in latest metatensor release.
-                        # predictions[target_name] = filter_blocks(
-                        #     predictions[target_name], keys=targets[target_name].keys
-                        # )
-                        # For now, use a re-implementation
-                        predictions[target_name] = _filter_blocks(
-                            predictions[target_name], keys=targets[target_name].keys
-                        )
-
                 train_loss_batch = loss_fn(predictions, targets)
                 train_loss_batch.backward()
                 torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
@@ -378,18 +361,6 @@ class Trainer:
                     predictions, systems, per_structure_targets
                 )
                 targets = average_by_num_atoms(targets, systems, per_structure_targets)
-
-                # as the model may predict empty blocks - exemplar case is for spherical
-                # targets on an atomic basis for blocks corresponding to atomic types
-                # not in the current batch - drop these empty blocks according to the
-                # target keys.
-                for target_name in targets.keys():
-                    if predictions[target_name].keys != targets[target_name].keys:
-                        # TODO: use `metatensor.filter_blocks` once PR #XXX is available
-                        # in latest metatensor release.
-                        predictions[target_name] = _filter_blocks(
-                            predictions[target_name], keys=targets[target_name].keys
-                        )
 
                 val_loss_batch = loss_fn(predictions, targets)
 
@@ -540,95 +511,3 @@ class Trainer:
         trainer.best_optimizer_state_dict = best_optimizer_state_dict
 
         return trainer
-
-
-# =====
-# TODO: remove once changes in https://github.com/metatensor/metatensor/pull/885 are
-# released. The following is a temporary of metatensor.operations.filter_blocks where
-# the order of the filtering keys are maintained. Remove this once the updated function
-# becomes released on PyPI.
-# =====
-
-
-def _empty_like(array, shape: List[int], requires_grad: bool = False):
-    """
-    Create an uninitialized array, with the given ``shape``, and similar dtype,
-    device and other options as ``array``.
-
-    If ``shape`` is :py:obj:`None`, the array shape is used instead.
-    ``requires_grad`` is only used for torch tensors, and set the corresponding
-    value on the returned array.
-
-    This is the equivalent to ``np.empty_like(array, shape=shape)``.
-    """
-    return torch.empty(
-        shape,
-        dtype=array.dtype,
-        layout=array.layout,
-        device=array.device,
-    ).requires_grad_(requires_grad)
-
-
-@torch.jit.script
-def _filter_blocks(tensor: TensorMap, keys: Labels, copy: bool = False) -> TensorMap:
-    """
-    Temporary copy of :py:func:`metatensor.filter_blocks`, until PR #885
-    (https://github.com/metatensor/metatensor/pull/885) is merged and made available in
-    metatensor release.
-    """
-    tensor_keys = tensor.keys
-    to_keep_indices: List[int] = tensor_keys.select(keys).tolist()
-
-    # Create the new TensorMap
-    new_blocks: List[TensorBlock] = []
-    new_keys_values = []
-    for i in to_keep_indices:
-        new_keys_values.append(tensor_keys.entry(i).values)
-        block = tensor[i]
-
-        if copy:
-            new_blocks.append(block.copy())
-        else:
-            # just increase the reference count on everything
-            new_block = TensorBlock(
-                values=block.values,
-                samples=block.samples,
-                components=block.components,
-                properties=block.properties,
-            )
-
-            for parameter, gradient in block.gradients():
-                if len(gradient.gradients_list()) != 0:
-                    raise NotImplementedError(
-                        "gradients of gradients are not supported"
-                    )
-
-                new_block.add_gradient(
-                    parameter=parameter,
-                    gradient=TensorBlock(
-                        values=gradient.values,
-                        samples=gradient.samples,
-                        components=gradient.components,
-                        properties=new_block.properties,
-                    ),
-                )
-
-            new_blocks.append(new_block)
-
-    if len(new_keys_values) != 0:
-        new_keys = Labels(tensor_keys.names, torch.stack(new_keys_values, 0))
-    else:
-        new_keys = Labels(
-            names=tensor_keys.names,
-            values=_empty_like(tensor_keys.values, [0, len(tensor_keys.names)]),
-        )
-
-    return TensorMap(keys=new_keys, blocks=new_blocks)
-
-
-# =====
-# END TODO: remove once changes in https://github.com/metatensor/metatensor/pull/885 are
-# released. The following is a temporary of metatensor.operations.filter_blocks where
-# the order of the filtering keys are maintained. Remove this once the updated function
-# becomes released on PyPI.
-# =====

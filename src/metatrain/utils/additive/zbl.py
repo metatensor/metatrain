@@ -276,7 +276,7 @@ class ZBL(torch.nn.Module):
                 "not an energy."
             )
             return False
-        if not target_info.is_scalar:
+        if not target_info.target_type == "scalar":
             logging.debug(
                 f"ZBL model does not support target {target_name} since it is "
                 "not a scalar."

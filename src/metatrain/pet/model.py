@@ -38,7 +38,7 @@ class PET(torch.nn.Module):
         self.target_name = next(iter(dataset_info.targets.keys()))
         target = dataset_info.targets[self.target_name]
         if not (
-            target.is_scalar
+            target.target_type == "scalar"
             and target.quantity == "energy"
             and len(target.layout.block(0).properties) == 1
         ):

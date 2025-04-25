@@ -590,7 +590,7 @@ class SoapBpnn(torch.nn.Module):
         # register bases of spherical tensors (TensorBasis)
         self.num_properties[target_name] = {}
         self.basis_calculators[target_name] = torch.nn.ModuleDict({})
-        if target.is_scalar:
+        if target.target_type == "scalar":
             for key, block in target.layout.items():
                 dict_key = target_name
                 for n, k in zip(key.names, key.values):
@@ -601,7 +601,7 @@ class SoapBpnn(torch.nn.Module):
                 self.basis_calculators[target_name][dict_key] = TensorBasis(
                     self.atomic_types, self.hypers["soap"], o3_lambda=0, o3_sigma=1
                 )
-        elif target.is_spherical:
+        elif target.target_type == "spherical":
             for key, block in target.layout.items():
                 dict_key = target_name
                 for n, k in zip(key.names, key.values):
@@ -620,7 +620,7 @@ class SoapBpnn(torch.nn.Module):
         if target_name not in self.head_types:  # default to linear head
             self.heads[target_name] = Identity()
         elif self.head_types[target_name] == "mlp":
-            if not target.is_scalar:
+            if not target.target_type == "scalar":
                 raise ValueError(
                     "MLP head is only supported for scalar targets, "
                     f"but target {target_name} is not scalar."
@@ -663,7 +663,7 @@ class SoapBpnn(torch.nn.Module):
             out_properties = Labels.range(
                 "property",
                 len(block.properties.values)
-                * (1 if target.is_scalar else len(block.components[0])),
+                * (1 if target.target_type == "scalar" else len(block.components[0])),
             )
             last_layer_arguments = {
                 "in_keys": Labels(
@@ -672,7 +672,7 @@ class SoapBpnn(torch.nn.Module):
                 ),
                 "in_features": self.n_inputs_last_layer,
                 "out_features": len(block.properties.values)
-                * (1 if target.is_scalar else len(block.components[0])),
+                * (1 if target.target_type == "scalar" else len(block.components[0])),
                 "bias": False,
                 "out_properties": [out_properties for _ in self.atomic_types],
             }

@@ -81,14 +81,20 @@ class TensorMapLoss:
     ) -> Tuple[torch.Tensor, Dict[str, Tuple[float, int]]]:
         # Check that the two have the same metadata, except for the samples,
         # which can be different due to batching, but must have the same size:
-        if predictions_tensor_map.keys != targets_tensor_map.keys:
+        if len(predictions_tensor_map.keys) != len(targets_tensor_map.keys):
             raise ValueError(
                 "TensorMapSlidingLoss requires the two TensorMaps to have the "
-                "same keys."
+                "same number of keys."
             )
-        for block_1, block_2 in zip(
-            predictions_tensor_map.blocks(), targets_tensor_map.blocks()
-        ):
+        # check all keys are present in both TensorMaps
+        for key in targets_tensor_map.keys:
+            if key not in predictions_tensor_map.keys:
+                raise ValueError(
+                    f"TensorMapSlidingLoss requires the two TensorMaps to have the "
+                    f"same keys. Missing key {key} in predictions."
+                )
+            block_1 = predictions_tensor_map[key]
+            block_2 = targets_tensor_map[key]
             if block_1.properties != block_2.properties:
                 raise ValueError(
                     "TensorMapSlidingLoss requires the two TensorMaps to have the same "
@@ -149,11 +155,6 @@ class TensorMapLoss:
             block_2 = targets_tensor_map.block(key)
             values_1 = block_1.values
             values_2 = block_2.values
-            # skip in case of empty blocks, which can occur for atomic basis spherical
-            # targets, for instance
-            if values_1.shape[0] == 0:
-                assert values_2.shape[0] == 0
-                continue
             # sliding weights: default to 1.0 if not used/provided for this target
             sliding_weight = (
                 1.0

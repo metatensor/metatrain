@@ -432,9 +432,15 @@ class DiskDataset(torch.utils.data.Dataset):
                 )
                 _check_tensor_map_metadata(tensor_map, target_info.layout)
                 target_info_dict[target_key] = target_info
-            else:
-                # generic targets may have different keys metadata across samples, so
-                # the layout TensorMap needs to be constructed by the union join of keys
+
+            # For "spherical_atomic_basis_{}" targets, the rules on metadata are relaxed
+            # such that 'generic' target info with the correct metadata cannot be
+            # constructed from the information in `target_config`. Instead, construct a
+            # TargetInfo object directly, inferring the metadata from the target
+            # `tensor_map`. In any case, the metadata structure will be checked in the
+            # constructor of `TargetInfo`.
+            elif target["type"].startswith("spherical_atomic_basis"):
+                # TODO: find a more efficient way to do this
                 tensor_map = join(
                     [
                         _empty_tensor_map_like(self[tensor_i][target_key])
@@ -444,25 +450,21 @@ class DiskDataset(torch.utils.data.Dataset):
                     remove_tensor_name=True,
                     different_keys="union",
                 )
-                # if an "atomic_basis_spherical" target, the rules on metadata are
-                # relaxed such that 'generic' target info with the correct metadata
-                # cannot be constructed from the information in `target_config`.
-                # Instead, construct a TargetInfo object directly, inferring the
-                # metadata from the target `tensor_map`. In any case, the metadata
-                # structure will be checked in the constructor of `TargetInfo`.
-                if target["type"] == "atomic_basis_spherical":
-                    target_info_dict[target_key] = TargetInfo(
-                        quantity=target["quantity"],
-                        unit=target["unit"],
-                        layout=tensor_map,
-                    )
-                else:
-                    target_info = get_generic_target_info(target)
-                    _check_tensor_map_metadata(tensor_map, target_info.layout)
-                    # make sure that the properties of the target_info.layout also match
-                    # the actual properties of the tensor maps
-                    target_info.layout = tensor_map
-                    target_info_dict[target_key] = target_info
+                target_info_dict[target_key] = TargetInfo(
+                    quantity=target["quantity"],
+                    unit=target["unit"],
+                    layout=tensor_map,
+                )
+
+            # All other targets are treated as 'generic'
+            else:
+                tensor_map = self[0][target_key]  # always > 0 samples, see above
+                target_info = get_generic_target_info(target)
+                _check_tensor_map_metadata(tensor_map, target_info.layout)
+                # make sure that the properties of the target_info.layout also match
+                # the actual properties of the tensor maps
+                target_info.layout = tensor_map
+                target_info_dict[target_key] = target_info
 
         return target_info_dict
 

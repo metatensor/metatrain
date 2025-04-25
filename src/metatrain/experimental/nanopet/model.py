@@ -29,7 +29,10 @@ from .modules.nef import (
     nef_array_to_edges,
 )
 from .modules.radial_mask import get_radial_mask
-from .modules.samples import get_samples, symmetrize_edge_features
+from .modules.samples import (
+    get_samples,
+    symmetrize_edge_features,
+)
 from .modules.structures import concatenate_structures
 from .modules.transformer import Transformer
 
@@ -120,12 +123,11 @@ class NanoPET(torch.nn.Module):
         self.heads = torch.nn.ModuleDict()
         self.head_types = self.hypers["heads"]
         self.last_layers = torch.nn.ModuleDict()
-        self.output_shapes: Dict[str, Dict[str, List[int]]] = {}
         self.key_labels: Dict[str, Labels] = {}
         self.component_labels: Dict[str, List[List[Labels]]] = {}
         self.property_labels: Dict[str, List[Labels]] = {}
-        self.atomic_basis_sample_types: Dict[str, Dict[str, str]] = {}
-        self.atomic_basis_target_info: Dict[str, Dict[str, str]] = {}
+        self.output_shapes: Dict[str, Dict[str, List[int]]] = {}
+        self.output_info: Dict[str, Dict[str, str]] = {}
         for target_name, target_info in dataset_info.targets.items():
             self._add_output(target_name, target_info)
 
@@ -289,7 +291,7 @@ class NanoPET(torch.nn.Module):
             ll_per_pair_samples,
             ll_per_pair_samples_sym,
             atomic_basis_samples,
-        ) = get_samples(systems, self.atomic_types, self.atomic_basis_target_info)
+        ) = get_samples(systems, species, self.output_info)
 
         # somehow the backward of this operation is very slow at evaluation,
         # where there is only one cell, therefore we simplify the calculation
@@ -409,24 +411,16 @@ class NanoPET(torch.nn.Module):
 
         atomic_features_dict: Dict[str, torch.Tensor] = {}
         for output_name, head in self.heads.items():
-            is_atomic_basis_spherical = (
-                self.atomic_basis_target_info[output_name]["type"]
-                == "atomic_basis_spherical"
-            )
-            sample_is_per_pair = self.atomic_basis_target_info[output_name][
-                "sample_kind"
-            ].startswith("per_pair")
-            if is_atomic_basis_spherical and sample_is_per_pair:
-                # a two-center target on an atomic basis must be treated specially
-
+            # a per-pair spherical target on an atomic basis must be treated specially
+            if (
+                self.output_info[output_name]["target_type"] == "spherical_atomic_basis"
+                and self.output_info[output_name]["sample_kind"] == "per_pair"
+            ):
                 # pass the node features through its head
                 ll_node_features = head[0](node_features)
 
                 # symmetrize the PET edge features and pass through its head
-                if (
-                    self.atomic_basis_target_info[output_name]["sample_kind"]
-                    == "per_pair_sym"
-                ):
+                if self.output_info[output_name]["symmetrized"] == "true":
                     ll_edge_features = head[1](
                         symmetrize_edge_features(
                             edge_samples,
@@ -443,7 +437,7 @@ class NanoPET(torch.nn.Module):
                     )
 
                 # stack the node and edge features. The samples of this combined tensor
-                # is labelled by ``edge_samples`` or ``edge_samples_sym``, depending on
+                # are labelled by ``edge_samples`` or ``edge_samples_sym``, depending on
                 # whether or not the features are symmetrized
                 atomic_features_dict[output_name] = torch.vstack(
                     [ll_node_features, ll_edge_features]
@@ -476,8 +470,8 @@ class NanoPET(torch.nn.Module):
 
             # Choose the correct sample labels based on whether these are node or edge
             # features
-            if self.is_atomic_basis_spherical_per_pair[output_name]:
-                if self.is_atomic_basis_spherical_per_pair_sym[output_name]:
+            if self.output_info[output_name]["target_type"] == "spherical_atomic_basis":
+                if self.output_info[output_name]["symmetrized"] == "true":
                     sample_labels = edge_samples_sym
                 else:
                     sample_labels = edge_samples
@@ -508,85 +502,84 @@ class NanoPET(torch.nn.Module):
                     last_layer_feature_tmap,
                 )
 
+        # pass the last layer features through the output layer to form the predictions
         atomic_properties_tmap_dict: Dict[str, TensorMap] = {}
         for output_name, last_layer in self.last_layers.items():
             if output_name in outputs:
                 atomic_features = atomic_features_dict[output_name]
-                atomic_properties_by_block = []
-                sample_labels_by_block: List[Labels] = []
 
                 # select the appropriate samples labels of the last layer features:
-                # atomic basis spherical targets have different cases depending on
-                # whether they are per-atom or per-pair (and symmetrized or not).
+                # per-pair spherical targets on an atomic basis have different samples
+                # labels, and these depend on whether or not the target is symmetrized
                 if (
-                    self.atomic_basis_target_info[output_name]["type"]
-                    == "atomic_basis_spherical"
+                    self.output_info[output_name]["target_type"]
+                    == "spherical_atomic_basis"
+                    and self.output_info[output_name]["sample_kind"] == "per_pair"
                 ):
-                    if (
-                        self.atomic_basis_target_info[output_name]["sample_kind"]
-                        == "per_atom"
-                    ):
-                        ll_sample_labels = node_samples
-                    elif (
-                        self.atomic_basis_target_info[output_name]["sample_kind"]
-                        == "per_pair"
-                    ):
-                        ll_sample_labels = ll_per_pair_samples
-                    else:
-                        assert (
-                            self.atomic_basis_target_info[output_name]["sample_kind"]
-                            == "per_pair_sym"
-                        )
+                    if self.output_info[output_name]["symmetrized"] == "true":
+                        # if "s2_pi" in self.key_labels[output_name].names:
+                        # if "s2_pi" in self.output_info[output_name].key_labels.names:
                         ll_sample_labels = ll_per_pair_samples_sym
+                    else:
+                        ll_sample_labels = ll_per_pair_samples
 
                 # all other target types have the standard node samples
                 else:
                     ll_sample_labels = node_samples
 
-                for last_layer_key, last_layer_by_block in last_layer.items():
-                    # if an atomic basis spherical target, the samples and features need
-                    # to be sliced for each output block, depending on the atom type(s)
-                    # (and permutational symmetry, if applicable) the block corresponds
-                    # to
+                # build each output block
+                output_key_values: List[torch.Tensor] = []
+                output_blocks: List[TensorBlock] = []
+                for block_i, last_layer_by_block in enumerate(last_layer.values()):
+                    # if spherical target on an atomic basis, the samples and features
+                    # need to be sliced for each output block, depending on the atom
+                    # type(s) (and permutational symmetry, if applicable)
                     if (
-                        self.atomic_basis_target_info[output_name]["type"]
-                        == "atomic_basis_spherical"
+                        self.output_info[output_name]["target_type"]
+                        == "spherical_atomic_basis"
                     ):
+                        # get the sample labels kind for this block
+                        sample_kind: str = self.output_info[output_name]["sample_kind"]
+                        if self.output_info[output_name]["symmetrized"] == "true":
+                            sample_kind += "_sym"
+
+                        # get the sample labels for this output block
+                        output_block_slice_key = _get_output_block_slice_key(
+                            self.key_labels[output_name], block_i
+                        )
                         output_block_sample_labels = atomic_basis_samples[
-                            self.atomic_basis_target_info[output_name]["sample_kind"]
-                        ][self.atomic_basis_sample_types[output_name][last_layer_key]]
+                            sample_kind
+                        ].get(output_block_slice_key)
+
+                        if output_block_sample_labels is None:  # block not in batch
+                            continue
 
                         atomic_features_sliced = atomic_features[
                             ll_sample_labels.select(output_block_sample_labels)
                         ]
 
-                        # remove superfluous sample dimensions - these are now in the
-                        # TensorMap key for this output block
-                        if (
-                            self.atomic_basis_target_info[output_name]["sample_kind"]
-                            == "per_pair"
-                        ):
-                            assert output_block_sample_labels.names[:2] == [
-                                "first_atom_type",
-                                "second_atom_type",
-                            ]
-                            output_block_sample_labels = Labels(
-                                output_block_sample_labels.names[2:],
-                                output_block_sample_labels.values[:, 2:],
-                            )
-                        elif (
-                            self.atomic_basis_target_info[output_name]["sample_kind"]
-                            == "per_pair_sym"
-                        ):
-                            assert output_block_sample_labels.names[:3] == [
-                                "s2_pi",
-                                "first_atom_type",
-                                "second_atom_type",
-                            ]
-                            output_block_sample_labels = Labels(
-                                output_block_sample_labels.names[3:],
-                                output_block_sample_labels.values[:, 3:],
-                            )
+                        # remove superfluous sample dimensions, for per-pair targets
+                        # only
+                        if self.output_info[output_name]["sample_kind"] == "per_pair":
+                            if self.output_info[output_name]["symmetrized"] == "true":
+                                assert output_block_sample_labels.names[:3] == [
+                                    "s2_pi",
+                                    "first_atom_type",
+                                    "second_atom_type",
+                                ]
+                                output_block_sample_labels = Labels(
+                                    output_block_sample_labels.names[3:],
+                                    output_block_sample_labels.values[:, 3:],
+                                )
+                            else:
+                                assert output_block_sample_labels.names[:2] == [
+                                    "first_atom_type",
+                                    "second_atom_type",
+                                ]
+                                output_block_sample_labels = Labels(
+                                    output_block_sample_labels.names[2:],
+                                    output_block_sample_labels.values[:, 2:],
+                                )
 
                     # In the usual case, the last layers correspond to all atom types so
                     # no slicing needs to be done and the default node samples labels
@@ -595,37 +588,32 @@ class NanoPET(torch.nn.Module):
                         output_block_sample_labels = ll_sample_labels
                         atomic_features_sliced = atomic_features
 
-                    # Apply the last layer of the head to the (sliced) atomic features
-                    atomic_properties_by_block.append(
-                        last_layer_by_block(atomic_features_sliced)
+                    # apply the output layer to the (sliced) last layer features
+                    output_values = last_layer_by_block(atomic_features_sliced).reshape(
+                        [-1] + list(self.output_shapes[output_name].values())[block_i]
                     )
-                    sample_labels_by_block.append(output_block_sample_labels)
 
-                # Build the prediction blocks
-                blocks = [
-                    TensorBlock(
-                        values=atomic_property.reshape([-1] + shape),
-                        samples=sample_labels,
-                        components=components,
-                        properties=properties,
+                    # store the prediction block and its key value
+                    output_blocks.append(
+                        TensorBlock(
+                            values=output_values,
+                            samples=output_block_sample_labels,
+                            components=self.component_labels[output_name][block_i],
+                            properties=self.property_labels[output_name][block_i],
+                        )
                     )
-                    for (
-                        atomic_property,
-                        sample_labels,
-                        shape,
-                        components,
-                        properties,
-                    ) in zip(
-                        atomic_properties_by_block,
-                        sample_labels_by_block,
-                        self.output_shapes[output_name].values(),
-                        self.component_labels[output_name],
-                        self.property_labels[output_name],
+                    output_key_values.append(
+                        self.key_labels[output_name].values[block_i]
                     )
-                ]
+
+                # build the prediction tensormap
                 atomic_properties_tmap_dict[output_name] = TensorMap(
-                    keys=self.key_labels[output_name],
-                    blocks=blocks,
+                    keys=Labels(
+                        names=self.key_labels[output_name].names,
+                        # names=self.output_info[output_name].key_labels.names,
+                        values=torch.vstack(output_key_values),
+                    ),
+                    blocks=output_blocks,
                 )
 
         if selected_atoms is not None:
@@ -726,50 +714,76 @@ class NanoPET(torch.nn.Module):
         return MetatensorAtomisticModel(self.eval(), metadata, capabilities)
 
     def _add_output(self, target_name: str, target_info: TargetInfo) -> None:
-        # one output shape for each tensor block, grouped by target (i.e. tensormap)
-        self.output_shapes[target_name] = {}
-        self.atomic_basis_sample_types[target_name] = {}
-        for key, block in target_info.layout.items():
-            dict_key = target_name
-            for n, k in zip(key.names, key.values):
-                dict_key += f"_{n}_{int(k)}"
-            self.output_shapes[target_name][dict_key] = [
-                len(comp.values) for comp in block.components
-            ] + [len(block.properties.values)]
+        """
+        For the given target (i.e. TensorMap) whose name is ``target_name`` and info
+        stored in ``target_info``, performs the following:
 
-            # if the atomic type(s) are in the keys, we'll need to slice the PET
-            # features before passing to the heads: store the key dimensions required
-            # for this slicing
-            if target_info.is_atomic_basis_spherical_per_atom:
-                self.atomic_basis_sample_types[target_name][dict_key] = (
-                    f"{key['center_type']}"
-                )
-            elif target_info.is_atomic_basis_spherical_per_pair:
-                if "s2_pi" in target_info.layout.keys.names:
-                    self.atomic_basis_sample_types[target_name][dict_key] = (
-                        f"{key['s2_pi']}_{key['first_atom_type']}_{key['second_atom_type']}"
-                    )
-                else:
-                    self.atomic_basis_sample_types[target_name][dict_key] = (
-                        f"{key['first_atom_type']}_{key['second_atom_type']}"
-                    )
-            else:
-                self.atomic_basis_sample_types[target_name][dict_key] = ""
+            - creates ModelOutput objects for the target and last layer features
+            - stores the target metadata
+            - stores the target output block shapes
+            - stores extra useful output info
+            - initializes the head module (MLP or identity)
+            - initializes the output layers (linear)
+        """
 
+        # create ModelOutput objects for both the target and the last layer features
         self.outputs[target_name] = ModelOutput(
             quantity=target_info.quantity,
             unit=target_info.unit,
             per_atom=True,
         )
+
+        ll_features_name = (
+            f"mtt::aux::{target_name.replace('mtt::', '')}_last_layer_features"
+        )
+        self.outputs[ll_features_name] = ModelOutput(per_atom=True)
+        assert self.outputs[ll_features_name].per_atom is True
+
+        # store the target metadata
+        self.key_labels[target_name] = target_info.layout.keys
+        self.component_labels[target_name] = [
+            block.components for block in target_info.layout.blocks()
+        ]
+        self.property_labels[target_name] = [
+            block.properties for block in target_info.layout.blocks()
+        ]
+
+        # store the target output block shapes
+        self.output_shapes[target_name] = {}
+        for key, block in target_info.layout.items():
+            # build the hashable str version of the key
+            dict_key = target_name
+            for n, k in zip(key.names, key.values):
+                dict_key += f"_{n}_{int(k)}"
+            # store the output shape indexed by the str key
+            self.output_shapes[target_name][dict_key] = [
+                len(comp.values) for comp in block.components
+            ] + [len(block.properties.values)]
+
+        # store some extra output info
+        self.output_info[target_name] = {
+            "target_type": target_info.target_type,
+            "sample_kind": target_info.sample_kind,
+            "symmetrized": "true"
+            if "s2_pi" in target_info.layout.keys.names
+            else "false",
+        }
+
+        # build the head for this target. This transforms PET node (or node+edge in a
+        # special case) features into last layer features
         if (
             target_name not in self.head_types  # default to MLP
             or self.head_types[target_name] == "mlp"
         ):
-            # for predicting two-center targets, we want separate heads for the node and
-            # edge features. Create 2 heads, stored in a dictionary. TODO: these
-            # architectural design choices should live in metatomic, for instance, and
-            # be called from here.
-            if target_info.is_atomic_basis_spherical_per_pair:
+            # for predicting per-pair spherical targets on an atomic basis, we want
+            # separate heads for the node and edge features. Create 2 heads, stored in a
+            # dictionary.
+            # TODO: these architectural design choices should live in metatomic, for
+            # instance, and be called from here.
+            if (
+                target_info.target_type == "spherical_atomic_basis"
+                and target_info.sample_kind == "per_pair"
+            ):
                 self.heads[target_name] = torch.nn.ModuleList(
                     [
                         torch.nn.Sequential(  # node
@@ -815,9 +829,12 @@ class NanoPET(torch.nn.Module):
                     torch.nn.SiLU(),
                 )
         elif self.head_types[target_name] == "linear":
-            # as above, two-center targets have separate heads for the node and edge PET
-            # features
-            if target_info.is_atomic_basis_spherical_per_pair:
+            # as above, per-pair spherical targets on atomic basis have separate heads
+            # for the node and edge PET features
+            if (
+                target_info.target_type == "spherical_atomic_basis"
+                and target_info.sample_kind == "per_pair"
+            ):
                 self.heads[target_name] = torch.nn.ModuleList(
                     [
                         torch.nn.Sequential(),  # node
@@ -832,12 +849,7 @@ class NanoPET(torch.nn.Module):
                 f"for target {target_name}"
             )
 
-        ll_features_name = (
-            f"mtt::aux::{target_name.replace('mtt::', '')}_last_layer_features"
-        )
-        self.outputs[ll_features_name] = ModelOutput(per_atom=True)
-        assert self.outputs[ll_features_name].per_atom is True
-
+        # build the output layers. These transform last layer features into the output.
         self.last_layers[target_name] = torch.nn.ModuleDict(
             {
                 key: torch.nn.Linear(
@@ -849,34 +861,23 @@ class NanoPET(torch.nn.Module):
             }
         )
 
-        self.key_labels[target_name] = target_info.layout.keys
-        self.component_labels[target_name] = [
-            block.components for block in target_info.layout.blocks()
-        ]
-        self.property_labels[target_name] = [
-            block.properties for block in target_info.layout.blocks()
-        ]
 
-        # store info if a spherical target on an atomic basis
-        for name in [target_name, ll_features_name]:
-            self.atomic_basis_target_info[name] = {}
-            if target_info.is_atomic_basis_spherical_per_atom:
-                self.atomic_basis_target_info[name]["type"] = "atomic_basis_spherical"
-                self.atomic_basis_target_info[name]["sample_kind"] = "per_atom"
-            elif target_info.is_atomic_basis_spherical_per_pair:
-                self.atomic_basis_target_info[name]["type"] = "atomic_basis_spherical"
-                if "s2_pi" in target_info.layout.keys.names:
-                    self.atomic_basis_target_info[name]["sample_kind"] = "per_pair_sym"
-                else:
-                    self.atomic_basis_target_info[name]["sample_kind"] = "per_pair"
-            else:
-                self.atomic_basis_target_info[name]["type"] = ""
-                self.atomic_basis_target_info[name]["sample_kind"] = ""
+def _get_output_block_slice_key(keys: Labels, key_i: int) -> str:
+    if "center_type" in keys.names:
+        slice_key = f"{keys.column('center_type')[key_i]}"
+    else:
+        assert "first_atom_type" in keys.names and "second_atom_type" in keys.names
 
+        if "s2_pi" in keys.names:
+            slice_key = (
+                f"{keys.column('s2_pi')[key_i]}_"
+                f"{keys.column('first_atom_type')[key_i]}_"
+                f"{keys.column('second_atom_type')[key_i]}"
+            )
+        else:
+            slice_key = (
+                f"{keys.column('first_atom_type')[key_i]}_"
+                f"{keys.column('second_atom_type')[key_i]}"
+            )
 
-def manual_prod(shape: List[int]) -> int:
-    # prod from standard library not supported in torchscript
-    result = 1
-    for dim in shape:
-        result *= dim
-    return result
+    return slice_key

@@ -113,7 +113,7 @@ class CompositionModel(torch.nn.Module):
         # have composition weights from a previous training run)
         for target_key in self.new_targets:
             if target_key in fixed_weights:
-                if not self.dataset_info.targets[target_key].is_scalar:
+                if not self.dataset_info.targets[target_key].target_type == "scalar":
                     raise ValueError(
                         "Fixed weights can only be provided for scalar targets. "
                         f"Target {target_key} is not scalar."
@@ -249,7 +249,9 @@ class CompositionModel(torch.nn.Module):
                 for key, block_list in per_block_targets_list.items():
                     # distinguish between spherical and scalar targets
                     needs_unsqueeze = False
-                    if self.dataset_info.targets[target_key].is_spherical:  # spherical
+                    if (
+                        self.dataset_info.targets[target_key].target_type == "spherical"
+                    ):  # spherical
                         is_invariant = (
                             int(key["o3_lambda"]) == 0 and int(key["o3_sigma"]) == 1
                         )
@@ -535,14 +537,17 @@ class CompositionModel(torch.nn.Module):
         :param target_info: The ``TargetInfo`` object to be checked.
         """
         # only scalars can have composition contributions
-        if not target_info.is_scalar and not target_info.is_spherical:
+        if (
+            not target_info.target_type == "scalar"
+            and not target_info.target_type == "spherical"
+        ):
             logging.debug(
                 f"Composition model does not support target {target_name} "
                 "since it is not either scalar or spherical."
             )
             return False
         if (
-            target_info.is_spherical
+            target_info.target_type == "spherical"
             and len(target_info.layout.blocks({"o3_lambda": 0, "o3_sigma": 1})) == 0
         ):
             logging.debug(

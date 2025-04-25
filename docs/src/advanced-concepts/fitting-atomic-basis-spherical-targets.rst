@@ -13,8 +13,8 @@ normal spherical targets in that they are per-atom or per-pair quantities, and c
 with a size that is dependent on the atomic type(s) of the atom center(s).
 
 
-Defining atomic basis spherical targets
----------------------------------------
+Defining spherical targets on an atomic basis
+---------------------------------------------
 
 We will briefly outline a couple of examples of spherical targets on an atomic basis.
 This section intends to describe the metadata structure of such targets, but the details
@@ -93,7 +93,7 @@ For methane, the keys of the Hamiltonian (coupled and symmetrized) are as follow
             2         1       -1           1                1
 
 where "o3_lambda" and "o3_sigma" are as before, and "s2_pi" tracks the permutational
-symmetry of each block. A value of zero means unsymetrized - in the case of on-site
+symmetry of each block. A value of zero means unsymmetrized - in the case of on-site
 terms or off-site terms for atoms of different types. Values of +/- 1 refer to plus- or
 minus-permutationally symmetrized blocks, and only exist for off-site atom pairs of the
 same atomic type. "first_atom_type" and "second_atom_type" refer to the types of the
@@ -150,15 +150,21 @@ Input file
 
       mtt::electron_density_basis:
          read_from: disk_dataset.zip
-         type: atomic_basis_spherical
+         type: spherical_atomic_basis
 
       mtt::hamiltonian:
          read_from: disk_dataset.zip
-         type: atomic_basis_spherical
+         type: spherical_atomic_basis
          unit: Ha
 
 Unlike normal spherical targets, the ``irreps`` do not need to be specified in the input
 file and are instead inferred by reading the targets in the dataset. Whether the targets
 are per-atom or per-pair is also inferred from the samples metadata of the targets, so
-only the name (i.e. ``mtt::electron_density_basis``) and ``unit`` of the qunaitity needs to
+only the name (i.e. ``mtt::electron_density_basis``) and ``unit`` of the quantity needs to
 be specified.
+
+It is important to note that for per-pair targets suhc as the Hamiltonian and Density
+Matrix, the atom-pair samples present for the target of a given system must reflect its
+full neighbor list (including self terms). In other words, the targets must not contain
+samples for pairs of atoms outside the specified model cutoff, and must contain all
+samples within the cutoff.

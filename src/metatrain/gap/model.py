@@ -49,7 +49,7 @@ class GAP(torch.nn.Module):
         # Check capabilities
         for target in dataset_info.targets.values():
             if not (
-                target.is_scalar
+                target.target_type == "scalar"
                 and target.quantity == "energy"
                 and len(target.layout.block(0).properties) == 1
             ):
