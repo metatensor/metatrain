@@ -41,4 +41,4 @@ architecture:
       type: mse
       weights: {}
       reduction: mean
-      sliding_factor: 0.7
+      sliding_factor: null
