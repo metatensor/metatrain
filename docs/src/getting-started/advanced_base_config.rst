@@ -18,12 +18,28 @@ be adjusted. They should be written without indentation in the ``options.yaml`` 
     seed will be reported in the output folder
 :param wandb: If you want to use Weights and Biases (wandb) for logging, create a new
     section with this name. The parameters of section are the same as of the `wandb.init
-    <https://docs.wandb.ai/ref/python/init/>`_ method.
+    <https://docs.wandb.ai/ref/python/init/>`_ method and a minimal example of the
+    section is:
 
-    .. note::
+    .. code-block:: yaml
 
-        You need to install wandb with ``pip install wandb``. If you want to use this
-        logger. Before running also set up your credentials with `wandb login
-        <https://docs.wandb.ai/ref/cli/wandb-login/>`_.
+        wandb:
+          project: my_project
+          name: my_run_name
+          tags:
+            - tag1
+            - tag2
+          notes: This is a test run
+
+    All parameters of your options file will be automatically added to the wandb run so
+    you don't have to set the ``config`` parameter.
+
+    .. important::
+
+        You need to install wandb with ``pip install wandb`` if you want to use this
+        logger. **Before** running also set up your credentials with ``wandb login``
+        from the command line. See `wandb login
+        documentation <https://docs.wandb.ai/ref/cli/wandb-login/>`_ for details on the
+        setup.
 
 In the next tutorials we show how to override the default parameters of an architecture.

@@ -1,6 +1,5 @@
 import copy
 import logging
-import warnings
 from pathlib import Path
 from typing import List, Union
 
@@ -50,17 +49,6 @@ class Trainer:
         val_datasets: List[Union[Dataset, torch.utils.data.Subset]],
         checkpoint_dir: str,
     ):
-        # Filter out the second derivative and device warnings from featomic
-        warnings.filterwarnings(action="ignore", message="Systems data is on device")
-        warnings.filterwarnings(
-            action="ignore",
-            message="second derivatives with respect to positions are not implemented",
-        )
-        warnings.filterwarnings(
-            action="ignore",
-            message="second derivatives with respect to cell matrix",
-        )
-
         assert dtype in SoapBpnn.__supported_dtypes__
 
         is_distributed = self.hypers["distributed"]
