@@ -31,7 +31,7 @@ class GAP(torch.nn.Module):
     __default_metadata__ = ModelMetadata(
         references={
             "implementation": [
-                "rascaline: https://github.com/Luthaf/rascaline",
+                "featomic: https://github.com/metatensor/featomic",
             ],
             "architecture": [
                 "SOAP: https://doi.org/10.1002/qua.24927",

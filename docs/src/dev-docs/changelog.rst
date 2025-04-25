@@ -29,17 +29,24 @@ Fixed
 
 - ``NativePET`` can now evaluate on single-atom structures without crashing
 
+- The metatrain dataloader doesn't load all batches ahead of each epoch anymore
+
 Added
 #####
 
 - Users can now choose the name of the extension directory in ``mtt train`` and
   ``mtt export`` via the ``--extensions`` (or ``-e``) option
 
+- Update to ``metatensor-torch-0.7.6``, adding support for torch 2.7
+
 Changed
 #######
 
 - Training and exporting models without extensions will no longer lead to the creation
   of an empty directory for the extensions
+
+- The SOAP-BPNN model now uses ``torch-spex`` instead of ``featomic`` as its SOAP
+  backend
 
 Version 2025.5 - 2025-04-13
 ---------------------------
