@@ -1,3 +1,5 @@
+.. _checkpoints:
+
 Checkpoints
 ###########
 
