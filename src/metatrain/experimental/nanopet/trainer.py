@@ -324,7 +324,10 @@ class Trainer:
                     is_training=True,
                 )
                 rescaled_predictions = {k: metatensor.torch.multiply(p, scaler_scales[k]) for k, p in predictions.items()}
-                predictions["mtt::energy_30"] = get_total_energy(systems, rescaled_predictions, potential_energy_model, evaluation_options, atomic_masses_torch)
+                
+                ###
+                predictions["mtt::energy_8"] = get_total_energy(systems, rescaled_predictions, potential_energy_model, evaluation_options, atomic_masses_torch)
+                ###
 
                 # average by the number of atoms
                 predictions = average_by_num_atoms(
@@ -386,7 +389,10 @@ class Trainer:
                     )
 
                     rescaled_predictions = {k: metatensor.torch.multiply(p, scaler_scales[k]) for k, p in predictions.items()}
-                    predictions["mtt::energy_30"] = get_total_energy(systems, rescaled_predictions, potential_energy_model, evaluation_options, atomic_masses_torch)
+                    
+                    ###
+                    predictions["mtt::energy_8"] = get_total_energy(systems, rescaled_predictions, potential_energy_model, evaluation_options, atomic_masses_torch)
+                    ###
 
                     # average by the number of atoms
                     predictions = average_by_num_atoms(
@@ -429,7 +435,11 @@ class Trainer:
                 dataset_info_for_logging = copy.deepcopy(
                     model.module if is_distributed else model
                 ).dataset_info
-                dataset_info_for_logging.targets["mtt::energy_30"] = get_energy_target_info({"unit": "eV", "per_atom": False})
+
+                ###
+                dataset_info_for_logging.targets["mtt::energy_8"] = get_energy_target_info({"unit": "eV", "per_atom": False})
+                ###
+                
                 scaler_scales = (
                     model.module if is_distributed else model
                 ).scaler.get_scales_dict()

@@ -127,14 +127,14 @@ class NanoPET(torch.nn.Module):
         self.component_labels: Dict[str, List[List[Labels]]] = {}
         self.property_labels: Dict[str, List[Labels]] = {}
         for target_name, target_info in dataset_info.targets.items():
-            self.outputs[target_name] = ModelOutput(
-                quantity=target_info.quantity,
-                unit=target_info.unit,
-                per_atom=True,
-            )
-        self._add_output("mtt::delta_q", dataset_info.targets[[k for k in dataset_info.targets.keys() if "_q" in k][0]])
-        # self._add_output("mtt::delta_p", dataset_info.targets[[k for k in dataset_info.targets.keys() if "_p" in k][0]])
-        self._add_output("mtt::p", dataset_info.targets[[k for k in dataset_info.targets.keys() if "p_" in k][0]])
+            self._add_output(target_name, target_info)
+            # self.outputs[target_name] = ModelOutput(
+            #     quantity=target_info.quantity,
+            #     unit=target_info.unit,
+            #     per_atom=True,
+            # )
+        # self._add_output("mtt::delta_q", dataset_info.targets[[k for k in dataset_info.targets.keys() if "_q" in k][0]])
+        # self._add_output("mtt::p", dataset_info.targets[[k for k in dataset_info.targets.keys() if "p_" in k][0]])
 
         self.register_buffer(
             "species_to_species_index",
@@ -376,17 +376,16 @@ class NanoPET(torch.nn.Module):
             raise ValueError("Didn't find momenta :(")
             momenta = [torch.zeros_like(system.positions) for system in systems]
 
-        if "time_lag" in systems[0].known_data():
-            time_lag = torch.concatenate(
-                [system.get_data("time_lag").block().values for system in systems]
-            )
-            assert torch.max(time_lag - time_lag[0]) < 1e-6  # all the same
-            time_lag_int = int(time_lag[0])
-        else:
-            raise ValueError("Didn't find time_lag :(")
-        time_lag_edge = time_lag[sample_labels.column("system")][neighbors]
-        time_lag_edge = edge_array_to_nef(time_lag_edge, nef_indices)
-
+        # if "time_lag" in systems[0].known_data():
+        #     time_lag = torch.concatenate(
+        #         [system.get_data("time_lag").block().values for system in systems]
+        #     )
+        #     assert torch.max(time_lag - time_lag[0]) < 1e-6  # all the same
+        #     time_lag_int = int(time_lag[0])
+        # else:
+        #     raise ValueError("Didn't find time_lag :(")
+        # time_lag_edge = time_lag[sample_labels.column("system")][neighbors]
+        # time_lag_edge = edge_array_to_nef(time_lag_edge, nef_indices)
 
         # Encode
         node_features = self.node_encoder(element_indices_nodes, momenta)
@@ -536,21 +535,7 @@ class NanoPET(torch.nn.Module):
 
         atomic_properties_tmap_dict: Dict[str, TensorMap] = {}
         for output_name, last_layer in self.last_layers.items():
-            requested = False
-            true_output_name = ""
-            for requested_output_name in outputs:
-                if (
-                    requested_output_name.startswith("mtt::delta_")
-                    and 
-                    requested_output_name.endswith(output_name[-2:])  # _q or _p
-                ) or (
-                    requested_output_name.startswith("mtt::p_")
-                    and
-                    output_name == "mtt::p"
-                ):
-                    requested = True
-                    true_output_name = requested_output_name
-            if requested:
+            if output_name in outputs:
                 atomic_features = atomic_features_dict[output_name]
                 atomic_properties_by_block = []
                 for last_layer_by_block in last_layer.values():
@@ -571,7 +556,7 @@ class NanoPET(torch.nn.Module):
                         self.property_labels[output_name],
                     )
                 ]
-                atomic_properties_tmap_dict[true_output_name] = TensorMap(
+                atomic_properties_tmap_dict[output_name] = TensorMap(
                     keys=self.key_labels[output_name],
                     blocks=blocks,
                 )
@@ -685,6 +670,11 @@ class NanoPET(torch.nn.Module):
                 len(comp.values) for comp in block.components
             ] + [len(block.properties.values)]
 
+        self.outputs[target_name] = ModelOutput(
+            quantity=target_info.quantity,
+            unit=target_info.unit,
+            per_atom=True,
+        )
         if (
             target_name not in self.head_types  # default to MLP
             or self.head_types[target_name] == "mlp"
