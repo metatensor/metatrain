@@ -189,6 +189,9 @@
           },
           "additionalProperties": false
         },
+        "grad_clip_norm": {
+          "type": "number"
+        },
         "loss": {
           "type": "object",
           "properties": {
