@@ -18,6 +18,8 @@ architecture:
       mesh_spacing: 1.33
 
   training:
+    energy_model_path: ""
+    energy_model_extensions_path: ""
     distributed: False
     distributed_port: 39591
     batch_size: 16

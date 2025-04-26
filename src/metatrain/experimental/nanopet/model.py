@@ -13,9 +13,11 @@ from metatensor.torch.atomistic import (
     NeighborListOptions,
     System,
 )
+import copy
 
 from ...utils.additive import ZBL, CompositionModel
 from ...utils.data import DatasetInfo, TargetInfo
+from ...utils.data.target_info import get_energy_target_info
 from ...utils.dtype import dtype_to_str
 from ...utils.long_range import DummyLongRangeFeaturizer, LongRangeFeaturizer
 from ...utils.metadata import append_metadata_references
@@ -190,7 +192,9 @@ class NanoPET(torch.nn.Module):
         self.additive_models = torch.nn.ModuleList(additive_models)
 
         # scaler: this is also handled by the trainer at training time
-        self.scaler = Scaler(model_hypers={}, dataset_info=dataset_info)
+        dataset_info_for_scaler = copy.deepcopy(dataset_info)
+        dataset_info_for_scaler.targets["mtt::energy_30"] = get_energy_target_info({"unit": "eV", "per_atom": False})
+        self.scaler = Scaler(model_hypers={}, dataset_info=dataset_info_for_scaler)
 
         self.single_label = Labels.single()
 
