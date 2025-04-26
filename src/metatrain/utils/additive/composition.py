@@ -370,11 +370,11 @@ class CompositionModel(torch.nn.Module):
             if target_name not in self.dataset_info.targets
         }
 
+        self.dataset_info = merged_info
+
         # register new outputs
         for target_name, target in self.new_targets.items():
             self._add_output(target_name, target)
-
-        self.dataset_info = merged_info
 
         return self
 
