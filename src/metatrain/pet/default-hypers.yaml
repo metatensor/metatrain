@@ -37,6 +37,7 @@ architecture:
     log_separate_blocks: false
     best_model_metric: rmse_prod
     finetune: {}
+    grad_clip_norm: .inf
     loss:
       type: mse
       weights: {}
