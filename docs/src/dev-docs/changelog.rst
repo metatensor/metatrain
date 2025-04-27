@@ -33,6 +33,7 @@ Fixed
 Added
 #####
 
+- ``NanoPET`` and ``NativePET`` can now train on non-conservative stresses
 - Users can now choose the name of the extension directory in ``mtt train`` and
   ``mtt export`` via the ``--extensions`` (or ``-e``) option
 - Update to ``metatensor-torch-0.7.6``, adding support for torch 2.7
@@ -85,7 +86,6 @@ Changed
 - :func:`metatrain.util.io.load_model` does not copy a remote model to the current
   directory.
 
-
 Version 2025.2 - 2025-03-11
 ---------------------------
 
@@ -105,7 +105,6 @@ Fixed
 
 - Fix NanoPET multi-GPU error message
 - Fix ``device`` for fixed composition weights
-
 
 Version 2025.1 - 2025-02-20
 ---------------------------

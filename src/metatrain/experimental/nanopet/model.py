@@ -1,3 +1,4 @@
+import warnings
 from math import prod
 from pathlib import Path
 from typing import Dict, List, Optional, Union
@@ -470,6 +471,29 @@ class NanoPET(torch.nn.Module):
                     atomic_properties_by_block.append(
                         last_layer_by_block(atomic_features)
                     )
+                all_components = self.component_labels[output_name]
+                if len(all_components[0]) == 2 and all(
+                    "xyz" in comp.names[0] for comp in all_components[0]
+                ):
+                    # rank-2 Cartesian tensor, symmetrize
+                    tensor_as_three_by_three = atomic_properties_by_block[0].reshape(
+                        -1, 3, 3, list(self.output_shapes[output_name].values())[0][-1]
+                    )
+                    volumes = torch.stack(
+                        [torch.abs(torch.det(system.cell)) for system in systems]
+                    )
+                    volumes_by_atom = (
+                        volumes[system_indices].unsqueeze(1).unsqueeze(2).unsqueeze(3)
+                    )
+                    tensor_as_three_by_three = (
+                        tensor_as_three_by_three / volumes_by_atom
+                    )
+                    tensor_as_three_by_three = (
+                        tensor_as_three_by_three
+                        + tensor_as_three_by_three.transpose(1, 2)
+                    ) / 2.0
+                    atomic_properties_by_block[0] = tensor_as_three_by_three
+
                 blocks = [
                     TensorBlock(
                         values=atomic_property.reshape([-1] + shape),
@@ -587,6 +611,22 @@ class NanoPET(torch.nn.Module):
         return MetatensorAtomisticModel(self.eval(), metadata, capabilities)
 
     def _add_output(self, target_name: str, target_info: TargetInfo) -> None:
+        # warn that, for Cartesian tensors, we assume that they are symmetric
+        if target_info.is_cartesian:
+            if len(target_info.layout.block().components) == 2:
+                warnings.warn(
+                    "NanoPET assumes that Cartesian tensors of rank 2 are "
+                    "stress-like, meaning that they are symmetric and intensive. "
+                    "If this is not the case, please use a different model.",
+                    UserWarning,
+                    stacklevel=2,
+                )
+            # error out for rank > 2
+            if len(target_info.layout.block().components) > 2:
+                raise ValueError(
+                    "NanoPET does not support Cartesian tensors with rank > 2."
+                )
+
         # one output shape for each tensor block, grouped by target (i.e. tensormap)
         self.output_shapes[target_name] = {}
         for key, block in target_info.layout.items():
