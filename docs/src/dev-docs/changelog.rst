@@ -46,7 +46,6 @@ Changed
 - The SOAP-BPNN model now uses ``torch-spex`` instead of ``featomic`` as its SOAP
   backend
 
-
 Version 2025.5 - 2025-04-13
 ---------------------------
 
@@ -86,7 +85,6 @@ Changed
 - :func:`metatrain.util.io.load_model` does not copy a remote model to the current
   directory.
 
-
 Version 2025.2 - 2025-03-11
 ---------------------------
 
@@ -106,7 +104,6 @@ Fixed
 
 - Fix NanoPET multi-GPU error message
 - Fix ``device`` for fixed composition weights
-
 
 Version 2025.1 - 2025-02-20
 ---------------------------
