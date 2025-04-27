@@ -4,128 +4,59 @@
   "properties": {
     "name": {
       "type": "string",
-      "enum": ["pet"]
+      "enum": [
+        "pet"
+      ]
     },
     "model": {
       "type": "object",
       "properties": {
-        "CUTOFF_DELTA": {
+        "cutoff": {
           "type": "number"
         },
-        "AVERAGE_POOLING": {
-          "type": "boolean"
-        },
-        "TRANSFORMERS_CENTRAL_SPECIFIC": {
-          "type": "boolean"
-        },
-        "HEADS_CENTRAL_SPECIFIC": {
-          "type": "boolean"
-        },
-        "ADD_TOKEN_FIRST": {
-          "type": "boolean"
-        },
-        "ADD_TOKEN_SECOND": {
-          "type": "boolean"
-        },
-        "N_GNN_LAYERS": {
-          "type": "integer"
-        },
-        "TRANSFORMER_D_MODEL": {
-          "type": "integer"
-        },
-        "TRANSFORMER_N_HEAD": {
-          "type": "integer"
-        },
-        "TRANSFORMER_DIM_FEEDFORWARD": {
-          "type": "integer"
-        },
-        "HEAD_N_NEURONS": {
-          "type": "integer"
-        },
-        "N_TRANS_LAYERS": {
-          "type": "integer"
-        },
-        "ACTIVATION": {
-          "type": "string"
-        },
-        "USE_LENGTH": {
-          "type": "boolean"
-        },
-        "USE_ONLY_LENGTH": {
-          "type": "boolean"
-        },
-        "R_CUT": {
+        "cutoff_width": {
           "type": "number"
         },
-        "R_EMBEDDING_ACTIVATION": {
-          "type": "boolean"
-        },
-        "COMPRESS_MODE": {
-          "type": "string"
-        },
-        "BLEND_NEIGHBOR_SPECIES": {
-          "type": "boolean"
-        },
-        "AVERAGE_BOND_ENERGIES": {
-          "type": "boolean"
-        },
-        "USE_BOND_ENERGIES": {
-          "type": "boolean"
-        },
-        "USE_ADDITIONAL_SCALAR_ATTRIBUTES": {
-          "type": "boolean"
-        },
-        "SCALAR_ATTRIBUTES_SIZE": {
-          "oneOf": [
-            {
-              "type": "number"
-            },
-            {
-              "type": "null"
-            }
-          ]
-        },
-        "TRANSFORMER_TYPE": {
-          "type": "string"
-        },
-        "USE_LONG_RANGE": {
-          "type": "boolean"
-        },
-        "K_CUT": {
-          "oneOf": [
-            {
-              "type": "number"
-            },
-            {
-              "type": "null"
-            }
-          ]
-        },
-        "K_CUT_DELTA": {
-          "oneOf": [
-            {
-              "type": "number"
-            },
-            {
-              "type": "null"
-            }
-          ]
-        },
-        "DTYPE": {
-          "type": "string",
-          "enum": ["float32", "float64", "bfloat16"]
-        },
-        "N_TARGETS": {
+        "d_pet": {
           "type": "integer"
         },
-        "TARGET_INDEX_KEY": {
-          "type": "string"
+        "d_head": {
+          "type": "integer"
         },
-        "RESIDUAL_FACTOR": {
-          "type": "number"
+        "d_feedforward": {
+          "type": "integer"
         },
-        "USE_ZBL": {
+        "num_heads": {
+          "type": "integer"
+        },
+        "num_attention_layers": {
+          "type": "integer"
+        },
+        "num_gnn_layers": {
+          "type": "integer"
+        },
+        "zbl": {
           "type": "boolean"
+        },
+        "long_range": {
+          "type": "object",
+          "properties": {
+            "enable": {
+              "type": "boolean"
+            },
+            "use_ewald": {
+              "type": "boolean"
+            },
+            "smearing": {
+              "type": "number"
+            },
+            "kspace_resolution": {
+              "type": "number"
+            },
+            "interpolation_nodes": {
+              "type": "integer"
+            }
+          }
         }
       },
       "additionalProperties": false
@@ -133,152 +64,200 @@
     "training": {
       "type": "object",
       "properties": {
-        "USE_LORA_PEFT": {
+        "distributed": {
           "type": "boolean"
         },
-        "LORA_RANK": {
+        "distributed_port": {
           "type": "integer"
         },
-        "LORA_ALPHA": {
+        "batch_size": {
+          "type": "integer"
+        },
+        "num_epochs": {
+          "type": "integer"
+        },
+        "num_epochs_warmup": {
+          "type": "integer"
+        },
+        "learning_rate": {
           "type": "number"
         },
-        "INITIAL_LR": {
-          "type": "number"
-        },
-        "EPOCH_NUM": {
-          "type": "integer"
-        },
-        "EPOCH_NUM_ATOMIC": {
-          "type": "integer"
-        },
-        "SCHEDULER_STEP_SIZE": {
-          "type": "integer"
-        },
-        "SCHEDULER_STEP_SIZE_ATOMIC": {
-          "type": "integer"
-        },
-        "EPOCHS_WARMUP": {
-          "type": "integer"
-        },
-        "EPOCHS_WARMUP_ATOMIC": {
-          "type": "integer"
-        },
-        "GLOBAL_AUG": {
-          "type": "boolean"
-        },
-        "SLIDING_FACTOR": {
-          "type": "number"
-        },
-        "STRUCTURAL_BATCH_SIZE": {
-          "type": "integer"
-        },
-        "ATOMIC_BATCH_SIZE": {
-          "type": "integer"
-        },
-        "MAX_TIME": {
-          "type": "integer"
-        },
-        "ENERGY_WEIGHT": {
-          "type": "number"
-        },
-        "MULTI_GPU": {
-          "type": "boolean"
-        },
-        "RANDOM_SEED": {
-          "type": "integer"
-        },
-        "CUDA_DETERMINISTIC": {
-          "type": "boolean"
-        },
-        "MODEL_TO_START_WITH": {
-          "oneOf": [
-            {
-              "type": "string"
-            },
-            {
-              "type": "null"
-            }
+        "weight_decay": {
+          "type": [
+            "number",
+            "null"
           ]
         },
-        "ALL_SPECIES_PATH": {
-          "oneOf": [
-            {
-              "type": "string"
-            },
-            {
-              "type": "null"
+        "scheduler_patience": {
+          "type": "integer"
+        },
+        "log_interval": {
+          "type": "integer"
+        },
+        "checkpoint_interval": {
+          "type": "integer"
+        },
+        "scale_targets": {
+          "type": "boolean"
+        },
+        "fixed_composition_weights": {
+          "type": "object",
+          "patternProperties": {
+            "^.*$": {
+              "type": "object",
+              "propertyNames": {
+                "pattern": "^[0-9]+$"
+              },
+              "additionalProperties": {
+                "type": "number"
+              }
             }
-          ]
+          },
+          "additionalProperties": false
         },
-        "SELF_CONTRIBUTIONS_PATH": {
-          "oneOf": [
-            {
-              "type": "string"
-            },
-            {
-              "type": "null"
-            }
-          ]
+        "per_structure_targets": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
         },
-        "SUPPORT_MISSING_VALUES": {
+        "log_mae": {
           "type": "boolean"
         },
-        "USE_WEIGHT_DECAY": {
+        "log_separate_blocks": {
           "type": "boolean"
         },
-        "WEIGHT_DECAY": {
-          "type": "number"
-        },
-        "DO_GRADIENT_CLIPPING": {
-          "type": "boolean"
-        },
-        "GRADIENT_CLIPPING_MAX_NORM": {
-          "oneOf": [
-            {
-              "type": "number"
-            },
-            {
-              "type": "null"
-            }
-          ]
-        },
-        "USE_SHIFT_AGNOSTIC_LOSS": {
-          "type": "boolean"
-        },
-        "ENERGIES_LOSS": {
+        "best_model_metric": {
           "type": "string",
-          "enum": ["per_structure", "per_atom"]
+          "enum": [
+            "rmse_prod",
+            "mae_prod",
+            "loss"
+          ]
         },
-        "BALANCED_DATA_LOADER": {
-          "type": "boolean"
+        "finetune": {
+          "type": "object",
+          "properties": {
+            "method": {
+              "type": "string",
+              "enum": [
+                "lora",
+                "heads"
+              ]
+            },
+            "config": {
+              "type": "object",
+              "oneOf": [
+                {
+                  "properties": {
+                    "alpha": {
+                      "type": "number"
+                    },
+                    "rank": {
+                      "type": "integer"
+                    }
+                  },
+                  "required": [
+                    "alpha",
+                    "rank"
+                  ],
+                  "additionalProperties": false
+                },
+                {
+                  "properties": {
+                    "head_modules": {
+                      "type": "array",
+                      "items": {
+                        "type": "string"
+                      }
+                    },
+                    "last_layer_modules": {
+                      "type": "array",
+                      "items": {
+                        "type": "string"
+                      }
+                    }
+                  },
+                  "required": [
+                    "head_modules",
+                    "last_layer_modules"
+                  ],
+                  "additionalProperties": false
+                }
+              ]
+            }
+          },
+          "additionalProperties": false
         },
-        "CHECKPOINT_INTERVAL": {
-          "type": "integer"
+        "grad_clip_norm": {
+          "type": "number"
+        },
+        "loss": {
+          "type": "object",
+          "properties": {
+            "weights": {
+              "type": "object",
+              "patternProperties": {
+                ".*": {
+                  "type": "number"
+                }
+              },
+              "additionalProperties": false
+            },
+            "reduction": {
+              "type": "string",
+              "enum": [
+                "sum",
+                "mean",
+                "none"
+              ]
+            },
+            "type": {
+              "oneOf": [
+                {
+                  "type": "string",
+                  "enum": [
+                    "mse",
+                    "mae"
+                  ]
+                },
+                {
+                  "type": "object",
+                  "properties": {
+                    "huber": {
+                      "type": "object",
+                      "properties": {
+                        "deltas": {
+                          "type": "object",
+                          "patternProperties": {
+                            ".*": {
+                              "type": "number"
+                            }
+                          },
+                          "additionalProperties": false
+                        }
+                      },
+                      "required": [
+                        "deltas"
+                      ],
+                      "additionalProperties": false
+                    }
+                  },
+                  "additionalProperties": false
+                }
+              ]
+            },
+            "sliding_factor": {
+              "type": [
+                "number",
+                "null"
+              ]
+            }
+          },
+          "additionalProperties": false
         }
       },
-      "additionalProperties": false,
-      "allOf": [
-        {
-          "not": {
-            "required": ["SCHEDULER_STEP_SIZE", "SCHEDULER_STEP_SIZE_ATOMIC"]
-          }
-        },
-        {
-          "not": {
-            "required": ["EPOCH_NUM", "EPOCH_NUM_ATOMIC"]
-          }
-        },
-        {
-          "not": {
-            "required": ["STRUCTURAL_BATCH_SIZE", "ATOMIC_BATCH_SIZE"]
-          }
-        },
-        {
-          "not": {
-            "required": ["EPOCHS_WARMUP", "EPOCHS_WARMUP_ATOMIC"]
-          }
-        }
-      ]
+      "additionalProperties": false
     }
   },
   "additionalProperties": false

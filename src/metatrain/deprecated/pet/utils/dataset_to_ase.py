@@ -1,9 +1,9 @@
 from metatensor.learn.data import DataLoader
 
-from ...utils.additive import remove_additive
-from ...utils.data import collate_fn
-from ...utils.data.system_to_ase import system_to_ase
-from ...utils.neighbor_lists import (
+from ....utils.additive import remove_additive
+from ....utils.data import collate_fn
+from ....utils.data.system_to_ase import system_to_ase
+from ....utils.neighbor_lists import (
     get_requested_neighbor_lists,
     get_system_with_neighbor_lists,
 )

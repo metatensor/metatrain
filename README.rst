@@ -49,9 +49,9 @@ model.
   * - NanoPET (*experimental*)
     - re-implementation of the original PET with slightly improved training and
       evaluation speed
-  * - NativePET (*experimental*)
-    - re-implementation of the original PET, preserving the original architecture
-      and providing a clean code implementation and additional features
+  * - PET (*deprecated*)
+    - Original implementation of the PET model used for prototyping,
+      now deprecated in favor of the native metatrain PET implementation.
   * - SOAP BPNN
     - A Behler-Parrinello neural network with SOAP features
 
@@ -89,7 +89,7 @@ We also offer a conda installation:
 
 The conda installation does not install model specific dependencies and will therefore
 only work for architectures without optional dependencies such as ``NanoPET`` or
-``NativePET``.
+``PET``.
 
 After installation you can then use ``mtt`` from the command line to train your models!
 
