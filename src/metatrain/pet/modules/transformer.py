@@ -250,7 +250,6 @@ class CartesianTransformer(torch.nn.Module):
             ],
             use_manual_attention=use_manual_attention,
         )
-        # print("[NATIVEPET] output_messages", output_messages[0][:6])
         if max_num_tokens < initial_num_tokens:
             padding = torch.zeros(
                 output_messages.shape[0],

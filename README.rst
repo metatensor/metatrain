@@ -89,7 +89,7 @@ We also offer a conda installation:
 
 The conda installation does not install model specific dependencies and will therefore
 only work for architectures without optional dependencies such as ``NanoPET`` or
-``NativePET``.
+``PET``.
 
 After installation you can then use ``mtt`` from the command line to train your models!
 

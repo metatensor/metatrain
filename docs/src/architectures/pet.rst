@@ -24,7 +24,7 @@ This will install the model along with necessary dependencies.
 Default Hyperparameters
 -----------------------
 
-The default hyperparameters for the NativePET model are:
+The default hyperparameters for the PET model are:
 
 .. literalinclude:: ../../../src/metatrain/pet/default-hypers.yaml
    :language: yaml

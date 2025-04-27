@@ -27,17 +27,17 @@ Unreleased
 Fixed
 #####
 
-- ``NativePET`` can now evaluate on single-atom structures without crashing
+- ``PET`` can now evaluate on single-atom structures without crashing
 - The metatrain dataloader doesn't load all batches ahead of each epoch anymore
 
 Added
 #####
 
-- ``NanoPET`` and ``NativePET`` can now train on non-conservative stresses
+- ``NanoPET`` and ``PET`` can now train on non-conservative stresses
 - Users can now choose the name of the extension directory in ``mtt train`` and
   ``mtt export`` via the ``--extensions`` (or ``-e``) option
 - Update to ``metatensor-torch-0.7.6``, adding support for torch 2.7
-- ``NativePET`` now supports gradient clipping as a new training hyperparameter
+- ``PET`` now supports gradient clipping as a new training hyperparameter
 
 Changed
 #######
@@ -46,6 +46,9 @@ Changed
   of an empty directory for the extensions
 - The SOAP-BPNN model now uses ``torch-spex`` instead of ``featomic`` as its SOAP
   backend
+- ``PET`` from the previous version is now deprecated and accessible as
+  ``deprecated.pet``, while the old ``NativePET`` (``experimental.nativepet``) is
+  now called ``PET`` (``pet`` from training option files)
 
 Version 2025.5 - 2025-04-13
 ---------------------------

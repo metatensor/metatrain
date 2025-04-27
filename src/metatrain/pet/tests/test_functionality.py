@@ -503,7 +503,7 @@ def test_consistency():
     assert torch.allclose(attention_output_torch, attention_output_manual, atol=1e-6)
 
 
-def test_nativepet_single_atom():
+def test_pet_single_atom():
     """Tests that the model predicts correctly on a single atom."""
 
     dataset_info = DatasetInfo(
@@ -527,7 +527,7 @@ def test_nativepet_single_atom():
 
 
 @pytest.mark.parametrize("per_atom", [True, False])
-def test_nativepet_rank_2(per_atom):
+def test_pet_rank_2(per_atom):
     """Tests that the model can predict a symmetric rank-2 tensor."""
     # (note that no composition energies are supplied or calculated here)
 

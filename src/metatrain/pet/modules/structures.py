@@ -192,7 +192,7 @@ def systems_to_batch(
     selected_atoms: Optional[Labels] = None,
 ):
     """
-    Converts a list of systems to a batch required for the NativePET model.
+    Converts a list of systems to a batch required for the PET model.
     The batch consists of the following tensors:
     - `element_indices_nodes`: The atomic species of the central atoms
     - `element_indices_neighbors`: The atomic species of the neighboring atoms

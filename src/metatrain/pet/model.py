@@ -113,7 +113,7 @@ class PET(torch.nn.Module):
             self.long_range = True
             if not self.hypers["long_range"]["use_ewald"]:
                 warnings.warn(
-                    "Training NativePET with the LongRangeFeaturizer initialized "
+                    "Training PET with the LongRangeFeaturizer initialized "
                     "with `use_ewald=False` causes instabilities during training. "
                     "The `use_ewald` variable will be force-switched to `True`. "
                     "during training.",
@@ -184,7 +184,7 @@ class PET(torch.nn.Module):
         if len(new_atomic_types) > 0:
             raise ValueError(
                 f"New atomic types found in the dataset: {new_atomic_types}. "
-                "The NativePET model does not support adding new atomic types."
+                "The PET model does not support adding new atomic types."
             )
 
         # register new outputs as new last layers
@@ -254,7 +254,7 @@ class PET(torch.nn.Module):
             systems, device
         )
 
-        # We convert a list of systems to a batch required for the NativePET model.
+        # We convert a list of systems to a batch required for the PET model.
         # The batch consists of the following tensors:
         # - `element_indices_nodes` [n_atoms]: The atomic species of the central atoms
         # - `element_indices_neighbors` [n_atoms]: The atomic species of the neighboring
@@ -681,7 +681,7 @@ class PET(torch.nn.Module):
     ) -> MetatensorAtomisticModel:
         dtype = next(self.parameters()).dtype
         if dtype not in self.__supported_dtypes__:
-            raise ValueError(f"unsupported dtype {dtype} for NativePET")
+            raise ValueError(f"unsupported dtype {dtype} for PET")
 
         # Make sure the model is all in the same dtype
         # For example, after training, the additive models could still be in
@@ -721,7 +721,7 @@ class PET(torch.nn.Module):
         if target_info.is_cartesian:
             if len(target_info.layout.block().components) == 2:
                 warnings.warn(
-                    "NativePET assumes that Cartesian tensors of rank 2 are "
+                    "PET assumes that Cartesian tensors of rank 2 are "
                     "stress-like, meaning that they are symmetric and intensive. "
                     "If this is not the case, please use a different model.",
                     UserWarning,
@@ -730,7 +730,7 @@ class PET(torch.nn.Module):
             # error out for rank > 2
             if len(target_info.layout.block().components) > 2:
                 raise ValueError(
-                    "NativePET does not support Cartesian tensors with rank > 2."
+                    "PET does not support Cartesian tensors with rank > 2."
                 )
 
         # one output shape for each tensor block, grouped by target (i.e. tensormap)
