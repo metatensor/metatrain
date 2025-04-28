@@ -49,6 +49,7 @@ Changed
 - ``PET`` from the previous version is now deprecated and accessible as
   ``deprecated.pet``, while the old ``NativePET`` (``experimental.nativepet``) is
   now called ``PET`` (``pet`` from training option files)
+- The Angstrom character is now represented as ``A`` and not ``Å`` in the training logs
 
 Version 2025.5 - 2025-04-13
 ---------------------------
