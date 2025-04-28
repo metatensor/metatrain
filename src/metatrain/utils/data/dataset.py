@@ -40,7 +40,7 @@ class DatasetInfo:
         self,
         length_unit: Optional[str],
         atomic_types: List[int],
-        targets: Dict[str, TargetInfo]
+        targets: Dict[str, TargetInfo],
     ):
         self.length_unit = length_unit if length_unit is not None else ""
         self._atomic_types = set(atomic_types)

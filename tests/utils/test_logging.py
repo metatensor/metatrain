@@ -124,7 +124,7 @@ def test_csv_file_handler_emit_data(monkeypatch, tmp_path):
     monkeypatch.chdir(tmp_path)
     log_file = tmp_path / "log.csv"
 
-    handler = CSVFileHandler(filename=log_file, )
+    handler = CSVFileHandler(filename=log_file, encoding="utf-8")
 
     keys = ["Time", "Value"]
     values = ["12:00", "42"]

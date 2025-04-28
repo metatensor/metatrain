@@ -351,7 +351,7 @@ def setup_logging(
             handlers.append(file_handler)
 
             csv_file = Path(log_file).with_suffix(".csv")
-            csv_handler = CSVFileHandler(str(csv_file))
+            csv_handler = CSVFileHandler(filename=str(csv_file), encoding="utf-8")
             handlers.append(csv_handler)
 
         # hide logging up to ERROR from secondary processes in distributed environments:
