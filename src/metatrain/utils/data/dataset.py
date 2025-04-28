@@ -40,19 +40,9 @@ class DatasetInfo:
         self,
         length_unit: Optional[str],
         atomic_types: List[int],
-        targets: Dict[str, TargetInfo],
+        targets: Dict[str, TargetInfo]
     ):
-        if length_unit is None:
-            length_unit = ""
-
-        # Error if the length unit is not ASCII
-        if not all(ord(c) < 128 for c in length_unit):
-            raise ValueError(
-                f"The `length_unit` must be an ASCII string. Got {length_unit}. "
-                "If this is related to the Angstrom character, you can use A instead."
-            )
-
-        self.length_unit = length_unit
+        self.length_unit = length_unit if length_unit is not None else ""
         self._atomic_types = set(atomic_types)
         self.targets = targets
 

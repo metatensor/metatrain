@@ -9,7 +9,7 @@ architecture:
 training_set:
   systems:
     read_from: qm9_reduced_100.xyz
-    length_unit: angstrom
+    length_unit: ångstrom
   targets:
     energy:
       key: U0
