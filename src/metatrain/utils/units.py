@@ -17,7 +17,7 @@ def get_gradient_units(base_unit: str, gradient_name: str, length_unit: str) -> 
     if base_unit == "":
         return ""  # unknown unit for base quantity -> unknown unit for gradient
     if length_unit == "angstrom":
-        length_unit = "Å"  # prettier
+        length_unit = "A"  # prettier
     if gradient_name == "positions":
         return base_unit + "/" + length_unit
     elif gradient_name == "strain":

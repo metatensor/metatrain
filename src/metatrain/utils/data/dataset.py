@@ -39,6 +39,13 @@ class DatasetInfo:
     def __init__(
         self, length_unit: str, atomic_types: List[int], targets: Dict[str, TargetInfo]
     ):
+        # Error if the length unit is not ASCII
+        if not all(ord(c) < 128 for c in length_unit):
+            raise ValueError(
+                f"The `length_unit` must be an ASCII string. Got {length_unit}. "
+                "If this is related to the Angstrom character, you can use A instead."
+            )
+
         self.length_unit = length_unit if length_unit is not None else ""
         self._atomic_types = set(atomic_types)
         self.targets = targets
