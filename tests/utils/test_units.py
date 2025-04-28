@@ -8,7 +8,7 @@ def test_get_gradient_units():
     # Test the case where the base unit is empty
     assert get_gradient_units("", "positions", "angstrom") == ""
     # Test the case where the length unit is angstrom
-    assert get_gradient_units("unit", "positions", "angstrom") == "unit/Å"
+    assert get_gradient_units("unit", "positions", "angstrom") == "unit/A"
     # Test the case where the gradient name is strain
     assert get_gradient_units("unit", "strain", "angstrom") == "unit"
     # Test the case where the gradient name is unknown
