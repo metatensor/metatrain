@@ -551,7 +551,12 @@ class NanoPET(torch.nn.Module):
                             sample_kind
                         ].get(output_block_slice_key)
 
-                        if output_block_sample_labels is None:  # block not in batch
+                        # skip this head if this output block doesn't exist or is empty
+                        # for this batch
+                        if output_block_sample_labels is None:
+                            continue
+
+                        if output_block_sample_labels.values.shape[0] == 0:
                             continue
 
                         atomic_features_sliced = atomic_features[

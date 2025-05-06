@@ -18,7 +18,7 @@ from torch.utils.data import Subset
 
 from ..external_naming import to_external_name
 from ..units import get_gradient_units
-from .readers.metatensor import _check_tensor_map_metadata, _empty_tensor_map_like
+from .readers.metatensor import _check_tensor_map_metadata, _wrapped_metatensor_read
 from .target_info import TargetInfo, get_energy_target_info, get_generic_target_info
 
 
@@ -436,20 +436,15 @@ class DiskDataset(torch.utils.data.Dataset):
             # For "spherical_atomic_basis_{}" targets, the rules on metadata are relaxed
             # such that 'generic' target info with the correct metadata cannot be
             # constructed from the information in `target_config`. Instead, construct a
-            # TargetInfo object directly, inferring the metadata from the target
-            # `tensor_map`. In any case, the metadata structure will be checked in the
-            # constructor of `TargetInfo`.
+            # TargetInfo object directly, with metadata read in from a pre-defined
+            # TensorMap on disk at "layout.mts". In any case, the metadata structure
+            # will be checked in the constructor of `TargetInfo`.
             elif target["type"].startswith("spherical_atomic_basis"):
-                # TODO: find a more efficient way to do this
-                tensor_map = join(
-                    [
-                        _empty_tensor_map_like(self[tensor_i][target_key])
-                        for tensor_i in range(len(self))
-                    ],
-                    "samples",
-                    remove_tensor_name=True,
-                    different_keys="union",
-                )
+            
+                # TODO: read this in generically and properly. Requires a
+                # "layout_{target_name}.mts" to exist.
+                tensor_map = _wrapped_metatensor_read("layout_hamiltonian.mts")
+
                 target_info_dict[target_key] = TargetInfo(
                     quantity=target["quantity"],
                     unit=target["unit"],
