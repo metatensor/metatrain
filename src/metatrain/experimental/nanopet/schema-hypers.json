@@ -9,6 +9,9 @@
     "model": {
       "type": "object",
       "properties": {
+        "base_time_step": {
+          "type": ["number", "null"]
+        },
         "cutoff": {
           "type": "number"
         },
@@ -64,9 +67,6 @@
       "type": "object",
       "properties": {
         "energy_model_path": {
-          "type": "string"
-        },
-        "energy_model_extensions_path": {
           "type": "string"
         },
         "distributed": {

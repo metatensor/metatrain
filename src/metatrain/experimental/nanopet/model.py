@@ -14,6 +14,7 @@ from metatensor.torch.atomistic import (
     System,
 )
 import copy
+import ase.units
 
 from ...utils.additive import ZBL, CompositionModel
 from ...utils.data import DatasetInfo, TargetInfo
@@ -193,7 +194,8 @@ class NanoPET(torch.nn.Module):
 
         # scaler: this is also handled by the trainer at training time
         dataset_info_for_scaler = copy.deepcopy(dataset_info)
-        dataset_info_for_scaler.targets["mtt::energy_30"] = get_energy_target_info({"unit": "eV", "per_atom": False})
+        n_time_steps = int([tk for tk in dataset_info_for_scaler.targets.keys() if "mtt::delta_" in tk and "_q" in tk][0].split("_")[1])
+        dataset_info_for_scaler.targets[f"mtt::energy_{n_time_steps}"] = get_energy_target_info({"unit": "eV", "per_atom": False})
         self.scaler = Scaler(model_hypers={}, dataset_info=dataset_info_for_scaler)
 
         self.single_label = Labels.single()
@@ -211,6 +213,10 @@ class NanoPET(torch.nn.Module):
             torch.nn.Linear(4 * self.hypers["d_pet"], self.hypers["d_pet"]),
             torch.nn.SiLU(),
         )
+
+        if self.hypers["base_time_step"] is None:
+            raise ValueError("`base_time_step` must be set in the model hypers")
+        self.register_buffer("base_time_step", torch.tensor(float(self.hypers["base_time_step"])))
 
     def restart(self, dataset_info: DatasetInfo) -> "NanoPET":
         # merge old and new dataset info
@@ -533,6 +539,10 @@ class NanoPET(torch.nn.Module):
                     last_layer_feature_tmap, ["atom"]
                 )
 
+        masses = torch.concatenate(
+            [system.get_data("masses").block().values for system in systems]
+        )  # [N, 1]
+
         atomic_properties_tmap_dict: Dict[str, TensorMap] = {}
         for output_name, last_layer in self.last_layers.items():
             if output_name in outputs:
@@ -542,6 +552,30 @@ class NanoPET(torch.nn.Module):
                     atomic_properties_by_block.append(
                         last_layer_by_block(atomic_features)
                     )
+
+                if output_name.startswith("mtt::p_"):
+                    # conservation of momentum: unscale, enforce conservation, rescale
+                    scaled_momenta_new = atomic_properties_by_block[0].reshape(-1, 3)
+                    scaled_momenta_new = scaled_momenta_new * self.scaler.get_scales_dict()[output_name]
+                    momenta_new = scaled_momenta_new * torch.sqrt(masses)
+                    momenta_old = momenta.reshape(-1, 3)
+                    momenta_new = momenta_new - torch.mean(momenta_new, dim=0) + torch.mean(momenta_old, dim=0)
+                    scaled_momenta_new = momenta_new / torch.sqrt(masses)
+                    scaled_momenta_new = scaled_momenta_new / self.scaler.get_scales_dict()[output_name]
+                    atomic_properties_by_block[0] = scaled_momenta_new
+
+                if output_name.startswith("mtt::delta_") and output_name.endswith("_q"):
+                    # uniform linear motion: unscale, enforce uniform motion, rescale
+                    delta_t = int(output_name.split("_")[1]) * self.base_time_step * ase.units.fs
+                    momenta_old = momenta.reshape(-1, 3)
+                    scaled_delta_q = atomic_properties_by_block[0].reshape(-1, 3)
+                    scaled_delta_q = scaled_delta_q * self.scaler.get_scales_dict()[output_name]
+                    delta_mq = scaled_delta_q * torch.sqrt(masses)
+                    delta_mq = delta_mq - torch.mean(delta_mq, dim=0) + torch.mean(momenta_old, dim=0) * delta_t
+                    scaled_delta_q = delta_mq / torch.sqrt(masses)
+                    scaled_delta_q = scaled_delta_q / self.scaler.get_scales_dict()[output_name]
+                    atomic_properties_by_block[0] = scaled_delta_q
+
                 blocks = [
                     TensorBlock(
                         values=atomic_property.reshape([-1] + shape),

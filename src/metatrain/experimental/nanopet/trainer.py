@@ -244,10 +244,10 @@ class Trainer:
                 optimizer.load_state_dict(self.optimizer_state_dict)
 
         # Create a scheduler:
-        lr_scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
+        lr_scheduler = torch.optim.lr_scheduler.StepLR(
             optimizer,
-            factor=self.hypers["scheduler_factor"],
-            patience=self.hypers["scheduler_patience"],
+            step_size=self.hypers["scheduler_patience"],
+            gamma=self.hypers["scheduler_factor"],
         )
         if self.scheduler_state_dict is not None:
             # same as the optimizer, try to load the scheduler state dict
@@ -269,15 +269,14 @@ class Trainer:
             model.module if is_distributed else model
         ).scaler.get_scales_dict()
 
-        potential_energy_model = load_atomistic_model(
-            self.hypers["energy_model_path"],
-            extensions_directory=self.hypers["energy_model_extensions_path"],
-        ).to(device=device)
+        potential_energy_model = load_atomistic_model(self.hypers["energy_model_path"]).to(device=device)
         evaluation_options = ModelEvaluationOptions(
             length_unit="Angstrom",
             outputs={"energy": ModelOutput(unit="eV")},
         )
         atomic_masses_torch = torch.tensor(atomic_masses, dtype=torch.float32, device="cuda")
+
+        n_time_steps = int([tk for tk in (model.module if is_distributed else model).dataset_info.targets.keys() if "mtt::delta_" in tk and "_q" in tk][0].split("_")[1])
 
         # Train the model:
         if self.best_metric is None:
@@ -326,7 +325,7 @@ class Trainer:
                 rescaled_predictions = {k: metatensor.torch.multiply(p, scaler_scales[k]) for k, p in predictions.items()}
                 
                 ###
-                predictions["mtt::energy_8"] = get_total_energy(systems, rescaled_predictions, potential_energy_model, evaluation_options, atomic_masses_torch)
+                predictions[f"mtt::energy_{n_time_steps}"] = fake_get_total_energy(systems, rescaled_predictions, potential_energy_model, evaluation_options, atomic_masses_torch)
                 ###
 
                 # average by the number of atoms
@@ -391,7 +390,7 @@ class Trainer:
                     rescaled_predictions = {k: metatensor.torch.multiply(p, scaler_scales[k]) for k, p in predictions.items()}
                     
                     ###
-                    predictions["mtt::energy_8"] = get_total_energy(systems, rescaled_predictions, potential_energy_model, evaluation_options, atomic_masses_torch)
+                    predictions[f"mtt::energy_{n_time_steps}"] = get_total_energy(systems, rescaled_predictions, potential_energy_model, evaluation_options, atomic_masses_torch)
                     ###
 
                     # average by the number of atoms
@@ -437,7 +436,7 @@ class Trainer:
                 ).dataset_info
 
                 ###
-                dataset_info_for_logging.targets["mtt::energy_8"] = get_energy_target_info({"unit": "eV", "per_atom": False})
+                dataset_info_for_logging.targets[f"mtt::energy_{n_time_steps}"] = get_energy_target_info({"unit": "eV", "per_atom": False})
                 ###
                 
                 scaler_scales = (
@@ -464,7 +463,7 @@ class Trainer:
                     rank=rank,
                 )
 
-            lr_scheduler.step(val_loss)
+            lr_scheduler.step()
             new_lr = lr_scheduler.get_last_lr()[0]
             if new_lr != old_lr:
                 if new_lr < 1e-7:
@@ -480,10 +479,10 @@ class Trainer:
                     optimizer.load_state_dict(self.best_optimizer_state_dict)
                     for param_group in optimizer.param_groups:
                         param_group["lr"] = new_lr
-                    lr_scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
+                    lr_scheduler = torch.optim.lr_scheduler.StepLR(
                         optimizer,
-                        factor=self.hypers["scheduler_factor"],
-                        patience=self.hypers["scheduler_patience"],
+                        step_size=self.hypers["scheduler_patience"],
+                        gamma=self.hypers["scheduler_factor"],
                     )
 
             val_metric = get_selected_metric(
@@ -571,7 +570,7 @@ def get_total_energy(systems, predictions, potential_energy_model, evaluation_op
     new_systems = []
     for dq, system in zip(delta_q, systems):
         new_system = System(
-            positions=system.positions + dq,
+            positions=system.positions + dq / torch.sqrt(atomic_masses_torch[system.types].unsqueeze(-1)),
             types=system.types,
             cell=system.cell,
             pbc=system.pbc,
@@ -586,11 +585,8 @@ def get_total_energy(systems, predictions, potential_energy_model, evaluation_op
     # new_systems = systems
 
     potential_energies = potential_energy_model(new_systems, evaluation_options, check_consistency=False)["energy"].block().values.squeeze(-1)
-    atomic_numbers = [system.types for system in systems]
-    kinetic_energies = [0.5 * torch.sum((p_prime[i] ** 2) / atomic_masses_torch[atomic_numbers[i]].unsqueeze(-1)) for i in range(len(systems))]
+    kinetic_energies = [0.5 * torch.sum((p_prime[i] ** 2)) for i in range(len(systems))]
     kinetic_energies = torch.stack(kinetic_energies)
-    # print("potential_energies", potential_energies)
-    # print("kinetic_energies", kinetic_energies)
     total_energies = potential_energies + kinetic_energies
     return TensorMap(
         keys=Labels.single().to(device=total_energies.device),
@@ -600,6 +596,22 @@ def get_total_energy(systems, predictions, potential_energy_model, evaluation_op
                 samples=Labels(names=["system"], values=torch.arange(len(systems), device=total_energies.device).unsqueeze(-1)),
                 components=[],
                 properties=Labels.single().to(device=total_energies.device),
+            )
+        ],
+    )
+
+def fake_get_total_energy(systems, predictions, potential_energy_model, evaluation_options, atomic_masses_torch):
+
+    tensor = torch.zeros((len(systems), 1), dtype=systems[0].positions.dtype, device=systems[0].device)
+
+    return TensorMap(
+        keys=Labels.single().to(device=tensor.device),
+        blocks=[
+            TensorBlock(
+                values=tensor,
+                samples=Labels(names=["system"], values=torch.arange(len(systems), device=tensor.device).unsqueeze(-1)),
+                components=[],
+                properties=Labels.single().to(device=tensor.device),
             )
         ],
     )

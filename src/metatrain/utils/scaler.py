@@ -231,16 +231,16 @@ class Scaler(torch.nn.Module):
         """
 
         scales_dict = {
-            output_name: self.scales[output_index].item()
+            output_name: float(self.scales[output_index].item())
             for output_name, output_index in self.output_name_to_output_index.items()
         }
-        # Add gradients if present. They have the same scale as the corresponding output
-        for output_name in list(scales_dict.keys()):
-            gradient_names_for_output = self.dataset_info.targets[output_name].gradients
-            for gradient_name in gradient_names_for_output:
-                scales_dict[output_name + "_" + gradient_name + "_gradients"] = (
-                    scales_dict[output_name]
-                )
+        # # Add gradients if present. They have the same scale as the corresponding output
+        # for output_name in list(scales_dict.keys()):
+        #     gradient_names_for_output = self.dataset_info.targets[output_name].gradients
+        #     for gradient_name in gradient_names_for_output:
+        #         scales_dict[output_name + "_" + gradient_name + "_gradients"] = (
+        #             scales_dict[output_name]
+        #         )
         return scales_dict
 
 
