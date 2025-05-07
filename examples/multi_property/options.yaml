@@ -1,0 +1,207 @@
+seed: 0
+architecture:
+  name: soap_bpnn
+  training:
+    num_epochs: 5 # a very short training run
+    
+training_set:
+  systems: # file where the positions are stored
+    read_from: train.xyz
+  targets:
+    mtt::cs_shape:
+      read_from: train.xyz
+      key: cs_iso_shape
+      quantity: ""
+      unit: ""
+      per_atom: False
+    mtt::cs_iso:
+      read_from: train.xyz
+      key: cs_iso
+      quantity: ""
+      unit: ""
+      per_atom: True
+      type:
+        scalar
+    mtt::cs_local:
+      read_from: train.xyz
+      key: cs_iso_local
+      quantity: ""
+      unit: ""
+      per_atom: True
+      type:
+        scalar
+    mtt::cs_iso_dia:
+      read_from: train.xyz
+      key: cs_iso_dia
+      quantity: ""
+      unit: ""
+      per_atom: True
+      type:
+        scalar
+    mtt::cs_iso_para:
+      read_from: train.xyz
+      key: cs_iso_para
+      quantity: ""
+      unit: ""
+      per_atom: True
+      type:
+        scalar
+    mtt::cs_iso_bare:
+      read_from: train.xyz
+      key: cs_iso_bare
+      quantity: ""
+      unit: ""
+      per_atom: True
+      type:
+        scalar
+    mtt::cs_iso_para_lq:
+      read_from: train.xyz
+      key: cs_iso_para_lq
+      quantity: ""
+      unit: ""
+      per_atom: True
+      type:
+        scalar
+    mtt::cs_iso_para_oo:
+      read_from: train.xyz
+      key: cs_iso_para_oo
+      quantity: ""
+      unit: ""
+      per_atom: True
+      type:
+        scalar
+
+validation_set:
+  systems: # file where the positions are stored
+    read_from: val.xyz
+  targets:
+    mtt::cs_shape:
+      read_from: val.xyz
+      key: cs_iso_shape
+      quantity: ""
+      unit: ""
+      per_atom: False
+    mtt::cs_iso:
+      read_from: val.xyz
+      key: cs_iso
+      quantity: ""
+      unit: ""
+      per_atom: True
+      type:
+        scalar
+    mtt::cs_local:
+      read_from: val.xyz
+      key: cs_iso_local
+      quantity: ""
+      unit: ""
+      per_atom: True
+      type:
+        scalar
+    mtt::cs_iso_dia:
+      read_from: val.xyz
+      key: cs_iso_dia
+      quantity: ""
+      unit: ""
+      per_atom: True
+      type:
+        scalar
+    mtt::cs_iso_para:
+      read_from: val.xyz
+      key: cs_iso_para
+      quantity: ""
+      unit: ""
+      per_atom: True
+      type:
+        scalar
+    mtt::cs_iso_bare:
+      read_from: val.xyz
+      key: cs_iso_bare
+      quantity: ""
+      unit: ""
+      per_atom: True
+      type:
+        scalar
+    mtt::cs_iso_para_lq:
+      read_from: val.xyz
+      key: cs_iso_para_lq
+      quantity: ""
+      unit: ""
+      per_atom: True
+      type:
+        scalar
+    mtt::cs_iso_para_oo:
+      read_from: val.xyz
+      key: cs_iso_para_oo
+      quantity: ""
+      unit: ""
+      per_atom: True
+      type:
+        scalar
+    
+test_set:
+  systems: # file where the positions are stored
+    read_from: test.xyz
+  targets:
+    mtt::cs_shape:
+      read_from: test.xyz
+      key: cs_iso_shape
+      quantity: ""
+      unit: ""
+      per_atom: False
+    mtt::cs_iso:
+      read_from: test.xyz
+      key: cs_iso
+      quantity: ""
+      unit: ""
+      per_atom: True
+      type:
+        scalar
+    mtt::cs_local:
+      read_from: test.xyz
+      key: cs_iso_local
+      quantity: ""
+      unit: ""
+      per_atom: True
+      type:
+        scalar
+    mtt::cs_iso_dia:
+      read_from: test.xyz
+      key: cs_iso_dia
+      quantity: ""
+      unit: ""
+      per_atom: True
+      type:
+        scalar
+    mtt::cs_iso_para:
+      read_from: test.xyz
+      key: cs_iso_para
+      quantity: ""
+      unit: ""
+      per_atom: True
+      type:
+        scalar
+    mtt::cs_iso_bare: 
+      read_from: test.xyz
+      key: cs_iso_bare
+      quantity: ""
+      unit: ""
+      per_atom: True
+      type:
+        scalar
+    mtt::cs_iso_para_lq:
+      read_from: test.xyz
+      key: cs_iso_para_lq
+      quantity: ""
+      unit: ""
+      per_atom: True
+      type:
+        scalar
+    mtt::cs_iso_para_oo:
+      read_from: test.xyz
+      key: cs_iso_para_oo
+      quantity: ""
+      unit: ""
+      per_atom: True
+      type:
+        scalar
+        

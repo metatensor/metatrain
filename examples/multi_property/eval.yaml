@@ -1,0 +1,24 @@
+systems: val.xyz # file where the positions are stored
+targets:
+  mtt::cs_shape:
+    read_from: val.xyz
+    key: cs_iso_shape
+    quantity: ""
+    unit: ""
+    per_atom: False
+  mtt::cs_iso:
+    read_from: val.xyz
+    key: cs_iso
+    quantity: ""
+    unit: ""
+    per_atom: True
+    type:
+      scalar
+  mtt::cs_local:
+    read_from: val.xyz
+    key: cs_iso_local
+    quantity: ""
+    unit: ""
+    per_atom: True
+    type:
+      scalar
