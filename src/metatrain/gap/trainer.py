@@ -6,14 +6,13 @@ import metatensor.torch
 import torch
 from metatensor.torch import TensorMap
 
-from metatrain.utils.data import Dataset
-
-from ..utils.additive import remove_additive
-from ..utils.data import check_datasets
-from ..utils.neighbor_lists import (
+from metatrain.utils.additive import remove_additive
+from metatrain.utils.data import Dataset, check_datasets
+from metatrain.utils.neighbor_lists import (
     get_requested_neighbor_lists,
     get_system_with_neighbor_lists,
 )
+
 from . import GAP
 from .model import torch_tensor_map_to_core
 
