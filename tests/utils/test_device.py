@@ -102,7 +102,7 @@ def test_pick_devices_preferred_warning(monkeypatch):
     monkeypatch.setattr(torch.backends.mps, "is_available", is_true)
 
     match = (
-        "Device 'cpu' - name resolved to 'cpu', requested,"
+        "Device 'cpu' - name resolved to 'cpu' - requested,"
         " but 'mps' is preferred by the architecture"
         " and available on current system."
     )
