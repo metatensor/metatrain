@@ -481,9 +481,10 @@ def test_continue_auto(options, caplog, monkeypatch, tmp_path):
         for fake_checkpoint_dir in fake_checkpoints_dirs:
             shutil.copy(MODEL_PATH_64_BIT, fake_checkpoint_dir / f"model_{i}.ckpt")
 
-    train_model(options, continue_from=_process_continue_from("auto"))
+    continue_from = _process_continue_from("auto")
+    train_model(options, continue_from=continue_from)
 
-    assert "Loading checkpoint from" in caplog.text
+    assert f"Continue training from `{continue_from}`" in caplog.text
     assert str(true_checkpoint_dir) in caplog.text
     assert "model_3.ckpt" in caplog.text
 
@@ -497,7 +498,7 @@ def test_continue_auto_no_outputs(options, caplog, monkeypatch, tmp_path):
 
     train_model(options, continue_from=_process_continue_from("auto"))
 
-    assert "Loading checkpoint from" not in caplog.text
+    assert "Continue training from" not in caplog.text
 
 
 def test_continue_different_dataset(options, monkeypatch, tmp_path):
