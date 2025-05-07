@@ -49,9 +49,9 @@ def test_load_model_checkpoint(path):
     model = load_model(path)
     assert type(model) is SoapBpnn
 
-    # TODO: test that weights are the expected from with `context == 'export'`
-    # use: list(model.bpnn[0].parameters())[0][0]
-    # but currently weighst of the export and the restart context are the same
+    # TODO: test that weights are the expected if loading with `context == 'export'`.
+    # One can use `list(model.bpnn[0].parameters())[0][0]` to get some weights. But,
+    # currently weights of the `"export"` and the `"restart"` context are the same...
 
 
 @pytest.mark.parametrize(
