@@ -181,14 +181,14 @@ methods for ``train()``, ``save_checkpoint()`` and ``load_checkpoint()``.
         def load_checkpoint(
             cls,
             checkpoint: Dict[str, Any],
-            context: Literal["restart", "finetune", "export"],
             train_hypers: Dict[str, Any],
+            context: Literal["restart", "finetune"],
         ) -> "TrainerInterface":
             """Create a trainer from a checkpoint's state dictionary.
 
             :param checkpoint: Checkpoint's state dictionary.
             :param context: Purpose of the model to load from the checkpoint file.
-                Required values are "restart" and "finetune", "export" but can be
+                Required values are "restart" and "finetune" but can be
                 extended to other values.
             :param train_hypers: Hyperparameters used to create the trainer.
             """
