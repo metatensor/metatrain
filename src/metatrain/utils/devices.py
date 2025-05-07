@@ -53,7 +53,7 @@ def pick_devices(
 
     # we copy whatever the input device string is, to avoid that some strings
     # that do not get resolved but passed directly do not get converted
-    user_requested_device = copy.copy(desired_device)
+    user_requested_device = desired_device
 
     # convert "gpu" and "multi-gpu" to "cuda" or "mps" if available
     if desired_device == "gpu":
