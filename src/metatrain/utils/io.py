@@ -9,7 +9,7 @@ import torch
 from metatensor.torch.atomistic import check_atomistic_model, load_atomistic_model
 
 from ..utils.architectures import find_all_architectures
-from .architectures import import_architecture
+from .architectures import import_architecture,find_architectures_version
 
 
 def check_file_extension(
@@ -182,9 +182,13 @@ def model_from_checkpoint(
             f"{find_all_architectures()}"
         )
     architecture = import_architecture(architecture_name)
-    architecture_version = checkpoint.get("architecture_version",1)
-    if architecture_version != architecture.__model__.architecture_version:
-        checkpoint = architecture.__model__.upgrade_checkpoint(checkpoint)
+    architecture_version = checkpoint.get("architecture_version",0)
+    if architecture_version == 0 :
+        architecture_version = 1
+        checkpoint["architecture_version"] = architecture_version
+    else:
+        if architecture_version != find_architectures_version(architecture_name):
+            checkpoint = architecture.__model__.upgrade_checkpoint(checkpoint)
 
 
     try:
