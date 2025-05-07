@@ -110,9 +110,9 @@ method.
             checkpoint: Dict[str, Any],
             context: Literal["restart", "finetune", "export"],
         ) -> "ModelInterface":
-            """Load a model from a checkpoint file.
+            """Create a model from a checkpoint's state dictionary.
 
-            :param path: Path to the checkpoint file.
+            :param checkpoint: Checkpoint's state dictionary.
             :param context: Purpose of the model to load from the checkpoint file.
                 Required values are "restart" and "finetune", "export" but can be
                 extended to other values.
@@ -184,9 +184,9 @@ methods for ``train()``, ``save_checkpoint()`` and ``load_checkpoint()``.
             context: Literal["restart", "finetune", "export"],
             train_hypers: Dict[str, Any],
         ) -> "TrainerInterface":
-            """Load a trainer from a checkpoint file.
+            """Create a trainer from a checkpoint's state dictionary.
 
-            :param path: Path to the checkpoint file.
+            :param checkpoint: Checkpoint's state dictionary.
             :param context: Purpose of the model to load from the checkpoint file.
                 Required values are "restart" and "finetune", "export" but can be
                 extended to other values.
