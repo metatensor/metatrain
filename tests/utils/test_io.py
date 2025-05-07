@@ -2,6 +2,7 @@ import os
 from pathlib import Path
 
 import pytest
+import torch
 from metatensor.torch.atomistic import MetatensorAtomisticModel
 
 from metatrain.soap_bpnn.model import SoapBpnn
@@ -53,16 +54,19 @@ def test_load_model_checkpoint(path):
 @pytest.mark.parametrize(
     "path",
     [
-        RESOURCES_PATH / "model-64-bit-version5000000.ckpt",
-        str(RESOURCES_PATH / "model-64-bit-version5000000.ckpt"),
+        RESOURCES_PATH / "model-64-bit.ckpt",
     ],
 )
 def test_load_model_checkpoint_wrong_version(path):
+    file = RESOURCES_PATH / "model-64-bit-version5000000.ckpt"
+    model = torch.load(path, weights_only=False, map_location="cpu")
+    model["architecture_version"] = 5000000
+    torch.save(model, file)
     with pytest.raises(
         NotImplementedError,
         match="Checkpoint upgrade is not implemented for the SOAP-BPNN model.",
     ):
-        load_model(path)
+        load_model(file)
 
     # TODO: test that weights are the expected if loading with `context == 'export'`.
     # One can use `list(model.bpnn[0].parameters())[0][0]` to get some weights. But,
