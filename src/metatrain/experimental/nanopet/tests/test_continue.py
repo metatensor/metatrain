@@ -70,7 +70,7 @@ def test_continue(monkeypatch, tmp_path):
 
     trainer.save_checkpoint(model, "tmp.ckpt")
 
-    model_after = model_from_checkpoint("tmp.ckpt")
+    model_after = model_from_checkpoint("tmp.ckpt", context="restart")
     assert isinstance(model_after, NanoPET)
     model_after.restart(dataset_info)
 
