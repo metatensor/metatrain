@@ -789,7 +789,7 @@ Units of the Energy and Forces are the same units given in input"""
         context: Literal["restart", "finetune", "export"],
         train_hypers: Dict,
     ) -> "Trainer":
-        # This function loads a metatrain PET checkpoint and returns a Trainer
+        # This function takes a metatrain PET checkpoint and returns a Trainer
         # instance with the hypers, while also saving the checkpoint in the
         # class
         trainer = cls(train_hypers)
