@@ -68,7 +68,7 @@ def test_continue(monkeypatch, tmp_path):
     )
 
     trainer.save_checkpoint(model, "temp.ckpt")
-    model_after = PET.load_checkpoint("temp.ckpt")
+    model_after = PET.load_checkpoint("temp.ckpt", context="restart")
     model_after.restart(dataset_info)
 
     hypers["training"]["num_epochs"] = 0

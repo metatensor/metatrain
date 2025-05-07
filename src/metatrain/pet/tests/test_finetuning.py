@@ -110,7 +110,7 @@ def test_finetuning_restart(monkeypatch, tmp_path):
 
     hypers = DEFAULT_HYPERS.copy()
 
-    hypers["training"]["num_epochs"] = 0
+    hypers["training"]["num_epochs"] = 1
 
     # Pre-training
     trainer = Trainer(hypers["training"])
@@ -125,7 +125,7 @@ def test_finetuning_restart(monkeypatch, tmp_path):
     trainer.save_checkpoint(model, "temp.ckpt")
 
     # Finetuning
-    model_finetune = PET.load_checkpoint("temp.ckpt")
+    model_finetune = PET.load_checkpoint("temp.ckpt", context="finetune")
     model_finetune.restart(dataset_info)
 
     hypers = DEFAULT_HYPERS.copy()
@@ -156,7 +156,7 @@ def test_finetuning_restart(monkeypatch, tmp_path):
     assert any(["lora_" in name for name, _ in model_finetune.named_parameters()])
 
     # Finetuning restart
-    model_finetune_restart = PET.load_checkpoint("finetuned.ckpt")
+    model_finetune_restart = PET.load_checkpoint("finetuned.ckpt", context="restart")
     model_finetune_restart.restart(dataset_info)
 
     assert any(
