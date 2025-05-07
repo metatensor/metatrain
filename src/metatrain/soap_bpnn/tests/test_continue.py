@@ -8,6 +8,7 @@ from metatrain.soap_bpnn import SoapBpnn, Trainer
 from metatrain.utils.data import Dataset, DatasetInfo
 from metatrain.utils.data.readers import read_systems, read_targets
 from metatrain.utils.data.target_info import get_energy_target_info
+from metatrain.utils.io import model_from_checkpoint
 from metatrain.utils.neighbor_lists import (
     get_requested_neighbor_lists,
     get_system_with_neighbor_lists,
@@ -75,7 +76,8 @@ def test_continue(monkeypatch, tmp_path):
     )
 
     trainer.save_checkpoint(model, "temp.ckpt")
-    model_after = SoapBpnn.load_checkpoint("temp.ckpt")
+    model_after = model_from_checkpoint("temp.ckpt", context="restart")
+    assert isinstance(model_after, SoapBpnn)
     model_after.restart(dataset_info)
 
     hypers["training"]["num_epochs"] = 0

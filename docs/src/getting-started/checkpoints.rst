@@ -18,7 +18,7 @@ The sub-command to continue training from a checkpoint is
 
 .. code-block:: bash
 
-    mtt train options.yaml --continue model.ckpt
+    mtt train options.yaml --restart model.ckpt
 
 or
 

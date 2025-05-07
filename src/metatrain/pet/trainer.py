@@ -1,7 +1,7 @@
 import copy
 import logging
 from pathlib import Path
-from typing import List, Union
+from typing import Any, Dict, List, Literal, Union
 
 import torch
 from torch.optim.lr_scheduler import LambdaLR
@@ -513,9 +513,12 @@ class Trainer:
         )
 
     @classmethod
-    def load_checkpoint(cls, path: Union[str, Path], train_hypers) -> "Trainer":
-        # Load the checkpoint
-        checkpoint = torch.load(path, weights_only=False)
+    def load_checkpoint(
+        cls,
+        checkpoint: Dict[str, Any],
+        context: Literal["restart", "finetune", "export"],  # not used at the moment
+        train_hypers: Dict[str, Any],
+    ) -> "Trainer":
         epoch = checkpoint["epoch"]
         optimizer_state_dict = checkpoint["optimizer_state_dict"]
         scheduler_state_dict = checkpoint["scheduler_state_dict"]
