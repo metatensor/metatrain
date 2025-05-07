@@ -22,12 +22,19 @@ similar to these lines
 
     if checkpoint_path is not None:
         checkpoint = torch.load(checkpoint_path)
-        model = Model.load_checkpoint(checkpoint)
-        trainer = Trainer.load_checkpoint(checkpoint, hypers["training"])
+
+        trainer = Trainer.load_checkpoint(
+            checkpoint, hypers=hypers["training"], context="restart")
+        model = Model.load_checkpoint(checkpoint, context="restart")
         model = model.restart(dataset_info)
     else:
-        model = Model(hypers["model"], dataset_info)
         trainer = Trainer(hypers["training"])
+
+        if hasattr(hypers["training"], "finetune"):
+            checkpoint = hypers["training"]["finetune"]["read_from"]
+            model = Model.load_checkpoint(path=checkpoint, context="finetune")
+        else:
+            model = Model(hypers["model"], dataset_info)
 
     trainer.train(
         model=model,
@@ -146,10 +153,15 @@ optimal ``dtype`` and ``device`` for training.
 Trainer class (``trainer.py``)
 ------------------------------
 
+<<<<<<< HEAD
 .. autoclass:: metatrain.utils.abc.TrainerInterface
     :members:
 
 Defining a new model can then be done as like this;
+=======
+The ``TrainerInterface`` class should have the following signature with required
+methods for ``train()``, ``save_checkpoint()`` and ``load_checkpoint()``.
+>>>>>>> b507f7ad (Add general finetune option)
 
 .. code-block:: python
 
@@ -166,11 +178,18 @@ Defining a new model can then be done as like this;
 Init file (``__init__.py``)
 ---------------------------
 
+<<<<<<< HEAD
 You are free to name the ``Model`` and ``Trainer`` classes as you want. These
 classes should then be made available in the ``__init__.py`` under the names
 ``__model__`` and ``__trainer__`` so metatrain knows where to find them.
 ``__init__.py`` must also contain definition for the original ``__authors__``
 and current ``__maintainers__`` of the architecture.
+=======
+The names of the ``ModelInterface`` and the ``TrainerInterface`` are free to choose but
+should be linked to constants in the ``__init__.py`` of each architecture. On top of
+these two constants the ``__init__.py`` must contain constants for the original
+``__authors__`` and current ``__maintainers__`` of the architecture.
+>>>>>>> b507f7ad (Add general finetune option)
 
 .. code-block:: python
 
@@ -198,10 +217,16 @@ and current ``__maintainers__`` of the architecture.
 Default Hyperparamers (``default-hypers.yaml``)
 -----------------------------------------------
 
+<<<<<<< HEAD
 The default hyperparameters for each architecture should be stored in a YAML
 file ``default-hypers.yaml`` inside the architecture directory. Reasonable
 default hypers are required to improve usability. The default hypers must follow
 the structure
+=======
+The default hyperparameters for each architecture should be stored in a YAML file
+``default-hypers.yaml`` inside the architecture directory. Reasonable default hypers are
+required to improve usability. The default hypers must follow the structure
+>>>>>>> b507f7ad (Add general finetune option)
 
 .. code-block:: yaml
 
@@ -218,8 +243,34 @@ user-provided parameters and pass the merged ``model`` section as a Python
 dictionary to the ``ModelInterface`` and the ``training`` section to the
 ``TrainerInterface``.
 
+Finetuning
+^^^^^^^^^^
+
+If your architecture is supporting finetuning you have to add a ``finetune`` subsection
+in the ``training`` section. The subsection must contain a ``read_from`` key that points
+to the checkpoint file the finetuning is started from. Any additional hyperparameters
+can be architecture specific.
+
+.. code-block:: yaml
+
+    training:
+        finetune:
+            read_from: path/to/checkpoint.ckpt
+            # other architecture finetune hyperparameters
+
 JSON schema (``schema-hypers.yaml``)
 ------------------------------------
+<<<<<<< HEAD
+=======
+
+To validate the user's input hyperparameters we are using `JSON schemas
+<https://json-schema.org/>`_ stored in a schema file called ``schema-hypers.json``. For
+an :ref:`experimental architecture <architecture-life-cycle>` it is not required to
+provide such a schema along with its default hypers but it is highly recommended to
+reduce possible errors of user input like typos in parameter names or wrong sections. If
+no ``schema-hypers.json`` is provided no validation is performed and user hypers are
+passed to the architecture model and trainer as is.
+>>>>>>> b507f7ad (Add general finetune option)
 
 To validate the user's input hyperparameters we are using `JSON schemas
 <https://json-schema.org/>`_ stored in a schema file called

@@ -4,9 +4,7 @@
   "properties": {
     "name": {
       "type": "string",
-      "enum": [
-        "pet"
-      ]
+      "enum": ["pet"]
     },
     "model": {
       "type": "object",
@@ -83,10 +81,7 @@
           "type": "number"
         },
         "weight_decay": {
-          "type": [
-            "number",
-            "null"
-          ]
+          "type": ["number", "null"]
         },
         "scheduler_patience": {
           "type": "integer"
@@ -129,21 +124,19 @@
         },
         "best_model_metric": {
           "type": "string",
-          "enum": [
-            "rmse_prod",
-            "mae_prod",
-            "loss"
-          ]
+          "enum": ["rmse_prod", "mae_prod", "loss"]
         },
         "finetune": {
           "type": "object",
+          "required": ["read_from"],
           "properties": {
+            "read_from": {
+              "type": "string",
+              "format": "uri"
+            },
             "method": {
               "type": "string",
-              "enum": [
-                "lora",
-                "heads"
-              ]
+              "enum": ["lora", "heads"]
             },
             "config": {
               "type": "object",
@@ -157,10 +150,7 @@
                       "type": "integer"
                     }
                   },
-                  "required": [
-                    "alpha",
-                    "rank"
-                  ],
+                  "required": ["alpha", "rank"],
                   "additionalProperties": false
                 },
                 {
@@ -178,10 +168,7 @@
                       }
                     }
                   },
-                  "required": [
-                    "head_modules",
-                    "last_layer_modules"
-                  ],
+                  "required": ["head_modules", "last_layer_modules"],
                   "additionalProperties": false
                 }
               ]
@@ -206,20 +193,13 @@
             },
             "reduction": {
               "type": "string",
-              "enum": [
-                "sum",
-                "mean",
-                "none"
-              ]
+              "enum": ["sum", "mean", "none"]
             },
             "type": {
               "oneOf": [
                 {
                   "type": "string",
-                  "enum": [
-                    "mse",
-                    "mae"
-                  ]
+                  "enum": ["mse", "mae"]
                 },
                 {
                   "type": "object",
@@ -237,9 +217,7 @@
                           "additionalProperties": false
                         }
                       },
-                      "required": [
-                        "deltas"
-                      ],
+                      "required": ["deltas"],
                       "additionalProperties": false
                     }
                   },
@@ -248,10 +226,7 @@
               ]
             },
             "sliding_factor": {
-              "type": [
-                "number",
-                "null"
-              ]
+              "type": ["number", "null"]
             }
           },
           "additionalProperties": false
