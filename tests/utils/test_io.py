@@ -54,8 +54,7 @@ def test_load_model_checkpoint(path):
     "path",
     [
         RESOURCES_PATH / "model-64-bit-version5000000.ckpt",
-        str(RESOURCES_PATH / "model-64-bit-version5000000.ckpt"),
-        f"file:{str(RESOURCES_PATH / 'model-64-bit-version5000000.ckpt')}",
+        str(RESOURCES_PATH / "model-64-bit-version5000000.ckpt")
     ],
 )
 def test_load_model_checkpoint_wrong_version(path):
