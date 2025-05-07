@@ -5,7 +5,7 @@ import pickle
 import time
 import warnings
 from pathlib import Path
-from typing import List, Union
+from typing import Dict, List, Literal, Union
 
 import numpy as np
 import torch
@@ -783,7 +783,12 @@ Units of the Energy and Forces are the same units given in input"""
         )
 
     @classmethod
-    def load_checkpoint(cls, path: Union[str, Path], train_hypers) -> "Trainer":
+    def load_checkpoint(
+        cls,
+        path: Union[str, Path],
+        context: Literal["restart", "finetune", "export"],
+        train_hypers: Dict,
+    ) -> "Trainer":
         # This function loads a metatrain PET checkpoint and returns a Trainer
         # instance with the hypers, while also saving the checkpoint in the
         # class

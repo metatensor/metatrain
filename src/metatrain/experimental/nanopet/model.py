@@ -1,7 +1,7 @@
 import warnings
 from math import prod
 from pathlib import Path
-from typing import Dict, List, Optional, Union
+from typing import Dict, List, Literal, Optional, Union
 
 import metatensor.torch
 import torch
@@ -552,7 +552,11 @@ class NanoPET(torch.nn.Module):
         return [self.requested_nl]
 
     @classmethod
-    def load_checkpoint(cls, path: Union[str, Path], context: str) -> "NanoPET":
+    def load_checkpoint(
+        cls,
+        path: Union[str, Path],
+        context: Literal["restart", "finetune", "export"],
+    ) -> "NanoPET":
         # Load the checkpoint
         checkpoint = torch.load(path, weights_only=False, map_location="cpu")
         model_data = checkpoint["model_data"]

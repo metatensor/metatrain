@@ -118,13 +118,18 @@ def load_model(
     extensions_directory: Optional[Union[str, Path]] = None,
     token: Optional[str] = None,
 ) -> Any:
-    """Load checkpoints and exported models from an URL or a local file.
+    """Load checkpoints and exported models from an URL or a local file for inference.
 
     If an exported model should be loaded and requires compiled extensions, their
     location should be passed using the ``extensions_directory`` parameter.
 
     After reading a checkpoint, the returned model can be exported with the model's own
     ``export()`` method.
+
+    .. note::
+
+        This function is intended to load models for inference in Python. For continue
+        training or finetuning use metatrain's command line interfaace
 
     :param path: local or remote path to a model. For supported URL schemes see
         :py:class:`urllib.request`

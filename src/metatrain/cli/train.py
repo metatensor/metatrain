@@ -437,7 +437,7 @@ def train_model(
     logging.info("Setting up model")
     try:
         if continue_from is not None:
-            logging.info(f"Loading checkpoint from `{continue_from}`")
+            logging.info(f"Continue training from `{continue_from}`")
             trainer = Trainer.load_checkpoint(
                 path=continue_from, context="restart", train_hypers=hypers["training"]
             )
