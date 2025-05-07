@@ -50,7 +50,10 @@ def test_load_model_checkpoint(path):
     model = load_model(path)
     assert type(model) is SoapBpnn
 
-
+    # TODO: test that weights are the expected if loading with `context == 'export'`.
+    # One can use `list(model.bpnn[0].parameters())[0][0]` to get some weights. But,
+    # currently weights of the `"export"` and the `"restart"` context are the same...
+    
 @pytest.mark.parametrize(
     "path",
     [
@@ -67,10 +70,6 @@ def test_load_model_checkpoint_wrong_version(path):
         match="Checkpoint upgrade is not implemented for the SOAP-BPNN model.",
     ):
         load_model(file)
-
-    # TODO: test that weights are the expected if loading with `context == 'export'`.
-    # One can use `list(model.bpnn[0].parameters())[0][0]` to get some weights. But,
-    # currently weights of the `"export"` and the `"restart"` context are the same...
 
 
 @pytest.mark.parametrize(
