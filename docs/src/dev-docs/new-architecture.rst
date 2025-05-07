@@ -104,13 +104,17 @@ method.
             self.dataset_info = dataset_info
 
         @classmethod
-        def load_checkpoint(cls, path: Union[str, Path], select: str) -> "ModelInterface":
-            """Load a checkpoint from a file.
+        def load_checkpoint(
+            cls,
+            path: Union[str, Path],
+            context: Literal["restart", "finetune", "export"],
+        ) -> "ModelInterface":
+            """Load a model from a checkpoint file.
 
             :param path: Path to the checkpoint file.
-            :param select: Architecture-specific model to load from the checkpoint file.
-                Required values are "best" or "last" but can be extended to other
-                values.
+            :param context: Purpose of the model to load from the checkpoint file.
+                Required values are "restart" and "finetune", "export" but can be
+                extended to other values.
             """
             pass
 
@@ -174,8 +178,19 @@ methods for ``train()``, ``save_checkpoint()`` and ``load_checkpoint()``.
 
         @classmethod
         def load_checkpoint(
-            cls, path: Union[str, Path], train_hypers: Dict
+            cls,
+            path: Union[str, Path],
+            context: Literal["restart", "finetune", "export"],
+            train_hypers: Dict,
         ) -> "TrainerInterface":
+            """Load a trainer from a checkpoint file.
+
+            :param path: Path to the checkpoint file.
+            :param context: Purpose of the model to load from the checkpoint file.
+                Required values are "restart" and "finetune", "export" but can be
+                extended to other values.
+            :param train_hypers: Hyperparameters used to create the trainer.
+            """
             pass
 
 The format of checkpoints is not defined by ``metatrain`` and can be any format that

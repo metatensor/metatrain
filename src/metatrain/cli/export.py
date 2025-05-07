@@ -120,7 +120,7 @@ def export_model(
     extensions: Union[Path, str] = "extensions/",
     metadata: Optional[ModelMetadata] = None,
 ) -> None:
-    """Export the best trained model allowing it to make predictions.
+    """Export a trained model allowing it to make predictions.
 
     This includes predictions within molecular simulation engines. Exported models will
     be saved with a ``.pt`` file ending. If ``path`` does not end with this file
