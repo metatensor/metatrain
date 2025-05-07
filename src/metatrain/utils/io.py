@@ -1,7 +1,7 @@
 import re
 import warnings
 from pathlib import Path
-from typing import Any, Optional, Union
+from typing import Any, Dict, Literal, Optional, Union
 from urllib.parse import unquote, urlparse
 from urllib.request import urlretrieve
 
@@ -118,13 +118,18 @@ def load_model(
     extensions_directory: Optional[Union[str, Path]] = None,
     token: Optional[str] = None,
 ) -> Any:
-    """Load checkpoints and exported models from an URL or a local file.
+    """Load checkpoints and exported models from an URL or a local file for inference.
 
     If an exported model should be loaded and requires compiled extensions, their
     location should be passed using the ``extensions_directory`` parameter.
 
     After reading a checkpoint, the returned model can be exported with the model's own
     ``export()`` method.
+
+    .. note::
+
+        This function is intended to load models for inference in Python. For continue
+        training or finetuning use metatrain's command line interfaace
 
     :param path: local or remote path to a model. For supported URL schemes see
         :py:class:`urllib.request`
@@ -156,10 +161,12 @@ def load_model(
     if is_exported_file(path):
         return load_atomistic_model(path, extensions_directory=extensions_directory)
     else:  # model is a checkpoint
-        return model_from_checkpoint(path)
+        return model_from_checkpoint(path, context="export")
 
 
-def model_from_checkpoint(path: Union[str, Path]) -> torch.nn.Module:
+def model_from_checkpoint(
+    path: Union[str, Path], context=Literal["restart", "finetune", "export"]
+) -> torch.nn.Module:
     """
     Load the checkpoint at the given ``path``, and create the corresponding model
     instance. The model architecture is determined from information stored inside the
@@ -177,7 +184,7 @@ def model_from_checkpoint(path: Union[str, Path]) -> torch.nn.Module:
     architecture = import_architecture(architecture_name)
 
     try:
-        return architecture.__model__.load_checkpoint(checkpoint)
+        return architecture.__model__.load_checkpoint(checkpoint, context=context)
     except Exception as err:
         raise ValueError(
             f"path '{path}' is not a valid checkpoint for the {architecture_name} "
@@ -185,7 +192,11 @@ def model_from_checkpoint(path: Union[str, Path]) -> torch.nn.Module:
         ) from err
 
 
-def trainer_from_checkpoint(path: Union[str, Path], hypers) -> Any:
+def trainer_from_checkpoint(
+    path: Union[str, Path],
+    context: Literal["restart", "finetune", "export"],
+    hypers: Dict[str, Any],
+) -> Any:
     """
     Load the checkpoint at the given ``path``, and create the corresponding trainer
     instance. The architecture is determined from information stored inside the
@@ -203,7 +214,9 @@ def trainer_from_checkpoint(path: Union[str, Path], hypers) -> Any:
     architecture = import_architecture(architecture_name)
 
     try:
-        return architecture.__trainer__.load_checkpoint(checkpoint, hypers)
+        return architecture.__trainer__.load_checkpoint(
+            checkpoint, context=context, train_hypers=hypers
+        )
     except Exception as err:
         raise ValueError(
             f"path '{path}' is not a valid checkpoint for the {architecture_name} "

@@ -105,7 +105,18 @@ method.
             self.dataset_info = dataset_info
 
         @classmethod
-        def load_checkpoint(cls, checkpoint: Dict[str, Any]) -> "ModelInterface":
+        def load_checkpoint(
+            cls,
+            checkpoint: Dict[str, Any],
+            context: Literal["restart", "finetune", "export"],
+        ) -> "ModelInterface":
+            """Create a model from a checkpoint's state dictionary.
+
+            :param checkpoint: Checkpoint's state dictionary.
+            :param context: Purpose of the model to load from the checkpoint file.
+                Required values are "restart" and "finetune", "export" but can be
+                extended to other values.
+            """
             pass
 
         def restart(cls, dataset_info: DatasetInfo) -> "ModelInterface":
@@ -168,8 +179,19 @@ methods for ``train()``, ``save_checkpoint()`` and ``load_checkpoint()``.
 
         @classmethod
         def load_checkpoint(
-            cls, checkpoint: Dict[str, Any], train_hypers: Dict[str, Any]
+            cls,
+            checkpoint: Dict[str, Any],
+            train_hypers: Dict[str, Any],
+            context: Literal["restart", "finetune"],
         ) -> "TrainerInterface":
+            """Create a trainer from a checkpoint's state dictionary.
+
+            :param checkpoint: Checkpoint's state dictionary.
+            :param context: Purpose of the model to load from the checkpoint file.
+                Required values are "restart" and "finetune" but can be
+                extended to other values.
+            :param train_hypers: Hyperparameters used to create the trainer.
+            """
             pass
 
 The format of checkpoints is not defined by ``metatrain`` and can be any format that

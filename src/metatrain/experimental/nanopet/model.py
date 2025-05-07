@@ -1,6 +1,6 @@
 import warnings
 from math import prod
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Literal, Optional
 
 import metatensor.torch
 import torch
@@ -551,9 +551,19 @@ class NanoPET(torch.nn.Module):
         return [self.requested_nl]
 
     @classmethod
-    def load_checkpoint(cls, checkpoint: Dict[str, Any]) -> "NanoPET":
+    def load_checkpoint(
+        cls,
+        checkpoint: Dict[str, Any],
+        context: Literal["restart", "finetune", "export"],
+    ) -> "NanoPET":
         model_data = checkpoint["model_data"]
-        model_state_dict = checkpoint["model_state_dict"]
+
+        if context == "restart":
+            model_state_dict = checkpoint["model_state_dict"]
+        elif context == "finetune" or context == "export":
+            model_state_dict = checkpoint["best_model_state_dict"]
+        else:
+            raise ValueError("Unknown context tag for checkpoint loading!")
 
         # Create the model
         model = cls(**model_data)

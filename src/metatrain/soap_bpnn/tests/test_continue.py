@@ -76,7 +76,7 @@ def test_continue(monkeypatch, tmp_path):
     )
 
     trainer.save_checkpoint(model, "temp.ckpt")
-    model_after = model_from_checkpoint("temp.ckpt")
+    model_after = model_from_checkpoint("temp.ckpt", context="restart")
     assert isinstance(model_after, SoapBpnn)
     model_after.restart(dataset_info)
 

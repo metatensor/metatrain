@@ -1,7 +1,7 @@
 import copy
 import logging
 from pathlib import Path
-from typing import Any, Dict, List, Union
+from typing import Any, Dict, List, Literal, Union
 
 import torch
 import torch.distributed
@@ -484,7 +484,10 @@ class Trainer:
 
     @classmethod
     def load_checkpoint(
-        cls, checkpoint: Dict[str, Any], train_hypers: Dict[str, Any]
+        cls,
+        checkpoint: Dict[str, Any],
+        train_hypers: Dict[str, Any],
+        context: Literal["restart", "finetune"],  # not used at the moment
     ) -> "Trainer":
         epoch = checkpoint["epoch"]
         optimizer_state_dict = checkpoint["optimizer_state_dict"]
