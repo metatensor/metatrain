@@ -83,12 +83,14 @@ def _add_train_model_parser(subparser: argparse._SubParsersAction) -> None:
         ),
     )
     parser.add_argument(
-        "-c",
         "--continue",
         dest="continue_from",
         type=_process_continue_from,
         required=False,
-        help="Checkpoint file (.ckpt) to continue training from.",
+        help=(
+            "Checkpoint file (.ckpt) to continue interrupted training. "
+            "Set to `'auto'` to use latest checkpoint from the outputs directory."
+        ),
     )
     parser.add_argument(
         "-r",

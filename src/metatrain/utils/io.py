@@ -124,7 +124,8 @@ def load_model(
     location should be passed using the ``extensions_directory`` parameter.
 
     After reading a checkpoint, the returned model can be exported with the model's own
-    ``export()`` method.
+    ``export()`` method. When reading a checkpoint always the **best weights** are
+    loaded.
 
     :param path: local or remote path to a model. For supported URL schemes see
         :py:class:`urllib.request`
@@ -168,7 +169,7 @@ def load_model(
         architecture = import_architecture(architecture_name)
 
         try:
-            return architecture.__model__.load_checkpoint(path)
+            return architecture.__model__.load_checkpoint(path, select="best")
         except Exception as err:
             raise ValueError(
                 f"path '{path}' is not a valid checkpoint for the {architecture_name} "

@@ -104,7 +104,14 @@ method.
             self.dataset_info = dataset_info
 
         @classmethod
-        def load_checkpoint(cls, path: Union[str, Path]) -> "ModelInterface":
+        def load_checkpoint(cls, path: Union[str, Path], select: str) -> "ModelInterface":
+            """Load a checkpoint from a file.
+
+            :param path: Path to the checkpoint file.
+            :param select: Architecture-specific model to load from the checkpoint file.
+                Required values are "best" or "last" but can be extended to other
+                values.
+            """
             pass
 
         def restart(cls, dataset_info: DatasetInfo) -> "ModelInterface":
