@@ -1,5 +1,4 @@
-from pathlib import Path
-from typing import Dict, List, Literal, Optional, Union
+from typing import Any, Dict, List, Literal, Optional
 
 import metatensor.torch
 import torch
@@ -246,10 +245,9 @@ class PET(torch.nn.Module):
     @classmethod
     def load_checkpoint(
         cls,
-        path: Union[str, Path],
+        checkpoint: Dict[str, Any],
         context: Literal["restart", "finetune", "export"],
     ) -> "PET":
-        checkpoint = torch.load(path, weights_only=False, map_location="cpu")
         hypers = checkpoint["hypers"]
         model_hypers = hypers["ARCHITECTURAL_HYPERS"]
         dataset_info = checkpoint["dataset_info"]

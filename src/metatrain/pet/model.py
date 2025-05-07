@@ -1,7 +1,6 @@
 import warnings
 from math import prod
-from pathlib import Path
-from typing import Dict, List, Literal, Optional, Union
+from typing import Any, Dict, List, Literal, Optional
 
 import metatensor.torch
 import torch
@@ -659,10 +658,9 @@ class PET(torch.nn.Module):
     @classmethod
     def load_checkpoint(
         cls,
-        path: Union[str, Path],
+        checkpoint: Dict[str, Any],
         context: Literal["restart", "finetune", "export"],
     ) -> "PET":
-        checkpoint = torch.load(path, weights_only=False, map_location="cpu")
         model_data = checkpoint["model_data"]
 
         if context == "restart":

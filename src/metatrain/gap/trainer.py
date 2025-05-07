@@ -1,6 +1,5 @@
 import logging
-from pathlib import Path
-from typing import Dict, List, Literal, Union
+from typing import Any, Dict, List, Literal, Union
 
 import metatensor
 import metatensor.torch
@@ -147,8 +146,8 @@ class Trainer:
     @classmethod
     def load_checkpoint(
         cls,
-        path: Union[str, Path],
+        checkpoint: Dict[str, Any],
         context: Literal["restart", "finetune", "export"],
-        hypers_train: Dict,
+        hypers_train: Dict[str, Any],
     ) -> "GAP":
         raise ValueError("GAP does not allow restarting training")

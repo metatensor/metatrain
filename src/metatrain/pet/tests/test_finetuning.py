@@ -10,6 +10,7 @@ from metatrain.pet.modules.finetuning import (
 from metatrain.utils.data import Dataset, DatasetInfo
 from metatrain.utils.data.readers import read_systems, read_targets
 from metatrain.utils.data.target_info import get_energy_target_info
+from metatrain.utils.io import model_from_checkpoint
 
 from . import DATASET_PATH, DEFAULT_HYPERS, MODEL_HYPERS
 
@@ -122,10 +123,11 @@ def test_finetuning_restart(monkeypatch, tmp_path):
         val_datasets=[dataset],
         checkpoint_dir=".",
     )
-    trainer.save_checkpoint(model, "temp.ckpt")
+    trainer.save_checkpoint(model, "tmp.ckpt")
 
     # Finetuning
-    model_finetune = PET.load_checkpoint("temp.ckpt", context="finetune")
+    model_finetune = model_from_checkpoint("tmp.ckpt")
+    assert isinstance(model_finetune, PET)
     model_finetune.restart(dataset_info)
 
     hypers = DEFAULT_HYPERS.copy()
@@ -156,7 +158,8 @@ def test_finetuning_restart(monkeypatch, tmp_path):
     assert any(["lora_" in name for name, _ in model_finetune.named_parameters()])
 
     # Finetuning restart
-    model_finetune_restart = PET.load_checkpoint("finetuned.ckpt", context="restart")
+    model_finetune_restart = model_from_checkpoint("finetuned.ckpt")
+    assert isinstance(model_finetune_restart, PET)
     model_finetune_restart.restart(dataset_info)
 
     assert any(

@@ -18,12 +18,13 @@ lines
     from architecture import __model__ as Model
     from architecture import __trainer__ as Trainer
 
-    hypers = {}
+    hypers = {...}
     dataset_info = DatasetInfo()
 
-    if continue_from is not None:
-        trainer = Trainer.load_checkpoint(continue_from, hypers["training"])
-        model = Model.load_checkpoint(continue_from)
+    if checkpoint_path is not None:
+        checkpoint = torch.load(checkpoint_path)
+        model = Model.load_checkpoint(checkpoint)
+        trainer = Trainer.load_checkpoint(checkpoint, hypers["training"])
         model = model.restart(dataset_info)
     else:
         model = Model(hypers["model"], dataset_info)
@@ -106,7 +107,7 @@ method.
         @classmethod
         def load_checkpoint(
             cls,
-            path: Union[str, Path],
+            checkpoint: Dict[str, Any],
             context: Literal["restart", "finetune", "export"],
         ) -> "ModelInterface":
             """Load a model from a checkpoint file.
@@ -179,9 +180,9 @@ methods for ``train()``, ``save_checkpoint()`` and ``load_checkpoint()``.
         @classmethod
         def load_checkpoint(
             cls,
-            path: Union[str, Path],
+            checkpoint: Dict[str, Any],
             context: Literal["restart", "finetune", "export"],
-            train_hypers: Dict,
+            train_hypers: Dict[str, Any],
         ) -> "TrainerInterface":
             """Load a trainer from a checkpoint file.
 

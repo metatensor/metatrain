@@ -8,6 +8,7 @@ from metatrain.experimental.nanopet import NanoPET, Trainer
 from metatrain.utils.data import Dataset, DatasetInfo
 from metatrain.utils.data.readers import read_systems, read_targets
 from metatrain.utils.data.target_info import get_energy_target_info
+from metatrain.utils.io import model_from_checkpoint
 from metatrain.utils.neighbor_lists import get_system_with_neighbor_lists
 
 from . import DATASET_PATH, DEFAULT_HYPERS, MODEL_HYPERS
@@ -67,8 +68,10 @@ def test_continue(monkeypatch, tmp_path):
         checkpoint_dir=".",
     )
 
-    trainer.save_checkpoint(model, "temp.ckpt")
-    model_after = NanoPET.load_checkpoint("temp.ckpt", context="restart")
+    trainer.save_checkpoint(model, "tmp.ckpt")
+
+    model_after = model_from_checkpoint("tmp.ckpt")
+    assert isinstance(model_after, NanoPET)
     model_after.restart(dataset_info)
 
     hypers["training"]["num_epochs"] = 0
