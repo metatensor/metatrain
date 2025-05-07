@@ -831,7 +831,7 @@ class SoapBpnn(torch.nn.Module):
             unit=target.unit,
             per_atom=True,
         )
-    
+
     def upgrade_checkpoint(checkpoint: Dict) -> Dict:
         """
         Upgrade the checkpoint to the current version of the model.

@@ -931,7 +931,7 @@ class TorchSubsetofRegressors(torch.nn.Module):
 
         k_tm = self._kernel(T, self._X_pseudo, are_pseudo_points=(False, True))
         return metatensor.torch.dot(k_tm, self._weights)
-    
+
     def upgrade_checkpoint(checkpoint: Dict) -> Dict:
         """
         Upgrade the checkpoint to the current version of the model.

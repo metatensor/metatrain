@@ -169,11 +169,12 @@ def find_all_architectures() -> List[str]:
 
     return architecture_names
 
+
 def find_architectures_version(name: str) -> int:
     """Find the current version for an architectures.
 
     :param: name of the architecture
-    :returns: version number 
+    :returns: version number
     """
     check_architecture_name(name)
     default_hypers = OmegaConf.load(get_architecture_path(name) / "default-hypers.yaml")
