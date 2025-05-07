@@ -21,7 +21,7 @@ print(' '.join(find_all_architectures()))
           COMPREPLY=( )
           return 0
           ;;
-        --continue)
+        --restart)
           COMPREPLY=( $( compgen -W "auto" -f -X "$ckpt" -- "${cur_word}") )
           return 0
           ;;
@@ -32,7 +32,7 @@ print(' '.join(find_all_architectures()))
           fi
           ;;
       esac
-      local opts="-h --help -o --output --continue -r --override"
+      local opts="-h --help -o --output --restart -r --override"
       COMPREPLY=( $(compgen -W "${opts}" -- "${cur_word}") )
       return 0
       ;;
