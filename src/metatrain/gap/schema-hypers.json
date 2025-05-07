@@ -6,6 +6,9 @@
       "type": "string",
       "enum": ["gap"]
     },
+    "version": {
+      "type": "integer"
+    },
     "model": {
       "type": "object",
       "properties": {

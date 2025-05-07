@@ -1,5 +1,6 @@
 architecture:
   name: gap
+  version: 1
 
   model:
     soap:

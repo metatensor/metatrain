@@ -1,5 +1,6 @@
 architecture:
   name: soap_bpnn
+  version: 1
 
   model:
     soap:
