@@ -498,7 +498,7 @@ def test_continue_auto_no_outputs(options, caplog, monkeypatch, tmp_path):
 
     train_model(options, restart_from=_process_restart_from("auto"))
 
-    assert "Continue training from" not in caplog.text
+    assert "Restart training from" not in caplog.text
 
 
 def test_continue_different_dataset(options, monkeypatch, tmp_path):
