@@ -182,7 +182,7 @@ def model_from_checkpoint(
             f"{find_all_architectures()}"
         )
     architecture = import_architecture(architecture_name)
-    architecture_version = checkpoint.get("architecture_version",0)
+    architecture_version = checkpoint.get("architecture_version",1)
     if architecture_version != architecture.__model__.architecture_version:
         checkpoint = architecture.__model__.upgrade_checkpoint(checkpoint)
 
