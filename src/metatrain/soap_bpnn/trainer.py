@@ -486,7 +486,7 @@ class Trainer:
     def load_checkpoint(
         cls,
         path: Union[str, Path],
-        context: Literal["restart", "finetune", "export"],
+        context: Literal["restart", "finetune", "export"], # not used at the moment
         train_hypers: Dict,
     ) -> "Trainer":
         # Load the checkpoint
