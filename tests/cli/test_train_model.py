@@ -484,7 +484,7 @@ def test_continue_auto(options, caplog, monkeypatch, tmp_path):
     restart_from = _process_restart_from("auto")
     train_model(options, restart_from=restart_from)
 
-    assert f"Continue training from `{restart_from}`" in caplog.text
+    assert f"Restart training from `{restart_from}`" in caplog.text
     assert str(true_checkpoint_dir) in caplog.text
     assert "model_3.ckpt" in caplog.text
 
