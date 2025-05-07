@@ -1,4 +1,3 @@
-import copy
 import warnings
 from typing import List, Optional
 
