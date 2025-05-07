@@ -6,7 +6,7 @@ GPU might be present during the tests.
 Some tests that require one or more GPUs to be present are located at the bottom of this
 file.
 """
-
+import re
 import pytest
 import torch
 
@@ -72,8 +72,9 @@ def test_no_matching_device(monkeypatch):
 def test_pick_devices_unsupported_by_architecture(monkeypatch):
     monkeypatch.setattr(torch.cuda, "is_available", is_true)
     match = (
-        "Desired device 'cuda' is not supported by the selected architecture. "
-        "Please choose from cpu."
+            "Desired device 'cuda' name resolved to "
+            "'cuda' is not supported by the selected "
+            "architecture. Please choose from cpu."
     )
     with pytest.raises(ValueError, match=match):
         pick_devices(["cpu"], "cuda")
@@ -88,8 +89,9 @@ def test_pick_devices_multi_error(desired_device, monkeypatch):
     monkeypatch.setattr(torch.cuda, "device_count", device_count)
 
     match = (
-        "Desired device 'multi-cuda' is not supported on your current system. "
-        "Please choose from cpu."
+            f"Desired device '{desired_device}' name resolved to 'multi-cuda'"
+            " is not supported by the selected your current system." 
+            " Please choose from cpu."
     )
     with pytest.raises(ValueError, match=match):
         pick_devices(["multi-cuda", "cpu"], desired_device=desired_device)
@@ -99,7 +101,9 @@ def test_pick_devices_preferred_warning(monkeypatch):
     monkeypatch.setattr(torch.backends.mps, "is_built", is_true)
     monkeypatch.setattr(torch.backends.mps, "is_available", is_true)
 
-    match = "Device 'cpu' requested, but 'mps' is prefferred"
+    match = "Device 'cpu' - name resolved to 'cpu', requested," \
+    " but 'mps' is preferred by the architecture" \
+    " and available on current system."
     with pytest.warns(UserWarning, match=match):
         pick_devices(["mps", "cpu", "cuda"], desired_device="cpu")
 
@@ -180,9 +184,9 @@ def test_multi_gpu_warning(monkeypatch):
     monkeypatch.setattr(torch.cuda, "device_count", device_count)
 
     match = (
-        "Requested single 'cuda' device but current system has 2 cuda devices and "
-        "architecture supports multi-gpu training. Consider using 'multi-gpu' to "
-        "accelerate training."
+        "Requested single 'cuda' device by specifying 'cuda' but current system "
+        "has 2 cuda devices and architecture supports multi-gpu training. "
+        "Consider using 'multi-gpu' to accelerate training."
     )
     with pytest.warns(UserWarning, match=match):
         picked_devices = pick_devices(["cuda", "multi-cuda", "cpu"], "cuda")
