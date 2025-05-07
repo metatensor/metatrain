@@ -186,6 +186,9 @@ class NanoPET(torch.nn.Module):
 
         self.single_label = Labels.single()
 
+    def supported_outputs(self) -> Dict[str, ModelOutput]:
+        return self.outputs
+
     def restart(self, dataset_info: DatasetInfo) -> "NanoPET":
         # merge old and new dataset info
         merged_info = self.dataset_info.union(dataset_info)

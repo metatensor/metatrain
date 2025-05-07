@@ -272,6 +272,18 @@ class PET(torch.nn.Module):
 
         return model
 
+    def supported_outputs(self) -> Dict[str, ModelOutput]:
+        return {
+            self.target_name: ModelOutput(
+                quantity=self.dataset_info.targets[self.target_name].quantity,
+                unit=self.dataset_info.targets[self.target_name].unit,
+                per_atom=False,
+            ),
+            f"mtt::aux::{self.target_name.replace('mtt::', '')}_last_layer_features": ModelOutput(  # noqa: E501
+                unit="unitless", per_atom=True
+            ),
+        }
+
     def export(
         self, metadata: Optional[ModelMetadata] = None
     ) -> MetatensorAtomisticModel:
@@ -291,16 +303,7 @@ class PET(torch.nn.Module):
         interaction_range = max(interaction_ranges)
 
         capabilities = ModelCapabilities(
-            outputs={
-                self.target_name: ModelOutput(
-                    quantity=self.dataset_info.targets[self.target_name].quantity,
-                    unit=self.dataset_info.targets[self.target_name].unit,
-                    per_atom=False,
-                ),
-                f"mtt::aux::{self.target_name.replace('mtt::', '')}_last_layer_features": ModelOutput(  # noqa: E501
-                    unit="unitless", per_atom=True
-                ),
-            },
+            outputs=self.supported_outputs(),
             atomic_types=self.atomic_types,
             interaction_range=interaction_range,
             length_unit=self.dataset_info.length_unit,
