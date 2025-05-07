@@ -1,5 +1,4 @@
-from pathlib import Path
-from typing import Dict, List, Optional, Union
+from typing import Any, Dict, List, Optional
 
 import metatensor.torch
 import torch
@@ -643,9 +642,7 @@ class SoapBpnn(torch.nn.Module):
         return [self.requested_nl]
 
     @classmethod
-    def load_checkpoint(cls, path: Union[str, Path]) -> "SoapBpnn":
-        # Load the checkpoint
-        checkpoint = torch.load(path, weights_only=False, map_location="cpu")
+    def load_checkpoint(cls, checkpoint: Dict[str, Any]) -> "SoapBpnn":
         model_data = checkpoint["model_data"]
         model_state_dict = checkpoint["model_state_dict"]
 
