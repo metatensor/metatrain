@@ -156,21 +156,56 @@ def load_model(
     if is_exported_file(path):
         return load_atomistic_model(path, extensions_directory=extensions_directory)
     else:  # model is a checkpoint
-        checkpoint = torch.load(path, weights_only=False, map_location="cpu")
+        return model_from_checkpoint(path)
 
-        architecture_name = checkpoint["architecture_name"]
-        if architecture_name not in find_all_architectures():
-            raise ValueError(
-                f"Checkpoint architecture '{architecture_name}' not found "
-                "in the available architectures. Available architectures are: "
-                f"{find_all_architectures()}"
-            )
-        architecture = import_architecture(architecture_name)
 
-        try:
-            return architecture.__model__.load_checkpoint(path)
-        except Exception as err:
-            raise ValueError(
-                f"path '{path}' is not a valid checkpoint for the {architecture_name} "
-                "architecture"
-            ) from err
+def model_from_checkpoint(path: Union[str, Path]) -> torch.nn.Module:
+    """
+    Load the checkpoint at the given ``path``, and create the corresponding model
+    instance. The model architecture is determined from information stored inside the
+    checkpoint.
+    """
+    checkpoint = torch.load(path, weights_only=False, map_location="cpu")
+
+    architecture_name = checkpoint["architecture_name"]
+    if architecture_name not in find_all_architectures():
+        raise ValueError(
+            f"Checkpoint architecture '{architecture_name}' not found "
+            "in the available architectures. Available architectures are: "
+            f"{find_all_architectures()}"
+        )
+    architecture = import_architecture(architecture_name)
+
+    try:
+        return architecture.__model__.load_checkpoint(checkpoint)
+    except Exception as err:
+        raise ValueError(
+            f"path '{path}' is not a valid checkpoint for the {architecture_name} "
+            "architecture"
+        ) from err
+
+
+def trainer_from_checkpoint(path: Union[str, Path], hypers) -> Any:
+    """
+    Load the checkpoint at the given ``path``, and create the corresponding trainer
+    instance. The architecture is determined from information stored inside the
+    checkpoint.
+    """
+    checkpoint = torch.load(path, weights_only=False, map_location="cpu")
+
+    architecture_name = checkpoint["architecture_name"]
+    if architecture_name not in find_all_architectures():
+        raise ValueError(
+            f"Checkpoint architecture '{architecture_name}' not found "
+            "in the available architectures. Available architectures are: "
+            f"{find_all_architectures()}"
+        )
+    architecture = import_architecture(architecture_name)
+
+    try:
+        return architecture.__trainer__.load_checkpoint(checkpoint, hypers)
+    except Exception as err:
+        raise ValueError(
+            f"path '{path}' is not a valid checkpoint for the {architecture_name} "
+            "trainer state"
+        ) from err

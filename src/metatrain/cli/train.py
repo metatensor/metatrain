@@ -30,7 +30,12 @@ from ..utils.data.dataset import _save_indices, _train_test_random_split
 from ..utils.devices import pick_devices
 from ..utils.distributed.logging import is_main_process
 from ..utils.errors import ArchitectureError
-from ..utils.io import check_file_extension, load_model
+from ..utils.io import (
+    check_file_extension,
+    load_model,
+    model_from_checkpoint,
+    trainer_from_checkpoint,
+)
 from ..utils.jsonschema import validate
 from ..utils.logging import ROOT_LOGGER, WandbHandler
 from ..utils.omegaconf import BASE_OPTIONS, check_units, expand_dataset_config
@@ -436,8 +441,8 @@ def train_model(
     try:
         if continue_from is not None:
             logging.info(f"Loading checkpoint from `{continue_from}`")
-            trainer = Trainer.load_checkpoint(continue_from, hypers["training"])
-            model = Model.load_checkpoint(continue_from)
+            trainer = trainer_from_checkpoint(continue_from, hypers["training"])
+            model = model_from_checkpoint(continue_from)
             model = model.restart(dataset_info)
         else:
             model = Model(hypers["model"], dataset_info)
