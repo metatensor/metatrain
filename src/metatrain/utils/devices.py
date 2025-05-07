@@ -88,8 +88,8 @@ def pick_devices(
 
     if possible_devices.index(desired_device) > 0:
         warnings.warn(
-            f"Device {user_requested_device!r} - name resolved to "
-            f"{desired_device!r} - requested, but {possible_devices[0]!r} is "
+            f"Device {user_requested_device!r} — name resolved to "
+            f"{desired_device!r} — requested, but {possible_devices[0]!r} is "
             "preferred by the architecture and available on current system.",
             stacklevel=2,
         )
