@@ -786,8 +786,8 @@ Units of the Energy and Forces are the same units given in input"""
     def load_checkpoint(
         cls,
         checkpoint: Dict[str, Any],
-        context: Literal["restart", "finetune", "export"],
         train_hypers: Dict,
+        context: Literal["restart", "finetune"],
     ) -> "Trainer":
         # This function takes a metatrain PET checkpoint and returns a Trainer
         # instance with the hypers, while also saving the checkpoint in the
