@@ -4,6 +4,7 @@ import torch
 from metatensor.torch import TensorMap, TensorBlock, Labels
 from metatensor.torch.atomistic import System
 
+
 class CompositionModel(torch.nn.Module):
     """Fits for a dict of targets"""
 
@@ -12,26 +13,31 @@ class CompositionModel(torch.nn.Module):
         atomic_types: List[int],
         layouts: Dict[str, TensorMap],
     ) -> None:
-        
+
         target_names = []
         sample_kinds = {}
         for target_name, layout in layouts.items():  # identify target_type
-            
+
             target_names.append(target_name)
             if layout.sample_names == ["system"]:
                 sample_kinds[target_name] = "per_structure"
-            
+
             elif layout.sample_names == ["system", "atom"]:
                 sample_kinds[target_name] = "per_atom"
 
             elif layout.sample_names == [
-                "system", "first_atom", "second_atom", "cell_shift_a", "cell_shift_b", "cell_shift_c"
+                "system",
+                "first_atom",
+                "second_atom",
+                "cell_shift_a",
+                "cell_shift_b",
+                "cell_shift_c",
             ]:
                 sample_kinds[target_name] = "per_pair"
 
             else:
                 raise ValueError
-            
+
         self.atomic_types = atomic_types
         self.target_names = target_names
         self.sample_kinds = sample_kinds
@@ -41,21 +47,26 @@ class CompositionModel(torch.nn.Module):
                 blocks=[
                     TensorBlock(
                         values=torch.zeros(
-                            len(self.atomic_types), len(self.atomic_types),
+                            len(self.atomic_types),
+                            len(self.atomic_types),
                             dtype=torch.float64,
                         ),
                         samples=Labels(
                             ["first_atom_type"],
-                            torch.tensor(self.atomic_types, dtype=torch.int32).reshape(-1, 1),
+                            torch.tensor(self.atomic_types, dtype=torch.int32).reshape(
+                                -1, 1
+                            ),
                         ),
                         components=[],
                         properties=Labels(
                             ["second_atom_type"],
-                            torch.tensor(self.atomic_types, dtype=torch.int32).reshape(-1, 1),
+                            torch.tensor(self.atomic_types, dtype=torch.int32).reshape(
+                                -1, 1
+                            ),
                         ),
                     )
                     for _ in layout
-                ]
+                ],
             )
             for target_name, layout in layouts.items()
         }
@@ -72,16 +83,15 @@ class CompositionModel(torch.nn.Module):
                         ),
                         samples=Labels(
                             ["center_type"],
-                            torch.tensor(
-                                self.atomic_types,
-                                dtype=torch.int32
-                            ).reshape(-1, 1),
+                            torch.tensor(self.atomic_types, dtype=torch.int32).reshape(
+                                -1, 1
+                            ),
                         ),
                         components=block.components,
                         properties=block.properties,
                     )
                     for block in layout
-                ]
+                ],
             )
             for target_name, layout in layouts.items()
         }
@@ -92,9 +102,9 @@ class CompositionModel(torch.nn.Module):
         systems: List[System],
         targets: Dict[str, TensorMap],
     ):
-        
+
         num_atoms = torch.tensor([len(system) for system in systems])
-        
+
         for target_name, target in targets.items():
 
             for key, block in target.items():
@@ -112,8 +122,8 @@ class CompositionModel(torch.nn.Module):
 
                 elif self.sample_kinds[target_name] == "per_atom":
 
-                    if not (key["o3_lambda"] == 0 and key["o3_sigma"] == 1):
-                        continue
+                    # if not (key["o3_lambda"] == 0 and key["o3_sigma"] == 1):
+                    #     continue
 
                     # X needs to be sliced based on atom type
                     if "center_type" in key.names:
@@ -153,26 +163,19 @@ class CompositionModel(torch.nn.Module):
 
                     # Compute X
                     X = self._compute_X_per_atom(systems, center_types)
-                    
 
                 # Compute a sparse XTX
                 self.XTX[target_name][key].values[:] += X.T @ X
 
                 # Compute XTY
                 if len(values.shape) == 2:
-                    XTY = torch.einsum(
-                        "sZ,sP->ZP", X, values
-                    )
+                    XTY = torch.einsum("sZ,sP->ZP", X, values)
                     self.XTY[target_name][key].values[:] += XTY
 
                 else:
                     assert len(values.shape) == 3
-                    XTY = torch.einsum(
-                        "sZ,sCP->ZCP", X, values
-                    )
+                    XTY = torch.einsum("sZ,sCP->ZCP", X, values)
                     self.XTY[target_name][key].values[:] += XTY
-
-
 
     def _compute_X_per_structure(self, systems: List[System]) -> torch.Tensor:
         X = []
@@ -182,13 +185,15 @@ class CompositionModel(torch.nn.Module):
                     torch.sum(system.types == atom_type)
                     for atom_type in self.atomic_types
                 ],
-                dtype=torch.float64
+                dtype=torch.float64,
             )
             X.append(X_system / len(system))
 
         return torch.vstack(X)
-    
-    def _compute_X_per_atom(self, systems: List[System], center_types: List[int]) -> torch.Tensor:
+
+    def _compute_X_per_atom(
+        self, systems: List[System], center_types: List[int]
+    ) -> torch.Tensor:
 
         X = []
 
@@ -214,10 +219,7 @@ class CompositionModel(torch.nn.Module):
         for batch in dataloader:
             self._accumulate(
                 batch.systems,
-                {
-                    target_name: batch[target_name]
-                    for target_name in self.target_names
-                },
+                {target_name: batch[target_name] for target_name in self.target_names},
             )
 
         # fit
@@ -232,15 +234,18 @@ class CompositionModel(torch.nn.Module):
                     XTY_block = self.XTY[target_name][key]
                     blocks.append(
                         TensorBlock(
-                            values=_solve_linear_system(XTX_block.values, XTY_block.values),
+                            values=_solve_linear_system(
+                                XTX_block.values, XTY_block.values
+                            ),
                             samples=XTY_block.samples,
                             components=XTY_block.components,
                             properties=XTY_block.properties,
                         )
                     )
 
-                self.weights[target_name] = TensorMap(self.XTX[target_name].keys, blocks)
-
+                self.weights[target_name] = TensorMap(
+                    self.XTX[target_name].keys, blocks
+                )
 
             elif self.sample_kinds[target_name] in ["per_atom", "per_pair"]:
 
@@ -253,15 +258,29 @@ class CompositionModel(torch.nn.Module):
                     XTX_values = XTX_block.values
                     XTY_values = XTY_block.values
 
-                    XTY_shape = XTY_values.shape
-                    if len(XTY_values.shape) != 2:
-                        XTY_values = XTY_values.reshape(XTY_values.shape[0], -1)
+                    # TODO: should non-invariant keys be even present?
+                    weights_are_zero = False
+                    if "o3_lambda" in key.names:
+                        if not (key["o3_lambda"] == 0 and key["o3_sigma"] == 1):
+                            weights_are_zero = True
+                        # Weights are zero for off-site blocks
+                        if "second_atom_type" in key.names:
+                            if not (
+                                key["s2_pi"] == 0
+                                and key["first_atom_type"] == key["second_atom_type"]
+                            ):
+                                weights_are_zero = True
 
-                    weight_block = _solve_linear_system(XTX_values, XTY_values)
+                    if weights_are_zero:
+                        weight_block = torch.zeros_like(XTY_values)
+                    else:
+                        XTY_shape = XTY_values.shape
+                        if len(XTY_values.shape) != 2:
+                            XTY_values = XTY_values.reshape(XTY_values.shape[0], -1)
 
-                    # print(XTY_shape, XTX_values.shape, XTY_values.shape, weight_block.shape)
-                    
-                    weight_block = weight_block.reshape(*XTY_shape)
+                        weight_block = _solve_linear_system(XTX_values, XTY_values)
+                        weight_block = weight_block.reshape(*XTY_shape)
+
                     blocks.append(
                         TensorBlock(
                             values=weight_block,
@@ -271,11 +290,10 @@ class CompositionModel(torch.nn.Module):
                         )
                     )
 
-                self.weights[target_name] = TensorMap(self.XTX[target_name].keys, blocks)
+                self.weights[target_name] = TensorMap(
+                    self.XTX[target_name].keys, blocks
+                )
 
-            # elif self.sample_kinds[target_name] == "per_pair":
-
-            #     pass
 
 def _solve_linear_system(compf_t_at_compf, compf_t_at_targets) -> torch.Tensor:
     trace_magnitude = float(torch.diag(compf_t_at_compf).abs().mean())
@@ -309,5 +327,4 @@ def _solve_linear_system(compf_t_at_compf, compf_t_at_targets) -> torch.Tensor:
 #     )
 
 
-
-    # def forward()
+# def forward()
