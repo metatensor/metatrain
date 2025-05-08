@@ -1,14 +1,10 @@
 seed: 42
 
 architecture:
-  name: soap_bpnn
+  name: experimental.nanopet
   training:
     batch_size: 16
     num_epochs: 1
-  model:
-    soap:
-      max_radial: 4
-      max_angular: 2
 
 training_set:
   systems:

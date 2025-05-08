@@ -27,6 +27,7 @@ from . import (
     DATASET_PATH_QM7X,
     DATASET_PATH_QM9,
     MODEL_PATH_64_BIT,
+    OPTIONS_NANOPET_PATH,
     OPTIONS_PATH,
     RESOURCES_PATH,
 )
@@ -114,7 +115,7 @@ def test_train(capfd, monkeypatch, tmp_path, output):
     assert "train" in stdout_log
     assert "energy" in stdout_log
     assert "with index" not in stdout_log  # index only printed for more than 1 dataset
-    assert "Running final evaluation with batch size 2" in stdout_log
+    assert "Running final evaluation with batch size 16" in stdout_log
 
     # Open the CSV log file and check if the logging is correct
     csv_glob = glob.glob("outputs/*/*/train.csv")
@@ -680,8 +681,7 @@ def test_train_generic_target_metatensor(monkeypatch, tmp_path, with_scalar_part
     )
 
     # run training with original options
-    options = OmegaConf.load(OPTIONS_PATH)
-    options["architecture"]["name"] = "experimental.nanopet"
+    options = OmegaConf.load(OPTIONS_NANOPET_PATH)
     options["training_set"]["systems"]["read_from"] = "qm7x_reduced_100.xyz"
     options["training_set"]["targets"] = {
         "mtt::polarizability": {
