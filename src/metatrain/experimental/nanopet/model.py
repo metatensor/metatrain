@@ -53,7 +53,7 @@ class NanoPET(torch.nn.Module):
 
     __supported_devices__ = ["cuda", "cpu"]
     __supported_dtypes__ = [torch.float64, torch.float32]
-    __default_metadata__ = ModelMetadata(
+    __metadata__ = ModelMetadata(
         references={"architecture": ["https://arxiv.org/abs/2305.19302v3"]}
     )
 
@@ -574,6 +574,11 @@ class NanoPET(torch.nn.Module):
         model.to(dtype).load_state_dict(model_state_dict)
         model.additive_models[0].sync_tensor_maps()
 
+        # Loading the metadata from the checkpoint
+        metadata = checkpoint.get("metadata", None)
+        if metadata is not None:
+            model.__metadata__ = metadata
+
         return model
 
     def export(
@@ -612,9 +617,9 @@ class NanoPET(torch.nn.Module):
         )
 
         if metadata is None:
-            metadata = ModelMetadata()
-
-        append_metadata_references(metadata, self.__default_metadata__)
+            metadata = self.__metadata__
+        else:
+            append_metadata_references(metadata, self.__metadata__)
 
         return MetatensorAtomisticModel(self.eval(), metadata, capabilities)
 

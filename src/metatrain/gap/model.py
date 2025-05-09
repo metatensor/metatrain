@@ -27,7 +27,7 @@ from metatrain.utils.metadata import append_metadata_references
 class GAP(torch.nn.Module):
     __supported_devices__ = ["cpu"]
     __supported_dtypes__ = [torch.float64]
-    __default_metadata__ = ModelMetadata(
+    __metadata__ = ModelMetadata(
         references={
             "implementation": [
                 "featomic: https://github.com/metatensor/featomic",
@@ -292,9 +292,9 @@ class GAP(torch.nn.Module):
         )
 
         if metadata is None:
-            metadata = ModelMetadata()
-
-        append_metadata_references(metadata, self.__default_metadata__)
+            metadata = self.__metadata__
+        else:
+            append_metadata_references(metadata, self.__metadata__)
 
         return MetatensorAtomisticModel(self.eval(), metadata, capabilities)
 
