@@ -288,3 +288,24 @@ describing the architecture and its default hyperparameters will be sufficient. 
 can take inspiration from existing architectures. The various targets that the
 architecture can fit should be added to the table in the "Fitting generic targets"
 section.
+
+Checkpoint versioning
+----------------------
+The checkpoint versioning is done using the ``version`` input parameter in the
+``.yaml`` input file. This version is used to determine if a checkpoint is 
+compatible with the current architecture.
+The version is a integer and should be
+incremented whenever the architecture
+changes in a way that is not backward
+compatible. The current architecture version is given by the parameter in
+the ``default-hypers.yaml`` of the architecture.
+The version is also stored in the
+checkpoint file and is used to determine if a checkpoint
+is compatible with the current architecture.
+If the version in the checkpoint file is not compatible with the
+current architecture, the function ``upgrade_checkpoint()`` will
+be called. 
+``upgrade_checkpoint()`` needs to be implemented for every architetcure
+and by default should raise an error.
+Otherwise, ``upgrade_checkpoint()`` should be able to upgrade the checkpoint
+to the current architecture version, if possible.
