@@ -19,7 +19,6 @@ from ..utils.additive import ZBL, CompositionModel
 from ..utils.data import DatasetInfo, TargetInfo
 from ..utils.dtype import dtype_to_str
 from ..utils.long_range import DummyLongRangeFeaturizer, LongRangeFeaturizer
-from ..utils.metadata import append_metadata_references
 from ..utils.scaler import Scaler
 from ..utils.sum_over_atoms import sum_over_atoms
 from .modules.finetuning import apply_finetuning_strategy
@@ -39,7 +38,7 @@ class PET(torch.nn.Module):
 
     __supported_devices__ = ["cuda", "cpu"]
     __supported_dtypes__ = [torch.float32, torch.float64]
-    __default_metadata__ = ModelMetadata(
+    __metadata__ = ModelMetadata(
         references={"architecture": ["https://arxiv.org/abs/2305.19302v3"]}
     )
     component_labels: Dict[str, List[List[Labels]]]
@@ -674,6 +673,11 @@ class PET(torch.nn.Module):
 
         # Create the model
         model = cls(**model_data)
+
+        metadata = checkpoint.get("metadata", None)
+        if metadata is not None:
+            model.__metadata__ = metadata
+
         if finetune_config:
             # Apply the finetuning strategy
             model = apply_finetuning_strategy(model, finetune_config)
@@ -685,9 +689,7 @@ class PET(torch.nn.Module):
 
         return model
 
-    def export(
-        self, metadata: Optional[ModelMetadata] = None
-    ) -> MetatensorAtomisticModel:
+    def export(self) -> MetatensorAtomisticModel:
         dtype = next(self.parameters()).dtype
         if dtype not in self.__supported_dtypes__:
             raise ValueError(f"unsupported dtype {dtype} for PET")
@@ -718,12 +720,7 @@ class PET(torch.nn.Module):
             dtype=dtype_to_str(dtype),
         )
 
-        if metadata is None:
-            metadata = ModelMetadata()
-
-        append_metadata_references(metadata, self.__default_metadata__)
-
-        return MetatensorAtomisticModel(self.eval(), metadata, capabilities)
+        return MetatensorAtomisticModel(self.eval(), self.__metadata__, capabilities)
 
     def _add_output(self, target_name: str, target_info: TargetInfo) -> None:
         # warn that, for Cartesian tensors, we assume that they are symmetric
