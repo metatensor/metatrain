@@ -81,6 +81,20 @@ requirements to be stable. The usual structure of architecture looks as
     ``metatrain``. Once a new architecture folder with the required files is created
     ``metatrain`` will include the architecture automatically.
 
+.. note::
+    Because achitectures can live in either ``src/metatrain/<architecture>``,
+    ``src/metatrain/experimental/<architecture>``, or
+    ``src/metatrain/deprecated/<architecture>``; the code inside should use
+    absolute imports use the tools provided by metatrain.
+
+    .. code-block:: python
+
+        # do not do this
+        from ..utils.dtype import dtype_to_str
+
+        # Do this instead
+        from metatrain.utils.dtype import dtype_to_str
+
 Model class (``model.py``)
 --------------------------
 The ``ModelInterface``, is recommended to be located in a file called ``model.py``

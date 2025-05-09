@@ -11,8 +11,9 @@ import numpy as np
 import torch
 from torch_geometric.nn import DataParallel
 
-from ...utils.data import Dataset, check_datasets
-from ...utils.io import check_file_extension
+from metatrain.utils.data import Dataset, check_datasets
+from metatrain.utils.io import check_file_extension
+
 from . import PET as WrappedPET
 from .modules.analysis import adapt_hypers
 from .modules.data_preparation import (

@@ -7,26 +7,34 @@ import torch
 import torch.distributed
 from torch.utils.data import DataLoader, DistributedSampler
 
-from ..utils.additive import remove_additive
-from ..utils.data import CombinedDataLoader, Dataset, _is_disk_dataset, collate_fn
-from ..utils.distributed.distributed_data_parallel import DistributedDataParallel
-from ..utils.distributed.slurm import DistributedEnvironment
-from ..utils.evaluate_model import evaluate_model
-from ..utils.external_naming import to_external_name
-from ..utils.io import check_file_extension
-from ..utils.logging import ROOT_LOGGER, MetricLogger
-from ..utils.loss import TensorMapDictLoss
-from ..utils.metrics import MAEAccumulator, RMSEAccumulator, get_selected_metric
-from ..utils.neighbor_lists import (
+from metatrain.utils.additive import remove_additive
+from metatrain.utils.data import (
+    CombinedDataLoader,
+    Dataset,
+    _is_disk_dataset,
+    collate_fn,
+)
+from metatrain.utils.distributed.distributed_data_parallel import (
+    DistributedDataParallel,
+)
+from metatrain.utils.distributed.slurm import DistributedEnvironment
+from metatrain.utils.evaluate_model import evaluate_model
+from metatrain.utils.external_naming import to_external_name
+from metatrain.utils.io import check_file_extension
+from metatrain.utils.logging import ROOT_LOGGER, MetricLogger
+from metatrain.utils.loss import TensorMapDictLoss
+from metatrain.utils.metrics import MAEAccumulator, RMSEAccumulator, get_selected_metric
+from metatrain.utils.neighbor_lists import (
     get_requested_neighbor_lists,
     get_system_with_neighbor_lists,
 )
-from ..utils.per_atom import average_by_num_atoms
-from ..utils.scaler import remove_scale
-from ..utils.transfer import (
+from metatrain.utils.per_atom import average_by_num_atoms
+from metatrain.utils.scaler import remove_scale
+from metatrain.utils.transfer import (
     systems_and_targets_to_device,
     systems_and_targets_to_dtype,
 )
+
 from .model import SoapBpnn
 
 

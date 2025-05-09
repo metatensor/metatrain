@@ -19,10 +19,9 @@ from metatensor.torch.atomistic import (
 )
 from skmatter._selection import _FPS as _FPS_skmatter
 
+from metatrain.utils.additive import ZBL, CompositionModel
 from metatrain.utils.data.dataset import DatasetInfo
-
-from ..utils.additive import ZBL, CompositionModel
-from ..utils.metadata import append_metadata_references
+from metatrain.utils.metadata import append_metadata_references
 
 
 class GAP(torch.nn.Module):
