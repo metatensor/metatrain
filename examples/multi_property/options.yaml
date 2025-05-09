@@ -7,6 +7,7 @@ architecture:
 training_set:
   systems: # file where the positions are stored
     read_from: train.xyz
+    length_unit: angstrom
   targets:
     mtt::cs_shape:
       read_from: train.xyz
@@ -74,6 +75,7 @@ training_set:
 validation_set:
   systems: # file where the positions are stored
     read_from: val.xyz
+    length_unit: angstrom
   targets:
     mtt::cs_shape:
       read_from: val.xyz
@@ -141,6 +143,7 @@ validation_set:
 test_set:
   systems: # file where the positions are stored
     read_from: test.xyz
+    length_unit: angstrom
   targets:
     mtt::cs_shape:
       read_from: test.xyz
