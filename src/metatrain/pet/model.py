@@ -674,10 +674,6 @@ class PET(torch.nn.Module):
         # Create the model
         model = cls(**model_data)
 
-        metadata = checkpoint.get("metadata", None)
-        if metadata is not None:
-            model.__metadata__ = metadata
-
         if finetune_config:
             # Apply the finetuning strategy
             model = apply_finetuning_strategy(model, finetune_config)
@@ -686,6 +682,11 @@ class PET(torch.nn.Module):
         dtype = next(state_dict_iter).dtype
         model.to(dtype).load_state_dict(model_state_dict)
         model.additive_models[0].sync_tensor_maps()
+
+        # Loading the metadata from the checkpoint
+        metadata = checkpoint.get("metadata", None)
+        if metadata is not None:
+            model.__metadata__ = metadata
 
         return model
 

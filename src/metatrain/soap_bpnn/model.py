@@ -21,7 +21,6 @@ from metatrain.utils.data.dataset import DatasetInfo
 from ..utils.additive import ZBL, CompositionModel
 from ..utils.dtype import dtype_to_str
 from ..utils.long_range import DummyLongRangeFeaturizer, LongRangeFeaturizer
-from ..utils.metadata import append_metadata_references
 from ..utils.scaler import Scaler
 from ..utils.sum_over_atoms import sum_over_atoms
 from .spherical import TensorBasis
@@ -170,7 +169,7 @@ def concatenate_structures(
 class SoapBpnn(torch.nn.Module):
     __supported_devices__ = ["cuda", "cpu"]
     __supported_dtypes__ = [torch.float64, torch.float32]
-    __default_metadata__ = ModelMetadata(
+    __metadata__ = ModelMetadata(
         references={
             "implementation": [
                 "torch-spex: https://github.com/lab-cosmo/torch-spex",
@@ -662,6 +661,11 @@ class SoapBpnn(torch.nn.Module):
         model.to(dtype).load_state_dict(model_state_dict)
         model.additive_models[0].sync_tensor_maps()
 
+        # Loading the metadata from the checkpoint
+        metadata = checkpoint.get("metadata", None)
+        if metadata is not None:
+            model.__metadata__ = metadata
+
         return model
 
     def export(
@@ -699,12 +703,7 @@ class SoapBpnn(torch.nn.Module):
             dtype=dtype_to_str(dtype),
         )
 
-        if metadata is None:
-            metadata = ModelMetadata()
-
-        append_metadata_references(metadata, self.__default_metadata__)
-
-        return MetatensorAtomisticModel(self.eval(), metadata, capabilities)
+        return MetatensorAtomisticModel(self.eval(), self.__metadata__, capabilities)
 
     def _add_output(self, target_name: str, target: TargetInfo) -> None:
         # register bases of spherical tensors (TensorBasis)
