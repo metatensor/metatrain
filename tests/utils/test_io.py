@@ -61,7 +61,8 @@ def test_load_model_checkpoint(path):
         RESOURCES_PATH / "model-64-bit.ckpt",
     ],
 )
-def test_load_model_checkpoint_wrong_version(path):
+def test_load_model_checkpoint_wrong_version(path, monkeypatch, tmp_path):
+    monkeypatch.chdir(tmp_path)
     file = RESOURCES_PATH / "model-64-bit-version5000000.ckpt"
     model = torch.load(path, weights_only=False, map_location="cpu")
     model["architecture_version"] = 5000000
