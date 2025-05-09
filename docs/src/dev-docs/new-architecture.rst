@@ -305,7 +305,7 @@ is compatible with the current architecture.
 If the version in the checkpoint file is not compatible with the
 current architecture, the function ``upgrade_checkpoint()`` will
 be called.
-``upgrade_checkpoint()`` needs to be implemented for every architetcure
+``upgrade_checkpoint()`` needs to be implemented for every architecture
 and by default should raise an error.
 Otherwise, ``upgrade_checkpoint()`` should be able to upgrade the checkpoint
 to the current architecture version, if possible.
