@@ -18,6 +18,7 @@ from ...utils.additive import ZBL, CompositionModel
 from ...utils.data import DatasetInfo, TargetInfo
 from ...utils.dtype import dtype_to_str
 from ...utils.long_range import DummyLongRangeFeaturizer, LongRangeFeaturizer
+from ...utils.metadata import append_metadata_references
 from ...utils.scaler import Scaler
 from ...utils.sum_over_atoms import sum_over_atoms
 from .modules.encoder import Encoder
@@ -614,7 +615,12 @@ class NanoPET(torch.nn.Module):
             dtype=dtype_to_str(dtype),
         )
 
-        return MetatensorAtomisticModel(self.eval(), self.__metadata__, capabilities)
+        if metadata is None:
+            metadata = self.__metadata__
+        else:
+            append_metadata_references(metadata, self.__metadata__)
+
+        return MetatensorAtomisticModel(self.eval(), metadata, capabilities)
 
     def _add_output(self, target_name: str, target_info: TargetInfo) -> None:
         # warn that, for Cartesian tensors, we assume that they are symmetric

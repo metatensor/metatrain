@@ -17,8 +17,8 @@ def append_metadata_references(self: ModelMetadata, other: ModelMetadata) -> Non
         if key not in self_dict["references"]:
             self_dict["references"][key] = values
         else:
-            self_dict["references"][key] = list(
-                set(self_dict["references"][key] + values)
-            )
+            for item in values:
+                if item not in self_dict["references"][key]:
+                    self_dict["references"][key].append(item)
 
     self._get_method("__setstate__")(json.dumps(self_dict))

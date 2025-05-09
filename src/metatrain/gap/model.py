@@ -22,6 +22,7 @@ from skmatter._selection import _FPS as _FPS_skmatter
 from metatrain.utils.data.dataset import DatasetInfo
 
 from ..utils.additive import ZBL, CompositionModel
+from ..utils.metadata import append_metadata_references
 
 
 class GAP(torch.nn.Module):
@@ -291,7 +292,12 @@ class GAP(torch.nn.Module):
             self._subset_of_regressors.export_torch_script_model()
         )
 
-        return MetatensorAtomisticModel(self.eval(), self.__metadata__, capabilities)
+        if metadata is None:
+            metadata = self.__metadata__
+        else:
+            append_metadata_references(metadata, self.__metadata__)
+
+        return MetatensorAtomisticModel(self.eval(), metadata, capabilities)
 
 
 ########################################################################################

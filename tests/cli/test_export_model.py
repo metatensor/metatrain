@@ -15,13 +15,10 @@ import torch
 from omegaconf import OmegaConf
 
 from metatrain.cli.export import export_model
-from metatrain.soap_bpnn import __model__
 from metatrain.utils.architectures import find_all_architectures
-from metatrain.utils.data import DatasetInfo
-from metatrain.utils.data.target_info import get_energy_target_info
 from metatrain.utils.io import load_model
 
-from . import MODEL_HYPERS, RESOURCES_PATH
+from . import RESOURCES_PATH
 
 
 @pytest.mark.parametrize("path", [Path("exported.pt"), "exported.pt"])
@@ -30,13 +27,8 @@ def test_export(monkeypatch, tmp_path, path, caplog):
     monkeypatch.chdir(tmp_path)
     caplog.set_level(logging.INFO)
 
-    dataset_info = DatasetInfo(
-        length_unit="angstrom",
-        atomic_types={1},
-        targets={"energy": get_energy_target_info({"unit": "eV"})},
-    )
-    model = __model__(model_hypers=MODEL_HYPERS, dataset_info=dataset_info)
-    export_model(model, path)
+    checkpoint_path = RESOURCES_PATH / "model-64-bit.ckpt"
+    export_model(checkpoint_path, path)
 
     # Test if extensions are saved
     extensions_glob = glob.glob("extensions/")
@@ -123,17 +115,9 @@ def test_reexport(monkeypatch, tmp_path):
     """Test that an already exported model can be loaded and again exported."""
     monkeypatch.chdir(tmp_path)
 
-    dataset_info = DatasetInfo(
-        length_unit="angstrom",
-        atomic_types={1, 6, 7, 8},
-        targets={"energy": get_energy_target_info({"unit": "eV"})},
-    )
-    model = __model__(model_hypers=MODEL_HYPERS, dataset_info=dataset_info)
-
-    export_model(model, "exported.pt")
-
-    model_loaded = load_model("exported.pt")
-    export_model(model_loaded, "exported_new.pt")
+    checkpoint_path = RESOURCES_PATH / "model-64-bit.ckpt"
+    export_model(checkpoint_path, "exported.pt")
+    export_model("exported.pt", "exported_new.pt")
 
     assert Path("exported_new.pt").is_file()
 

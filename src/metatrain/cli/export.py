@@ -159,7 +159,7 @@ def export_model(
             extensions_path = None
 
         if not is_atomistic_model(model):
-            model = model.export()
+            model = model.export(metadata)
 
         model.save(path, collect_extensions=extensions_path)
     if extensions_path is not None:
