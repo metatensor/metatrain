@@ -162,6 +162,7 @@ class PET(torch.nn.Module):
                 )
             )
         self.additive_models = torch.nn.ModuleList(additive_models)
+
         # scaler: this is also handled by the trainer at training time
         self.scaler = Scaler(model_hypers={}, dataset_info=dataset_info)
 
