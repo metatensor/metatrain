@@ -861,3 +861,11 @@ class PET(torch.nn.Module):
             values=sample_values,
         )
         return system_indices, sample_labels
+
+    def upgrade_checkpoint(checkpoint: Dict) -> Dict:
+        """
+        Upgrade the checkpoint to the current version of the model.
+        """
+        raise NotImplementedError(
+            "Checkpoint upgrade is not implemented for the PET model."
+        )

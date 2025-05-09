@@ -8,6 +8,9 @@
         "pet"
       ]
     },
+    "version": {
+      "type": "integer"
+    },
     "model": {
       "type": "object",
       "properties": {

@@ -170,6 +170,20 @@ def find_all_architectures() -> List[str]:
     return architecture_names
 
 
+def find_architectures_version(name: str) -> int:
+    """Find the current version for an architectures.
+
+    :param: name of the architecture
+    :returns: version number
+    """
+    check_architecture_name(name)
+    default_hypers = OmegaConf.load(get_architecture_path(name) / "default-hypers.yaml")
+    # We present the `default-hypers.yaml` file inside the documentation. For a better
+    # user experience we store these yaml files with an additional level of indentation
+    # (`"architecture"`), which we have to remove here to get the raw default hypers.
+    return OmegaConf.to_container(default_hypers)["architecture"]["version"]
+
+
 def get_default_hypers(name: str) -> Dict:
     """Dictionary of the default architecture hyperparameters.
 

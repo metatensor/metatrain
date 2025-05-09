@@ -832,6 +832,14 @@ class SoapBpnn(torch.nn.Module):
             per_atom=True,
         )
 
+    def upgrade_checkpoint(checkpoint: Dict) -> Dict:
+        """
+        Upgrade the checkpoint to the current version of the model.
+        """
+        raise NotImplementedError(
+            "Checkpoint upgrade is not implemented for the SOAP-BPNN model."
+        )
+
 
 def _remove_center_type_from_properties(tensor_map: TensorMap) -> TensorMap:
     new_blocks: List[TensorBlock] = []

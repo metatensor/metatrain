@@ -1,6 +1,7 @@
 architecture:
 
   name: deprecated.pet
+  version: 1
 
   model:
     CUTOFF_DELTA: 0.2
