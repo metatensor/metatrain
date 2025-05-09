@@ -38,8 +38,10 @@ def get_scheduler(optimizer, train_hypers):
             return epoch / train_hypers["num_epochs_warmup"]
         delta = epoch - train_hypers["num_epochs_warmup"]
         num_blocks = delta // train_hypers["scheduler_patience"]
-        return 0.5 ** (num_blocks)
-
+        try:
+            return train_hypers["scheduler_factor"] ** (num_blocks)
+        except KeyError:
+            return 0.5 ** num_blocks
     scheduler = LambdaLR(optimizer, func_lr_scheduler)
     return scheduler
 
@@ -129,7 +131,6 @@ class Trainer:
         # numerical errors in the composition weights, which can be very large).
         for additive_model in model.additive_models:
             additive_model.to(dtype=torch.float64)
-
         logging.info("Calculating composition weights")
         model.additive_models[0].train_model(  # this is the composition model
             train_datasets,
