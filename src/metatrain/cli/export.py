@@ -9,7 +9,7 @@ from metatensor.torch.atomistic import ModelMetadata, is_atomistic_model
 from omegaconf import OmegaConf
 
 from ..utils.io import check_file_extension, load_model
-from ..utils.metadata import update_metadata_references
+from ..utils.metadata import append_metadata_references
 from .formatter import CustomHelpFormatter
 
 
@@ -138,10 +138,12 @@ def export_model(
 
         path = str(Path(output).absolute().resolve())
         extensions_path = None
+
         if metadata is not None:
             current_metadata = checkpoint.get("metadata", ModelMetadata())
-            update_metadata_references(metadata, current_metadata)
+            append_metadata_references(metadata, current_metadata)
             checkpoint["metadata"] = metadata
+
         torch.save(checkpoint, path)
     else:
         model = load_model(path=path, token=token)

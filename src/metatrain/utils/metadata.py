@@ -3,7 +3,7 @@ import json
 from metatensor.torch.atomistic import ModelMetadata
 
 
-def update_metadata_references(self: ModelMetadata, other: ModelMetadata) -> None:
+def append_metadata_references(self: ModelMetadata, other: ModelMetadata) -> None:
     """Append ``references`` to an existing ModelMetadata object.
 
     :param self: The metadata object to be appeneded.
@@ -12,6 +12,13 @@ def update_metadata_references(self: ModelMetadata, other: ModelMetadata) -> Non
 
     self_dict = json.loads(self._get_method("__getstate__")())
     other_dict = json.loads(other._get_method("__getstate__")())
-    self_dict["references"].update(other_dict["references"])
+
+    for key, values in other_dict["references"].items():
+        if key not in self_dict["references"]:
+            self_dict["references"][key] = values
+        else:
+            self_dict["references"][key] = list(
+                set(self_dict["references"][key] + values)
+            )
 
     self._get_method("__setstate__")(json.dumps(self_dict))
