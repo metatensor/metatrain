@@ -548,10 +548,13 @@ class NanoPET(torch.nn.Module):
             if output_name in outputs:
                 atomic_features = atomic_features_dict[output_name]
                 atomic_properties_by_block = []
+                atomic_uncertainties_by_block = []
                 for last_layer_by_block in last_layer.values():
+                    last_layer_features = last_layer_by_block(atomic_features)
                     atomic_properties_by_block.append(
-                        last_layer_by_block(atomic_features)
+                        last_layer_features[:, :-1]
                     )
+                    atomic_uncertainties_by_block.append(last_layer_features[:, -1:])
 
                 if output_name.startswith("mtt::p_"):
                     # conservation of momentum: unscale, enforce conservation, rescale
@@ -595,6 +598,20 @@ class NanoPET(torch.nn.Module):
                     blocks=blocks,
                 )
 
+                atomic_uncertaintiy_blocks = [
+                    TensorBlock(
+                        values=torch.nn.functional.softplus(atomic_uncertainty).reshape([-1, 1]) + 1e-6,
+                        samples=sample_labels,
+                        components=[],
+                        properties=self.single_label,
+                    )
+                    for atomic_uncertainty in atomic_uncertainties_by_block
+                ]
+                atomic_properties_tmap_dict[f"mtt::aleatoric_{output_name.split('mtt::')[1]}"] = TensorMap(
+                    keys=self.key_labels[output_name],
+                    blocks=atomic_uncertaintiy_blocks,
+                )
+
         if selected_atoms is not None:
             for output_name, tmap in atomic_properties_tmap_dict.items():
                 atomic_properties_tmap_dict[output_name] = metatensor.torch.slice(
@@ -602,12 +619,15 @@ class NanoPET(torch.nn.Module):
                 )
 
         for output_name, atomic_property in atomic_properties_tmap_dict.items():
-            if outputs[output_name].per_atom:
+            if output_name not in outputs:
                 return_dict[output_name] = atomic_property
             else:
-                return_dict[output_name] = metatensor.torch.sum_over_samples(
-                    atomic_property, ["atom"]
-                )
+                if outputs[output_name].per_atom:
+                    return_dict[output_name] = atomic_property
+                else:
+                    return_dict[output_name] = metatensor.torch.sum_over_samples(
+                        atomic_property, ["atom"]
+                    )
 
         if not self.training:
             # at evaluation, we also introduce the scaler and additive contributions
@@ -740,7 +760,7 @@ class NanoPET(torch.nn.Module):
             {
                 key: torch.nn.Linear(
                     self.hypers["d_pet"],
-                    prod(shape),
+                    prod(shape) + 1,  # +1 for the variance
                     bias=False,
                 )
                 for key, shape in self.output_shapes[target_name].items()

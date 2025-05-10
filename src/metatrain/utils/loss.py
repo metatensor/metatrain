@@ -10,6 +10,14 @@ from metatrain.utils.external_naming import to_internal_name
 # This file defines losses for metatensor models.
 
 
+class NLLLoss(torch.nn.Module):
+    def forward(self, y_pred, var_pred, y_true):
+        loss = 0.5 * torch.mean(
+            torch.log(var_pred) + (y_pred-y_true)**2 / var_pred
+        )
+        return loss
+
+
 class TensorMapLoss:
     """A loss function that operates on two ``metatensor.torch.TensorMap``.
 
@@ -38,32 +46,14 @@ class TensorMapLoss:
         if gradient_weights is None:
             gradient_weights = {}
 
-        losses = {}
-        if type == "mse":
-            losses["values"] = torch.nn.MSELoss(reduction=reduction)
-            for key in gradient_weights.keys():
-                losses[key] = torch.nn.MSELoss(reduction=reduction)
-        elif type == "mae":
-            losses["values"] = torch.nn.L1Loss(reduction=reduction)
-            for key in gradient_weights.keys():
-                losses[key] = torch.nn.L1Loss(reduction=reduction)
-        elif isinstance(type, dict) and "huber" in type:
-            # Huber loss
-            deltas = type["huber"]["deltas"]
-            losses["values"] = torch.nn.HuberLoss(
-                reduction=reduction, delta=deltas["values"]
-            )
-            for key in gradient_weights.keys():
-                losses[key] = torch.nn.HuberLoss(reduction=reduction, delta=deltas[key])
-        else:
-            raise ValueError(f"Unknown loss type: {type}")
+        losses = {"values": NLLLoss()}
 
         self.losses = losses
         self.weight = weight
         self.gradient_weights = gradient_weights
 
     def __call__(
-        self, tensor_map_1: TensorMap, tensor_map_2: TensorMap
+        self, tensor_map_1: TensorMap, tensor_map_variance: TensorMap, tensor_map_2: TensorMap
     ) -> Tuple[torch.Tensor, Dict[str, Tuple[float, int]]]:
         # Check that the two have the same metadata, except for the samples,
         # which can be different due to batching, but must have the same size:
@@ -119,14 +109,11 @@ class TensorMapLoss:
             device=tensor_map_1.block(0).values.device,
         )
 
-        for block_1, block_2 in zip(tensor_map_1.blocks(), tensor_map_2.blocks()):
+        for block_1, block_2, block_variance in zip(tensor_map_1.blocks(), tensor_map_2.blocks(), tensor_map_variance.blocks()):
             values_1 = block_1.values
             values_2 = block_2.values
-            loss += self.weight * self.losses["values"](values_1, values_2)
-            for gradient_name, gradient_weight in self.gradient_weights.items():
-                values_1 = block_1.gradient(gradient_name).values
-                values_2 = block_2.gradient(gradient_name).values
-                loss += gradient_weight * self.losses[gradient_name](values_1, values_2)
+            values_variance = block_variance.values.unsqueeze(1)
+            loss += self.weight * self.losses["values"](values_1, values_variance, values_2)
 
         return loss
 
@@ -180,16 +167,18 @@ class TensorMapDictLoss:
         tensor_map_dict_2: Dict[str, TensorMap],
     ) -> torch.Tensor:
         # Assert that the two have the keys:
-        assert set(tensor_map_dict_1.keys()) == set(tensor_map_dict_2.keys())
+        # assert set(tensor_map_dict_1.keys()) == set(tensor_map_dict_2.keys())
 
         # Initialize the loss:
-        first_values = next(iter(tensor_map_dict_1.values())).block(0).values
+        first_values = next(iter(tensor_map_dict_2.values())).block(0).values
         loss = torch.zeros((), dtype=first_values.dtype, device=first_values.device)
 
         # Compute the loss:
-        for target in tensor_map_dict_1.keys():
+        for target in tensor_map_dict_2.keys():
+            if "energy" in target:
+                continue
             target_loss = self.losses[target](
-                tensor_map_dict_1[target], tensor_map_dict_2[target]
+                tensor_map_dict_1[target], tensor_map_dict_1[f"mtt::aleatoric_{target.split('mtt::')[1]}"], tensor_map_dict_2[target]
             )
             loss += target_loss
 

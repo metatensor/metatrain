@@ -322,7 +322,7 @@ class Trainer:
                     {key: train_targets[key] for key in targets.keys() if "energy" not in key},
                     is_training=True,
                 )
-                rescaled_predictions = {k: metatensor.torch.multiply(p, scaler_scales[k]) for k, p in predictions.items()}
+                rescaled_predictions = {k: metatensor.torch.multiply(p, scaler_scales[k]) for k, p in targets.items()}
                 
                 ###
                 predictions[f"mtt::energy_{n_time_steps}"] = fake_get_total_energy(systems, rescaled_predictions, potential_energy_model, evaluation_options, atomic_masses_torch)
@@ -387,7 +387,7 @@ class Trainer:
                         is_training=False,
                     )
 
-                    rescaled_predictions = {k: metatensor.torch.multiply(p, scaler_scales[k]) for k, p in predictions.items()}
+                    rescaled_predictions = {k: metatensor.torch.multiply(p, scaler_scales[k]) for k, p in targets.items()}
                     
                     ###
                     predictions[f"mtt::energy_{n_time_steps}"] = get_total_energy(systems, rescaled_predictions, potential_energy_model, evaluation_options, atomic_masses_torch)
