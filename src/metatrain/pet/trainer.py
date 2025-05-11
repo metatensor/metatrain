@@ -467,17 +467,7 @@ class Trainer:
                     logging.info("Learning rate is too small, stopping training")
                     break
                 else:
-                    if epoch >= self.hypers["num_epochs_warmup"]:
-                        logging.info(
-                            f"Changing learning rate from {old_lr} to {new_lr}"
-                        )
-                    elif epoch == self.hypers["num_epochs_warmup"] - 1:
-                        logging.info(
-                            "Finished warm-up. "
-                            f"Now training with learning rate {new_lr}"
-                        )
-                    else:  # epoch < self.hypers["num_epochs_warmup"] - 1:
-                        pass  # we don't clutter the log at every warm-up step
+                    logging.info(f"Changing learning rate from {old_lr} to {new_lr}")
                     old_lr = new_lr
 
             val_metric = get_selected_metric(
