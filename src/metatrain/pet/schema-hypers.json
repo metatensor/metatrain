@@ -76,9 +76,6 @@
         "num_epochs": {
           "type": "integer"
         },
-        "num_epochs_warmup": {
-          "type": "integer"
-        },
         "learning_rate": {
           "type": "number"
         },
@@ -88,8 +85,14 @@
             "null"
           ]
         },
-        "scheduler_patience": {
+        "scheduler_cycle_length": {
           "type": "integer"
+        },
+        "scheduler_cycle_mult": {
+          "type": "integer"
+        },
+        "scheduler_eta_min": {
+          "type": "number"
         },
         "log_interval": {
           "type": "integer"

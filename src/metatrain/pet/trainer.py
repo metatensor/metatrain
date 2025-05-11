@@ -4,7 +4,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Literal, Union
 
 import torch
-from torch.optim.lr_scheduler import LambdaLR
+from torch.optim.lr_scheduler import CosineAnnealingWarmRestarts
 from torch.utils.data import DataLoader, DistributedSampler
 
 from metatrain.utils.additive import remove_additive
@@ -40,15 +40,26 @@ from .model import PET
 from .modules.finetuning import apply_finetuning_strategy
 
 
-def get_scheduler(optimizer, train_hypers):
-    def func_lr_scheduler(epoch):
-        if epoch < train_hypers["num_epochs_warmup"]:
-            return epoch / train_hypers["num_epochs_warmup"]
-        delta = epoch - train_hypers["num_epochs_warmup"]
-        num_blocks = delta // train_hypers["scheduler_patience"]
-        return 0.5 ** (num_blocks)
+# def get_scheduler(optimizer, train_hypers):
+#     def func_lr_scheduler(epoch):
+#         if epoch < train_hypers["num_epochs_warmup"]:
+#             return epoch / train_hypers["num_epochs_warmup"]
+#         delta = epoch - train_hypers["num_epochs_warmup"]
+#         num_blocks = delta // train_hypers["scheduler_patience"]
+#         return 0.5 ** (num_blocks)
 
-    scheduler = LambdaLR(optimizer, func_lr_scheduler)
+#     scheduler = LambdaLR(optimizer, func_lr_scheduler)
+#     return scheduler
+
+
+def get_scheduler(optimizer, train_hypers):
+    T_0 = train_hypers.get("scheduler_cycle_length", 100)  # length of first cycle
+    T_mult = train_hypers.get("scheduler_cycle_mult", 1)  # multiplier for cycle lengths
+    eta_min = train_hypers.get("scheduler_eta_min", 1e-6)  # min learning rate
+
+    scheduler = CosineAnnealingWarmRestarts(
+        optimizer, T_0=T_0, T_mult=T_mult, eta_min=eta_min
+    )
     return scheduler
 
 
