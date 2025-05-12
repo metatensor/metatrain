@@ -111,6 +111,9 @@ class ZBL(torch.nn.Module):
 
         return self({}, self.dataset_info.union(dataset_info))
 
+    def supported_outputs(self):
+        return self.outputs
+
     def forward(
         self,
         systems: List[System],
