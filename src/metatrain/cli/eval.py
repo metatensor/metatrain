@@ -279,8 +279,9 @@ def _eval_targets(
         batch_targets_per_atom = average_by_num_atoms(
             batch_targets, systems, per_structure_keys=[]
         )
-        rmse_accumulator.update(batch_predictions_per_atom, batch_targets_per_atom)
-        mae_accumulator.update(batch_predictions_per_atom, batch_targets_per_atom)
+        # CHANGE: Do not calculate the loss because it currently does not support arbitrary loss functions
+        # rmse_accumulator.update(batch_predictions_per_atom, batch_targets_per_atom)
+        # mae_accumulator.update(batch_predictions_per_atom, batch_targets_per_atom)
         if return_predictions:
             all_predictions.append(batch_predictions)
 
@@ -288,18 +289,19 @@ def _eval_targets(
         total_time += time_taken
         timings_per_atom.append(time_taken / sum(len(system) for system in systems))
 
+    # CHANGE: Do not calculate the loss because it currently does not support arbitrary loss functions
     # Finalize the metrics
-    rmse_values = rmse_accumulator.finalize(not_per_atom=["positions_gradients"])
-    mae_values = mae_accumulator.finalize(not_per_atom=["positions_gradients"])
-    metrics = {**rmse_values, **mae_values}
+    # rmse_values = rmse_accumulator.finalize(not_per_atom=["positions_gradients"])
+    # mae_values = mae_accumulator.finalize(not_per_atom=["positions_gradients"])
+    # metrics = {**rmse_values, **mae_values}
 
-    # print the RMSEs with MetricLogger
-    metric_logger = MetricLogger(
-        log_obj=logger,
-        dataset_info=model.capabilities(),
-        initial_metrics=metrics,
-    )
-    metric_logger.log(metrics)
+    # # print the RMSEs with MetricLogger
+    # metric_logger = MetricLogger(
+    #     log_obj=logger,
+    #     dataset_info=model.capabilities(),
+    #     initial_metrics=metrics,
+    # )
+    # metric_logger.log(metrics)
 
     # Log timings
     timings_per_atom = np.array(timings_per_atom)

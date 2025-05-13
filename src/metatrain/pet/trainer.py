@@ -39,6 +39,8 @@ from metatrain.utils.transfer import (
 from .model import PET
 from .modules.finetuning import apply_finetuning_strategy
 
+# CHANGE: IMPORT THE loss function FROM DOSutils
+from .DOSutils import get_dynamic_shift_agnostic_mse
 
 def get_scheduler(optimizer, train_hypers):
     def func_lr_scheduler(epoch):
@@ -138,21 +140,48 @@ class Trainer:
         for additive_model in model.additive_models:
             additive_model.to(dtype=torch.float64)
 
-        logging.info("Calculating composition weights")
-        model.additive_models[0].train_model(  # this is the composition model
-            train_datasets,
-            model.additive_models[1:],
-            self.hypers["fixed_composition_weights"],
-        )
+        # CHANGE: Do not use additive and scaler models 
+        # logging.info("Calculating composition weights")
+        # model.additive_models[0].train_model(  # this is the composition model
+        #     train_datasets,
+        #     model.additive_models[1:],
+        #     self.hypers["fixed_composition_weights"],
+        # )
 
-        if self.hypers["scale_targets"]:
-            logging.info("Calculating scaling weights")
-            model.scaler.train_model(
-                train_datasets, model.additive_models, treat_as_additive=True
-            )
+        # if self.hypers["scale_targets"]:
+        #     logging.info("Calculating scaling weights")
+        #     model.scaler.train_model(
+        #         train_datasets, model.additive_models, treat_as_additive=True
+        #     )
 
         if is_distributed:
             model = DistributedDataParallel(model, device_ids=[device])
+
+        # CHANGE: Include a permanent set that is included in every training batch
+        if self.hypers['use_permanent']:
+            n_samples = self.hypers['use_permanent']['n_samples']
+            n_train = len(train_datasets[0])
+            train_systems = []
+            permanent_systems = []
+            train_targets = {}
+            permanent_targets = {}
+            keys = ["mtt::dos", "mtt::mask"] # WARNING: Keys are hardcoded for DOS so that the mask remains identifiable
+            for key in keys:
+                train_targets[key] = []
+                permanent_targets[key] = []
+            for i in range(0, n_train, 1):
+                data_i = train_datasets[0][i]
+                if i < (n_train - n_samples):     
+                    train_systems.append(data_i.system)
+                    for key in keys:
+
+                        train_targets[key].append(data_i[key])
+                else:
+                    permanent_systems.append(data_i.system)
+                    for key in keys:
+                        permanent_targets[key].append(data_i[key])                    
+            train_datasets = [Dataset.from_dict({"system": train_systems, **train_targets})]
+            permanent_datasets = [Dataset.from_dict({"system": permanent_systems, **permanent_targets})]
 
         logging.info("Setting up data loaders")
 
@@ -177,9 +206,13 @@ class Trainer:
                 )
                 for val_dataset in val_datasets
             ]
+            # CHANGE: Include the permanent dataset but that should not be distributed
+            permanent_samplers = [None] * len(permanent_datasets)
         else:
             train_samplers = [None] * len(train_datasets)
             val_samplers = [None] * len(val_datasets)
+            if self.hypers['use_permanent']: # CHANGE: Include the permanent dataset
+                permanent_samplers = [None] * len(permanent_datasets)
 
         # Create dataloader for the training datasets:
         train_dataloaders = []
@@ -215,7 +248,28 @@ class Trainer:
             )
         val_dataloader = CombinedDataLoader(val_dataloaders, shuffle=False)
 
+        # CHANGE: Include the permanent dataset
+        if self.hypers['use_permanent']:
+            permanent_dataloaders = []
+            for dataset, sampler in zip(permanent_datasets, permanent_samplers):
+                permanent_dataloaders.append(
+                    DataLoader(
+                        dataset=dataset,
+                        batch_size=self.hypers["batch_size"],
+                        sampler=sampler,
+                        shuffle=False,
+                        drop_last=False,
+                        collate_fn=collate_fn,
+                    )
+                )
+            permanent_dataloader = CombinedDataLoader(permanent_dataloaders, shuffle=False)
+            logging.info("Setting up Permanent Dataset")  
+
         train_targets = (model.module if is_distributed else model).dataset_info.targets
+        try:
+            del train_targets["mtt::mask"] # CHANGE: Removing the mask from the targets, the mask is not a target for the model to predict
+        except:
+            pass
         outputs_list = []
         for target_name, target_info in train_targets.items():
             outputs_list.append(target_name)
@@ -280,6 +334,9 @@ class Trainer:
         rotational_augmenter = RotationalAugmenter(train_targets)
 
         start_epoch = 0 if self.epoch is None else self.epoch + 1
+        # CHANGE: Define the coefficients for the finite diference scheme
+        interval = 0.05
+        t4 = (torch.tensor([1/4, -4/3, 3., -4. , 25/12]).to(device)/interval).unsqueeze(dim = (0)).unsqueeze(dim = (0)).float()
 
         # Train the model:
         if self.best_metric is None:
@@ -290,15 +347,17 @@ class Trainer:
         for epoch in range(start_epoch, start_epoch + self.hypers["num_epochs"]):
             if is_distributed:
                 sampler.set_epoch(epoch)
-            train_rmse_calculator = RMSEAccumulator(self.hypers["log_separate_blocks"])
-            val_rmse_calculator = RMSEAccumulator(self.hypers["log_separate_blocks"])
-            if self.hypers["log_mae"]:
-                train_mae_calculator = MAEAccumulator(
-                    self.hypers["log_separate_blocks"]
-                )
-                val_mae_calculator = MAEAccumulator(self.hypers["log_separate_blocks"])
+            # CHANGE: Not using the default Accumulators because they do not support custom loss functions yet
+            # train_rmse_calculator = RMSEAccumulator(self.hypers["log_separate_blocks"])
+            # val_rmse_calculator = RMSEAccumulator(self.hypers["log_separate_blocks"])
+            # if self.hypers["log_mae"]:
+            #     train_mae_calculator = MAEAccumulator(
+            #         self.hypers["log_separate_blocks"]
+            #     )
+            #     val_mae_calculator = MAEAccumulator(self.hypers["log_separate_blocks"])
 
             train_loss = 0.0
+            train_count = 0.0 # CHANGE: Added to count the number of training samples
             for batch in train_dataloader:
                 optimizer.zero_grad()
 
@@ -309,20 +368,24 @@ class Trainer:
                 systems, targets = systems_and_targets_to_device(
                     systems, targets, device
                 )
-                for additive_model in (
-                    model.module if is_distributed else model
-                ).additive_models:
-                    targets = remove_additive(
-                        systems, targets, additive_model, train_targets
-                    )
-                targets = remove_scale(
-                    targets, (model.module if is_distributed else model).scaler
-                )
+                # CHANGE: Remove additive and scaler models 
+                # for additive_model in (
+                #     model.module if is_distributed else model
+                # ).additive_models:
+                #     targets = remove_additive(
+                #         systems, targets, additive_model, train_targets
+                #     )
+                # targets = remove_scale(
+                #     targets, (model.module if is_distributed else model).scaler
+                # )
                 systems, targets = systems_and_targets_to_dtype(systems, targets, dtype)
+                # CHANGE: Extract relevant quantities from the targets
+                target_dos_batch, mask_batch = targets['mtt::dos'], targets['mtt::mask']
                 predictions = evaluate_model(
                     model,
                     systems,
-                    {key: train_targets[key] for key in targets.keys()},
+                    # {key: train_targets[key] for key in targets.keys()},
+                    {key: train_targets[key] for key in train_targets.keys()}, # CHANGE: Use the train_targets keys instead as mask is not a target
                     is_training=True,
                 )
 
@@ -330,58 +393,133 @@ class Trainer:
                 predictions = average_by_num_atoms(
                     predictions, systems, per_structure_targets
                 )
-                targets = average_by_num_atoms(targets, systems, per_structure_targets)
-                train_loss_batch = loss_fn(predictions, targets)
-                train_loss_batch.backward()
+                # targets = average_by_num_atoms(targets, systems, per_structure_targets) # By default the targets are already averaged by the number of atoms
+                
+                # CHANGE: DOS Training loop
+                dos_predictions = predictions['mtt::dos'][0].values
+                dos_target = target_dos_batch[0].values
+                dos_mask = (mask_batch[0].values).bool()
+                # Calculate DOS loss using dynamic shift agnostic MSE
+                dos_loss, discrete_shift = get_dynamic_shift_agnostic_mse(dos_predictions, dos_target, dos_mask, return_shift = True)
+                # Obtain aligned targets (The subset of the predictions that corresponds best to the targets)
+                aligned_predictions = []
+                for index, prediction in enumerate(dos_predictions):
+                    aligned_prediction = prediction[discrete_shift[index]:discrete_shift[index] + dos_mask.shape[1]]
+                    aligned_predictions.append(aligned_prediction)
+                aligned_predictions = torch.vstack(aligned_predictions)
+                # We also compute the loss on the cumulative integral of the DOS, it improves the reliability of the fermi level of the final predicted DOS 
+                int_aligned_predictions = torch.cumulative_trapezoid(aligned_predictions, dx = 0.05, dim = 1)
+                int_aligned_targets = torch.cumulative_trapezoid(dos_target, dx = 0.05, dim = 1)
+                int_error = (int_aligned_predictions - int_aligned_targets)**2
+                int_error = int_error * dos_mask[:,1:].unsqueeze(dim=1) # only penalize the integral where the DOS is defined
+                int_MSE = torch.mean(torch.trapezoid(int_error, dx = 0.05, dim = 1)) * self.hypers['integral_penalty']
+                # Keep a count of the number of training samples to calculate the MSE accurately
+                train_count += len(dos_target)
+                # Calculate the gradient loss, useful for making sure that the behaviour of the DOS outside the window is reasonable
+                gradient_losses = torch.nn.functional.conv1d(aligned_predictions.unsqueeze(dim = 1), t4).squeeze(dim = 1)
+                dim_loss = dos_mask.shape[1] - gradient_losses.shape[1]
+                gradient_loss = torch.mean(torch.trapezoid(((gradient_losses * (~dos_mask[:, dim_loss:]))**2), # non-zero gradients outside the window are penalized
+                                                                    dx = 0.05, dim = 1)) * self.hypers['gradient_penalty']
+                total_loss = dos_loss + gradient_loss + int_MSE
+                total_loss.backward()
                 torch.nn.utils.clip_grad_norm_(
                     model.parameters(), self.hypers["grad_clip_norm"]
                 )
+                # torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
                 optimizer.step()
-
+                # train_loss_batch = loss_fn(predictions, targets)
+                # train_loss_batch.backward()
+                # torch.nn.utils.clip_grad_norm_(
+                #     model.parameters(), self.hypers["grad_clip_norm"]
+                # )
+                # optimizer.step()
+                total_loss = (total_loss * len(dos_target)).detach() # CHANGE: We need to multiply the loss by the number of samples in the batch to get the correct loss value
                 if is_distributed:
                     # sum the loss over all processes
-                    torch.distributed.all_reduce(train_loss_batch)
-                train_loss += train_loss_batch.item()
-
-                train_rmse_calculator.update(predictions, targets)
-                if self.hypers["log_mae"]:
-                    train_mae_calculator.update(predictions, targets)
-            finalized_train_info = train_rmse_calculator.finalize(
-                not_per_atom=["positions_gradients"] + per_structure_targets,
-                is_distributed=is_distributed,
-                device=device,
-            )
-            if self.hypers["log_mae"]:
-                finalized_train_info.update(
-                    train_mae_calculator.finalize(
-                        not_per_atom=["positions_gradients"] + per_structure_targets,
-                        is_distributed=is_distributed,
-                        device=device,
-                    )
-                )
-
+                    torch.distributed.all_reduce(total_loss)
+                train_loss += total_loss.item()
+                # CHANGE: Do not use the default calculators
+                # train_rmse_calculator.update(predictions, targets)
+                # if self.hypers["log_mae"]:
+                #     train_mae_calculator.update(predictions, targets)
+            # finalized_train_info = train_rmse_calculator.finalize(
+            #     not_per_atom=["positions_gradients"] + per_structure_targets,
+            #     is_distributed=is_distributed,
+            #     device=device,
+            # )
+            # if self.hypers["log_mae"]:
+            #     finalized_train_info.update(
+            #         train_mae_calculator.finalize(
+            #             not_per_atom=["positions_gradients"] + per_structure_targets,
+            #             is_distributed=is_distributed,
+            #             device=device,
+            #         )
+            #     )
+                # CHANGE: Use permanent dataset
+                if self.hypers['use_permanent']:
+                    for batch in permanent_dataloader:
+                        optimizer.zero_grad()
+                        systems, targets = batch
+                        systems, targets = rotational_augmenter.apply_random_augmentations(
+                            systems, targets
+                        )
+                        systems, targets = systems_and_targets_to_device(
+                            systems, targets, device
+                        )
+                        systems, targets = systems_and_targets_to_dtype(systems, targets, dtype)
+                        target_dos_batch, mask_batch = targets['mtt::dos'], targets['mtt::mask']
+                        predictions = evaluate_model(
+                            model,
+                            systems,
+                            # {key: train_targets[key] for key in targets.keys()},
+                            {key: train_targets[key] for key in train_targets.keys()}, # CHANGE: Use the train_targets keys instead as mask is not a target
+                            is_training=True,
+                        )
+                        predictions = average_by_num_atoms(
+                            predictions, systems, per_structure_targets
+                        )
+                        dos_predictions = predictions['mtt::dos'][0].values
+                        dos_target = target_dos_batch[0].values
+                        dos_mask = (mask_batch[0].values).bool()           
+                        dos_loss, discrete_shift = get_dynamic_shift_agnostic_mse(dos_predictions, dos_target, dos_mask, return_shift = True)
+                        aligned_predictions = []
+                        for index, prediction in enumerate(dos_predictions):
+                            aligned_prediction = prediction[discrete_shift[index]:discrete_shift[index] + dos_mask.shape[1]]
+                            aligned_predictions.append(aligned_prediction)
+                        aligned_predictions = torch.vstack(aligned_predictions)
+                        # Cumulative integral loss
+                        int_aligned_predictions = torch.cumulative_trapezoid(aligned_predictions, dx = 0.05, dim = 1)
+                        int_aligned_targets = torch.cumulative_trapezoid(dos_target, dx = 0.05, dim = 1)
+                        int_error = (int_aligned_predictions - int_aligned_targets)**2
+                        int_error = int_error * dos_mask[:,1:].unsqueeze(dim=1) # only penalize the integral where the DOS is defined
+                        int_MSE = torch.mean(torch.trapezoid(int_error, dx = 0.05, dim = 1)) * self.hypers['integral_penalty']
+                        # Gradient loss 
+                        gradient_losses = torch.nn.functional.conv1d(aligned_predictions.unsqueeze(dim = 1), t4).squeeze(dim = 1)
+                        dim_loss = dos_mask.shape[1] - gradient_losses.shape[1]
+                        gradient_loss = torch.mean(torch.trapezoid(((gradient_losses * (~dos_mask[:, dim_loss:]))**2),
+                                                                            dx = 0.05, dim = 1)) * self.hypers['gradient_penalty']
+                        total_loss = dos_loss + gradient_loss + int_MSE
+                        total_loss.backward()             
+                        torch.nn.utils.clip_grad_norm_(
+                            model.parameters(), self.hypers["grad_clip_norm"]
+                        )
+                        optimizer.step()
+                        # Should always be not distributed so we should not need to accumulate
             val_loss = 0.0
+            val_count = 0.0 # CHANGE: Added to count the number of validation samples
             for batch in val_dataloader:
+                # CHANGE: Updated validation loop to use the new loss function 
                 systems, targets = batch
-                systems = [system.to(device=device) for system in systems]
-                targets = {
-                    key: value.to(device=device) for key, value in targets.items()
-                }
-                for additive_model in (
-                    model.module if is_distributed else model
-                ).additive_models:
-                    targets = remove_additive(
-                        systems, targets, additive_model, train_targets
-                    )
-                targets = remove_scale(
-                    targets, (model.module if is_distributed else model).scaler
+                systems, targets = systems_and_targets_to_device(
+                        systems, targets, device
                 )
-                systems = [system.to(dtype=dtype) for system in systems]
-                targets = {key: value.to(dtype=dtype) for key, value in targets.items()}
+                systems, targets = systems_and_targets_to_dtype(systems, targets, dtype)
+                target_dos_batch, mask_batch = targets['mtt::dos'], targets['mtt::mask'] 
                 predictions = evaluate_model(
                     model,
                     systems,
-                    {key: train_targets[key] for key in targets.keys()},
+#                    {key: train_targets[key] for key in targets.keys()}, 
+                    {key: train_targets[key] for key in train_targets.keys()},
                     is_training=False,
                 )
 
@@ -389,43 +527,69 @@ class Trainer:
                 predictions = average_by_num_atoms(
                     predictions, systems, per_structure_targets
                 )
-                targets = average_by_num_atoms(targets, systems, per_structure_targets)
+                # targets = average_by_num_atoms(targets, systems, per_structure_targets)
 
-                val_loss_batch = loss_fn(predictions, targets)
+                dos_predictions = predictions['mtt::dos'][0].values
+                dos_target = target_dos_batch[0].values
+                dos_mask = (mask_batch[0].values).bool()           
+                dos_loss, discrete_shift = get_dynamic_shift_agnostic_mse(dos_predictions, dos_target, dos_mask, return_shift = True)
+                # Obtain aligned targets (The subset of the predictions that corresponds best to the targets)
+                aligned_predictions = []
+                for index, prediction in enumerate(dos_predictions):
+                    aligned_prediction = prediction[discrete_shift[index]:discrete_shift[index] + dos_mask.shape[1]]
+                    aligned_predictions.append(aligned_prediction)
+                aligned_predictions = torch.vstack(aligned_predictions)
+                # Cumulative integral loss
+                int_aligned_predictions = torch.cumulative_trapezoid(aligned_predictions, dx = 0.05, dim = 1)
+                int_aligned_targets = torch.cumulative_trapezoid(dos_target, dx = 0.05, dim = 1)
+                int_error = (int_aligned_predictions - int_aligned_targets)**2
+                int_error = int_error * dos_mask[:,1:].unsqueeze(dim=1) # only penalize the integral where the DOS is defined
+                int_MSE = torch.mean(torch.trapezoid(int_error, dx = 0.05, dim = 1)) * self.hypers['integral_penalty']
+                # Gradient loss 
+                gradient_losses = torch.nn.functional.conv1d(aligned_predictions.unsqueeze(dim = 1), t4).squeeze(dim = 1)
+                dim_loss = dos_mask.shape[1] - gradient_losses.shape[1]
+                gradient_loss = torch.mean(torch.trapezoid(((gradient_losses * (~dos_mask[:, dim_loss:]))**2),
+                                                                    dx = 0.05, dim = 1)) * self.hypers['gradient_penalty']
+                total_loss = (dos_loss + gradient_loss + int_MSE) * len(dos_target) # CHANGE: We need to multiply the loss by the number of samples in the batch to get the correct loss value
+                val_loss_batch = total_loss.detach()
 
                 if is_distributed:
                     # sum the loss over all processes
                     torch.distributed.all_reduce(val_loss_batch)
                 val_loss += val_loss_batch.item()
-                val_rmse_calculator.update(predictions, targets)
-                if self.hypers["log_mae"]:
-                    val_mae_calculator.update(predictions, targets)
-
-            finalized_val_info = val_rmse_calculator.finalize(
-                not_per_atom=["positions_gradients"] + per_structure_targets,
-                is_distributed=is_distributed,
-                device=device,
-            )
-            if self.hypers["log_mae"]:
-                finalized_val_info.update(
-                    val_mae_calculator.finalize(
-                        not_per_atom=["positions_gradients"] + per_structure_targets,
-                        is_distributed=is_distributed,
-                        device=device,
-                    )
-                )
+                # CHANGE: Not using the default calculators
+                # val_rmse_calculator.update(predictions, targets)
+                # if self.hypers["log_mae"]:
+                #     val_mae_calculator.update(predictions, targets)
+            # CHANGE: Not using the default calculators
+            # finalized_val_info = val_rmse_calculator.finalize(
+            #     not_per_atom=["positions_gradients"] + per_structure_targets,
+            #     is_distributed=is_distributed,
+            #     device=device,
+            # )
+            # if self.hypers["log_mae"]:
+            #     finalized_val_info.update(
+            #         val_mae_calculator.finalize(
+            #             not_per_atom=["positions_gradients"] + per_structure_targets,
+            #             is_distributed=is_distributed,
+            #             device=device,
+            #         )
+            #     )
 
             # Now we log the information:
-            finalized_train_info = {"loss": train_loss, **finalized_train_info}
+            # Change: Remove information other than the loss
+            finalized_train_info = {"loss": train_loss} # , **finalized_train_info}
             finalized_val_info = {
-                "loss": val_loss,
-                **finalized_val_info,
+                "loss": val_loss
             }
+                # **finalized_val_info,
+            # }
 
             if epoch == start_epoch:
-                scaler_scales = (
-                    model.module if is_distributed else model
-                ).scaler.get_scales_dict()
+                # CHANGE: Remove Scaler
+                # scaler_scales = (
+                #     model.module if is_distributed else model
+                # ).scaler.get_scales_dict()
                 metric_logger = MetricLogger(
                     log_obj=ROOT_LOGGER,
                     dataset_info=(

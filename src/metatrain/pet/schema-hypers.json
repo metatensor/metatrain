@@ -57,6 +57,15 @@
               "type": "integer"
             }
           }
+        },
+        "excess_targets": {
+          "type": "object",
+          "patternProperties": {
+            ".*": {
+              "type": "number"
+            }
+          },
+          "additionalProperties": false
         }
       },
       "additionalProperties": false
@@ -255,6 +264,21 @@
             }
           },
           "additionalProperties": false
+        },
+        "use_permanent": {
+          "type": "object",
+          "patternProperties": {
+            "n_samples": {
+              "type": "number"
+            }
+          },
+          "additionalProperties": false
+        },
+        "integral_penalty": {
+          "type": "number"
+        },
+        "gradient_penalty": {
+          "type": "number"
         }
       },
       "additionalProperties": false

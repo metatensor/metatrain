@@ -18,6 +18,7 @@ architecture:
       smearing: 1.4
       kspace_resolution: 1.33
       interpolation_nodes: 5
+    excess_targets: {}
 
   training:
     distributed: false
@@ -43,3 +44,6 @@ architecture:
       weights: {}
       reduction: mean
       sliding_factor: null
+    use_permanent: false
+    integral_penalty: 2.0
+    gradient_penalty: 1e-4

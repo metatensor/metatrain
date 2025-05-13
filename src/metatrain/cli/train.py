@@ -43,7 +43,6 @@ from .eval import _eval_targets
 from .export import _has_extensions
 from .formatter import CustomHelpFormatter
 
-
 def _add_train_model_parser(subparser: argparse._SubParsersAction) -> None:
     """Add `train_model` paramaters to an argparse (sub)-parser."""
 
@@ -509,6 +508,13 @@ def train_model(
             mts_atomistic_model.buffers(),
         )
     ).device
+    # CHANGE: metatensor does not yet support saving noncontiguous tensors (TEST)
+    # try:
+    #     mts_atomistic_model.module.additive_models[0].weights['mtt::dos'] = mt.make_contiguous(mts_atomistic_model.module.additive_models[0].weights['mtt::dos'])
+    # except:
+    #     print ("Failed to make DOS additive model contiguous, the target probably does not exist")
+
+
     mts_atomistic_model.save(str(output_checked), collect_extensions=extensions_path)
     # the model is first saved and then reloaded 1) for good practice and 2) because
     # MetatensorAtomisticModel only torchscripts (makes faster) during save()
