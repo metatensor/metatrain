@@ -556,26 +556,60 @@ class NanoPET(torch.nn.Module):
                     )
                     atomic_uncertainties_by_block.append(last_layer_features[:, -1:])
 
-                if output_name.startswith("mtt::p_"):
-                    # conservation of momentum: unscale, enforce conservation, rescale
+                if output_name.startswith("mtt::p_"):  # conservation of momentum
                     scaled_momenta_new = atomic_properties_by_block[0].reshape(-1, 3)
                     scaled_momenta_new = scaled_momenta_new * self.scaler.get_scales_dict()[output_name]
-                    momenta_new = scaled_momenta_new * torch.sqrt(masses)
-                    momenta_old = momenta.reshape(-1, 3)
-                    momenta_new = momenta_new - torch.mean(momenta_new, dim=0) + torch.mean(momenta_old, dim=0)
-                    scaled_momenta_new = momenta_new / torch.sqrt(masses)
+
+                    split_sizes = [len(system) for system in systems]
+                    scaled_momenta_new_by_structure = torch.split(scaled_momenta_new, split_sizes)
+                    momenta_old_by_structure = torch.split(momenta.reshape(-1, 3), split_sizes)
+                    masses_by_structure = torch.split(masses, split_sizes)
+
+                    scaled_momenta_new_list = []
+                    for scaled_momenta_new_s, momenta_old_s, masses_s in zip(
+                        scaled_momenta_new_by_structure,
+                        momenta_old_by_structure,
+                        masses_by_structure,
+                    ):
+                        velocities_new_s = scaled_momenta_new_s / torch.sqrt(masses_s)
+                        velocities_old_s = momenta_old_s / masses_s
+                        M_s = torch.sum(masses_s)
+                        velocities_com_new_s = torch.sum(masses_s * velocities_new_s, dim=0) / M_s
+                        velocities_com_old_s = torch.sum(masses_s * velocities_old_s, dim=0) / M_s
+                        velocities_new_s = velocities_new_s - velocities_com_new_s + velocities_com_old_s 
+                        scaled_momenta_new_s = velocities_new_s * torch.sqrt(masses_s)
+                        scaled_momenta_new_list.append(scaled_momenta_new_s)
+                    scaled_momenta_new = torch.cat(scaled_momenta_new_list, dim=0)
+
                     scaled_momenta_new = scaled_momenta_new / self.scaler.get_scales_dict()[output_name]
                     atomic_properties_by_block[0] = scaled_momenta_new
 
-                if output_name.startswith("mtt::delta_") and output_name.endswith("_q"):
-                    # uniform linear motion: unscale, enforce uniform motion, rescale
+                if output_name.startswith("mtt::delta_") and output_name.endswith("_q"):  # uniform linear motion
                     delta_t = int(output_name.split("_")[1]) * self.base_time_step * ase.units.fs
-                    momenta_old = momenta.reshape(-1, 3)
                     scaled_delta_q = atomic_properties_by_block[0].reshape(-1, 3)
                     scaled_delta_q = scaled_delta_q * self.scaler.get_scales_dict()[output_name]
-                    delta_mq = scaled_delta_q * torch.sqrt(masses)
-                    delta_mq = delta_mq - torch.mean(delta_mq, dim=0) + torch.mean(momenta_old, dim=0) * delta_t
-                    scaled_delta_q = delta_mq / torch.sqrt(masses)
+
+                    split_sizes = [len(system) for system in systems]
+                    scaled_delta_q_by_structure = torch.split(scaled_delta_q, split_sizes)
+                    momenta_old_by_structure = torch.split(momenta.reshape(-1, 3), split_sizes)
+                    masses_by_structure = torch.split(masses, split_sizes)
+
+                    scaled_delta_q_list = []
+                    for scaled_delta_q_s, momenta_old_s, masses_s in zip(
+                        scaled_delta_q_by_structure,
+                        momenta_old_by_structure,
+                        masses_by_structure,
+                    ):
+                        velocities_old_s = momenta_old_s / masses_s
+                        M_s = torch.sum(masses_s)
+                        velocities_com_old_s = torch.sum(masses_s * velocities_old_s, dim=0) / M_s
+                        delta_q_s = scaled_delta_q_s / torch.sqrt(masses_s)
+                        delta_q_com_s = torch.sum(masses_s * delta_q_s, dim=0) / M_s
+                        delta_q_s = delta_q_s - delta_q_com_s + velocities_com_old_s * delta_t
+                        scaled_delta_q_s = delta_q_s * torch.sqrt(masses_s)
+                        scaled_delta_q_list.append(scaled_delta_q_s)
+                    scaled_delta_q = torch.cat(scaled_delta_q_list, dim=0)
+
                     scaled_delta_q = scaled_delta_q / self.scaler.get_scales_dict()[output_name]
                     atomic_properties_by_block[0] = scaled_delta_q
 
