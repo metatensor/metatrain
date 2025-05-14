@@ -85,13 +85,10 @@
             "null"
           ]
         },
-        "scheduler_cycle_length": {
+        "scheduler_patience": {
           "type": "integer"
         },
-        "scheduler_cycle_mult": {
-          "type": "integer"
-        },
-        "scheduler_eta_min": {
+        "scheduler_factor": {
           "type": "number"
         },
         "log_interval": {
