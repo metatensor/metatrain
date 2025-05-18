@@ -696,6 +696,21 @@ class NanoPET(torch.nn.Module):
             block.properties for block in target_info.layout.blocks()
         ]
 
+    @classmethod
+    def get_checkpoint_version(cls) -> int:
+        """
+        Get the checkpoint version of the model.
+        """
+        return 1
+
+    def upgrade_checkpoint(checkpoint: Dict) -> Dict:
+        """
+        Upgrade the checkpoint to the current version of the model.
+        """
+        raise NotImplementedError(
+            "Checkpoint upgrade is not implemented for the NanoPET model."
+        )
+
 
 def manual_prod(shape: List[int]) -> int:
     # prod from standard library not supported in torchscript

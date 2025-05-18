@@ -1,7 +1,6 @@
 architecture:
 
   name: pet
-  version: 1
 
   model:
     cutoff: 4.5

@@ -6,9 +6,6 @@
       "type": "string",
       "enum": ["soap_bpnn"]
     },
-    "version": {
-      "type": "integer"
-    },
     "model": {
       "type": "object",
       "properties": {

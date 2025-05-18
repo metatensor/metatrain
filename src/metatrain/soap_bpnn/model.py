@@ -832,6 +832,13 @@ class SoapBpnn(torch.nn.Module):
             per_atom=True,
         )
 
+    @classmethod
+    def get_checkpoint_version(cls) -> int:
+        """
+        Get the checkpoint version of the model.
+        """
+        return 1
+
     def upgrade_checkpoint(checkpoint: Dict) -> Dict:
         """
         Upgrade the checkpoint to the current version of the model.
