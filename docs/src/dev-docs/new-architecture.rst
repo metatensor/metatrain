@@ -108,6 +108,7 @@ method.
 
     class ModelInterface:
 
+        __checkpoint_version__ = 1
         __supported_devices__ = ["cuda", "cpu"]
         __supported_dtypes__ = [torch.float64, torch.float32]
         __default_metadata__ = ModelMetadata(
@@ -291,23 +292,18 @@ section.
 
 Checkpoint versioning
 ----------------------
-The checkpoint versioning is done using the ``version`` input parameter in the
-``.yaml`` input file. This version is used to determine if a checkpoint is
-compatible with the current architecture.
-The version is a integer and should be
-incremented whenever the architecture
-changes in a way that is not backward
-compatible. The current architecture version is given by the
-``@classmethod`` ``get_checkpoint_version()`` that output a integer, and
-that every ``Model`` must implement. The mantainer of an architecture must
-check that ``get_checkpoint_version()`` prints the updated version number.
-The version is also stored in the
-checkpoint file and is used to determine if a checkpoint
-is compatible with the current architecture.
-If the version in the checkpoint file is not compatible with the
-current architecture, the function ``upgrade_checkpoint()`` will
-be called.
-``upgrade_checkpoint()`` needs to be implemented for every architecture
-and by default should raise an error.
-Otherwise, ``upgrade_checkpoint()`` should be able to upgrade the checkpoint
-to the current architecture version, if possible.
+
+Checkpoints are used to save the weights of a models and the state of the
+trainer to disk, enabling to restart interupted training runs, to fine-tune
+existing models on new dataset, and to export standalone models based on
+TorchScript.
+
+A checkpoint created by a given version of metatrain might need to be read again
+by a later version, where the internal structure of the model might have
+changed. To enable this, all ``Model`` classes are required to have a
+``__checkpoint_version__`` class attribute containing the version of the
+checkoint, as a strictly inreasing integer. Additionally, architectures can
+provide an ``upgrade_checkpoint(checkpoint: Dict) -> Dict`` function, that will
+be called when a user is trying to load some outdated checkpoint. This function
+is responsible for updating the checkpoint data and returning a checkpoint
+compatible with the current version.

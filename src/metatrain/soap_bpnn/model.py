@@ -168,6 +168,7 @@ def concatenate_structures(
 
 
 class SoapBpnn(torch.nn.Module):
+    __checkpoint_version__ = 1
     __supported_devices__ = ["cuda", "cpu"]
     __supported_dtypes__ = [torch.float64, torch.float32]
     __default_metadata__ = ModelMetadata(
@@ -831,13 +832,6 @@ class SoapBpnn(torch.nn.Module):
             unit=target.unit,
             per_atom=True,
         )
-
-    @classmethod
-    def get_checkpoint_version(cls) -> int:
-        """
-        Get the checkpoint version of the model.
-        """
-        return 1
 
     def upgrade_checkpoint(checkpoint: Dict) -> Dict:
         """

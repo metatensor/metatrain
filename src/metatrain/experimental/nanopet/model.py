@@ -51,6 +51,7 @@ class NanoPET(torch.nn.Module):
     and the third to the features.
     """
 
+    __checkpoint_version__ = 1
     __supported_devices__ = ["cuda", "cpu"]
     __supported_dtypes__ = [torch.float64, torch.float32]
     __default_metadata__ = ModelMetadata(
@@ -695,13 +696,6 @@ class NanoPET(torch.nn.Module):
         self.property_labels[target_name] = [
             block.properties for block in target_info.layout.blocks()
         ]
-
-    @classmethod
-    def get_checkpoint_version(cls) -> int:
-        """
-        Get the checkpoint version of the model.
-        """
-        return 1
 
     def upgrade_checkpoint(checkpoint: Dict) -> Dict:
         """

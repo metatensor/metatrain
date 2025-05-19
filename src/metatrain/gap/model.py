@@ -25,6 +25,7 @@ from metatrain.utils.metadata import append_metadata_references
 
 
 class GAP(torch.nn.Module):
+    __checkpoint_version__ = 1
     __supported_devices__ = ["cpu"]
     __supported_dtypes__ = [torch.float64]
     __default_metadata__ = ModelMetadata(
@@ -931,13 +932,6 @@ class TorchSubsetofRegressors(torch.nn.Module):
 
         k_tm = self._kernel(T, self._X_pseudo, are_pseudo_points=(False, True))
         return metatensor.torch.dot(k_tm, self._weights)
-
-    @classmethod
-    def get_checkpoint_version(cls) -> int:
-        """
-        Get the checkpoint version of the model.
-        """
-        return 1
 
     def upgrade_checkpoint(checkpoint: Dict) -> Dict:
         """

@@ -38,6 +38,7 @@ class PET(torch.nn.Module):
 
     """
 
+    __checkpoint_version__ = 1
     __supported_devices__ = ["cuda", "cpu"]
     __supported_dtypes__ = [torch.float32, torch.float64]
     __default_metadata__ = ModelMetadata(
@@ -56,7 +57,6 @@ class PET(torch.nn.Module):
             strict=True,
         )
 
-        self.__checkpoint_version__ = 1
         self.cutoff = float(self.hypers["cutoff"])
         self.cutoff_width = float(self.hypers["cutoff_width"])
         self.embedding = torch.nn.Embedding(
@@ -862,13 +862,6 @@ class PET(torch.nn.Module):
             values=sample_values,
         )
         return system_indices, sample_labels
-
-    @classmethod
-    def get_checkpoint_version(cls) -> int:
-        """
-        Get the checkpoint version of the model.
-        """
-        return 1
 
     def upgrade_checkpoint(checkpoint: Dict) -> Dict:
         """
