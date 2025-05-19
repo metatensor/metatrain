@@ -8,6 +8,7 @@ on:
 
 jobs:
   tests:
+    name: ${{ matrix.architecture-name }}
     strategy:
       matrix:
         include:

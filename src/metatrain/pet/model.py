@@ -15,13 +15,14 @@ from metatensor.torch.atomistic import (
 )
 from torch import nn
 
-from ..utils.additive import ZBL, CompositionModel
-from ..utils.data import DatasetInfo, TargetInfo
-from ..utils.dtype import dtype_to_str
-from ..utils.long_range import DummyLongRangeFeaturizer, LongRangeFeaturizer
-from ..utils.metadata import append_metadata_references
-from ..utils.scaler import Scaler
-from ..utils.sum_over_atoms import sum_over_atoms
+from metatrain.utils.additive import ZBL, CompositionModel
+from metatrain.utils.data import DatasetInfo, TargetInfo
+from metatrain.utils.dtype import dtype_to_str
+from metatrain.utils.long_range import DummyLongRangeFeaturizer, LongRangeFeaturizer
+from metatrain.utils.metadata import append_metadata_references
+from metatrain.utils.scaler import Scaler
+from metatrain.utils.sum_over_atoms import sum_over_atoms
+
 from .modules.finetuning import apply_finetuning_strategy
 from .modules.structures import remap_neighborlists, systems_to_batch
 from .modules.transformer import CartesianTransformer
@@ -166,6 +167,9 @@ class PET(torch.nn.Module):
         self.scaler = Scaler(model_hypers={}, dataset_info=dataset_info)
 
         self.single_label = Labels.single()
+
+    def supported_outputs(self) -> Dict[str, ModelOutput]:
+        return self.outputs
 
     def restart(self, dataset_info: DatasetInfo) -> "PET":
         # merge old and new dataset info

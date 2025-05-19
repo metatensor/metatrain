@@ -15,15 +15,15 @@ from metatensor.torch.learn.nn import Linear as LinearMap
 from metatensor.torch.learn.nn import ModuleMap
 from spex.metatensor import SoapPowerSpectrum
 
+from metatrain.utils.additive import ZBL, CompositionModel
 from metatrain.utils.data import TargetInfo
 from metatrain.utils.data.dataset import DatasetInfo
+from metatrain.utils.dtype import dtype_to_str
+from metatrain.utils.long_range import DummyLongRangeFeaturizer, LongRangeFeaturizer
+from metatrain.utils.metadata import append_metadata_references
+from metatrain.utils.scaler import Scaler
+from metatrain.utils.sum_over_atoms import sum_over_atoms
 
-from ..utils.additive import ZBL, CompositionModel
-from ..utils.dtype import dtype_to_str
-from ..utils.long_range import DummyLongRangeFeaturizer, LongRangeFeaturizer
-from ..utils.metadata import append_metadata_references
-from ..utils.scaler import Scaler
-from ..utils.sum_over_atoms import sum_over_atoms
 from .spherical import TensorBasis
 
 
@@ -305,6 +305,9 @@ class SoapBpnn(torch.nn.Module):
 
         # scaler: this is also handled by the trainer at training time
         self.scaler = Scaler(model_hypers={}, dataset_info=dataset_info)
+
+    def supported_outputs(self) -> Dict[str, ModelOutput]:
+        return self.outputs
 
     def restart(self, dataset_info: DatasetInfo) -> "SoapBpnn":
         # merge old and new dataset info

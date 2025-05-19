@@ -12,13 +12,13 @@ from metatensor.torch.atomistic import (
     System,
 )
 
+from metatrain.utils.additive import ZBL
 from metatrain.utils.data import DatasetInfo
 from metatrain.utils.data.target_info import is_auxiliary_output
+from metatrain.utils.dtype import dtype_to_str
+from metatrain.utils.metadata import append_metadata_references
+from metatrain.utils.sum_over_atoms import sum_over_atoms
 
-from ...utils.additive import ZBL
-from ...utils.dtype import dtype_to_str
-from ...utils.metadata import append_metadata_references
-from ...utils.sum_over_atoms import sum_over_atoms
 from .modules.pet import PET as RawPET
 from .utils import load_raw_pet_model, systems_to_batch_dict
 
@@ -272,6 +272,18 @@ class PET(torch.nn.Module):
 
         return model
 
+    def supported_outputs(self) -> Dict[str, ModelOutput]:
+        return {
+            self.target_name: ModelOutput(
+                quantity=self.dataset_info.targets[self.target_name].quantity,
+                unit=self.dataset_info.targets[self.target_name].unit,
+                per_atom=False,
+            ),
+            f"mtt::aux::{self.target_name.replace('mtt::', '')}_last_layer_features": ModelOutput(  # noqa: E501
+                unit="unitless", per_atom=True
+            ),
+        }
+
     def export(
         self, metadata: Optional[ModelMetadata] = None
     ) -> MetatensorAtomisticModel:
@@ -291,16 +303,7 @@ class PET(torch.nn.Module):
         interaction_range = max(interaction_ranges)
 
         capabilities = ModelCapabilities(
-            outputs={
-                self.target_name: ModelOutput(
-                    quantity=self.dataset_info.targets[self.target_name].quantity,
-                    unit=self.dataset_info.targets[self.target_name].unit,
-                    per_atom=False,
-                ),
-                f"mtt::aux::{self.target_name.replace('mtt::', '')}_last_layer_features": ModelOutput(  # noqa: E501
-                    unit="unitless", per_atom=True
-                ),
-            },
+            outputs=self.supported_outputs(),
             atomic_types=self.atomic_types,
             interaction_range=interaction_range,
             length_unit=self.dataset_info.length_unit,

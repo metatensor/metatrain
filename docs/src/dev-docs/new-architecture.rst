@@ -81,6 +81,20 @@ requirements to be stable. The usual structure of architecture looks as
     ``metatrain``. Once a new architecture folder with the required files is created
     ``metatrain`` will include the architecture automatically.
 
+.. note::
+    Because achitectures can live in either ``src/metatrain/<architecture>``,
+    ``src/metatrain/experimental/<architecture>``, or
+    ``src/metatrain/deprecated/<architecture>``; the code inside should use
+    absolute imports use the tools provided by metatrain.
+
+    .. code-block:: python
+
+        # do not do this
+        from ..utils.dtype import dtype_to_str
+
+        # Do this instead
+        from metatrain.utils.dtype import dtype_to_str
+
 Model class (``model.py``)
 --------------------------
 The ``ModelInterface``, is recommended to be located in a file called ``model.py``
@@ -90,7 +104,11 @@ method.
 
 .. code-block:: python
 
-    from metatensor.torch.atomistic import MetatensorAtomisticModel, ModelMetadata
+    from metatensor.torch.atomistic import (
+        MetatensorAtomisticModel,
+        ModelMetadata,
+        ModelOutput,
+    )
 
     class ModelInterface:
 
@@ -101,8 +119,15 @@ method.
         )
 
         def __init__(self, model_hypers: Dict, dataset_info: DatasetInfo):
-            self.hypers = model_hypers
-            self.dataset_info = dataset_info
+            ...
+
+        def supported_outputs(self) -> Dict[str, ModelOutput]:
+            """
+            Get the set of outputs currently supported by this model.
+
+            This will likely be the same outputs that are set as this model
+            capabilities in ``export()``
+            """
 
         @classmethod
         def load_checkpoint(
@@ -117,7 +142,6 @@ method.
                 Required values are "restart" and "finetune", "export" but can be
                 extended to other values.
             """
-            pass
 
         def restart(cls, dataset_info: DatasetInfo) -> "ModelInterface":
             """Restart training.
@@ -128,12 +152,11 @@ method.
             It enables transfer learning (changing the targets), and fine-tuning (same
             targets, different datasets)
             """
-            pass
 
-            def export(
-        self, metadata: Optional[ModelMetadata] = None
-    ) -> MetatensorAtomisticModel:
-            pass
+        def export(
+            self, metadata: Optional[ModelMetadata] = None
+        ) -> MetatensorAtomisticModel:
+            ...
 
 Note that the ``ModelInterface`` does not necessarily inherit from
 :py:class:`torch.nn.Module` since training can be performed in any way.
