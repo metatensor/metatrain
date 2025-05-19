@@ -46,10 +46,10 @@ def evaluate_model(
         message="This system's positions or cell requires grad, but the neighbors",
     )
 
-    model_outputs = _get_outputs(model)
-    # Assert that all targets are within the model's capabilities:
+    model_outputs = _get_supported_outputs(model)
+    # Assert that all targets are within the model's supported outputs:
     if not set(targets.keys()).issubset(model_outputs.keys()):
-        raise ValueError("Not all targets are within the model's capabilities.")
+        raise ValueError("Not all targets are within the model's supported outputs")
 
     # Find if there are any energy targets that require gradients:
     energy_targets = []
@@ -214,13 +214,13 @@ def _strain_gradients_to_block(gradients_list):
     )
 
 
-def _get_outputs(
+def _get_supported_outputs(
     model: Union[torch.nn.Module, torch.jit._script.RecursiveScriptModule],
 ):
     if is_atomistic_model(model):
         return model.capabilities().outputs
     else:
-        return model.outputs
+        return model.supported_outputs()
 
 
 def _get_model_outputs(
