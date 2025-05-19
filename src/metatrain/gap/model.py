@@ -165,6 +165,9 @@ class GAP(torch.nn.Module):
             )
         self.additive_models = torch.nn.ModuleList(additive_models)
 
+    def supported_outputs(self) -> Dict[str, ModelOutput]:
+        return self.outputs
+
     def restart(self, dataset_info: DatasetInfo) -> "GAP":
         raise ValueError("GAP does not allow restarting training")
 

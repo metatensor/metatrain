@@ -465,6 +465,9 @@ class CompositionModel(torch.nn.Module):
 
         return composition_result_dict
 
+    def supported_outputs(self) -> Dict[str, ModelOutput]:
+        return self.outputs
+
     def _add_output(self, target_name: str, target_info: TargetInfo) -> None:
         self.outputs[target_name] = ModelOutput(
             quantity=target_info.quantity,
