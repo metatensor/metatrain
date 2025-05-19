@@ -292,17 +292,17 @@ def test_empty_training_set(monkeypatch, tmp_path, options):
         train_model(options)
 
 
-# def test_batch_size_smaller_training_set(monkeypatch, tmp_path, options):
-#     """Test that an error is raised if no training set is provided."""
-#     monkeypatch.chdir(tmp_path)
+def test_batch_size_smaller_training_set(monkeypatch, tmp_path, options):
+    """Test that training still runs for batch size > train_size."""
+    monkeypatch.chdir(tmp_path)
 
-#     shutil.copy(DATASET_PATH_QM9, "qm9_reduced_100.xyz")
+    shutil.copy(DATASET_PATH_QM9, "qm9_reduced_100.xyz")
 
-#     options["validation_set"] = 0.55
-#     options["test_set"] = 0.4
-#     options["architecture"]["training"]["batch_size"] = 1000
+    options["validation_set"] = 0.55
+    options["test_set"] = 0.4
+    options["architecture"]["training"]["batch_size"] = 1000
 
-#     train_model(options)
+    train_model(options)
 
 
 @pytest.mark.parametrize("split", [-0.1, 1.1])

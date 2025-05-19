@@ -182,13 +182,15 @@ class Trainer:
                     batch_size=self.hypers["batch_size"],
                     sampler=train_sampler,
                     shuffle=(
+                        # the sampler takes care of this (if present)
                         train_sampler is None
-                    ),  # the sampler takes care of this (if present)
+                    ),  
                     drop_last=(
+                        # the sampler takes care of this (if present,
+                        # check if batch size > train_dataset
                         len(train_dataset) > self.hypers["batch_size"]
                         and train_sampler is None
-                    ),  # the sampler takes care of this (if present,
-                    # check if batch size > train_dataset
+                    ),  
                     collate_fn=collate_fn,
                 )
             )
