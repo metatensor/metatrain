@@ -183,6 +183,14 @@ def model_from_checkpoint(
         )
     architecture = import_architecture(architecture_name)
 
+    checkpoint_version = checkpoint.get("checkpoint_version", 0)
+    if checkpoint_version == 0:
+        checkpoint_version = 1
+        checkpoint["checkpoint_version"] = checkpoint_version
+    else:
+        if checkpoint_version != architecture.__model__.__checkpoint_version__:
+            checkpoint = architecture.__model__.upgrade_checkpoint(checkpoint)
+
     try:
         return architecture.__model__.load_checkpoint(checkpoint, context=context)
     except Exception as err:

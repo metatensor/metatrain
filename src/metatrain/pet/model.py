@@ -38,6 +38,7 @@ class PET(torch.nn.Module):
 
     """
 
+    __checkpoint_version__ = 1
     __supported_devices__ = ["cuda", "cpu"]
     __supported_dtypes__ = [torch.float32, torch.float64]
     __default_metadata__ = ModelMetadata(
@@ -864,3 +865,11 @@ class PET(torch.nn.Module):
             values=sample_values,
         )
         return system_indices, sample_labels
+
+    def upgrade_checkpoint(checkpoint: Dict) -> Dict:
+        """
+        Upgrade the checkpoint to the current version of the model.
+        """
+        raise NotImplementedError(
+            "Checkpoint upgrade is not implemented for the PET model."
+        )

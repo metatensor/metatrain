@@ -51,6 +51,7 @@ class NanoPET(torch.nn.Module):
     and the third to the features.
     """
 
+    __checkpoint_version__ = 1
     __supported_devices__ = ["cuda", "cpu"]
     __supported_dtypes__ = [torch.float64, torch.float32]
     __default_metadata__ = ModelMetadata(
@@ -698,6 +699,14 @@ class NanoPET(torch.nn.Module):
         self.property_labels[target_name] = [
             block.properties for block in target_info.layout.blocks()
         ]
+
+    def upgrade_checkpoint(checkpoint: Dict) -> Dict:
+        """
+        Upgrade the checkpoint to the current version of the model.
+        """
+        raise NotImplementedError(
+            "Checkpoint upgrade is not implemented for the NanoPET model."
+        )
 
 
 def manual_prod(shape: List[int]) -> int:
