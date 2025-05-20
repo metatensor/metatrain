@@ -329,7 +329,13 @@ class NanoPET(torch.nn.Module):
         node_features = self.node_encoder(element_indices_nodes)
         edge_features = self.edge_encoder(
             {
-                "cartesian": edge_vectors,
+                "cartesian": torch.concatenate(
+                    [
+                        edge_vectors,
+                        torch.sqrt(torch.sum(edge_vectors**2, keepdim=True, dim=-1)),
+                    ],
+                    dim=-1,
+                ),
                 "neighbor": element_indices_neighbors,
             }
         )

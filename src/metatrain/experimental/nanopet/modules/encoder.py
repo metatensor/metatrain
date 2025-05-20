@@ -19,7 +19,7 @@ class Encoder(torch.nn.Module):
         super().__init__()
 
         self.cartesian_encoder = torch.nn.Sequential(
-            torch.nn.Linear(in_features=3, out_features=4 * hidden_size, bias=False),
+            torch.nn.Linear(in_features=4, out_features=4 * hidden_size, bias=False),
             torch.nn.SiLU(),
             torch.nn.Linear(
                 in_features=4 * hidden_size, out_features=4 * hidden_size, bias=False
