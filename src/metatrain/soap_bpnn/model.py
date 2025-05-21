@@ -15,6 +15,7 @@ from metatomic.torch import (
 )
 from spex.metatensor import SoapPowerSpectrum
 
+from metatrain.utils.abc import ModelInterface
 from metatrain.utils.additive import ZBL, CompositionModel
 from metatrain.utils.data import TargetInfo
 from metatrain.utils.data.dataset import DatasetInfo
@@ -167,10 +168,10 @@ def concatenate_structures(
     )
 
 
-class SoapBpnn(torch.nn.Module):
+class SoapBpnn(ModelInterface):
     __supported_devices__ = ["cuda", "cpu"]
     __supported_dtypes__ = [torch.float64, torch.float32]
-    __metadata__ = ModelMetadata(
+    __default_metadata__ = ModelMetadata(
         references={
             "implementation": [
                 "torch-spex: https://github.com/lab-cosmo/torch-spex",
@@ -668,7 +669,7 @@ class SoapBpnn(torch.nn.Module):
         # Loading the metadata from the checkpoint
         metadata = checkpoint.get("metadata", None)
         if metadata is not None:
-            model.__metadata__ = metadata
+            model.__default_metadata__ = metadata
 
         return model
 
@@ -706,9 +707,9 @@ class SoapBpnn(torch.nn.Module):
         )
 
         if metadata is None:
-            metadata = self.__metadata__
+            metadata = self.__default_metadata__
         else:
-            metadata = merge_metadata(self.__metadata__, metadata)
+            metadata = merge_metadata(self.__default_metadata__, metadata)
 
         return AtomisticModel(self.eval(), metadata, capabilities)
 

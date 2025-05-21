@@ -12,6 +12,7 @@ from metatomic.torch import (
     System,
 )
 
+from metatrain.utils.abc import ModelInterface
 from metatrain.utils.additive import ZBL
 from metatrain.utils.data import DatasetInfo
 from metatrain.utils.data.target_info import is_auxiliary_output
@@ -23,7 +24,7 @@ from .modules.pet import PET as RawPET
 from .utils import load_raw_pet_model, systems_to_batch_dict
 
 
-class PET(torch.nn.Module):
+class PET(ModelInterface):
     __supported_devices__ = ["cuda", "cpu"]
     __supported_dtypes__ = [torch.float32]
     __default_metadata__ = ModelMetadata(
