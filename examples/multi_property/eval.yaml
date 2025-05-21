@@ -1,0 +1,18 @@
+systems: test.xyz # file where the positions are stored
+targets:
+  mtt::cs_iso:
+    read_from: test.xyz
+    key: cs_iso
+    quantity: ""
+    unit: ""
+    per_atom: True
+    type:
+      scalar
+  mtt::cs_iso_para:
+      read_from: test.xyz
+      key: cs_iso_para
+      quantity: ""
+      unit: ""
+      per_atom: True
+      type:
+        scalar
