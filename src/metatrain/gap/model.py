@@ -1,4 +1,4 @@
-from typing import Dict, List, Optional, Tuple, Union
+from typing import Any, Dict, List, Literal, Optional, Tuple, Union
 
 import featomic
 import featomic.torch
@@ -19,15 +19,16 @@ from metatomic.torch import (
 )
 from skmatter._selection import _FPS as _FPS_skmatter
 
+from metatrain.utils.abc import ModelInterface
 from metatrain.utils.additive import ZBL, CompositionModel
 from metatrain.utils.data.dataset import DatasetInfo
 from metatrain.utils.metadata import merge_metadata
 
 
-class GAP(torch.nn.Module):
+class GAP(ModelInterface):
     __supported_devices__ = ["cpu"]
     __supported_dtypes__ = [torch.float64]
-    __metadata__ = ModelMetadata(
+    __default_metadata__ = ModelMetadata(
         references={
             "implementation": [
                 "featomic: https://github.com/metatensor/featomic",
@@ -169,7 +170,15 @@ class GAP(torch.nn.Module):
         return self.outputs
 
     def restart(self, dataset_info: DatasetInfo) -> "GAP":
-        raise ValueError("GAP does not allow restarting training")
+        raise NotImplementedError("GAP does not allow restarting training")
+
+    @classmethod
+    def load_checkpoint(
+        cls,
+        checkpoint: Dict[str, Any],
+        context: Literal["restart", "finetune", "export"],
+    ) -> "GAP":
+        raise NotImplementedError("GAP does not allow loading checkpoints")
 
     def forward(
         self,
@@ -293,9 +302,9 @@ class GAP(torch.nn.Module):
         )
 
         if metadata is None:
-            metadata = self.__metadata__
+            metadata = self.__default_metadata__
         else:
-            metadata = merge_metadata(self.__metadata__, metadata)
+            metadata = merge_metadata(self.__default_metadata__, metadata)
 
         return AtomisticModel(self.eval(), metadata, capabilities)
 

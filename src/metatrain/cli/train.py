@@ -14,6 +14,7 @@ import torch
 from omegaconf import DictConfig, OmegaConf
 
 from .. import PACKAGE_ROOT
+from ..utils.abc import ModelInterface, TrainerInterface
 from ..utils.architectures import (
     check_architecture_options,
     get_default_hypers,
@@ -198,7 +199,18 @@ def train_model(
     logging.info(f"Running training for {architecture_name!r} architecture")
 
     Model = architecture.__model__
+    if not issubclass(Model, ModelInterface):
+        raise TypeError(
+            f"Model class for {architecture_name} must be a subclass of "
+            " `metatrain.utils.abc.ModelInterface`"
+        )
+
     Trainer = architecture.__trainer__
+    if not issubclass(Trainer, TrainerInterface):
+        raise TypeError(
+            f"Trainer class for {architecture_name} must be a subclass of "
+            " `metatrain.utils.abc.TrainerInterface`"
+        )
 
     ###########################
     # MERGE OPTIONS ###########

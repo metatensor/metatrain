@@ -14,6 +14,7 @@ from metatomic.torch import (
     System,
 )
 
+from metatrain.utils.abc import ModelInterface
 from metatrain.utils.additive import ZBL, CompositionModel
 from metatrain.utils.data import DatasetInfo, TargetInfo
 from metatrain.utils.dtype import dtype_to_str
@@ -34,7 +35,7 @@ from .modules.structures import concatenate_structures
 from .modules.transformer import Transformer
 
 
-class NanoPET(torch.nn.Module):
+class NanoPET(ModelInterface):
     """
     Re-implementation of the PET architecture (https://arxiv.org/pdf/2305.19302).
 
@@ -53,7 +54,7 @@ class NanoPET(torch.nn.Module):
 
     __supported_devices__ = ["cuda", "cpu"]
     __supported_dtypes__ = [torch.float64, torch.float32]
-    __metadata__ = ModelMetadata(
+    __default_metadata__ = ModelMetadata(
         references={"architecture": ["https://arxiv.org/abs/2305.19302v3"]}
     )
 
@@ -580,7 +581,7 @@ class NanoPET(torch.nn.Module):
         # Loading the metadata from the checkpoint
         metadata = checkpoint.get("metadata", None)
         if metadata is not None:
-            model.__metadata__ = metadata
+            model.__default_metadata__ = metadata
 
         return model
 
@@ -618,9 +619,9 @@ class NanoPET(torch.nn.Module):
         )
 
         if metadata is None:
-            metadata = self.__metadata__
+            metadata = self.__default_metadata__
         else:
-            metadata = merge_metadata(self.__metadata__, metadata)
+            metadata = merge_metadata(self.__default_metadata__, metadata)
 
         return AtomisticModel(self.eval(), metadata, capabilities)
 
