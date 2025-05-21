@@ -14,6 +14,7 @@ from metatensor.torch.atomistic import (
     System,
 )
 
+from metatrain.utils.abc import ModelInterface
 from metatrain.utils.additive import ZBL, CompositionModel
 from metatrain.utils.data import DatasetInfo, TargetInfo
 from metatrain.utils.dtype import dtype_to_str
@@ -34,7 +35,7 @@ from .modules.structures import concatenate_structures
 from .modules.transformer import Transformer
 
 
-class NanoPET(torch.nn.Module):
+class NanoPET(ModelInterface):
     """
     Re-implementation of the PET architecture (https://arxiv.org/pdf/2305.19302).
 
