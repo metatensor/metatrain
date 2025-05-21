@@ -1,3 +1,4 @@
+import re
 from typing import Dict, List
 
 import ase
@@ -8,6 +9,15 @@ from metatensor.torch import Labels, TensorMap
 from metatensor.torch.atomistic import ModelCapabilities, System
 
 from ...external_naming import to_external_name
+
+
+def clean_xyz_name(name: str) -> str:
+    """
+    Replaces ASE extxyz protected characters with '_'.
+    Replaces: '=', '\"', ',', '[', ']', '{', '}', '\\', ':'.
+    """
+    pattern = r"[\s=\",\[\]\{\}\\:]"
+    return re.sub(pattern, "_", name)
 
 
 def write_xyz(
@@ -114,6 +124,8 @@ def write_xyz(
 
         # assign arrays
         for array_name, array in arrays.items():
+            # make sure the name is valid
+            array_name = clean_xyz_name(array_name)
             atoms.arrays[array_name] = array
 
         frames.append(atoms)
