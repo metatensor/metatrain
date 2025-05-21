@@ -163,6 +163,8 @@ cython_debug/
 # Don't save model outputs
 *.pt
 *.ckpt
+*.csv
+wandb/
 
 # model output directories and extensions
 outputs/
@@ -172,3 +174,4 @@ extensions/
 # sphinx gallery
 docs/src/examples
 *execution_times*
+qm9_reduced_100.zip

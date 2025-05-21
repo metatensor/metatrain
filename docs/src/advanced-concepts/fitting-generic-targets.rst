@@ -1,3 +1,5 @@
+.. _fitting-generic-targets:
+
 Fitting generic targets
 =======================
 
@@ -29,15 +31,15 @@ capabilities of the architectures in metatrain.
      - No
      - No
    * - PET
-     - Energy, forces
-     - No
-     - No
-     - No
+     - Energy, forces, stress/virial
+     - Yes
+     - Yes
+     - Only with ``rank=1`` (vectors) and ``rank=2`` (2D tensors)
    * - NanoPET
      - Energy, forces, stress/virial
      - Yes
      - Yes
-     - Only with ``rank=1`` (vectors)
+     - Only with ``rank=1`` (vectors) and ``rank=2`` (2D tensors)
 
 
 Preparing generic targets for reading by metatrain
@@ -65,7 +67,7 @@ like this:
         unit: ""
         per_atom: True
         type:
-          cartiesian:
+          cartesian:
             rank: 1
         num_subtargets: 10
 

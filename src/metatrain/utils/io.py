@@ -1,10 +1,8 @@
-import logging
-import os
-import shutil
+import re
 import warnings
 from pathlib import Path
-from typing import Any, Optional, Union
-from urllib.parse import urlparse
+from typing import Any, Dict, Literal, Optional, Union
+from urllib.parse import unquote, urlparse
 from urllib.request import urlretrieve
 
 import torch
@@ -12,9 +10,6 @@ from metatensor.torch.atomistic import check_atomistic_model, load_atomistic_mod
 
 from ..utils.architectures import find_all_architectures
 from .architectures import import_architecture
-
-
-logger = logging.getLogger(__name__)
 
 
 def check_file_extension(
@@ -69,23 +64,78 @@ def is_exported_file(path: str) -> bool:
         return False
 
 
+def _hf_hub_download_url(url: str, token: Optional[str] = None) -> str:
+    """Wrapper around `hf_hub_download` allowing passing the URL directly.
+
+    Function is in inverse of `hf_hub_url`
+    """
+    try:
+        from huggingface_hub import hf_hub_download
+    except ImportError:
+        raise ImportError(
+            "To download a private model please install the `huggingface_hub` package "
+            "with pip (`pip install huggingface_hub`)."
+        )
+
+    pattern = re.compile(
+        r"(?P<endpoint>https://[^/]+)/"
+        r"(?P<repo_id>[^/]+/[^/]+)/"
+        r"resolve/"
+        r"(?P<revision>[^/]+)/"
+        r"(?P<filename>.+)"
+    )
+
+    match = pattern.match(url)
+
+    if not match:
+        raise ValueError(f"URL '{url}' has an invalid format for the Hugging Face Hub.")
+
+    endpoint = match.group("endpoint")
+    repo_id = match.group("repo_id")
+    revision = unquote(match.group("revision"))
+    filename = unquote(match.group("filename"))
+
+    # Extract subfolder if applicable
+    parts = filename.split("/", 1)
+    if len(parts) == 2:
+        subfolder, filename = parts
+    else:
+        subfolder = None
+
+    return hf_hub_download(
+        repo_id=repo_id,
+        filename=filename,
+        subfolder=subfolder,
+        repo_type=None,
+        revision=revision,
+        endpoint=endpoint,
+        token=token,
+    )
+
+
 def load_model(
     path: Union[str, Path],
     extensions_directory: Optional[Union[str, Path]] = None,
-    **kwargs,
+    token: Optional[str] = None,
 ) -> Any:
-    """Load checkpoints and exported models from an URL or a local file.
+    """Load checkpoints and exported models from an URL or a local file for inference.
 
     If an exported model should be loaded and requires compiled extensions, their
     location should be passed using the ``extensions_directory`` parameter.
 
-    After reading a checkpoint, the returned
-    model can be exported with the model's own ``export()`` method.
+    After reading a checkpoint, the returned model can be exported with the model's own
+    ``export()`` method.
+
+    .. note::
+
+        This function is intended to load models for inference in Python. For continue
+        training or finetuning use metatrain's command line interfaace
 
     :param path: local or remote path to a model. For supported URL schemes see
-        :py:class`urllib.request`
+        :py:class:`urllib.request`
     :param extensions_directory: path to a directory containing all extensions required
         by an *exported* model
+    :param token: HuggingFace API token to download (private) models from HuggingFace
 
     :raises ValueError: if ``path`` is a YAML option file and no model
     :raises ValueError: if no ``archietcture_name`` is found in the checkpoint
@@ -98,95 +148,77 @@ def load_model(
             f"path '{path}' seems to be a YAML option file and not a model"
         )
 
-    # Download from HuggingFace with a private token
-    if (
-        kwargs.get("huggingface_api_token")  # token from CLI
-        or os.environ.get("HF_TOKEN")  # token from env variable
-    ) and "huggingface.co" in str(path):
-        cli_token = kwargs.get("huggingface_api_token")
-        env_token = os.environ.get("HF_TOKEN")
-        if cli_token and env_token:
-            logging.info(
-                "Both CLI and environment variable tokens are set for "
-                "HuggingFace. Using the CLI token."
-            )
-            hf_token = cli_token
-        else:
-            if cli_token:
-                hf_token = cli_token
-            if env_token:
-                hf_token = env_token
-        try:
-            from huggingface_hub import hf_hub_download
-        except ImportError:
-            raise ImportError(
-                "To download a model from HuggingFace, please install the "
-                "`huggingface_hub` package with pip (`pip install "
-                "huggingface_hub`)."
-            )
-        path = str(path)
-        if not path.startswith("https://huggingface.co/"):
-            raise ValueError(
-                f"Invalid URL '{path}'. HuggingFace models should start with "
-                "'https://huggingface.co/'."
-            )
-        # get repo_id and filename
-        split_path = path.split("/")
-        repo_id = f"{split_path[3]}/{split_path[4]}"  # org/repo
-        filename = ""
-        for i in range(5, len(split_path)):
-            filename += split_path[i] + "/"
-        filename = filename[:-1]
-        if filename.startswith("resolve"):
-            if not filename[8:].startswith("main/"):
-                raise ValueError(
-                    f"Invalid URL '{path}'. metatrain only supports models from the "
-                    "'main' branch."
-                )
-            filename = filename[13:]
-        if filename.startswith("blob/"):
-            if not filename[5:].startswith("main/"):
-                raise ValueError(
-                    f"Invalid URL '{path}'. metatrain only supports models from the "
-                    "'main' branch."
-                )
-            filename = filename[10:]
-        path = hf_hub_download(repo_id, filename, token=hf_token)
-        # make sure to copy the checkpoint to the current directory
-        basename = os.path.basename(path)
-        shutil.copy(path, Path.cwd() / basename)
-        logger.info(f"Downloaded model from HuggingFace to {basename}")
-
-    elif urlparse(str(path)).scheme:
-        path, _ = urlretrieve(str(path))
-        # make sure to copy the checkpoint to the current directory
-        basename = os.path.basename(path)
-        shutil.copy(path, Path.cwd() / basename)
-        logger.info(f"Downloaded model to {basename}")
-
-    else:
-        pass
-
     path = str(path)
+
+    # Download remote model
+    # TODO(@PicoCentauri): Introduce caching for remote models
+    if urlparse(path).scheme:
+        if token is None:
+            path, _ = urlretrieve(path)
+        else:
+            path = _hf_hub_download_url(path, token=token)
+
     if is_exported_file(path):
         return load_atomistic_model(path, extensions_directory=extensions_directory)
     else:  # model is a checkpoint
-        checkpoint = torch.load(path, weights_only=False, map_location="cpu")
-        if "architecture_name" not in checkpoint:
-            raise ValueError("No architecture name found in the checkpoint")
-        architecture_name = checkpoint["architecture_name"]
-        if architecture_name not in find_all_architectures():
-            raise ValueError(
-                f"Checkpoint architecture '{architecture_name}' not found "
-                "in the available architectures. Available architectures are: "
-                f"{find_all_architectures()}"
-            )
-        architecture = import_architecture(architecture_name)
+        return model_from_checkpoint(path, context="export")
 
-        try:
-            return architecture.__model__.load_checkpoint(path)
-        except Exception as err:
-            raise ValueError(
-                f"path '{path}' is not a valid checkpoint for the {architecture_name} "
-                "architecture"
-            ) from err
+
+def model_from_checkpoint(
+    path: Union[str, Path], context=Literal["restart", "finetune", "export"]
+) -> torch.nn.Module:
+    """
+    Load the checkpoint at the given ``path``, and create the corresponding model
+    instance. The model architecture is determined from information stored inside the
+    checkpoint.
+    """
+    checkpoint = torch.load(path, weights_only=False, map_location="cpu")
+
+    architecture_name = checkpoint["architecture_name"]
+    if architecture_name not in find_all_architectures():
+        raise ValueError(
+            f"Checkpoint architecture '{architecture_name}' not found "
+            "in the available architectures. Available architectures are: "
+            f"{find_all_architectures()}"
+        )
+    architecture = import_architecture(architecture_name)
+
+    try:
+        return architecture.__model__.load_checkpoint(checkpoint, context=context)
+    except Exception as err:
+        raise ValueError(
+            f"path '{path}' is not a valid checkpoint for the {architecture_name} "
+            "architecture"
+        ) from err
+
+
+def trainer_from_checkpoint(
+    path: Union[str, Path],
+    context: Literal["restart", "finetune", "export"],
+    hypers: Dict[str, Any],
+) -> Any:
+    """
+    Load the checkpoint at the given ``path``, and create the corresponding trainer
+    instance. The architecture is determined from information stored inside the
+    checkpoint.
+    """
+    checkpoint = torch.load(path, weights_only=False, map_location="cpu")
+
+    architecture_name = checkpoint["architecture_name"]
+    if architecture_name not in find_all_architectures():
+        raise ValueError(
+            f"Checkpoint architecture '{architecture_name}' not found "
+            "in the available architectures. Available architectures are: "
+            f"{find_all_architectures()}"
+        )
+    architecture = import_architecture(architecture_name)
+
+    try:
+        return architecture.__trainer__.load_checkpoint(
+            checkpoint, context=context, train_hypers=hypers
+        )
+    except Exception as err:
+        raise ValueError(
+            f"path '{path}' is not a valid checkpoint for the {architecture_name} "
+            "trainer state"
+        ) from err

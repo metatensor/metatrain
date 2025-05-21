@@ -372,3 +372,18 @@ def test_tmap_loss_huber():
     loss_value_mse = loss_mse(tensor_map_1, tensor_map_with_outlier)
     # Huber loss is lower due to the outlier
     assert loss_value_huber < 0.5 * loss_value_mse
+
+
+def test_tmap_loss_with_sliding_weights(tensor_map_with_grad_1, tensor_map_with_grad_2):
+    """Test that the loss behaves as expected with sliding weights."""
+    loss = TensorMapLoss(
+        type="mse", gradient_weights={"gradient": 1.0}, sliding_factor=0.7
+    )
+
+    for _ in range(5):
+        loss(tensor_map_with_grad_1, tensor_map_with_grad_2)
+
+    # in the two TensorMaps above, the loss on the gradients is larger than the loss on
+    # the values, therefore we should expect a larger sliding weight for the gradients
+
+    assert loss.sliding_weights["gradient"] > loss.sliding_weights["values"]

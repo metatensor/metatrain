@@ -1,4 +1,3 @@
-import copy
 import shutil
 
 import metatensor
@@ -9,6 +8,7 @@ from metatrain.experimental.nanopet import NanoPET, Trainer
 from metatrain.utils.data import Dataset, DatasetInfo
 from metatrain.utils.data.readers import read_systems, read_targets
 from metatrain.utils.data.target_info import get_energy_target_info
+from metatrain.utils.io import model_from_checkpoint
 from metatrain.utils.neighbor_lists import get_system_with_neighbor_lists
 
 from . import DATASET_PATH, DEFAULT_HYPERS, MODEL_HYPERS
@@ -58,9 +58,21 @@ def test_continue(monkeypatch, tmp_path):
 
     hypers = DEFAULT_HYPERS.copy()
     hypers["training"]["num_epochs"] = 0
+    trainer = Trainer(hypers["training"])
+    trainer.train(
+        model=model,
+        dtype=torch.float32,
+        devices=[torch.device("cpu")],
+        train_datasets=[dataset],
+        val_datasets=[dataset],
+        checkpoint_dir=".",
+    )
 
-    model_before = copy.deepcopy(model)
-    model_after = model.restart(dataset_info)
+    trainer.save_checkpoint(model, "tmp.ckpt")
+
+    model_after = model_from_checkpoint("tmp.ckpt", context="restart")
+    assert isinstance(model_after, NanoPET)
+    model_after.restart(dataset_info)
 
     hypers["training"]["num_epochs"] = 0
     trainer = Trainer(hypers["training"])
@@ -78,10 +90,11 @@ def test_continue(monkeypatch, tmp_path):
     for system in systems:
         get_system_with_neighbor_lists(system, model.requested_neighbor_lists())
 
+    model.eval()
+    model_after.eval()
+
     # Predict on the first five systems
-    output_before = model_before(
-        systems[:5], {"mtt::U0": model_before.outputs["mtt::U0"]}
-    )
+    output_before = model(systems[:5], {"mtt::U0": model.outputs["mtt::U0"]})
     output_after = model_after(systems[:5], {"mtt::U0": model_after.outputs["mtt::U0"]})
 
     assert metatensor.torch.allclose(output_before["mtt::U0"], output_after["mtt::U0"])

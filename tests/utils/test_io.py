@@ -1,7 +1,7 @@
+import os
 from pathlib import Path
 
 import pytest
-import torch
 from metatensor.torch.atomistic import MetatensorAtomisticModel
 
 from metatrain.soap_bpnn.model import SoapBpnn
@@ -48,9 +48,10 @@ def test_is_exported_file():
 def test_load_model_checkpoint(path):
     model = load_model(path)
     assert type(model) is SoapBpnn
-    if str(path).startswith("file:"):
-        # test that the checkpoint is also copied to the current directory
-        assert Path("model-32-bit.ckpt").exists()
+
+    # TODO: test that weights are the expected if loading with `context == 'export'`.
+    # One can use `list(model.bpnn[0].parameters())[0][0]` to get some weights. But,
+    # currently weights of the `"export"` and the `"restart"` context are the same...
 
 
 @pytest.mark.parametrize(
@@ -73,27 +74,30 @@ def test_load_model_yaml(suffix):
         load_model(f"foo{suffix}")
 
 
-def test_load_model_unknown_model(tmpdir):
-    architecture_name = "soap_bpnn"
-    path = "fake.ckpt"
+def test_load_model_token():
+    """Test that the export cli succeeds when exporting a private
+    model from HuggingFace."""
 
-    with tmpdir.as_cwd():
-        torch.save({"architecture_name": architecture_name}, path)
+    token = os.getenv("HUGGINGFACE_TOKEN_METATRAIN")
+    if token is None:
+        pytest.skip("HuggingFace token not found in environment.")
+    assert len(token) > 0
 
-        match = (
-            f"path '{path}' is not a valid checkpoint for the {architecture_name} "
-            "architecture"
-        )
-        with pytest.raises(ValueError, match=match):
-            load_model(path, architecture_name=architecture_name)
+    path = "https://huggingface.co/metatensor/metatrain-test/resolve/main/model.ckpt"
+    load_model(path, token=token)
 
 
-def test_load_model_no_architecture_name(monkeypatch, tmpdir):
-    monkeypatch.chdir(tmpdir)
-    architecture_name = "soap_bpnn"
-    path = "fake.ckpt"
-    torch.save({"not_architecture_name": architecture_name}, path)
+def test_load_model_token_invalid_url_style():
+    token = os.getenv("HUGGINGFACE_TOKEN_METATRAIN")
+    if token is None:
+        pytest.skip("HuggingFace token not found in environment.")
+    assert len(token) > 0
 
-    match = "No architecture name found in the checkpoint"
-    with pytest.raises(ValueError, match=match):
-        load_model(path, architecture_name=architecture_name)
+    # change `resolve` to ``foo`` to make the URL scheme invalid
+    path = "https://huggingface.co/metatensor/metatrain-test/foo/main/model.ckpt"
+
+    with pytest.raises(
+        ValueError,
+        match=f"URL '{path}' has an invalid format for the Hugging Face Hub.",
+    ):
+        load_model(path, token=token)

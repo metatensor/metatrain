@@ -29,7 +29,7 @@ class DatasetInfo:
     training functions of the individual models.
 
     :param length_unit: Unit of length used in the dataset. Examples are ``"angstrom"``
-        or ``"nanometer"``.
+        or ``"nanometer"``. If None, the unit will be set to the empty string.
     :param atomic_types: List containing all integer atomic types present in the
         dataset. ``atomic_types`` will be stored as a sorted list of **unique** atomic
         types.
@@ -37,7 +37,10 @@ class DatasetInfo:
     """
 
     def __init__(
-        self, length_unit: str, atomic_types: List[int], targets: Dict[str, TargetInfo]
+        self,
+        length_unit: Optional[str],
+        atomic_types: List[int],
+        targets: Dict[str, TargetInfo],
     ):
         self.length_unit = length_unit if length_unit is not None else ""
         self._atomic_types = set(atomic_types)

@@ -4,16 +4,16 @@ dynamic = ["version"]
 requires-python = ">=3.9"
 
 readme = "README.rst"
-license = {text = "BSD-3-Clause"}
+license = "BSD-3-Clause"
 description = "Training and evaluating machine learning models for atomistic systems."
 authors = [{name = "metatrain developers"}]
 
 # Strict version pinning to avoid regression test failing on new versions
 dependencies = [
     "ase",
-    "metatensor-learn==0.3.1",
-    "metatensor-operations==0.3.2",
-    "metatensor-torch==0.7.3",
+    "metatensor-learn==0.3.2",
+    "metatensor-operations==0.3.3",
+    "metatensor-torch==0.7.6",
     "jsonschema",
     "omegaconf",
     "python-hostlist",
@@ -24,7 +24,6 @@ keywords = ["machine learning", "molecular modeling"]
 classifiers = [
     "Development Status :: 4 - Beta",
     "Intended Audience :: Science/Research",
-    "License :: OSI Approved :: BSD License",
     "Operating System :: POSIX",
     "Operating System :: MacOS :: MacOS X",
     "Operating System :: Microsoft :: Windows",
@@ -52,7 +51,7 @@ mtt = "metatrain.__main__:main"
 
 [build-system]
 requires = [
-    "setuptools >= 68",
+    "setuptools >= 77",
     "setuptools_scm>=8",
     "wheel",
 ]
@@ -60,10 +59,10 @@ build-backend = "setuptools.build_meta"
 
 [project.optional-dependencies]
 soap-bpnn = [
-    "featomic-torch >=0.6,<0.7",
+    "torch-spex>=0.1,<0.2",
     "wigners",
 ]
-pet = [
+deprecated-pet = [
     "pet-neighbors-convert",
     "torch_geometric",
     "matscipy",
@@ -71,6 +70,7 @@ pet = [
     "pathos",
     "scipy",
 ]
+pet = []
 nanopet = []
 gap = [
     "featomic-torch >=0.6,<0.7",

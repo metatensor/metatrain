@@ -1,16 +1,15 @@
 import argparse
 import logging
+import os
 from pathlib import Path
 from typing import Any, Optional, Union
 
+import torch
 from metatensor.torch.atomistic import ModelMetadata, is_atomistic_model
 from omegaconf import OmegaConf
 
 from ..utils.io import check_file_extension, load_model
 from .formatter import CustomHelpFormatter
-
-
-logger = logging.getLogger(__name__)
 
 
 def _add_export_model_parser(subparser: argparse._SubParsersAction) -> None:
@@ -50,6 +49,18 @@ def _add_export_model_parser(subparser: argparse._SubParsersAction) -> None:
         ),
     )
     parser.add_argument(
+        "-e",
+        "--extensions",
+        dest="extensions",
+        type=str,
+        required=False,
+        default="extensions/",
+        help=(
+            "Folder where the extensions of the model, if any, will be collected "
+            "(default: %(default)s)."
+        ),
+    )
+    parser.add_argument(
         "-m",
         "--metadata",
         type=str,
@@ -59,28 +70,41 @@ def _add_export_model_parser(subparser: argparse._SubParsersAction) -> None:
         help="Metatdata YAML file to be appended to the model.",
     )
     parser.add_argument(
-        "--huggingface_api_token",
-        dest="huggingface_api_token",
+        "--token",
+        dest="token",
         type=str,
         required=False,
-        default="",
-        help="API token to download a private model from HuggingFace.",
+        default=None,
+        help="HuggingFace API token to download (private )models from HuggingFace. "
+        "You can also set a environment variable `HF_TOKEN` to avoid passing it every "
+        "time.",
     )
 
 
 def _prepare_export_model_args(args: argparse.Namespace) -> None:
     """Prepare arguments for export_model."""
+
     path = args.__dict__.pop("path")
-    args.model = load_model(
-        path=path,
-        **args.__dict__,
-    )
+    token = args.__dict__.pop("token")
+
+    # use env variable if available
+    env_token = os.environ.get("HF_TOKEN")
+    if env_token:
+        if token is None:
+            token = env_token
+        else:
+            raise ValueError(
+                "Both CLI and environment variable tokens are set for HuggingFace. "
+                "Please use only one."
+            )
+
+    args.model = load_model(path=path, token=token)
 
     if args.metadata is not None:
         args.metadata = ModelMetadata(**OmegaConf.load(args.metadata))
 
     # only these are needed for `export_model``
-    keys_to_keep = ["model", "output", "metadata"]
+    keys_to_keep = ["model", "output", "metadata", "extensions"]
     original_keys = list(args.__dict__.keys())
 
     for key in original_keys:
@@ -91,7 +115,10 @@ def _prepare_export_model_args(args: argparse.Namespace) -> None:
 
 
 def export_model(
-    model: Any, output: Union[Path, str], metadata: Optional[ModelMetadata] = None
+    model: Any,
+    output: Union[Path, str],
+    extensions: Union[Path, str] = "extensions/",
+    metadata: Optional[ModelMetadata] = None,
 ) -> None:
     """Export a trained model allowing it to make predictions.
 
@@ -101,6 +128,7 @@ def export_model(
 
     :param model: model to be exported
     :param output: path to save the model
+    :param extensions: path to save the extensions
     :param metadata: metadata to be appended to the model
     """
     path = str(
@@ -108,10 +136,29 @@ def export_model(
         .absolute()
         .resolve()
     )
-    extensions_path = str(Path("extensions/").absolute().resolve())
+
+    if _has_extensions():
+        extensions_path = str(Path(extensions).absolute().resolve())
+    else:
+        extensions_path = None
 
     if not is_atomistic_model(model):
         model = model.export(metadata)
 
     model.save(path, collect_extensions=extensions_path)
-    logger.info(f"Model exported to '{path}' and extensions to '{extensions_path}'")
+    if extensions_path is not None:
+        logging.info(
+            f"Model exported to '{path}' and extensions to '{extensions_path}'"
+        )
+    else:
+        logging.info(f"Model exported to '{path}'")
+
+
+def _has_extensions():
+    """Check if any torch extensions are currently loaded (besides metatensor)."""
+    loaded_libraries = torch.ops.loaded_libraries
+    for lib in loaded_libraries:
+        if "libmetatensor_torch" in lib:
+            continue
+        return True
+    return False

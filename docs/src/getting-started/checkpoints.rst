@@ -1,3 +1,5 @@
+.. _checkpoints:
+
 Checkpoints
 ###########
 
@@ -16,7 +18,7 @@ The sub-command to continue training from a checkpoint is
 
 .. code-block:: bash
 
-    mtt train options.yaml --continue model.ckpt
+    mtt train options.yaml --restart model.ckpt
 
 or
 
@@ -79,8 +81,8 @@ a file path.
     mtt export https://my.url.com/model.ckpt --output model.pt
 
 Downloading private HuggingFace models is also supported, by specifying the
-corresponding API token with the ``--huggingface_api_token`` flag or the
-``HF_TOKEN`` environment variable.
+corresponding API token with the ``--token`` flag or the ``HF_TOKEN`` environment
+variable.
 
 Keep in mind that a checkpoint (``.ckpt``) is only a temporary file, which can have
 several dependencies and may become unusable if the corresponding architecture is

@@ -30,14 +30,18 @@ from ..utils.data.dataset import _save_indices, _train_test_random_split
 from ..utils.devices import pick_devices
 from ..utils.distributed.logging import is_main_process
 from ..utils.errors import ArchitectureError
-from ..utils.io import check_file_extension, load_model
+from ..utils.io import (
+    check_file_extension,
+    load_model,
+    model_from_checkpoint,
+    trainer_from_checkpoint,
+)
 from ..utils.jsonschema import validate
+from ..utils.logging import ROOT_LOGGER, WandbHandler
 from ..utils.omegaconf import BASE_OPTIONS, check_units, expand_dataset_config
 from .eval import _eval_targets
+from .export import _has_extensions
 from .formatter import CustomHelpFormatter
-
-
-logger = logging.getLogger(__name__)
 
 
 def _add_train_model_parser(subparser: argparse._SubParsersAction) -> None:
@@ -72,12 +76,26 @@ def _add_train_model_parser(subparser: argparse._SubParsersAction) -> None:
         help="Path to save the final model (default: %(default)s).",
     )
     parser.add_argument(
-        "-c",
-        "--continue",
-        dest="continue_from",
-        type=_process_continue_from,
+        "-e",
+        "--extensions",
+        dest="extensions",
+        type=str,
         required=False,
-        help="Checkpoint file (.ckpt) to continue training from.",
+        default="extensions/",
+        help=(
+            "Folder where the extensions of the model, if any, will be collected "
+            "(default: %(default)s)"
+        ),
+    )
+    parser.add_argument(
+        "--restart",
+        dest="restart_from",
+        type=_process_restart_from,
+        required=False,
+        help=(
+            "Checkpoint file (.ckpt) to continue interrupted training. "
+            "Set to `'auto'` to use latest checkpoint from the outputs directory."
+        ),
     )
     parser.add_argument(
         "-r",
@@ -99,9 +117,9 @@ def _prepare_train_model_args(args: argparse.Namespace) -> None:
     args.options = OmegaConf.merge(args.options, override_options)
 
 
-def _process_continue_from(continue_from: str) -> Optional[str]:
-    # covers the case where `continue_from` is `auto`
-    if continue_from == "auto":
+def _process_restart_from(restart_from: str) -> Optional[str]:
+    # covers the case where `restart_from` is `auto`
+    if restart_from == "auto":
         # try to find the `outputs` directory; if it doesn't exist
         # then we are not continuing from a previous run
         if Path("outputs/").exists():
@@ -113,13 +131,13 @@ def _process_continue_from(continue_from: str) -> Optional[str]:
             # `sorted` because some checkpoint files are named with
             # the epoch number (e.g. `epoch_10.ckpt` would be before
             # `epoch_8.ckpt`). We therefore sort by file creation time.
-            new_continue_from = str(
+            new_restart_from = str(
                 sorted(dir.glob("*.ckpt"), key=lambda f: f.stat().st_ctime)[-1]
             )
-            logger.info(f"Auto-continuing from `{new_continue_from}`")
+            logging.info(f"Auto-continuing from `{new_restart_from}`")
         else:
-            new_continue_from = None
-            logger.info(
+            new_restart_from = None
+            logging.info(
                 "Auto-continuation did not find any previous runs, "
                 "training from scratch"
             )
@@ -129,16 +147,17 @@ def _process_continue_from(continue_from: str) -> Optional[str]:
         # still executing this function
         time.sleep(3)
     else:
-        new_continue_from = continue_from
+        new_restart_from = restart_from
 
-    return new_continue_from
+    return new_restart_from
 
 
 def train_model(
     options: Union[DictConfig, Dict],
     output: str = "model.pt",
+    extensions: str = "extensions/",
     checkpoint_dir: Union[str, Path] = ".",
-    continue_from: Optional[str] = None,
+    restart_from: Optional[str] = None,
 ) -> None:
     """Train an atomistic machine learning model using provided ``options``.
 
@@ -152,7 +171,7 @@ def train_model(
     :param output: Path to save the final model
     :param checkpoint_dir: Path to save checkpoints and other intermediate output files
         like the fully expanded training options for a later restart.
-    :param continue_from: File to continue training from.
+    :param restart_from: File to continue training from.
     """
     ###########################
     # VALIDATE BASE OPTIONS ###
@@ -176,7 +195,7 @@ def train_model(
     )
     architecture = import_architecture(architecture_name)
 
-    logger.info(f"Running training for {architecture_name!r} architecture")
+    logging.info(f"Running training for {architecture_name!r} architecture")
 
     Model = architecture.__model__
     Trainer = architecture.__trainer__
@@ -212,7 +231,7 @@ def train_model(
         )
 
     # process random seeds
-    logger.info(f"Random seed of this run is {options['seed']}")
+    logging.info(f"Random seed of this run is {options['seed']}")
     torch.manual_seed(options["seed"])
     np.random.seed(options["seed"])
     random.seed(options["seed"])
@@ -221,11 +240,27 @@ def train_model(
         torch.cuda.manual_seed(options["seed"])
         torch.cuda.manual_seed_all(options["seed"])
 
+    # setup wandb logging
+    if hasattr(options, "wandb"):
+        try:
+            import wandb
+        except ImportError:
+            raise ImportError(
+                "Wandb is enabled but not installed. "
+                "Please install wandb using `pip install wandb` to use this logger."
+            )
+        logging.info("Setting up wandb logging")
+
+        run = wandb.init(
+            **options["wandb"], config=OmegaConf.to_container(options, resolve=True)
+        )
+        ROOT_LOGGER.addHandler(WandbHandler(run))
+
     ############################
     # SET UP TRAINING SET ######
     ############################
 
-    logger.info("Setting up training set")
+    logging.info("Setting up training set")
     options["training_set"] = expand_dataset_config(options["training_set"])
 
     train_datasets = []
@@ -248,7 +283,7 @@ def train_model(
     # SET UP VALIDATION SET ####
     ############################
 
-    logger.info("Setting up validation set")
+    logging.info("Setting up validation set")
     val_datasets = []
     train_indices = []
     val_indices = []
@@ -291,7 +326,7 @@ def train_model(
     # SET UP TEST SET ##########
     ############################
 
-    logger.info("Setting up test set")
+    logging.info("Setting up test set")
     test_datasets = []
     test_indices = []
     if isinstance(options["test_set"], float):
@@ -367,7 +402,7 @@ def train_model(
             index = ""
         else:
             index = f" {i}"
-        logger.info(
+        logging.info(
             f"Training dataset{index}:\n    {get_stats(train_dataset, dataset_info)}"
         )
 
@@ -376,7 +411,7 @@ def train_model(
             index = ""
         else:
             index = f" {i}"
-        logger.info(
+        logging.info(
             f"Validation dataset{index}:\n    {get_stats(val_dataset, dataset_info)}"
         )
 
@@ -385,7 +420,7 @@ def train_model(
             index = ""
         else:
             index = f" {i}"
-        logger.info(
+        logging.info(
             f"Test dataset{index}:\n    {get_stats(test_dataset, dataset_info)}"
         )
 
@@ -404,12 +439,14 @@ def train_model(
     # SETTING UP MODEL ########
     ###########################
 
-    logger.info("Setting up model")
+    logging.info("Setting up model")
     try:
-        if continue_from is not None:
-            logger.info(f"Loading checkpoint from `{continue_from}`")
-            trainer = Trainer.load_checkpoint(continue_from, hypers["training"])
-            model = Model.load_checkpoint(continue_from)
+        if restart_from is not None:
+            logging.info(f"Restarting training from `{restart_from}`")
+            trainer = trainer_from_checkpoint(
+                path=restart_from, context="restart", hypers=hypers["training"]
+            )
+            model = model_from_checkpoint(path=restart_from, context="restart")
             model = model.restart(dataset_info)
         else:
             model = Model(hypers["model"], dataset_info)
@@ -421,7 +458,7 @@ def train_model(
     # TRAIN MODEL #############
     ###########################
 
-    logger.info("Calling trainer")
+    logging.info("Calling trainer")
     try:
         trainer.train(
             model=model,
@@ -442,7 +479,7 @@ def train_model(
     ###########################
 
     output_checked = check_file_extension(filename=output, extension=".pt")
-    logger.info(
+    logging.info(
         "Training finished, saving final checkpoint "
         f"to `{str(Path(output_checked).stem)}.ckpt`"
     )
@@ -452,11 +489,18 @@ def train_model(
         raise ArchitectureError(e)
 
     mts_atomistic_model = model.export()
-    extensions_path = "extensions/"
+    if _has_extensions():
+        extensions_path = str(Path(extensions).absolute().resolve())
+    else:
+        extensions_path = None
 
-    logger.info(
-        f"Exporting model to `{output_checked}` and extensions to `{extensions_path}`"
-    )
+    if extensions_path is not None:
+        logging.info(
+            f"Exporting model to `{output_checked}` and extensions to "
+            f"`{extensions_path}`"
+        )
+    else:
+        logging.info(f"Exporting model to `{output_checked}`")
     # get device from the model. This device could be different from devices[0]
     # defined above in the case of multi-GPU and/or distributed training
     final_device = next(
@@ -492,13 +536,13 @@ def train_model(
 
     batch_size = _get_batch_size_from_hypers(hypers)
     if batch_size is None:
-        logger.warning(
+        logging.warning(
             "Could not find batch size in hypers dictionary. "
             "Using default value of 1 for final evaluation."
         )
         batch_size = 1
     else:
-        logger.info(f"Running final evaluation with batch size {batch_size}")
+        logging.info(f"Running final evaluation with batch size {batch_size}")
 
     for i, train_dataset in enumerate(train_datasets):
         if len(train_datasets) == 1:
@@ -506,7 +550,7 @@ def train_model(
         else:
             extra_log_message = f" with index {i}"
 
-        logger.info(f"Evaluating training dataset{extra_log_message}")
+        logging.info(f"Evaluating training dataset{extra_log_message}")
         _eval_targets(
             mts_atomistic_model,
             train_dataset,
@@ -521,7 +565,7 @@ def train_model(
         else:
             extra_log_message = f" with index {i}"
 
-        logger.info(f"Evaluating validation dataset{extra_log_message}")
+        logging.info(f"Evaluating validation dataset{extra_log_message}")
         _eval_targets(
             mts_atomistic_model,
             val_dataset,
@@ -536,7 +580,7 @@ def train_model(
         else:
             extra_log_message = f" with index {i}"
 
-        logger.info(f"Evaluating test dataset{extra_log_message}")
+        logging.info(f"Evaluating test dataset{extra_log_message}")
         _eval_targets(
             mts_atomistic_model,
             test_dataset,

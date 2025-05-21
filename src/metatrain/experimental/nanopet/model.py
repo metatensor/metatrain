@@ -1,6 +1,6 @@
+import warnings
 from math import prod
-from pathlib import Path
-from typing import Dict, List, Optional, Union
+from typing import Any, Dict, List, Literal, Optional
 
 import metatensor.torch
 import torch
@@ -14,12 +14,14 @@ from metatensor.torch.atomistic import (
     System,
 )
 
-from ...utils.additive import ZBL, CompositionModel
-from ...utils.data import DatasetInfo, TargetInfo
-from ...utils.dtype import dtype_to_str
-from ...utils.long_range import DummyLongRangeFeaturizer, LongRangeFeaturizer
-from ...utils.metadata import append_metadata_references
-from ...utils.scaler import Scaler
+from metatrain.utils.additive import ZBL, CompositionModel
+from metatrain.utils.data import DatasetInfo, TargetInfo
+from metatrain.utils.dtype import dtype_to_str
+from metatrain.utils.long_range import DummyLongRangeFeaturizer, LongRangeFeaturizer
+from metatrain.utils.metadata import append_metadata_references
+from metatrain.utils.scaler import Scaler
+from metatrain.utils.sum_over_atoms import sum_over_atoms
+
 from .modules.encoder import Encoder
 from .modules.nef import (
     edge_array_to_nef,
@@ -183,6 +185,9 @@ class NanoPET(torch.nn.Module):
         self.scaler = Scaler(model_hypers={}, dataset_info=dataset_info)
 
         self.single_label = Labels.single()
+
+    def supported_outputs(self) -> Dict[str, ModelOutput]:
+        return self.outputs
 
     def restart(self, dataset_info: DatasetInfo) -> "NanoPET":
         # merge old and new dataset info
@@ -408,9 +413,7 @@ class NanoPET(torch.nn.Module):
             if features_options.per_atom:
                 return_dict["features"] = feature_tmap
             else:
-                return_dict["features"] = metatensor.torch.sum_over_samples(
-                    feature_tmap, ["atom"]
-                )
+                return_dict["features"] = sum_over_atoms(feature_tmap)
 
         atomic_features_dict: Dict[str, torch.Tensor] = {}
         for output_name, head in self.heads.items():
@@ -458,8 +461,8 @@ class NanoPET(torch.nn.Module):
             if last_layer_features_options.per_atom:
                 return_dict[output_name] = last_layer_feature_tmap
             else:
-                return_dict[output_name] = metatensor.torch.sum_over_samples(
-                    last_layer_feature_tmap, ["atom"]
+                return_dict[output_name] = sum_over_atoms(
+                    last_layer_feature_tmap,
                 )
 
         atomic_properties_tmap_dict: Dict[str, TensorMap] = {}
@@ -471,6 +474,29 @@ class NanoPET(torch.nn.Module):
                     atomic_properties_by_block.append(
                         last_layer_by_block(atomic_features)
                     )
+                all_components = self.component_labels[output_name]
+                if len(all_components[0]) == 2 and all(
+                    "xyz" in comp.names[0] for comp in all_components[0]
+                ):
+                    # rank-2 Cartesian tensor, symmetrize
+                    tensor_as_three_by_three = atomic_properties_by_block[0].reshape(
+                        -1, 3, 3, list(self.output_shapes[output_name].values())[0][-1]
+                    )
+                    volumes = torch.stack(
+                        [torch.abs(torch.det(system.cell)) for system in systems]
+                    )
+                    volumes_by_atom = (
+                        volumes[system_indices].unsqueeze(1).unsqueeze(2).unsqueeze(3)
+                    )
+                    tensor_as_three_by_three = (
+                        tensor_as_three_by_three / volumes_by_atom
+                    )
+                    tensor_as_three_by_three = (
+                        tensor_as_three_by_three
+                        + tensor_as_three_by_three.transpose(1, 2)
+                    ) / 2.0
+                    atomic_properties_by_block[0] = tensor_as_three_by_three
+
                 blocks = [
                     TensorBlock(
                         values=atomic_property.reshape([-1] + shape),
@@ -500,9 +526,7 @@ class NanoPET(torch.nn.Module):
             if outputs[output_name].per_atom:
                 return_dict[output_name] = atomic_property
             else:
-                return_dict[output_name] = metatensor.torch.sum_over_samples(
-                    atomic_property, ["atom"]
-                )
+                return_dict[output_name] = sum_over_atoms(atomic_property)
 
         if not self.training:
             # at evaluation, we also introduce the scaler and additive contributions
@@ -531,11 +555,19 @@ class NanoPET(torch.nn.Module):
         return [self.requested_nl]
 
     @classmethod
-    def load_checkpoint(cls, path: Union[str, Path]) -> "NanoPET":
-        # Load the checkpoint
-        checkpoint = torch.load(path, weights_only=False, map_location="cpu")
+    def load_checkpoint(
+        cls,
+        checkpoint: Dict[str, Any],
+        context: Literal["restart", "finetune", "export"],
+    ) -> "NanoPET":
         model_data = checkpoint["model_data"]
-        model_state_dict = checkpoint["model_state_dict"]
+
+        if context == "restart":
+            model_state_dict = checkpoint["model_state_dict"]
+        elif context == "finetune" or context == "export":
+            model_state_dict = checkpoint["best_model_state_dict"]
+        else:
+            raise ValueError("Unknown context tag for checkpoint loading!")
 
         # Create the model
         model = cls(**model_data)
@@ -543,6 +575,7 @@ class NanoPET(torch.nn.Module):
         next(state_dict_iter)  # skip `species_to_species_index` buffer (int)
         dtype = next(state_dict_iter).dtype
         model.to(dtype).load_state_dict(model_state_dict)
+        model.additive_models[0].sync_tensor_maps()
 
         return model
 
@@ -589,6 +622,22 @@ class NanoPET(torch.nn.Module):
         return MetatensorAtomisticModel(self.eval(), metadata, capabilities)
 
     def _add_output(self, target_name: str, target_info: TargetInfo) -> None:
+        # warn that, for Cartesian tensors, we assume that they are symmetric
+        if target_info.is_cartesian:
+            if len(target_info.layout.block().components) == 2:
+                warnings.warn(
+                    "NanoPET assumes that Cartesian tensors of rank 2 are "
+                    "stress-like, meaning that they are symmetric and intensive. "
+                    "If this is not the case, please use a different model.",
+                    UserWarning,
+                    stacklevel=2,
+                )
+            # error out for rank > 2
+            if len(target_info.layout.block().components) > 2:
+                raise ValueError(
+                    "NanoPET does not support Cartesian tensors with rank > 2."
+                )
+
         # one output shape for each tensor block, grouped by target (i.e. tensormap)
         self.output_shapes[target_name] = {}
         for key, block in target_info.layout.items():

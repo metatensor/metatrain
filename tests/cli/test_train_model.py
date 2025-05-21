@@ -15,7 +15,7 @@ from metatensor.torch.atomistic import NeighborListOptions, systems_to_torch
 from omegaconf import OmegaConf
 
 from metatrain import RANDOM_SEED
-from metatrain.cli.train import _process_continue_from, train_model
+from metatrain.cli.train import _process_restart_from, train_model
 from metatrain.utils.data import DiskDatasetWriter
 from metatrain.utils.data.readers.ase import read
 from metatrain.utils.errors import ArchitectureError
@@ -27,6 +27,7 @@ from . import (
     DATASET_PATH_QM7X,
     DATASET_PATH_QM9,
     MODEL_PATH_64_BIT,
+    OPTIONS_NANOPET_PATH,
     OPTIONS_PATH,
     RESOURCES_PATH,
 )
@@ -98,7 +99,7 @@ def test_train(capfd, monkeypatch, tmp_path, output):
 
     assert file_log == stdout_log
 
-    assert "This log is also available" in stdout_log
+    assert stdout_log.count("This log is also available") == 1  # only once
     assert "Running training for 'soap_bpnn' architecture"
     assert re.search(r"Random seed of this run is [1-9]\d*", stdout_log)
     assert "Training dataset:" in stdout_log
@@ -108,13 +109,22 @@ def test_train(capfd, monkeypatch, tmp_path, output):
     assert "mean " in stdout_log
     assert "std " in stdout_log
     assert "[INFO]" in stdout_log
-    assert "Epoch" in stdout_log
+    assert stdout_log.count("Epoch:    0") == 1
     assert "loss" in stdout_log
     assert "validation" in stdout_log
     assert "train" in stdout_log
     assert "energy" in stdout_log
     assert "with index" not in stdout_log  # index only printed for more than 1 dataset
-    assert "Running final evaluation with batch size 2" in stdout_log
+    assert "Running final evaluation with batch size 16" in stdout_log
+
+    # Open the CSV log file and check if the logging is correct
+    csv_glob = glob.glob("outputs/*/*/train.csv")
+    assert len(csv_glob) == 1
+
+    with open(csv_glob[0]) as f:
+        csv_log = f.read()
+
+    assert "Epoch" in csv_log
 
 
 @pytest.mark.parametrize(
@@ -283,6 +293,19 @@ def test_empty_training_set(monkeypatch, tmp_path, options):
         train_model(options)
 
 
+def test_batch_size_smaller_training_set(monkeypatch, tmp_path, options):
+    """Test that training still runs for batch size > train_size."""
+    monkeypatch.chdir(tmp_path)
+
+    shutil.copy(DATASET_PATH_QM9, "qm9_reduced_100.xyz")
+
+    options["validation_set"] = 0.55
+    options["test_set"] = 0.4
+    options["architecture"]["training"]["batch_size"] = 1000
+
+    train_model(options)
+
+
 @pytest.mark.parametrize("split", [-0.1, 1.1])
 def test_wrong_test_split_size(split, monkeypatch, tmp_path, options):
     """Test that an error is raised if the test split has the wrong size"""
@@ -444,7 +467,7 @@ def test_continue(options, monkeypatch, tmp_path):
     monkeypatch.chdir(tmp_path)
     shutil.copy(DATASET_PATH_QM9, "qm9_reduced_100.xyz")
 
-    train_model(options, continue_from=MODEL_PATH_64_BIT)
+    train_model(options, restart_from=MODEL_PATH_64_BIT)
 
 
 def test_continue_auto(options, caplog, monkeypatch, tmp_path):
@@ -472,9 +495,10 @@ def test_continue_auto(options, caplog, monkeypatch, tmp_path):
         for fake_checkpoint_dir in fake_checkpoints_dirs:
             shutil.copy(MODEL_PATH_64_BIT, fake_checkpoint_dir / f"model_{i}.ckpt")
 
-    train_model(options, continue_from=_process_continue_from("auto"))
+    restart_from = _process_restart_from("auto")
+    train_model(options, restart_from=restart_from)
 
-    assert "Loading checkpoint from" in caplog.text
+    assert f"Auto-continuing from `{restart_from}`" in caplog.text
     assert str(true_checkpoint_dir) in caplog.text
     assert "model_3.ckpt" in caplog.text
 
@@ -486,9 +510,9 @@ def test_continue_auto_no_outputs(options, caplog, monkeypatch, tmp_path):
     shutil.copy(DATASET_PATH_QM9, "qm9_reduced_100.xyz")
     caplog.set_level(logging.INFO)
 
-    train_model(options, continue_from=_process_continue_from("auto"))
+    train_model(options, restart_from=_process_restart_from("auto"))
 
-    assert "Loading checkpoint from" not in caplog.text
+    assert "Restart training from" not in caplog.text
 
 
 def test_continue_different_dataset(options, monkeypatch, tmp_path):
@@ -500,7 +524,7 @@ def test_continue_different_dataset(options, monkeypatch, tmp_path):
     options["training_set"]["systems"]["read_from"] = "ethanol_reduced_100.xyz"
     options["training_set"]["targets"]["energy"]["key"] = "energy"
 
-    train_model(options, continue_from=MODEL_PATH_64_BIT)
+    train_model(options, restart_from=MODEL_PATH_64_BIT)
 
 
 @pytest.mark.parametrize("seed", [None, 1234])
@@ -524,9 +548,11 @@ def test_model_consistency_with_seed(options, monkeypatch, tmp_path, seed):
     m1 = torch.load("model1.ckpt", weights_only=False)
     m2 = torch.load("model2.ckpt", weights_only=False)
 
-    for i in m1["model_state_dict"]:
-        tensor1 = m1["model_state_dict"][i]
-        tensor2 = m2["model_state_dict"][i]
+    for tensor_name in m1["model_state_dict"]:
+        if "type_to_index" in tensor_name or "spliner" in tensor_name:
+            continue  # these the same for both models
+        tensor1 = m1["model_state_dict"][tensor_name]
+        tensor2 = m2["model_state_dict"][tensor_name]
 
         if seed is None:
             assert not torch.allclose(tensor1, tensor2)
@@ -655,8 +681,7 @@ def test_train_generic_target_metatensor(monkeypatch, tmp_path, with_scalar_part
     )
 
     # run training with original options
-    options = OmegaConf.load(OPTIONS_PATH)
-    options["architecture"]["name"] = "experimental.nanopet"
+    options = OmegaConf.load(OPTIONS_NANOPET_PATH)
     options["training_set"]["systems"]["read_from"] = "qm7x_reduced_100.xyz"
     options["training_set"]["targets"] = {
         "mtt::polarizability": {
@@ -687,7 +712,7 @@ def test_train_disk_dataset(monkeypatch, tmp_path, options):
         system = systems_to_torch(frame, dtype=torch.float64)
         system = get_system_with_neighbor_lists(
             system,
-            [NeighborListOptions(cutoff=5.0, full_list=False, strict=False)],
+            [NeighborListOptions(cutoff=5.0, full_list=True, strict=True)],
         )
         energy = TensorMap(
             keys=Labels.single(),
@@ -708,3 +733,24 @@ def test_train_disk_dataset(monkeypatch, tmp_path, options):
 
     options["training_set"]["systems"]["read_from"] = "qm9_reduced_100.zip"
     train_model(options)
+
+
+def test_train_wandb_logger(monkeypatch, tmp_path):
+    """Test that training via the training cli runs with an attached wandb logger."""
+    monkeypatch.chdir(tmp_path)
+    shutil.copy(DATASET_PATH_QM9, "qm9_reduced_100.xyz")
+
+    # Add wandb logger to the options
+    options = OmegaConf.load(OPTIONS_PATH)
+    options["wandb"] = {"mode": "offline"}
+    OmegaConf.save(config=options, f="options.yaml")
+
+    command = ["mtt", "train", "options.yaml"]
+    subprocess.check_call(command)
+
+    # test that logfile contains options
+    with open("wandb/latest-run/logs/debug.log") as f:
+        file_log = f.read()
+
+    assert "'base_precision': 64" in file_log
+    assert "'seed': 42" in file_log

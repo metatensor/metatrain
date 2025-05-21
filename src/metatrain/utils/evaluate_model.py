@@ -40,10 +40,16 @@ def evaluate_model(
     :returns: The predictions of the model for the requested targets.
     """
 
-    model_outputs = _get_outputs(model)
-    # Assert that all targets are within the model's capabilities:
+    # ignore warnings about gradients
+    warnings.filterwarnings(
+        action="ignore",
+        message="This system's positions or cell requires grad, but the neighbors",
+    )
+
+    model_outputs = _get_supported_outputs(model)
+    # Assert that all targets are within the model's supported outputs:
     if not set(targets.keys()).issubset(model_outputs.keys()):
-        raise ValueError("Not all targets are within the model's capabilities.")
+        raise ValueError("Not all targets are within the model's supported outputs")
 
     # Find if there are any energy targets that require gradients:
     energy_targets = []
@@ -62,16 +68,12 @@ def evaluate_model(
     new_systems = []
     strains = []
     for system in systems:
-        with warnings.catch_warnings():
-            # this seems to be the only way to filter out the torch-scripted warnings
-            # about neighbors (which are not relevant here), regex fails
-            warnings.simplefilter("ignore")
-            new_system, strain = _prepare_system(
-                system,
-                positions_grad=len(energy_targets_that_require_position_gradients) > 0,
-                strain_grad=len(energy_targets_that_require_strain_gradients) > 0,
-                check_consistency=check_consistency,
-            )
+        new_system, strain = _prepare_system(
+            system,
+            positions_grad=len(energy_targets_that_require_position_gradients) > 0,
+            strain_grad=len(energy_targets_that_require_strain_gradients) > 0,
+            check_consistency=check_consistency,
+        )
         new_systems.append(new_system)
         strains.append(strain)
     systems = new_systems
@@ -212,13 +214,13 @@ def _strain_gradients_to_block(gradients_list):
     )
 
 
-def _get_outputs(
+def _get_supported_outputs(
     model: Union[torch.nn.Module, torch.jit._script.RecursiveScriptModule],
 ):
     if is_atomistic_model(model):
         return model.capabilities().outputs
     else:
-        return model.outputs
+        return model.supported_outputs()
 
 
 def _get_model_outputs(
@@ -256,7 +258,7 @@ def _get_model_outputs(
 
 
 @torch.jit.script
-def _prepare_system(
+def _prepare_system(  # pragma: no cover
     system: System, positions_grad: bool, strain_grad: bool, check_consistency: bool
 ):
     """

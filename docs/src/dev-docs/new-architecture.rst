@@ -18,12 +18,13 @@ lines
     from architecture import __model__ as Model
     from architecture import __trainer__ as Trainer
 
-    hypers = {}
+    hypers = {...}
     dataset_info = DatasetInfo()
 
-    if continue_from is not None:
-        trainer = Trainer.load_checkpoint(continue_from, hypers["training"])
-        model = Model.load_checkpoint(continue_from)
+    if checkpoint_path is not None:
+        checkpoint = torch.load(checkpoint_path)
+        model = Model.load_checkpoint(checkpoint)
+        trainer = Trainer.load_checkpoint(checkpoint, hypers["training"])
         model = model.restart(dataset_info)
     else:
         model = Model(hypers["model"], dataset_info)
@@ -80,6 +81,20 @@ requirements to be stable. The usual structure of architecture looks as
     ``metatrain``. Once a new architecture folder with the required files is created
     ``metatrain`` will include the architecture automatically.
 
+.. note::
+    Because achitectures can live in either ``src/metatrain/<architecture>``,
+    ``src/metatrain/experimental/<architecture>``, or
+    ``src/metatrain/deprecated/<architecture>``; the code inside should use
+    absolute imports use the tools provided by metatrain.
+
+    .. code-block:: python
+
+        # do not do this
+        from ..utils.dtype import dtype_to_str
+
+        # Do this instead
+        from metatrain.utils.dtype import dtype_to_str
+
 Model class (``model.py``)
 --------------------------
 The ``ModelInterface``, is recommended to be located in a file called ``model.py``
@@ -89,7 +104,11 @@ method.
 
 .. code-block:: python
 
-    from metatensor.torch.atomistic import MetatensorAtomisticModel, ModelMetadata
+    from metatensor.torch.atomistic import (
+        MetatensorAtomisticModel,
+        ModelMetadata,
+        ModelOutput,
+    )
 
     class ModelInterface:
 
@@ -100,12 +119,29 @@ method.
         )
 
         def __init__(self, model_hypers: Dict, dataset_info: DatasetInfo):
-            self.hypers = model_hypers
-            self.dataset_info = dataset_info
+            ...
+
+        def supported_outputs(self) -> Dict[str, ModelOutput]:
+            """
+            Get the set of outputs currently supported by this model.
+
+            This will likely be the same outputs that are set as this model
+            capabilities in ``export()``
+            """
 
         @classmethod
-        def load_checkpoint(cls, path: Union[str, Path]) -> "ModelInterface":
-            pass
+        def load_checkpoint(
+            cls,
+            checkpoint: Dict[str, Any],
+            context: Literal["restart", "finetune", "export"],
+        ) -> "ModelInterface":
+            """Create a model from a checkpoint's state dictionary.
+
+            :param checkpoint: Checkpoint's state dictionary.
+            :param context: Purpose of the model to load from the checkpoint file.
+                Required values are "restart" and "finetune", "export" but can be
+                extended to other values.
+            """
 
         def restart(cls, dataset_info: DatasetInfo) -> "ModelInterface":
             """Restart training.
@@ -116,12 +152,11 @@ method.
             It enables transfer learning (changing the targets), and fine-tuning (same
             targets, different datasets)
             """
-            pass
 
-            def export(
-        self, metadata: Optional[ModelMetadata] = None
-    ) -> MetatensorAtomisticModel:
-            pass
+        def export(
+            self, metadata: Optional[ModelMetadata] = None
+        ) -> MetatensorAtomisticModel:
+            ...
 
 Note that the ``ModelInterface`` does not necessarily inherit from
 :py:class:`torch.nn.Module` since training can be performed in any way.
@@ -167,8 +202,19 @@ methods for ``train()``, ``save_checkpoint()`` and ``load_checkpoint()``.
 
         @classmethod
         def load_checkpoint(
-            cls, path: Union[str, Path], train_hypers: Dict
+            cls,
+            checkpoint: Dict[str, Any],
+            train_hypers: Dict[str, Any],
+            context: Literal["restart", "finetune"],
         ) -> "TrainerInterface":
+            """Create a trainer from a checkpoint's state dictionary.
+
+            :param checkpoint: Checkpoint's state dictionary.
+            :param context: Purpose of the model to load from the checkpoint file.
+                Required values are "restart" and "finetune" but can be
+                extended to other values.
+            :param train_hypers: Hyperparameters used to create the trainer.
+            """
             pass
 
 The format of checkpoints is not defined by ``metatrain`` and can be any format that

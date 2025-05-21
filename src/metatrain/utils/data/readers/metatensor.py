@@ -1,4 +1,3 @@
-import logging
 from typing import List, Tuple
 
 import metatensor.torch
@@ -8,9 +7,6 @@ from metatensor.torch.atomistic import System
 from omegaconf import DictConfig
 
 from ..target_info import TargetInfo, get_energy_target_info, get_generic_target_info
-
-
-logger = logging.getLogger(__name__)
 
 
 def read_systems(filename: str) -> List[System]:

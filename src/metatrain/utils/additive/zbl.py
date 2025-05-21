@@ -9,9 +9,7 @@ from metatensor.torch.atomistic import ModelOutput, NeighborListOptions, System
 
 from ..data import DatasetInfo, TargetInfo
 from ..jsonschema import validate
-
-
-logger = logging.getLogger(__name__)
+from ..sum_over_atoms import sum_over_atoms
 
 
 class ZBL(torch.nn.Module):
@@ -88,7 +86,7 @@ class ZBL(torch.nn.Module):
             if ase_covalent_radius == 0.2:
                 # 0.2 seems to be the default value when the covalent radius
                 # is not known/available
-                logger.warning(
+                logging.warning(
                     f"Covalent radius for element {t} is not available in ASE. "
                     "Using a default value of 0.2 Å."
                 )
@@ -112,6 +110,9 @@ class ZBL(torch.nn.Module):
                 )
 
         return self({}, self.dataset_info.union(dataset_info))
+
+    def supported_outputs(self):
+        return self.outputs
 
     def forward(
         self,
@@ -203,9 +204,7 @@ class ZBL(torch.nn.Module):
                 )
 
             if not target.per_atom:
-                targets_out[target_key] = metatensor.torch.sum_over_samples(
-                    targets_out[target_key], sample_names="atom"
-                )
+                targets_out[target_key] = sum_over_atoms(targets_out[target_key])
 
         return targets_out
 
@@ -275,25 +274,25 @@ class ZBL(torch.nn.Module):
         :param target_info: The ``TargetInfo`` object to be checked.
         """
         if target_info.quantity != "energy":
-            logger.debug(
+            logging.debug(
                 f"ZBL model does not support target {target_name} since it is "
                 "not an energy."
             )
             return False
         if not target_info.is_scalar:
-            logger.debug(
+            logging.debug(
                 f"ZBL model does not support target {target_name} since it is "
                 "not a scalar."
             )
             return False
         if len(target_info.layout.block(0).properties) > 1:
-            logger.debug(
+            logging.debug(
                 f"ZBL model does not support target {target_name} since it has "
                 "more than one property."
             )
             return False
         if target_info.unit != "eV":
-            logger.debug(
+            logging.debug(
                 f"ZBL model does not support target {target_name} since it is "
                 "not in eV."
             )
