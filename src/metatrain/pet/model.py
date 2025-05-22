@@ -13,8 +13,8 @@ from metatensor.torch.atomistic import (
     NeighborListOptions,
     System,
 )
-from torch import nn
 
+from metatrain.utils.abc import ModelInterface
 from metatrain.utils.additive import ZBL, CompositionModel
 from metatrain.utils.data import DatasetInfo, TargetInfo
 from metatrain.utils.dtype import dtype_to_str
@@ -29,9 +29,9 @@ from .modules.transformer import CartesianTransformer
 from .modules.utilities import cutoff_func
 
 
-class PET(torch.nn.Module):
+class PET(ModelInterface):
     """
-    Native metatrain implementation of the PET architecture.
+    Metatrain-native implementation of the PET architecture.
 
     Originally proposed in work (https://arxiv.org/abs/2305.19302v3),
     and published in the `pet` package (https://github.com/spozdn/pet).
@@ -762,35 +762,35 @@ class PET(torch.nn.Module):
             per_atom=True,
         )
 
-        self.node_heads[target_name] = nn.ModuleList(
+        self.node_heads[target_name] = torch.nn.ModuleList(
             [
-                nn.Sequential(
-                    nn.Linear(self.hypers["d_pet"], self.hypers["d_head"]),
-                    nn.SiLU(),
-                    nn.Linear(self.hypers["d_head"], self.hypers["d_head"]),
-                    nn.SiLU(),
+                torch.nn.Sequential(
+                    torch.nn.Linear(self.hypers["d_pet"], self.hypers["d_head"]),
+                    torch.nn.SiLU(),
+                    torch.nn.Linear(self.hypers["d_head"], self.hypers["d_head"]),
+                    torch.nn.SiLU(),
                 )
                 for _ in range(self.hypers["num_gnn_layers"])
             ]
         )
 
-        self.edge_heads[target_name] = nn.ModuleList(
+        self.edge_heads[target_name] = torch.nn.ModuleList(
             [
-                nn.Sequential(
-                    nn.Linear(self.hypers["d_pet"], self.hypers["d_head"]),
-                    nn.SiLU(),
-                    nn.Linear(self.hypers["d_head"], self.hypers["d_head"]),
-                    nn.SiLU(),
+                torch.nn.Sequential(
+                    torch.nn.Linear(self.hypers["d_pet"], self.hypers["d_head"]),
+                    torch.nn.SiLU(),
+                    torch.nn.Linear(self.hypers["d_head"], self.hypers["d_head"]),
+                    torch.nn.SiLU(),
                 )
                 for _ in range(self.hypers["num_gnn_layers"])
             ]
         )
 
-        self.node_last_layers[target_name] = nn.ModuleList(
+        self.node_last_layers[target_name] = torch.nn.ModuleList(
             [
-                nn.ModuleDict(
+                torch.nn.ModuleDict(
                     {
-                        key: nn.Linear(
+                        key: torch.nn.Linear(
                             self.hypers["d_head"],
                             prod(shape),
                             bias=True,
@@ -802,11 +802,11 @@ class PET(torch.nn.Module):
             ]
         )
 
-        self.edge_last_layers[target_name] = nn.ModuleList(
+        self.edge_last_layers[target_name] = torch.nn.ModuleList(
             [
-                nn.ModuleDict(
+                torch.nn.ModuleDict(
                     {
-                        key: nn.Linear(
+                        key: torch.nn.Linear(
                             self.hypers["d_head"],
                             prod(shape),
                             bias=True,

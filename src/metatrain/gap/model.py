@@ -1,4 +1,4 @@
-from typing import Dict, List, Optional, Tuple, Union
+from typing import Any, Dict, List, Literal, Optional, Tuple, Union
 
 import featomic
 import featomic.torch
@@ -19,12 +19,13 @@ from metatensor.torch.atomistic import (
 )
 from skmatter._selection import _FPS as _FPS_skmatter
 
+from metatrain.utils.abc import ModelInterface
 from metatrain.utils.additive import ZBL, CompositionModel
 from metatrain.utils.data.dataset import DatasetInfo
 from metatrain.utils.metadata import append_metadata_references
 
 
-class GAP(torch.nn.Module):
+class GAP(ModelInterface):
     __supported_devices__ = ["cpu"]
     __supported_dtypes__ = [torch.float64]
     __default_metadata__ = ModelMetadata(
@@ -169,7 +170,15 @@ class GAP(torch.nn.Module):
         return self.outputs
 
     def restart(self, dataset_info: DatasetInfo) -> "GAP":
-        raise ValueError("GAP does not allow restarting training")
+        raise NotImplementedError("GAP does not allow restarting training")
+
+    @classmethod
+    def load_checkpoint(
+        cls,
+        checkpoint: Dict[str, Any],
+        context: Literal["restart", "finetune", "export"],
+    ) -> "GAP":
+        raise NotImplementedError("GAP does not allow loading checkpoints")
 
     def forward(
         self,
