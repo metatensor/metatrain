@@ -9,6 +9,7 @@ import tomli  # Replace by tomllib from std library once docs are build with Pyt
 # When importing metatensor-torch, this will change the definition of the classes
 # to include the documentation
 os.environ["METATENSOR_IMPORT_FOR_SPHINX"] = "1"
+os.environ["METATOMIC_IMPORT_FOR_SPHINX"] = "1"
 os.environ["PYTORCH_JIT"] = "0"
 os.environ["METATENSOR_DEBUG_EXTENSIONS_LOADING"] = "1"
 
@@ -101,6 +102,7 @@ intersphinx_mapping = {
     "python": ("https://docs.python.org/3", None),
     "torch": ("https://pytorch.org/docs/stable/", None),
     "metatensor": ("https://docs.metatensor.org/latest/", None),
+    "metatomic": ("https://docs.metatensor.org/metatomic/latest/", None),
     "omegaconf": ("https://omegaconf.readthedocs.io/en/latest/", None),
 }
 

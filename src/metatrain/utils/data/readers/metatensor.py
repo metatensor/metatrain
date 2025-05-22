@@ -3,7 +3,7 @@ from typing import List, Tuple
 import metatensor.torch
 import torch
 from metatensor.torch import Labels, TensorBlock, TensorMap
-from metatensor.torch.atomistic import System
+from metatomic.torch import System
 from omegaconf import DictConfig
 
 from ..target_info import TargetInfo, get_energy_target_info, get_generic_target_info

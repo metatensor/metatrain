@@ -5,7 +5,7 @@ import metatensor.torch
 import torch
 from ase.data import covalent_radii
 from metatensor.torch import Labels, TensorBlock, TensorMap
-from metatensor.torch.atomistic import ModelOutput, NeighborListOptions, System
+from metatomic.torch import ModelOutput, NeighborListOptions, System
 
 from ..data import DatasetInfo, TargetInfo
 from ..jsonschema import validate

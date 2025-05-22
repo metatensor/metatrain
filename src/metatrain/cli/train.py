@@ -511,7 +511,7 @@ def train_model(
     ).device
     mts_atomistic_model.save(str(output_checked), collect_extensions=extensions_path)
     # the model is first saved and then reloaded 1) for good practice and 2) because
-    # MetatensorAtomisticModel only torchscripts (makes faster) during save()
+    # AtomisticModel only torchscripts (makes faster) during save()
 
     # Copy the exported model and the checkpoint also to the checkpoint directory
     checkpoint_path = Path(checkpoint_dir)
