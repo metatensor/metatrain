@@ -137,7 +137,7 @@ def test_huggingface(monkeypatch, tmp_path):
         "mtt",
         "export",
         "https://huggingface.co/metatensor/metatrain-test/resolve/main/model.ckpt",
-        f"--token={HF_TOKEN}",
+        f"--hf_token={HF_TOKEN}",
     ]
 
     output = "model.pt"
@@ -190,7 +190,7 @@ def test_token_env_error():
         "mtt",
         "export",
         "https://huggingface.co/metatensor/metatrain-test/resolve/main/model.ckpt",
-        "--token=1234",
+        "--hf_token=1234",
     ]
 
     env = os.environ.copy()
