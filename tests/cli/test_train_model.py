@@ -11,7 +11,7 @@ import pytest
 import torch
 from jsonschema.exceptions import ValidationError
 from metatensor.torch import Labels, TensorBlock, TensorMap
-from metatensor.torch.atomistic import NeighborListOptions, systems_to_torch
+from metatomic.torch import NeighborListOptions, systems_to_torch
 from omegaconf import OmegaConf
 
 from metatrain import RANDOM_SEED
@@ -291,6 +291,19 @@ def test_empty_training_set(monkeypatch, tmp_path, options):
         ValueError, match="Fraction of the train set is smaller or equal to 0!"
     ):
         train_model(options)
+
+
+def test_batch_size_smaller_training_set(monkeypatch, tmp_path, options):
+    """Test that training still runs for batch size > train_size."""
+    monkeypatch.chdir(tmp_path)
+
+    shutil.copy(DATASET_PATH_QM9, "qm9_reduced_100.xyz")
+
+    options["validation_set"] = 0.55
+    options["test_set"] = 0.4
+    options["architecture"]["training"]["batch_size"] = 1000
+
+    train_model(options)
 
 
 @pytest.mark.parametrize("split", [-0.1, 1.1])

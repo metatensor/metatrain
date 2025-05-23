@@ -1,6 +1,6 @@
 import pytest
 import torch
-from metatensor.torch.atomistic import ModelEvaluationOptions, ModelMetadata, System
+from metatomic.torch import ModelEvaluationOptions, ModelMetadata, System
 
 from metatrain.experimental.nanopet import NanoPET
 from metatrain.utils.data import DatasetInfo

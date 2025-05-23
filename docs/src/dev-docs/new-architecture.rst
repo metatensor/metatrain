@@ -104,7 +104,7 @@ method.
 
 .. code-block:: python
 
-    from metatensor.torch.atomistic import MetatensorAtomisticModel, ModelMetadata
+    from metatomic.torch import AtomisticModel, ModelMetadata, ModelOutput
 
     class ModelInterface:
 
@@ -115,8 +115,15 @@ method.
         )
 
         def __init__(self, model_hypers: Dict, dataset_info: DatasetInfo):
-            self.hypers = model_hypers
-            self.dataset_info = dataset_info
+            ...
+
+        def supported_outputs(self) -> Dict[str, ModelOutput]:
+            """
+            Get the set of outputs currently supported by this model.
+
+            This will likely be the same outputs that are set as this model
+            capabilities in ``export()``
+            """
 
         @classmethod
         def load_checkpoint(
@@ -131,7 +138,6 @@ method.
                 Required values are "restart" and "finetune", "export" but can be
                 extended to other values.
             """
-            pass
 
         def restart(cls, dataset_info: DatasetInfo) -> "ModelInterface":
             """Restart training.
@@ -142,12 +148,11 @@ method.
             It enables transfer learning (changing the targets), and fine-tuning (same
             targets, different datasets)
             """
-            pass
 
-            def export(
-        self, metadata: Optional[ModelMetadata] = None
-    ) -> MetatensorAtomisticModel:
-            pass
+        def export(
+            self, metadata: Optional[ModelMetadata] = None
+        ) -> AtomisticModel:
+            ...
 
 Note that the ``ModelInterface`` does not necessarily inherit from
 :py:class:`torch.nn.Module` since training can be performed in any way.
@@ -162,11 +167,11 @@ with keys ``implementation`` and ``architecture``. The ``implementation`` key sh
 contain references to the software used in the implementation of the architecture, while
 the ``architecture`` key should contain references about the general architecture.
 
-The ``export()`` method is required to transform a trained model into a standalone file
-to be used in combination with molecular dynamic engines to run simulations. We provide
-a helper function :py:func:`metatrain.utils.export.export` to export a torch
-model to an :py:class:`MetatensorAtomisticModel
-<metatensor.torch.atomistic.MetatensorAtomisticModel>`.
+The ``export()`` method is required to transform a trained model into a
+standalone file to be used in combination with molecular dynamic engines to run
+simulations. We provide a helper function
+:py:func:`metatrain.utils.export.export` to export a torch model to an
+:py:class:`AtomisticModel <metatomic.torch.AtomisticModel>`.
 
 Trainer class (``trainer.py``)
 ------------------------------

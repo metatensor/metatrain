@@ -8,7 +8,7 @@ from urllib.request import urlretrieve
 
 import metatensor.torch
 import torch
-from metatensor.torch.atomistic import ModelOutput
+from metatomic.torch import ModelOutput
 
 from metatrain.deprecated.pet import PET
 from metatrain.deprecated.pet.modules.hypers import Hypers

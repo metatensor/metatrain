@@ -5,8 +5,8 @@ import pytest
 import torch
 from jsonschema.exceptions import ValidationError
 from metatensor.torch import Labels
-from metatensor.torch.atomistic import (
-    MetatensorAtomisticModel,
+from metatomic.torch import (
+    AtomisticModel,
     ModelCapabilities,
     ModelEvaluationOptions,
     ModelMetadata,
@@ -105,7 +105,7 @@ def test_prediction():
         supported_devices=["cpu", "cuda"],
     )
 
-    model = MetatensorAtomisticModel(model.eval(), ModelMetadata(), capabilities)
+    model = AtomisticModel(model.eval(), ModelMetadata(), capabilities)
     model(
         [system],
         evaluation_options,
@@ -157,7 +157,7 @@ def test_per_atom_predictions_functionality():
         supported_devices=["cpu", "cuda"],
     )
 
-    model = MetatensorAtomisticModel(model.eval(), ModelMetadata(), capabilities)
+    model = AtomisticModel(model.eval(), ModelMetadata(), capabilities)
     model(
         [system],
         evaluation_options,
@@ -219,7 +219,7 @@ def test_selected_atoms_functionality():
         selected_atoms=selected_atoms,
     )
 
-    model = MetatensorAtomisticModel(model.eval(), ModelMetadata(), capabilities)
+    model = AtomisticModel(model.eval(), ModelMetadata(), capabilities)
     model(
         [system],
         evaluation_options,

@@ -6,7 +6,7 @@ pytest.importorskip("torchpme")
 import copy
 
 import torch
-from metatensor.torch.atomistic import ModelOutput, System
+from metatomic.torch import ModelOutput, System
 from omegaconf import OmegaConf
 
 from metatrain.pet import PET, Trainer

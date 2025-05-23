@@ -1,7 +1,7 @@
 import copy
 
 import torch
-from metatensor.torch.atomistic import System
+from metatomic.torch import System
 
 from metatrain.pet import PET
 from metatrain.utils.data import DatasetInfo

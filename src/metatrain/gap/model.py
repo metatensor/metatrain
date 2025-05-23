@@ -10,8 +10,8 @@ from metatensor import Labels, TensorBlock, TensorMap
 from metatensor.torch import Labels as TorchLabels
 from metatensor.torch import TensorBlock as TorchTensorBlock
 from metatensor.torch import TensorMap as TorchTensorMap
-from metatensor.torch.atomistic import (
-    MetatensorAtomisticModel,
+from metatomic.torch import (
+    AtomisticModel,
     ModelCapabilities,
     ModelMetadata,
     ModelOutput,
@@ -165,6 +165,9 @@ class GAP(torch.nn.Module):
             )
         self.additive_models = torch.nn.ModuleList(additive_models)
 
+    def supported_outputs(self) -> Dict[str, ModelOutput]:
+        return self.outputs
+
     def restart(self, dataset_info: DatasetInfo) -> "GAP":
         raise ValueError("GAP does not allow restarting training")
 
@@ -261,9 +264,7 @@ class GAP(torch.nn.Module):
 
         return return_dict
 
-    def export(
-        self, metadata: Optional[ModelMetadata] = None
-    ) -> MetatensorAtomisticModel:
+    def export(self, metadata: Optional[ModelMetadata] = None) -> AtomisticModel:
         interaction_ranges = [self.hypers["soap"]["cutoff"]["radius"]]
         for additive_model in self.additive_models:
             if hasattr(additive_model, "cutoff_radius"):
@@ -296,7 +297,7 @@ class GAP(torch.nn.Module):
         else:
             append_metadata_references(metadata, self.__metadata__)
 
-        return MetatensorAtomisticModel(self.eval(), metadata, capabilities)
+        return AtomisticModel(self.eval(), metadata, capabilities)
 
 
 ########################################################################################

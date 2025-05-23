@@ -3,16 +3,16 @@ from typing import Any, Dict, List, Literal, Optional
 import metatensor.torch
 import torch
 from metatensor.torch import Labels, TensorBlock, TensorMap
-from metatensor.torch.atomistic import (
-    MetatensorAtomisticModel,
+from metatensor.torch.learn.nn import Linear as LinearMap
+from metatensor.torch.learn.nn import ModuleMap
+from metatomic.torch import (
+    AtomisticModel,
     ModelCapabilities,
     ModelMetadata,
     ModelOutput,
     NeighborListOptions,
     System,
 )
-from metatensor.torch.learn.nn import Linear as LinearMap
-from metatensor.torch.learn.nn import ModuleMap
 from spex.metatensor import SoapPowerSpectrum
 
 from metatrain.utils.additive import ZBL, CompositionModel
@@ -305,6 +305,9 @@ class SoapBpnn(torch.nn.Module):
 
         # scaler: this is also handled by the trainer at training time
         self.scaler = Scaler(model_hypers={}, dataset_info=dataset_info)
+
+    def supported_outputs(self) -> Dict[str, ModelOutput]:
+        return self.outputs
 
     def restart(self, dataset_info: DatasetInfo) -> "SoapBpnn":
         # merge old and new dataset info
@@ -669,9 +672,7 @@ class SoapBpnn(torch.nn.Module):
 
         return model
 
-    def export(
-        self, metadata: Optional[ModelMetadata] = None
-    ) -> MetatensorAtomisticModel:
+    def export(self, metadata: Optional[ModelMetadata] = None) -> AtomisticModel:
         dtype = next(self.parameters()).dtype
         if dtype not in self.__supported_dtypes__:
             raise ValueError(f"unsupported dtype {self.dtype} for SoapBpnn")
@@ -709,7 +710,7 @@ class SoapBpnn(torch.nn.Module):
         else:
             append_metadata_references(metadata, self.__metadata__)
 
-        return MetatensorAtomisticModel(self.eval(), metadata, capabilities)
+        return AtomisticModel(self.eval(), metadata, capabilities)
 
     def _add_output(self, target_name: str, target: TargetInfo) -> None:
         # register bases of spherical tensors (TensorBasis)

@@ -4,7 +4,7 @@ from typing import Dict, List, Tuple
 import numpy as np
 import torch
 from metatensor.torch import TensorBlock, TensorMap
-from metatensor.torch.atomistic import System
+from metatomic.torch import System
 from scipy.spatial.transform import Rotation
 
 from .data import TargetInfo

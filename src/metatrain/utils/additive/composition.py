@@ -4,7 +4,7 @@ from typing import Dict, List, Optional, Union
 import metatensor.torch
 import torch
 from metatensor.torch import Labels, LabelsEntry, TensorBlock, TensorMap
-from metatensor.torch.atomistic import ModelOutput, System
+from metatomic.torch import ModelOutput, System
 
 from ..data import Dataset, DatasetInfo, TargetInfo, get_all_targets, get_atomic_types
 from ..jsonschema import validate
@@ -410,7 +410,7 @@ class CompositionModel(torch.nn.Module):
 
         # Note: atomic types are not checked. At training time, the composition model
         # is initialized with the correct types. At inference time, the checks are
-        # performed by MetatensorAtomisticModel.
+        # performed by AtomisticModel.
 
         # create sample labels
         sample_values_list = []
@@ -464,6 +464,9 @@ class CompositionModel(torch.nn.Module):
                 )
 
         return composition_result_dict
+
+    def supported_outputs(self) -> Dict[str, ModelOutput]:
+        return self.outputs
 
     def _add_output(self, target_name: str, target_info: TargetInfo) -> None:
         self.outputs[target_name] = ModelOutput(
