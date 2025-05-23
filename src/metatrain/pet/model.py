@@ -15,7 +15,10 @@ from metatensor.torch.atomistic import (
 )
 from torch import nn
 
-from ..utils.additive import ZBL, CompositionModel  # TODO: use `MetatrainCompositionModel`
+from ..utils.additive import (
+    ZBL,
+    CompositionModel,
+)  # TODO: use `MetatrainCompositionModel`
 from ..utils.data import DatasetInfo, TargetInfo
 from ..utils.dtype import dtype_to_str
 from ..utils.long_range import DummyLongRangeFeaturizer, LongRangeFeaturizer
