@@ -78,20 +78,20 @@ def test_load_model_token():
     """Test that the export cli succeeds when exporting a private
     model from HuggingFace."""
 
-    token = os.getenv("HUGGINGFACE_TOKEN_METATRAIN")
-    if token is None:
+    hf_token = os.getenv("HUGGINGFACE_TOKEN_METATRAIN")
+    if hf_token is None:
         pytest.skip("HuggingFace token not found in environment.")
-    assert len(token) > 0
+    assert len(hf_token) > 0
 
     path = "https://huggingface.co/metatensor/metatrain-test/resolve/main/model.ckpt"
-    load_model(path, token=token)
+    load_model(path, hf_token=hf_token)
 
 
 def test_load_model_token_invalid_url_style():
-    token = os.getenv("HUGGINGFACE_TOKEN_METATRAIN")
-    if token is None:
+    hf_token = os.getenv("HUGGINGFACE_TOKEN_METATRAIN")
+    if hf_token is None:
         pytest.skip("HuggingFace token not found in environment.")
-    assert len(token) > 0
+    assert len(hf_token) > 0
 
     # change `resolve` to ``foo`` to make the URL scheme invalid
     path = "https://huggingface.co/metatensor/metatrain-test/foo/main/model.ckpt"
@@ -100,4 +100,4 @@ def test_load_model_token_invalid_url_style():
         ValueError,
         match=f"URL '{path}' has an invalid format for the Hugging Face Hub.",
     ):
-        load_model(path, token=token)
+        load_model(path, hf_token=hf_token)

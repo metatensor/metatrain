@@ -21,13 +21,13 @@ from skmatter._selection import _FPS as _FPS_skmatter
 
 from metatrain.utils.additive import ZBL, CompositionModel
 from metatrain.utils.data.dataset import DatasetInfo
-from metatrain.utils.metadata import append_metadata_references
+from metatrain.utils.metadata import merge_metadata
 
 
 class GAP(torch.nn.Module):
     __supported_devices__ = ["cpu"]
     __supported_dtypes__ = [torch.float64]
-    __default_metadata__ = ModelMetadata(
+    __metadata__ = ModelMetadata(
         references={
             "implementation": [
                 "featomic: https://github.com/metatensor/featomic",
@@ -293,9 +293,9 @@ class GAP(torch.nn.Module):
         )
 
         if metadata is None:
-            metadata = ModelMetadata()
-
-        append_metadata_references(metadata, self.__default_metadata__)
+            metadata = self.__metadata__
+        else:
+            metadata = merge_metadata(self.__metadata__, metadata)
 
         return AtomisticModel(self.eval(), metadata, capabilities)
 

@@ -19,7 +19,7 @@ from metatrain.utils.additive import ZBL, CompositionModel
 from metatrain.utils.data import DatasetInfo, TargetInfo
 from metatrain.utils.dtype import dtype_to_str
 from metatrain.utils.long_range import DummyLongRangeFeaturizer, LongRangeFeaturizer
-from metatrain.utils.metadata import append_metadata_references
+from metatrain.utils.metadata import merge_metadata
 from metatrain.utils.scaler import Scaler
 from metatrain.utils.sum_over_atoms import sum_over_atoms
 
@@ -40,7 +40,7 @@ class PET(torch.nn.Module):
 
     __supported_devices__ = ["cuda", "cpu"]
     __supported_dtypes__ = [torch.float32, torch.float64]
-    __default_metadata__ = ModelMetadata(
+    __metadata__ = ModelMetadata(
         references={"architecture": ["https://arxiv.org/abs/2305.19302v3"]}
     )
     component_labels: Dict[str, List[List[Labels]]]
@@ -678,6 +678,7 @@ class PET(torch.nn.Module):
 
         # Create the model
         model = cls(**model_data)
+
         if finetune_config:
             # Apply the finetuning strategy
             model = apply_finetuning_strategy(model, finetune_config)
@@ -686,6 +687,11 @@ class PET(torch.nn.Module):
         dtype = next(state_dict_iter).dtype
         model.to(dtype).load_state_dict(model_state_dict)
         model.additive_models[0].sync_tensor_maps()
+
+        # Loading the metadata from the checkpoint
+        metadata = checkpoint.get("metadata", None)
+        if metadata is not None:
+            model.__metadata__ = metadata
 
         return model
 
@@ -721,9 +727,9 @@ class PET(torch.nn.Module):
         )
 
         if metadata is None:
-            metadata = ModelMetadata()
-
-        append_metadata_references(metadata, self.__default_metadata__)
+            metadata = self.__metadata__
+        else:
+            metadata = merge_metadata(self.__metadata__, metadata)
 
         return AtomisticModel(self.eval(), metadata, capabilities)
 
