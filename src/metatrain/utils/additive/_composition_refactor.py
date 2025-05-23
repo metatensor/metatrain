@@ -1,16 +1,14 @@
 import logging
 from typing import Dict, List, Optional
-import torch
 
 import metatensor.torch as mts
-from metatensor.torch import TensorMap, TensorBlock, Labels
+import torch
+from metatensor.torch import Labels, TensorBlock, TensorMap
 from metatensor.torch.atomistic import ModelOutput, System
 
-from ..data import Dataset, DatasetInfo, TargetInfo, get_all_targets, get_atomic_types
+from ..data import DatasetInfo, TargetInfo
 from ..jsonschema import validate
 from ..sum_over_atoms import sum_over_atoms
-from ..transfer import systems_and_targets_to_device
-from .remove import remove_additive
 
 
 class CompositionModel(torch.nn.Module):
@@ -26,7 +24,6 @@ class CompositionModel(torch.nn.Module):
         model_hypers: Dict,
         dataset_info: DatasetInfo,
     ) -> None:
-
         super().__init__()
 
         # `model_hypers` should be an empty dictionary
@@ -164,18 +161,14 @@ class CompositionModel(torch.nn.Module):
         systems: List[System],
         targets: Dict[str, TensorMap],
     ):
-
         num_atoms = torch.tensor([len(system) for system in systems])
 
         for target_name, target in targets.items():
-
             for key, block in target.items():
-
                 # Get the target block values
                 values = block.values
 
                 if self.sample_kinds[target_name] == "per_structure":
-
                     # For per-structure, divide target values by number of atoms
                     values /= num_atoms.reshape(-1, *values.shape[1:])
 
@@ -183,7 +176,6 @@ class CompositionModel(torch.nn.Module):
                     X = self._compute_X_per_structure(systems)
 
                 elif self.sample_kinds[target_name] == "per_atom":
-
                     # if not (key["o3_lambda"] == 0 and key["o3_sigma"] == 1):
                     #     continue
 
@@ -203,7 +195,6 @@ class CompositionModel(torch.nn.Module):
                     # TODO: assumes coupled basis, perumtationally symmetrized
 
                     if "o3_lambda" in key.names:  # coupled
-
                         if not (key["o3_lambda"] == 0 and key["o3_sigma"] == 1):
                             continue
 
@@ -256,7 +247,6 @@ class CompositionModel(torch.nn.Module):
     def _compute_X_per_atom(
         self, systems: List[System], center_types: List[int]
     ) -> torch.Tensor:
-
         X = []
 
         # TODO: make this one hot encoding quicker
@@ -276,7 +266,6 @@ class CompositionModel(torch.nn.Module):
         return torch.vstack(X)
 
     def fit(self, dataloader, sigma: float = 0.01):
-
         device = self.dummy_buffer.device
 
         # acccumulate
@@ -288,12 +277,9 @@ class CompositionModel(torch.nn.Module):
 
         # fit
         for target_name in self.target_names:
-
             if self.sample_kinds[target_name] == "per_structure":
-
                 blocks = []
                 for key in self.XTX[target_name].keys:
-
                     XTX_block = self.XTX[target_name][key]
                     XTY_block = self.XTY[target_name][key]
                     blocks.append(
@@ -312,10 +298,8 @@ class CompositionModel(torch.nn.Module):
                 )
 
             elif self.sample_kinds[target_name] in ["per_atom", "per_pair"]:
-
                 blocks = []
                 for key in self.XTX[target_name].keys:
-
                     XTX_block = self.XTX[target_name][key]
                     XTY_block = self.XTY[target_name][key]
 
