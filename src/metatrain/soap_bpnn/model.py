@@ -18,7 +18,7 @@ from spex.metatensor import SoapPowerSpectrum
 from metatrain.utils.data import TargetInfo
 from metatrain.utils.data.dataset import DatasetInfo
 
-from ..utils.additive import ZBL, CompositionModel
+from ..utils.additive import ZBL, CompositionModel  # TODO: use `MetatrainCompositionModel`
 from ..utils.dtype import dtype_to_str
 from ..utils.long_range import DummyLongRangeFeaturizer, LongRangeFeaturizer
 from ..utils.metadata import append_metadata_references

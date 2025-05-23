@@ -21,7 +21,7 @@ from skmatter._selection import _FPS as _FPS_skmatter
 
 from metatrain.utils.data.dataset import DatasetInfo
 
-from ..utils.additive import ZBL, CompositionModel
+from ..utils.additive import ZBL, CompositionModel  # TODO: use `MetatrainCompositionModel`
 from ..utils.metadata import append_metadata_references
 
 
