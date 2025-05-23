@@ -498,7 +498,7 @@ def test_nanopet_rank_2(per_atom):
         targets={
             "stress": get_generic_target_info(
                 {
-                    "quantity": "forces",
+                    "quantity": "stress",
                     "unit": "",
                     "type": {"cartesian": {"rank": 2}},
                     "num_subtargets": 100,
@@ -512,8 +512,8 @@ def test_nanopet_rank_2(per_atom):
     system = System(
         types=torch.tensor([6]),
         positions=torch.tensor([[0.0, 0.0, 1.0]]),
-        cell=torch.ones(3, 3),
-        pbc=torch.tensor([False, False, False]),
+        cell=torch.eye(3),
+        pbc=torch.tensor([True, True, True]),
     )
     system = get_system_with_neighbor_lists(system, model.requested_neighbor_lists())
     outputs = {"stress": ModelOutput(per_atom=per_atom)}

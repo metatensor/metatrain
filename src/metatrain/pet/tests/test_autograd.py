@@ -1,7 +1,7 @@
 import torch
 from metatensor.torch.atomistic import ModelOutput, System
 
-from metatrain.experimental.nativepet import NativePET
+from metatrain.pet import PET
 from metatrain.utils.data import DatasetInfo
 from metatrain.utils.data.target_info import (
     get_energy_target_info,
@@ -21,7 +21,7 @@ def test_autograd_positions():
         },
     )
 
-    model = NativePET(MODEL_HYPERS, dataset_info)
+    model = PET(MODEL_HYPERS, dataset_info)
     model = model.to(torch.float64)
 
     positions = torch.tensor(
@@ -64,7 +64,7 @@ def test_autograd_cell():
         },
     )
 
-    model = NativePET(MODEL_HYPERS, dataset_info)
+    model = PET(MODEL_HYPERS, dataset_info)
     model = model.to(torch.float64)
 
     cell = torch.eye(3, dtype=torch.float64, requires_grad=True)

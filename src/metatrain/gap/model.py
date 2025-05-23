@@ -19,10 +19,9 @@ from metatensor.torch.atomistic import (
 )
 from skmatter._selection import _FPS as _FPS_skmatter
 
+from metatrain.utils.additive import ZBL, CompositionModel
 from metatrain.utils.data.dataset import DatasetInfo
-
-from ..utils.additive import ZBL, CompositionModel
-from ..utils.metadata import append_metadata_references
+from metatrain.utils.metadata import append_metadata_references
 
 
 class GAP(torch.nn.Module):
@@ -31,7 +30,7 @@ class GAP(torch.nn.Module):
     __default_metadata__ = ModelMetadata(
         references={
             "implementation": [
-                "rascaline: https://github.com/Luthaf/rascaline",
+                "featomic: https://github.com/metatensor/featomic",
             ],
             "architecture": [
                 "SOAP: https://doi.org/10.1002/qua.24927",
@@ -165,6 +164,9 @@ class GAP(torch.nn.Module):
                 )
             )
         self.additive_models = torch.nn.ModuleList(additive_models)
+
+    def supported_outputs(self) -> Dict[str, ModelOutput]:
+        return self.outputs
 
     def restart(self, dataset_info: DatasetInfo) -> "GAP":
         raise ValueError("GAP does not allow restarting training")

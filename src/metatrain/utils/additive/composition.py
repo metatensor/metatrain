@@ -370,11 +370,11 @@ class CompositionModel(torch.nn.Module):
             if target_name not in self.dataset_info.targets
         }
 
+        self.dataset_info = merged_info
+
         # register new outputs
         for target_name, target in self.new_targets.items():
             self._add_output(target_name, target)
-
-        self.dataset_info = merged_info
 
         return self
 
@@ -464,6 +464,9 @@ class CompositionModel(torch.nn.Module):
                 )
 
         return composition_result_dict
+
+    def supported_outputs(self) -> Dict[str, ModelOutput]:
+        return self.outputs
 
     def _add_output(self, target_name: str, target_info: TargetInfo) -> None:
         self.outputs[target_name] = ModelOutput(
