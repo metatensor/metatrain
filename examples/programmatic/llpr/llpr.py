@@ -117,14 +117,35 @@ llpr_model.compute_inverse_covariance(regularizer=1e-4)
 # calibrate on the same dataset for simplicity. In reality, a separate
 # calibration/validation dataset should be used.
 llpr_model.calibrate(dataloader)
-exported_model = llpr_model.export()
+
+# Finally, we can save a checkpoint of the LLPR model
+llpr_model.save_checkpoint("llpr_model.ckpt")
+
+# %%
+#
+# Using the LLPR model to perform uncertainty calculations requires loading it as a
+# metatomic model. To do this, we need to export it and load the exported version.
+
+import subprocess  # noqa: E402
+
+from metatomic.torch import load_atomistic_model  # noqa: E402
+
+
+# First, we run "mtt export" to export the model. This generates an exported model
+# named "llpr_model.pt" and an extension directory named "llpr_extensions/".
+subprocess.run(["mtt", "export", "llpr_model.ckpt", "-e", "llpr_extensions/"])
+
+# Finally, we load the exported model using metatomic's `load_atomistic_model` function.
+exported_model = load_atomistic_model(
+    "llpr_model.pt", extensions_directory="llpr_extensions/"
+)
 
 # %%
 #
 # We can now use the model to compute the LPR for every atom in the ethanol molecule.
 # To do so, we create a ModelEvaluationOptions object, which is used to request
 # specific outputs from the model. In this case, we request the uncertainty in the
-# atomic energy predictions.
+# atomic energy predictions. The LPR is then the square of the per-atom uncertainty.
 
 from metatomic.torch import ModelEvaluationOptions, ModelOutput  # noqa: E402
 
@@ -144,7 +165,7 @@ evaluation_options = ModelEvaluationOptions(
 )
 
 outputs = exported_model([ethanol_system], evaluation_options, check_consistency=False)
-lpr = outputs["energy_uncertainty"].block().values.detach().cpu().numpy()
+one_over_lpr = outputs["energy_uncertainty"].block().values.detach().cpu().numpy() ** 2
 
 # %%
 #
@@ -158,11 +179,11 @@ from matplotlib.colors import LogNorm  # noqa: E402
 
 
 structure = ase.io.read("ethanol_reduced_100.xyz")
-norm = LogNorm(vmin=min(lpr), vmax=max(lpr))
+norm = LogNorm(vmin=min(one_over_lpr), vmax=max(one_over_lpr))
 colormap = plt.get_cmap("viridis")
-colors = colormap(norm(lpr))
+colors = colormap(norm(one_over_lpr))
 ax = plot_atoms(structure, colors=colors, rotation="180x,0y,0z")
-custom_ticks = [1e10, 2e10, 5e10, 1e11, 2e11]
+custom_ticks = [2e9, 5e9, 1e10, 2e10, 5e10]
 cbar = plt.colorbar(
     plt.cm.ScalarMappable(norm=norm, cmap=colormap),
     ax=ax,

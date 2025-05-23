@@ -14,6 +14,7 @@ from metatomic.torch import (
 )
 from torch.utils.data import DataLoader
 
+from metatrain.utils.architectures import import_architecture
 from metatrain.utils.data.target_info import is_auxiliary_output
 from metatrain.utils.io import check_file_extension
 
@@ -26,10 +27,16 @@ class LLPRUncertaintyModel(torch.nn.Module):
     and be capable of returning last-layer features (see auxiliary outputs in
     metatrain), optionally per atom to calculate LPRs with the LLPR method.
 
+    All uncertainties provided by this class are standard deviations (as opposed to
+    variances). Prediction rigidities (local and total) can be calculated as the inverse
+    of the square of the standard deviation.
+
     :param model: The model to wrap.
+    :param ensemble_weight_size: The size of the ensemble weights, only used when
+        reloading checkpoints.
     """
 
-    def __init__(self, model) -> None:
+    def __init__(self, model, ensemble_weight_size=0) -> None:
         super().__init__()
 
         self.model = model
@@ -83,6 +90,38 @@ class LLPRUncertaintyModel(torch.nn.Module):
             self.register_buffer(
                 f"multiplier_{uncertainty_name}",
                 torch.tensor([1.0], dtype=dtype),
+            )
+
+        if ensemble_weight_size > 0:
+            # register buffers for ensemble weights and ensemble outputs
+            ensemble_outputs = {}
+            for name in self.outputs_list:
+                ensemble_weights_name = (
+                    "mtt::aux::" + name.replace("mtt::", "") + "_ensemble_weights"
+                )
+                if ensemble_weights_name == "mtt::aux::energy_ensemble_weights":
+                    ensemble_weights_name = "energy_ensemble_weights"
+                self.register_buffer(
+                    ensemble_weights_name,
+                    torch.zeros((self.ll_feat_size, ensemble_weight_size), dtype=dtype),
+                )
+                ensemble_output_name = (
+                    "mtt::aux::" + name.replace("mtt::", "") + "_ensemble"
+                )
+                if ensemble_output_name == "mtt::aux::energy_ensemble":
+                    ensemble_output_name = "energy_ensemble"
+                ensemble_outputs[ensemble_output_name] = ModelOutput(
+                    quantity=old_capabilities.outputs[name].quantity,
+                    unit=old_capabilities.outputs[name].unit,
+                    per_atom=old_capabilities.outputs[name].per_atom,
+                )
+            self.capabilities = ModelCapabilities(
+                outputs={**self.capabilities.outputs, **ensemble_outputs},
+                atomic_types=self.capabilities.atomic_types,
+                interaction_range=self.capabilities.interaction_range,
+                length_unit=self.capabilities.length_unit,
+                supported_devices=self.capabilities.supported_devices,
+                dtype=self.capabilities.dtype,
             )
 
         # flags
@@ -517,54 +556,71 @@ class LLPRUncertaintyModel(torch.nn.Module):
             dtype=self.capabilities.dtype,
         )
 
-    def save_checkpoint(self, model, path: Union[str, Path]):
+    def save_checkpoint(self, path: Union[str, Path]):
+        if not self.covariance_computed:
+            raise ValueError(
+                "Trying to save a LLPR checkpoint, but covariance has not been "
+                "computed yet."
+            )
+        if not self.inv_covariance_computed:
+            raise ValueError(
+                "Trying to save a LLPR checkpoint, but inverse covariance has not "
+                "been computed yet."
+            )
+        if not self.is_calibrated:
+            raise ValueError(
+                "Trying to save a LLPR checkpoint, but model has not been "
+                "calibrated yet."
+            )
+        wrapped_architecture_name = self.model.__module__.replace(
+            "metatrain.", ""
+        ).replace(".model", "")
         checkpoint = {
             "architecture_name": "llpr_wrapper",
-            "model_data": {
-                "model_hypers": model.hypers,
-                "dataset_info": model.dataset_info,
+            "wrapped_architecture_name": wrapped_architecture_name,
+            "wrapped_model_data": {  # necessary to re-instantiate the wrapped model
+                "model_hypers": self.model.hypers,
+                "dataset_info": self.model.dataset_info,
             },
-            "model_state_dict": model.state_dict(),
-            "train_hypers": self.hypers,
-            "epoch": self.epoch,
-            "optimizer_state_dict": self.optimizer_state_dict,
-            "scheduler_state_dict": self.scheduler_state_dict,
-            "best_metric": self.best_metric,
-            "best_model_state_dict": self.best_model_state_dict,
-            "best_optimizer_state_dict": self.best_optimizer_state_dict,
+            "state_dict": self.state_dict(),
         }
-        torch.save(
-            checkpoint,
-            check_file_extension(path, ".ckpt"),
-        )
+        torch.save(checkpoint, check_file_extension(path, ".ckpt"))
 
     @classmethod
-    def load_checkpoint(cls, path: Union[str, Path]) -> "LLPRUncertaintyModel":
-        checkpoint = torch.load(path, weights_only=False, map_location="cpu")
-        model_data = checkpoint["model_data"]
-        model_state_dict = checkpoint["model_state_dict"]
-
-        # Create the model
-        model = cls(**model_data)
+    def load_checkpoint(cls, checkpoint: Dict, **_) -> "LLPRUncertaintyModel":
+        model_state_dict = checkpoint["state_dict"]
         state_dict_iter = iter(model_state_dict.values())
         next(state_dict_iter)  # skip some integer buffer for some architectures
         dtype = next(state_dict_iter).dtype
+
+        wrapped_model_data = checkpoint["wrapped_model_data"]
+        wrapped_model_class = import_architecture(
+            checkpoint["wrapped_architecture_name"]
+        ).__model__
+        wrapped_model = wrapped_model_class(**wrapped_model_data).to(dtype)
+
+        # Find the size of the ensemble weights, if any:
+        ensemble_weight_size = 0
+        for name, tensor in checkpoint["state_dict"].items():
+            if name.endswith("_ensemble_weights"):
+                ensemble_weight_size = tensor.shape[1]
+                break
+
+        # Create the model
+        model = cls(wrapped_model, ensemble_weight_size)
         model.to(dtype).load_state_dict(model_state_dict)
 
         # TODO: remove this thing... unfortunately, for now, this NEEDS to be in the
         # top-level module
         try:
             model.model.additive_models[0].sync_tensor_maps()
-            print("Syncing tensor maps")
-        except Exception as e:
-            print(e)
-            print("No tensor maps to sync")
-            # pass
+        except Exception:
+            pass
 
         # If we load a LLPR checkpoint, these will already be ready:
-        model.covariance_computed = False
-        model.inv_covariance_computed = False
-        model.is_calibrated = False
+        model.covariance_computed = True
+        model.inv_covariance_computed = True
+        model.is_calibrated = True
 
         return model
 
@@ -627,3 +683,6 @@ def _get_uncertainty_name(name: str):
     else:
         uncertainty_name = f"mtt::aux::{name.replace('mtt::', '')}_uncertainty"
     return uncertainty_name
+
+
+__model__ = LLPRUncertaintyModel

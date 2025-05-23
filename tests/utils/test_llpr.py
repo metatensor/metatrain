@@ -103,15 +103,12 @@ def test_llpr(tmpdir):
     llpr_model.generate_ensemble({"energy": weights}, n_ensemble_members)
     assert "energy_ensemble" in llpr_model.capabilities.outputs
 
-    exported_model = AtomisticModel(
-        llpr_model.eval(),
-        ModelMetadata(),
-        llpr_model.capabilities,
-    )
-
     with tmpdir.as_cwd():
+        llpr_model.save_checkpoint("llpr_model.ckpt")
+        llpr_model = load_model("llpr_model.ckpt")
+        exported_model = llpr_model.export()
         exported_model.save(file="llpr_model.pt", collect_extensions="extensions")
-        llpr_model = load_model("llpr_model.pt", extensions_directory="extensions")
+        exported_model = load_model("llpr_model.pt", extensions_directory="extensions")
 
     evaluation_options = ModelEvaluationOptions(
         length_unit="angstrom",
