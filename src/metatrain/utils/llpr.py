@@ -6,6 +6,7 @@ import numpy as np
 import torch
 from metatensor.torch import Labels, TensorBlock, TensorMap
 from metatomic.torch import (
+    AtomisticModel,
     ModelCapabilities,
     ModelMetadata,
     ModelOutput,
@@ -42,7 +43,8 @@ class LLPRUncertaintyModel(torch.nn.Module):
         architecture = import_architecture(architecture_name)
         Model = architecture.__model__
 
-        self.model = Model.load_checkpoint(checkpoint_path)
+        checkpoint = torch.load(checkpoint_path, weights_only=False, map_location="cpu")
+        self.model = Model.load_checkpoint(checkpoint, context="export")
         self.ll_feat_size = self.model.last_layer_feature_size
 
         # we need the capabilities of the model to be able to infer the capabilities
@@ -683,9 +685,7 @@ class LLPRUncertaintyModel(torch.nn.Module):
 
         return model
 
-    def export(
-        self, metadata: Optional[ModelMetadata] = None
-    ) -> MetatensorAtomisticModel:
+    def export(self, metadata: Optional[ModelMetadata] = None) -> AtomisticModel:
         dtype = next(self.parameters()).dtype
 
         # Make sure the model is all in the same dtype
@@ -699,10 +699,9 @@ class LLPRUncertaintyModel(torch.nn.Module):
             self.model.additive_models[0]._move_weights_to_device_and_dtype(
                 torch.device("cpu"), torch.float64
             )
-            print("Moving weights to CPU and float64")
-        except Exception as e:
-            print(e)
-            print("No weights to move")
+        except Exception:
+            # no weights to move
+            pass
 
         if metadata is None:
             metadata = ModelMetadata()
@@ -710,7 +709,7 @@ class LLPRUncertaintyModel(torch.nn.Module):
         # append_metadata_references(metadata, self.__default_metadata__)
         # TODO: LLPR references
 
-        return MetatensorAtomisticModel(self.eval(), metadata, self.capabilities)
+        return AtomisticModel(self.eval(), metadata, self.capabilities)
 
     def _get_covariance(self, name: str):
         name = "covariance_" + name
@@ -726,6 +725,8 @@ class LLPRUncertaintyModel(torch.nn.Module):
         for n, buffer in self.named_buffers():
             if n == name:
                 requested_buffer = buffer
+        if requested_buffer.shape == torch.Size([]):
+            raise ValueError(f"Inverse covariance for {name} not found.")
         return requested_buffer
 
     def _get_multiplier(self, name: str):
