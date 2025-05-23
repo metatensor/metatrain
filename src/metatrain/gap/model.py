@@ -21,7 +21,7 @@ from skmatter._selection import _FPS as _FPS_skmatter
 
 from metatrain.utils.additive import ZBL, CompositionModel
 from metatrain.utils.data.dataset import DatasetInfo
-from metatrain.utils.metadata import append_metadata_references
+from metatrain.utils.metadata import merge_metadata
 
 
 class GAP(torch.nn.Module):
@@ -295,7 +295,7 @@ class GAP(torch.nn.Module):
         if metadata is None:
             metadata = self.__metadata__
         else:
-            append_metadata_references(metadata, self.__metadata__)
+            metadata = merge_metadata(self.__metadata__, metadata)
 
         return AtomisticModel(self.eval(), metadata, capabilities)
 

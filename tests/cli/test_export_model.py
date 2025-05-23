@@ -10,6 +10,7 @@ import subprocess
 from pathlib import Path
 from subprocess import CalledProcessError
 
+import metatomic.torch  # noqa: F401
 import pytest
 import torch
 from omegaconf import OmegaConf
@@ -216,5 +217,41 @@ def test_metadata(monkeypatch, tmp_path):
 
     subprocess.check_call(command)
     model = load_model("model-32-bit.pt", extensions_directory="extensions/")
+
+    assert f"This is the {model_name} model" in str(model.metadata())
+
+
+def test_export_checkpoint_with_metadata(monkeypatch, tmp_path):
+    """Tests that the metadata is correctly assigned to the exported
+    model if the checkpoint has the metadata inside."""
+
+    monkeypatch.chdir(tmp_path)
+
+    model_name = "test"
+    conf = OmegaConf.create({"name": model_name})
+    OmegaConf.save(config=conf, f="metadata.yaml")
+
+    command = [
+        "mtt",
+        "export",
+        str(RESOURCES_PATH / "model-32-bit.ckpt"),
+        "-o=model-32-bit-with-metadata.ckpt",
+        "--metadata=metadata.yaml",
+    ]
+
+    subprocess.check_call(command)
+
+    command = [
+        "mtt",
+        "export",
+        "model-32-bit-with-metadata.ckpt",
+        "-o=model-32-bit-with-metadata.pt",
+    ]
+
+    subprocess.check_call(command)
+
+    model = load_model(
+        "model-32-bit-with-metadata.pt", extensions_directory="extensions/"
+    )
 
     assert f"This is the {model_name} model" in str(model.metadata())

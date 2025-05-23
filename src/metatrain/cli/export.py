@@ -9,7 +9,7 @@ from metatomic.torch import ModelMetadata, is_atomistic_model
 from omegaconf import OmegaConf
 
 from ..utils.io import check_file_extension, load_model
-from ..utils.metadata import append_metadata_references
+from ..utils.metadata import merge_metadata
 from .formatter import CustomHelpFormatter
 
 
@@ -71,8 +71,8 @@ def _add_export_model_parser(subparser: argparse._SubParsersAction) -> None:
         help="Metatdata YAML file to be appended to the model.",
     )
     parser.add_argument(
-        "--token",
-        dest="token",
+        "--hf_token",
+        dest="hf_token",
         type=str,
         required=False,
         default=None,
@@ -85,13 +85,13 @@ def _add_export_model_parser(subparser: argparse._SubParsersAction) -> None:
 def _prepare_export_model_args(args: argparse.Namespace) -> None:
     """Prepare arguments for export_model."""
 
-    token = args.__dict__.pop("token")
+    token = args.__dict__.pop("hf_token")
 
     # use env variable if available
     env_token = os.environ.get("HF_TOKEN")
     if env_token:
         if token is None:
-            args.__dict__["token"] = env_token
+            args.__dict__["hf_token"] = env_token
         else:
             raise ValueError(
                 "Both CLI and environment variable tokens are set for HuggingFace. "
@@ -102,7 +102,7 @@ def _prepare_export_model_args(args: argparse.Namespace) -> None:
         args.metadata = ModelMetadata(**OmegaConf.load(args.metadata))
 
     # only these are needed for `export_model``
-    keys_to_keep = ["path", "output", "metadata", "extensions", "token"]
+    keys_to_keep = ["path", "output", "metadata", "extensions", "hf_token"]
     original_keys = list(args.__dict__.keys())
 
     for key in original_keys:
@@ -116,7 +116,7 @@ def export_model(
     path: Union[Path, str],
     output: Union[Path, str],
     extensions: Union[Path, str] = "extensions/",
-    token: Optional[str] = None,
+    hf_token: Optional[str] = None,
     metadata: Optional[ModelMetadata] = None,
 ) -> None:
     """Export a trained model allowing it to make predictions.
@@ -141,12 +141,12 @@ def export_model(
 
         if metadata is not None:
             current_metadata = checkpoint.get("metadata", ModelMetadata())
-            append_metadata_references(metadata, current_metadata)
+            metadata = merge_metadata(current_metadata, metadata)
             checkpoint["metadata"] = metadata
 
         torch.save(checkpoint, path)
     else:
-        model = load_model(path=path, token=token)
+        model = load_model(path=path, hf_token=hf_token)
         path = str(
             Path(check_file_extension(filename=output, extension=".pt"))
             .absolute()

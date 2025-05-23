@@ -20,7 +20,7 @@ from metatrain.utils.data import TargetInfo
 from metatrain.utils.data.dataset import DatasetInfo
 from metatrain.utils.dtype import dtype_to_str
 from metatrain.utils.long_range import DummyLongRangeFeaturizer, LongRangeFeaturizer
-from metatrain.utils.metadata import append_metadata_references
+from metatrain.utils.metadata import merge_metadata
 from metatrain.utils.scaler import Scaler
 from metatrain.utils.sum_over_atoms import sum_over_atoms
 
@@ -708,7 +708,7 @@ class SoapBpnn(torch.nn.Module):
         if metadata is None:
             metadata = self.__metadata__
         else:
-            append_metadata_references(metadata, self.__metadata__)
+            metadata = merge_metadata(self.__metadata__, metadata)
 
         return AtomisticModel(self.eval(), metadata, capabilities)
 

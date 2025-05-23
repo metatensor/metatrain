@@ -115,7 +115,7 @@ def _hf_hub_download_url(url: str, token: Optional[str] = None) -> str:
 def load_model(
     path: Union[str, Path],
     extensions_directory: Optional[Union[str, Path]] = None,
-    token: Optional[str] = None,
+    hf_token: Optional[str] = None,
 ) -> Any:
     """Load checkpoints and exported models from an URL or a local file for inference.
 
@@ -134,7 +134,7 @@ def load_model(
         :py:class:`urllib.request`
     :param extensions_directory: path to a directory containing all extensions required
         by an *exported* model
-    :param token: HuggingFace API token to download (private) models from HuggingFace
+    :param hf_token: HuggingFace API token to download (private) models from HuggingFace
 
     :raises ValueError: if ``path`` is a YAML option file and no model
     :raises ValueError: if no ``archietcture_name`` is found in the checkpoint
@@ -152,10 +152,10 @@ def load_model(
     # Download remote model
     # TODO(@PicoCentauri): Introduce caching for remote models
     if urlparse(path).scheme:
-        if token is None:
+        if hf_token is None:
             path, _ = urlretrieve(path)
         else:
-            path = _hf_hub_download_url(path, token=token)
+            path = _hf_hub_download_url(path, token=hf_token)
 
     if is_exported_file(path):
         return load_atomistic_model(path, extensions_directory=extensions_directory)
