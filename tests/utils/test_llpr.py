@@ -9,7 +9,6 @@ from metatomic.torch import (
 from metatrain.utils.data import Dataset, collate_fn, read_systems, read_targets
 from metatrain.utils.io import load_model
 from metatrain.utils.llpr import LLPRUncertaintyModel
-from metatrain.utils.loss import TensorMapDictLoss
 from metatrain.utils.neighbor_lists import (
     get_requested_neighbor_lists,
     get_system_with_neighbor_lists,
@@ -130,11 +129,9 @@ def test_llpr(tmpdir):
     assert "energy_ensemble" in outputs
 
     analytical_uncertainty = outputs["energy_uncertainty"].block().values
-    ensemble_uncertainty = torch.var(
+    ensemble_uncertainty = torch.std(
         outputs["energy_ensemble"].block().values, dim=1, keepdim=True
     )
-
-    print(analytical_uncertainty/ensemble_uncertainty)
 
     torch.testing.assert_close(
         analytical_uncertainty, ensemble_uncertainty, rtol=5e-3, atol=0.0

@@ -1,5 +1,5 @@
 from pathlib import Path
-from typing import Callable, Dict, List, Optional, Union
+from typing import Dict, List, Optional, Union
 
 import metatensor.torch
 import numpy as np
@@ -18,9 +18,6 @@ from metatrain.utils.data.target_info import is_auxiliary_output
 from metatrain.utils.io import check_file_extension
 
 from .architectures import import_architecture
-from .data import DatasetInfo, TargetInfo, get_atomic_types
-from .evaluate_model import evaluate_model
-from .per_atom import average_by_num_atoms
 
 
 class LLPRUncertaintyModel(torch.nn.Module):
