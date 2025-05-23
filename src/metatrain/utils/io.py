@@ -63,7 +63,7 @@ def is_exported_file(path: str) -> bool:
         return False
 
 
-def _hf_hub_download_url(url: str, token: Optional[str] = None) -> str:
+def _hf_hub_download_url(url: str, hf_token: Optional[str] = None) -> str:
     """Wrapper around `hf_hub_download` allowing passing the URL directly.
 
     Function is in inverse of `hf_hub_url`
@@ -108,7 +108,7 @@ def _hf_hub_download_url(url: str, token: Optional[str] = None) -> str:
         repo_type=None,
         revision=revision,
         endpoint=endpoint,
-        token=token,
+        hf_token=hf_token,
     )
 
 
@@ -155,7 +155,7 @@ def load_model(
         if hf_token is None:
             path, _ = urlretrieve(path)
         else:
-            path = _hf_hub_download_url(path, token=hf_token)
+            path = _hf_hub_download_url(path, hf_token=hf_token)
 
     if is_exported_file(path):
         return load_atomistic_model(path, extensions_directory=extensions_directory)
