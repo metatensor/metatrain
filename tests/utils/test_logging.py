@@ -8,7 +8,7 @@ from typing import List
 
 import pytest
 import wandb
-from metatensor.torch.atomistic import ModelCapabilities, ModelOutput
+from metatomic.torch import ModelCapabilities, ModelOutput
 
 from metatrain import PACKAGE_ROOT
 from metatrain.utils.logging import (
@@ -124,11 +124,11 @@ def test_csv_file_handler_emit_data(monkeypatch, tmp_path):
     monkeypatch.chdir(tmp_path)
     log_file = tmp_path / "log.csv"
 
-    handler = CSVFileHandler(log_file)
+    handler = CSVFileHandler(filename=log_file, encoding="utf-8")
 
     keys = ["Time", "Value"]
     values = ["12:00", "42"]
-    units = ["s", "units"]
+    units = ["s", "ångstrom"]
 
     # First write
     handler.emit_data(keys, values, units)

@@ -6,10 +6,10 @@ pytest.importorskip("torchpme")
 import copy
 
 import torch
-from metatensor.torch.atomistic import ModelOutput, System
+from metatomic.torch import ModelOutput, System
 from omegaconf import OmegaConf
 
-from metatrain.experimental.nativepet import NativePET, Trainer
+from metatrain.pet import PET, Trainer
 from metatrain.utils.data import Dataset, DatasetInfo
 from metatrain.utils.data.readers import (
     read_systems,
@@ -37,7 +37,7 @@ def test_long_range_features(use_ewald):
     hypers = copy.deepcopy(MODEL_HYPERS)
     hypers["long_range"]["enable"] = True
     hypers["long_range"]["use_ewald"] = use_ewald
-    model = NativePET(hypers, dataset_info)
+    model = PET(hypers, dataset_info)
 
     system = System(
         types=torch.tensor([6, 6, 8, 8]),
@@ -89,7 +89,7 @@ def test_long_range_training(use_ewald):
     model_hypers = copy.deepcopy(MODEL_HYPERS)
     model_hypers["long_range"]["enable"] = True
     model_hypers["long_range"]["use_ewald"] = use_ewald
-    model = NativePET(model_hypers, dataset_info)
+    model = PET(model_hypers, dataset_info)
 
     trainer = Trainer(hypers["training"])
     trainer.train(

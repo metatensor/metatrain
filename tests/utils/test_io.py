@@ -2,7 +2,7 @@ import os
 from pathlib import Path
 
 import pytest
-from metatensor.torch.atomistic import MetatensorAtomisticModel
+from metatomic.torch import AtomisticModel
 
 from metatrain.soap_bpnn.model import SoapBpnn
 from metatrain.utils.io import check_file_extension, is_exported_file, load_model
@@ -49,6 +49,10 @@ def test_load_model_checkpoint(path):
     model = load_model(path)
     assert type(model) is SoapBpnn
 
+    # TODO: test that weights are the expected if loading with `context == 'export'`.
+    # One can use `list(model.bpnn[0].parameters())[0][0]` to get some weights. But,
+    # currently weights of the `"export"` and the `"restart"` context are the same...
+
 
 @pytest.mark.parametrize(
     "path",
@@ -60,7 +64,7 @@ def test_load_model_checkpoint(path):
 )
 def test_load_model_exported(path):
     model = load_model(path)
-    assert type(model) is MetatensorAtomisticModel
+    assert type(model) is AtomisticModel
 
 
 @pytest.mark.parametrize("suffix", [".yml", ".yaml"])

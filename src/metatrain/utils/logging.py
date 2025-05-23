@@ -9,7 +9,7 @@ from typing import Dict, List, Optional, Tuple, Union
 
 import numpy as np
 import torch
-from metatensor.torch.atomistic import ModelCapabilities
+from metatomic.torch import ModelCapabilities
 
 from .. import PACKAGE_ROOT, __version__
 from .data import DatasetInfo
@@ -351,7 +351,7 @@ def setup_logging(
             handlers.append(file_handler)
 
             csv_file = Path(log_file).with_suffix(".csv")
-            csv_handler = CSVFileHandler(str(csv_file))
+            csv_handler = CSVFileHandler(filename=str(csv_file), encoding="utf-8")
             handlers.append(csv_handler)
 
         # hide logging up to ERROR from secondary processes in distributed environments:

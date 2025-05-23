@@ -1,3 +1,5 @@
+.. _checkpoints:
+
 Checkpoints
 ###########
 
@@ -16,7 +18,7 @@ The sub-command to continue training from a checkpoint is
 
 .. code-block:: bash
 
-    mtt train options.yaml --continue model.ckpt
+    mtt train options.yaml --restart model.ckpt
 
 or
 
@@ -63,9 +65,9 @@ The ``metadata.yaml`` file should have the following structure:
       model:
         - https://arxiv.org/abs/1234.5678
 
-You can also add additional keywords like additional references to the metadata file.
-The fields are the same for :class:`ModelMetadata
-<metatensor.torch.atomistic.ModelMetadata>` class from metatensor.
+You can also add additional keywords like additional references to the metadata
+file. The fields are the same for :class:`ModelMetadata
+<metatomic.torch.ModelMetadata>` class from metatomic.
 
 Exporting remote models
 -----------------------

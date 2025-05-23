@@ -4,10 +4,11 @@ import metatensor
 import torch
 from omegaconf import OmegaConf
 
-from metatrain.experimental.nativepet import NativePET, Trainer
+from metatrain.pet import PET, Trainer
 from metatrain.utils.data import Dataset, DatasetInfo
 from metatrain.utils.data.readers import read_systems, read_targets
 from metatrain.utils.data.target_info import get_energy_target_info
+from metatrain.utils.io import model_from_checkpoint
 from metatrain.utils.neighbor_lists import get_system_with_neighbor_lists
 
 from . import DATASET_PATH, DEFAULT_HYPERS, MODEL_HYPERS
@@ -31,7 +32,7 @@ def test_continue(monkeypatch, tmp_path):
     dataset_info = DatasetInfo(
         length_unit="Angstrom", atomic_types=[1, 6, 7, 8], targets=target_info_dict
     )
-    model = NativePET(MODEL_HYPERS, dataset_info)
+    model = PET(MODEL_HYPERS, dataset_info)
 
     conf = {
         "mtt::U0": {
@@ -67,8 +68,10 @@ def test_continue(monkeypatch, tmp_path):
         checkpoint_dir=".",
     )
 
-    trainer.save_checkpoint(model, "temp.ckpt")
-    model_after = NativePET.load_checkpoint("temp.ckpt")
+    trainer.save_checkpoint(model, "tmp.ckpt")
+
+    model_after = model_from_checkpoint("tmp.ckpt", context="restart")
+    assert isinstance(model_after, PET)
     model_after.restart(dataset_info)
 
     hypers["training"]["num_epochs"] = 0

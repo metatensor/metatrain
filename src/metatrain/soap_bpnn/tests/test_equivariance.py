@@ -3,7 +3,7 @@ import copy
 import numpy as np
 import pytest
 import torch
-from metatensor.torch.atomistic import System, systems_to_torch
+from metatomic.torch import System, systems_to_torch
 
 from metatrain.soap_bpnn import SoapBpnn
 from metatrain.utils.data import DatasetInfo
@@ -11,6 +11,10 @@ from metatrain.utils.data.readers.ase import read
 from metatrain.utils.data.target_info import (
     get_energy_target_info,
     get_generic_target_info,
+)
+from metatrain.utils.neighbor_lists import (
+    get_requested_neighbor_lists,
+    get_system_with_neighbor_lists,
 )
 from metatrain.utils.testing.equivariance import (
     get_random_rotation,
@@ -35,12 +39,21 @@ def test_rotational_invariance():
     original_system = copy.deepcopy(system)
     system.rotate(48, "y")
 
+    requested_neighbor_lists = get_requested_neighbor_lists(model)
     original_output = model(
-        [systems_to_torch(original_system)],
+        [
+            get_system_with_neighbor_lists(
+                systems_to_torch(original_system), requested_neighbor_lists
+            )
+        ],
         {"energy": model.outputs["energy"]},
     )
     rotated_output = model(
-        [systems_to_torch(system)],
+        [
+            get_system_with_neighbor_lists(
+                systems_to_torch(system), requested_neighbor_lists
+            )
+        ],
         {"energy": model.outputs["energy"]},
     )
 
@@ -81,6 +94,14 @@ def test_equivariance_rotations(o3_lambda, o3_sigma):
     original_system = systems_to_torch(system)
     rotation = get_random_rotation()
     rotated_system = rotate_system(original_system, rotation)
+
+    requested_neighbor_lists = get_requested_neighbor_lists(model)
+    original_system = get_system_with_neighbor_lists(
+        original_system, requested_neighbor_lists
+    )
+    rotated_system = get_system_with_neighbor_lists(
+        rotated_system, requested_neighbor_lists
+    )
 
     original_output = model(
         [original_system],
@@ -135,6 +156,14 @@ def test_equivariance_inversion(o3_lambda, o3_sigma):
         cell=original_system.cell * (-1),
         types=original_system.types,
         pbc=original_system.pbc,
+    )
+
+    requested_neighbor_lists = get_requested_neighbor_lists(model)
+    original_system = get_system_with_neighbor_lists(
+        original_system, requested_neighbor_lists
+    )
+    inverted_system = get_system_with_neighbor_lists(
+        inverted_system, requested_neighbor_lists
     )
 
     original_output = model(

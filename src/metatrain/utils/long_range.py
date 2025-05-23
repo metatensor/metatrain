@@ -1,7 +1,7 @@
 from typing import List
 
 import torch
-from metatensor.torch.atomistic import System
+from metatomic.torch import System
 
 
 class LongRangeFeaturizer(torch.nn.Module):
@@ -29,20 +29,20 @@ class LongRangeFeaturizer(torch.nn.Module):
 
         self.ewald_calculator = EwaldCalculator(
             potential=CoulombPotential(
-                smearing=hypers["smearing"],
+                smearing=float(hypers["smearing"]),
                 exclusion_radius=neighbor_list_options.cutoff,
             ),
             full_neighbor_list=neighbor_list_options.full_list,
-            lr_wavelength=hypers["kspace_resolution"],
+            lr_wavelength=float(hypers["kspace_resolution"]),
         )
         self.p3m_calculator = P3MCalculator(
             potential=CoulombPotential(
-                smearing=hypers["smearing"],
+                smearing=float(hypers["smearing"]),
                 exclusion_radius=neighbor_list_options.cutoff,
             ),
             interpolation_nodes=hypers["interpolation_nodes"],
             full_neighbor_list=neighbor_list_options.full_list,
-            mesh_spacing=hypers["kspace_resolution"],
+            mesh_spacing=float(hypers["kspace_resolution"]),
         )
         self.use_ewald = hypers["use_ewald"]
         self.direct_calculator = Calculator(

@@ -109,6 +109,10 @@ dataloader = torch.utils.data.DataLoader(
 # to compute prediction rigidity metrics, which are useful for uncertainty
 # quantification and model introspection.
 
+from metatomic.torch import (  # noqa: E402
+    AtomisticModel,
+    ModelMetadata,
+)
 
 llpr_model.compute_covariance(dataloader)
 llpr_model.compute_inverse_covariance(regularizer=1e-4)
@@ -118,7 +122,11 @@ llpr_model.compute_inverse_covariance(regularizer=1e-4)
 print("Calibrate")
 llpr_model.calibrate(dataloader)
 
-exported_model = llpr_model.export()
+exported_model = AtomisticModel(
+    llpr_model.eval(),
+    ModelMetadata(),
+    llpr_model.capabilities,
+)
 
 # %%
 #
@@ -127,7 +135,7 @@ exported_model = llpr_model.export()
 # specific outputs from the model. In this case, we request the uncertainty in the
 # atomic energy predictions.
 
-from metatensor.torch.atomistic import ModelEvaluationOptions, ModelOutput  # noqa: E402
+from metatomic.torch import ModelEvaluationOptions, ModelOutput  # noqa: E402
 
 
 evaluation_options = ModelEvaluationOptions(
