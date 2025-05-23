@@ -32,11 +32,13 @@ class LLPRUncertaintyModel(torch.nn.Module):
     of the square of the standard deviation.
 
     :param model: The model to wrap.
-    :param ensemble_weight_size: The size of the ensemble weights, only used when
-        reloading checkpoints.
+    :param ensemble_weight_sizes: The sizes of the ensemble weights, only used
+        internally when reloading checkpoints.
     """
 
-    def __init__(self, model, ensemble_weight_size=0) -> None:
+    def __init__(
+        self, model, ensemble_weight_sizes: Optional[Dict[str, List[int]]] = None
+    ) -> None:
         super().__init__()
 
         self.model = model
@@ -92,37 +94,41 @@ class LLPRUncertaintyModel(torch.nn.Module):
                 torch.tensor([1.0], dtype=dtype),
             )
 
-        if ensemble_weight_size > 0:
-            # register buffers for ensemble weights and ensemble outputs
-            ensemble_outputs = {}
-            for name in self.outputs_list:
-                ensemble_weights_name = (
-                    "mtt::aux::" + name.replace("mtt::", "") + "_ensemble_weights"
-                )
-                if ensemble_weights_name == "mtt::aux::energy_ensemble_weights":
-                    ensemble_weights_name = "energy_ensemble_weights"
-                self.register_buffer(
-                    ensemble_weights_name,
-                    torch.zeros((self.ll_feat_size, ensemble_weight_size), dtype=dtype),
-                )
-                ensemble_output_name = (
-                    "mtt::aux::" + name.replace("mtt::", "") + "_ensemble"
-                )
-                if ensemble_output_name == "mtt::aux::energy_ensemble":
-                    ensemble_output_name = "energy_ensemble"
-                ensemble_outputs[ensemble_output_name] = ModelOutput(
-                    quantity=old_capabilities.outputs[name].quantity,
-                    unit=old_capabilities.outputs[name].unit,
-                    per_atom=old_capabilities.outputs[name].per_atom,
-                )
-            self.capabilities = ModelCapabilities(
-                outputs={**self.capabilities.outputs, **ensemble_outputs},
-                atomic_types=self.capabilities.atomic_types,
-                interaction_range=self.capabilities.interaction_range,
-                length_unit=self.capabilities.length_unit,
-                supported_devices=self.capabilities.supported_devices,
-                dtype=self.capabilities.dtype,
+        if ensemble_weight_sizes is None:
+            ensemble_weight_sizes = {}
+
+        # register buffers for ensemble weights and ensemble outputs
+        ensemble_outputs = {}
+        for name in self.outputs_list:
+            ensemble_weights_name = (
+                "mtt::aux::" + name.replace("mtt::", "") + "_ensemble_weights"
             )
+            if ensemble_weights_name == "mtt::aux::energy_ensemble_weights":
+                ensemble_weights_name = "energy_ensemble_weights"
+            if ensemble_weights_name not in ensemble_weight_sizes:
+                continue
+            self.register_buffer(
+                ensemble_weights_name,
+                torch.zeros(ensemble_weight_sizes[ensemble_weights_name], dtype=dtype),
+            )
+            ensemble_output_name = (
+                "mtt::aux::" + name.replace("mtt::", "") + "_ensemble"
+            )
+            if ensemble_output_name == "mtt::aux::energy_ensemble":
+                ensemble_output_name = "energy_ensemble"
+            ensemble_outputs[ensemble_output_name] = ModelOutput(
+                quantity=old_capabilities.outputs[name].quantity,
+                unit=old_capabilities.outputs[name].unit,
+                per_atom=old_capabilities.outputs[name].per_atom,
+            )
+        self.capabilities = ModelCapabilities(
+            outputs={**self.capabilities.outputs, **ensemble_outputs},
+            atomic_types=self.capabilities.atomic_types,
+            interaction_range=self.capabilities.interaction_range,
+            length_unit=self.capabilities.length_unit,
+            supported_devices=self.capabilities.supported_devices,
+            dtype=self.capabilities.dtype,
+        )
 
         # flags
         self.covariance_computed = False
@@ -600,14 +606,13 @@ class LLPRUncertaintyModel(torch.nn.Module):
         wrapped_model = wrapped_model_class(**wrapped_model_data).to(dtype)
 
         # Find the size of the ensemble weights, if any:
-        ensemble_weight_size = 0
+        ensemble_weight_sizes = {}
         for name, tensor in checkpoint["state_dict"].items():
             if name.endswith("_ensemble_weights"):
-                ensemble_weight_size = tensor.shape[1]
-                break
+                ensemble_weight_sizes[name] = list(tensor.shape)
 
         # Create the model
-        model = cls(wrapped_model, ensemble_weight_size)
+        model = cls(wrapped_model, ensemble_weight_sizes)
         model.to(dtype).load_state_dict(model_state_dict)
 
         # TODO: remove this thing... unfortunately, for now, this NEEDS to be in the
