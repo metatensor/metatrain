@@ -54,11 +54,6 @@ Changed
   now called ``PET`` (``pet`` from training option files)
 - The Angstrom character is now represented as ``A`` and not ``Å`` in the training logs
 
-Added
-#####
-
-- ``NanoPET`` and ``NativePET`` can now train on non-conservative stresses
-
 Version 2025.5 - 2025-04-13
 ---------------------------
 
