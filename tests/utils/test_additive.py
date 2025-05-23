@@ -8,7 +8,9 @@ from metatensor.torch import Labels, TensorBlock, TensorMap
 from metatensor.torch.atomistic import ModelOutput, System
 from omegaconf import OmegaConf
 
-from metatrain.utils.additive import ZBL, CompositionModel, remove_additive
+from metatensor.torch.learn.data import DataLoader
+
+from metatrain.utils.additive import ZBL, CompositionModel, remove_additive, MetatrainCompositionModel
 from metatrain.utils.data import Dataset, DatasetInfo
 from metatrain.utils.data.readers import read_systems, read_targets
 from metatrain.utils.data.target_info import (
@@ -148,6 +150,102 @@ def test_composition_model_train():
         output_O["energy"].block().values, torch.tensor([[1.0]], dtype=torch.float64)
     )
 
+def test_new_composition_model_train():
+    """Test the calculation of composition weights for a per-structure scalar."""
+
+    # Here we use three synthetic structures:
+    # - O atom, with an energy of 1.0
+    # - H2O molecule, with an energy of 5.0
+    # - H4O2 molecule, with an energy of 10.0
+    # The expected composition weights are 2.0 for H and 1.0 for O.
+
+    systems = [
+        System(
+            positions=torch.tensor([[0.0, 0.0, 0.0]], dtype=torch.float64),
+            types=torch.tensor([8]),
+            cell=torch.eye(3, dtype=torch.float64),
+            pbc=torch.tensor([True, True, True]),
+        ),
+        System(
+            positions=torch.tensor(
+                [[0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [0.0, 1.0, 0.0]], dtype=torch.float64
+            ),
+            types=torch.tensor([1, 1, 8]),
+            cell=torch.eye(3, dtype=torch.float64),
+            pbc=torch.tensor([True, True, True]),
+        ),
+        System(
+            positions=torch.tensor(
+                [
+                    [0.0, 0.0, 0.0],
+                    [1.0, 0.0, 0.0],
+                    [0.0, 1.0, 0.0],
+                    [0.0, 0.0, 1.0],
+                    [1.0, 0.0, 1.0],
+                    [0.0, 1.0, 1.0],
+                ],
+                dtype=torch.float64,
+            ),
+            types=torch.tensor([1, 1, 8, 1, 1, 8]),
+            cell=torch.eye(3, dtype=torch.float64),
+            pbc=torch.tensor([True, True, True]),
+        ),
+    ]
+    energies = [1.0, 5.0, 10.0]
+    energies = [
+        TensorMap(
+            keys=Labels(names=["_"], values=torch.tensor([[0]])),
+            blocks=[
+                TensorBlock(
+                    values=torch.tensor([[e]], dtype=torch.float64),
+                    samples=Labels(names=["system"], values=torch.tensor([[i]])),
+                    components=[],
+                    properties=Labels(names=["energy"], values=torch.tensor([[0]])),
+                )
+            ],
+        )
+        for i, e in enumerate(energies)
+    ]
+    dataset = Dataset.from_dict({"system": systems, "energy": energies})
+    dataloader = DataLoader(dataset, batch_size=1)
+
+    composition_model = MetatrainCompositionModel(
+        model_hypers={},
+        dataset_info=DatasetInfo(
+            length_unit="angstrom",
+            atomic_types=[1, 8],
+            targets={"energy": get_energy_target_info({"unit": "eV"})},
+        ),
+    )
+
+    system_H = System(
+        positions=torch.tensor([[0.0, 0.0, 0.0]], dtype=torch.float64),
+        types=torch.tensor([1]),
+        cell=torch.eye(3, dtype=torch.float64),
+        pbc=torch.tensor([True, True, True]),
+    )
+    system_O = System(
+        positions=torch.tensor([[0.0, 0.0, 0.0]], dtype=torch.float64),
+        types=torch.tensor([8]),
+        cell=torch.eye(3, dtype=torch.float64),
+        pbc=torch.tensor([True, True, True]),
+    )
+
+    composition_model.train_model(dataloader)
+    assert composition_model.atomic_types == [1, 8]
+    output_H = composition_model(
+        [system_H], {"energy": ModelOutput(quantity="energy", unit="", per_atom=False)}
+    )
+    torch.testing.assert_close(
+        output_H["energy"].block().values, torch.tensor([[2.0]], dtype=torch.float64)
+    )
+    output_O = composition_model(
+        [system_O], {"energy": ModelOutput(quantity="energy", unit="", per_atom=False)}
+    )
+    torch.testing.assert_close(
+        output_O["energy"].block().values, torch.tensor([[1.0]], dtype=torch.float64)
+    )
+
 
 def test_composition_model_predict():
     """Test the prediction of composition energies."""
@@ -217,6 +315,95 @@ def test_composition_model_predict():
     assert "mtt::U0" in output
     assert output["mtt::U0"].block().samples.names == ["system", "atom"]
     assert output["mtt::U0"].block().values.shape == (1, 1)
+
+    output = composition_model(
+        systems[:5],
+        {"mtt::U0": ModelOutput(quantity="energy", unit="", per_atom=False)},
+        selected_atoms=selected_atoms,
+    )
+    assert "mtt::U0" in output
+    assert output["mtt::U0"].block().samples.names == ["system"]
+    assert output["mtt::U0"].block().values.shape == (1, 1)
+
+def test_new_composition_model_predict():
+    """Test the prediction of composition energies."""
+
+    dataset_path = RESOURCES_PATH / "qm9_reduced_100.xyz"
+    systems = read_systems(dataset_path)
+
+    conf = {
+        "mtt::U0": {
+            "quantity": "energy",
+            "read_from": dataset_path,
+            "file_format": ".xyz",
+            "reader": "ase",
+            "key": "U0",
+            "unit": "eV",
+            "type": "scalar",
+            "per_atom": False,
+            "num_subtargets": 1,
+            "forces": False,
+            "stress": False,
+            "virial": False,
+        }
+    }
+    targets, target_info = read_targets(OmegaConf.create(conf))
+    dataset = Dataset.from_dict({"system": systems, "mtt::U0": targets["mtt::U0"]})
+    dataloader = DataLoader(dataset, batch_size=1)
+
+    composition_model = MetatrainCompositionModel(
+        model_hypers={},
+        dataset_info=DatasetInfo(
+            length_unit="angstrom",
+            atomic_types=[1, 6, 7, 8],
+            targets=target_info,
+        ),
+    )
+
+    composition_model.train_model(dataloader)
+
+    # `MetatrainCompositionModel` as currently implemented does not support requesting
+    # different model outputs than the ones trained on.
+    # TODO: if the model is trained on per-structure energies, should it be possible to
+    # request per-atom energies?
+
+    # per_atom = False
+    output = composition_model(
+        systems[:5],
+        {"mtt::U0": ModelOutput(quantity="energy", unit="", per_atom=False)},
+    )
+    assert "mtt::U0" in output
+    assert output["mtt::U0"].block().samples.names == ["system"]
+    assert output["mtt::U0"].block().values.shape == (5, 1)
+
+    # per_atom = True
+    # output = composition_model(
+    #     systems[:5],
+    #     {"mtt::U0": ModelOutput(quantity="energy", unit="", per_atom=True)},
+    # )
+    # assert "mtt::U0" in output
+    # assert output["mtt::U0"].block().samples.names == ["system", "atom"]
+    # assert output["mtt::U0"].block().values.shape != (5, 1)
+
+    # with selected_atoms
+    selected_atoms = metatensor.torch.Labels(
+        names=["system", "atom"],
+        values=torch.tensor([[0, 0]]),
+    )
+
+    # output = composition_model(
+    #     systems[:5],
+    #     {"mtt::U0": ModelOutput(quantity="energy", unit="", per_atom=True)},
+    #     selected_atoms=selected_atoms,
+    # )
+    # assert "mtt::U0" in output
+    # assert output["mtt::U0"].block().samples.names == ["system", "atom"]
+    # assert output["mtt::U0"].block().values.shape == (1, 1)
+
+    selected_atoms = metatensor.torch.Labels(
+        names=["system"],
+        values=torch.tensor([[0]]),
+    )
 
     output = composition_model(
         systems[:5],

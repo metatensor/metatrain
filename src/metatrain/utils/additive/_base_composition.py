@@ -4,7 +4,7 @@ metatomic. The class ``MetatrainCompositionModel`` wraps this to be compatible w
 metatrain-style objects.
 """
 
-from typing import Dict, List
+from typing import Dict, List, Optional
 
 import metatensor.torch as mts
 import torch
@@ -117,6 +117,7 @@ class BaseCompositionModel(torch.nn.Module):
             for target_name, layout in layouts.items()
         }
         self.weights: Dict[str, TensorMap] = {}
+        self.is_fitted = False
 
     def _accumulate(
         self,
@@ -159,13 +160,15 @@ class BaseCompositionModel(torch.nn.Module):
     def fit(self, dataloader: DataLoader) -> None:
         """
         Iterates over the batches in ``dataloader`` and accumulates the necessary
-        qunatities. Then, fits the compositions for each target.
+        quantities. Then, fits the compositions for each target.
+
+        Assumes the systems are stored in the ``system`` attribute of the batch.
         """
 
         # acccumulate
         for batch in dataloader:
             self._accumulate(
-                batch.systems,
+                batch.system,
                 {target_name: batch[target_name] for target_name in self.target_names},
             )
 
@@ -219,28 +222,75 @@ class BaseCompositionModel(torch.nn.Module):
                 )
 
             self.weights[target_name] = TensorMap(self.XTX[target_name].keys, blocks)
+            self.is_fitted = True
 
-    def forward(self, systems: List[System]) -> Dict[str, TensorMap]:
-        """Predicts the compositions for the input ``systems``."""
+    def forward(
+        self,
+        systems: List[System],
+        output_names: List[str],
+        selected_samples: Optional[Labels] = None,
+    ) -> Dict[str, TensorMap]:
+        """Compute the targets for each system based on the composition weights.
+
+        :param systems: List of systems to calculate the energy.
+        :param output_names: List of output names to compute. These should be a subset
+            of the target names used during fitting.
+        :param selected_atoms: Optional selection of atoms for which to compute the
+            predictions.
+        :returns: A dictionary with the computed predictions for each system.
+
+        :raises ValueError: If no weights have been computed or if `outputs` keys
+            contain unsupported keys.
+        """
+
+        if not self.is_fitted:
+            raise ValueError(
+                "The model has not been fitted yet. Please fit the model before "
+                "calling forward."
+            )
 
         outputs = {}
-        for target_name, weights in self.weights.items():
+        for output_name in output_names:
+            if output_name not in self.target_names:
+                raise ValueError(
+                    f"output key {output_name} is not supported by this composition "
+                    "model."
+                )
+            weights = self.weights[output_name]
+
             output_key_vals = []
             output_blocks = []
             for key, weight_block in weights.items():
                 # Compute X
-                if self.sample_kinds[target_name] == "per_structure":
+                if self.sample_kinds[output_name] == "per_structure":
+                    sample_labels = Labels(
+                        ["system"],
+                        torch.arange(len(systems), dtype=torch.int32).reshape(-1, 1),
+                    )
                     X = self._compute_X_per_structure(systems)
 
-                elif self.sample_kinds[target_name] in ["per_atom", "per_pair"]:
+                # TODO: add support for per_pair. As compositions are only fitted for on-site
+                # blocks this extension is simple, reusing the per_atom code.
+                elif self.sample_kinds[output_name] in ["per_atom", "per_pair"]:
+                    sample_labels = Labels(
+                        ["system", "atom"],
+                        torch.vstack(
+                            [
+                                [A, i]
+                                for A, system in enumerate(systems)
+                                for i in torch.arange(len(system), dtype=torch.int32)
+                            ],
+                            dtype=torch.int64,
+                        ),
+                    )
                     X = self._compute_X_per_atom(
                         systems, self._get_sliced_atomic_types(key)
                     )
 
                 else:
                     raise ValueError(
-                        f"unknown sample kind: {self.sample_kinds[target_name]}"
-                        f" for target {target_name}"
+                        f"unknown sample kind: {self.sample_kinds[output_name]}"
+                        f" for target {output_name}"
                     )
 
                 # Predict this block
@@ -250,21 +300,28 @@ class BaseCompositionModel(torch.nn.Module):
                 output_blocks.append(
                     TensorBlock(
                         values=out_vals,
-                        samples=Labels(
-                            ["_"], torch.arange(out_vals.shape[0]).reshape(-1, 1)
-                        ),
+                        samples=sample_labels,
+                        # samples=Labels(
+                        #     ["_"], torch.arange(out_vals.shape[0]).reshape(-1, 1)
+                        # ),
                         components=weight_block.components,
                         properties=weight_block.properties,
                     )
                 )
 
-            outputs[target_name] = TensorMap(
+            output = TensorMap(
                 Labels(
-                    self.weights[target_name].keys.names,
+                    self.weights[output_name].keys.names,
                     torch.vstack(output_key_vals),
                 ),
                 output_blocks,
             )
+
+            # apply selected_atoms to the composition if needed
+            if selected_samples is not None:
+                output = mts.slice(output, "samples", selected_samples)
+
+            outputs[output_name] = output
 
         return outputs
 
