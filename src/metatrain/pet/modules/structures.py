@@ -2,7 +2,7 @@ from typing import List, Optional, Tuple
 
 import torch
 from metatensor.torch import Labels, TensorBlock
-from metatensor.torch.atomistic import NeighborListOptions, System
+from metatomic.torch import NeighborListOptions, System
 
 from .nef import (
     compute_reversed_neighbor_list,

@@ -1,6 +1,6 @@
 import json
 
-from metatensor.torch.atomistic import ModelMetadata
+from metatomic.torch import ModelMetadata
 
 from metatrain.utils.metadata import append_metadata_references
 

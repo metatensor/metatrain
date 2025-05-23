@@ -3,8 +3,8 @@ from typing import Dict, List, Union
 
 import torch
 from metatensor.torch import Labels, TensorBlock, TensorMap
-from metatensor.torch.atomistic import (
-    MetatensorAtomisticModel,
+from metatomic.torch import (
+    AtomisticModel,
     ModelEvaluationOptions,
     ModelOutput,
     System,
@@ -18,8 +18,8 @@ from .output_gradient import compute_gradient
 def evaluate_model(
     model: Union[
         torch.nn.Module,
-        MetatensorAtomisticModel,
-        torch.jit._script.RecursiveScriptModule,
+        AtomisticModel,
+        torch.jit.RecursiveScriptModule,
     ],
     systems: List[System],
     targets: Dict[str, TargetInfo],
@@ -31,10 +31,10 @@ def evaluate_model(
 
     :param model: The model to use. This can either be a model in training
         (``torch.nn.Module``) or an exported model
-        (``torch.jit._script.RecursiveScriptModule``).
+        (``torch.jit.RecursiveScriptModule``).
     :param systems: The systems to use.
-    :param targets: The names of the targets to evaluate (keys), along with
-        their associated gradients (values).
+    :param targets: The names of the targets to evaluate (keys), along with their
+        associated gradients (values).
     :param is_training: Whether the model is being computed during training.
 
     :returns: The predictions of the model for the requested targets.
@@ -215,7 +215,7 @@ def _strain_gradients_to_block(gradients_list):
 
 
 def _get_supported_outputs(
-    model: Union[torch.nn.Module, torch.jit._script.RecursiveScriptModule],
+    model: Union[torch.nn.Module, torch.jit.RecursiveScriptModule],
 ):
     if is_atomistic_model(model):
         return model.capabilities().outputs
@@ -226,8 +226,8 @@ def _get_supported_outputs(
 def _get_model_outputs(
     model: Union[
         torch.nn.Module,
-        MetatensorAtomisticModel,
-        torch.jit._script.RecursiveScriptModule,
+        AtomisticModel,
+        torch.jit.RecursiveScriptModule,
     ],
     systems: List[System],
     targets: Dict[str, TargetInfo],

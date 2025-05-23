@@ -2,7 +2,7 @@ from pathlib import Path
 
 import torch
 from metatensor.torch import Labels, TensorBlock, TensorMap
-from metatensor.torch.atomistic import System
+from metatomic.torch import System
 from omegaconf import OmegaConf
 
 from metatrain.utils.data import Dataset, DatasetInfo

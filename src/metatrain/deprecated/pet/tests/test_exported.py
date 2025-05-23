@@ -1,6 +1,6 @@
 import pytest
 import torch
-from metatensor.torch.atomistic import (
+from metatomic.torch import (
     ModelCapabilities,
     ModelEvaluationOptions,
     ModelMetadata,

@@ -5,7 +5,7 @@ from pathlib import Path
 from typing import Any, Optional, Union
 
 import torch
-from metatensor.torch.atomistic import ModelMetadata, is_atomistic_model
+from metatomic.torch import ModelMetadata, is_atomistic_model
 from omegaconf import OmegaConf
 
 from ..utils.io import check_file_extension, load_model
@@ -155,10 +155,15 @@ def export_model(
 
 
 def _has_extensions():
-    """Check if any torch extensions are currently loaded (besides metatensor)."""
+    """
+    Check if any torch extensions are currently loaded, except for metatensor_torch and
+    metatomic_torch.
+    """
     loaded_libraries = torch.ops.loaded_libraries
     for lib in loaded_libraries:
-        if "libmetatensor_torch" in lib:
+        if "metatensor_torch." in lib:
+            continue
+        elif "metatomic_torch." in lib:
             continue
         return True
     return False

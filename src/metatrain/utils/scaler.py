@@ -4,7 +4,7 @@ import metatensor.torch
 import numpy as np
 import torch
 from metatensor.torch import TensorMap
-from metatensor.torch.atomistic import ModelOutput
+from metatomic.torch import ModelOutput
 
 from .additive import remove_additive
 from .data import Dataset, DatasetInfo, TargetInfo, get_all_targets

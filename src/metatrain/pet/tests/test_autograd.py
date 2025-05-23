@@ -1,5 +1,5 @@
 import torch
-from metatensor.torch.atomistic import ModelOutput, System
+from metatomic.torch import ModelOutput, System
 
 from metatrain.pet import PET
 from metatrain.utils.data import DatasetInfo
