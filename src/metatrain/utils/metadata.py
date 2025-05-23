@@ -20,7 +20,7 @@ def update(d, u):
     return d
 
 
-def merge_metadata(self: ModelMetadata, other: ModelMetadata) -> None:
+def merge_metadata(self: ModelMetadata, other: ModelMetadata) -> ModelMetadata:
     """Append ``references`` to an existing ModelMetadata object.
 
     :param self: The metadata object to be updated.
