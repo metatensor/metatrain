@@ -17,8 +17,6 @@ from torch.utils.data import DataLoader
 from metatrain.utils.data.target_info import is_auxiliary_output
 from metatrain.utils.io import check_file_extension
 
-from .architectures import import_architecture
-
 
 class LLPRUncertaintyModel(torch.nn.Module):
     """A wrapper that adds LLPR uncertainties to a model.
@@ -31,17 +29,10 @@ class LLPRUncertaintyModel(torch.nn.Module):
     :param model: The model to wrap.
     """
 
-    def __init__(self, checkpoint_path) -> None:
+    def __init__(self, model) -> None:
         super().__init__()
 
-        architecture_name = torch.load(checkpoint_path, weights_only=False)[
-            "architecture_name"
-        ]
-        architecture = import_architecture(architecture_name)
-        Model = architecture.__model__
-
-        checkpoint = torch.load(checkpoint_path, weights_only=False, map_location="cpu")
-        self.model = Model.load_checkpoint(checkpoint, context="export")
+        self.model = model
         self.ll_feat_size = self.model.last_layer_feature_size
 
         # we need the capabilities of the model to be able to infer the capabilities

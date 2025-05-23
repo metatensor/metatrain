@@ -67,10 +67,12 @@ target_config = {
 targets, _ = read_targets(target_config)
 
 
+from metatrain.utils.io import load_model  # noqa: E402
 from metatrain.utils.llpr import LLPRUncertaintyModel  # noqa: E402
 
 
-llpr_model = LLPRUncertaintyModel("model.ckpt")
+model = load_model("model.ckpt")
+llpr_model = LLPRUncertaintyModel(model)
 
 requested_neighbor_lists = get_requested_neighbor_lists(llpr_model)
 qm9_systems = [

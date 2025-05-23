@@ -21,7 +21,8 @@ torch.manual_seed(42)
 
 
 def test_llpr(tmpdir):
-    llpr_model = LLPRUncertaintyModel(str(RESOURCES_PATH / "model-64-bit.ckpt"))
+    model = load_model(str(RESOURCES_PATH / "model-64-bit.ckpt"))
+    llpr_model = LLPRUncertaintyModel(model)
 
     qm9_systems = read_systems(RESOURCES_PATH / "qm9_reduced_100.xyz")
     target_config = {
