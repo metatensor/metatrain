@@ -108,7 +108,7 @@ def _hf_hub_download_url(url: str, hf_token: Optional[str] = None) -> str:
         repo_type=None,
         revision=revision,
         endpoint=endpoint,
-        hf_token=hf_token,
+        token=hf_token,
     )
 
 
