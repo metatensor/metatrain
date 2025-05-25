@@ -387,7 +387,7 @@ def train_model(
     if options["training_set"][0].get("atomic_types") is None:
         atomic_types = get_atomic_types(train_datasets + val_datasets)
     else:
-        atomic_types = options["training_set"][0]["atomic_types"]
+        atomic_types = sorted(options["training_set"][0]["atomic_types"])
 
     dataset_info = DatasetInfo(
         length_unit=options["training_set"][0]["systems"]["length_unit"],
