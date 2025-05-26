@@ -71,12 +71,12 @@ def _add_export_model_parser(subparser: argparse._SubParsersAction) -> None:
         help="Metatdata YAML file to be appended to the model.",
     )
     parser.add_argument(
-        "--hf_token",
+        "--token",
         dest="hf_token",
         type=str,
         required=False,
         default=None,
-        help="HuggingFace API token to download (private )models from HuggingFace. "
+        help="HuggingFace API token to download (private) models from HuggingFace. "
         "You can also set a environment variable `HF_TOKEN` to avoid passing it every "
         "time.",
     )
