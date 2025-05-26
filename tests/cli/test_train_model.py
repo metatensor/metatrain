@@ -612,9 +612,10 @@ def test_train_issue_290(monkeypatch, tmp_path):
 
     train_model(options)
 
+
 @pytest.mark.parametrize("atomic_types", [[1, 6, 7, 8], [1, 6, 7, 8, 100]])
 def test_train_atomic_types(options, monkeypatch, tmp_path, atomic_types):
-    """Tests that passing a complete and an over-complete 
+    """Tests that passing a complete and an over-complete
     list of atomic types works."""
     monkeypatch.chdir(tmp_path)
     shutil.copy(DATASET_PATH_QM9, "qm9_reduced_100.xyz")
