@@ -85,13 +85,13 @@ def _add_export_model_parser(subparser: argparse._SubParsersAction) -> None:
 def _prepare_export_model_args(args: argparse.Namespace) -> None:
     """Prepare arguments for export_model."""
 
-    token = args.__dict__.pop("hf_token")
+    hf_token = args.__dict__.get("hf_token", None)
 
     # use env variable if available
-    env_token = os.environ.get("HF_TOKEN")
-    if env_token:
-        if token is None:
-            args.__dict__["hf_token"] = env_token
+    env_hf_token = os.environ.get("HF_TOKEN")
+    if env_hf_token:
+        if hf_token is None:
+            args.__dict__["hf_token"] = env_hf_token
         else:
             raise ValueError(
                 "Both CLI and environment variable tokens are set for HuggingFace. "
@@ -102,7 +102,7 @@ def _prepare_export_model_args(args: argparse.Namespace) -> None:
         args.metadata = ModelMetadata(**OmegaConf.load(args.metadata))
 
     # only these are needed for `export_model``
-    keys_to_keep = ["path", "output", "metadata", "extensions", "hf_token"]
+    keys_to_keep = ["path", "output", "extensions", "hf_token", "metadata"]
     original_keys = list(args.__dict__.keys())
 
     for key in original_keys:
