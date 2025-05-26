@@ -128,7 +128,7 @@ def export_model(
     :param path: path to a model file to be exported
     :param output: path to save the model
     :param extensions: path to save the extensions
-    :param token: HuggingFace API token to download (private) models from HuggingFace
+    :param hf_token: HuggingFace API token to download (private) models from HuggingFace
         (optional)
     :param metadata: metadata to be appended to the model
     """
