@@ -403,6 +403,10 @@ class DiskDataset(torch.utils.data.Dataset):
                     system_and_targets.append(tensor_map)
         return self._sample_class(*system_and_targets)
 
+    def __iter__(self):
+        for i in range(len(self)):
+            yield self[i]
+
     def __del__(self):
         self.zip_file.close()
 
