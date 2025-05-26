@@ -771,13 +771,18 @@ def test_train_disk_dataset_splits_issue_601(monkeypatch, tmp_path, options):
             disk_dataset_writer.write_sample(system, {"energy": energy})
         del disk_dataset_writer
 
-        options[f"{subset_name}_set"]["systems"]["read_from"] = (
-            f"qm9_reduced_100_{subset_name}.zip"
-        )
-        options[f"{subset_name}_set"]["targets"]["energy"]["read_from"] = (
-            f"qm9_reduced_100_{subset_name}.zip"
-        )
-
+        options[f"{subset_name}_set"] = {
+            "systems": {
+                "read_from": f"qm9_reduced_100_{subset_name}.zip",
+                "length_unit": "angstrom",
+            },
+            "targets": {
+                "energy": {
+                    "read_from": f"qm9_reduced_100_{subset_name}.zip",
+                    "unit": "eV",
+                }
+            },
+        }
     train_model(options)
 
 
