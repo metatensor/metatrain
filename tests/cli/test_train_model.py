@@ -619,8 +619,7 @@ def test_train_atomic_types(options, monkeypatch, tmp_path, atomic_types):
     list of atomic types works."""
     monkeypatch.chdir(tmp_path)
     shutil.copy(DATASET_PATH_QM9, "qm9_reduced_100.xyz")
-    options["training_set"]["atomic_types"] = atomic_types
-    print(options["training_set"]["atomic_types"])
+    options["architecture"]["atomic_types"] = atomic_types
     train_model(options)
 
 

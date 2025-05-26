@@ -62,12 +62,6 @@
   },
   "type": "object",
   "properties": {
-    "atomic_types": {
-      "type": "array",
-      "items": {
-        "type": "integer"
-      }
-    },
     "systems": {
       "oneOf": [
         {

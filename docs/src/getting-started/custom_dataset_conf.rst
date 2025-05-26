@@ -181,25 +181,15 @@ first element of the list.
 
 Typically the global atomic types the the model is defined for are inferred from the
 training and validation datasets. Sometimes, due to shuffling of datasets with low
-representation of some types, these datasets may not contain all atomic types that
-you want to use in your model. In this case, you can specify the atomic types
-explicitly in the ``options.yaml`` file, in the ``training_set`` section with the
-``atomic_types`` key:
+representation of some types, these datasets may not contain all atomic types that you
+want to use in your model. To explicitly control the atomic types the model is defined
+for, specify the ``atomic_types`` key in the ``architecture`` section of the options
+file:
 
 .. code-block:: yaml
 
-    training_set:
+    architecture:
         atomic_types: [1, 6, 7, 8, 16]  # i.e. for H, C, N, O, S
-        systems:
-            read_from: dataset_0.xyz
-            length_unit: angstrom
-        targets:
-            energy:
-                quantity: energy
-                key: my_energy_label0
-                unit: eV
-    test_set: 0.1
-    validation_set: 0.1
 
 .. warning::
 
