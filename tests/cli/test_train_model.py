@@ -732,7 +732,9 @@ def test_train_disk_dataset(monkeypatch, tmp_path, options):
     del disk_dataset_writer
 
     options["training_set"]["systems"]["read_from"] = "qm9_reduced_100.zip"
+    options["training_set"]["targets"]["energy"]["read_from"] = "qm9_reduced_100.zip"
     train_model(options)
+
 
 def test_train_disk_dataset_splits_issue_601(monkeypatch, tmp_path, options):
     """Test that training via the training cli runs without an error raise
@@ -742,7 +744,7 @@ def test_train_disk_dataset_splits_issue_601(monkeypatch, tmp_path, options):
     shutil.copy(DATASET_PATH_QM9, "qm9_reduced_100.xyz")
 
     for subset_name, xyz_idxs in zip(
-        ["train", "test"], [range(0, 80), range(80, 100)]
+        ["training", "test"], [range(0, 80), range(80, 100)]
     ):
         disk_dataset_writer = DiskDatasetWriter(f"qm9_reduced_100_{subset_name}.zip")
         for subset_i, xyz_i in enumerate(xyz_idxs):
@@ -769,8 +771,13 @@ def test_train_disk_dataset_splits_issue_601(monkeypatch, tmp_path, options):
             disk_dataset_writer.write_sample(system, {"energy": energy})
         del disk_dataset_writer
 
-    options["training_set"]["systems"]["read_from"] = "qm9_reduced_100_train.zip"
-    options["test_set"]["systems"]["read_from"] = "qm9_reduced_100_test.zip"
+        options[f"{subset_name}_set"]["systems"]["read_from"] = (
+            f"qm9_reduced_100_{subset_name}.zip"
+        )
+        options[f"{subset_name}_set"]["targets"]["energy"]["read_from"] = (
+            f"qm9_reduced_100_{subset_name}.zip"
+        )
+
     train_model(options)
 
 
