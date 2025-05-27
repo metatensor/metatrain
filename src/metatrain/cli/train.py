@@ -385,9 +385,13 @@ def train_model(
     # CREATE DATASET_INFO #####
     ###########################
     if options["architecture"].get("atomic_types") is None:  # infer from datasets
+        logging.info("Atomic types inferred from training and validation datasets")
         atomic_types = get_atomic_types(train_datasets + val_datasets)
     else:  # use explicitly defined atomic types
+        logging.info("Atomic types explicitly defined in options.yaml")
         atomic_types = sorted(options["architecture"]["atomic_types"])
+
+    logging.info(f"Model defined for atomic types: {atomic_types}")
 
     dataset_info = DatasetInfo(
         length_unit=options["training_set"][0]["systems"]["length_unit"],
