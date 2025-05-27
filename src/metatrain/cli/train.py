@@ -384,8 +384,10 @@ def train_model(
     ###########################
     # CREATE DATASET_INFO #####
     ###########################
-
-    atomic_types = get_atomic_types(train_datasets + val_datasets)
+    if options["architecture"].get("atomic_types") is None:  # infer from datasets
+        atomic_types = get_atomic_types(train_datasets + val_datasets)
+    else:  # use explicitly defined atomic types
+        atomic_types = sorted(options["architecture"]["atomic_types"])
 
     dataset_info = DatasetInfo(
         length_unit=options["training_set"][0]["systems"]["length_unit"],
