@@ -189,6 +189,12 @@ file:
 .. code-block:: yaml
 
     architecture:
+        name: pet
+        model:
+            cutoff: 5.0
+        training:
+            batch_size: 32
+            epochs: 100
         atomic_types: [1, 6, 7, 8, 16]  # i.e. for H, C, N, O, S
 
 .. warning::
