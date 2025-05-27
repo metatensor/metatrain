@@ -477,6 +477,7 @@ class Trainer:
     def save_checkpoint(self, model, path: Union[str, Path]):
         checkpoint = {
             "architecture_name": "soap_bpnn",
+            "metadata": model.__metadata__,
             "model_data": {
                 "model_hypers": model.hypers,
                 "dataset_info": model.dataset_info,
