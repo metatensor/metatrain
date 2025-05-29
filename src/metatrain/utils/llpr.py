@@ -5,7 +5,7 @@ import metatensor.torch
 import numpy as np
 import torch
 from metatensor.torch import Labels, TensorBlock, TensorMap
-from metatensor.torch.atomistic import (
+from metatomic.torch import (
     ModelCapabilities,
     ModelEvaluationOptions,
     ModelOutput,
@@ -33,7 +33,7 @@ class LLPRUncertaintyModel(torch.nn.Module):
 
     def __init__(
         self,
-        model: torch.jit._script.RecursiveScriptModule,
+        model: torch.jit.RecursiveScriptModule,
         num_subtargets: Optional[DefaultDict] = defaultdict(lambda: 1),
         # TODO: read `num_targets` from capabilities instead of user input
     ) -> None:
@@ -195,6 +195,7 @@ class LLPRUncertaintyModel(torch.nn.Module):
                 ),
                 blocks=[
                     TensorBlock(
+                        # TODO: multiple samples case (e.g. per_atom=True)
                         values=one_over_pr_values.expand(-1, self.num_subtargets[orig_name]),
                         samples=ll_features.block().samples,
                         components=ll_features.block().components,
@@ -211,7 +212,8 @@ class LLPRUncertaintyModel(torch.nn.Module):
                 ],
             )
 
-            tsm_multipliers = TensorMap(
+            # TODO: save multipliers directly as tensormap if possible
+            tsm_uq_multipliers = TensorMap(
                 keys=Labels(
                     names=["_"],
                     values=torch.tensor(
@@ -220,6 +222,7 @@ class LLPRUncertaintyModel(torch.nn.Module):
                 ),
                 blocks=[
                     TensorBlock(
+                        # TODO: multiple samples case (e.g. per_atom=True)
                         values=self.uncertainty_multipliers[name].expand(len(systems), -1),
                         samples=ll_features.block().samples,
                         components=ll_features.block().components,
@@ -238,7 +241,7 @@ class LLPRUncertaintyModel(torch.nn.Module):
             
             return_dict[name] = metatensor.torch.multiply(
                 one_over_pr, 
-                tsm_multipliers,
+                tsm_uq_multipliers,
             )
 
 
@@ -595,7 +598,7 @@ class LLPRUncertaintyModel(torch.nn.Module):
 
             # exceptional case for DOS
 #            if name == "mtt::dos":
-#                residuals = agonistic_residual() 
+#                residuals = agonistic_residual() ### TODO: with WB  
 #                self.uncertainty_multipliers[uncertainty_name] = torch.mean(
 #                        residuals**2 / uncertainties,
 #                        axis=0,
@@ -607,13 +610,13 @@ class LLPRUncertaintyModel(torch.nn.Module):
                 self.uncertainty_multipliers[uncertainty_name] = torch.mean(
                         residuals**2 / uncertainties,
                         axis=0,
-                )
+                ) # tensor
 
             else:
                 residuals = all_predictions[name] - all_targets[name]
                 self.uncertainty_multipliers[uncertainty_name] = torch.mean(
                     residuals**2 / uncertainties
-                ).item()
+                ).item() # float
 
 
         self.is_calibrated = True
