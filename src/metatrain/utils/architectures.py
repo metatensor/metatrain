@@ -24,6 +24,8 @@ def check_architecture_name(name: str) -> None:
     :raises ValueError: if the architecture is not found
     """
     try:
+        if name == "llpr_wrapper":
+            return
         if find_spec(f"metatrain.{name}") is not None:
             return
         elif find_spec(f"metatrain.experimental.{name}") is not None:
@@ -121,7 +123,10 @@ def import_architecture(name: str):
     """
     check_architecture_name(name)
     try:
-        return importlib.import_module(f"metatrain.{name}")
+        if name == "llpr_wrapper":
+            return importlib.import_module("metatrain.utils.llpr")
+        else:
+            return importlib.import_module(f"metatrain.{name}")
     except ImportError as err:
         # consistent name with pyproject.toml's `optional-dependencies` section
         name_for_deps = name
@@ -166,6 +171,7 @@ def find_all_architectures() -> List[str]:
     architecture_names = []
     for option_file_path in options_files_path:
         architecture_names.append(get_architecture_name(option_file_path))
+    architecture_names.append("llpr_wrapper")
 
     return architecture_names
 
