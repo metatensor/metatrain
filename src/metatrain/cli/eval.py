@@ -220,10 +220,10 @@ def _eval_targets(
         collate_fn=collate_fn,
         shuffle=False,
     )
-
-    # Initialize RMSE accumulator:
-    rmse_accumulator = RMSEAccumulator()
-    mae_accumulator = MAEAccumulator()
+    # Not initializing the accumulator
+    # Initialize RMSE accumulator: 
+    # rmse_accumulator = RMSEAccumulator()
+    # mae_accumulator = MAEAccumulator()
 
     # If we're returning the predictions, we need to store them:
     if return_predictions:
