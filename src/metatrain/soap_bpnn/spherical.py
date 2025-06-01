@@ -9,7 +9,7 @@ import numpy as np
 import torch
 import wigners
 from metatensor.torch import Labels
-from metatensor.torch.atomistic import System
+from metatomic.torch import System
 from metatensor.torch.learn.nn import Linear as LinearMap
 
 

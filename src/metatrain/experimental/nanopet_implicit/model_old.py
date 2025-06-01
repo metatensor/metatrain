@@ -5,8 +5,8 @@ from typing import Dict, List, Optional, Union
 import metatensor.torch
 import torch
 from metatensor.torch import Labels, TensorBlock, TensorMap
-from metatensor.torch.atomistic import (
-    MetatensorAtomisticModel,
+from metatomic.torch import (
+    AtomisticModel,
     ModelCapabilities,
     ModelMetadata,
     ModelOutput,
@@ -232,7 +232,7 @@ class NanoPET(torch.nn.Module):
         selected_atoms: Optional[Labels] = None,
     ) -> Dict[str, TensorMap]:
         # Checks on systems (species) and outputs are done in the
-        # MetatensorAtomisticModel wrapper
+        # AtomisticModel wrapper
 
         device = systems[0].device
 
@@ -558,7 +558,7 @@ class NanoPET(torch.nn.Module):
 
     def export(
         self, metadata: Optional[ModelMetadata] = None
-    ) -> MetatensorAtomisticModel:
+    ) -> AtomisticModel:
         dtype = next(self.parameters()).dtype
         if dtype not in self.__supported_dtypes__:
             raise ValueError(f"unsupported dtype {dtype} for NanoPET")
@@ -596,7 +596,7 @@ class NanoPET(torch.nn.Module):
 
         append_metadata_references(metadata, self.__default_metadata__)
 
-        return MetatensorAtomisticModel(self.eval(), metadata, capabilities)
+        return AtomisticModel(self.eval(), metadata, capabilities)
 
     def _add_output(self, target_name: str, target_info: TargetInfo) -> None:
         # one output shape for each tensor block, grouped by target (i.e. tensormap)

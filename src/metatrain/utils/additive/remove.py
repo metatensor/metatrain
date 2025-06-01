@@ -4,7 +4,7 @@ from typing import Dict, List
 import metatensor.torch
 import torch
 from metatensor.torch import TensorMap
-from metatensor.torch.atomistic import System
+from metatomic.torch import System
 
 from ..data import TargetInfo
 from ..evaluate_model import evaluate_model

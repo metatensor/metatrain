@@ -3,7 +3,7 @@ import logging
 from pathlib import Path
 from typing import Any, Optional, Union
 
-from metatensor.torch.atomistic import ModelMetadata, is_atomistic_model
+from metatomic.torch import ModelMetadata, is_atomistic_model
 from omegaconf import OmegaConf
 
 from ..utils.io import check_file_extension, load_model

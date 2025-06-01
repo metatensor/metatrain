@@ -4,7 +4,7 @@ from typing import Dict, List, Optional, Union
 import metatensor.torch
 import torch
 from metatensor.torch import Labels, LabelsEntry, TensorBlock, TensorMap
-from metatensor.torch.atomistic import ModelOutput, System
+from metatomic.torch import ModelOutput, System
 from metatrain.utils.data import DatasetInfo
 
 import ase.units

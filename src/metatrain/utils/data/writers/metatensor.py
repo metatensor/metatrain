@@ -3,7 +3,7 @@ from typing import Dict, List
 
 import torch
 from metatensor.torch import TensorMap, save
-from metatensor.torch.atomistic import ModelCapabilities, System
+from metatomic.torch import ModelCapabilities, System
 
 
 # note that, although we don't use `systems` and `capabilities`, we need them to

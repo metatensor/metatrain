@@ -5,8 +5,8 @@ from typing import Dict, List, Optional, Union
 import metatensor.torch
 import torch
 from metatensor.torch import Labels, TensorBlock, TensorMap
-from metatensor.torch.atomistic import (
-    MetatensorAtomisticModel,
+from metatomic.torch import (
+    AtomisticModel,
     ModelCapabilities,
     ModelMetadata,
     ModelOutput,
@@ -249,7 +249,7 @@ class NanoPETImplicit2(torch.nn.Module):
         selected_atoms: Optional[Labels] = None,
     ) -> Dict[str, TensorMap]:
         # Checks on systems (species) and outputs are done in the
-        # MetatensorAtomisticModel wrapper
+        # AtomisticModel wrapper
 
         outputs = {"mtt::hamiltonian": ModelOutput()}
 
@@ -369,16 +369,18 @@ class NanoPETImplicit2(torch.nn.Module):
             raise ValueError("Didn't find momenta :(")
             momenta = [torch.zeros_like(system.positions) for system in systems]
 
-        if "time_lag" in systems[0].known_data():
-            time_lag = torch.concatenate(
-                [system.get_data("time_lag").block().values for system in systems]
-            )
-            assert torch.max(time_lag - time_lag[0]) < 1e-6  # all the same
-            time_lag_int = int(time_lag[0])
-        else:
-            raise ValueError("Didn't find time_lag :(")
-        time_lag_edge = time_lag[sample_labels.column("system")][neighbors]
-        time_lag_edge = edge_array_to_nef(time_lag_edge, nef_indices)
+        # if "time_lag" in systems[0].known_data():
+        #     time_lag = torch.concatenate(
+        #         [system.get_data("time_lag").block().values for system in systems]
+        #     )
+        #     assert torch.max(time_lag - time_lag[0]) < 1e-6  # all the same
+        #     time_lag_int = int(time_lag[0])
+        # else:
+        #     raise ValueError("Didn't find time_lag :(")
+        # time_lag_edge = time_lag[sample_labels.column("system")][neighbors]
+        # time_lag_edge = edge_array_to_nef(time_lag_edge, nef_indices)
+
+        time_lag_int = int(list(self.outputs.keys())[-1].split("mtt::delta_")[-1].split("_")[0])
 
 
         # Encode
@@ -653,7 +655,7 @@ class NanoPETImplicit2(torch.nn.Module):
 
     def export(
         self, metadata: Optional[ModelMetadata] = None
-    ) -> MetatensorAtomisticModel:
+    ) -> AtomisticModel:
         dtype = next(self.parameters()).dtype
         if dtype not in self.__supported_dtypes__:
             raise ValueError(f"unsupported dtype {dtype} for NanoPETImplicit2")
@@ -691,7 +693,7 @@ class NanoPETImplicit2(torch.nn.Module):
 
         append_metadata_references(metadata, self.__default_metadata__)
 
-        return MetatensorAtomisticModel(self.eval(), metadata, capabilities)
+        return AtomisticModel(self.eval(), metadata, capabilities)
 
     def _add_output(self, target_name: str, target_info: TargetInfo) -> None:
         # one output shape for each tensor block, grouped by target (i.e. tensormap)

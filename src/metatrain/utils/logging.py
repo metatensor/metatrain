@@ -8,7 +8,7 @@ from typing import Dict, List, Optional, Tuple, Union
 
 import numpy as np
 import torch
-from metatensor.torch.atomistic import ModelCapabilities
+from metatomic.torch import ModelCapabilities
 
 from .data import DatasetInfo
 from .distributed.logging import is_main_process

@@ -3,7 +3,7 @@ import copy
 import numpy as np
 import pytest
 import torch
-from metatensor.torch.atomistic import System, systems_to_torch
+from metatomic.torch import System, systems_to_torch
 
 from metatrain.soap_bpnn import SoapBpnn
 from metatrain.utils.data import DatasetInfo

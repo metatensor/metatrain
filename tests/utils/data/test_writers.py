@@ -4,7 +4,7 @@ import metatensor.torch
 import pytest
 import torch
 from metatensor.torch import Labels, TensorBlock, TensorMap
-from metatensor.torch.atomistic import ModelCapabilities, ModelOutput, System
+from metatomic.torch import ModelCapabilities, ModelOutput, System
 
 from metatrain.utils.data.readers.ase import read
 from metatrain.utils.data.writers import write_predictions, write_xyz

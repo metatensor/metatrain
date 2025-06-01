@@ -1,7 +1,7 @@
 Neighbor lists
 ==============
 
-Utilities to attach neighbor lists to a ``metatensor.torch.atomistic.System`` object.
+Utilities to attach neighbor lists to a ``metatomic.torch.System`` object.
 
 .. automodule:: metatrain.utils.neighbor_lists
     :members:

@@ -35,7 +35,7 @@ from metatensor.torch import Labels, TensorBlock, TensorMap
 from ...utils.data import TargetInfo
 from ...utils.data.target_info import get_energy_target_info
 
-from metatensor.torch.atomistic import load_atomistic_model, ModelOutput, ModelEvaluationOptions, System
+from metatomic.torch import load_atomistic_model, ModelOutput, ModelEvaluationOptions, System
 from ase.data import atomic_masses
 
 logger = logging.getLogger(__name__)

@@ -1,6 +1,6 @@
 import torch
-from metatensor.torch.atomistic import (
-    MetatensorAtomisticModel,
+from metatomic.torch import (
+    AtomisticModel,
     ModelEvaluationOptions,
     ModelMetadata,
     ModelOutput,
@@ -60,7 +60,7 @@ def test_llpr(tmpdir):
     llpr_model.compute_covariance(dataloader)
     llpr_model.compute_inverse_covariance()
 
-    exported_model = MetatensorAtomisticModel(
+    exported_model = AtomisticModel(
         llpr_model.eval(),
         ModelMetadata(),
         llpr_model.capabilities,
@@ -106,7 +106,7 @@ def test_llpr(tmpdir):
     llpr_model.generate_ensemble({"energy": weights}, n_ensemble_members)
     assert "energy_ensemble" in llpr_model.capabilities.outputs
 
-    exported_model = MetatensorAtomisticModel(
+    exported_model = AtomisticModel(
         llpr_model.eval(),
         ModelMetadata(),
         llpr_model.capabilities,
@@ -196,7 +196,7 @@ def test_llpr_covariance_as_pseudo_hessian(tmpdir):
     )
     llpr_model.compute_inverse_covariance()
 
-    exported_model = MetatensorAtomisticModel(
+    exported_model = AtomisticModel(
         llpr_model.eval(),
         ModelMetadata(),
         llpr_model.capabilities,
@@ -242,7 +242,7 @@ def test_llpr_covariance_as_pseudo_hessian(tmpdir):
     llpr_model.generate_ensemble({"energy": weights}, n_ensemble_members)
     assert "energy_ensemble" in llpr_model.capabilities.outputs
 
-    exported_model = MetatensorAtomisticModel(
+    exported_model = AtomisticModel(
         llpr_model.eval(),
         ModelMetadata(),
         llpr_model.capabilities,

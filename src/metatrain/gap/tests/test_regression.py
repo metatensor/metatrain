@@ -97,11 +97,11 @@ def test_regression_train_and_invariance():
     system.rotate(48, "y")
 
     original_output = gap(
-        [metatensor.torch.atomistic.systems_to_torch(original_system)],
+        [metatomic.torch.systems_to_torch(original_system)],
         {"mtt::U0": gap.outputs["mtt::U0"]},
     )
     rotated_output = gap(
-        [metatensor.torch.atomistic.systems_to_torch(system)],
+        [metatomic.torch.systems_to_torch(system)],
         {"mtt::U0": gap.outputs["mtt::U0"]},
     )
 
@@ -182,11 +182,11 @@ def test_ethanol_regression_train_and_invariance():
     system.rotate(48, "y")
 
     original_output = gap(
-        [metatensor.torch.atomistic.systems_to_torch(original_system)],
+        [metatomic.torch.systems_to_torch(original_system)],
         {"energy": gap.outputs["energy"]},
     )
     rotated_output = gap(
-        [metatensor.torch.atomistic.systems_to_torch(system)],
+        [metatomic.torch.systems_to_torch(system)],
         {"energy": gap.outputs["energy"]},
     )
 

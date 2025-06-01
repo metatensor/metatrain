@@ -1,6 +1,6 @@
 import json
 
-from metatensor.torch.atomistic import ModelMetadata
+from metatomic.torch import ModelMetadata
 
 
 def append_metadata_references(self: ModelMetadata, other: ModelMetadata) -> None:

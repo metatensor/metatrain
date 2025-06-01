@@ -1,6 +1,6 @@
 import pytest
 import torch
-from metatensor.torch.atomistic import systems_to_torch
+from metatomic.torch import systems_to_torch
 
 from metatrain.soap_bpnn import SoapBpnn
 from metatrain.utils.architectures import get_default_hypers

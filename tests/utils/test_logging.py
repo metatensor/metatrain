@@ -3,7 +3,7 @@ import re
 import sys
 import warnings
 
-from metatensor.torch.atomistic import ModelCapabilities, ModelOutput
+from metatomic.torch import ModelCapabilities, ModelOutput
 
 from metatrain.utils.logging import MetricLogger, get_cli_input, setup_logging
 

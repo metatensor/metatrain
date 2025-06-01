@@ -4,7 +4,7 @@ import metatensor.torch
 import pytest
 import torch
 from jsonschema.exceptions import ValidationError
-from metatensor.torch.atomistic import ModelOutput, System
+from metatomic.torch import ModelOutput, System
 from omegaconf import OmegaConf
 
 from metatrain.soap_bpnn import SoapBpnn

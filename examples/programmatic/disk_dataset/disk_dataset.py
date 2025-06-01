@@ -14,7 +14,7 @@ how to save a ``DiskDataset`` for this purpose. Metatrain will then be able to l
 import ase.io
 import torch
 from metatensor.torch import Labels, TensorBlock, TensorMap
-from metatensor.torch.atomistic import NeighborListOptions, systems_to_torch
+from metatomic.torch import NeighborListOptions, systems_to_torch
 
 from metatrain.utils.data import DiskDatasetWriter
 from metatrain.utils.neighbor_lists import get_system_with_neighbor_lists

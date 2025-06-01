@@ -1,7 +1,7 @@
 from typing import List
 
 import torch
-from metatensor.torch.atomistic import NeighborListOptions, System
+from metatomic.torch import NeighborListOptions, System
 
 
 def concatenate_structures(
