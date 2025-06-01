@@ -24,6 +24,9 @@ changelog <https://keepachangelog.com/en/1.1.0/>`_ format. This project follows
 Unreleased
 ----------
 
+Version 2025.7 - 2025-05-27
+---------------------------
+
 Changed
 #######
 
