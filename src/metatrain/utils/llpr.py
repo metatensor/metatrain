@@ -19,7 +19,7 @@ from .data import DatasetInfo, TargetInfo, get_atomic_types
 from .evaluate_model import evaluate_model
 from .per_atom import average_by_num_atoms
 
-from metatrain.experimental.nativepet.DOSutils import get_dynamic_shift_agnostic_mse
+from metatrain.pet.DOSutils import get_dynamic_shift_agnostic_mse
 
 class LLPRUncertaintyModel(torch.nn.Module):
     """A wrapper that adds LLPR uncertainties to a model.
@@ -687,14 +687,12 @@ class LLPRUncertaintyModel(torch.nn.Module):
 
                 # raw residuals
                 residuals = all_predictions[name] - revised_dos_targets
+
                 # ture/pred ratios
                 ratios = residuals ** 2 / uncertainties
-                print(ratios.shape)
 
                 masked_sum = (ratios * revised_masks).sum(dim=0)
                 mask_count = revised_masks.sum(dim=0)
-
-                print(mask_count)
 
                 masked_mean = masked_sum / mask_count.clamp(min=1)
                 masked_mean = torch.where(mask_count > 0, masked_mean, torch.tensor(0.0))
