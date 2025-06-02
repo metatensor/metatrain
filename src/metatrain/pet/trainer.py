@@ -346,7 +346,8 @@ class Trainer:
 
         for epoch in range(start_epoch, start_epoch + self.hypers["num_epochs"]):
             if is_distributed:
-                sampler.set_epoch(epoch)
+                for train_sampler in train_samplers:
+                    train_sampler.set_epoch(epoch)
             # CHANGE: Not using the default Accumulators because they do not support custom loss functions yet
             # train_rmse_calculator = RMSEAccumulator(self.hypers["log_separate_blocks"])
             # val_rmse_calculator = RMSEAccumulator(self.hypers["log_separate_blocks"])
