@@ -5,7 +5,7 @@ from typing import Any, Dict, List, Literal, Optional, Union
 import torch
 from metatensor.torch import Labels, TensorMap
 from metatomic.torch import (
-    MetatensorAtomisticModel,
+    AtomisticModel,
     ModelMetadata,
     ModelOutput,
     System,
