@@ -1,4 +1,5 @@
-from typing import Callable, Dict, List, Optional
+from collections import defaultdict
+from typing import Callable, Dict, DefaultDict, List, Optional
 
 import metatensor.torch
 import numpy as np
@@ -18,6 +19,7 @@ from .data import DatasetInfo, TargetInfo, get_atomic_types
 from .evaluate_model import evaluate_model
 from .per_atom import average_by_num_atoms
 
+from metatrain.experimental.nativepet.DOSutils import get_dynamic_shift_agnostic_mse
 
 class LLPRUncertaintyModel(torch.nn.Module):
     """A wrapper that adds LLPR uncertainties to a model.
@@ -33,6 +35,9 @@ class LLPRUncertaintyModel(torch.nn.Module):
     def __init__(
         self,
         model: torch.jit._script.RecursiveScriptModule,
+        num_subtargets: Optional[DefaultDict] = defaultdict(lambda: 1),
+        # TODO: read `num_targets` from capabilities instead of user input
+        dos: bool = False, # DOS-specific
     ) -> None:
         super().__init__()
 
@@ -43,16 +48,31 @@ class LLPRUncertaintyModel(torch.nn.Module):
         old_capabilities = self.model.capabilities()
         additional_capabilities = {}
         self.uncertainty_multipliers = {}
+
+        # TODO: read `num_targets` from capabilities instead of user input
+        self.num_subtargets = num_subtargets
+
+        # DOS-specific
+        self.dos = dos
+
         for name, output in old_capabilities.outputs.items():
+
             if is_auxiliary_output(name):
-                continue  # auxiliary output
+                continue  # skip auxiliary outputs
+            elif "mask" in name:
+                continue  # DOS-specific
+
             uncertainty_name = f"mtt::aux::{name.replace('mtt::', '')}_uncertainty"
+
             additional_capabilities[uncertainty_name] = ModelOutput(
                 quantity="",
                 unit=f"({output.unit})^2",
                 per_atom=True,
             )
-            self.uncertainty_multipliers[uncertainty_name] = 1.0
+
+            # TODO: read `num_targets` from capabilities instead of user input
+            self.uncertainty_multipliers[uncertainty_name] = torch.ones(num_subtargets[name])
+
         self.capabilities = ModelCapabilities(
             outputs={**old_capabilities.outputs, **additional_capabilities},
             atomic_types=old_capabilities.atomic_types,
@@ -73,6 +93,7 @@ class LLPRUncertaintyModel(torch.nn.Module):
             )
             for uncertainty_name in self.uncertainty_multipliers.keys()
         }
+
         self.inv_covariances = {
             uncertainty_name: torch.zeros(
                 (self.ll_feat_size, self.ll_feat_size),
@@ -93,7 +114,10 @@ class LLPRUncertaintyModel(torch.nn.Module):
         outputs: Dict[str, ModelOutput],
         selected_atoms: Optional[Labels] = None,
     ) -> Dict[str, TensorMap]:
+
         device = systems[0].positions.device
+
+        # make sure matrices are on the same device as systems
         if list(self.covariances.values())[0].device != device:
             for name in self.covariances.keys():
                 self.covariances[name] = self.covariances[name].to(device=device)
@@ -116,16 +140,27 @@ class LLPRUncertaintyModel(torch.nn.Module):
             )
             return self.model(systems, options, check_consistency=False)
 
+        # collect per-atom targets
         per_atom_all_targets = [output.per_atom for output in outputs.values()]
+
         # impose either all per atom or all not per atom
         if not all(per_atom_all_targets) and any(per_atom_all_targets):
             raise ValueError(
                 "All output uncertainties must be either be requested per "
                 "atom or not per atom with LLPR."
             )
+
+        # ??? 
         per_atom = per_atom_all_targets[0]
+
         outputs_for_model: Dict[str, ModelOutput] = {}
+
+        # collect last-layer features for uncertainty-requested outputs
         for name in outputs.keys():
+
+            if "mask" in name:
+                continue  # DOS-specific
+
             if name.endswith("_uncertainty"):
                 base_name = name.replace("_uncertainty", "").replace("mtt::aux::", "")
                 if base_name not in outputs and f"mtt::{base_name}" not in outputs:
@@ -142,6 +177,8 @@ class LLPRUncertaintyModel(torch.nn.Module):
                         per_atom=per_atom,
                     )
                 )
+
+        # collect actual outputs
         for name, output in outputs.items():
             # remove uncertainties from the requested outputs for the
             # wrapped model
@@ -151,6 +188,7 @@ class LLPRUncertaintyModel(torch.nn.Module):
                 continue
             outputs_for_model[name] = output
 
+        # initialize return_dict
         options = ModelEvaluationOptions(
             length_unit="",
             outputs=outputs_for_model,
@@ -158,12 +196,18 @@ class LLPRUncertaintyModel(torch.nn.Module):
         )
         return_dict = self.model(systems, options, check_consistency=False)
 
+        # collect requested uncertainties
         requested_uncertainties: List[str] = []
         for name in outputs.keys():
             if name.startswith("mtt::aux::") and name.endswith("_uncertainty"):
                 requested_uncertainties.append(name)
 
-        for name in requested_uncertainties:
+        
+        for name, orig_name in zip(requested_uncertainties, outputs.keys()):
+
+            if "mask" in name:
+                continue  # DOS-specific
+
             ll_features = return_dict[
                 name.replace("_uncertainty", "_last_layer_features")
             ]
@@ -176,6 +220,7 @@ class LLPRUncertaintyModel(torch.nn.Module):
                 self.inv_covariances[name],
                 ll_features.block().values,
             ).unsqueeze(1)
+
             one_over_pr = TensorMap(
                 keys=Labels(
                     names=["_"],
@@ -185,22 +230,52 @@ class LLPRUncertaintyModel(torch.nn.Module):
                 ),
                 blocks=[
                     TensorBlock(
-                        values=one_over_pr_values,
+                        values=one_over_pr_values.expand(-1, self.num_subtargets[orig_name]),
                         samples=ll_features.block().samples,
                         components=ll_features.block().components,
-                        properties=Labels(
-                            names=["_"],
-                            values=torch.tensor(
-                                [[0]], device=ll_features.block().values.device
-                            ),
-                        ),
+                        properties=Labels.range("properties", 
+                            self.num_subtargets[orig_name],
+                            ).to(ll_features.block().values.device),
+                        #(
+                         #   names=["_"],
+                         #   values=torch.tensor(
+                         #       [[0]], device=ll_features.block().values.device
+                         #   ),
+                        #),
                     )
                 ],
             )
 
-            return_dict[name] = metatensor.torch.multiply(
-                one_over_pr, self.uncertainty_multipliers[name]
+            tsm_multipliers = TensorMap(
+                keys=Labels(
+                    names=["_"],
+                    values=torch.tensor(
+                        [[0]], device=ll_features.block().values.device
+                    ),
+                ),
+                blocks=[
+                    TensorBlock(
+                        values=self.uncertainty_multipliers[name].expand(len(systems), -1),
+                        samples=ll_features.block().samples,
+                        components=ll_features.block().components,
+                        properties=Labels.range("properties",
+                            self.num_subtargets[orig_name],
+                            ).to(ll_features.block().values.device),
+                        #(
+                        #    names=["_"],
+                        #    values=torch.tensor(
+                        #        [[0]], device=ll_features.block().values.device
+                        #    ),
+                        #),
+                    )
+                ],
             )
+            
+            return_dict[name] = metatensor.torch.multiply(
+                one_over_pr, 
+                tsm_multipliers,
+            )
+
 
         # now deal with potential ensembles (see generate_ensemble method)
         requested_ensembles: List[str] = []
@@ -290,6 +365,10 @@ class LLPRUncertaintyModel(torch.nn.Module):
         dtype = next(iter(self.covariances.values())).dtype
         for batch in train_loader:
             systems, targets = batch
+
+            if self.dos:
+                del targets["mtt::mask"] # DOS-specific
+
             n_atoms = torch.tensor(
                 [len(system.positions) for system in systems], device=device
             )
@@ -491,36 +570,52 @@ class LLPRUncertaintyModel(torch.nn.Module):
             This data loader should be generated from a dataset from the
             ``Dataset`` class in ``metatrain.utils.data``.
         """
+
         # calibrate the LLPR
-        # TODO: in the future, we might want to have one calibration factor per
-        # property for outputs with multiple properties
+
         device = next(iter(self.covariances.values())).device
         dtype = next(iter(self.covariances.values())).dtype
+
         all_predictions = {}  # type: ignore
         all_targets = {}  # type: ignore
         all_uncertainties = {}  # type: ignore
+
+        if self.dos:
+            all_masks = []
+
         for batch in valid_loader:
-            systems, targets = batch
+            systems, orig_targets = batch
+
+            targets = orig_targets.copy()
+            if self.dos:
+                del targets["mtt::mask"]  # DOS-specific
+
             systems = [system.to(device=device, dtype=dtype) for system in systems]
             targets = {
                 name: target.to(device=device, dtype=dtype)
                 for name, target in targets.items()
             }
+
             # evaluate the targets and their uncertainties, not per atom
             requested_outputs = {}
             for name in targets:
+
                 requested_outputs[name] = ModelOutput(
                     quantity="",
                     unit="",
                     per_atom=False,
                 )
+
                 uncertainty_name = f"mtt::aux::{name.replace('mtt::', '')}_uncertainty"
                 requested_outputs[uncertainty_name] = ModelOutput(
                     quantity="",
                     unit="",
                     per_atom=False,
                 )
+
+
             outputs = self.forward(systems, requested_outputs)
+            
             for name, target in targets.items():
                 uncertainty_name = f"mtt::aux::{name.replace('mtt::', '')}_uncertainty"
                 if name not in all_predictions:
@@ -533,6 +628,12 @@ class LLPRUncertaintyModel(torch.nn.Module):
                     outputs[uncertainty_name].block().values.detach()
                 )
 
+            if self.dos:
+                all_masks.append(orig_targets["mtt::mask"].block().values)
+
+        if self.dos:
+            all_masks = torch.cat(all_masks, dim=0)
+
         for name in all_predictions:
             all_predictions[name] = torch.cat(all_predictions[name], dim=0)
             all_targets[name] = torch.cat(all_targets[name], dim=0)
@@ -541,14 +642,78 @@ class LLPRUncertaintyModel(torch.nn.Module):
                 all_uncertainties[uncertainty_name], dim=0
             )
 
+        #  compute the uncertainty multiplier
         for name in all_predictions:
-            # compute the uncertainty multiplier
-            residuals = all_predictions[name] - all_targets[name]
+
             uncertainty_name = f"mtt::aux::{name.replace('mtt::', '')}_uncertainty"
             uncertainties = all_uncertainties[uncertainty_name]
-            self.uncertainty_multipliers[uncertainty_name] = torch.mean(
-                residuals**2 / uncertainties
-            ).item()
+
+
+            if name == "mtt::dos":
+                dos_predictions = all_predictions[name]
+                orig_dos_targets = all_targets[name]
+
+                # obtain shifts of the reference data
+                _, shifts = get_dynamic_shift_agnostic_mse(
+                    dos_predictions,
+                    orig_dos_targets,
+                    all_masks,
+                    return_shift=True)
+
+                revised_dos_targets = torch.zeros(
+                        dos_predictions.shape,
+                        dtype=orig_dos_targets.dtype,
+                        device=orig_dos_targets.device,
+                        )
+
+                revised_masks = torch.zeros(
+                        dos_predictions.shape,
+                        dtype=all_masks.dtype,
+                        device=all_masks.device,
+                        )
+
+                # broadcasting tensors
+                rows = torch.arange(dos_predictions.shape[0]).unsqueeze(1)
+                cols = shifts.unsqueeze(1) + torch.arange(orig_dos_targets.shape[1])
+
+                # revised DOS target via broadcasting
+                revised_dos_targets[rows, cols] = orig_dos_targets
+
+                # get revised masks, padding the low E end with 1's
+                revised_masks[rows, cols] = all_masks
+                low_e_cols = torch.arange(dos_predictions.shape[1]).unsqueeze(0).expand(len(rows), -1)
+                low_e_mask = low_e_cols < shifts.unsqueeze(1)
+                revised_masks[low_e_mask] = 1
+
+                # raw residuals
+                residuals = all_predictions[name] - revised_dos_targets
+                # ture/pred ratios
+                ratios = residuals ** 2 / uncertainties
+                print(ratios.shape)
+
+                masked_sum = (ratios * revised_masks).sum(dim=0)
+                mask_count = revised_masks.sum(dim=0)
+
+                print(mask_count)
+
+                masked_mean = masked_sum / mask_count.clamp(min=1)
+                masked_mean = torch.where(mask_count > 0, masked_mean, torch.tensor(0.0))
+
+                self.uncertainty_multipliers[uncertainty_name] = masked_mean
+
+            # generic case with num_subtargets > 1
+            elif self.num_subtargets[name] > 1: 
+                residuals = all_predictions[name] - all_targets[name]
+                self.uncertainty_multipliers[uncertainty_name] = torch.mean(
+                        residuals**2 / uncertainties,
+                        axis=0,
+                )
+
+            else:
+                residuals = all_predictions[name] - all_targets[name]
+                self.uncertainty_multipliers[uncertainty_name] = torch.mean(
+                    residuals**2 / uncertainties
+                ).item()
 
         self.is_calibrated = True
 
