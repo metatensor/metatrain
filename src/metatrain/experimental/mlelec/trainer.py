@@ -110,8 +110,6 @@ class Trainer:
 
         # Move the model to the device and dtype:
         model.to(device=device, dtype=dtype)
-        # # The additive models of the SOAP-BPNN are always in float64 (to avoid
-        # # numerical errors in the composition weights, which can be very large).
         # for additive_model in model.additive_models:
         #     additive_model.to(dtype=torch.float64)
 
@@ -291,10 +289,12 @@ class Trainer:
                 )
 
                 # average by the number of atoms
-                predictions = average_by_num_atoms(
-                    predictions, systems, per_structure_targets
-                )
-                targets = average_by_num_atoms(targets, systems, per_structure_targets)
+                # predictions = average_by_num_atoms(
+                #     predictions, systems, per_structure_targets
+                # )
+                # targets = average_by_num_atoms(targets, systems,
+                # per_structure_targets)
+
                 train_loss_batch = loss_fn(predictions, targets)
                 train_loss_batch.backward()
                 torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
