@@ -416,9 +416,9 @@ class Trainer:
                     # external_gradients_loss.append(external_gradient_loss_i)
                     dos_mask_i = torch.hstack( #Adjust the mask to account for the discrete shift
                         [
-                        (torch.ones(discrete_shift[index])).bool(),
+                        (torch.ones(discrete_shift[index])).bool().to(device),
                         dos_mask[index],
-                        (torch.zeros(int(extra_targets - discrete_shift[index]))).bool()
+                        (torch.zeros(int(extra_targets - discrete_shift[index]))).bool().to(device)
                         ]
                     )                        
                     aligned_predictions.append(aligned_prediction)
@@ -514,9 +514,9 @@ class Trainer:
 
                             dos_mask_i = torch.hstack(
                                 [
-                                (torch.ones(discrete_shift[index])).bool(),
+                                (torch.ones(discrete_shift[index])).bool().to(device),
                                 dos_mask[index],
-                                (torch.zeros(int(extra_targets - discrete_shift[index]))).bool()
+                                (torch.zeros(int(extra_targets - discrete_shift[index]))).bool().to(device)
                                 ]
                             )                                
                             aligned_predictions.append(aligned_prediction)
@@ -585,9 +585,9 @@ class Trainer:
 
                     dos_mask_i = torch.hstack( #Adjust the mask to account for the discrete shift
                         [
-                        (torch.ones(discrete_shift[index])).bool(),
+                        (torch.ones(discrete_shift[index])).bool().to(device),
                         dos_mask[index],
-                        (torch.zeros(int(extra_targets - discrete_shift[index]))).bool()
+                        (torch.zeros(int(extra_targets - discrete_shift[index]))).bool().to(device)
                         ]
                     )  
                     aligned_predictions.append(aligned_prediction)
