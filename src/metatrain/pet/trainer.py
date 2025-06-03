@@ -440,19 +440,18 @@ class Trainer:
                 # dim_loss = dos_mask.shape[1] - gradient_losses.shape[1]
                 gradient_loss = torch.mean(torch.trapezoid(((full_gradient * (~adjusted_dos_mask[:, dim_loss:]))**2), # non-zero gradients outside the window are penalized
                                                                     dx = 0.05, dim = 1)) * self.hypers['gradient_penalty']
-                total_loss = (dos_loss + gradient_loss + int_MSE) * len(dos_target)
+                total_loss = (dos_loss + gradient_loss + int_MSE) 
                 total_loss.backward()
                 torch.nn.utils.clip_grad_norm_(
                     model.parameters(), self.hypers["grad_clip_norm"]
                 )
                 # torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
-                optimizer.step()
                 # train_loss_batch = loss_fn(predictions, targets)
                 # train_loss_batch.backward()
                 # torch.nn.utils.clip_grad_norm_(
                 #     model.parameters(), self.hypers["grad_clip_norm"]
                 # )
-                # optimizer.step()
+                optimizer.step()
                 total_loss = (total_loss * len(dos_target)).detach() # CHANGE: We need to multiply the loss by the number of samples in the batch to get the correct loss value
                 if is_distributed:
                     # sum the loss over all processes
@@ -536,7 +535,7 @@ class Trainer:
                         # dim_loss = dos_mask.shape[1] - gradient_losses.shape[1]
                         gradient_loss = torch.mean(torch.trapezoid(((full_gradients * (~adjusted_dos_mask[:, dim_loss:]))**2),
                                                                             dx = 0.05, dim = 1)) * self.hypers['gradient_penalty']
-                        total_loss = (dos_loss + gradient_loss + int_MSE) * len(dos_target)
+                        total_loss = (dos_loss + gradient_loss + int_MSE) 
                         total_loss.backward()             
                         torch.nn.utils.clip_grad_norm_(
                             model.parameters(), self.hypers["grad_clip_norm"]
@@ -613,8 +612,8 @@ class Trainer:
                 # gradient_losses = torch.nn.functional.conv1d(aligned_predictions.unsqueeze(dim = 1), t4).squeeze(dim = 1)
                 # gradient_loss = torch.mean(torch.trapezoid(((gradient_losses * (~dos_mask[:, dim_loss:]))**2),
                 #                                                     dx = 0.05, dim = 1)) * self.hypers['gradient_penalty']
-                total_loss = (dos_loss + gradient_loss + int_MSE) * len(dos_target) # CHANGE: We need to multiply the loss by the number of samples in the batch to get the correct loss value
-                val_loss_batch = total_loss.detach()
+                total_loss = (dos_loss + gradient_loss + int_MSE) 
+                val_loss_batch = (total_loss * len(dos_target)).detach()# CHANGE: We need to multiply the loss by the number of samples in the batch to get the correct loss value
 
                 if is_distributed:
                     # sum the loss over all processes
