@@ -2,10 +2,10 @@ import random
 
 import numpy as np
 import torch
-from metatensor.torch.atomistic import ModelOutput
+from metatomic.torch import ModelOutput
 from omegaconf import OmegaConf
 
-from metatrain.experimental.nativepet import NativePET, Trainer
+from metatrain.pet import PET, Trainer
 from metatrain.utils.data import Dataset, DatasetInfo
 from metatrain.utils.data.readers import (
     read_systems,
@@ -32,7 +32,7 @@ def test_regression_init():
     dataset_info = DatasetInfo(
         length_unit="Angstrom", atomic_types=[1, 6, 7, 8], targets=targets
     )
-    model = NativePET(MODEL_HYPERS, dataset_info)
+    model = PET(MODEL_HYPERS, dataset_info)
 
     # Predict on the first five systems
     systems = read_systems(DATASET_PATH)[:5]
@@ -100,7 +100,7 @@ def test_regression_energies_forces_train():
     dataset_info = DatasetInfo(
         length_unit="Angstrom", atomic_types=[6], targets=target_info_dict
     )
-    model = NativePET(MODEL_HYPERS, dataset_info)
+    model = PET(MODEL_HYPERS, dataset_info)
     trainer = Trainer(hypers["training"])
     trainer.train(
         model=model,

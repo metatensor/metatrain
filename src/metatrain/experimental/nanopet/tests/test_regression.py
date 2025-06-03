@@ -2,7 +2,7 @@ import random
 
 import numpy as np
 import torch
-from metatensor.torch.atomistic import ModelOutput
+from metatomic.torch import ModelOutput
 from omegaconf import OmegaConf
 
 from metatrain.experimental.nanopet import NanoPET, Trainer
@@ -44,11 +44,11 @@ def test_regression_init():
 
     expected_output = torch.tensor(
         [
-            [-0.262277305126],
-            [-0.084106147289],
-            [-0.074979163706],
-            [-0.147423595190],
-            [-0.016901737079],
+            [-0.361842244864],
+            [-0.222126781940],
+            [-0.145303070545],
+            [-0.189965277910],
+            [-0.048939596862],
         ]
     )
 
@@ -113,16 +113,16 @@ def test_regression_train():
 
     expected_output = torch.tensor(
         [
-            [0.672509312630],
-            [0.548912703991],
-            [0.295803457499],
-            [0.467427253723],
-            [0.307686179876],
+            [0.675404727459],
+            [0.414229094982],
+            [0.305283188820],
+            [0.677668213844],
+            [0.318834125996],
         ]
     )
 
     # if you need to change the hardcoded values:
-    # torch.set_printoptions(precision=12)
-    # print(output["mtt::U0"].block().values)
+    torch.set_printoptions(precision=12)
+    print(output["mtt::U0"].block().values)
 
     torch.testing.assert_close(output["mtt::U0"].block().values, expected_output)

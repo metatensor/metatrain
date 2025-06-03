@@ -1,8 +1,8 @@
 import matplotlib.pyplot as plt
 import numpy as np
 import torch
-from metatensor.torch.atomistic import (
-    MetatensorAtomisticModel,
+from metatomic.torch import (
+    AtomisticModel,
     ModelEvaluationOptions,
     ModelMetadata,
     ModelOutput,
@@ -163,7 +163,7 @@ llpr_model.compute_covariance_as_pseudo_hessian(
 llpr_model.compute_inverse_covariance()
 llpr_model.calibrate(valid_dataloader)
 
-exported_model = MetatensorAtomisticModel(
+exported_model = AtomisticModel(
     llpr_model.eval(),
     ModelMetadata(),
     llpr_model.capabilities,

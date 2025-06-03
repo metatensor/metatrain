@@ -14,3 +14,4 @@ such as output naming, auxiliary outputs, and wrapper models.
    auto-restarting
    fine-tuning
    fitting-generic-targets
+   transfer-learning

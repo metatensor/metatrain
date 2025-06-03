@@ -4,7 +4,7 @@ from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 
 from metatensor.torch import TensorMap
-from metatensor.torch.atomistic import System
+from metatomic.torch import System
 from omegaconf import DictConfig
 
 from ..target_info import TargetInfo
@@ -87,13 +87,13 @@ def read_targets(
 
     :param conf: config containing the keys for what should be read.
     :returns: Dictionary containing a list of TensorMaps for each target section in the
-        config as well as a ``Dict[str, TargetInfo]`` object
-        containing the metadata of the targets.
+        config as well as a ``Dict[str, TargetInfo]`` object containing the metadata of
+        the targets.
 
-    :raises ValueError: if the target name is not valid. Valid target names are
-        those that either start with ``mtt::`` or those that are in the list of
-        standard outputs of ``metatensor.torch.atomistic`` (see
-        https://docs.metatensor.org/latest/atomistic/outputs.html)
+    :raises ValueError: if the target name is not valid. Valid target names are those
+        that either start with ``mtt::`` or those that are in the list of standard
+        outputs of ``metatomic`` (see
+        https://docs.metatensor.org/metatomic/latest/outputs/)
     """
     target_dictionary = {}
     target_info_dictionary = {}

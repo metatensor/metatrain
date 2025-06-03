@@ -14,7 +14,7 @@ be used in this way.
 #
 
 import torch
-from metatensor.torch.atomistic import ModelOutput
+from metatomic.torch import ModelOutput
 
 from metatrain.experimental.nanopet import NanoPET
 from metatrain.utils.architectures import get_default_hypers

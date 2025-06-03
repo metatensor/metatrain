@@ -2,7 +2,7 @@ from pathlib import Path
 from typing import List, Optional
 
 from metatensor.torch import TensorMap
-from metatensor.torch.atomistic import ModelCapabilities, System
+from metatomic.torch import ModelCapabilities, System
 
 from .metatensor import write_mts
 from .xyz import write_xyz

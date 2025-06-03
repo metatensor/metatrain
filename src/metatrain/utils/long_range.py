@@ -1,7 +1,7 @@
 from typing import List
 
 import torch
-from metatensor.torch.atomistic import System
+from metatomic.torch import System
 
 
 class LongRangeFeaturizer(torch.nn.Module):

@@ -1,6 +1,6 @@
 from typing import Dict, Union
 
-from metatensor.torch.atomistic import ModelOutput
+from metatomic.torch import ModelOutput
 
 
 def to_external_name(

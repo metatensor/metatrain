@@ -83,8 +83,7 @@ class TensorMapLoss:
         # which can be different due to batching, but must have the same size:
         if len(predictions_tensor_map.keys) != len(targets_tensor_map.keys):
             raise ValueError(
-                "TensorMapSlidingLoss requires the two TensorMaps to have the "
-                "same number of keys."
+                "TensorMapLoss requires the two TensorMaps to have the same keys."
             )
         # check all keys are present in both TensorMaps
         for key in targets_tensor_map.keys:
@@ -97,25 +96,25 @@ class TensorMapLoss:
             block_2 = targets_tensor_map[key]
             if block_1.properties != block_2.properties:
                 raise ValueError(
-                    "TensorMapSlidingLoss requires the two TensorMaps to have the same "
+                    "TensorMapLoss requires the two TensorMaps to have the same "
                     "properties."
                 )
             if block_1.components != block_2.components:
                 raise ValueError(
-                    "TensorMapSlidingLoss requires the two TensorMaps to have the same "
+                    "TensorMapLoss requires the two TensorMaps to have the same "
                     "components."
                 )
             if len(block_1.samples) != len(block_2.samples):
                 raise ValueError(
-                    "TensorMapSlidingLoss requires the two TensorMaps "
+                    "TensorMapLoss requires the two TensorMaps "
                     "to have the same number of samples."
                 )
-            for gradient_name in self.gradient_weights.keys():
+            for gradient_name in block_2.gradients_list():
                 if len(block_1.gradient(gradient_name).samples) != len(
                     block_2.gradient(gradient_name).samples
                 ):
                     raise ValueError(
-                        "TensorMapSlidingLoss requires the two TensorMaps "
+                        "TensorMapLoss requires the two TensorMaps "
                         "to have the same number of gradient samples."
                     )
                 if (
@@ -123,7 +122,7 @@ class TensorMapLoss:
                     != block_2.gradient(gradient_name).properties
                 ):
                     raise ValueError(
-                        "TensorMapSlidingLoss requires the two TensorMaps "
+                        "TensorMapLoss requires the two TensorMaps "
                         "to have the same gradient properties."
                     )
                 if (
@@ -131,7 +130,7 @@ class TensorMapLoss:
                     != block_2.gradient(gradient_name).components
                 ):
                     raise ValueError(
-                        "TensorMapSlidingLoss requires the two TensorMaps "
+                        "TensorMapLoss requires the two TensorMaps "
                         "to have the same gradient components."
                     )
 
@@ -164,7 +163,8 @@ class TensorMapLoss:
             loss += (
                 self.weight * self.losses["values"](values_1, values_2) / sliding_weight
             )
-            for gradient_name, gradient_weight in self.gradient_weights.items():
+            for gradient_name in block_2.gradients_list():
+                gradient_weight = self.gradient_weights[gradient_name]
                 values_1 = block_1.gradient(gradient_name).values
                 values_2 = block_2.gradient(gradient_name).values
                 # sliding weights: default to 1.0 if not used/provided for this target

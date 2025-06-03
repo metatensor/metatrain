@@ -9,6 +9,7 @@ import tomli  # Replace by tomllib from std library once docs are build with Pyt
 # When importing metatensor-torch, this will change the definition of the classes
 # to include the documentation
 os.environ["METATENSOR_IMPORT_FOR_SPHINX"] = "1"
+os.environ["METATOMIC_IMPORT_FOR_SPHINX"] = "1"
 os.environ["PYTORCH_JIT"] = "0"
 os.environ["METATENSOR_DEBUG_EXTENSIONS_LOADING"] = "1"
 
@@ -19,9 +20,9 @@ ROOT = os.path.abspath(os.path.join("..", ".."))
 
 # We use a second (pseudo) sphinx project located in `docs/generate_examples` to run the
 # examples and generate the actual output for our shinx-gallery. This is necessary
-# because here we have to set `METATENSOR_IMPORT_FOR_SPHINX` to `"1"` allowing the
-# correct generation of the class and function docstrings which are seperate from the
-# actual code.
+# because here we have to set `METATENSOR_IMPORT_FOR_SPHINX` and
+# `METATOMIC_IMPORT_FOR_SPHINX` to `"1"` allowing the correct generation of the class
+# and function docstrings which are seperate from the actual code.
 #
 # We register and use the same sphinx gallery configuration as in the pseudo project.
 sys.path.append(os.path.join(ROOT, "docs"))
@@ -50,14 +51,16 @@ release = metatrain.__version__
 
 def generate_examples():
     # we can not run sphinx-gallery in the same process as the normal sphinx, since they
-    # need to import metatensor.torch differently (with and without
-    # METATENSOR_IMPORT_FOR_SPHINX=1). So instead we run it inside a small script, and
-    # include the corresponding output later.
+    # need to import metatensor.torch and metatomic.torch differently (with and without
+    # {METATENSOR/METATOMIC}_IMPORT_FOR_SPHINX=1). So instead we run it inside a small
+    # script, and include the corresponding output later.
     del os.environ["METATENSOR_IMPORT_FOR_SPHINX"]
+    del os.environ["METATOMIC_IMPORT_FOR_SPHINX"]
     del os.environ["PYTORCH_JIT"]
     script = os.path.join(ROOT, "docs", "generate_examples", "generate-examples.py")
     subprocess.run([sys.executable, script])
     os.environ["METATENSOR_IMPORT_FOR_SPHINX"] = "1"
+    os.environ["METATOMIC_IMPORT_FOR_SPHINX"] = "1"
     os.environ["PYTORCH_JIT"] = "0"
 
 
@@ -101,6 +104,7 @@ intersphinx_mapping = {
     "python": ("https://docs.python.org/3", None),
     "torch": ("https://pytorch.org/docs/stable/", None),
     "metatensor": ("https://docs.metatensor.org/latest/", None),
+    "metatomic": ("https://docs.metatensor.org/metatomic/latest/", None),
     "omegaconf": ("https://omegaconf.readthedocs.io/en/latest/", None),
 }
 

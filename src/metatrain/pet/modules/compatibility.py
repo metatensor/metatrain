@@ -8,8 +8,8 @@ from metatensor.torch import Labels, TensorBlock, TensorMap
 def convert_model_state_dict_from_legacy_pet(
     checkpoint: Dict[str, torch.Tensor],
 ) -> Dict[str, torch.Tensor]:
-    """Converts the model state dict from the metatain.pet format
-    to the metatrain.experimental.nativepet format.
+    """Converts the model state dict from the metatain.deprecated.pet format
+    to the metatrain.pet format.
     """
 
     new_model_state_dict: Dict[str, torch.Tensor] = {}
@@ -87,8 +87,8 @@ def convert_model_state_dict_from_legacy_pet(
 def convert_model_data_from_legacy_pet(
     checkpoint: Dict[str, torch.Tensor],
 ) -> Dict[str, torch.Tensor]:
-    """Converts the model data from the metatain.pet format
-    to the metatrain.experimental.nativepet format.
+    """Converts the model data from the metatain.deprecated.pet format
+    to the metatrain.pet format.
     """
 
     new_model_data: Dict[str, torch.Tensor] = {}
@@ -120,8 +120,8 @@ def convert_model_data_from_legacy_pet(
 def convert_train_hypers_from_legacy_pet(
     checkpoint: Dict[str, torch.Tensor],
 ) -> Dict[str, torch.Tensor]:
-    """Converts the training hypers from the metatain.pet format
-    to the metatrain.experimental.nativepet format.
+    """Converts the training hypers from the metatain.deprecated.pet format
+    to the metatrain.pet format.
     """
     hypers = checkpoint["hypers"]["FITTING_SCHEME"]
     new_train_hypers: Dict[str, torch.Tensor] = {
@@ -155,12 +155,12 @@ def convert_train_hypers_from_legacy_pet(
 def convert_checkpoint_from_legacy_pet(
     checkpoint: Dict[str, torch.Tensor],
 ) -> Dict[str, torch.Tensor]:
-    """Converts the state dict from the metatain.pet format
-    to the metatrain.experimental.nativepet format.
+    """Converts the state dict from the metatain.deprecated.pet format
+    to the metatrain.pet format.
     """
 
     new_checkpoint: Dict[str, torch.Tensor] = {}
-    new_checkpoint["architecture_name"] = "experimental.nativepet"
+    new_checkpoint["architecture_name"] = "experimental.pet"
     new_checkpoint["epoch"] = 0
     new_checkpoint["optimizer_state_dict"] = None
     new_checkpoint["scheduler_state_dict"] = None

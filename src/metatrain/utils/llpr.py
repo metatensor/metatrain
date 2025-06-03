@@ -4,7 +4,7 @@ import metatensor.torch
 import numpy as np
 import torch
 from metatensor.torch import Labels, TensorBlock, TensorMap
-from metatensor.torch.atomistic import (
+from metatomic.torch import (
     ModelCapabilities,
     ModelEvaluationOptions,
     ModelOutput,
@@ -32,7 +32,7 @@ class LLPRUncertaintyModel(torch.nn.Module):
 
     def __init__(
         self,
-        model: torch.jit._script.RecursiveScriptModule,
+        model: torch.jit.RecursiveScriptModule,
     ) -> None:
         super().__init__()
 

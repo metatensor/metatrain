@@ -12,8 +12,8 @@ class ArchitectureError(Exception):
 
     def __init__(self, exception):
         super().__init__(
-            f"{exception}\n\nThe error above most likely originates from an "
-            "architecture.\n\nIf you think this is a bug, please contact its "
-            "maintainer (see the architecture's documentation) and include the full "
-            "traceback error.log."
+            f"{exception.__class__.__name__}: {exception}\n\n"
+            "The error above most likely originates from an architecture.\n\n"
+            "If you think this is a bug, please contact its maintainer (see the "
+            "architecture's documentation) and include the full traceback error.log."
         )

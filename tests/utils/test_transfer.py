@@ -1,7 +1,7 @@
 import metatensor.torch
 import torch
 from metatensor.torch import Labels, TensorMap
-from metatensor.torch.atomistic import System
+from metatomic.torch import System
 
 from metatrain.utils.transfer import (
     systems_and_targets_to_device,

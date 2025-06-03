@@ -3,30 +3,16 @@ architecture:
 
   model:
     soap:
+      max_angular: 6
+      max_radial: 7
       cutoff:
         radius: 5.0
-        smoothing: 
-          type: ShiftedCosine
-          width: 1.0
-      density:
-        type: Gaussian
-        center_atom_weight: 1.0
-        width: 0.3
-        scaling:
-          type: Willatt2018
-          rate: 1.0
-          scale: 2.0
-          exponent: 7.0
-      basis:
-        type: TensorProduct
-        max_angular: 6
-        radial:
-          type: Gto
-          max_radial: 7
+        width: 0.5
     bpnn:
       layernorm: true
       num_hidden_layers: 2
       num_neurons_per_layer: 32
+    add_lambda_basis: true
     heads: {}
     zbl: false
     long_range: 

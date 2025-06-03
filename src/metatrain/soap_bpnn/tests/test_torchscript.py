@@ -2,13 +2,17 @@ import copy
 
 import pytest
 import torch
-from metatensor.torch.atomistic import System
+from metatomic.torch import System
 
 from metatrain.soap_bpnn import SoapBpnn
 from metatrain.utils.data import DatasetInfo
 from metatrain.utils.data.target_info import (
     get_energy_target_info,
     get_generic_target_info,
+)
+from metatrain.utils.neighbor_lists import (
+    get_requested_neighbor_lists,
+    get_system_with_neighbor_lists,
 )
 
 from . import MODEL_HYPERS
@@ -23,6 +27,7 @@ def test_torchscript():
         targets={"energy": get_energy_target_info({"unit": "eV"})},
     )
     model = SoapBpnn(MODEL_HYPERS, dataset_info)
+    requested_neighbor_lists = get_requested_neighbor_lists(model)
     model = torch.jit.script(model)
 
     system = System(
@@ -33,6 +38,7 @@ def test_torchscript():
         cell=torch.zeros(3, 3),
         pbc=torch.tensor([False, False, False]),
     )
+    system = get_system_with_neighbor_lists(system, requested_neighbor_lists)
     model(
         [system],
         {"energy": model.outputs["energy"]},
@@ -50,6 +56,7 @@ def test_torchscript_with_identity():
     hypers = copy.deepcopy(MODEL_HYPERS)
     hypers["bpnn"]["layernorm"] = False
     model = SoapBpnn(hypers, dataset_info)
+    requested_neighbor_lists = get_requested_neighbor_lists(model)
     model = torch.jit.script(model)
 
     system = System(
@@ -60,6 +67,7 @@ def test_torchscript_with_identity():
         cell=torch.zeros(3, 3),
         pbc=torch.tensor([False, False, False]),
     )
+    system = get_system_with_neighbor_lists(system, requested_neighbor_lists)
     model(
         [system],
         {"energy": model.outputs["energy"]},
@@ -91,6 +99,7 @@ def test_torchscript_spherical(o3_lambda, o3_sigma):
         },
     )
     model = SoapBpnn(MODEL_HYPERS, dataset_info)
+    requested_neighbor_lists = get_requested_neighbor_lists(model)
     model = torch.jit.script(model)
 
     system = System(
@@ -101,6 +110,7 @@ def test_torchscript_spherical(o3_lambda, o3_sigma):
         cell=torch.zeros(3, 3),
         pbc=torch.tensor([False, False, False]),
     )
+    system = get_system_with_neighbor_lists(system, requested_neighbor_lists)
     model(
         [system],
         {"spherical_target": model.outputs["spherical_target"]},
@@ -128,12 +138,7 @@ def test_torchscript_integers():
 
     new_hypers = copy.deepcopy(MODEL_HYPERS)
     new_hypers["soap"]["cutoff"]["radius"] = 5
-    new_hypers["soap"]["density"]["width"] = 1
-    new_hypers["soap"]["density"]["center_atom_weight"] = 1
-    new_hypers["soap"]["cutoff"]["smoothing"]["width"] = 1
-    new_hypers["soap"]["density"]["scaling"]["rate"] = 1
-    new_hypers["soap"]["density"]["scaling"]["scale"] = 2
-    new_hypers["soap"]["density"]["scaling"]["exponent"] = 7
+    new_hypers["soap"]["cutoff"]["width"] = 1
 
     dataset_info = DatasetInfo(
         length_unit="Angstrom",
@@ -141,6 +146,7 @@ def test_torchscript_integers():
         targets={"energy": get_energy_target_info({"unit": "eV"})},
     )
     model = SoapBpnn(new_hypers, dataset_info)
+    requested_neighbor_lists = get_requested_neighbor_lists(model)
     model = torch.jit.script(model)
 
     system = System(
@@ -151,6 +157,7 @@ def test_torchscript_integers():
         cell=torch.zeros(3, 3),
         pbc=torch.tensor([False, False, False]),
     )
+    system = get_system_with_neighbor_lists(system, requested_neighbor_lists)
     model(
         [system],
         {"energy": model.outputs["energy"]},

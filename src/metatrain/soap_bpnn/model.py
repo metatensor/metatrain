@@ -1,29 +1,30 @@
-from pathlib import Path
-from typing import Dict, List, Optional, Union
+from typing import Any, Dict, List, Literal, Optional
 
-import featomic.torch
 import metatensor.torch
 import torch
 from metatensor.torch import Labels, TensorBlock, TensorMap
-from metatensor.torch.atomistic import (
-    MetatensorAtomisticModel,
+from metatensor.torch.learn.nn import Linear as LinearMap
+from metatensor.torch.learn.nn import ModuleMap
+from metatomic.torch import (
+    AtomisticModel,
     ModelCapabilities,
     ModelMetadata,
     ModelOutput,
+    NeighborListOptions,
     System,
 )
-from metatensor.torch.learn.nn import Linear as LinearMap
-from metatensor.torch.learn.nn import ModuleMap
+from spex.metatensor import SoapPowerSpectrum
 
+from metatrain.utils.abc import ModelInterface
+from metatrain.utils.additive import ZBL, CompositionModel
 from metatrain.utils.data import TargetInfo
 from metatrain.utils.data.dataset import DatasetInfo
+from metatrain.utils.dtype import dtype_to_str
+from metatrain.utils.long_range import DummyLongRangeFeaturizer, LongRangeFeaturizer
+from metatrain.utils.metadata import merge_metadata
+from metatrain.utils.scaler import Scaler
+from metatrain.utils.sum_over_atoms import sum_over_atoms
 
-from ..utils.additive import ZBL, CompositionModel
-from ..utils.dtype import dtype_to_str
-from ..utils.long_range import DummyLongRangeFeaturizer, LongRangeFeaturizer
-from ..utils.metadata import append_metadata_references
-from ..utils.scaler import Scaler
-from ..utils.sum_over_atoms import sum_over_atoms
 from .spherical import TensorBasis
 
 
@@ -123,13 +124,57 @@ class MLPHeadMap(ModuleMap):
         self.activation_function = activation_function
 
 
-class SoapBpnn(torch.nn.Module):
+def concatenate_structures(
+    systems: List[System], neighbor_list_options: NeighborListOptions
+):
+    positions = []
+    centers = []
+    neighbors = []
+    species = []
+    cell_shifts = []
+    cells = []
+    node_counter = 0
+
+    for system in systems:
+        positions.append(system.positions)
+        species.append(system.types)
+
+        assert len(system.known_neighbor_lists()) >= 1, "no neighbor list found"
+        neighbor_list = system.get_neighbor_list(neighbor_list_options)
+        nl_values = neighbor_list.samples.values
+
+        centers.append(nl_values[:, 0] + node_counter)
+        neighbors.append(nl_values[:, 1] + node_counter)
+        cell_shifts.append(nl_values[:, 2:])
+
+        cells.append(system.cell)
+
+        node_counter += len(system.positions)
+
+    positions = torch.cat(positions)
+    centers = torch.cat(centers)
+    neighbors = torch.cat(neighbors)
+    species = torch.cat(species)
+    cells = torch.stack(cells)
+    cell_shifts = torch.cat(cell_shifts)
+
+    return (
+        positions,
+        centers,
+        neighbors,
+        species,
+        cells,
+        cell_shifts,
+    )
+
+
+class SoapBpnn(ModelInterface):
     __supported_devices__ = ["cuda", "cpu"]
     __supported_dtypes__ = [torch.float64, torch.float32]
     __default_metadata__ = ModelMetadata(
         references={
             "implementation": [
-                "rascaline: https://github.com/Luthaf/rascaline",
+                "torch-spex: https://github.com/lab-cosmo/torch-spex",
             ],
             "architecture": [
                 "SOAP: https://doi.org/10.1002/qua.24927",
@@ -146,13 +191,28 @@ class SoapBpnn(torch.nn.Module):
         self.dataset_info = dataset_info
         self.atomic_types = dataset_info.atomic_types
 
-        self.soap_calculator = featomic.torch.SoapPowerSpectrum(**self.hypers["soap"])
-
-        soap_size = (
-            (len(self.atomic_types) * (len(self.atomic_types) + 1) // 2)
-            * (self.hypers["soap"]["basis"]["radial"]["max_radial"] + 1) ** 2
-            * (self.hypers["soap"]["basis"]["max_angular"] + 1)
+        self.requested_nl = NeighborListOptions(
+            cutoff=self.hypers["soap"]["cutoff"]["radius"],
+            full_list=True,
+            strict=True,
         )
+
+        spex_soap_hypers = {
+            "cutoff": self.hypers["soap"]["cutoff"]["radius"],
+            "max_angular": self.hypers["soap"]["max_angular"],
+            "radial": {
+                "LaplacianEigenstates": {
+                    "max_radial": self.hypers["soap"]["max_radial"],
+                }
+            },
+            "angular": "SphericalHarmonics",
+            "cutoff_function": {
+                "ShiftedCosine": {"width": self.hypers["soap"]["cutoff"]["width"]}
+            },
+            "species": {"Orthogonal": {"species": self.atomic_types}},
+        }
+        self.soap_calculator = SoapPowerSpectrum(**spex_soap_hypers)
+        soap_size = self.soap_calculator.shape
 
         hypers_bpnn = {**self.hypers["bpnn"]}
         hypers_bpnn["input_size"] = soap_size
@@ -182,13 +242,12 @@ class SoapBpnn(torch.nn.Module):
             self.n_inputs_last_layer = hypers_bpnn["num_neurons_per_layer"]
 
         # long-range module
-        self.nl_options = self.soap_calculator.requested_neighbor_lists()[0]
         if self.hypers["long_range"]["enable"]:
             self.long_range = True
             self.long_range_featurizer = LongRangeFeaturizer(
                 self.hypers["long_range"],
                 self.n_inputs_last_layer,
-                self.nl_options,
+                self.requested_nl,
             )
         else:
             self.long_range = False
@@ -247,6 +306,9 @@ class SoapBpnn(torch.nn.Module):
 
         # scaler: this is also handled by the trainer at training time
         self.scaler = Scaler(model_hypers={}, dataset_info=dataset_info)
+
+    def supported_outputs(self) -> Dict[str, ModelOutput]:
+        return self.outputs
 
     def restart(self, dataset_info: DatasetInfo) -> "SoapBpnn":
         # merge old and new dataset info
@@ -321,10 +383,70 @@ class SoapBpnn(torch.nn.Module):
         # initialize the return dictionary
         return_dict: Dict[str, TensorMap] = {}
 
-        soap_features = self.soap_calculator(systems, selected_samples=selected_atoms)
+        system_indices = torch.concatenate(
+            [
+                torch.full(
+                    (len(system),),
+                    i_system,
+                    device=device,
+                )
+                for i_system, system in enumerate(systems)
+            ],
+        )
+
+        sample_values = torch.stack(
+            [
+                system_indices,
+                torch.concatenate(
+                    [
+                        torch.arange(
+                            len(system),
+                            device=device,
+                        )
+                        for system in systems
+                    ],
+                ),
+            ],
+            dim=1,
+        )
+        (
+            positions,
+            centers,
+            neighbors,
+            species,
+            cells,
+            cell_shifts,
+        ) = concatenate_structures(systems, self.requested_nl)
+
+        # somehow the backward of this operation is very slow at evaluation,
+        # where there is only one cell, therefore we simplify the calculation
+        # for that case
+        if len(cells) == 1:
+            cell_contributions = cell_shifts.to(cells.dtype) @ cells[0]
+        else:
+            cell_contributions = torch.einsum(
+                "ab, abc -> ac",
+                cell_shifts.to(cells.dtype),
+                cells[system_indices[centers]],
+            )
+
+        interatomic_vectors = (
+            positions[neighbors] - positions[centers] + cell_contributions
+        )
+        soap_features = self.soap_calculator(
+            interatomic_vectors,
+            centers,
+            neighbors,
+            species,
+            sample_values[:, 0],
+            sample_values[:, 1],
+        )
+        if selected_atoms is not None:
+            soap_features = metatensor.torch.slice(
+                soap_features, "samples", selected_atoms
+            )
 
         device = soap_features.block(0).values.device
-        soap_features = soap_features.keys_to_properties(self.neighbors_species_labels)
 
         soap_features = self.layernorm(soap_features)
         features = self.bpnn(soap_features)
@@ -333,6 +455,7 @@ class SoapBpnn(torch.nn.Module):
             # slightly painful because:
             # - the features are split per center type
             # - we have to recompute the edge vectors again outside of featomic
+            #   (TODO: this is not true anymore due to torch-spex, to be optimized)
 
             # first, send center_type to the samples dimension and make sure the
             # ordering is the same as in the systems
@@ -344,25 +467,7 @@ class SoapBpnn(torch.nn.Module):
                 .values
             )
 
-            # calculate the distances between all atoms
-            # TODO: replace by something smarter once `register_autograd_neighbors`
-            # is fixed
-            edge_vectors = torch.concatenate(
-                [
-                    system.positions[
-                        system.get_neighbor_list(self.nl_options).samples.values[:, 1]
-                    ]
-                    - system.positions[
-                        system.get_neighbor_list(self.nl_options).samples.values[:, 0]
-                    ]
-                    + system.get_neighbor_list(self.nl_options)
-                    .samples.values[:, 2:]
-                    .to(system.cell.dtype)
-                    @ system.cell
-                    for system in systems
-                ]
-            )
-            distances = torch.sqrt(torch.sum(edge_vectors**2, dim=-1))
+            distances = torch.sqrt(torch.sum(interatomic_vectors**2, dim=-1))
 
             long_range_features_tensor = self.long_range_featurizer(
                 systems, merged_features, distances
@@ -464,7 +569,13 @@ class SoapBpnn(torch.nn.Module):
                             ) in basis_calculators_by_block.items():
                                 if basis_calculator_key == layer_key:
                                     tensor_basis = basis_calculator(
-                                        systems, selected_atoms
+                                        interatomic_vectors,
+                                        centers,
+                                        neighbors,
+                                        species,
+                                        sample_values[:, 0],
+                                        sample_values[:, 1],
+                                        selected_atoms,
                                     )
                     # multiply the invariant coefficients by the elements of the
                     # tensor basis
@@ -529,12 +640,25 @@ class SoapBpnn(torch.nn.Module):
 
         return return_dict
 
+    def requested_neighbor_lists(
+        self,
+    ) -> List[NeighborListOptions]:
+        return [self.requested_nl]
+
     @classmethod
-    def load_checkpoint(cls, path: Union[str, Path]) -> "SoapBpnn":
-        # Load the checkpoint
-        checkpoint = torch.load(path, weights_only=False, map_location="cpu")
+    def load_checkpoint(
+        cls,
+        checkpoint: Dict[str, Any],
+        context: Literal["restart", "finetune", "export"],
+    ) -> "SoapBpnn":
         model_data = checkpoint["model_data"]
-        model_state_dict = checkpoint["model_state_dict"]
+
+        if context == "restart":
+            model_state_dict = checkpoint["model_state_dict"]
+        elif context == "finetune" or context == "export":
+            model_state_dict = checkpoint["best_model_state_dict"]
+        else:
+            raise ValueError("Unknown context tag for checkpoint loading!")
 
         # Create the model
         model = cls(**model_data)
@@ -542,11 +666,14 @@ class SoapBpnn(torch.nn.Module):
         model.to(dtype).load_state_dict(model_state_dict)
         model.additive_models[0].sync_tensor_maps()
 
+        # Loading the metadata from the checkpoint
+        metadata = checkpoint.get("metadata", None)
+        if metadata is not None:
+            model.__default_metadata__ = metadata
+
         return model
 
-    def export(
-        self, metadata: Optional[ModelMetadata] = None
-    ) -> MetatensorAtomisticModel:
+    def export(self, metadata: Optional[ModelMetadata] = None) -> AtomisticModel:
         dtype = next(self.parameters()).dtype
         if dtype not in self.__supported_dtypes__:
             raise ValueError(f"unsupported dtype {self.dtype} for SoapBpnn")
@@ -580,11 +707,11 @@ class SoapBpnn(torch.nn.Module):
         )
 
         if metadata is None:
-            metadata = ModelMetadata()
+            metadata = self.__default_metadata__
+        else:
+            metadata = merge_metadata(self.__default_metadata__, metadata)
 
-        append_metadata_references(metadata, self.__default_metadata__)
-
-        return MetatensorAtomisticModel(self.eval(), metadata, capabilities)
+        return AtomisticModel(self.eval(), metadata, capabilities)
 
     def _add_output(self, target_name: str, target: TargetInfo) -> None:
         # register bases of spherical tensors (TensorBasis)
@@ -599,7 +726,11 @@ class SoapBpnn(torch.nn.Module):
                     block.properties.values
                 )
                 self.basis_calculators[target_name][dict_key] = TensorBasis(
-                    self.atomic_types, self.hypers["soap"], o3_lambda=0, o3_sigma=1
+                    self.atomic_types,
+                    self.hypers["soap"],
+                    o3_lambda=0,
+                    o3_sigma=1,
+                    add_lambda_basis=self.hypers["add_lambda_basis"],
                 )
         elif target.target_type == "spherical":
             for key, block in target.layout.items():
@@ -612,7 +743,11 @@ class SoapBpnn(torch.nn.Module):
                 o3_lambda = int(key[0])
                 o3_sigma = int(key[1])
                 self.basis_calculators[target_name][dict_key] = TensorBasis(
-                    self.atomic_types, self.hypers["soap"], o3_lambda, o3_sigma
+                    self.atomic_types,
+                    self.hypers["soap"],
+                    o3_lambda,
+                    o3_sigma,
+                    self.hypers["add_lambda_basis"],
                 )
         else:
             raise ValueError("SOAP-BPNN only supports scalar and spherical targets.")
@@ -659,11 +794,24 @@ class SoapBpnn(torch.nn.Module):
             for n, k in zip(key.names, key.values):
                 dict_key += f"_{n}_{int(k)}"
             # the spherical tensor basis is made of 2*l+1 tensors, same as the number
-            # of components
+            # of components. The lambda basis adds a further 2*l+1 tensors, but only
+            # if lambda > 1
+            basis_size = (
+                1
+                if target.is_scalar
+                else (
+                    len(block.components[0])
+                    if (len(block.components[0]) == 1 or len(block.components[0]) == 3)
+                    else (
+                        2 * len(block.components[0])
+                        if self.hypers["add_lambda_basis"]
+                        else len(block.components[0])
+                    )
+                )
+            )
             out_properties = Labels.range(
                 "property",
-                len(block.properties.values)
-                * (1 if target.target_type == "scalar" else len(block.components[0])),
+                len(block.properties.values) * basis_size,
             )
             last_layer_arguments = {
                 "in_keys": Labels(
@@ -671,8 +819,7 @@ class SoapBpnn(torch.nn.Module):
                     values=torch.tensor(self.atomic_types).reshape(-1, 1),
                 ),
                 "in_features": self.n_inputs_last_layer,
-                "out_features": len(block.properties.values)
-                * (1 if target.target_type == "scalar" else len(block.components[0])),
+                "out_features": len(block.properties.values) * basis_size,
                 "bias": False,
                 "out_properties": [out_properties for _ in self.atomic_types],
             }

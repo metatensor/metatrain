@@ -50,6 +50,10 @@ def pick_devices(
     else:
         desired_device = desired_device.lower()
 
+    # we copy whatever the input device string is, to avoid that some strings
+    # that do not get resolved but passed directly do not get converted
+    user_requested_device = desired_device
+
     # convert "gpu" and "multi-gpu" to "cuda" or "mps" if available
     if desired_device == "gpu":
         if torch.cuda.is_available():
@@ -70,20 +74,23 @@ def pick_devices(
 
     if desired_device not in architecture_devices:
         raise ValueError(
-            f"Desired device {desired_device!r} is not supported by the selected "
+            f"Desired device {user_requested_device!r} name resolved to "
+            f"{desired_device!r} is not supported by the selected "
             f"architecture. Please choose from {', '.join(possible_devices)}."
         )
 
     if desired_device not in available_devices:
         raise ValueError(
-            f"Desired device {desired_device!r} is not supported on "
+            f"Desired device {user_requested_device!r} name resolved to "
+            f"{desired_device!r} is not supported by the selected "
             f"your current system. Please choose from {', '.join(possible_devices)}."
         )
 
     if possible_devices.index(desired_device) > 0:
         warnings.warn(
-            f"Device {desired_device!r} requested, but {possible_devices[0]!r} is "
-            "prefferred by the architecture and available on current system.",
+            f"Device {user_requested_device!r} — name resolved to "
+            f"{desired_device!r} — requested, but {possible_devices[0]!r} is "
+            "preferred by the architecture and available on current system.",
             stacklevel=2,
         )
 
@@ -93,7 +100,8 @@ def pick_devices(
         and any(d in possible_devices for d in ["multi-cuda", "multi_gpu"])
     ):
         warnings.warn(
-            "Requested single 'cuda' device but current system has "
+            f"Requested single 'cuda' device by specifying {user_requested_device!r} "
+            "but current system has "
             f"{torch.cuda.device_count()} cuda devices and architecture supports "
             "multi-gpu training. Consider using 'multi-gpu' to accelerate "
             "training.",

@@ -1,9 +1,9 @@
 import ase
-from metatensor.torch.atomistic import System
+from metatomic.torch import System
 
 
 def system_to_ase(system: System) -> ase.Atoms:
-    """Converts a ``metatensor.torch.atomistic.System`` to an ``ase.Atoms`` object.
+    """Converts a ``metatomic.torch.System`` to an ``ase.Atoms`` object.
     This will discard any neighbor lists attached to the ``System``.
 
     :param system: The system to convert.

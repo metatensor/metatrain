@@ -84,6 +84,6 @@ mtt::aux::{target}_last_layer_features
 features
 ^^^^^^^^
 
-See the
-`feature output <https://docs.metatensor.org/latest/atomistic/outputs/features.html>`_
-in ``metatensor.torch.atomistic``.
+See the `feature output
+<https://docs.metatensor.org/metatomic/latest/outputs/features.html>`_ in
+``metatomic``.

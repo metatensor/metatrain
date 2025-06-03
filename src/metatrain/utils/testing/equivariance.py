@@ -1,7 +1,7 @@
 import numpy as np
 import spherical
 import torch
-from metatensor.torch.atomistic import System
+from metatomic.torch import System
 from scipy.spatial.transform import Rotation
 
 

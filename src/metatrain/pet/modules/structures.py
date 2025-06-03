@@ -2,7 +2,7 @@ from typing import List, Optional, Tuple
 
 import torch
 from metatensor.torch import Labels, TensorBlock
-from metatensor.torch.atomistic import NeighborListOptions, System
+from metatomic.torch import NeighborListOptions, System
 
 from .nef import (
     compute_reversed_neighbor_list,
@@ -192,7 +192,7 @@ def systems_to_batch(
     selected_atoms: Optional[Labels] = None,
 ):
     """
-    Converts a list of systems to a batch required for the NativePET model.
+    Converts a list of systems to a batch required for the PET model.
     The batch consists of the following tensors:
     - `element_indices_nodes`: The atomic species of the central atoms
     - `element_indices_neighbors`: The atomic species of the neighboring atoms

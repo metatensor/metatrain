@@ -40,6 +40,8 @@ def check_architecture_name(name: str) -> None:
                 f"`name: deprecated.{name}` in your options file to use this "
                 "deprecated architecture."
             )
+        else:  # not found anywhere, just raise the following except block
+            raise ModuleNotFoundError
     except ModuleNotFoundError:
         msg = f"Architecture {name!r} is not a valid architecture."
 

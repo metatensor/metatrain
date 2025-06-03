@@ -1,8 +1,17 @@
 import pytest
 import torch
-from metatensor.torch.atomistic import ModelEvaluationOptions, ModelMetadata, System
+from metatomic.torch import (
+    ModelCapabilities,
+    ModelEvaluationOptions,
+    ModelMetadata,
+    ModelOutput,
+    System,
+)
 
-from metatrain.experimental.nativepet import NativePET
+from metatrain.deprecated.pet import PET as WrappedPET
+from metatrain.deprecated.pet.modules.hypers import Hypers
+from metatrain.deprecated.pet.modules.pet import PET
+from metatrain.utils.architectures import get_default_hypers
 from metatrain.utils.data import DatasetInfo
 from metatrain.utils.data.target_info import get_energy_target_info
 from metatrain.utils.neighbor_lists import (
@@ -10,31 +19,48 @@ from metatrain.utils.neighbor_lists import (
     get_system_with_neighbor_lists,
 )
 
-from . import MODEL_HYPERS
+
+DEFAULT_HYPERS = get_default_hypers("deprecated.pet")
 
 
 @pytest.mark.parametrize("device", ["cpu", "cuda"])
-@pytest.mark.parametrize("dtype", [torch.float32])
-def test_to(device, dtype):
+def test_to(device):
     """Tests that the `.to()` method of the exported model works."""
     if device == "cuda" and not torch.cuda.is_available():
         pytest.skip("CUDA is not available")
 
+    dtype = torch.float32  # for now
     dataset_info = DatasetInfo(
         length_unit="Angstrom",
         atomic_types=[1, 6, 7, 8],
-        targets={
-            "energy": get_energy_target_info({"quantity": "energy", "unit": "eV"})
-        },
+        targets={"energy": get_energy_target_info({"unit": "eV"})},
     )
-    model = NativePET(MODEL_HYPERS, dataset_info).to(dtype=dtype)
+    model = WrappedPET(DEFAULT_HYPERS["model"], dataset_info)
+    ARCHITECTURAL_HYPERS = Hypers(model.hypers)
+    raw_pet = PET(ARCHITECTURAL_HYPERS, 0.0, len(model.atomic_types))
+    model.set_trained_model(raw_pet)
+
+    capabilities = ModelCapabilities(
+        length_unit="Angstrom",
+        atomic_types=model.atomic_types,
+        outputs={
+            "energy": ModelOutput(
+                quantity="energy",
+                unit="eV",
+            )
+        },
+        interaction_range=DEFAULT_HYPERS["model"]["N_GNN_LAYERS"]
+        * DEFAULT_HYPERS["model"]["R_CUT"],
+        dtype="float32",
+        supported_devices=["cpu", "cuda"],
+    )
 
     exported = model.export(metadata=ModelMetadata(name="test"))
 
     # test correct metadata
     assert "This is the test model" in str(exported.metadata())
 
-    exported.to(device=device)
+    exported.to(device=device, dtype=dtype)
 
     system = System(
         types=torch.tensor([6, 6]),
@@ -48,7 +74,7 @@ def test_to(device, dtype):
 
     evaluation_options = ModelEvaluationOptions(
         length_unit=dataset_info.length_unit,
-        outputs=model.outputs,
+        outputs=capabilities.outputs,
     )
 
     exported([system], evaluation_options, check_consistency=True)
