@@ -15,7 +15,7 @@ from featomic.torch.clebsch_gordan import (
 )
 import metatensor.torch as mts
 from metatensor.torch import Labels, TensorBlock, TensorMap
-from metatensor.torch.atomistic import System
+from metatomic.torch import System
 
 from ..utils import symmetrize_samples
 

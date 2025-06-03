@@ -9,8 +9,8 @@ from sklearn.linear_model import RidgeCV
 
 from metatensor.torch import Labels, TensorBlock, TensorMap
 from metatensor.torch.learn.nn import EquivariantLinear
-from metatensor.torch.atomistic import (
-    MetatensorAtomisticModel,
+from metatomic.torch import (
+    AtomisticModel,
     ModelCapabilities,
     ModelMetadata,
     ModelOutput,
@@ -18,12 +18,13 @@ from metatensor.torch.atomistic import (
     System,
 )
 
-from ...utils.data import DatasetInfo, TargetInfo
-from ...utils.dtype import dtype_to_str
-from ...utils.metadata import append_metadata_references
+from metatrain.utils.abc import ModelInterface
+from metatrain.utils.data import DatasetInfo, TargetInfo
+from metatrain.utils.dtype import dtype_to_str
+from metatrain.utils.metadata import merge_metadata
 
 # from ...utils.scaler import Scaler
-from ...utils.sum_over_atoms import sum_over_atoms
+from metatrain.utils.sum_over_atoms import sum_over_atoms
 
 # from .modules.structures import concatenate_structures
 
@@ -31,7 +32,7 @@ from ...utils.sum_over_atoms import sum_over_atoms
 from .modules.descriptors import get_descriptor_calculator
 
 
-class MLElec(torch.nn.Module):
+class MLElec(ModelInterface):
 
     __supported_devices__ = ["cuda", "cpu"]
     __supported_dtypes__ = [torch.float64, torch.float32]
@@ -281,6 +282,9 @@ class MLElec(torch.nn.Module):
                     if model.bias is not None:
                         model.bias.copy_(torch.from_numpy(ridge.intercept_))
 
+    def supported_outputs(self) -> Dict[str, ModelOutput]:
+        return self.outputs
+
     def restart(self, dataset_info: DatasetInfo) -> "MLElec":
         # merge old and new dataset info
         merged_info = self.dataset_info.union(dataset_info)
@@ -407,9 +411,7 @@ class MLElec(torch.nn.Module):
 
         return model
 
-    def export(
-        self, metadata: Optional[ModelMetadata] = None
-    ) -> MetatensorAtomisticModel:
+    def export(self, metadata: Optional[ModelMetadata] = None) -> AtomisticModel:
         dtype = next(self.parameters()).dtype
         if dtype not in self.__supported_dtypes__:
             raise ValueError(f"unsupported dtype {dtype} for MLElec")
@@ -443,11 +445,11 @@ class MLElec(torch.nn.Module):
         )
 
         if metadata is None:
-            metadata = ModelMetadata()
+            metadata = self.__default_metadata__
+        else:
+            merge_metadata(self.__default_metadata__, metadata)
 
-        append_metadata_references(metadata, self.__default_metadata__)
-
-        return MetatensorAtomisticModel(self.eval(), metadata, capabilities)
+        return AtomisticModel(self.eval(), metadata, capabilities)
 
     def _add_output(self, target_name: str, target_info: TargetInfo) -> None:
         """
@@ -553,13 +555,22 @@ def _get_output_block_slice_key(keys: Labels, key_i: int) -> str:
 def _solve_linear_system(compf_t_at_compf, compf_t_at_targets) -> torch.Tensor:
     trace_magnitude = float(torch.diag(compf_t_at_compf).abs().mean())
     regularizer = 1e-3 * trace_magnitude
-    return torch.linalg.solve(
-        compf_t_at_compf
-        + regularizer
-        * torch.eye(
+    if regularizer > 0.0:
+        solution = torch.linalg.solve(
+            compf_t_at_compf
+            + regularizer
+            * torch.eye(
+                compf_t_at_compf.shape[1],
+                dtype=compf_t_at_compf.dtype,
+                device=compf_t_at_compf.device,
+            ),
+            compf_t_at_targets,
+        ).T
+    else:
+        solution = torch.zeros(
+            compf_t_at_targets.shape[1],
             compf_t_at_compf.shape[1],
             dtype=compf_t_at_compf.dtype,
             device=compf_t_at_compf.device,
-        ),
-        compf_t_at_targets,
-    ).T
+        )
+    return solution
