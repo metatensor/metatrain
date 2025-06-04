@@ -265,7 +265,7 @@ def _eval_targets(
             model,
             systems,
             options,
-            is_training=True, # CHANGE: is_training=True to use the training mode, bugtesting for now
+            is_training=False, 
             check_consistency=check_consistency,
         )
 

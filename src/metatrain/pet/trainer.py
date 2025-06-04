@@ -696,9 +696,11 @@ class Trainer:
                         pass  # we don't clutter the log at every warm-up step
                     old_lr = new_lr
 
-            val_metric = get_selected_metric(
-                finalized_val_info, self.hypers["best_model_metric"]
-            )
+            # val_metric = get_selected_metric(
+            #     finalized_val_info, self.hypers["best_model_metric"]
+            # )
+            val_metric = val_loss  # CHANGE: Use the validation loss as the metric
+            logging.info("Current Best Validation Metric: %s", self.best_metric)
             if val_metric < self.best_metric:
                 self.best_metric = val_metric
                 self.best_model_state_dict = copy.deepcopy(
