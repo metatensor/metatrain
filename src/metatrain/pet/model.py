@@ -194,7 +194,7 @@ class PET(torch.nn.Module):
 
     def restart(self, dataset_info: DatasetInfo) -> "PET":
         # merge old and new dataset info
-        merged_info = self.dataset_info.union(dataset_info)
+        merged_info = self.dataset_info#.union(dataset_info) #CHANGE: This is because the target shape != model prediction shape
         new_atomic_types = [
             at for at in merged_info.atomic_types if at not in self.atomic_types
         ]
@@ -219,18 +219,18 @@ class PET(torch.nn.Module):
         self.dataset_info = merged_info
 
         # restart the composition and scaler models
-        self.additive_models[0].restart(
-            dataset_info=DatasetInfo(
-                length_unit=dataset_info.length_unit,
-                atomic_types=self.atomic_types,
-                targets={
-                    target_name: target_info
-                    for target_name, target_info in dataset_info.targets.items()
-                    if CompositionModel.is_valid_target(target_name, target_info)
-                },
-            ),
-        )
-        self.scaler.restart(dataset_info)
+        # self.additive_models[0].restart(
+        #     dataset_info=DatasetInfo(
+        #         length_unit=dataset_info.length_unit,
+        #         atomic_types=self.atomic_types,
+        #         targets={
+        #             target_name: target_info
+        #             for target_name, target_info in dataset_info.targets.items()
+        #             if CompositionModel.is_valid_target(target_name, target_info)
+        #         },
+        #     ),
+        # )
+        # self.scaler.restart(dataset_info)
 
         return self
 
