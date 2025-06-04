@@ -1,22 +1,38 @@
+import collections.abc
 import json
 
-from metatensor.torch.atomistic import ModelMetadata
+from metatomic.torch import ModelMetadata
 
 
-def append_metadata_references(self: ModelMetadata, other: ModelMetadata) -> None:
+def update(d, u):
+    for k, v in u.items():
+        if isinstance(v, collections.abc.Mapping):
+            d[k] = update(d.get(k, {}), v)
+        elif isinstance(v, list):
+            if k in d:
+                for item in v:
+                    if item not in d[k]:
+                        d[k].append(item)
+            else:
+                d[k] = v
+        else:
+            d[k] = v
+    return d
+
+
+def merge_metadata(self: ModelMetadata, other: ModelMetadata) -> ModelMetadata:
     """Append ``references`` to an existing ModelMetadata object.
 
-    :param self: The metadata object to be appeneded.
-    :param other: The metadata object to update with.
+    :param self: The metadata object to be updated.
+    :param other: The metadata object to merged to self.
     """
 
     self_dict = json.loads(self._get_method("__getstate__")())
     other_dict = json.loads(other._get_method("__getstate__")())
 
-    for key, values in other_dict["references"].items():
-        if key not in self_dict["references"]:
-            self_dict["references"][key] = values
-        else:
-            self_dict["references"][key] += values
+    self_dict = update(self_dict, other_dict)
+    self_dict.pop("class")
 
-    self._get_method("__setstate__")(json.dumps(self_dict))
+    new_metadata = ModelMetadata(**self_dict)
+
+    return new_metadata

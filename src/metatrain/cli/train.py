@@ -14,6 +14,7 @@ import torch
 from omegaconf import DictConfig, OmegaConf
 
 from .. import PACKAGE_ROOT
+from ..utils.abc import ModelInterface, TrainerInterface
 from ..utils.architectures import (
     check_architecture_options,
     get_default_hypers,
@@ -198,7 +199,18 @@ def train_model(
     logging.info(f"Running training for {architecture_name!r} architecture")
 
     Model = architecture.__model__
+    if not issubclass(Model, ModelInterface):
+        raise TypeError(
+            f"Model class for {architecture_name} must be a subclass of "
+            " `metatrain.utils.abc.ModelInterface`"
+        )
+
     Trainer = architecture.__trainer__
+    if not issubclass(Trainer, TrainerInterface):
+        raise TypeError(
+            f"Trainer class for {architecture_name} must be a subclass of "
+            " `metatrain.utils.abc.TrainerInterface`"
+        )
 
     ###########################
     # MERGE OPTIONS ###########
@@ -384,8 +396,14 @@ def train_model(
     ###########################
     # CREATE DATASET_INFO #####
     ###########################
+    if options["architecture"].get("atomic_types") is None:  # infer from datasets
+        logging.info("Atomic types inferred from training and validation datasets")
+        atomic_types = get_atomic_types(train_datasets + val_datasets)
+    else:  # use explicitly defined atomic types
+        logging.info("Atomic types explicitly defined in options.yaml")
+        atomic_types = sorted(options["architecture"]["atomic_types"])
 
-    atomic_types = get_atomic_types(train_datasets + val_datasets)
+    logging.info(f"Model defined for atomic types: {atomic_types}")
 
     dataset_info = DatasetInfo(
         length_unit=options["training_set"][0]["systems"]["length_unit"],
@@ -511,7 +529,7 @@ def train_model(
     ).device
     mts_atomistic_model.save(str(output_checked), collect_extensions=extensions_path)
     # the model is first saved and then reloaded 1) for good practice and 2) because
-    # MetatensorAtomisticModel only torchscripts (makes faster) during save()
+    # AtomisticModel only torchscripts (makes faster) during save()
 
     # Copy the exported model and the checkpoint also to the checkpoint directory
     checkpoint_path = Path(checkpoint_dir)

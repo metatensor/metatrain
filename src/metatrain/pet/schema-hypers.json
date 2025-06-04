@@ -258,6 +258,11 @@
         }
       },
       "additionalProperties": false
+    },
+    "atomic_types": {
+      "type": "array",
+      "items": { "type": "integer", "minimum": 1 },
+      "uniqueItems": true
     }
   },
   "additionalProperties": false

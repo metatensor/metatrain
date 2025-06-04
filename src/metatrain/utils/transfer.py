@@ -2,7 +2,7 @@ from typing import Dict, List
 
 import torch
 from metatensor.torch import TensorMap
-from metatensor.torch.atomistic import System
+from metatomic.torch import System
 
 
 @torch.jit.script

@@ -6,7 +6,7 @@ import ase.io
 import metatensor.torch
 import torch
 from metatensor.torch import Labels, TensorMap
-from metatensor.torch.atomistic import ModelCapabilities, System
+from metatomic.torch import ModelCapabilities, System
 
 from ...external_naming import to_external_name
 

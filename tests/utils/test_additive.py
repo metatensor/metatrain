@@ -5,7 +5,7 @@ import metatensor.torch
 import pytest
 import torch
 from metatensor.torch import Labels, TensorBlock, TensorMap
-from metatensor.torch.atomistic import ModelOutput, System
+from metatomic.torch import ModelOutput, System
 from omegaconf import OmegaConf
 
 from metatrain.utils.additive import ZBL, CompositionModel, remove_additive

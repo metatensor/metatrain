@@ -11,7 +11,7 @@ import pytest
 import torch
 from jsonschema.exceptions import ValidationError
 from metatensor.torch import Labels, TensorBlock, TensorMap
-from metatensor.torch.atomistic import NeighborListOptions, systems_to_torch
+from metatomic.torch import NeighborListOptions, systems_to_torch
 from omegaconf import OmegaConf
 
 from metatrain import RANDOM_SEED
@@ -116,6 +116,8 @@ def test_train(capfd, monkeypatch, tmp_path, output):
     assert "energy" in stdout_log
     assert "with index" not in stdout_log  # index only printed for more than 1 dataset
     assert "Running final evaluation with batch size 16" in stdout_log
+    assert "Atomic types" in stdout_log
+    assert "Model defined for atomic types" in stdout_log
 
     # Open the CSV log file and check if the logging is correct
     csv_glob = glob.glob("outputs/*/*/train.csv")
@@ -613,6 +615,16 @@ def test_train_issue_290(monkeypatch, tmp_path):
     train_model(options)
 
 
+@pytest.mark.parametrize("atomic_types", [[1, 6, 7, 8], [1, 6, 7, 8, 100]])
+def test_train_atomic_types(options, monkeypatch, tmp_path, atomic_types):
+    """Tests that passing a complete and an over-complete
+    list of atomic types works."""
+    monkeypatch.chdir(tmp_path)
+    shutil.copy(DATASET_PATH_QM9, "qm9_reduced_100.xyz")
+    options["architecture"]["atomic_types"] = atomic_types
+    train_model(options)
+
+
 def test_train_log_order(caplog, monkeypatch, tmp_path, options):
     """Tests that the log is always printed in the same order for forces
     and virials."""
@@ -732,6 +744,57 @@ def test_train_disk_dataset(monkeypatch, tmp_path, options):
     del disk_dataset_writer
 
     options["training_set"]["systems"]["read_from"] = "qm9_reduced_100.zip"
+    options["training_set"]["targets"]["energy"]["read_from"] = "qm9_reduced_100.zip"
+    train_model(options)
+
+
+def test_train_disk_dataset_splits_issue_601(monkeypatch, tmp_path, options):
+    """Test that training via the training cli runs without an error raise
+    when learning from multiple `DiskDataset` objects for training and test datasets, as
+    per issue https://github.com/metatensor/metatrain/issues/601."""
+    monkeypatch.chdir(tmp_path)
+    shutil.copy(DATASET_PATH_QM9, "qm9_reduced_100.xyz")
+
+    for subset_name, xyz_idxs in zip(
+        ["training", "test"], [range(0, 80), range(80, 100)]
+    ):
+        disk_dataset_writer = DiskDatasetWriter(f"qm9_reduced_100_{subset_name}.zip")
+        for subset_i, xyz_i in enumerate(xyz_idxs):
+            frame = read("qm9_reduced_100.xyz", index=xyz_i)
+            system = systems_to_torch(frame, dtype=torch.float64)
+            system = get_system_with_neighbor_lists(
+                system,
+                [NeighborListOptions(cutoff=5.0, full_list=True, strict=True)],
+            )
+            energy = TensorMap(
+                keys=Labels.single(),
+                blocks=[
+                    TensorBlock(
+                        values=torch.tensor([[frame.info["U0"]]], dtype=torch.float64),
+                        samples=Labels(
+                            names=["system"],
+                            values=torch.tensor([[subset_i]]),
+                        ),
+                        components=[],
+                        properties=Labels("energy", torch.tensor([[0]])),
+                    )
+                ],
+            )
+            disk_dataset_writer.write_sample(system, {"energy": energy})
+        del disk_dataset_writer
+
+        options[f"{subset_name}_set"] = {
+            "systems": {
+                "read_from": f"qm9_reduced_100_{subset_name}.zip",
+                "length_unit": "angstrom",
+            },
+            "targets": {
+                "energy": {
+                    "read_from": f"qm9_reduced_100_{subset_name}.zip",
+                    "unit": "eV",
+                }
+            },
+        }
     train_model(options)
 
 

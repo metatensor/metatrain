@@ -24,6 +24,16 @@ changelog <https://keepachangelog.com/en/1.1.0/>`_ format. This project follows
 Unreleased
 ----------
 
+Version 2025.7 - 2025-05-27
+---------------------------
+
+Changed
+#######
+
+- Metatrain is now built on top of ``metatomic`` instead of
+  ``metatensor.torch.atomistic``. Please refer to https://docs.metatensor.org/metatomic/
+  to find how to use the new models.
+
 Version 2025.6 - 2025-04-28
 ---------------------------
 

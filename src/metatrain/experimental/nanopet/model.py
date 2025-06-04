@@ -5,8 +5,8 @@ from typing import Any, Dict, List, Literal, Optional
 import metatensor.torch
 import torch
 from metatensor.torch import Labels, TensorBlock, TensorMap
-from metatensor.torch.atomistic import (
-    MetatensorAtomisticModel,
+from metatomic.torch import (
+    AtomisticModel,
     ModelCapabilities,
     ModelMetadata,
     ModelOutput,
@@ -14,11 +14,12 @@ from metatensor.torch.atomistic import (
     System,
 )
 
+from metatrain.utils.abc import ModelInterface
 from metatrain.utils.additive import ZBL, CompositionModel
 from metatrain.utils.data import DatasetInfo, TargetInfo
 from metatrain.utils.dtype import dtype_to_str
 from metatrain.utils.long_range import DummyLongRangeFeaturizer, LongRangeFeaturizer
-from metatrain.utils.metadata import append_metadata_references
+from metatrain.utils.metadata import merge_metadata
 from metatrain.utils.scaler import Scaler
 from metatrain.utils.sum_over_atoms import sum_over_atoms
 
@@ -34,7 +35,7 @@ from .modules.structures import concatenate_structures
 from .modules.transformer import Transformer
 
 
-class NanoPET(torch.nn.Module):
+class NanoPET(ModelInterface):
     """
     Re-implementation of the PET architecture (https://arxiv.org/pdf/2305.19302).
 
@@ -237,7 +238,7 @@ class NanoPET(torch.nn.Module):
         selected_atoms: Optional[Labels] = None,
     ) -> Dict[str, TensorMap]:
         # Checks on systems (species) and outputs are done in the
-        # MetatensorAtomisticModel wrapper
+        # AtomisticModel wrapper
 
         device = systems[0].device
 
@@ -577,11 +578,14 @@ class NanoPET(torch.nn.Module):
         model.to(dtype).load_state_dict(model_state_dict)
         model.additive_models[0].sync_tensor_maps()
 
+        # Loading the metadata from the checkpoint
+        metadata = checkpoint.get("metadata", None)
+        if metadata is not None:
+            model.__default_metadata__ = metadata
+
         return model
 
-    def export(
-        self, metadata: Optional[ModelMetadata] = None
-    ) -> MetatensorAtomisticModel:
+    def export(self, metadata: Optional[ModelMetadata] = None) -> AtomisticModel:
         dtype = next(self.parameters()).dtype
         if dtype not in self.__supported_dtypes__:
             raise ValueError(f"unsupported dtype {dtype} for NanoPET")
@@ -615,11 +619,11 @@ class NanoPET(torch.nn.Module):
         )
 
         if metadata is None:
-            metadata = ModelMetadata()
+            metadata = self.__default_metadata__
+        else:
+            metadata = merge_metadata(self.__default_metadata__, metadata)
 
-        append_metadata_references(metadata, self.__default_metadata__)
-
-        return MetatensorAtomisticModel(self.eval(), metadata, capabilities)
+        return AtomisticModel(self.eval(), metadata, capabilities)
 
     def _add_output(self, target_name: str, target_info: TargetInfo) -> None:
         # warn that, for Cartesian tensors, we assume that they are symmetric

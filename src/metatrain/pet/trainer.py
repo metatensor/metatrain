@@ -7,6 +7,7 @@ import torch
 from torch.optim.lr_scheduler import LambdaLR
 from torch.utils.data import DataLoader, DistributedSampler
 
+from metatrain.utils.abc import TrainerInterface
 from metatrain.utils.additive import remove_additive
 from metatrain.utils.augmentation import RotationalAugmenter
 from metatrain.utils.data import (
@@ -52,7 +53,7 @@ def get_scheduler(optimizer, train_hypers):
     return scheduler
 
 
-class Trainer:
+class Trainer(TrainerInterface):
     def __init__(self, train_hypers):
         self.hypers = train_hypers
         self.optimizer_state_dict = None
@@ -504,6 +505,7 @@ class Trainer:
     def save_checkpoint(self, model, path: Union[str, Path]):
         checkpoint = {
             "architecture_name": "pet",
+            "metadata": model.__default_metadata__,
             "model_data": {
                 "model_hypers": model.hypers,
                 "dataset_info": model.dataset_info,
@@ -526,8 +528,8 @@ class Trainer:
     def load_checkpoint(
         cls,
         checkpoint: Dict[str, Any],
-        context: Literal["restart", "finetune", "export"],  # not used at the moment
         train_hypers: Dict[str, Any],
+        context: Literal["restart", "finetune"],
     ) -> "Trainer":
         epoch = checkpoint["epoch"]
         optimizer_state_dict = checkpoint["optimizer_state_dict"]

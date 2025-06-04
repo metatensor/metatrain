@@ -7,6 +7,7 @@ import torch
 import torch.distributed
 from torch.utils.data import DataLoader, DistributedSampler
 
+from metatrain.utils.abc import TrainerInterface
 from metatrain.utils.additive import remove_additive
 from metatrain.utils.data import (
     CombinedDataLoader,
@@ -38,7 +39,7 @@ from metatrain.utils.transfer import (
 from .model import SoapBpnn
 
 
-class Trainer:
+class Trainer(TrainerInterface):
     def __init__(self, train_hypers):
         self.hypers = train_hypers
         self.optimizer_state_dict = None
@@ -477,6 +478,7 @@ class Trainer:
     def save_checkpoint(self, model, path: Union[str, Path]):
         checkpoint = {
             "architecture_name": "soap_bpnn",
+            "metadata": model.__default_metadata__,
             "model_data": {
                 "model_hypers": model.hypers,
                 "dataset_info": model.dataset_info,

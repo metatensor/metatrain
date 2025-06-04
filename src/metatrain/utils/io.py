@@ -6,7 +6,7 @@ from urllib.parse import unquote, urlparse
 from urllib.request import urlretrieve
 
 import torch
-from metatensor.torch.atomistic import check_atomistic_model, load_atomistic_model
+from metatomic.torch import check_atomistic_model, load_atomistic_model
 
 from ..utils.architectures import find_all_architectures
 from .architectures import import_architecture
@@ -43,10 +43,9 @@ def check_file_extension(
 
 def is_exported_file(path: str) -> bool:
     """
-    Check if a saved model file has been exported to a ``MetatensorAtomisticModel``.
+    Check if a saved model file has been exported to a metatomic ``AtomisticModel``.
 
-    The functions uses :py:func:`metatensor.torch.atomistic.check_atomistic_model` to
-    verify.
+    The functions uses :py:func:`metatomic.torch.check_atomistic_model` to verify.
 
     :param path: model path
     :return: :py:obj:`True` if the ``model`` has been exported, :py:obj:`False`
@@ -54,8 +53,8 @@ def is_exported_file(path: str) -> bool:
 
     .. seealso::
 
-        :py:func:`metatensor.torch.atomistic.is_atomistic_model` to verify if an already
-        loaded model is exported.
+        :py:func:`metatomic.torch.is_atomistic_model` to verify if an already loaded
+        model is exported.
     """
     try:
         check_atomistic_model(str(path))
@@ -64,7 +63,7 @@ def is_exported_file(path: str) -> bool:
         return False
 
 
-def _hf_hub_download_url(url: str, token: Optional[str] = None) -> str:
+def _hf_hub_download_url(url: str, hf_token: Optional[str] = None) -> str:
     """Wrapper around `hf_hub_download` allowing passing the URL directly.
 
     Function is in inverse of `hf_hub_url`
@@ -109,14 +108,14 @@ def _hf_hub_download_url(url: str, token: Optional[str] = None) -> str:
         repo_type=None,
         revision=revision,
         endpoint=endpoint,
-        token=token,
+        token=hf_token,
     )
 
 
 def load_model(
     path: Union[str, Path],
     extensions_directory: Optional[Union[str, Path]] = None,
-    token: Optional[str] = None,
+    hf_token: Optional[str] = None,
 ) -> Any:
     """Load checkpoints and exported models from an URL or a local file for inference.
 
@@ -135,7 +134,7 @@ def load_model(
         :py:class:`urllib.request`
     :param extensions_directory: path to a directory containing all extensions required
         by an *exported* model
-    :param token: HuggingFace API token to download (private) models from HuggingFace
+    :param hf_token: HuggingFace API token to download (private) models from HuggingFace
 
     :raises ValueError: if ``path`` is a YAML option file and no model
     :raises ValueError: if no ``archietcture_name`` is found in the checkpoint
@@ -153,10 +152,10 @@ def load_model(
     # Download remote model
     # TODO(@PicoCentauri): Introduce caching for remote models
     if urlparse(path).scheme:
-        if token is None:
+        if hf_token is None:
             path, _ = urlretrieve(path)
         else:
-            path = _hf_hub_download_url(path, token=token)
+            path = _hf_hub_download_url(path, hf_token=hf_token)
 
     if is_exported_file(path):
         return load_atomistic_model(path, extensions_directory=extensions_directory)
