@@ -482,7 +482,14 @@ def test_continue(options, monkeypatch, tmp_path):
 def test_finetune(options_pet, caplog, monkeypatch, tmp_path):
     monkeypatch.chdir(tmp_path)
 
-    options_pet["architecture"]["training"]["finetune"] = {"read_from": MODEL_PATH_PET}
+    options_pet["architecture"]["training"]["finetune"] = {
+        "method": "heads",
+        "read_from": str(MODEL_PATH_PET),
+        "config": {
+            "head_modules": ["node_heads", "edge_heads"],
+            "last_layer_modules": ["node_last_layers", "edge_last_layers"],
+        },
+    }
     shutil.copy(DATASET_PATH_QM9, "qm9_reduced_100.xyz")
 
     caplog.set_level(logging.INFO)
@@ -494,14 +501,14 @@ def test_finetune(options_pet, caplog, monkeypatch, tmp_path):
 def test_finetune_no_read_from(options_pet, monkeypatch, tmp_path):
     monkeypatch.chdir(tmp_path)
 
-    options_pet["architecture"]["training"]["finetune"] = {}
+    options_pet["architecture"]["training"]["finetune"] = OmegaConf.create({})
     shutil.copy(DATASET_PATH_QM9, "qm9_reduced_100.xyz")
 
     match = (
         "Finetuning is enabled but no checkpoint was provided. Please provide one "
         "using the `read_from` option in the `finetune` section."
     )
-    with pytest.raises(ValueError, match=match):
+    with pytest.raises(ArchitectureError, match=match):
         train_model(options_pet)
 
 

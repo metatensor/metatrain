@@ -469,12 +469,12 @@ def train_model(
         else:
             trainer = Trainer(hypers["training"])
 
-            if hasattr(hypers["training"], "finetune"):
-                if hasattr(hypers["training"]["finetune"], "read_from"):
+            if "finetune" in hypers["training"]:
+                if "read_from" in hypers["training"]["finetune"]:
                     checkpoint = hypers["training"]["finetune"]["read_from"]
                 else:
                     raise ValueError(
-                        "Finetuning is enabled but no checkpoint was provided. Please"
+                        "Finetuning is enabled but no checkpoint was provided. Please "
                         "provide one using the `read_from` option in the `finetune` "
                         "section."
                     )
