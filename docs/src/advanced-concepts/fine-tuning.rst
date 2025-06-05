@@ -22,12 +22,13 @@ So far the fine-tuning capabilities are only available for PET model.
 Basic Fine-tuning
 -----------------
 
-The basic way to fine-tune a model is to use the ``mtt train -c pre-trained-model.ckpt``
-command with the avaiable pre-trained model. In this case, all the weights of the model
-will be adapted to the new dataset. This approach is similar to the training continuation
-described in the :ref:`Checkpoints <checkpoints>` section, but in contrast to that the optimizer and
-scheduler state will be reset. You can still adjust the training hyperparameters in the
-``options.yaml`` file, but the model architecture will be taken from the checkpoint.
+The basic way to fine-tune a model is to use the ``mtt train`` command with the
+available pre-trained model defined in an ``options.yaml`` file. In this case, all the
+weights of the model will be adapted to the new dataset. This approach is similar to the
+training continuation described in the :ref:`Checkpoints <checkpoints>` section, but in
+contrast to that the optimizer and scheduler state will be reset. You can still adjust
+the training hyperparameters in the ``options.yaml`` file, but the model architecture
+will be taken from the checkpoint.
 
 We recommend to use a lower learning rate than the one used for the original training, as
 this will help stabilizing the training process. I.e. if the default learning rate is
@@ -58,8 +59,8 @@ compared to the pre-trained models' dataset, you might want to keep the learned 
 of the crystal structures and only adapt the readout layers (i.e. the model heads) to the new
 dataset.
 
-In this case, the ``mtt train -c pre-trained-model.ckpt`` command needs to be accompanied by
-the specific training options in the ``options.yaml`` file. The following options need to be set:
+In this case, the ``mtt train`` command needs to be accompanied by the specific training
+options in the ``options.yaml`` file. The following options need to be set:
 
 .. code-block:: yaml
 
@@ -67,17 +68,20 @@ the specific training options in the ``options.yaml`` file. The following option
     training:
       finetune:
         method: "heads"
+        read_from: path/to/checkpoint.ckpt
         config:
           head_modules: ['node_heads', 'edge_heads']
           last_layer_modules: ['node_last_layers', 'edge_last_layers']
 
 
-The ``method`` parameter specifies the fine-tuning method to be used. The ``head_modules`` and
-``last_layer_modules`` parameters specify the modules to be fine-tuned. Here, the ``node_*`` and
-``edge_*`` modules represent different parts of the model readout layers related to the atom-based
-and bond-based features. The ``*_last_layer`` modules are the last layers of the corresponsing
-heads, impemented as multi-layer perceptrons (MLPs). You can select different combinations of the
-node and edge heads and last layers to be fine-tuned.
+The ``method`` parameter specifies the fine-tuning method to be used and the
+``read_from`` parameter specifies the path to the pre-trained model checkpoint. The
+``head_modules`` and ``last_layer_modules`` parameters specify the modules to be
+fine-tuned. Here, the ``node_*`` and ``edge_*`` modules represent different parts of the
+model readout layers related to the atom-based and bond-based features. The
+``*_last_layer`` modules are the last layers of the corresponding heads, implemented as
+multi-layer perceptron (MLPs). You can select different combinations of the node and
+edge heads and last layers to be fine-tuned.
 
 We recommend to first start the fine-tuning including all the modules listed above and
 experiment with their different combinations if needed. You might also consider using a lower
@@ -113,9 +117,8 @@ of the low-rank matrices on the model's weights. By adjusting the rank :math:`r`
 and the regularization factor :math:`\alpha`, you can fine-tune the model
 to achieve better performance on specific tasks.
 
-To use LoRA for fine-tuning, you need to provide the pre-trained model checkpoint
-with the ``mtt train -c pre-trained-model.ckpt`` command and specify the LoRA
-parameters in the ``options.yaml`` file:
+To use LoRA for fine-tuning, you need to provide the pre-trained model checkpoint with
+the ``mtt train`` command and specify the LoRA parameters in the ``options.yaml`` file:
 
 .. code-block:: yaml
 
@@ -123,6 +126,7 @@ parameters in the ``options.yaml`` file:
     training:
       finetune:
         method: "lora"
+        read_from: path/to/pre-trained-model.ckpt
         config:
           alpha: 0.1
           rank: 4

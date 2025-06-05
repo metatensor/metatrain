@@ -22,12 +22,19 @@ similar to these lines
 
     if checkpoint_path is not None:
         checkpoint = torch.load(checkpoint_path)
-        model = Model.load_checkpoint(checkpoint)
-        trainer = Trainer.load_checkpoint(checkpoint, hypers["training"])
+
+        trainer = Trainer.load_checkpoint(
+            checkpoint, hypers=hypers["training"], context="restart")
+        model = Model.load_checkpoint(checkpoint, context="restart")
         model = model.restart(dataset_info)
     else:
-        model = Model(hypers["model"], dataset_info)
         trainer = Trainer(hypers["training"])
+
+        if hasattr(hypers["training"], "finetune"):
+            checkpoint = hypers["training"]["finetune"]["read_from"]
+            model = Model.load_checkpoint(path=checkpoint, context="finetune")
+        else:
+            model = Model(hypers["model"], dataset_info)
 
     trainer.train(
         model=model,
@@ -217,6 +224,21 @@ the structure
 user-provided parameters and pass the merged ``model`` section as a Python
 dictionary to the ``ModelInterface`` and the ``training`` section to the
 ``TrainerInterface``.
+
+Finetuning
+^^^^^^^^^^
+
+If your architecture is supporting finetuning you have to add a ``finetune`` subsection
+in the ``training`` section. The subsection must contain a ``read_from`` key that points
+to the checkpoint file the finetuning is started from. Any additional hyperparameters
+can be architecture specific.
+
+.. code-block:: yaml
+
+    training:
+        finetune:
+            read_from: path/to/checkpoint.ckpt
+            # other architecture finetune hyperparameters
 
 JSON schema (``schema-hypers.yaml``)
 ------------------------------------

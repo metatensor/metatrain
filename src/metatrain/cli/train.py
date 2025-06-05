@@ -462,13 +462,28 @@ def train_model(
         if restart_from is not None:
             logging.info(f"Restarting training from `{restart_from}`")
             trainer = trainer_from_checkpoint(
-                path=restart_from, context="restart", hypers=hypers["training"]
+                path=restart_from, hypers=hypers["training"], context="restart"
             )
             model = model_from_checkpoint(path=restart_from, context="restart")
             model = model.restart(dataset_info)
         else:
-            model = Model(hypers["model"], dataset_info)
             trainer = Trainer(hypers["training"])
+
+            if "finetune" in hypers["training"]:
+                if "read_from" in hypers["training"]["finetune"]:
+                    checkpoint = hypers["training"]["finetune"]["read_from"]
+                else:
+                    raise ValueError(
+                        "Finetuning is enabled but no checkpoint was provided. Please "
+                        "provide one using the `read_from` option in the `finetune` "
+                        "section."
+                    )
+
+                logging.info(f"Starting finetuning from '{checkpoint}'")
+                model = model_from_checkpoint(path=checkpoint, context="finetune")
+            else:
+                logging.info("Starting training from scratch")
+                model = Model(hypers["model"], dataset_info)
     except Exception as e:
         raise ArchitectureError(e)
 

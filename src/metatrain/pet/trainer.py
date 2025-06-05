@@ -73,7 +73,10 @@ class Trainer(TrainerInterface):
         checkpoint_dir: str,
     ):
         assert dtype in PET.__supported_dtypes__
+
         is_distributed = self.hypers["distributed"]
+        is_finetune = "finetune" in self.hypers
+
         if is_distributed:
             distr_env = DistributedEnvironment(self.hypers["distributed_port"])
             torch.distributed.init_process_group(backend="nccl")
@@ -129,7 +132,7 @@ class Trainer(TrainerInterface):
                     get_system_with_neighbor_lists(system, requested_neighbor_lists)
 
         # Apply fine-tuning strategy if provided
-        if self.hypers["finetune"]:
+        if is_finetune:
             model = apply_finetuning_strategy(model, self.hypers["finetune"])
 
         # Move the model to the device and dtype:
@@ -262,7 +265,7 @@ class Trainer(TrainerInterface):
                 model.parameters(), lr=self.hypers["learning_rate"]
             )
 
-        if self.optimizer_state_dict is not None and not self.hypers["finetune"]:
+        if self.optimizer_state_dict is not None and not is_finetune:
             # try to load the optimizer state dict, but this is only possible
             # if there are no new targets in the model (new parameters)
             if not (model.module if is_distributed else model).has_new_targets:
@@ -270,7 +273,7 @@ class Trainer(TrainerInterface):
 
         lr_scheduler = get_scheduler(optimizer, self.hypers)
 
-        if self.scheduler_state_dict is not None and not self.hypers["finetune"]:
+        if self.scheduler_state_dict is not None and not is_finetune:
             # same as the optimizer, try to load the scheduler state dict
             if not (model.module if is_distributed else model).has_new_targets:
                 lr_scheduler.load_state_dict(self.scheduler_state_dict)
