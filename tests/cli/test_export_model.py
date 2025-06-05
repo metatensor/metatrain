@@ -61,7 +61,7 @@ def test_export_cli(monkeypatch, tmp_path, output, model_type):
     subprocess.check_call(command)
     assert Path(output).is_file()
 
-    # Test if extensions are saved. A PET model should has no extensions
+    # Test if extensions are saved. A PET model should have no extensions
     extensions_glob = glob.glob("extensions/")
     if model_type == "pet":
         assert len(extensions_glob) == 0
