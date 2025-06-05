@@ -22,12 +22,13 @@ So far the fine-tuning capabilities are only available for PET model.
 Basic Fine-tuning
 -----------------
 
-The basic way to fine-tune a model is to use the ``mtt train -c pre-trained-model.ckpt``
-command with the available pre-trained model. In this case, all the weights of the model
-will be adapted to the new dataset. This approach is similar to the training continuation
-described in the :ref:`Checkpoints <checkpoints>` section, but in contrast to that the optimizer and
-scheduler state will be reset. You can still adjust the training hyperparameters in the
-``options.yaml`` file, but the model architecture will be taken from the checkpoint.
+The basic way to fine-tune a model is to use the ``mtt train`` command with the
+available pre-trained model defined in an ``options.yaml`` file. In this case, all the
+weights of the model will be adapted to the new dataset. This approach is similar to the
+training continuation described in the :ref:`Checkpoints <checkpoints>` section, but in
+contrast to that the optimizer and scheduler state will be reset. You can still adjust
+the training hyperparameters in the ``options.yaml`` file, but the model architecture
+will be taken from the checkpoint.
 
 We recommend to use a lower learning rate than the one used for the original training, as
 this will help stabilizing the training process. I.e. if the default learning rate is
@@ -116,9 +117,8 @@ of the low-rank matrices on the model's weights. By adjusting the rank :math:`r`
 and the regularization factor :math:`\alpha`, you can fine-tune the model
 to achieve better performance on specific tasks.
 
-To use LoRA for fine-tuning, you need to provide the pre-trained model checkpoint
-with the ``mtt train -c pre-trained-model.ckpt`` command and specify the LoRA
-parameters in the ``options.yaml`` file:
+To use LoRA for fine-tuning, you need to provide the pre-trained model checkpoint with
+the ``mtt train`` command and specify the LoRA parameters in the ``options.yaml`` file:
 
 .. code-block:: yaml
 
@@ -126,6 +126,7 @@ parameters in the ``options.yaml`` file:
     training:
       finetune:
         method: "lora"
+        read_from: path/to/pre-trained-model.ckpt
         config:
           alpha: 0.1
           rank: 4

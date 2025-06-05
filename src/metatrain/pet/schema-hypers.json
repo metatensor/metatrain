@@ -128,7 +128,6 @@
         },
         "finetune": {
           "type": "object",
-          "required": ["read_from"],
           "properties": {
             "read_from": {
               "type": "string",

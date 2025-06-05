@@ -42,7 +42,7 @@ def test_export(monkeypatch, tmp_path, path, caplog):
 
 
 @pytest.mark.parametrize("output", [None, "exported.pt"])
-@pytest.mark.parametrize("model_type", ["32-bit", "64-bit", "no-extensions"])
+@pytest.mark.parametrize("model_type", ["32-bit", "64-bit", "pet"])
 def test_export_cli(monkeypatch, tmp_path, output, model_type):
     """Test that the export cli runs without an error raise."""
     monkeypatch.chdir(tmp_path)
@@ -61,9 +61,9 @@ def test_export_cli(monkeypatch, tmp_path, output, model_type):
     subprocess.check_call(command)
     assert Path(output).is_file()
 
-    # Test if extensions are saved
+    # Test if extensions are saved. A PET model should has no extensions
     extensions_glob = glob.glob("extensions/")
-    if model_type == "no-extensions":
+    if model_type == "pet":
         assert len(extensions_glob) == 0
     else:
         assert len(extensions_glob) == 1
@@ -77,7 +77,8 @@ def test_export_cli(monkeypatch, tmp_path, output, model_type):
     elif model_type == "64-bit":
         correct_dtype = torch.float64
     else:
-        correct_dtype = torch.float64
+        correct_dtype = torch.float32
+
     assert next(model.parameters()).dtype == correct_dtype
     assert next(model.parameters()).device.type == "cpu"
 

@@ -27,8 +27,9 @@ from . import (
     DATASET_PATH_QM7X,
     DATASET_PATH_QM9,
     MODEL_PATH_64_BIT,
-    OPTIONS_NANOPET_PATH,
+    MODEL_PATH_PET,
     OPTIONS_PATH,
+    OPTIONS_PET_PATH,
     RESOURCES_PATH,
 )
 from .dump_spherical_targets import dump_spherical_targets
@@ -37,6 +38,11 @@ from .dump_spherical_targets import dump_spherical_targets
 @pytest.fixture
 def options():
     return OmegaConf.load(OPTIONS_PATH)
+
+
+@pytest.fixture
+def options_pet():
+    return OmegaConf.load(OPTIONS_PET_PATH)
 
 
 @pytest.mark.parametrize("output", [None, "mymodel.pt"])
@@ -118,6 +124,7 @@ def test_train(capfd, monkeypatch, tmp_path, output):
     assert "Running final evaluation with batch size 16" in stdout_log
     assert "Atomic types" in stdout_log
     assert "Model defined for atomic types" in stdout_log
+    assert "Starting training from scratch" in stdout_log
 
     # Open the CSV log file and check if the logging is correct
     csv_glob = glob.glob("outputs/*/*/train.csv")
@@ -472,6 +479,32 @@ def test_continue(options, monkeypatch, tmp_path):
     train_model(options, restart_from=MODEL_PATH_64_BIT)
 
 
+def test_finetune(options_pet, caplog, monkeypatch, tmp_path):
+    monkeypatch.chdir(tmp_path)
+
+    options_pet["architecture"]["training"]["finetune"] = {"read_from": MODEL_PATH_PET}
+    shutil.copy(DATASET_PATH_QM9, "qm9_reduced_100.xyz")
+
+    caplog.set_level(logging.INFO)
+    train_model(options_pet)
+
+    assert f"Starting finetuning from '{MODEL_PATH_PET}'" in caplog.text
+
+
+def test_finetune_no_read_from(options_pet, monkeypatch, tmp_path):
+    monkeypatch.chdir(tmp_path)
+
+    options_pet["architecture"]["training"]["finetune"] = {}
+    shutil.copy(DATASET_PATH_QM9, "qm9_reduced_100.xyz")
+
+    match = (
+        "Finetuning is enabled but no checkpoint was provided. Please provide one "
+        "using the `read_from` option in the `finetune` section."
+    )
+    with pytest.raises(ValueError, match=match):
+        train_model(options_pet)
+
+
 def test_continue_auto(options, caplog, monkeypatch, tmp_path):
     """Test that continuing with the `auto` keyword results in
     a continuation from the most recent checkpoint."""
@@ -596,8 +629,11 @@ def test_architecture_error(options, monkeypatch, tmp_path):
         train_model(options)
 
 
-def test_train_issue_290(monkeypatch, tmp_path):
-    """Test the potential problem from issue #290."""
+def test_train_split_failure(monkeypatch, tmp_path):
+    """Test the potential problem from a split of large to very large datasets.
+
+    See issue #290.
+    """
     monkeypatch.chdir(tmp_path)
     shutil.copy(DATASET_PATH_ETHANOL, "ethanol_reduced_100.xyz")
 
@@ -693,7 +729,7 @@ def test_train_generic_target_metatensor(monkeypatch, tmp_path, with_scalar_part
     )
 
     # run training with original options
-    options = OmegaConf.load(OPTIONS_NANOPET_PATH)
+    options = OmegaConf.load(OPTIONS_PET_PATH)
     options["training_set"]["systems"]["read_from"] = "qm7x_reduced_100.xyz"
     options["training_set"]["targets"] = {
         "mtt::polarizability": {

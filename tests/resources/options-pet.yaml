@@ -1,9 +1,9 @@
 seed: 42
 
 architecture:
-  name: experimental.nanopet
+  name: pet
   training:
-    batch_size: 16
+    batch_size: 1
     num_epochs: 1
 
 training_set:
