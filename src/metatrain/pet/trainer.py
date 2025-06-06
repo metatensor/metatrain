@@ -37,6 +37,8 @@ from metatrain.utils.transfer import (
     systems_and_targets_to_dtype,
 )
 
+import metatensor.torch as mts
+
 from .model import PET
 from .modules.finetuning import apply_finetuning_strategy
 
@@ -335,11 +337,16 @@ class Trainer(TrainerInterface):
                     is_training=True,
                 )
 
+                # Compute the difference modulo dipole quantum
+                predictions = compute_modulo_dipole_quantum(predictions, targets, systems)
+
                 # average by the number of atoms
                 predictions = average_by_num_atoms(
                     predictions, systems, per_structure_targets
                 )
-                targets = average_by_num_atoms(targets, systems, per_structure_targets)
+                # targets = average_by_num_atoms(targets, systems, per_structure_targets)
+                targets = {k: mts.zeros_like(t) for k, t in targets.items()}
+
                 train_loss_batch = loss_fn(predictions, targets)
                 train_loss_batch.backward()
                 torch.nn.utils.clip_grad_norm_(
@@ -393,12 +400,16 @@ class Trainer(TrainerInterface):
                     {key: train_targets[key] for key in targets.keys()},
                     is_training=False,
                 )
+                
+                # Compute the difference modulo dipole quantum
+                predictions = compute_modulo_dipole_quantum(predictions, targets, systems)
 
                 # average by the number of atoms
                 predictions = average_by_num_atoms(
                     predictions, systems, per_structure_targets
                 )
-                targets = average_by_num_atoms(targets, systems, per_structure_targets)
+                # targets = average_by_num_atoms(targets, systems, per_structure_targets)
+                targets = {k: mts.zeros_like(t) for k, t in targets.items()}
 
                 val_loss_batch = loss_fn(predictions, targets)
 
@@ -551,3 +562,50 @@ class Trainer(TrainerInterface):
         trainer.best_optimizer_state_dict = best_optimizer_state_dict
 
         return trainer
+
+
+def compute_modulo_dipole_quantum(predictions, targets, systems):
+
+    """
+    Assumes Cartesian dipoles being in e * length units
+    Computes the modulo dipole quantum for each system in the batch.
+    """
+
+    out = {}
+    for k in predictions:
+        pred_values = predictions[k][0].values.squeeze(-1) # (N, 3)
+        target_values = targets[k][0].values.squeeze(-1) # (N, 3)
+
+        # Calculate the dipole quantum (columns = quantum vectors TODO: check)
+        dipole_quantum = torch.stack([system.cell for system in systems]) 
+
+        delta = pred_values - target_values  # (N, 3)
+
+        # Invert each lattice matrix (N, 3, 3)
+        B_inv = torch.linalg.inv(dipole_quantum)  # Each row has its own inverse
+
+        # Transform delta into fractional coordinates (N, 1, 3) x (N, 3, 3) -> (N, 3)
+        coeffs = torch.bmm(delta.unsqueeze(1), B_inv).squeeze(1)
+
+        # Round to nearest lattice vector
+        coeffs_rounded = torch.round(coeffs)
+
+        # Convert back to Cartesian
+        lattice_vecs = torch.bmm(coeffs_rounded.unsqueeze(1), dipole_quantum.transpose(1, 2)).squeeze(1)  # (N, 3)
+
+        # Minimal image difference
+        delta_mod = delta - lattice_vecs
+
+        out[k] = mts.TensorMap(
+            predictions[k].keys,
+            [
+                mts.TensorBlock(
+                    values=delta_mod.unsqueeze(-1),  # (N, 3, 1)
+                    samples=predictions[k][0].samples,
+                    components=predictions[k][0].components,
+                    properties=predictions[k][0].properties,
+                )
+            ]
+        )
+
+    return out
