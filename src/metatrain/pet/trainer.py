@@ -718,11 +718,12 @@ class Trainer:
                 self.scheduler_state_dict = lr_scheduler.state_dict()
                 self.epoch = epoch
                 if rank == 0:
+                    print ('hi')
                     self.save_checkpoint(
                         (model.module if is_distributed else model),
                         Path(checkpoint_dir) / f"model_{epoch}.ckpt",
                     )
-                    torch.save(val_predictions,f"model_val_{epoch}.ckpt") # CHANGE: Save the validation predictions
+                    torch.save(val_predictions, Path(checkpoint_dir) / f"val_predictions_{epoch}.pt") # CHANGE: Save the validation predictions
 
         # prepare for the checkpoint that will be saved outside the function
         self.epoch = epoch
