@@ -569,7 +569,7 @@ class Trainer:
                 # targets = average_by_num_atoms(targets, systems, per_structure_targets)
 
                 dos_predictions = predictions['mtt::dos'][0].values
-                val_predictions.append(dos_predictions)
+                val_predictions.append(dos_predictions.detach())
                 dos_target = target_dos_batch[0].values
                 dos_mask = (mask_batch[0].values).bool()        
                 dos_loss, discrete_shift = get_dynamic_shift_agnostic_mse(dos_predictions, dos_target, dos_mask, return_shift = True)
