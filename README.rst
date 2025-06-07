@@ -171,6 +171,6 @@ Thanks goes to all people that make ``metatrain`` possible:
   :alt: Code coverage
   :target: https://codecov.io/gh/metatensor/metatrain
 
-.. |docs| image:: https://img.shields.io/badge/documentation-latest-sucess
+.. |docs| image:: https://img.shields.io/badge/📚_documentation-latest-sucess
   :alt: Documentation
   :target: https://metatensor.github.io/metatrain/latest
