@@ -55,6 +55,9 @@ class LLPRUncertaintyModel(torch.nn.Module):
         # DOS-specific
         self.dos = dos
 
+        device = next(self.model.parameters()).device
+        dtype = getattr(torch, old_capabilities.dtype)
+ 
         for name, output in old_capabilities.outputs.items():
 
             if is_auxiliary_output(name):
@@ -71,7 +74,11 @@ class LLPRUncertaintyModel(torch.nn.Module):
             )
 
             # TODO: read `num_targets` from capabilities instead of user input
-            self.uncertainty_multipliers[uncertainty_name] = torch.ones(num_subtargets[name])
+            self.uncertainty_multipliers[uncertainty_name] = torch.ones(
+                    num_subtargets[name],
+                    device=device,
+                    dtype=dtype,
+                )
 
         self.capabilities = ModelCapabilities(
             outputs={**old_capabilities.outputs, **additional_capabilities},
@@ -582,8 +589,10 @@ class LLPRUncertaintyModel(torch.nn.Module):
 
         if self.dos:
             all_masks = []
+            all_shifts = []
 
         for batch in valid_loader:
+
             systems, orig_targets = batch
 
             targets = orig_targets.copy()
@@ -617,22 +626,37 @@ class LLPRUncertaintyModel(torch.nn.Module):
             outputs = self.forward(systems, requested_outputs)
             
             for name, target in targets.items():
+
                 uncertainty_name = f"mtt::aux::{name.replace('mtt::', '')}_uncertainty"
                 if name not in all_predictions:
                     all_predictions[name] = []
                     all_targets[name] = []
                     all_uncertainties[uncertainty_name] = []
+
                 all_predictions[name].append(outputs[name].block().values.detach())
                 all_targets[name].append(target.block().values)
                 all_uncertainties[uncertainty_name].append(
                     outputs[uncertainty_name].block().values.detach()
                 )
+ 
+                if self.dos and name == "mtt::dos":
+ 
+                    # accumulate masks
+                    cur_mask = orig_targets["mtt::mask"].block().values.to(device=device, dtype=dtype)
+                    all_masks.append(cur_mask)
 
-            if self.dos:
-                all_masks.append(orig_targets["mtt::mask"].block().values)
+                    # accumulate shifts
+                    _, cur_shifts = get_dynamic_shift_agnostic_mse(
+                        outputs[name].block().values.detach(),
+                        target.block().values,
+                        cur_mask,
+                        return_shift=True)
+
+                    all_shifts.append(cur_shifts)
 
         if self.dos:
             all_masks = torch.cat(all_masks, dim=0)
+            all_shifts = torch.cat(all_shifts, dim=0)
 
         for name in all_predictions:
             all_predictions[name] = torch.cat(all_predictions[name], dim=0)
@@ -648,54 +672,36 @@ class LLPRUncertaintyModel(torch.nn.Module):
             uncertainty_name = f"mtt::aux::{name.replace('mtt::', '')}_uncertainty"
             uncertainties = all_uncertainties[uncertainty_name]
 
-
             if name == "mtt::dos":
                 dos_predictions = all_predictions[name]
                 orig_dos_targets = all_targets[name]
 
-                # obtain shifts of the reference data
-                _, shifts = get_dynamic_shift_agnostic_mse(
-                    dos_predictions,
-                    orig_dos_targets,
-                    all_masks,
-                    return_shift=True)
-
-                revised_dos_targets = torch.zeros(
-                        dos_predictions.shape,
-                        dtype=orig_dos_targets.dtype,
-                        device=orig_dos_targets.device,
-                        )
-
-                revised_masks = torch.zeros(
-                        dos_predictions.shape,
-                        dtype=all_masks.dtype,
-                        device=all_masks.device,
-                        )
+                revised_dos_targets = torch.zeros(dos_predictions.shape, dtype=dtype, device=device)
+                revised_masks = torch.zeros(dos_predictions.shape, dtype=dtype, device=device)
 
                 # broadcasting tensors
                 rows = torch.arange(dos_predictions.shape[0]).unsqueeze(1)
-                cols = shifts.unsqueeze(1) + torch.arange(orig_dos_targets.shape[1])
+                cols = all_shifts.unsqueeze(1) + torch.arange(orig_dos_targets.shape[1]).to(device=device)
 
                 # revised DOS target via broadcasting
                 revised_dos_targets[rows, cols] = orig_dos_targets
 
                 # get revised masks, padding the low E end with 1's
                 revised_masks[rows, cols] = all_masks
-                low_e_cols = torch.arange(dos_predictions.shape[1]).unsqueeze(0).expand(len(rows), -1)
-                low_e_mask = low_e_cols < shifts.unsqueeze(1)
+                low_e_cols = torch.arange(dos_predictions.shape[1]).unsqueeze(0).expand(len(rows), -1).to(device=device)
+                low_e_mask = low_e_cols < all_shifts.unsqueeze(1)
                 revised_masks[low_e_mask] = 1
 
                 # raw residuals
                 residuals = all_predictions[name] - revised_dos_targets
 
-                # ture/pred ratios
+                # true/pred ratios
                 ratios = residuals ** 2 / uncertainties
-
                 masked_sum = (ratios * revised_masks).sum(dim=0)
                 mask_count = revised_masks.sum(dim=0)
 
                 masked_mean = masked_sum / mask_count.clamp(min=1)
-                masked_mean = torch.where(mask_count > 0, masked_mean, torch.tensor(0.0))
+                masked_mean = torch.where(mask_count > 0, masked_mean, torch.tensor(float('nan')))
 
                 self.uncertainty_multipliers[uncertainty_name] = masked_mean
 
