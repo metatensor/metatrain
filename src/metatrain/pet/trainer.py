@@ -622,7 +622,7 @@ class Trainer:
                     torch.distributed.all_reduce(val_loss_batch)
                 val_loss += val_loss_batch.item()
             val_loss /= val_count
-            val_predictions = torch.vstack(val_predictions)
+            # val_predictions = torch.vstack(val_predictions)
                 # CHANGE: Not using the default calculators
                 # val_rmse_calculator.update(predictions, targets)
                 # if self.hypers["log_mae"]:
