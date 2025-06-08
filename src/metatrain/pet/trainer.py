@@ -545,6 +545,7 @@ class Trainer:
             train_loss /= train_count
             val_loss = 0.0
             val_count = 0.0 # CHANGE: Added to count the number of validation samples
+            # val_predictions = []
             for batch in val_dataloader:
                 # CHANGE: Updated validation loop to use the new loss function 
                 systems, targets = batch
@@ -568,6 +569,7 @@ class Trainer:
                 # targets = average_by_num_atoms(targets, systems, per_structure_targets)
 
                 dos_predictions = predictions['mtt::dos'][0].values
+                # val_predictions.append(dos_predictions.detach())
                 dos_target = target_dos_batch[0].values
                 dos_mask = (mask_batch[0].values).bool()        
                 dos_loss, discrete_shift = get_dynamic_shift_agnostic_mse(dos_predictions, dos_target, dos_mask, return_shift = True)
@@ -620,6 +622,7 @@ class Trainer:
                     torch.distributed.all_reduce(val_loss_batch)
                 val_loss += val_loss_batch.item()
             val_loss /= val_count
+            val_predictions = torch.vstack(val_predictions)
                 # CHANGE: Not using the default calculators
                 # val_rmse_calculator.update(predictions, targets)
                 # if self.hypers["log_mae"]:
@@ -719,6 +722,7 @@ class Trainer:
                         (model.module if is_distributed else model),
                         Path(checkpoint_dir) / f"model_{epoch}.ckpt",
                     )
+                    # torch.save(val_predictions, Path(checkpoint_dir) / f"val_predictions_{epoch}.pt") # CHANGE: Save the validation predictions
 
         # prepare for the checkpoint that will be saved outside the function
         self.epoch = epoch
