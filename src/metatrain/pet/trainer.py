@@ -190,7 +190,7 @@ class Trainer(TrainerInterface):
         for train_dataset, train_sampler in zip(train_datasets, train_samplers):
             train_dataloaders.append(
                 DataLoader(
-                    dataset=dataset,
+                    dataset=train_dataset,
                     batch_size=self.hypers["batch_size"],
                     sampler=train_sampler,
                     shuffle=(
