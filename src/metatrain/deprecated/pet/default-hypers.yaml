@@ -1,5 +1,4 @@
 architecture:
-
   name: deprecated.pet
 
   model:
@@ -37,7 +36,7 @@ architecture:
     USE_ZBL: False
 
   training:
-    USE_LORA_PEFT: False 
+    USE_LORA_PEFT: False
     LORA_RANK: 4
     LORA_ALPHA: 0.5
     INITIAL_LR: 1e-4

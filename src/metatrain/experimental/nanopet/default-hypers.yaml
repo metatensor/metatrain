@@ -1,5 +1,4 @@
 architecture:
-
   name: experimental.nanopet
 
   model:
@@ -11,7 +10,7 @@ architecture:
     num_gnn_layers: 2
     heads: {}
     zbl: False
-    long_range: 
+    long_range:
       enable: false
       use_ewald: false
       smearing: 1.4

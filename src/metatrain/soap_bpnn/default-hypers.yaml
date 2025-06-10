@@ -15,7 +15,7 @@ architecture:
     add_lambda_basis: true
     heads: {}
     zbl: false
-    long_range: 
+    long_range:
       enable: false
       use_ewald: false
       smearing: 1.4
