@@ -5,7 +5,7 @@ architecture:
     soap:
       cutoff:
         radius: 5.0
-        smoothing: 
+        smoothing:
           type: ShiftedCosine
           width: 1.0
       density:
