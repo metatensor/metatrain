@@ -460,13 +460,13 @@ def train_model(
     logging.info("Setting up model")
     try:
         # Determine checkpoint source and training mode
-        checkpoint_path = None
+        read_from = None
         training_context = None
 
         if restart_from is not None:
-            checkpoint_path = restart_from
+            read_from = restart_from
             training_context = "restart"
-            logging.info(f"Restarting training from `{checkpoint_path}`")
+            logging.info(f"Restarting training from `{read_from}`")
         elif "finetune" in hypers["training"]:
             if "read_from" not in hypers["training"]["finetune"]:
                 raise ValueError(
@@ -474,23 +474,21 @@ def train_model(
                     "provide one using the `read_from` option in the `finetune` "
                     "section."
                 )
-            checkpoint_path = hypers["training"]["finetune"]["read_from"]
+            read_from = hypers["training"]["finetune"]["read_from"]
             training_context = "finetune"
-            logging.info(f"Starting finetuning from `{checkpoint_path}`")
+            logging.info(f"Starting finetuning from `{read_from}`")
 
         # Set up trainer and model based on training mode
-        if checkpoint_path is not None:
+        if read_from is not None:
             # Load model from checkpoint (unified for both restart and finetune)
-            model = model_from_checkpoint(
-                path=checkpoint_path, context=training_context
-            )
+            model = model_from_checkpoint(path=read_from, context=training_context)
 
             if training_context == "restart":
                 # For restart: load trainer from checkpoint
                 trainer = trainer_from_checkpoint(
-                    path=checkpoint_path,
+                    path=read_from,
                     hypers=hypers["training"],
-                    context=training_context,
+                    context=training_context,  # type: ignore
                 )
             else:  # finetune
                 # For finetune: create new trainer
