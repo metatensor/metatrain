@@ -101,7 +101,7 @@ class ModelInterface(torch.nn.Module, metaclass=ABCMeta):
     def export(
         self,
         metadata: Optional[ModelMetadata] = None,
-    ) -> MetatensorAtomisticModel:
+    ) -> AtomisticModel:
         """
         Turn this model into an instance of
         :py:class:`metatomic.torch.MetatensorAtomisticModel`, containing the model
