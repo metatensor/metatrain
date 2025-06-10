@@ -175,3 +175,8 @@ extensions/
 docs/src/examples
 *execution_times*
 qm9_reduced_100.zip
+
+# JavaScript
+node_modules/
+package-lock.json
+package.json
