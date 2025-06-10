@@ -459,31 +459,51 @@ def train_model(
 
     logging.info("Setting up model")
     try:
+        # Determine checkpoint source and training mode
+        checkpoint_path = None
+        training_context = None
+
         if restart_from is not None:
-            logging.info(f"Restarting training from `{restart_from}`")
-            trainer = trainer_from_checkpoint(
-                path=restart_from, hypers=hypers["training"], context="restart"
+            checkpoint_path = restart_from
+            training_context = "restart"
+            logging.info(f"Restarting training from `{checkpoint_path}`")
+        elif "finetune" in hypers["training"]:
+            if "read_from" not in hypers["training"]["finetune"]:
+                raise ValueError(
+                    "Finetuning is enabled but no checkpoint was provided. Please "
+                    "provide one using the `read_from` option in the `finetune` "
+                    "section."
+                )
+            checkpoint_path = hypers["training"]["finetune"]["read_from"]
+            training_context = "finetune"
+            logging.info(f"Starting finetuning from `{checkpoint_path}`")
+
+        # Set up trainer and model based on training mode
+        if checkpoint_path is not None:
+            # Load model from checkpoint (unified for both restart and finetune)
+            model = model_from_checkpoint(
+                path=checkpoint_path, context=training_context
             )
-            model = model_from_checkpoint(path=restart_from, context="restart")
+
+            if training_context == "restart":
+                # For restart: load trainer from checkpoint
+                trainer = trainer_from_checkpoint(
+                    path=checkpoint_path,
+                    hypers=hypers["training"],
+                    context=training_context,
+                )
+            else:  # finetune
+                # For finetune: create new trainer
+                trainer = Trainer(hypers["training"])
+
+            # Restart model for both restart and finetune contexts
             model = model.restart(dataset_info)
         else:
+            # Training from scratch
+            logging.info("Starting training from scratch")
+            model = Model(hypers["model"], dataset_info)
             trainer = Trainer(hypers["training"])
 
-            if "finetune" in hypers["training"]:
-                if "read_from" in hypers["training"]["finetune"]:
-                    checkpoint = hypers["training"]["finetune"]["read_from"]
-                else:
-                    raise ValueError(
-                        "Finetuning is enabled but no checkpoint was provided. Please "
-                        "provide one using the `read_from` option in the `finetune` "
-                        "section."
-                    )
-
-                logging.info(f"Starting finetuning from '{checkpoint}'")
-                model = model_from_checkpoint(path=checkpoint, context="finetune")
-            else:
-                logging.info("Starting training from scratch")
-                model = Model(hypers["model"], dataset_info)
     except Exception as e:
         raise ArchitectureError(e)
 
