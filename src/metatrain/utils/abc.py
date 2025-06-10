@@ -4,8 +4,8 @@ from typing import Any, Dict, List, Literal, Optional, Union
 
 import torch
 from metatensor.torch import Labels, TensorMap
-from metatensor.torch.atomistic import (
-    MetatensorAtomisticModel,
+from metatomic.torch import (
+    AtomisticModel,
     ModelMetadata,
     ModelOutput,
     System,
@@ -51,8 +51,8 @@ class ModelInterface(torch.nn.Module, metaclass=ABCMeta):
 
         .. seealso::
 
-            :py:class:`metatensor.torch.atomistic.ModelInterface` for more explanation
-            about the different arguments.
+            :py:class:`metatomic.torch.ModelInterface` for more explanation about the
+            different arguments.
         """
 
     @abstractmethod
@@ -101,11 +101,11 @@ class ModelInterface(torch.nn.Module, metaclass=ABCMeta):
     def export(
         self,
         metadata: Optional[ModelMetadata] = None,
-    ) -> MetatensorAtomisticModel:
+    ) -> AtomisticModel:
         """
         Turn this model into an instance of
-        :py:class:`metatensor.torch.atomistic.MetatensorAtomisticModel`, containing the
-        model itself, a definition of the model capabilities and some metadata about the
+        :py:class:`metatomic.torch.MetatensorAtomisticModel`, containing the model
+        itself, a definition of the model capabilities and some metadata about the
         model.
 
         :param metadata: additional metadata to add in the model as specified by the
