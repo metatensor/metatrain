@@ -167,7 +167,7 @@ class Trainer(TrainerInterface):
                     num_replicas=world_size,
                     rank=rank,
                     shuffle=True,
-                    drop_last=len(train_dataset) > self.hypers["batch_size"],
+                    drop_last=True,
                 )
                 for train_dataset in train_datasets
             ]
@@ -199,9 +199,7 @@ class Trainer(TrainerInterface):
                     ),
                     drop_last=(
                         # the sampler takes care of this (if present)
-                        # check if batch size > train_dataset
-                        len(train_dataset) > self.hypers["batch_size"]
-                        and train_sampler is None
+                        train_sampler is None
                     ),
                     collate_fn=collate_fn,
                 )
