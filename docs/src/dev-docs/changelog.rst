@@ -30,7 +30,7 @@ Version 2025.8 - 2025-06-11
 Changed
 #######
 
-- Checkpoints for finetuning files are now passed from the ``options.yaml```
+- Checkpoints for fine-tuning files are now passed from the ``options.yaml``.
 
 Version 2025.7 - 2025-05-27
 ---------------------------
