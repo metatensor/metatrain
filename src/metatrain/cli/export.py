@@ -146,6 +146,8 @@ def export_model(
 
         torch.save(checkpoint, path)
     else:
+        # Here, we implicitly export the best_model_checkpoint
+        # from the checkpoint path. See load_model code for details.
         model = load_model(path=path, hf_token=hf_token)
         path = str(
             Path(check_file_extension(filename=output, extension=".pt"))
