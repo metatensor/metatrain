@@ -24,11 +24,20 @@ Basic Fine-tuning
 
 The basic way to fine-tune a model is to use the ``mtt train`` command with the
 available pre-trained model defined in an ``options.yaml`` file. In this case, all the
-weights of the model will be adapted to the new dataset. This approach is similar to the
-training continuation described in the :ref:`Checkpoints <checkpoints>` section, but in
-contrast to that the optimizer and scheduler state will be reset. You can still adjust
-the training hyperparameters in the ``options.yaml`` file, but the model architecture
-will be taken from the checkpoint.
+weights of the model will be adapted to the new dataset. In contrast to to the
+training continuation, the optimizer and scheduler state will be reset. You can still
+adjust the training hyperparameters in the ``options.yaml`` file, but the model
+architecture will be taken from the checkpoint.
+
+To set the path to the pre-trained model checkpoint, you need to specify the
+``read_from`` parameter in the ``options.yaml`` file:
+.. code-block:: yaml
+
+  architecture:
+    training:
+      finetune:
+        method: "full" # This stands for the full fine-tuning
+        read_from: path/to/checkpoint.ckpt
 
 We recommend to use a lower learning rate than the one used for the original training, as
 this will help stabilizing the training process. I.e. if the default learning rate is

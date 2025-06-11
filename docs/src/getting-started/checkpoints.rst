@@ -20,11 +20,6 @@ The sub-command to continue training from a checkpoint is
 
     mtt train options.yaml --restart model.ckpt
 
-or
-
-.. code-block:: bash
-
-    mtt train options.yaml -c model.ckpt
 
 Checkpoints can also be turned into exported models using the ``export`` sub-command.
 The command requires the *architecture name* and the saved checkpoint *path* as

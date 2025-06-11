@@ -5,9 +5,6 @@ import torch
 import torch.nn as nn
 
 
-logger = logging.getLogger(__name__)
-
-
 def apply_finetuning_strategy(model: nn.Module, strategy: Dict[str, Any]) -> nn.Module:
     """
     Apply the specified finetuning strategy to the model.
@@ -21,7 +18,11 @@ def apply_finetuning_strategy(model: nn.Module, strategy: Dict[str, Any]) -> nn.
     for param in model.parameters():
         param.requires_grad = True
 
-    if method == "lora":
+    if method == "full":
+        # Full finetuning, all parameters are trainable
+        pass
+
+    elif method == "lora":
         strategy_cfg = strategy.get("config", {})
         lora_already_applied = any(isinstance(m, LoRALinear) for m in model.modules())
         if not lora_already_applied:
@@ -56,13 +57,13 @@ def apply_finetuning_strategy(model: nn.Module, strategy: Dict[str, Any]) -> nn.
     else:
         raise ValueError(
             f"Unknown finetuning strategy: {method}. Available methods "
-            "are: lora, heads."
+            "are: 'full', 'lora', 'heads'."
         )
     num_params = sum(p.numel() for p in model.parameters())
     num_trainable_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
 
-    logger.info(f"Applied finetuning strategy: {method}")
-    logger.info(
+    logging.info(f"Applied finetuning strategy: {method}")
+    logging.info(
         f"Number of trainable parameters: {num_trainable_params} "
         f"[{num_trainable_params / num_params:.2%} %]"
     )

@@ -135,7 +135,7 @@
             },
             "method": {
               "type": "string",
-              "enum": ["lora", "heads"]
+              "enum": ["full", "lora", "heads"]
             },
             "config": {
               "type": "object",
@@ -235,7 +235,10 @@
     },
     "atomic_types": {
       "type": "array",
-      "items": { "type": "integer", "minimum": 1 },
+      "items": {
+        "type": "integer",
+        "minimum": 1
+      },
       "uniqueItems": true
     }
   },

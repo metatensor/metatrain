@@ -508,7 +508,7 @@ def test_finetune_no_read_from(options_pet, monkeypatch, tmp_path):
         "Finetuning is enabled but no checkpoint was provided. Please provide one "
         "using the `read_from` option in the `finetune` section."
     )
-    with pytest.raises(ArchitectureError, match=match):
+    with pytest.raises(ValueError, match=match):
         train_model(options_pet)
 
 
