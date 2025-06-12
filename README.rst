@@ -1,11 +1,19 @@
-metatrain
-=========
+.. image:: https://raw.githubusercontent.com/metatensor/metatrain/refs/heads/update-logos/docs/src/logo/metatrain-horizontal-dark.svg
+  :width: 600 px
+  :align: center
 
-.. image:: https://raw.githubusercontent.com/metatensor/metatrain/refs/heads/main/docs/src/logo/metatrain.svg
-   :width: 200 px
-   :align: left
-
-|tests| |codecov| |docs|
+.. image:: https://img.shields.io/github/checks-status/metatensor/metatrain/main
+  :alt: Github Actions Tests Job Status
+  :target: https://github.com/metatensor/metatrain/actions?query=branch%3Amain
+  :align: center
+.. image:: https://codecov.io/gh/metatensor/metatrain/branch/main/graph/badge.svg
+  :alt: Code coverage
+  :target: https://codecov.io/gh/metatensor/metatrain
+  :align: center
+.. image:: https://img.shields.io/badge/📚_documentation-latest-sucess
+  :alt: Documentation
+  :target: https://metatensor.github.io/metatrain/latest
+  :align: center
 
 .. marker-introduction
 
@@ -50,8 +58,8 @@ model.
     - re-implementation of the original PET with slightly improved training and
       evaluation speed
   * - PET (*deprecated*)
-    - Original implementation of the PET model used for prototyping,
-      now deprecated in favor of the native metatrain PET implementation.
+    - Original implementation of the PET model used for prototyping, now deprecated in
+      favor of the native metatrain PET implementation.
   * - SOAP BPNN
     - A Behler-Parrinello neural network with SOAP features
 
@@ -60,8 +68,8 @@ model.
 Documentation
 -------------
 
-For details, tutorials, and examples, please have a look at our
-`documentation <https://metatensor.github.io/metatrain/latest/>`_.
+For details, tutorials, and examples, please have a look at our `documentation
+<https://metatensor.github.io/metatrain/latest/>`_.
 
 .. marker-installation
 
@@ -109,23 +117,19 @@ example, the following configuration file trains a *SOAP-BPNN* model on the QM9 
 
 .. code-block:: yaml
 
-    # architecture used to train the model
-    architecture:
-      name: soap_bpnn
-      training:
+    # architecture used to train the model architecture:
+      name: soap_bpnn training:
         num_epochs: 5 # a very short training run
 
-    # Mandatory section defining the parameters for system and target data of the
-    # training set
-    training_set:
-      systems: "qm9_reduced_100.xyz" # file where the positions are stored
-      targets:
+    # Mandatory section defining the parameters for system and target data of the #
+    training set training_set:
+      systems: "qm9_reduced_100.xyz" # file where the positions are stored targets:
         energy:
-          key: "U0" # name of the target value
-          unit: "eV" # unit of the target value
+          key: "U0" # name of the target value unit: "eV" # unit of the target value
 
     test_set: 0.1 # 10 % of the training_set are randomly split and taken for test set
-    validation_set: 0.1 # 10 % of the training_set are randomly split and for validation set
+    validation_set: 0.1 # 10 % of the training_set are randomly split and for validation
+    set
 
 .. marker-shell
 
@@ -163,14 +167,3 @@ Thanks goes to all people that make ``metatrain`` possible:
 .. image:: https://contrib.rocks/image?repo=metatensor/metatrain
   :target: https://github.com/metatensor/metatrain/graphs/contributors
 
-.. |tests| image:: https://img.shields.io/github/checks-status/metatensor/metatrain/main
-  :alt: Github Actions Tests Job Status
-  :target: https://github.com/metatensor/metatrain/actions?query=branch%3Amain
-
-.. |codecov| image:: https://codecov.io/gh/metatensor/metatrain/branch/main/graph/badge.svg
-  :alt: Code coverage
-  :target: https://codecov.io/gh/metatensor/metatrain
-
-.. |docs| image:: https://img.shields.io/badge/📚_documentation-latest-sucess
-  :alt: Documentation
-  :target: https://metatensor.github.io/metatrain/latest
