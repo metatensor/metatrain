@@ -127,8 +127,8 @@ html_static_path = [os.path.join(ROOT, "docs", "static")]
 html_favicon = "logo/metatrain-64.png"
 
 html_theme_options = {
-    "light_logo": "images/metatrain.png",
-    "dark_logo": "images/metatrain-dark.png",
+    "light_logo": "images/metatrain-horizontal.png",
+    "dark_logo": "images/metatrain-horizontal-dark.png",
     "sidebar_hide_name": True,
     "footer_icons": [
         {
