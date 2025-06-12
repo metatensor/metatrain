@@ -1,5 +1,10 @@
-Welcome to metatrain!
-=====================
+.. image:: /../static/images/metatrain-horizontal.png
+   :class: only-light sd-mb-4
+   :width: 600px
+
+.. image:: /../static/images/metatrain-horizontal-dark.png
+   :class: only-dark sd-mb-4
+   :width: 600px
 
 .. include:: ../../README.rst
    :start-after: marker-introduction
