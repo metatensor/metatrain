@@ -31,6 +31,7 @@ architecture will be taken from the checkpoint.
 
 To set the path to the pre-trained model checkpoint, you need to specify the
 ``read_from`` parameter in the ``options.yaml`` file:
+
 .. code-block:: yaml
 
   architecture:
