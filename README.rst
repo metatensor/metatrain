@@ -1,4 +1,4 @@
-.. image:: https://raw.githubusercontent.com/metatensor/metatrain/refs/heads/update-logos/docs/src/logo/metatrain-horizontal-dark.svg
+.. image:: https://raw.githubusercontent.com/metatensor/metatrain/refs/heads/main/docs/src/logo/metatrain-horizontal-dark.svg
   :width: 600 px
   :align: center
 
@@ -6,10 +6,12 @@
   :alt: Github Actions Tests Job Status
   :target: https://github.com/metatensor/metatrain/actions?query=branch%3Amain
   :align: center
+
 .. image:: https://codecov.io/gh/metatensor/metatrain/branch/main/graph/badge.svg
   :alt: Code coverage
   :target: https://codecov.io/gh/metatensor/metatrain
   :align: center
+
 .. image:: https://img.shields.io/badge/📚_documentation-latest-sucess
   :alt: Documentation
   :target: https://metatensor.github.io/metatrain/latest
