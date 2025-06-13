@@ -16,7 +16,7 @@ dependencies = [
     "metatensor-torch >=0.7.6,<0.8",
     "metatomic-torch >=0.1.0,<0.2",
     "jsonschema",
-    "omegaconf",
+    "omegaconf >= 2.3.0",
     "python-hostlist",
     "vesin",
 ]
