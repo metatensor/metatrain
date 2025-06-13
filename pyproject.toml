@@ -3,7 +3,7 @@ name = "metatrain"
 dynamic = ["version"]
 requires-python = ">=3.9"
 
-readme = "README.rst"
+readme = "README.md"
 license = "BSD-3-Clause"
 description = "Training and evaluating machine learning models for atomistic systems."
 authors = [{name = "metatrain developers"}]

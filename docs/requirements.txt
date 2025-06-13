@@ -1,5 +1,6 @@
 ase
 furo
+myst-parser
 sphinx >= 7
 sphinxcontrib-bibtex
 sphinx-gallery
