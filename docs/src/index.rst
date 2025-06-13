@@ -6,9 +6,10 @@
    :class: only-dark sd-mb-4
    :width: 600px
 
-.. include:: ../../README.rst
-   :start-after: marker-introduction
-   :end-before: marker-documentation
+.. include:: ../../README.md
+   :parser: myst_parser.docutils_
+   :start-after: <!-- marker-introduction -->
+   :end-before: <!-- marker-documentation -->
 
 .. toctree::
    :maxdepth: 1
