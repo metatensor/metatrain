@@ -31,15 +31,15 @@ class BaseCompositionModel(torch.nn.Module):
             elif layout.sample_names == ["system", "atom"]:
                 sample_kinds[target_name] = "per_atom"
 
-            elif layout.sample_names == [
-                "system",
-                "first_atom",
-                "second_atom",
-                "cell_shift_a",
-                "cell_shift_b",
-                "cell_shift_c",
-            ]:
-                sample_kinds[target_name] = "per_pair"
+            # elif layout.sample_names == [
+            #     "system",
+            #     "first_atom",
+            #     "second_atom",
+            #     "cell_shift_a",
+            #     "cell_shift_b",
+            #     "cell_shift_c",
+            # ]:
+            #     sample_kinds[target_name] = "per_pair"
 
             else:
                 raise ValueError
@@ -190,7 +190,7 @@ class BaseCompositionModel(torch.nn.Module):
                         )
                     )
 
-            elif self.sample_kinds[target_name] in ["per_atom", "per_pair"]:
+            elif self.sample_kinds[target_name] in ["per_atom", "per_pair"]:  # TODO: remove per_pair
                 blocks = []
                 for key in self.XTX[target_name].keys:
                     XTX_block = self.XTX[target_name][key]
@@ -271,7 +271,7 @@ class BaseCompositionModel(torch.nn.Module):
 
                 # TODO: add support for per_pair. As compositions are only fitted for on-site
                 # blocks this extension is simple, reusing the per_atom code.
-                elif self.sample_kinds[output_name] in ["per_atom", "per_pair"]:
+                elif self.sample_kinds[output_name] in ["per_atom", "per_pair"]:  # TODO: remove per_pair
                     sample_labels = Labels(
                         ["system", "atom"],
                         torch.vstack(
