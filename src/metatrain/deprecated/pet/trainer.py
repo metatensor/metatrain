@@ -11,8 +11,10 @@ import numpy as np
 import torch
 from torch_geometric.nn import DataParallel
 
-from ...utils.data import Dataset, check_datasets
-from ...utils.io import check_file_extension
+from metatrain.utils.abc import TrainerInterface
+from metatrain.utils.data import Dataset, check_datasets
+from metatrain.utils.io import check_file_extension
+
 from . import PET as WrappedPET
 from .modules.analysis import adapt_hypers
 from .modules.data_preparation import (
@@ -42,7 +44,7 @@ from .utils import dataset_to_ase, load_raw_pet_model, update_hypers
 from .utils.fine_tuning import LoRAWrapper
 
 
-class Trainer:
+class Trainer(TrainerInterface):
     def __init__(self, train_hypers):
         self.hypers = {"FITTING_SCHEME": train_hypers}
         self.pet_dir = None

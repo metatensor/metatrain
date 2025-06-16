@@ -5,7 +5,7 @@ import metatensor.torch
 import pytest
 import torch
 from metatensor.torch import Labels, TensorBlock, TensorMap
-from metatensor.torch.atomistic import ModelOutput, System
+from metatomic.torch import ModelOutput, System
 from metatensor.torch.learn.data import DataLoader
 from omegaconf import OmegaConf
 

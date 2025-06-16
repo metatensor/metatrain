@@ -3,8 +3,8 @@ from typing import Dict, List, Union
 
 import torch
 from metatensor.torch import Labels, TensorBlock, TensorMap
-from metatensor.torch.atomistic import (
-    MetatensorAtomisticModel,
+from metatomic.torch import (
+    AtomisticModel,
     ModelEvaluationOptions,
     ModelOutput,
     System,
@@ -18,8 +18,8 @@ from .output_gradient import compute_gradient
 def evaluate_model(
     model: Union[
         torch.nn.Module,
-        MetatensorAtomisticModel,
-        torch.jit._script.RecursiveScriptModule,
+        AtomisticModel,
+        torch.jit.RecursiveScriptModule,
     ],
     systems: List[System],
     targets: Dict[str, TargetInfo],
@@ -31,10 +31,10 @@ def evaluate_model(
 
     :param model: The model to use. This can either be a model in training
         (``torch.nn.Module``) or an exported model
-        (``torch.jit._script.RecursiveScriptModule``).
+        (``torch.jit.RecursiveScriptModule``).
     :param systems: The systems to use.
-    :param targets: The names of the targets to evaluate (keys), along with
-        their associated gradients (values).
+    :param targets: The names of the targets to evaluate (keys), along with their
+        associated gradients (values).
     :param is_training: Whether the model is being computed during training.
 
     :returns: The predictions of the model for the requested targets.
@@ -46,10 +46,10 @@ def evaluate_model(
         message="This system's positions or cell requires grad, but the neighbors",
     )
 
-    model_outputs = _get_outputs(model)
-    # Assert that all targets are within the model's capabilities:
+    model_outputs = _get_supported_outputs(model)
+    # Assert that all targets are within the model's supported outputs:
     if not set(targets.keys()).issubset(model_outputs.keys()):
-        raise ValueError("Not all targets are within the model's capabilities.")
+        raise ValueError("Not all targets are within the model's supported outputs")
 
     # Find if there are any energy targets that require gradients:
     energy_targets = []
@@ -214,20 +214,20 @@ def _strain_gradients_to_block(gradients_list):
     )
 
 
-def _get_outputs(
-    model: Union[torch.nn.Module, torch.jit._script.RecursiveScriptModule],
+def _get_supported_outputs(
+    model: Union[torch.nn.Module, torch.jit.RecursiveScriptModule],
 ):
     if is_atomistic_model(model):
         return model.capabilities().outputs
     else:
-        return model.outputs
+        return model.supported_outputs()
 
 
 def _get_model_outputs(
     model: Union[
         torch.nn.Module,
-        MetatensorAtomisticModel,
-        torch.jit._script.RecursiveScriptModule,
+        AtomisticModel,
+        torch.jit.RecursiveScriptModule,
     ],
     systems: List[System],
     targets: Dict[str, TargetInfo],

@@ -36,7 +36,7 @@ import ase
 import matplotlib.pyplot as plt
 import numpy as np
 import torch
-from metatensor.torch.atomistic.ase_calculator import MetatensorCalculator
+from metatomic.torch.ase_calculator import MetatomicCalculator
 
 
 # %%
@@ -64,10 +64,8 @@ for pair in [("H", "H"), ("H", "C"), ("C", "C"), ("C", "O"), ("O", "O"), ("H", "
 #
 # We now load the two exported models, one with and one without ZBL corrections
 
-calc_no_zbl = MetatensorCalculator(
-    "model_no_zbl.pt", extensions_directory="extensions/"
-)
-calc_zbl = MetatensorCalculator("model_zbl.pt", extensions_directory="extensions/")
+calc_no_zbl = MetatomicCalculator("model_no_zbl.pt", extensions_directory="extensions/")
+calc_zbl = MetatomicCalculator("model_zbl.pt", extensions_directory="extensions/")
 
 
 # %%

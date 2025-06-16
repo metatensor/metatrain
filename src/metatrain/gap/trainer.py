@@ -1,4 +1,5 @@
 import logging
+from pathlib import Path
 from typing import Any, Dict, List, Literal, Union
 
 import metatensor
@@ -6,19 +7,19 @@ import metatensor.torch
 import torch
 from metatensor.torch import TensorMap
 
-from metatrain.utils.data import Dataset
-
-from ..utils.additive import remove_additive
-from ..utils.data import check_datasets
-from ..utils.neighbor_lists import (
+from metatrain.utils.abc import TrainerInterface
+from metatrain.utils.additive import remove_additive
+from metatrain.utils.data import Dataset, check_datasets
+from metatrain.utils.neighbor_lists import (
     get_requested_neighbor_lists,
     get_system_with_neighbor_lists,
 )
+
 from . import GAP
 from .model import torch_tensor_map_to_core
 
 
-class Trainer:
+class Trainer(TrainerInterface):
     def __init__(self, train_hypers):
         self.hypers = train_hypers
 
@@ -138,7 +139,7 @@ class Trainer:
             model._subset_of_regressors.export_torch_script_model()
         )
 
-    def save_checkpoint(self, model, checkpoint_dir: str):
+    def save_checkpoint(self, model, checkpoint_dir: Union[str, Path]):
         # GAP won't save a checkpoint since it
         # doesn't support restarting training
         return

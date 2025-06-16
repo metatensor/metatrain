@@ -4,7 +4,7 @@ from typing import Dict, List, Optional
 import metatensor.torch as mts
 import torch
 from metatensor.torch import Labels, TensorMap
-from metatensor.torch.atomistic import ModelOutput, System
+from metatomic.torch import ModelOutput, System
 from metatensor.torch.learn.data import DataLoader
 
 from ..data import DatasetInfo, TargetInfo
@@ -161,6 +161,9 @@ class MetatrainCompositionModel(torch.nn.Module):
                 output_name: output.per_atom for output_name, output in outputs.items()
             },
         )
+
+    def supported_outputs(self) -> Dict[str, ModelOutput]:
+        return self.outputs
 
     def _add_output(self, target_name: str, target_info: TargetInfo) -> None:
         self.outputs[target_name] = ModelOutput(

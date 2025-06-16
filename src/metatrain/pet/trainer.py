@@ -7,27 +7,36 @@ import torch
 from torch.optim.lr_scheduler import LambdaLR
 from torch.utils.data import DataLoader, DistributedSampler
 
-from ..utils.additive import remove_additive
-from ..utils.augmentation import RotationalAugmenter
-from ..utils.data import CombinedDataLoader, Dataset, _is_disk_dataset, collate_fn
-from ..utils.distributed.distributed_data_parallel import DistributedDataParallel
-from ..utils.distributed.slurm import DistributedEnvironment
-from ..utils.evaluate_model import evaluate_model
-from ..utils.external_naming import to_external_name
-from ..utils.io import check_file_extension
-from ..utils.logging import ROOT_LOGGER, MetricLogger
-from ..utils.loss import TensorMapDictLoss
-from ..utils.metrics import MAEAccumulator, RMSEAccumulator, get_selected_metric
-from ..utils.neighbor_lists import (
+from metatrain.utils.abc import TrainerInterface
+from metatrain.utils.additive import remove_additive
+from metatrain.utils.augmentation import RotationalAugmenter
+from metatrain.utils.data import (
+    CombinedDataLoader,
+    Dataset,
+    _is_disk_dataset,
+    collate_fn,
+)
+from metatrain.utils.distributed.distributed_data_parallel import (
+    DistributedDataParallel,
+)
+from metatrain.utils.distributed.slurm import DistributedEnvironment
+from metatrain.utils.evaluate_model import evaluate_model
+from metatrain.utils.external_naming import to_external_name
+from metatrain.utils.io import check_file_extension
+from metatrain.utils.logging import ROOT_LOGGER, MetricLogger
+from metatrain.utils.loss import TensorMapDictLoss
+from metatrain.utils.metrics import MAEAccumulator, RMSEAccumulator, get_selected_metric
+from metatrain.utils.neighbor_lists import (
     get_requested_neighbor_lists,
     get_system_with_neighbor_lists,
 )
-from ..utils.per_atom import average_by_num_atoms
-from ..utils.scaler import remove_scale
-from ..utils.transfer import (
+from metatrain.utils.per_atom import average_by_num_atoms
+from metatrain.utils.scaler import remove_scale
+from metatrain.utils.transfer import (
     systems_and_targets_to_device,
     systems_and_targets_to_dtype,
 )
+
 from .model import PET
 from .modules.finetuning import apply_finetuning_strategy
 
@@ -44,7 +53,7 @@ def get_scheduler(optimizer, train_hypers):
     return scheduler
 
 
-class Trainer:
+class Trainer(TrainerInterface):
     def __init__(self, train_hypers):
         self.hypers = train_hypers
         self.optimizer_state_dict = None
@@ -64,7 +73,10 @@ class Trainer:
         checkpoint_dir: str,
     ):
         assert dtype in PET.__supported_dtypes__
+
         is_distributed = self.hypers["distributed"]
+        is_finetune = "finetune" in self.hypers
+
         if is_distributed:
             distr_env = DistributedEnvironment(self.hypers["distributed_port"])
             torch.distributed.init_process_group(backend="nccl")
@@ -120,7 +132,7 @@ class Trainer:
                     get_system_with_neighbor_lists(system, requested_neighbor_lists)
 
         # Apply fine-tuning strategy if provided
-        if self.hypers["finetune"]:
+        if is_finetune:
             model = apply_finetuning_strategy(model, self.hypers["finetune"])
 
         # Move the model to the device and dtype:
@@ -175,18 +187,20 @@ class Trainer:
 
         # Create dataloader for the training datasets:
         train_dataloaders = []
-        for dataset, sampler in zip(train_datasets, train_samplers):
+        for train_dataset, train_sampler in zip(train_datasets, train_samplers):
             train_dataloaders.append(
                 DataLoader(
-                    dataset=dataset,
+                    dataset=train_dataset,
                     batch_size=self.hypers["batch_size"],
-                    sampler=sampler,
+                    sampler=train_sampler,
                     shuffle=(
-                        sampler is None
-                    ),  # the sampler takes care of this (if present)
+                        # the sampler takes care of this (if present)
+                        train_sampler is None
+                    ),
                     drop_last=(
-                        sampler is None
-                    ),  # the sampler takes care of this (if present)
+                        # the sampler takes care of this (if present)
+                        train_sampler is None
+                    ),
                     collate_fn=collate_fn,
                 )
             )
@@ -194,12 +208,12 @@ class Trainer:
 
         # Create dataloader for the validation datasets:
         val_dataloaders = []
-        for dataset, sampler in zip(val_datasets, val_samplers):
+        for val_dataset, val_sampler in zip(val_datasets, val_samplers):
             val_dataloaders.append(
                 DataLoader(
-                    dataset=dataset,
+                    dataset=val_dataset,
                     batch_size=self.hypers["batch_size"],
-                    sampler=sampler,
+                    sampler=val_sampler,
                     shuffle=False,
                     drop_last=False,
                     collate_fn=collate_fn,
@@ -249,7 +263,7 @@ class Trainer:
                 model.parameters(), lr=self.hypers["learning_rate"]
             )
 
-        if self.optimizer_state_dict is not None and not self.hypers["finetune"]:
+        if self.optimizer_state_dict is not None and not is_finetune:
             # try to load the optimizer state dict, but this is only possible
             # if there are no new targets in the model (new parameters)
             if not (model.module if is_distributed else model).has_new_targets:
@@ -257,7 +271,7 @@ class Trainer:
 
         lr_scheduler = get_scheduler(optimizer, self.hypers)
 
-        if self.scheduler_state_dict is not None and not self.hypers["finetune"]:
+        if self.scheduler_state_dict is not None and not is_finetune:
             # same as the optimizer, try to load the scheduler state dict
             if not (model.module if is_distributed else model).has_new_targets:
                 lr_scheduler.load_state_dict(self.scheduler_state_dict)
@@ -281,7 +295,8 @@ class Trainer:
 
         for epoch in range(start_epoch, start_epoch + self.hypers["num_epochs"]):
             if is_distributed:
-                sampler.set_epoch(epoch)
+                for train_sampler in train_samplers:
+                    train_sampler.set_epoch(epoch)
             train_rmse_calculator = RMSEAccumulator(self.hypers["log_separate_blocks"])
             val_rmse_calculator = RMSEAccumulator(self.hypers["log_separate_blocks"])
             if self.hypers["log_mae"]:
@@ -491,6 +506,7 @@ class Trainer:
     def save_checkpoint(self, model, path: Union[str, Path]):
         checkpoint = {
             "architecture_name": "pet",
+            "metadata": model.__default_metadata__,
             "model_data": {
                 "model_hypers": model.hypers,
                 "dataset_info": model.dataset_info,
@@ -513,8 +529,8 @@ class Trainer:
     def load_checkpoint(
         cls,
         checkpoint: Dict[str, Any],
-        context: Literal["restart", "finetune", "export"],  # not used at the moment
         train_hypers: Dict[str, Any],
+        context: Literal["restart", "finetune"],
     ) -> "Trainer":
         epoch = checkpoint["epoch"]
         optimizer_state_dict = checkpoint["optimizer_state_dict"]

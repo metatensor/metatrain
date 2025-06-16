@@ -3,8 +3,8 @@ from typing import Any, Dict, List, Literal, Optional
 import metatensor.torch
 import torch
 from metatensor.torch import Labels, TensorBlock, TensorMap
-from metatensor.torch.atomistic import (
-    MetatensorAtomisticModel,
+from metatomic.torch import (
+    AtomisticModel,
     ModelCapabilities,
     ModelMetadata,
     ModelOutput,
@@ -12,18 +12,19 @@ from metatensor.torch.atomistic import (
     System,
 )
 
+from metatrain.utils.abc import ModelInterface
+from metatrain.utils.additive import ZBL
 from metatrain.utils.data import DatasetInfo
 from metatrain.utils.data.target_info import is_auxiliary_output
+from metatrain.utils.dtype import dtype_to_str
+from metatrain.utils.metadata import merge_metadata
+from metatrain.utils.sum_over_atoms import sum_over_atoms
 
-from ...utils.additive import ZBL
-from ...utils.dtype import dtype_to_str
-from ...utils.metadata import append_metadata_references
-from ...utils.sum_over_atoms import sum_over_atoms
 from .modules.pet import PET as RawPET
 from .utils import load_raw_pet_model, systems_to_batch_dict
 
 
-class PET(torch.nn.Module):
+class PET(ModelInterface):
     __supported_devices__ = ["cuda", "cpu"]
     __supported_dtypes__ = [torch.float32]
     __default_metadata__ = ModelMetadata(
@@ -272,9 +273,19 @@ class PET(torch.nn.Module):
 
         return model
 
-    def export(
-        self, metadata: Optional[ModelMetadata] = None
-    ) -> MetatensorAtomisticModel:
+    def supported_outputs(self) -> Dict[str, ModelOutput]:
+        return {
+            self.target_name: ModelOutput(
+                quantity=self.dataset_info.targets[self.target_name].quantity,
+                unit=self.dataset_info.targets[self.target_name].unit,
+                per_atom=False,
+            ),
+            f"mtt::aux::{self.target_name.replace('mtt::', '')}_last_layer_features": ModelOutput(  # noqa: E501
+                unit="unitless", per_atom=True
+            ),
+        }
+
+    def export(self, metadata: Optional[ModelMetadata] = None) -> AtomisticModel:
         dtype = next(self.parameters()).dtype
         if dtype not in self.__supported_dtypes__:
             raise ValueError(f"Unsupported dtype {self.dtype} for PET")
@@ -291,16 +302,7 @@ class PET(torch.nn.Module):
         interaction_range = max(interaction_ranges)
 
         capabilities = ModelCapabilities(
-            outputs={
-                self.target_name: ModelOutput(
-                    quantity=self.dataset_info.targets[self.target_name].quantity,
-                    unit=self.dataset_info.targets[self.target_name].unit,
-                    per_atom=False,
-                ),
-                f"mtt::aux::{self.target_name.replace('mtt::', '')}_last_layer_features": ModelOutput(  # noqa: E501
-                    unit="unitless", per_atom=True
-                ),
-            },
+            outputs=self.supported_outputs(),
             atomic_types=self.atomic_types,
             interaction_range=interaction_range,
             length_unit=self.dataset_info.length_unit,
@@ -311,6 +313,6 @@ class PET(torch.nn.Module):
         if metadata is None:
             metadata = ModelMetadata()
 
-        append_metadata_references(metadata, self.__default_metadata__)
+        metadata = merge_metadata(self.__default_metadata__, metadata)
 
-        return MetatensorAtomisticModel(self.eval(), metadata, capabilities)
+        return AtomisticModel(self.eval(), metadata, capabilities)

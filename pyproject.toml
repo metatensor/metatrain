@@ -3,7 +3,7 @@ name = "metatrain"
 dynamic = ["version"]
 requires-python = ">=3.9"
 
-readme = "README.rst"
+readme = "README.md"
 license = "BSD-3-Clause"
 description = "Training and evaluating machine learning models for atomistic systems."
 authors = [{name = "metatrain developers"}]
@@ -11,11 +11,12 @@ authors = [{name = "metatrain developers"}]
 # Strict version pinning to avoid regression test failing on new versions
 dependencies = [
     "ase",
-    "metatensor-learn==0.3.2",
-    "metatensor-operations==0.3.3",
-    "metatensor-torch==0.7.6",
+    "metatensor-learn >=0.3.2,<0.4",
+    "metatensor-operations >=0.3.3,<0.4",
+    "metatensor-torch >=0.7.6,<0.8",
+    "metatomic-torch >=0.1.0,<0.2",
     "jsonschema",
-    "omegaconf",
+    "omegaconf >= 2.3.0",
     "python-hostlist",
     "vesin",
 ]
@@ -73,7 +74,7 @@ deprecated-pet = [
 pet = []
 nanopet = []
 gap = [
-    "featomic-torch >=0.6,<0.7",
+    "featomic-torch >=0.7,<0.8",
     "skmatter",
     "scipy",
 ]

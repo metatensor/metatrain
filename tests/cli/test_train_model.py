@@ -11,7 +11,7 @@ import pytest
 import torch
 from jsonschema.exceptions import ValidationError
 from metatensor.torch import Labels, TensorBlock, TensorMap
-from metatensor.torch.atomistic import NeighborListOptions, systems_to_torch
+from metatomic.torch import NeighborListOptions, systems_to_torch
 from omegaconf import OmegaConf
 
 from metatrain import RANDOM_SEED
@@ -27,8 +27,9 @@ from . import (
     DATASET_PATH_QM7X,
     DATASET_PATH_QM9,
     MODEL_PATH_64_BIT,
-    OPTIONS_NANOPET_PATH,
+    MODEL_PATH_PET,
     OPTIONS_PATH,
+    OPTIONS_PET_PATH,
     RESOURCES_PATH,
 )
 from .dump_spherical_targets import dump_spherical_targets
@@ -37,6 +38,11 @@ from .dump_spherical_targets import dump_spherical_targets
 @pytest.fixture
 def options():
     return OmegaConf.load(OPTIONS_PATH)
+
+
+@pytest.fixture
+def options_pet():
+    return OmegaConf.load(OPTIONS_PET_PATH)
 
 
 @pytest.mark.parametrize("output", [None, "mymodel.pt"])
@@ -116,6 +122,9 @@ def test_train(capfd, monkeypatch, tmp_path, output):
     assert "energy" in stdout_log
     assert "with index" not in stdout_log  # index only printed for more than 1 dataset
     assert "Running final evaluation with batch size 16" in stdout_log
+    assert "Atomic types" in stdout_log
+    assert "Model defined for atomic types" in stdout_log
+    assert "Starting training from scratch" in stdout_log
 
     # Open the CSV log file and check if the logging is correct
     csv_glob = glob.glob("outputs/*/*/train.csv")
@@ -457,6 +466,39 @@ def test_continue(options, monkeypatch, tmp_path):
     train_model(options, restart_from=MODEL_PATH_64_BIT)
 
 
+def test_finetune(options_pet, caplog, monkeypatch, tmp_path):
+    monkeypatch.chdir(tmp_path)
+
+    options_pet["architecture"]["training"]["finetune"] = {
+        "method": "heads",
+        "read_from": str(MODEL_PATH_PET),
+        "config": {
+            "head_modules": ["node_heads", "edge_heads"],
+            "last_layer_modules": ["node_last_layers", "edge_last_layers"],
+        },
+    }
+    shutil.copy(DATASET_PATH_QM9, "qm9_reduced_100.xyz")
+
+    caplog.set_level(logging.INFO)
+    train_model(options_pet)
+
+    assert f"Starting finetuning from '{MODEL_PATH_PET}'" in caplog.text
+
+
+def test_finetune_no_read_from(options_pet, monkeypatch, tmp_path):
+    monkeypatch.chdir(tmp_path)
+
+    options_pet["architecture"]["training"]["finetune"] = OmegaConf.create({})
+    shutil.copy(DATASET_PATH_QM9, "qm9_reduced_100.xyz")
+
+    match = (
+        "Finetuning is enabled but no checkpoint was provided. Please provide one "
+        "using the `read_from` option in the `finetune` section."
+    )
+    with pytest.raises(ValueError, match=match):
+        train_model(options_pet)
+
+
 def test_continue_auto(options, caplog, monkeypatch, tmp_path):
     """Test that continuing with the `auto` keyword results in
     a continuation from the most recent checkpoint."""
@@ -581,8 +623,11 @@ def test_architecture_error(options, monkeypatch, tmp_path):
         train_model(options)
 
 
-def test_train_issue_290(monkeypatch, tmp_path):
-    """Test the potential problem from issue #290."""
+def test_train_split_failure(monkeypatch, tmp_path):
+    """Test the potential problem from a split of large to very large datasets.
+
+    See issue #290.
+    """
     monkeypatch.chdir(tmp_path)
     shutil.copy(DATASET_PATH_ETHANOL, "ethanol_reduced_100.xyz")
 
@@ -597,6 +642,16 @@ def test_train_issue_290(monkeypatch, tmp_path):
     options["validation_set"] = 0.01
     options["test_set"] = 0.85
 
+    train_model(options)
+
+
+@pytest.mark.parametrize("atomic_types", [[1, 6, 7, 8], [1, 6, 7, 8, 100]])
+def test_train_atomic_types(options, monkeypatch, tmp_path, atomic_types):
+    """Tests that passing a complete and an over-complete
+    list of atomic types works."""
+    monkeypatch.chdir(tmp_path)
+    shutil.copy(DATASET_PATH_QM9, "qm9_reduced_100.xyz")
+    options["architecture"]["atomic_types"] = atomic_types
     train_model(options)
 
 
@@ -668,7 +723,7 @@ def test_train_generic_target_metatensor(monkeypatch, tmp_path, with_scalar_part
     )
 
     # run training with original options
-    options = OmegaConf.load(OPTIONS_NANOPET_PATH)
+    options = OmegaConf.load(OPTIONS_PET_PATH)
     options["training_set"]["systems"]["read_from"] = "qm7x_reduced_100.xyz"
     options["training_set"]["targets"] = {
         "mtt::polarizability": {
@@ -719,6 +774,57 @@ def test_train_disk_dataset(monkeypatch, tmp_path, options):
     del disk_dataset_writer
 
     options["training_set"]["systems"]["read_from"] = "qm9_reduced_100.zip"
+    options["training_set"]["targets"]["energy"]["read_from"] = "qm9_reduced_100.zip"
+    train_model(options)
+
+
+def test_train_disk_dataset_splits_issue_601(monkeypatch, tmp_path, options):
+    """Test that training via the training cli runs without an error raise
+    when learning from multiple `DiskDataset` objects for training and test datasets, as
+    per issue https://github.com/metatensor/metatrain/issues/601."""
+    monkeypatch.chdir(tmp_path)
+    shutil.copy(DATASET_PATH_QM9, "qm9_reduced_100.xyz")
+
+    for subset_name, xyz_idxs in zip(
+        ["training", "test"], [range(0, 80), range(80, 100)]
+    ):
+        disk_dataset_writer = DiskDatasetWriter(f"qm9_reduced_100_{subset_name}.zip")
+        for subset_i, xyz_i in enumerate(xyz_idxs):
+            frame = read("qm9_reduced_100.xyz", index=xyz_i)
+            system = systems_to_torch(frame, dtype=torch.float64)
+            system = get_system_with_neighbor_lists(
+                system,
+                [NeighborListOptions(cutoff=5.0, full_list=True, strict=True)],
+            )
+            energy = TensorMap(
+                keys=Labels.single(),
+                blocks=[
+                    TensorBlock(
+                        values=torch.tensor([[frame.info["U0"]]], dtype=torch.float64),
+                        samples=Labels(
+                            names=["system"],
+                            values=torch.tensor([[subset_i]]),
+                        ),
+                        components=[],
+                        properties=Labels("energy", torch.tensor([[0]])),
+                    )
+                ],
+            )
+            disk_dataset_writer.write_sample(system, {"energy": energy})
+        del disk_dataset_writer
+
+        options[f"{subset_name}_set"] = {
+            "systems": {
+                "read_from": f"qm9_reduced_100_{subset_name}.zip",
+                "length_unit": "angstrom",
+            },
+            "targets": {
+                "energy": {
+                    "read_from": f"qm9_reduced_100_{subset_name}.zip",
+                    "unit": "eV",
+                }
+            },
+        }
     train_model(options)
 
 

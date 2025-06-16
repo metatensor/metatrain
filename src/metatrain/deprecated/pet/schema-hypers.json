@@ -4,9 +4,7 @@
   "properties": {
     "name": {
       "type": "string",
-      "enum": [
-        "deprecated.pet"
-      ]
+      "enum": ["deprecated.pet"]
     },
     "model": {
       "type": "object",
@@ -115,11 +113,7 @@
         },
         "DTYPE": {
           "type": "string",
-          "enum": [
-            "float32",
-            "float64",
-            "bfloat16"
-          ]
+          "enum": ["float32", "float64", "bfloat16"]
         },
         "N_TARGETS": {
           "type": "integer"
@@ -253,10 +247,7 @@
         },
         "ENERGIES_LOSS": {
           "type": "string",
-          "enum": [
-            "per_structure",
-            "per_atom"
-          ]
+          "enum": ["per_structure", "per_atom"]
         },
         "BALANCED_DATA_LOADER": {
           "type": "boolean"
@@ -269,34 +260,22 @@
       "allOf": [
         {
           "not": {
-            "required": [
-              "SCHEDULER_STEP_SIZE",
-              "SCHEDULER_STEP_SIZE_ATOMIC"
-            ]
+            "required": ["SCHEDULER_STEP_SIZE", "SCHEDULER_STEP_SIZE_ATOMIC"]
           }
         },
         {
           "not": {
-            "required": [
-              "EPOCH_NUM",
-              "EPOCH_NUM_ATOMIC"
-            ]
+            "required": ["EPOCH_NUM", "EPOCH_NUM_ATOMIC"]
           }
         },
         {
           "not": {
-            "required": [
-              "STRUCTURAL_BATCH_SIZE",
-              "ATOMIC_BATCH_SIZE"
-            ]
+            "required": ["STRUCTURAL_BATCH_SIZE", "ATOMIC_BATCH_SIZE"]
           }
         },
         {
           "not": {
-            "required": [
-              "EPOCHS_WARMUP",
-              "EPOCHS_WARMUP_ATOMIC"
-            ]
+            "required": ["EPOCHS_WARMUP", "EPOCHS_WARMUP_ATOMIC"]
           }
         }
       ]

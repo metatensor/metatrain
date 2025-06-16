@@ -7,9 +7,9 @@ ROOT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 
 cd $ROOT_DIR
 
-mtt train options.yaml -o model-32-bit.pt -r base_precision=32 # > /dev/null
-mtt train options.yaml -o model-64-bit.pt -r base_precision=64 # > /dev/null
-mtt train options-nanopet.yaml -o model-no-extensions.pt # > /dev/null
+mtt train options.yaml -o model-32-bit.pt -r base_precision=32
+mtt train options.yaml -o model-64-bit.pt -r base_precision=64
+mtt train options-pet.yaml -o model-pet.pt
 
 # upload results to private HF repo if token is set
 if [ -n "${HUGGINGFACE_TOKEN_METATRAIN:-}" ]; then
