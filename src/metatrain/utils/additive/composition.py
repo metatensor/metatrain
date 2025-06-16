@@ -4,8 +4,8 @@ from typing import Dict, List, Optional
 import metatensor.torch as mts
 import torch
 from metatensor.torch import Labels, TensorMap
-from metatomic.torch import ModelOutput, System
 from metatensor.torch.learn.data import DataLoader
+from metatomic.torch import ModelOutput, System
 
 from ..data import DatasetInfo, TargetInfo
 from ..jsonschema import validate
