@@ -124,8 +124,6 @@ class BaseCompositionModel(torch.nn.Module):
         systems: List[System],
         targets: Dict[str, TensorMap],
     ) -> None:
-        num_atoms = torch.tensor([len(system) for system in systems])
-
         for target_name, target in targets.items():
             for key, block in target.items():
                 if not _include_key(key):
@@ -138,7 +136,7 @@ class BaseCompositionModel(torch.nn.Module):
                     X = self._compute_X_per_structure(systems)
 
                     # For per-structure, divide target values by number of atoms
-                    Y /= num_atoms.reshape(-1, *Y.shape[1:])
+                    # Y /= num_atoms.reshape(-1, *Y.shape[1:])
 
                 elif self.sample_kinds[target_name] in ["per_atom", "per_pair"]:
                     X = self._compute_X_per_atom(
@@ -190,7 +188,10 @@ class BaseCompositionModel(torch.nn.Module):
                         )
                     )
 
-            elif self.sample_kinds[target_name] in ["per_atom", "per_pair"]:  # TODO: remove per_pair
+            elif self.sample_kinds[target_name] in [
+                "per_atom",
+                "per_pair",
+            ]:  # TODO: remove per_pair
                 blocks = []
                 for key in self.XTX[target_name].keys:
                     XTX_block = self.XTX[target_name][key]
@@ -229,6 +230,7 @@ class BaseCompositionModel(torch.nn.Module):
         systems: List[System],
         output_names: List[str],
         selected_samples: Optional[Labels] = None,
+        per_atom: Optional[Dict[str, bool]] = None,
     ) -> Dict[str, TensorMap]:
         """Compute the targets for each system based on the composition weights.
 
@@ -263,15 +265,39 @@ class BaseCompositionModel(torch.nn.Module):
             for key, weight_block in weights.items():
                 # Compute X
                 if self.sample_kinds[output_name] == "per_structure":
-                    sample_labels = Labels(
-                        ["system"],
-                        torch.arange(len(systems), dtype=torch.int32).reshape(-1, 1),
-                    )
-                    X = self._compute_X_per_structure(systems)
+                    if per_atom is not None and per_atom[output_name]:
+                        sample_labels = Labels(
+                            ["system", "atom"],
+                            torch.tensor(
+                                [
+                                    [A, i]
+                                    for A, system in enumerate(systems)
+                                    for i in torch.arange(
+                                        len(system), dtype=torch.int32
+                                    )
+                                ],
+                                dtype=torch.int64,
+                            ),
+                        )
+                        X = self._compute_X_per_atom(
+                            systems, self._get_sliced_atomic_types(key)
+                        )
 
-                # TODO: add support for per_pair. As compositions are only fitted for on-site
-                # blocks this extension is simple, reusing the per_atom code.
-                elif self.sample_kinds[output_name] in ["per_atom", "per_pair"]:  # TODO: remove per_pair
+                    else:
+                        sample_labels = Labels(
+                            ["system"],
+                            torch.arange(len(systems), dtype=torch.int32).reshape(
+                                -1, 1
+                            ),
+                        )
+                        X = self._compute_X_per_structure(systems)
+
+                # TODO: add support for per_pair. As compositions are only fitted for
+                # on-site blocks this extension is simple, reusing the per_atom code.
+                elif self.sample_kinds[output_name] in [
+                    "per_atom",
+                    "per_pair",
+                ]:  # TODO: remove per_pair
                     sample_labels = Labels(
                         ["system", "atom"],
                         torch.vstack(
@@ -352,7 +378,7 @@ class BaseCompositionModel(torch.nn.Module):
                 ],
                 dtype=torch.float64,
             )
-            X.append(X_system / len(system))
+            X.append(X_system)
 
         return torch.vstack(X)
 

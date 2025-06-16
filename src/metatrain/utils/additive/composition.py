@@ -3,7 +3,7 @@ from typing import Dict, List, Optional
 
 import metatensor.torch as mts
 import torch
-from metatensor.torch import Labels, TensorBlock, TensorMap
+from metatensor.torch import Labels, TensorMap
 from metatensor.torch.atomistic import ModelOutput, System
 from metatensor.torch.learn.data import DataLoader
 
@@ -74,12 +74,12 @@ class MetatrainCompositionModel(torch.nn.Module):
         # keeps track of dtype and device of the composition model
         self.register_buffer("dummy_buffer", torch.randn(1))
 
-
     def train_model(
         self,
         dataloader: DataLoader,
         # additive_models: List[torch.nn.Module],  # TODO: support this here?
-        # fixed_weights: Optional[Dict[str, Dict[int, str]]] = None,  # TODO: support this here?
+        # fixed_weights: Optional[Dict[str, Dict[int, str]]] = None,
+        # # TODO: support this here?
     ) -> None:
         self.model.fit(dataloader)
 
@@ -153,7 +153,14 @@ class MetatrainCompositionModel(torch.nn.Module):
                     f"({self.outputs[output_name].quantity})."
                 )
 
-        return self.model.forward(systems, list(outputs.keys()), selected_atoms)
+        return self.model.forward(
+            systems,
+            list(outputs.keys()),
+            selected_atoms,
+            per_atom={
+                output_name: output.per_atom for output_name, output in outputs.items()
+            },
+        )
 
     def _add_output(self, target_name: str, target_info: TargetInfo) -> None:
         self.outputs[target_name] = ModelOutput(
@@ -171,7 +178,8 @@ class MetatrainCompositionModel(torch.nn.Module):
         #             ),
         #             samples=Labels(
         #                 names=["center_type"],
-        #                 values=torch.tensor(self.atomic_types, dtype=torch.int).reshape(
+        #                 values=torch.tensor(self.atomic_types, dtype=torch.int)
+        # .reshape(
         #                     -1, 1
         #                 ),
         #             ),
@@ -194,7 +202,8 @@ class MetatrainCompositionModel(torch.nn.Module):
         #             ),
         #             samples=Labels(
         #                 names=["center_type"],
-        #                 values=torch.tensor(self.atomic_types, dtype=torch.int).reshape(
+        #                 values=torch.tensor(self.atomic_types, dtype=torch.int)
+        # .reshape(
         #                     -1, 1
         #                 ),
         #             ),

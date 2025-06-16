@@ -6,11 +6,15 @@ import pytest
 import torch
 from metatensor.torch import Labels, TensorBlock, TensorMap
 from metatensor.torch.atomistic import ModelOutput, System
+from metatensor.torch.learn.data import DataLoader
 from omegaconf import OmegaConf
 
-from metatensor.torch.learn.data import DataLoader
-
-from metatrain.utils.additive import ZBL, CompositionModel, remove_additive, MetatrainCompositionModel
+from metatrain.utils.additive import (
+    ZBL,
+    CompositionModel,
+    MetatrainCompositionModel,
+    remove_additive,
+)
 from metatrain.utils.data import Dataset, DatasetInfo
 from metatrain.utils.data.readers import read_systems, read_targets
 from metatrain.utils.data.target_info import (
@@ -149,6 +153,7 @@ def test_composition_model_train():
     torch.testing.assert_close(
         output_O["energy"].block().values, torch.tensor([[1.0]], dtype=torch.float64)
     )
+
 
 def test_new_composition_model_train():
     """Test the calculation of composition weights for a per-structure scalar."""
@@ -324,6 +329,7 @@ def test_composition_model_predict():
     assert "mtt::U0" in output
     assert output["mtt::U0"].block().samples.names == ["system"]
     assert output["mtt::U0"].block().values.shape == (1, 1)
+
 
 def test_new_composition_model_predict():
     """Test the prediction of composition energies."""
