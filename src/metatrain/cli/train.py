@@ -496,6 +496,9 @@ def train_model(
     except Exception as e:
         raise ArchitectureError(e)
 
+    n_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
+    logging.info(f"The model has {n_params} parameters.")
+
     ###########################
     # TRAIN MODEL #############
     ###########################
