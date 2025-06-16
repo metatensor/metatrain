@@ -441,6 +441,7 @@ def _solve_linear_system(
 ) -> torch.Tensor:
     trace_magnitude = float(torch.diag(XTX_vals).abs().mean())
     regularizer = 1e-14 * trace_magnitude
+    shape = (XTX_vals.shape[0], *XTY_vals.shape[1:])
     return torch.linalg.solve(
         XTX_vals
         + regularizer
@@ -449,8 +450,8 @@ def _solve_linear_system(
             dtype=XTX_vals.dtype,
             device=XTX_vals.device,
         ),
-        XTY_vals,
-    )
+        XTY_vals.reshape(XTY_vals.shape[0], -1),
+    ).reshape(shape)
 
 
 def _compute_XTY(X: torch.Tensor, Y: torch.Tensor) -> torch.Tensor:
