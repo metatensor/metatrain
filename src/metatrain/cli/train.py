@@ -496,6 +496,14 @@ def train_model(
     except Exception as e:
         raise ArchitectureError(e)
 
+    n_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
+    logging.info(
+        (
+            f"The model has {_human_readable(n_params)} parameters "
+            f"(actual number: {n_params})."
+        )
+    )
+
     ###########################
     # TRAIN MODEL #############
     ###########################
@@ -648,3 +656,23 @@ def _get_batch_size_from_hypers(hypers: Union[Dict, DictConfig]) -> Optional[int
         ):
             return value
     return None
+
+
+def _human_readable(n):
+    """
+    Turn a number into a human-friendly string
+    """
+    suffixes = ["", "K", "M", "B", "T"]
+    if n == 0:
+        return "0"
+    # figure out which suffix to use
+    idx = min(int(np.log10(abs(n)) // 3), len(suffixes) - 1)
+    value = n / (1000**idx)
+    # pick formatting: one decimal if <10, otherwise integer with commas
+    if value < 10:
+        s = f"{value:.1f}"
+    else:
+        s = f"{int(value):,d}"
+    # drop any trailing ".0"
+    s = s.rstrip(".0")
+    return f"{s}{suffixes[idx]}"

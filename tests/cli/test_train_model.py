@@ -108,6 +108,10 @@ def test_train(capfd, monkeypatch, tmp_path, output):
     assert stdout_log.count("This log is also available") == 1  # only once
     assert "Running training for 'soap_bpnn' architecture"
     assert re.search(r"Random seed of this run is [1-9]\d*", stdout_log)
+    assert re.search(
+        r"The model has (\d+(?:\.\d+)?[KMBT]?) parameters \(actual number: (\d+)\)",
+        stdout_log,
+    )
     assert "Training dataset:" in stdout_log
     assert "Validation dataset:" in stdout_log
     assert "Test dataset:" in stdout_log
