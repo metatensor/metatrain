@@ -433,6 +433,7 @@ class Trainer(TrainerInterface):
                 scaler_scales = (
                     model.module if is_distributed else model
                 ).scaler.get_scales_dict()
+
                 metric_logger = MetricLogger(
                     log_obj=ROOT_LOGGER,
                     dataset_info=(
