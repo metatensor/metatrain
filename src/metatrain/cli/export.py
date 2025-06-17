@@ -2,12 +2,14 @@ import argparse
 import logging
 import os
 from pathlib import Path
-from typing import Any, Optional, Union
+from typing import Optional, Union
 
-from metatensor.torch.atomistic import ModelMetadata, is_atomistic_model
+import torch
+from metatomic.torch import ModelMetadata, is_atomistic_model
 from omegaconf import OmegaConf
 
 from ..utils.io import check_file_extension, load_model
+from ..utils.metadata import merge_metadata
 from .formatter import CustomHelpFormatter
 
 
@@ -48,6 +50,18 @@ def _add_export_model_parser(subparser: argparse._SubParsersAction) -> None:
         ),
     )
     parser.add_argument(
+        "-e",
+        "--extensions",
+        dest="extensions",
+        type=str,
+        required=False,
+        default="extensions/",
+        help=(
+            "Folder where the extensions of the model, if any, will be collected "
+            "(default: %(default)s)."
+        ),
+    )
+    parser.add_argument(
         "-m",
         "--metadata",
         type=str,
@@ -58,11 +72,11 @@ def _add_export_model_parser(subparser: argparse._SubParsersAction) -> None:
     )
     parser.add_argument(
         "--token",
-        dest="token",
+        dest="hf_token",
         type=str,
         required=False,
         default=None,
-        help="HuggingFace API token to download (private )models from HuggingFace. "
+        help="HuggingFace API token to download (private) models from HuggingFace. "
         "You can also set a environment variable `HF_TOKEN` to avoid passing it every "
         "time.",
     )
@@ -71,38 +85,39 @@ def _add_export_model_parser(subparser: argparse._SubParsersAction) -> None:
 def _prepare_export_model_args(args: argparse.Namespace) -> None:
     """Prepare arguments for export_model."""
 
-    path = args.__dict__.pop("path")
-    token = args.__dict__.pop("token")
+    hf_token = args.__dict__.get("hf_token", None)
 
     # use env variable if available
-    env_token = os.environ.get("HF_TOKEN")
-    if env_token:
-        if token is None:
-            token = env_token
+    env_hf_token = os.environ.get("HF_TOKEN")
+    if env_hf_token:
+        if hf_token is None:
+            args.__dict__["hf_token"] = env_hf_token
         else:
             raise ValueError(
                 "Both CLI and environment variable tokens are set for HuggingFace. "
                 "Please use only one."
             )
 
-    args.model = load_model(path=path, token=token)
-
     if args.metadata is not None:
         args.metadata = ModelMetadata(**OmegaConf.load(args.metadata))
 
     # only these are needed for `export_model``
-    keys_to_keep = ["model", "output", "metadata"]
+    keys_to_keep = ["path", "output", "extensions", "hf_token", "metadata"]
     original_keys = list(args.__dict__.keys())
 
     for key in original_keys:
         if key not in keys_to_keep:
             args.__dict__.pop(key)
     if args.__dict__.get("output") is None:
-        args.__dict__["output"] = Path(path).stem + ".pt"
+        args.__dict__["output"] = Path(args.path).stem + ".pt"
 
 
 def export_model(
-    model: Any, output: Union[Path, str], metadata: Optional[ModelMetadata] = None
+    path: Union[Path, str],
+    output: Union[Path, str],
+    extensions: Union[Path, str] = "extensions/",
+    hf_token: Optional[str] = None,
+    metadata: Optional[ModelMetadata] = None,
 ) -> None:
     """Export a trained model allowing it to make predictions.
 
@@ -110,19 +125,63 @@ def export_model(
     be saved with a ``.pt`` file ending. If ``path`` does not end with this file
     extensions ``.pt`` will be added and a warning emitted.
 
-    :param model: model to be exported
+    :param path: path to a model file to be exported
     :param output: path to save the model
+    :param extensions: path to save the extensions
+    :param hf_token: HuggingFace API token to download (private) models from HuggingFace
+        (optional)
     :param metadata: metadata to be appended to the model
     """
-    path = str(
-        Path(check_file_extension(filename=output, extension=".pt"))
-        .absolute()
-        .resolve()
-    )
-    extensions_path = str(Path("extensions/").absolute().resolve())
 
-    if not is_atomistic_model(model):
-        model = model.export(metadata)
+    if Path(output).suffix == ".ckpt":
+        checkpoint = torch.load(path, weights_only=False, map_location="cpu")
 
-    model.save(path, collect_extensions=extensions_path)
-    logging.info(f"Model exported to '{path}' and extensions to '{extensions_path}'")
+        path = str(Path(output).absolute().resolve())
+        extensions_path = None
+
+        if metadata is not None:
+            current_metadata = checkpoint.get("metadata", ModelMetadata())
+            metadata = merge_metadata(current_metadata, metadata)
+            checkpoint["metadata"] = metadata
+
+        torch.save(checkpoint, path)
+    else:
+        # Here, we implicitly export the best_model_checkpoint
+        # from the checkpoint path. See load_model code for details.
+        model = load_model(path=path, hf_token=hf_token)
+        path = str(
+            Path(check_file_extension(filename=output, extension=".pt"))
+            .absolute()
+            .resolve()
+        )
+
+        if _has_extensions():
+            extensions_path = str(Path(extensions).absolute().resolve())
+        else:
+            extensions_path = None
+
+        if not is_atomistic_model(model):
+            model = model.export(metadata)
+
+        model.save(path, collect_extensions=extensions_path)
+    if extensions_path is not None:
+        logging.info(
+            f"Model exported to '{path}' and extensions to '{extensions_path}'"
+        )
+    else:
+        logging.info(f"Model exported to '{path}'")
+
+
+def _has_extensions():
+    """
+    Check if any torch extensions are currently loaded, except for metatensor_torch and
+    metatomic_torch.
+    """
+    loaded_libraries = torch.ops.loaded_libraries
+    for lib in loaded_libraries:
+        if "metatensor_torch." in lib:
+            continue
+        elif "metatomic_torch." in lib:
+            continue
+        return True
+    return False

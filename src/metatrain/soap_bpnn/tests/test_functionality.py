@@ -4,7 +4,7 @@ import metatensor.torch
 import pytest
 import torch
 from jsonschema.exceptions import ValidationError
-from metatensor.torch.atomistic import ModelOutput, System
+from metatomic.torch import ModelOutput, System
 from omegaconf import OmegaConf
 
 from metatrain.soap_bpnn import SoapBpnn
@@ -13,6 +13,10 @@ from metatrain.utils.data import DatasetInfo
 from metatrain.utils.data.target_info import (
     get_energy_target_info,
     get_generic_target_info,
+)
+from metatrain.utils.neighbor_lists import (
+    get_requested_neighbor_lists,
+    get_system_with_neighbor_lists,
 )
 
 from . import DEFAULT_HYPERS, MODEL_HYPERS
@@ -36,6 +40,8 @@ def test_prediction_subset_elements():
         cell=torch.zeros(3, 3),
         pbc=torch.tensor([False, False, False]),
     )
+    requested_neighbor_lists = get_requested_neighbor_lists(model)
+    system = get_system_with_neighbor_lists(system, requested_neighbor_lists)
     model(
         [system],
         {"energy": model.outputs["energy"]},
@@ -53,6 +59,7 @@ def test_prediction_subset_atoms():
     )
 
     model = SoapBpnn(MODEL_HYPERS, dataset_info)
+    requested_neighbor_lists = get_requested_neighbor_lists(model)
 
     # Since we don't yet support atomic predictions, we will test this by
     # predicting on a system with two monomers at a large distance
@@ -64,6 +71,9 @@ def test_prediction_subset_atoms():
         ),
         cell=torch.zeros(3, 3),
         pbc=torch.tensor([False, False, False]),
+    )
+    system_monomer = get_system_with_neighbor_lists(
+        system_monomer, requested_neighbor_lists
     )
 
     energy_monomer = model(
@@ -85,6 +95,9 @@ def test_prediction_subset_atoms():
         ),
         cell=torch.zeros(3, 3),
         pbc=torch.tensor([False, False, False]),
+    )
+    system_far_away_dimer = get_system_with_neighbor_lists(
+        system_far_away_dimer, requested_neighbor_lists
     )
 
     selection_labels = metatensor.torch.Labels(
@@ -121,6 +134,7 @@ def test_output_last_layer_features():
     )
 
     model = SoapBpnn(MODEL_HYPERS, dataset_info)
+    requested_neighbor_lists = get_requested_neighbor_lists(model)
 
     system = System(
         types=torch.tensor([6, 1, 8, 7]),
@@ -130,6 +144,7 @@ def test_output_last_layer_features():
         cell=torch.zeros(3, 3),
         pbc=torch.tensor([False, False, False]),
     )
+    system = get_system_with_neighbor_lists(system, requested_neighbor_lists)
 
     # last-layer features per atom:
     ll_output_options = ModelOutput(
@@ -226,6 +241,7 @@ def test_output_per_atom():
     )
 
     model = SoapBpnn(MODEL_HYPERS, dataset_info)
+    requested_neighbor_lists = get_requested_neighbor_lists(model)
 
     system = System(
         types=torch.tensor([6, 1, 8, 7]),
@@ -235,6 +251,7 @@ def test_output_per_atom():
         cell=torch.zeros(3, 3),
         pbc=torch.tensor([False, False, False]),
     )
+    system = get_system_with_neighbor_lists(system, requested_neighbor_lists)
 
     outputs = model(
         [system],
@@ -296,6 +313,7 @@ def test_vector_output(per_atom):
     )
 
     model = SoapBpnn(MODEL_HYPERS, dataset_info)
+    requested_neighbor_lists = get_requested_neighbor_lists(model)
 
     system = System(
         types=torch.tensor([6, 6]),
@@ -303,6 +321,7 @@ def test_vector_output(per_atom):
         cell=torch.zeros(3, 3),
         pbc=torch.tensor([False, False, False]),
     )
+    system = get_system_with_neighbor_lists(system, requested_neighbor_lists)
     model(
         [system],
         {"force": model.outputs["forces"]},
@@ -337,6 +356,7 @@ def test_spherical_outputs(per_atom):
     )
 
     model = SoapBpnn(MODEL_HYPERS, dataset_info)
+    requested_neighbor_lists = get_requested_neighbor_lists(model)
 
     system = System(
         types=torch.tensor([6, 6]),
@@ -344,6 +364,7 @@ def test_spherical_outputs(per_atom):
         cell=torch.zeros(3, 3),
         pbc=torch.tensor([False, False, False]),
     )
+    system = get_system_with_neighbor_lists(system, requested_neighbor_lists)
     outputs = model(
         [system],
         {"spherical_target": model.outputs["spherical_target"]},
@@ -363,8 +384,8 @@ def test_soap_bpnn_single_atom():
         },
     )
     hypers = copy.deepcopy(MODEL_HYPERS)
-    hypers["soap"]["density"]["center_atom_weight"] = 0.0
     model = SoapBpnn(hypers, dataset_info)
+    requested_neighbor_lists = get_requested_neighbor_lists(model)
 
     system = System(
         types=torch.tensor([6]),
@@ -372,6 +393,7 @@ def test_soap_bpnn_single_atom():
         cell=torch.zeros(3, 3),
         pbc=torch.tensor([False, False, False]),
     )
+    system = get_system_with_neighbor_lists(system, requested_neighbor_lists)
     outputs = {"energy": ModelOutput(per_atom=False)}
     energy = model([system], outputs)["energy"].block().values.item()
     assert energy == 0.0

@@ -28,7 +28,7 @@ def test_find_all_architectures():
     assert "pet" in all_arches
     assert "soap_bpnn" in all_arches
     assert "experimental.nanopet" in all_arches
-    assert "experimental.nativepet" in all_arches
+    assert "deprecated.pet" in all_arches
 
 
 def test_get_architecture_path():

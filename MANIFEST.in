@@ -1,7 +1,7 @@
 graft src
 
 include LICENSE
-include README.rst
+include README.md
 
 prune developer
 prune docs

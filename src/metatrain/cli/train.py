@@ -14,6 +14,7 @@ import torch
 from omegaconf import DictConfig, OmegaConf
 
 from .. import PACKAGE_ROOT
+from ..utils.abc import ModelInterface, TrainerInterface
 from ..utils.architectures import (
     check_architecture_options,
     get_default_hypers,
@@ -30,11 +31,17 @@ from ..utils.data.dataset import _save_indices, _train_test_random_split
 from ..utils.devices import pick_devices
 from ..utils.distributed.logging import is_main_process
 from ..utils.errors import ArchitectureError
-from ..utils.io import check_file_extension, load_model
+from ..utils.io import (
+    check_file_extension,
+    load_model,
+    model_from_checkpoint,
+    trainer_from_checkpoint,
+)
 from ..utils.jsonschema import validate
 from ..utils.logging import ROOT_LOGGER, WandbHandler
 from ..utils.omegaconf import BASE_OPTIONS, check_units, expand_dataset_config
 from .eval import _eval_targets
+from .export import _has_extensions
 from .formatter import CustomHelpFormatter
 
 
@@ -70,12 +77,26 @@ def _add_train_model_parser(subparser: argparse._SubParsersAction) -> None:
         help="Path to save the final model (default: %(default)s).",
     )
     parser.add_argument(
-        "-c",
-        "--continue",
-        dest="continue_from",
-        type=_process_continue_from,
+        "-e",
+        "--extensions",
+        dest="extensions",
+        type=str,
         required=False,
-        help="Checkpoint file (.ckpt) to continue training from.",
+        default="extensions/",
+        help=(
+            "Folder where the extensions of the model, if any, will be collected "
+            "(default: %(default)s)"
+        ),
+    )
+    parser.add_argument(
+        "--restart",
+        dest="restart_from",
+        type=_process_restart_from,
+        required=False,
+        help=(
+            "Checkpoint file (.ckpt) to continue interrupted training. "
+            "Set to `'auto'` to use latest checkpoint from the outputs directory."
+        ),
     )
     parser.add_argument(
         "-r",
@@ -97,9 +118,9 @@ def _prepare_train_model_args(args: argparse.Namespace) -> None:
     args.options = OmegaConf.merge(args.options, override_options)
 
 
-def _process_continue_from(continue_from: str) -> Optional[str]:
-    # covers the case where `continue_from` is `auto`
-    if continue_from == "auto":
+def _process_restart_from(restart_from: str) -> Optional[str]:
+    # covers the case where `restart_from` is `auto`
+    if restart_from == "auto":
         # try to find the `outputs` directory; if it doesn't exist
         # then we are not continuing from a previous run
         if Path("outputs/").exists():
@@ -111,12 +132,12 @@ def _process_continue_from(continue_from: str) -> Optional[str]:
             # `sorted` because some checkpoint files are named with
             # the epoch number (e.g. `epoch_10.ckpt` would be before
             # `epoch_8.ckpt`). We therefore sort by file creation time.
-            new_continue_from = str(
+            new_restart_from = str(
                 sorted(dir.glob("*.ckpt"), key=lambda f: f.stat().st_ctime)[-1]
             )
-            logging.info(f"Auto-continuing from `{new_continue_from}`")
+            logging.info(f"Auto-continuing from `{new_restart_from}`")
         else:
-            new_continue_from = None
+            new_restart_from = None
             logging.info(
                 "Auto-continuation did not find any previous runs, "
                 "training from scratch"
@@ -127,16 +148,17 @@ def _process_continue_from(continue_from: str) -> Optional[str]:
         # still executing this function
         time.sleep(3)
     else:
-        new_continue_from = continue_from
+        new_restart_from = restart_from
 
-    return new_continue_from
+    return new_restart_from
 
 
 def train_model(
     options: Union[DictConfig, Dict],
     output: str = "model.pt",
+    extensions: str = "extensions/",
     checkpoint_dir: Union[str, Path] = ".",
-    continue_from: Optional[str] = None,
+    restart_from: Optional[str] = None,
 ) -> None:
     """Train an atomistic machine learning model using provided ``options``.
 
@@ -150,7 +172,7 @@ def train_model(
     :param output: Path to save the final model
     :param checkpoint_dir: Path to save checkpoints and other intermediate output files
         like the fully expanded training options for a later restart.
-    :param continue_from: File to continue training from.
+    :param restart_from: File to continue training from.
     """
     ###########################
     # VALIDATE BASE OPTIONS ###
@@ -177,7 +199,18 @@ def train_model(
     logging.info(f"Running training for {architecture_name!r} architecture")
 
     Model = architecture.__model__
+    if not issubclass(Model, ModelInterface):
+        raise TypeError(
+            f"Model class for {architecture_name} must be a subclass of "
+            " `metatrain.utils.abc.ModelInterface`"
+        )
+
     Trainer = architecture.__trainer__
+    if not issubclass(Trainer, TrainerInterface):
+        raise TypeError(
+            f"Trainer class for {architecture_name} must be a subclass of "
+            " `metatrain.utils.abc.TrainerInterface`"
+        )
 
     ###########################
     # MERGE OPTIONS ###########
@@ -363,8 +396,14 @@ def train_model(
     ###########################
     # CREATE DATASET_INFO #####
     ###########################
+    if options["architecture"].get("atomic_types") is None:  # infer from datasets
+        logging.info("Atomic types inferred from training and validation datasets")
+        atomic_types = get_atomic_types(train_datasets + val_datasets)
+    else:  # use explicitly defined atomic types
+        logging.info("Atomic types explicitly defined in options.yaml")
+        atomic_types = sorted(options["architecture"]["atomic_types"])
 
-    atomic_types = get_atomic_types(train_datasets + val_datasets)
+    logging.info(f"Model defined for atomic types: {atomic_types}")
 
     dataset_info = DatasetInfo(
         length_unit=options["training_set"][0]["systems"]["length_unit"],
@@ -419,17 +458,51 @@ def train_model(
     ###########################
 
     logging.info("Setting up model")
+
+    # Resolving the model initialization options
+    if restart_from is not None:
+        training_context = "restart"
+    elif "finetune" in hypers["training"]:
+        if "read_from" not in hypers["training"]["finetune"]:
+            raise ValueError(
+                "Finetuning is enabled but no checkpoint was provided. Please "
+                "provide one using the `read_from` option in the `finetune` "
+                "section."
+            )
+        restart_from = hypers["training"]["finetune"]["read_from"]
+        training_context = "finetune"
+    else:
+        training_context = None
+
     try:
-        if continue_from is not None:
-            logging.info(f"Loading checkpoint from `{continue_from}`")
-            trainer = Trainer.load_checkpoint(continue_from, hypers["training"])
-            model = Model.load_checkpoint(continue_from)
+        if training_context == "restart" and restart_from is not None:
+            logging.info(f"Restarting training from '{restart_from}'")
+            model = model_from_checkpoint(path=restart_from, context=training_context)
             model = model.restart(dataset_info)
+            trainer = trainer_from_checkpoint(
+                path=restart_from,
+                hypers=hypers["training"],
+                context=training_context,  # type: ignore
+            )
+        elif training_context == "finetune" and restart_from is not None:
+            logging.info(f"Starting finetuning from '{restart_from}'")
+            model = model_from_checkpoint(path=restart_from, context=training_context)
+            model = model.restart(dataset_info)
+            trainer = Trainer(hypers["training"])
         else:
+            logging.info("Starting training from scratch")
             model = Model(hypers["model"], dataset_info)
             trainer = Trainer(hypers["training"])
     except Exception as e:
         raise ArchitectureError(e)
+
+    n_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
+    logging.info(
+        (
+            f"The model has {_human_readable(n_params)} parameters "
+            f"(actual number: {n_params})."
+        )
+    )
 
     ###########################
     # TRAIN MODEL #############
@@ -466,11 +539,18 @@ def train_model(
         raise ArchitectureError(e)
 
     mts_atomistic_model = model.export()
-    extensions_path = "extensions/"
+    if _has_extensions():
+        extensions_path = str(Path(extensions).absolute().resolve())
+    else:
+        extensions_path = None
 
-    logging.info(
-        f"Exporting model to `{output_checked}` and extensions to `{extensions_path}`"
-    )
+    if extensions_path is not None:
+        logging.info(
+            f"Exporting model to `{output_checked}` and extensions to "
+            f"`{extensions_path}`"
+        )
+    else:
+        logging.info(f"Exporting model to `{output_checked}`")
     # get device from the model. This device could be different from devices[0]
     # defined above in the case of multi-GPU and/or distributed training
     final_device = next(
@@ -481,7 +561,7 @@ def train_model(
     ).device
     mts_atomistic_model.save(str(output_checked), collect_extensions=extensions_path)
     # the model is first saved and then reloaded 1) for good practice and 2) because
-    # MetatensorAtomisticModel only torchscripts (makes faster) during save()
+    # AtomisticModel only torchscripts (makes faster) during save()
 
     # Copy the exported model and the checkpoint also to the checkpoint directory
     checkpoint_path = Path(checkpoint_dir)
@@ -576,3 +656,23 @@ def _get_batch_size_from_hypers(hypers: Union[Dict, DictConfig]) -> Optional[int
         ):
             return value
     return None
+
+
+def _human_readable(n):
+    """
+    Turn a number into a human-friendly string
+    """
+    suffixes = ["", "K", "M", "B", "T"]
+    if n == 0:
+        return "0"
+    # figure out which suffix to use
+    idx = min(int(np.log10(abs(n)) // 3), len(suffixes) - 1)
+    value = n / (1000**idx)
+    # pick formatting: one decimal if <10, otherwise integer with commas
+    if value < 10:
+        s = f"{value:.1f}"
+    else:
+        s = f"{int(value):,d}"
+    # drop any trailing ".0"
+    s = s.rstrip(".0")
+    return f"{s}{suffixes[idx]}"

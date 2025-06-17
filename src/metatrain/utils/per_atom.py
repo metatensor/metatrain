@@ -2,7 +2,7 @@ from typing import Dict, List
 
 import torch
 from metatensor.torch import TensorBlock, TensorMap
-from metatensor.torch.atomistic import System
+from metatomic.torch import System
 
 
 def average_by_num_atoms(

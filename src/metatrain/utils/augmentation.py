@@ -4,7 +4,7 @@ from typing import Dict, List, Tuple
 import numpy as np
 import torch
 from metatensor.torch import TensorBlock, TensorMap
-from metatensor.torch.atomistic import System
+from metatomic.torch import System
 from scipy.spatial.transform import Rotation
 
 from .data import TargetInfo
@@ -19,14 +19,23 @@ def get_random_inversion():
 
 
 class RotationalAugmenter:
+    """
+    A class to apply random rotations and inversions to a set of systems and their
+    targets.
+
+    :param target_info_dict: A dictionary mapping target names to their corresponding
+        :class:`TargetInfo` objects. This is used to determine the type of targets and
+        how to apply the augmentations.
+    """
+
     def __init__(self, target_info_dict: Dict[str, TargetInfo]):
         # checks on targets
         for target_info in target_info_dict.values():
             if target_info.target_type == "cartesian":
-                if len(target_info.layout.block(0).components) != 1:
+                if len(target_info.layout.block(0).components) > 2:
                     raise ValueError(
                         "RotationalAugmenter only supports Cartesian targets "
-                        "with `rank=1`."
+                        "with `rank<=2`."
                     )
 
         self.target_info_dict = target_info_dict
@@ -65,6 +74,12 @@ class RotationalAugmenter:
     ) -> Tuple[List[System], Dict[str, TensorMap]]:
         """
         Apply a random augmentation to a number of ``System`` objects and its targets.
+
+        :param systems: A list of :class:`System` objects to be augmented.
+        :param targets: A dictionary mapping target names to their corresponding
+            :class:`TensorMap` objects. These are the targets to be augmented.
+
+        :return: A tuple containing the augmented systems and targets.
         """
 
         rotations = [get_random_rotation() for _ in range(len(systems))]
@@ -204,7 +219,8 @@ def _apply_wigner_D_matrices(
             new_v = v.clone()
             if is_inverted:  # inversion
                 new_v = new_v * (-1) ** ell * sigma
-            # fold property dimension in, apply transformation, unfold property dim
+            # fold property dimension in, apply transformation,
+            # unfold property dimension
             new_v = new_v.transpose(1, 2)
             new_v = new_v @ wigner_D_matrix.T
             new_v = new_v.transpose(1, 2)
@@ -428,7 +444,7 @@ def _apply_random_augmentations(  # pragma: no cover
                     ),
                 )
             if target_tmap.block().has_gradient("strain"):
-                # transform strain gradients (rank 2 tensor):
+                # transform strain gradients (rank-2 tensor):
                 block = target_tmap.block().gradient("strain")
                 strain_gradients = block.values.squeeze(-1)
                 split_strain_gradients = torch.split(strain_gradients, 1)
@@ -462,37 +478,68 @@ def _apply_random_augmentations(  # pragma: no cover
                 transformations,
                 wigner_D_matrices,
                 target_types[name],
-            )
+            )        
 
         elif target_types[name] == "cartesian":
-            # transform Cartesian vector:
-            block = target_tmap.block()
-            vectors = block.values
-            if "atom" in target_tmap.block().samples.names:
-                split_vectors = torch.split(
-                    vectors, [len(system.positions) for system in systems]
-                )
-            else:
-                split_vectors = torch.split(vectors, [1 for _ in systems])
-            new_vectors = []
-            for v, transformation in zip(split_vectors, transformations):
-                # fold property dimension in, apply transformation, unfold property dim
-                new_v = v.transpose(1, 2)
-                new_v = new_v @ transformation.T
-                new_v = new_v.transpose(1, 2)
-                new_vectors.append(new_v)
-            new_vectors = torch.cat(new_vectors)
-            new_targets[name] = TensorMap(
-                keys=target_tmap.keys,
-                blocks=[
-                    TensorBlock(
-                        values=new_vectors,
-                        samples=block.samples,
-                        components=block.components,
-                        properties=block.properties,
+            rank = len(target_tmap.block().components)
+            if rank == 1:
+                # transform Cartesian vector:
+                block = target_tmap.block()
+                vectors = block.values
+                if "atom" in target_tmap.block().samples.names:
+                    split_vectors = torch.split(
+                        vectors, [len(system.positions) for system in systems]
                     )
-                ],
-            )
+                else:
+                    split_vectors = torch.split(vectors, [1 for _ in systems])
+                new_vectors = []
+                for v, transformation in zip(split_vectors, transformations):
+                    # fold property dimension in, apply transformation,
+                    # unfold property dimension
+                    new_v = v.transpose(1, 2)
+                    new_v = new_v @ transformation.T
+                    new_v = new_v.transpose(1, 2)
+                    new_vectors.append(new_v)
+                new_vectors = torch.cat(new_vectors)
+                new_targets[name] = TensorMap(
+                    keys=target_tmap.keys,
+                    blocks=[
+                        TensorBlock(
+                            values=new_vectors,
+                            samples=block.samples,
+                            components=block.components,
+                            properties=block.properties,
+                        )
+                    ],
+                )
+            elif rank == 2:
+                # transform Cartesian rank-2 tensor:
+                block = target_tmap.block()
+                tensor = block.values
+                if "atom" in target_tmap.block().samples.names:
+                    split_tensors = torch.split(
+                        tensor, [len(system.positions) for system in systems]
+                    )
+                else:
+                    split_tensors = torch.split(tensor, [1 for _ in systems])
+                new_tensors = []
+                for tensor, transformation in zip(split_tensors, transformations):
+                    new_tensor = torch.einsum(
+                        "Aa,iabp,bB->iABp", transformation, tensor, transformation.T
+                    )
+                    new_tensors.append(new_tensor)
+                new_tensors = torch.cat(new_tensors)
+                new_targets[name] = TensorMap(
+                    keys=target_tmap.keys,
+                    blocks=[
+                        TensorBlock(
+                            values=new_tensors,
+                            samples=block.samples,
+                            components=block.components,
+                            properties=block.properties,
+                        )
+                    ],
+                )
 
         else:
             raise ValueError(f"unexpected target type: {target_types[name]}")

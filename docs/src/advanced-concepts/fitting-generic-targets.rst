@@ -1,3 +1,5 @@
+.. _fitting-generic-targets:
+
 Fitting generic targets
 =======================
 
@@ -32,16 +34,16 @@ capabilities of the architectures in metatrain.
      - No
      - No
    * - PET
-     - Energy, forces
-     - No
-     - No
-     - No
+     - Energy, forces, stress/virial
+     - Yes
+     - Yes
+     - Only with ``rank=1`` (vectors) and ``rank=2`` (2D tensors)
      - No
    * - NanoPET
      - Energy, forces, stress/virial
      - Yes
      - Yes
-     - Only with ``rank=1`` (vectors)
+     - Only with ``rank=1`` (vectors) and ``rank=2`` (2D tensors)
      - Yes (*)
 
 

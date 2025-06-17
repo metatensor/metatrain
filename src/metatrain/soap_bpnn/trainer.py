@@ -1,37 +1,45 @@
 import copy
 import logging
-import warnings
 from pathlib import Path
-from typing import List, Union
+from typing import Any, Dict, List, Literal, Union
 
 import torch
 import torch.distributed
 from torch.utils.data import DataLoader, DistributedSampler
 
-from ..utils.additive import remove_additive
-from ..utils.data import CombinedDataLoader, Dataset, _is_disk_dataset, collate_fn
-from ..utils.distributed.distributed_data_parallel import DistributedDataParallel
-from ..utils.distributed.slurm import DistributedEnvironment
-from ..utils.evaluate_model import evaluate_model
-from ..utils.external_naming import to_external_name
-from ..utils.io import check_file_extension
-from ..utils.logging import ROOT_LOGGER, MetricLogger
-from ..utils.loss import TensorMapDictLoss
-from ..utils.metrics import MAEAccumulator, RMSEAccumulator, get_selected_metric
-from ..utils.neighbor_lists import (
+from metatrain.utils.abc import TrainerInterface
+from metatrain.utils.additive import remove_additive
+from metatrain.utils.data import (
+    CombinedDataLoader,
+    Dataset,
+    _is_disk_dataset,
+    collate_fn,
+)
+from metatrain.utils.distributed.distributed_data_parallel import (
+    DistributedDataParallel,
+)
+from metatrain.utils.distributed.slurm import DistributedEnvironment
+from metatrain.utils.evaluate_model import evaluate_model
+from metatrain.utils.external_naming import to_external_name
+from metatrain.utils.io import check_file_extension
+from metatrain.utils.logging import ROOT_LOGGER, MetricLogger
+from metatrain.utils.loss import TensorMapDictLoss
+from metatrain.utils.metrics import MAEAccumulator, RMSEAccumulator, get_selected_metric
+from metatrain.utils.neighbor_lists import (
     get_requested_neighbor_lists,
     get_system_with_neighbor_lists,
 )
-from ..utils.per_atom import average_by_num_atoms
-from ..utils.scaler import remove_scale
-from ..utils.transfer import (
+from metatrain.utils.per_atom import average_by_num_atoms
+from metatrain.utils.scaler import remove_scale
+from metatrain.utils.transfer import (
     systems_and_targets_to_device,
     systems_and_targets_to_dtype,
 )
+
 from .model import SoapBpnn
 
 
-class Trainer:
+class Trainer(TrainerInterface):
     def __init__(self, train_hypers):
         self.hypers = train_hypers
         self.optimizer_state_dict = None
@@ -50,17 +58,6 @@ class Trainer:
         val_datasets: List[Union[Dataset, torch.utils.data.Subset]],
         checkpoint_dir: str,
     ):
-        # Filter out the second derivative and device warnings from featomic
-        warnings.filterwarnings(action="ignore", message="Systems data is on device")
-        warnings.filterwarnings(
-            action="ignore",
-            message="second derivatives with respect to positions are not implemented",
-        )
-        warnings.filterwarnings(
-            action="ignore",
-            message="second derivatives with respect to cell matrix",
-        )
-
         assert dtype in SoapBpnn.__supported_dtypes__
 
         is_distributed = self.hypers["distributed"]
@@ -171,18 +168,20 @@ class Trainer:
 
         # Create dataloader for the training datasets:
         train_dataloaders = []
-        for dataset, sampler in zip(train_datasets, train_samplers):
+        for train_dataset, train_sampler in zip(train_datasets, train_samplers):
             train_dataloaders.append(
                 DataLoader(
-                    dataset=dataset,
+                    dataset=train_dataset,
                     batch_size=self.hypers["batch_size"],
-                    sampler=sampler,
+                    sampler=train_sampler,
                     shuffle=(
-                        sampler is None
-                    ),  # the sampler takes care of this (if present)
+                        # the sampler takes care of this (if present)
+                        train_sampler is None
+                    ),
                     drop_last=(
-                        sampler is None
-                    ),  # the sampler takes care of this (if present)
+                        # the sampler takes care of this (if present)
+                        train_sampler is None
+                    ),
                     collate_fn=collate_fn,
                 )
             )
@@ -190,12 +189,12 @@ class Trainer:
 
         # Create dataloader for the validation datasets:
         val_dataloaders = []
-        for dataset, sampler in zip(val_datasets, val_samplers):
+        for val_dataset, val_sampler in zip(val_datasets, val_samplers):
             val_dataloaders.append(
                 DataLoader(
-                    dataset=dataset,
+                    dataset=val_dataset,
                     batch_size=self.hypers["batch_size"],
-                    sampler=sampler,
+                    sampler=val_sampler,
                     shuffle=False,
                     drop_last=False,
                     collate_fn=collate_fn,
@@ -272,7 +271,8 @@ class Trainer:
         epoch = start_epoch
         for epoch in range(start_epoch, start_epoch + self.hypers["num_epochs"]):
             if is_distributed:
-                sampler.set_epoch(epoch)
+                for train_sampler in train_samplers:
+                    train_sampler.set_epoch(epoch)
 
             train_rmse_calculator = RMSEAccumulator(self.hypers["log_separate_blocks"])
             val_rmse_calculator = RMSEAccumulator(self.hypers["log_separate_blocks"])
@@ -476,6 +476,7 @@ class Trainer:
     def save_checkpoint(self, model, path: Union[str, Path]):
         checkpoint = {
             "architecture_name": "soap_bpnn",
+            "metadata": model.__default_metadata__,
             "model_data": {
                 "model_hypers": model.hypers,
                 "dataset_info": model.dataset_info,
@@ -495,9 +496,12 @@ class Trainer:
         )
 
     @classmethod
-    def load_checkpoint(cls, path: Union[str, Path], train_hypers) -> "Trainer":
-        # Load the checkpoint
-        checkpoint = torch.load(path, weights_only=False, map_location="cpu")
+    def load_checkpoint(
+        cls,
+        checkpoint: Dict[str, Any],
+        train_hypers: Dict[str, Any],
+        context: Literal["restart", "finetune"],  # not used at the moment
+    ) -> "Trainer":
         epoch = checkpoint["epoch"]
         optimizer_state_dict = checkpoint["optimizer_state_dict"]
         scheduler_state_dict = checkpoint["scheduler_state_dict"]

@@ -1,5 +1,5 @@
 import torch
-from metatensor.torch.atomistic import ModelMetadata
+from metatomic.torch import ModelMetadata
 from omegaconf import OmegaConf
 
 from metatrain.gap import GAP, Trainer

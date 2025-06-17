@@ -5,14 +5,14 @@ import zipfile
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple, Union
 
+import metatensor.torch as mts
+import metatomic.torch as mta
 import numpy as np
 import torch
 from metatensor.learn.data import Dataset, group_and_join
 from metatensor.learn.data._namedtuple import namedtuple
 from metatensor.torch import TensorMap, join, load_buffer
-from metatensor.torch import save_buffer as mts_save_buffer
-from metatensor.torch.atomistic import System, load_system
-from metatensor.torch.atomistic import save as mta_save
+from metatomic.torch import System, load_system
 from omegaconf import DictConfig
 from torch.utils.data import Subset
 
@@ -29,7 +29,7 @@ class DatasetInfo:
     training functions of the individual models.
 
     :param length_unit: Unit of length used in the dataset. Examples are ``"angstrom"``
-        or ``"nanometer"``.
+        or ``"nanometer"``. If None, the unit will be set to the empty string.
     :param atomic_types: List containing all integer atomic types present in the
         dataset. ``atomic_types`` will be stored as a sorted list of **unique** atomic
         types.
@@ -37,7 +37,10 @@ class DatasetInfo:
     """
 
     def __init__(
-        self, length_unit: str, atomic_types: List[int], targets: Dict[str, TargetInfo]
+        self,
+        length_unit: Optional[str],
+        atomic_types: List[int],
+        targets: Dict[str, TargetInfo],
     ):
         self.length_unit = length_unit if length_unit is not None else ""
         self._atomic_types = set(atomic_types)
@@ -358,9 +361,9 @@ class DiskDataset(torch.utils.data.Dataset):
 
     The dataset is stored in a zip file, where each sample is stored in a separate
     directory. The directory's name is the index of the sample (e.g. ``0/``), and the
-    files in the directory are the system (``system.mta``) and the targets
-    (each named ``<target_name>.mts``). These are ``metatensor.torch.atomistic.System``
-    and ``metatensor.torch.TensorMap`` objects, respectively.
+    files in the directory are the system (``system.mta``) and the targets (each named
+    ``<target_name>.mts``). These are ``metatomic.torch.System`` and
+    ``metatensor.torch.TensorMap`` objects, respectively.
 
     Such a dataset can be created conveniently using the :py:class:`DiskDatasetWriter`
     class.
@@ -401,6 +404,10 @@ class DiskDataset(torch.utils.data.Dataset):
                     tensor_map = load_buffer(tensor_buffer)
                     system_and_targets.append(tensor_map)
         return self._sample_class(*system_and_targets)
+
+    def __iter__(self):
+        for i in range(len(self)):
+            yield self[i]
 
     def __del__(self):
         self.zip_file.close()
@@ -498,10 +505,10 @@ class DiskDatasetWriter:
             a :py:class:`TensorMap`.
         """
         with self.zip_file.open(f"{self.index}/system.mta", "w") as file:
-            mta_save(file, system)
+            mta.save(file, system)
         for target_name, target in targets.items():
             with self.zip_file.open(f"{self.index}/{target_name}.mts", "w") as file:
-                tensor_buffer = mts_save_buffer(target)
+                tensor_buffer = mts.save_buffer(target)
                 numpy_buffer = tensor_buffer.numpy()
                 np.save(file, numpy_buffer)
         self.index += 1

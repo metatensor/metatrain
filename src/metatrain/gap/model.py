@@ -1,4 +1,4 @@
-from typing import Dict, List, Optional, Tuple, Union
+from typing import Any, Dict, List, Literal, Optional, Tuple, Union
 
 import featomic
 import featomic.torch
@@ -10,8 +10,8 @@ from metatensor import Labels, TensorBlock, TensorMap
 from metatensor.torch import Labels as TorchLabels
 from metatensor.torch import TensorBlock as TorchTensorBlock
 from metatensor.torch import TensorMap as TorchTensorMap
-from metatensor.torch.atomistic import (
-    MetatensorAtomisticModel,
+from metatomic.torch import (
+    AtomisticModel,
     ModelCapabilities,
     ModelMetadata,
     ModelOutput,
@@ -19,19 +19,19 @@ from metatensor.torch.atomistic import (
 )
 from skmatter._selection import _FPS as _FPS_skmatter
 
+from metatrain.utils.abc import ModelInterface
+from metatrain.utils.additive import ZBL, CompositionModel
 from metatrain.utils.data.dataset import DatasetInfo
-
-from ..utils.additive import ZBL, CompositionModel
-from ..utils.metadata import append_metadata_references
+from metatrain.utils.metadata import merge_metadata
 
 
-class GAP(torch.nn.Module):
+class GAP(ModelInterface):
     __supported_devices__ = ["cpu"]
     __supported_dtypes__ = [torch.float64]
     __default_metadata__ = ModelMetadata(
         references={
             "implementation": [
-                "rascaline: https://github.com/Luthaf/rascaline",
+                "featomic: https://github.com/metatensor/featomic",
             ],
             "architecture": [
                 "SOAP: https://doi.org/10.1002/qua.24927",
@@ -166,8 +166,19 @@ class GAP(torch.nn.Module):
             )
         self.additive_models = torch.nn.ModuleList(additive_models)
 
+    def supported_outputs(self) -> Dict[str, ModelOutput]:
+        return self.outputs
+
     def restart(self, dataset_info: DatasetInfo) -> "GAP":
-        raise ValueError("GAP does not allow restarting training")
+        raise NotImplementedError("GAP does not allow restarting training")
+
+    @classmethod
+    def load_checkpoint(
+        cls,
+        checkpoint: Dict[str, Any],
+        context: Literal["restart", "finetune", "export"],
+    ) -> "GAP":
+        raise NotImplementedError("GAP does not allow loading checkpoints")
 
     def forward(
         self,
@@ -262,9 +273,7 @@ class GAP(torch.nn.Module):
 
         return return_dict
 
-    def export(
-        self, metadata: Optional[ModelMetadata] = None
-    ) -> MetatensorAtomisticModel:
+    def export(self, metadata: Optional[ModelMetadata] = None) -> AtomisticModel:
         interaction_ranges = [self.hypers["soap"]["cutoff"]["radius"]]
         for additive_model in self.additive_models:
             if hasattr(additive_model, "cutoff_radius"):
@@ -293,11 +302,11 @@ class GAP(torch.nn.Module):
         )
 
         if metadata is None:
-            metadata = ModelMetadata()
+            metadata = self.__default_metadata__
+        else:
+            metadata = merge_metadata(self.__default_metadata__, metadata)
 
-        append_metadata_references(metadata, self.__default_metadata__)
-
-        return MetatensorAtomisticModel(self.eval(), metadata, capabilities)
+        return AtomisticModel(self.eval(), metadata, capabilities)
 
 
 ########################################################################################
