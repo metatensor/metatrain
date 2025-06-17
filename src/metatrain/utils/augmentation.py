@@ -1,10 +1,11 @@
 import random
 from typing import Dict, List, Tuple
 
+import metatensor.torch as mts
 import numpy as np
 import torch
 from metatensor.torch import TensorBlock, TensorMap
-from metatomic.torch import System
+from metatomic.torch import System, register_autograd_neighbors
 from scipy.spatial.transform import Rotation
 
 from .data import TargetInfo
@@ -190,17 +191,15 @@ def _apply_random_augmentations(  # pragma: no cover
             cell=system.cell @ transformation.T,
             pbc=system.pbc,
         )
-        for nl_options in system.known_neighbor_lists():
-            old_nl = system.get_neighbor_list(nl_options)
-            new_system.add_neighbor_list(
-                nl_options,
-                TensorBlock(
-                    values=(old_nl.values.squeeze(-1) @ transformation.T).unsqueeze(-1),
-                    samples=old_nl.samples,
-                    components=old_nl.components,
-                    properties=old_nl.properties,
-                ),
-            )
+        for options in system.known_neighbor_lists():
+            neighbors = mts.detach_block(system.get_neighbor_list(options))
+
+            neighbors.values[:] = (
+                neighbors.values.squeeze(-1) @ transformation.T
+            ).unsqueeze(-1)
+
+            register_autograd_neighbors(system, neighbors)
+            new_system.add_neighbor_list(options, neighbors)
         new_systems.append(new_system)
 
     # Apply the transformation to the targets
