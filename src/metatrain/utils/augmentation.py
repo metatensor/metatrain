@@ -478,7 +478,7 @@ def _apply_random_augmentations(  # pragma: no cover
                 transformations,
                 wigner_D_matrices,
                 target_types[name],
-            )        
+            )
 
         elif target_types[name] == "cartesian":
             rank = len(target_tmap.block().components)

@@ -256,7 +256,7 @@ class TensorMapDictLoss:
         # Assert that the two have the keys:
         assert set(tensor_map_dict_1.keys()) == set(tensor_map_dict_2.keys()), (
             tensor_map_dict_1.keys(),
-            tensor_map_dict_2.keys()
+            tensor_map_dict_2.keys(),
         )
 
         # Initialize the loss:

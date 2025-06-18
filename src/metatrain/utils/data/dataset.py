@@ -11,7 +11,7 @@ import numpy as np
 import torch
 from metatensor.learn.data import Dataset, group_and_join
 from metatensor.learn.data._namedtuple import namedtuple
-from metatensor.torch import TensorMap, join, load_buffer
+from metatensor.torch import TensorMap, load_buffer
 from metatomic.torch import System, load_system
 from omegaconf import DictConfig
 from torch.utils.data import Subset
@@ -447,7 +447,6 @@ class DiskDataset(torch.utils.data.Dataset):
             # TensorMap on disk at "layout.mts". In any case, the metadata structure
             # will be checked in the constructor of `TargetInfo`.
             elif target["type"].startswith("spherical_atomic_basis"):
-            
                 # TODO: read this in generically and properly. Requires a
                 # "layout_{target_name}.mts" to exist.
                 tensor_map = _wrapped_metatensor_read("layout_hamiltonian.mts")
