@@ -197,11 +197,13 @@ class Trainer(TrainerInterface):
                     sampler=train_sampler,
                     shuffle=(
                         # the sampler takes care of this (if present)
-                        train_sampler is None
+                        train_sampler
+                        is None
                     ),
                     drop_last=(
                         # the sampler takes care of this (if present)
-                        train_sampler is None
+                        train_sampler
+                        is None
                     ),
                     collate_fn=collate_fn,
                 )
@@ -336,7 +338,9 @@ class Trainer(TrainerInterface):
                 )
 
                 # Compute the difference modulo dipole quantum
-                predictions = compute_modulo_dipole_quantum(predictions, targets, systems)
+                predictions = compute_modulo_dipole_quantum(
+                    predictions, targets, systems
+                )
 
                 # average by the number of atoms
                 predictions = average_by_num_atoms(
@@ -398,9 +402,11 @@ class Trainer(TrainerInterface):
                     {key: train_targets[key] for key in targets.keys()},
                     is_training=False,
                 )
-                
+
                 # Compute the difference modulo dipole quantum
-                predictions = compute_modulo_dipole_quantum(predictions, targets, systems)
+                predictions = compute_modulo_dipole_quantum(
+                    predictions, targets, systems
+                )
 
                 # average by the number of atoms
                 predictions = average_by_num_atoms(
@@ -563,7 +569,6 @@ class Trainer(TrainerInterface):
 
 
 def compute_modulo_dipole_quantum(predictions, targets, systems):
-
     """
     Assumes Cartesian dipoles being in e * length units
     Computes the modulo dipole quantum for each system in the batch.
@@ -571,39 +576,43 @@ def compute_modulo_dipole_quantum(predictions, targets, systems):
 
     out = {}
     for k in predictions:
-        pred_values = predictions[k][0].values.squeeze(-1) # (N, 3)
-        target_values = targets[k][0].values.squeeze(-1) # (N, 3)
-
-        # Calculate the dipole quantum (columns = quantum vectors TODO: check)
-        dipole_quantum = torch.stack([system.cell for system in systems]) 
+        pred_values = predictions[k][0].values.squeeze(-1)  # (N, 3)
+        target_values = targets[k][0].values.squeeze(-1)  # (N, 3)
 
         delta = pred_values - target_values  # (N, 3)
 
-        # Invert each lattice matrix (N, 3, 3)
-        B_inv = torch.linalg.inv(dipole_quantum)  # Each row has its own inverse
+        # # Calculate the dipole quantum (columns = quantum vectors TODO: check)
+        # dipole_quantum = torch.stack([system.cell for system in systems])
 
-        # Transform delta into fractional coordinates (N, 1, 3) x (N, 3, 3) -> (N, 3)
-        coeffs = torch.bmm(delta.unsqueeze(1), B_inv).squeeze(1)
+        # # Invert each lattice matrix (N, 3, 3)
+        # B_inv = torch.linalg.inv(dipole_quantum)  # Each row has its own inverse
 
-        # Round to nearest lattice vector
-        coeffs_rounded = torch.round(coeffs)
+        # # Transform delta into fractional coordinates (N, 1, 3) x (N, 3, 3) -> (N, 3)
+        # coeffs = torch.bmm(delta.unsqueeze(1), B_inv).squeeze(1)
 
-        # Convert back to Cartesian
-        lattice_vecs = torch.bmm(coeffs_rounded.unsqueeze(1), dipole_quantum.transpose(1, 2)).squeeze(1)  # (N, 3)
+        # # Round to nearest lattice vector
+        # coeffs_rounded = torch.round(coeffs)
 
-        # Minimal image difference
-        delta_mod = delta - lattice_vecs
+        # # Convert back to Cartesian
+        # lattice_vecs = torch.bmm(
+        #     coeffs_rounded.unsqueeze(1), dipole_quantum.transpose(1, 2)
+        # ).squeeze(
+        #     1
+        # )  # (N, 3)
+
+        # # Minimal image difference
+        # delta = delta - lattice_vecs
 
         out[k] = mts.TensorMap(
             predictions[k].keys,
             [
                 mts.TensorBlock(
-                    values=delta_mod.unsqueeze(-1),  # (N, 3, 1)
+                    values=delta.unsqueeze(-1),  # (N, 3, 1)
                     samples=predictions[k][0].samples,
                     components=predictions[k][0].components,
                     properties=predictions[k][0].properties,
                 )
-            ]
+            ],
         )
 
     return out

@@ -38,6 +38,8 @@ from metatrain.utils.transfer import (
 
 from .model import SoapBpnn
 
+import metatensor.torch as mts
+
 
 class Trainer(TrainerInterface):
     def __init__(self, train_hypers):
@@ -176,11 +178,13 @@ class Trainer(TrainerInterface):
                     sampler=train_sampler,
                     shuffle=(
                         # the sampler takes care of this (if present)
-                        train_sampler is None
+                        train_sampler
+                        is None
                     ),
                     drop_last=(
                         # the sampler takes care of this (if present)
-                        train_sampler is None
+                        train_sampler
+                        is None
                     ),
                     collate_fn=collate_fn,
                 )
@@ -307,11 +311,16 @@ class Trainer(TrainerInterface):
                     is_training=True,
                 )
 
+                predictions = compute_modulo_dipole_quantum(
+                    predictions, targets, systems
+                )
+
                 # average by the number of atoms
                 predictions = average_by_num_atoms(
                     predictions, systems, per_structure_targets
                 )
-                targets = average_by_num_atoms(targets, systems, per_structure_targets)
+                # targets = average_by_num_atoms(targets, systems, per_structure_targets)
+                targets = {k: mts.zeros_like(t) for k, t in targets.items()}
 
                 train_loss_batch = loss_fn(predictions, targets)
 
@@ -363,11 +372,17 @@ class Trainer(TrainerInterface):
                     is_training=False,
                 )
 
+                # Compute the difference modulo dipole quantum
+                predictions = compute_modulo_dipole_quantum(
+                    predictions, targets, systems
+                )
+
                 # average by the number of atoms
                 predictions = average_by_num_atoms(
                     predictions, systems, per_structure_targets
                 )
-                targets = average_by_num_atoms(targets, systems, per_structure_targets)
+                # targets = average_by_num_atoms(targets, systems, per_structure_targets)
+                targets = {k: mts.zeros_like(t) for k, t in targets.items()}
 
                 val_loss_batch = loss_fn(predictions, targets)
 
@@ -519,3 +534,62 @@ class Trainer(TrainerInterface):
         trainer.best_optimizer_state_dict = best_optimizer_state_dict
 
         return trainer
+
+
+def compute_modulo_dipole_quantum(predictions, targets, systems):
+    """
+    Assumes Cartesian dipoles being in e * length units
+    Computes the modulo dipole quantum for each system in the batch.
+    """
+
+    out = {}
+    for k in predictions:
+        pred_values = predictions[k][0].values.squeeze(-1)  # (N, 3)
+        target_values = targets[k][0].values.squeeze(-1)  # (N, 3)
+
+        delta = pred_values - target_values  # (N, 3)
+        delta = torch.roll(delta, shifts=1, dims=1)
+
+        # Calculate the dipole quantum (columns = quantum vectors TODO: check)
+        dipole_quantum = torch.stack([system.cell for system in systems])
+
+        # Invert each lattice matrix (N, 3, 3)
+        B_inv = torch.linalg.inv(dipole_quantum)  # Each row has its own inverse
+
+        # Transform delta into fractional coordinates (N, 1, 3) x (N, 3, 3) -> (N, 3)
+        # coeffs = torch.bmm(delta.unsqueeze(1), B_inv).squeeze(1)
+        coeffs = torch.einsum(
+            "nab,nb->na", B_inv, delta
+        )  # (N, 3) - this is the fractional coordinates
+
+        # Round to nearest lattice vector
+        coeffs_rounded = torch.round(coeffs)
+
+        print(coeffs_rounded, pred_values, target_values)
+
+        # Convert back to Cartesian
+        lattice_vecs = torch.bmm(
+            coeffs_rounded.unsqueeze(1), dipole_quantum.transpose(1, 2)
+        ).squeeze(
+            1
+        )  # (N, 3)
+
+        # Minimal image difference
+        delta = delta - lattice_vecs
+        delta = torch.roll(delta, shifts=-1, dims=1)
+
+        # FIXME Divide by 2 somewhere?
+
+        out[k] = mts.TensorMap(
+            predictions[k].keys,
+            [
+                mts.TensorBlock(
+                    values=delta.unsqueeze(-1),  # (N, 3, 1)
+                    samples=predictions[k][0].samples,
+                    components=predictions[k][0].components,
+                    properties=predictions[k][0].properties,
+                )
+            ],
+        )
+
+    return out
