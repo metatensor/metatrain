@@ -54,22 +54,26 @@ def test_shell_completion_flag():
     assert Path(completion_path.decode("ascii")).is_file
 
 
-# TODO: There seems to be an issue with zsh, Github CI and subprocesses.
-@pytest.mark.parametrize(
-    "shell",
-    [
-        "bash",
-        pytest.param("zsh", marks=pytest.mark.xfail(reason="Github CI - zsh issue")),
-    ],
-)
-def test_syntax_completion(shell):
-    """Test that the completion can be sourced"""
+def test_syntax_completion_bash():
     subprocess.check_call(
         args=[
-            shutil.which(shell),
-            "-i",
+            shutil.which("bash"),
+            "--noprofile",
+            "--norc",
             "-c",
             "source $(mtt --shell-completion)",
+        ],
+    )
+
+
+@pytest.mark.xfail(reason="This fails on github Action for an unknown reason")
+def test_syntax_completion_zsh():
+    subprocess.check_call(
+        args=[
+            shutil.which("zsh"),
+            "--no-rcs",
+            "-c",
+            "autoload -Uz compinit && compinit && source $(mtt --shell-completion)",
         ],
     )
 
