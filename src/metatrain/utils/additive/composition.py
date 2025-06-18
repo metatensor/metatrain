@@ -126,13 +126,13 @@ class MetatrainCompositionModel(torch.nn.Module):
         self,
         systems: List[System],
         outputs: Dict[str, ModelOutput],
-        selected_atoms: Optional[Labels] = None,
+        selected_samples: Optional[Labels] = None,
     ) -> Dict[str, TensorMap]:
         """Compute the targets for each system based on the composition weights.
 
         :param systems: List of systems to calculate the energy.
         :param outputs: Dictionary containing the model outputs.
-        :param selected_atoms: Optional selection of atoms for which to compute the
+        :param selected_samples: Optional selection of samples for which to compute the
             predictions.
         :returns: A dictionary with the computed predictions for each system.
 
@@ -155,11 +155,8 @@ class MetatrainCompositionModel(torch.nn.Module):
 
         return self.model.forward(
             systems,
-            list(outputs.keys()),
-            selected_atoms,
-            per_atom={
-                output_name: output.per_atom for output_name, output in outputs.items()
-            },
+            outputs=outputs,
+            selected_samples=selected_samples,
         )
 
     def supported_outputs(self) -> Dict[str, ModelOutput]:
@@ -171,55 +168,6 @@ class MetatrainCompositionModel(torch.nn.Module):
             unit=target_info.unit,
             per_atom=True,
         )
-        # self.weights[target_name] = TensorMap(
-        #     keys=target_info.layout.keys,
-        #     blocks=[
-        #         TensorBlock(
-        #             values=torch.zeros(
-        #                 ([len(self.atomic_types)] + b.shape[1:]),
-        #                 dtype=torch.float64,
-        #             ),
-        #             samples=Labels(
-        #                 names=["center_type"],
-        #                 values=torch.tensor(self.atomic_types, dtype=torch.int)
-        # .reshape(
-        #                     -1, 1
-        #                 ),
-        #             ),
-        #             components=b.components,
-        #             properties=b.properties,
-        #         )
-        #         for b in target_info.layout.blocks()
-        #     ],
-        # )
-
-        # register a buffer to store the weights; this is necessary because the weights
-        # are TensorMaps and cannot be stored in the state_dict
-        # fake_weights = TensorMap(
-        #     keys=self.dataset_info.targets[target_name].layout.keys,
-        #     blocks=[
-        #         TensorBlock(
-        #             values=torch.zeros(
-        #                 (len(self.atomic_types),) + b.values.shape[1:],
-        #                 dtype=torch.float64,
-        #             ),
-        #             samples=Labels(
-        #                 names=["center_type"],
-        #                 values=torch.tensor(self.atomic_types, dtype=torch.int)
-        # .reshape(
-        #                     -1, 1
-        #                 ),
-        #             ),
-        #             components=b.components,
-        #             properties=b.properties,
-        #         )
-        #         for b in target_info.layout.blocks()
-        #     ],
-        # )
-        # self.register_buffer(
-        #     target_name + "_composition_buffer",
-        #     mts.save_buffer(fake_weights),
-        # )
 
     @staticmethod
     def is_valid_target(target_name: str, target_info: TargetInfo) -> bool:

@@ -368,11 +368,6 @@ def test_new_composition_model_predict():
 
     composition_model.train_model(dataloader)
 
-    # `MetatrainCompositionModel` as currently implemented does not support requesting
-    # different model outputs than the ones trained on.
-    # TODO: if the model is trained on per-structure energies, should it be possible to
-    # request per-atom energies?
-
     # per_atom = False
     output = composition_model(
         systems[:5],
@@ -383,30 +378,31 @@ def test_new_composition_model_predict():
     assert output["mtt::U0"].block().values.shape == (5, 1)
 
     # per_atom = True
-    # output = composition_model(
-    #     systems[:5],
-    #     {"mtt::U0": ModelOutput(quantity="energy", unit="", per_atom=True)},
-    # )
-    # assert "mtt::U0" in output
-    # assert output["mtt::U0"].block().samples.names == ["system", "atom"]
-    # assert output["mtt::U0"].block().values.shape != (5, 1)
+    output = composition_model(
+        systems[:5],
+        {"mtt::U0": ModelOutput(quantity="energy", unit="", per_atom=True)},
+    )
+    assert "mtt::U0" in output
+    assert output["mtt::U0"].block().samples.names == ["system", "atom"]
+    assert output["mtt::U0"].block().values.shape != (5, 1)
 
-    # with selected_atoms
-    selected_atoms = metatensor.torch.Labels(
+    # with selected_samples
+    selected_samples = metatensor.torch.Labels(
         names=["system", "atom"],
         values=torch.tensor([[0, 0]]),
     )
 
-    # output = composition_model(
-    #     systems[:5],
-    #     {"mtt::U0": ModelOutput(quantity="energy", unit="", per_atom=True)},
-    #     selected_atoms=selected_atoms,
-    # )
-    # assert "mtt::U0" in output
-    # assert output["mtt::U0"].block().samples.names == ["system", "atom"]
-    # assert output["mtt::U0"].block().values.shape == (1, 1)
+    output = composition_model(
+        systems[:5],
+        {"mtt::U0": ModelOutput(quantity="energy", unit="", per_atom=True)},
+        selected_samples=selected_samples,
+    )
+    assert "mtt::U0" in output
+    assert output["mtt::U0"].block().samples.names == ["system", "atom"]
+    assert output["mtt::U0"].block().values.shape == (1, 1)
 
-    selected_atoms = metatensor.torch.Labels(
+    # with selected_samples
+    selected_samples = metatensor.torch.Labels(
         names=["system"],
         values=torch.tensor([[0]]),
     )
@@ -414,7 +410,7 @@ def test_new_composition_model_predict():
     output = composition_model(
         systems[:5],
         {"mtt::U0": ModelOutput(quantity="energy", unit="", per_atom=False)},
-        selected_atoms=selected_atoms,
+        selected_samples=selected_samples,
     )
     assert "mtt::U0" in output
     assert output["mtt::U0"].block().samples.names == ["system"]
@@ -431,6 +427,37 @@ def test_composition_model_torchscript(tmpdir):
     )
 
     composition_model = CompositionModel(
+        model_hypers={},
+        dataset_info=DatasetInfo(
+            length_unit="angstrom",
+            atomic_types=[1, 8],
+            targets={"energy": get_energy_target_info({"unit": "eV"})},
+        ),
+    )
+    composition_model = torch.jit.script(composition_model)
+    composition_model(
+        [system], {"energy": ModelOutput(quantity="energy", unit="", per_atom=False)}
+    )
+
+    with tmpdir.as_cwd():
+        torch.jit.save(composition_model, "composition_model.pt")
+        composition_model = torch.jit.load("composition_model.pt")
+
+    composition_model(
+        [system], {"energy": ModelOutput(quantity="energy", unit="", per_atom=False)}
+    )
+
+
+def test_new_composition_model_torchscript(tmpdir):
+    """Test the torchscripting, saving and loading of the composition model."""
+    system = System(
+        positions=torch.tensor([[0.0, 0.0, 0.0]], dtype=torch.float64),
+        types=torch.tensor([8]),
+        cell=torch.eye(3, dtype=torch.float64),
+        pbc=torch.tensor([True, True, True]),
+    )
+
+    composition_model = MetatrainCompositionModel(
         model_hypers={},
         dataset_info=DatasetInfo(
             length_unit="angstrom",
@@ -651,7 +678,6 @@ def test_zbl():
     for system in systems:
         get_system_with_neighbor_lists(system, requested_neighbor_lists)
 
-    # per_atom = True
     output = zbl(
         systems,
         {"mtt::U0": ModelOutput(quantity="energy", unit="", per_atom=True)},

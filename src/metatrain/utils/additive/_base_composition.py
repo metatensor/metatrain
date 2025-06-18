@@ -9,18 +9,37 @@ from typing import Dict, List, Optional
 import metatensor.torch as mts
 import torch
 from metatensor.torch import Labels, LabelsEntry, TensorBlock, TensorMap
-from metatensor.torch.atomistic import System
 from metatensor.torch.learn.data import DataLoader
+from metatomic.torch import ModelOutput, System
 
 
 class BaseCompositionModel(torch.nn.Module):
-    """Fits a composition model for a dict of targets."""
+    """
+    Fits a composition model for a dict of targets.
+
+    A composition model is a model that predicts the target values based on the
+    composition of the system, i.e., the chemical identity of atoms in the system.
+
+    Only invariant blocks of the specified targets are fitted, i.e. those indexed by
+    keys with a single name "_" (for scalars) or keys with including names "o3_lambda"
+    and "o3_sigma" (for spherical targets).
+    """
 
     def __init__(
         self,
         atomic_types: List[int],
         layouts: Dict[str, TensorMap],
     ) -> None:
+        """
+        Initializes the composition model with the given atomic types and layouts.
+
+        :param atomic_types: List of atomic types to use in the composition model.
+        :param layouts: Dict of zero-sample layout :py:class:`TensorMap` corresponding
+            to each target. The keys of the dict are the target names, and the values
+            are :py:class:`TensorMap` objects with the zero-sample layout for each
+            target.
+        """
+        super().__init__()
         target_names = []
         sample_kinds = {}
         for target_name, layout in layouts.items():  # identify target_type
@@ -31,6 +50,7 @@ class BaseCompositionModel(torch.nn.Module):
             elif layout.sample_names == ["system", "atom"]:
                 sample_kinds[target_name] = "per_atom"
 
+            # TODO: per_pair sample kinds.
             # elif layout.sample_names == [
             #     "system",
             #     "first_atom",
@@ -42,13 +62,17 @@ class BaseCompositionModel(torch.nn.Module):
             #     sample_kinds[target_name] = "per_pair"
 
             else:
-                raise ValueError
+                raise ValueError(
+                    "unknown sample kind. TensorMap has sample names"
+                    f" {layout.sample_names} but expected either"
+                    "['system'], or ['system', 'atom']"
+                )
 
         self.atomic_types = atomic_types
         self.target_names = target_names
         self.sample_kinds = sample_kinds
 
-        # find the keys that of the blocks the composition actually applies to
+        # Find the keys that of the blocks the composition actually applies to
         in_keys = {
             target_name: Labels(
                 layout.keys.names,
@@ -57,11 +81,22 @@ class BaseCompositionModel(torch.nn.Module):
             for target_name, layout in layouts.items()
         }
 
-        # filter the layout TensorMaps according to these sliced keys
+        # Filter the layout TensorMaps according to these sliced keys
         layouts = {
             target_name: mts.filter_blocks(layout, in_keys[target_name])
             for target_name, layout in layouts.items()
         }
+
+        # Initialize dict of TensorMaps for XTX and XTY:
+        #
+        #  - XTX is a square matrix of shape (n_atomic_types, n_atomic_types)
+        #  - XTY is a matrix of shape (n_atomic_types, n_components, n_properties)
+        #
+        # Both are initialized with zeros, and accumulated during fitting by iterating
+        # over batches in the passed dataloader.
+        #
+        # Then a linear system is solved for each target to obtain the
+        # composition weights, which are stored in the `weights` attribute.
         self.XTX: Dict[str, TensorMap] = {
             target_name: TensorMap(
                 layout.keys,
@@ -116,14 +151,42 @@ class BaseCompositionModel(torch.nn.Module):
             )
             for target_name, layout in layouts.items()
         }
-        self.weights: Dict[str, TensorMap] = {}
-        self.is_fitted = False
+        self.weights: Dict[str, TensorMap] = {
+            target_name: TensorMap(
+                layout.keys,
+                blocks=[
+                    TensorBlock(
+                        values=torch.zeros(
+                            len(self.atomic_types),
+                            *[len(c) for c in block.components],
+                            len(block.properties),
+                            dtype=torch.float64,
+                        ),
+                        samples=Labels(
+                            ["center_type"],
+                            torch.tensor(self.atomic_types, dtype=torch.int32).reshape(
+                                -1, 1
+                            ),
+                        ),
+                        components=block.components,
+                        properties=block.properties,
+                    )
+                    for block in layout
+                ],
+            )
+            for target_name, layout in layouts.items()
+        }
+        self.is_fitted: bool = False
 
     def _accumulate(
         self,
         systems: List[System],
         targets: Dict[str, TensorMap],
     ) -> None:
+        """
+        Accumulates the necessary quantities (XTX and XTY) for the composition model
+        based on the provided systems and targets.
+        """
         for target_name, target in targets.items():
             for key, block in target.items():
                 if not _include_key(key):
@@ -135,10 +198,10 @@ class BaseCompositionModel(torch.nn.Module):
                 if self.sample_kinds[target_name] == "per_structure":
                     X = self._compute_X_per_structure(systems)
 
-                    # For per-structure, divide target values by number of atoms
-                    # Y /= num_atoms.reshape(-1, *Y.shape[1:])
-
-                elif self.sample_kinds[target_name] in ["per_atom", "per_pair"]:
+                elif self.sample_kinds[target_name] in [
+                    "per_atom",
+                    # "per_pair"
+                ]:
                     X = self._compute_X_per_atom(
                         systems, self._get_sliced_atomic_types(key)
                     )
@@ -149,21 +212,25 @@ class BaseCompositionModel(torch.nn.Module):
                         f" for target {target_name}"
                     )
 
-                # Compute a sparse XTX
+                # Compute "XTX", i.e. X.T @ X
                 self.XTX[target_name][key].values[:] += X.T @ X
 
-                # Compute XTY
-                self.XTY[target_name][key].values[:] += _compute_XTY(X, Y)
+                # Compute "XTY", i.e. X.T @ Y
+                self.XTY[target_name][key].values[:] += torch.tensordot(
+                    X, Y, dims=([0], [0])
+                )
 
     def fit(self, dataloader: DataLoader) -> None:
         """
         Iterates over the batches in ``dataloader`` and accumulates the necessary
-        quantities. Then, fits the compositions for each target.
+        quantities (XTX and XTY). Then, fits the compositions for each target.
 
         Assumes the systems are stored in the ``system`` attribute of the batch.
         """
 
-        # acccumulate
+        # TODO: add an option to pass a subset of the names of the targets to fit.
+
+        # accumulate
         for batch in dataloader:
             self._accumulate(
                 batch.system,
@@ -190,8 +257,8 @@ class BaseCompositionModel(torch.nn.Module):
 
             elif self.sample_kinds[target_name] in [
                 "per_atom",
-                "per_pair",
-            ]:  # TODO: remove per_pair
+                # "per_pair",
+            ]:
                 blocks = []
                 for key in self.XTX[target_name].keys:
                     XTX_block = self.XTX[target_name][key]
@@ -228,11 +295,11 @@ class BaseCompositionModel(torch.nn.Module):
     def forward(
         self,
         systems: List[System],
-        output_names: List[str],
+        outputs: Dict[str, ModelOutput],
         selected_samples: Optional[Labels] = None,
-        per_atom: Optional[Dict[str, bool]] = None,
     ) -> Dict[str, TensorMap]:
-        """Compute the targets for each system based on the composition weights.
+        """
+        Compute the targets for each system based on the composition weights.
 
         :param systems: List of systems to calculate the energy.
         :param output_names: List of output names to compute. These should be a subset
@@ -244,15 +311,8 @@ class BaseCompositionModel(torch.nn.Module):
         :raises ValueError: If no weights have been computed or if `outputs` keys
             contain unsupported keys.
         """
-
-        if not self.is_fitted:
-            raise ValueError(
-                "The model has not been fitted yet. Please fit the model before "
-                "calling forward."
-            )
-
-        outputs = {}
-        for output_name in output_names:
+        predictions: Dict[str, TensorMap] = {}
+        for output_name, model_output in outputs.items():
             if output_name not in self.target_names:
                 raise ValueError(
                     f"output key {output_name} is not supported by this composition "
@@ -260,24 +320,21 @@ class BaseCompositionModel(torch.nn.Module):
                 )
             weights = self.weights[output_name]
 
-            output_key_vals = []
-            output_blocks = []
+            prediction_key_vals = []
+            prediction_blocks: List[TensorBlock] = []
             for key, weight_block in weights.items():
                 # Compute X
                 if self.sample_kinds[output_name] == "per_structure":
-                    if per_atom is not None and per_atom[output_name]:
+                    if model_output.per_atom:
+                        sample_values = []
+                        for A, system in enumerate(systems):
+                            for i in torch.arange(len(system), dtype=torch.int32):
+                                sample_values.append(
+                                    torch.tensor([int(A), int(i)], dtype=torch.int32)
+                                )
                         sample_labels = Labels(
                             ["system", "atom"],
-                            torch.tensor(
-                                [
-                                    [A, i]
-                                    for A, system in enumerate(systems)
-                                    for i in torch.arange(
-                                        len(system), dtype=torch.int32
-                                    )
-                                ],
-                                dtype=torch.int64,
-                            ),
+                            torch.vstack(sample_values),
                         )
                         X = self._compute_X_per_atom(
                             systems, self._get_sliced_atomic_types(key)
@@ -296,18 +353,17 @@ class BaseCompositionModel(torch.nn.Module):
                 # on-site blocks this extension is simple, reusing the per_atom code.
                 elif self.sample_kinds[output_name] in [
                     "per_atom",
-                    "per_pair",
-                ]:  # TODO: remove per_pair
+                    # "per_pair",
+                ]:
+                    sample_values = []
+                    for A, system in enumerate(systems):
+                        for i in torch.arange(len(system), dtype=torch.int32):
+                            sample_values.append(
+                                torch.tensor([int(A), int(i)], dtype=torch.int32)
+                            )
                     sample_labels = Labels(
                         ["system", "atom"],
-                        torch.vstack(
-                            [
-                                [A, i]
-                                for A, system in enumerate(systems)
-                                for i in torch.arange(len(system), dtype=torch.int32)
-                            ],
-                            dtype=torch.int64,
-                        ),
+                        torch.vstack(sample_values),
                     )
                     X = self._compute_X_per_atom(
                         systems, self._get_sliced_atomic_types(key)
@@ -319,44 +375,45 @@ class BaseCompositionModel(torch.nn.Module):
                         f" for target {output_name}"
                     )
 
-                # Predict this block
-                output_key_vals.append(key.values)
+                # If selected_samples is provided, slice the samples labels and the X
+                # tensor
+                if selected_samples is not None:
+                    sample_indices = sample_labels.select(selected_samples)
+                    sample_labels = Labels(
+                        sample_labels.names,
+                        sample_labels.values[sample_indices],
+                    )
+                    X = X[sample_indices]
 
-                out_vals = _compute_XTW(X, weight_block.values)
-                output_blocks.append(
+                # Compute X.T @ W
+                out_vals = torch.tensordot(X, weight_block.values, dims=([1], [0]))
+                prediction_blocks.append(
                     TensorBlock(
                         values=out_vals,
                         samples=sample_labels,
-                        # samples=Labels(
-                        #     ["_"], torch.arange(out_vals.shape[0]).reshape(-1, 1)
-                        # ),
                         components=weight_block.components,
                         properties=weight_block.properties,
                     )
                 )
+                prediction_key_vals.append(key.values)
 
-            output = TensorMap(
+            prediction = TensorMap(
                 Labels(
                     self.weights[output_name].keys.names,
-                    torch.vstack(output_key_vals),
+                    torch.vstack(prediction_key_vals),
                 ),
-                output_blocks,
+                prediction_blocks,
             )
+            predictions[output_name] = prediction
 
-            # apply selected_atoms to the composition if needed
-            if selected_samples is not None:
-                output = mts.slice(output, "samples", selected_samples)
+        return predictions
 
-            outputs[output_name] = output
-
-        return outputs
-
-    def _get_sliced_atomic_types(self, key) -> List[int]:
+    def _get_sliced_atomic_types(self, key: LabelsEntry) -> List[int]:
         """
         Gets the slice of atomic types needed for the block indexed by the input ``key``
         """
-
         center_types = self.atomic_types
+
         if "center_type" in key.names:
             center_types = [key["center_type"]]
 
@@ -369,11 +426,19 @@ class BaseCompositionModel(torch.nn.Module):
         return center_types
 
     def _compute_X_per_structure(self, systems: List[System]) -> torch.Tensor:
+        """
+        Computes the one-hot encoding of the atomic types for the atoms in the
+        provided systems.
+
+        Returns a tensor of shape (n_systems, n_atomic_types), where each row
+        corresponds to a system and each column corresponds to an atomic type. The
+        value is the number of atoms of that type in the system.
+        """
         X = []
         for system in systems:
             X_system = torch.tensor(
                 [
-                    torch.sum(system.types == atom_type)
+                    int(torch.sum(system.types == atom_type))
                     for atom_type in self.atomic_types
                 ],
                 dtype=torch.float64,
@@ -385,25 +450,49 @@ class BaseCompositionModel(torch.nn.Module):
     def _compute_X_per_atom(
         self, systems: List[System], center_types: List[int]
     ) -> torch.Tensor:
-        # TODO: make this one hot encoding quicker
+        """
+        Computes the one-hot encoding of the atomic types for the atoms in the provided
+        systems, but only for the specified center types.
 
-        column_idx_map = {atom_type: i for i, atom_type in enumerate(self.atomic_types)}
-
-        X = []
-        for system in systems:
-            for atom_type in system.types:
-                if atom_type in center_types:
-                    row = torch.zeros(
-                        len(self.atomic_types),
-                        dtype=torch.float64,
+        Returns a tensor of shape (n_atoms, n_atomic_types), where each row corresponds
+        to an atom in the systems and each column corresponds to an atomic type. The
+        value is 1 if the atom's type matches the atomic type, and 0 otherwise.
+        """
+        # Create a Labels of the samples
+        sample_values = []
+        for A, system in enumerate(systems):
+            for i in torch.arange(len(system), dtype=torch.int32):
+                sample_values.append(
+                    torch.tensor(
+                        [int(A), int(i), int(system.types[i])], dtype=torch.int32
                     )
-                    row[column_idx_map[atom_type.item()]] = 1.0
-                    X.append(row)
+                )
+        sample_labels = Labels(
+            ["system", "atom", "center_type"],
+            torch.vstack(sample_values),
+        )
 
-        return torch.vstack(X)
+        # Create a Labels object of the possible center types
+        center_types_labels = Labels(
+            ["center_type"],
+            torch.tensor(center_types, dtype=torch.int32).reshape(-1, 1),
+        )
+
+        return mts.one_hot(sample_labels, center_types_labels).to(torch.float64)
 
 
 def _include_key(key: LabelsEntry) -> bool:
+    """
+    Determines whether a block indexed by the input ``key`` should be included in the
+    composition model.
+
+    The rules are as follows:
+        - If the key has a single name "_" (indicating a scalar),
+          it is included.
+        - If the key has names "o3_lambda" and "o3_sigma", it is included
+          if values are 0 and 1 respectively (indicating an invariant block of a
+          spherical target).
+    """
     include_key = False
 
     if len(key.names) == 1 and key.names[0] == "_":  # scalar
@@ -419,16 +508,16 @@ def _include_key(key: LabelsEntry) -> bool:
             if key["o3_lambda"] == 0 and key["o3_sigma"] == 1:
                 include_key = True
 
-        # For two-center targets include only invariant off-site blocks. Assumes
-        # symmetrized for now
-        elif "first_atom_type" in key.names and "second_atom_type" in key.names:
-            if (
-                key["o3_lambda"] == 0
-                and key["o3_sigma"] == 1
-                and key["s2_pi"] == 0
-                and key["first_atom_type"] == key["second_atom_type"]
-            ):
-                include_key = True
+        # TODO: for two-center targets include only invariant on-site blocks, assuming
+        # permutational symmetrization.
+        # elif "first_atom_type" in key.names and "second_atom_type" in key.names:
+        #   if (
+        #     key["o3_lambda"] == 0 and
+        #     key["o3_sigma"] == 1 and
+        #     key["s2_pi"] == 0 and
+        #     key["first_atom_type"] == key["second_atom_type"]
+        # ):
+        #     include_key = True
 
         else:
             raise ValueError("unknown target type")
@@ -439,6 +528,15 @@ def _include_key(key: LabelsEntry) -> bool:
 def _solve_linear_system(
     XTX_vals: torch.Tensor, XTY_vals: torch.Tensor
 ) -> torch.Tensor:
+    """
+    Solves the linear system XTX * W = XTY for the weights W, where XTX is a square
+    matrix of shape (n_atomic_types, n_atomic_types) and XTY is a matrix
+    of shape (n_atomic_types, n_components, n_properties).
+
+    :py:func:`metatensor.torch.solve` is not used due to numerical stability issues
+    when the matrix is ill-conditioned. Instead, a regularization term is added to the
+    diagonal of XTX to improve stability.
+    """
     trace_magnitude = float(torch.diag(XTX_vals).abs().mean())
     regularizer = 1e-14 * trace_magnitude
     shape = (XTX_vals.shape[0], *XTY_vals.shape[1:])
@@ -452,11 +550,3 @@ def _solve_linear_system(
         ),
         XTY_vals.reshape(XTY_vals.shape[0], -1),
     ).reshape(shape)
-
-
-def _compute_XTY(X: torch.Tensor, Y: torch.Tensor) -> torch.Tensor:
-    return torch.tensordot(X, Y, dims=([0], [0]))
-
-
-def _compute_XTW(X: torch.Tensor, W: torch.Tensor) -> torch.Tensor:
-    return torch.tensordot(X, W, dims=([1], [0]))
