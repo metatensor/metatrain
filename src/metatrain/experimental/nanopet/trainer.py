@@ -289,7 +289,7 @@ class Trainer(TrainerInterface):
                 optimizer.zero_grad()
 
                 systems, targets = batch
-                print("1", targets.keys())
+
                 systems, targets = rotational_augmenter.apply_random_augmentations(
                     systems, targets
                 )
@@ -306,8 +306,7 @@ class Trainer(TrainerInterface):
                     targets, (model.module if is_distributed else model).scaler
                 )
                 systems, targets = systems_and_targets_to_dtype(systems, targets, dtype)
-                print("2", train_targets.keys())
-                print("3", systems)
+
                 predictions = evaluate_model(
                     model,
                     systems,
@@ -315,16 +314,11 @@ class Trainer(TrainerInterface):
                     is_training=True,
                 )
 
-                print("4", predictions)
-
                 # average by the number of atoms
                 predictions = average_by_num_atoms(
                     predictions, systems, per_structure_targets
                 )
-                print("5", predictions)
                 targets = average_by_num_atoms(targets, systems, per_structure_targets)
-
-                raise
 
                 train_loss_batch = loss_fn(predictions, targets)
                 train_loss_batch.backward()
