@@ -615,6 +615,14 @@ class NanoPET(ModelInterface):
                         self.key_labels[output_name].values[block_i]
                     )
 
+                atomic_properties_tmap_dict[output_name] = TensorMap(
+                    keys=Labels(
+                        names=self.key_labels[output_name].names,
+                        values=torch.stack(output_key_values, dim=0),
+                    ),
+                    blocks=output_blocks,
+                )
+
         if selected_atoms is not None:
             for output_name, tmap in atomic_properties_tmap_dict.items():
                 atomic_properties_tmap_dict[output_name] = metatensor.torch.slice(
@@ -789,9 +797,9 @@ class NanoPET(ModelInterface):
         self.output_info[target_name] = {
             "target_type": target_info.target_type,
             "sample_kind": target_info.sample_kind,
-            "symmetrized": "true"
-            if "s2_pi" in target_info.layout.keys.names
-            else "false",
+            "symmetrized": (
+                "true" if "s2_pi" in target_info.layout.keys.names else "false"
+            ),
         }
 
         # build the head for this target. This transforms PET node (or node+edge in a
