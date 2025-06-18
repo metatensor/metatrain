@@ -79,10 +79,7 @@ def evaluate_model(
     systems = new_systems
 
     # Based on the keys of the targets, get the outputs of the model:
-    # print("in eval", targets)
     model_outputs = _get_model_outputs(model, systems, targets, check_consistency)
-
-    # print(model_outputs)
 
     for energy_target in energy_targets:
         # If the energy target requires gradients, compute them:
