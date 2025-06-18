@@ -230,7 +230,9 @@ def get_node_sample_values(
             [
                 node_sample_values,
                 node_sample_values[:, 1].reshape(-1, 1),  # second_atom == first_atom
-                torch.zeros(node_sample_values.shape[0], 3),  # cell shifts
+                torch.zeros(
+                    node_sample_values.shape[0], 3, device=systems[0].device
+                ),  # cell shifts
             ],
         ).to(dtype=torch.int32)
 
@@ -251,6 +253,7 @@ def get_node_sample_values(
             )
         ],
         dtype=torch.int32,
+        device=systems[0].device,
     ).reshape(-1, 1)
 
     if sample_kind == "per_atom":
@@ -272,7 +275,11 @@ def get_node_sample_values(
         node_sample_values = torch.hstack(
             [
                 # s2_pi = 0
-                torch.zeros((len(first_atom_type), 1), dtype=torch.int32),
+                torch.zeros(
+                    (len(first_atom_type), 1),
+                    dtype=torch.int32,
+                    device=systems[0].device,
+                ),
                 first_atom_type,
                 first_atom_type,  # first_atom_type == second_atom_type
                 node_sample_values,
@@ -334,6 +341,7 @@ def get_edge_sample_values(
             )
         ],
         dtype=torch.int32,
+        device=systems[0].device,
     ).reshape(-1, 1)
     edge_second_atom_type = torch.tensor(
         [
@@ -344,6 +352,7 @@ def get_edge_sample_values(
             )
         ],
         dtype=torch.int32,
+        device=systems[0].device,
     ).reshape(-1, 1)
 
     return torch.hstack(
@@ -385,7 +394,11 @@ def symmetrize_edge_samples(
     edge_sample_values_diff_types = torch.hstack(
         [
             # s2_pi = 0
-            torch.zeros((len(edge_sample_values_diff_types), 1), dtype=torch.int32),
+            torch.zeros(
+                (len(edge_sample_values_diff_types), 1),
+                dtype=torch.int32,
+                device=edge_sample_values.device,
+            ),
             edge_sample_values_diff_types,
         ]
     )
@@ -399,14 +412,23 @@ def symmetrize_edge_samples(
     edge_sample_values_same_types_plus = torch.hstack(
         [
             # s2_pi = +1
-            torch.ones((len(edge_sample_values_same_types), 1), dtype=torch.int32),
+            torch.ones(
+                (len(edge_sample_values_same_types), 1),
+                dtype=torch.int32,
+                device=edge_sample_values.device,
+            ),
             edge_sample_values_same_types,
         ]
     )
     edge_sample_values_same_types_minus = torch.hstack(
         [
             # s2_pi = -1
-            torch.ones((len(edge_sample_values_same_types), 1), dtype=torch.int32) * -1,
+            torch.ones(
+                (len(edge_sample_values_same_types), 1),
+                dtype=torch.int32,
+                device=edge_sample_values.device,
+            )
+            * -1,
             edge_sample_values_same_types,
         ]
     )
