@@ -11,7 +11,7 @@ from metatomic.torch import ModelCapabilities, System
 from ...external_naming import to_external_name
 
 
-def clean_xyz_name(name: str) -> str:
+def _clean_xyz_name(name: str) -> str:
     """Replaces ASE extxyz protected characters with '_'.
 
     Replaces: '=', '\"', ',', '[', ']', '{', '}', '\\', ':'.
@@ -128,7 +128,7 @@ def write_xyz(
         # assign arrays
         for array_name, array in arrays.items():
             # make sure the name is valid
-            array_name = clean_xyz_name(array_name)
+            array_name = _clean_xyz_name(array_name)
             atoms.arrays[array_name] = array
 
         frames.append(atoms)

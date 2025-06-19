@@ -7,7 +7,7 @@ from metatensor.torch import Labels, TensorBlock, TensorMap
 from metatomic.torch import ModelCapabilities, ModelOutput, System
 
 from metatrain.utils.data.readers.ase import read
-from metatrain.utils.data.writers import write_predictions, write_xyz
+from metatrain.utils.data.writers import write_predictions, write_xyz, _clean_xyz_name
 
 
 def systems_capabilities_predictions(
@@ -85,6 +85,30 @@ def test_write_xyz(monkeypatch, tmp_path):
     for i, atoms in enumerate(frames):
         assert atoms.info["energy"] == float(predictions["energy"].block().values[i, 0])
         assert all(atoms.pbc == 3 * [False])
+
+def test_write_non_standard_property_xyz(monkeypatch, tmp_path):
+    monkeypatch.chdir(tmp_path)
+
+    systems, _, predictions = systems_capabilities_predictions()
+
+    capabilities = ModelCapabilities(
+        length_unit="angstrom",
+        outputs={"mtt:some": ModelOutput(quantity="mtt::some", unit="kcal/mol")},
+        interaction_range=1.0,
+        dtype="float32",
+    )
+
+    filename = "test_output.xyz"
+
+    write_xyz(filename, systems, capabilities, predictions)
+
+    # Read the file and verify its contents
+    frames = read(filename, index=":")
+    assert len(frames) == len(systems)
+    for i, atoms in enumerate(frames):
+        assert atoms.info["mtt__some"] == float(predictions["mtt::some"].block().values[i, 0])
+        assert all(atoms.pbc == 3 * [False])
+
 
 
 def test_write_components_and_properties_xyz(monkeypatch, tmp_path):
@@ -238,3 +262,15 @@ def test_write_predictions(filename, fileformat, cell, monkeypatch, tmp_path):
 def test_write_predictions_unknown_fileformat():
     with pytest.raises(ValueError, match="fileformat '.bar' is not supported"):
         write_predictions("foo.bar", systems=None, capabilities=None, predictions=None)
+
+
+def test_clean_regex():
+    """
+    Test that the property regex cleanup function works as expected.
+    - per default, metatensor property output names may contain reserved characters 
+    in the ASE such that unreadable files can be written by accident.
+    The regex function cleans the property string.
+    """
+    assert _clean_xyz_name("mtt::some") == "mtt__some"
+    assert _clean_xyz_name("mtt::some:property") == "mtt__some_property"
+    
