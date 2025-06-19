@@ -36,7 +36,7 @@ class RMSEAccumulator:
 
                 key_to_write = copy.deepcopy(key)
                 if self.separate_blocks:
-                    key_to_write += "("
+                    key_to_write += " ("
                     for name, value in zip(block_key.names, block_key.values):
                         key_to_write += f"{name}={int(value)},"
                     key_to_write = key_to_write[:-1]
@@ -141,7 +141,7 @@ class MAEAccumulator:
 
                 key_to_write = copy.deepcopy(key)
                 if self.separate_blocks:
-                    key_to_write += "("
+                    key_to_write += " ("
                     for name, value in zip(block_key.names, block_key.values):
                         key_to_write += f"{name}={int(value)},"
                     key_to_write = key_to_write[:-1]
