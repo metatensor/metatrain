@@ -32,7 +32,7 @@ class RotationalAugmenter:
     def __init__(self, target_info_dict: Dict[str, TargetInfo]):
         # checks on targets
         for target_info in target_info_dict.values():
-            if target_info.is_cartesian:
+            if target_info.target_type == "cartesian":
                 if len(target_info.layout.block(0).components) > 2:
                     raise ValueError(
                         "RotationalAugmenter only supports Cartesian targets "
@@ -44,7 +44,8 @@ class RotationalAugmenter:
         self.wigner = None
         self.complex_to_real_spherical_harmonics_transforms = {}
         is_any_target_spherical = any(
-            target_info.is_spherical for target_info in target_info_dict.values()
+            target_info.target_type.startswith("spherical")
+            for target_info in target_info_dict.values()
         )
         if is_any_target_spherical:
             try:
@@ -58,7 +59,9 @@ class RotationalAugmenter:
             largest_l = max(
                 (len(block.components[0]) - 1) // 2
                 for target_info in target_info_dict.values()
-                if target_info.is_spherical
+                if target_info.target_type.startswith(
+                    "spherical"
+                )  # some kind of spherical target
                 for block in target_info.layout.blocks()
             )
             self.wigner = spherical.Wigner(largest_l)
@@ -95,9 +98,13 @@ class RotationalAugmenter:
             wigner_D_matrices_complex = [
                 self.wigner.D(q) for q in quaternionic_quaternions
             ]
+            target_types: Dict[str, str] = {}
             for target_name in targets.keys():
                 target_info = self.target_info_dict[target_name]
-                if target_info.is_spherical:
+
+                target_types[target_name] = target_info.target_type
+
+                if target_info.target_type.startswith("spherical"):
                     for block in target_info.layout.blocks():
                         ell = (len(block.components[0]) - 1) // 2
                         if ell not in wigner_D_matrices:  # skip if already computed
@@ -125,7 +132,7 @@ class RotationalAugmenter:
                             wigner_D_matrices[ell] = wigner_D_matrices_l
 
         return _apply_random_augmentations(
-            systems, targets, transformations, wigner_D_matrices
+            systems, targets, transformations, wigner_D_matrices, target_types
         )
 
 
@@ -134,17 +141,76 @@ def _apply_wigner_D_matrices(
     target_tmap: TensorMap,
     transformations: List[torch.Tensor],
     wigner_D_matrices: Dict[int, List[torch.Tensor]],
+    target_type: str,
 ) -> TensorMap:
+    """
+    For the given target ``target_tmap``, for each of its blocks, splits the values by
+    system and applies an O(3) transformation by action of a Wigner-D matrix.
+    """
+    # Iterate over blocks in the target
     new_blocks: List[TensorBlock] = []
     for key, block in target_tmap.items():
         ell, sigma = int(key[0]), int(key[1])
         values = block.values
-        if "atom" in block.samples.names:
-            split_values = torch.split(
-                values, [len(system.positions) for system in systems]
-            )
+
+        # First, build the indices that split the block samples by system
+        split_indices: List[int] = []
+
+        if target_type == "spherical":
+            if "atom" in block.samples.names:
+                # use a dummy s2_pi value of -1000 (for torchscript) when not present
+                split_indices = _get_system_split_indices(
+                    systems, "per_atom", [], -1000
+                )
+            else:
+                split_indices = _get_system_split_indices(
+                    systems, "per_structure", [], -1000
+                )
+
+        elif target_type == "spherical_atomic_basis":
+            if "atom" in block.samples.names:
+                split_indices = _get_system_split_indices(
+                    systems, "per_atom", [int(key["center_type"])], -1000
+                )
+            elif (
+                "first_atom" in block.samples.names
+                and "second_atom" in block.samples.names
+            ):
+                if "s2_pi" in key.names:
+                    split_indices = _get_system_split_indices(
+                        systems,
+                        "per_pair",
+                        [int(key["first_atom_type"]), int(key["second_atom_type"])],
+                        int(key["s2_pi"]),
+                    )
+                else:
+                    split_indices = _get_system_split_indices(
+                        systems,
+                        "per_pair",
+                        [int(key["first_atom_type"]), int(key["second_atom_type"])],
+                        -1000,
+                    )
+
         else:
-            split_values = torch.split(values, [1 for _ in systems])
+            raise ValueError(f"unexpected target type: {target_type}.")
+
+        assert sum(split_indices) == len(values), (
+            sum(split_indices),
+            len(values),
+            key.values,
+            block,
+        )
+
+        # Check that the split samples values contain only one system index
+        for split_sample in torch.split(block.samples.values[:, 0], split_indices)[:-1]:
+            assert len(torch.unique(split_sample)) <= 1, list(
+                torch.unique(split_sample)
+            )
+
+        # Split the block values by system
+        split_values = torch.split(values, split_indices)
+
+        # Transform the per-system values separately
         new_values = []
         ell = (len(block.components[0]) - 1) // 2
         for v, transformation, wigner_D_matrix in zip(
@@ -160,6 +226,11 @@ def _apply_wigner_D_matrices(
             new_v = new_v @ wigner_D_matrix.T
             new_v = new_v.transpose(1, 2)
             new_values.append(new_v)
+
+        if len(new_values) == 0:  # empty block
+            new_values = [block.values]
+
+        # Concatenate the per-system transformed values and build the new TensorBlock
         new_values = torch.concatenate(new_values)
         new_block = TensorBlock(
             values=new_values,
@@ -175,12 +246,147 @@ def _apply_wigner_D_matrices(
     )
 
 
+@torch.jit.script
+def _get_system_split_indices(
+    systems: List[System],
+    sample_kind: str,
+    atom_types: List[int],
+    s2_pi: int,
+) -> List[int]:
+    """
+    Finds the indices that splits a TensorBlock along the samples axis by system index.
+    """
+    # TODO: use this function to write a `split_by` function in metatensor.
+
+    split_indices: List[int] = []
+
+    if sample_kind == "per_structure":
+        for _ in systems:
+            split_indices.append(1)
+
+    elif sample_kind == "per_atom":
+        if len(atom_types) == 0:  # all blocks have all atom types
+            for system in systems:
+                split_indices.append(len(system.positions))
+
+        else:  # atomic basis - only count atoms of the correct type
+            assert len(atom_types) == 1
+            for system in systems:
+                split_indices.append(
+                    int(
+                        torch.sum(
+                            system.types == atom_types[0],
+                        )
+                    )
+                )
+
+    elif sample_kind == "per_pair":
+        assert len(atom_types) == 2
+
+        if not (s2_pi == -1 or s2_pi == 0 or s2_pi == 1):
+            for system in systems:
+                # get neighbor list
+                neighbor_lists = system.known_neighbor_lists()
+                if len(neighbor_lists) == 0:
+                    raise ValueError(
+                        "systems must have neighbor lists pre-computed. None found."
+                    )
+                if len(neighbor_lists) > 1:
+                    raise ValueError("more than one neighbor list found")
+                neighbor_samples = system.get_neighbor_list(neighbor_lists[0]).samples
+
+                if atom_types[0] == atom_types[1]:
+                    # the block contains both nodes and edges
+                    split_indices.append(
+                        int(  # number of nodes
+                            torch.sum(
+                                system.types == atom_types[0],
+                            )
+                        )
+                        + int(  # number of edges
+                            torch.sum(
+                                torch.logical_and(
+                                    system.types[neighbor_samples.column("first_atom")]
+                                    == atom_types[0],
+                                    system.types[neighbor_samples.column("second_atom")]
+                                    == atom_types[0],
+                                )
+                            )
+                        )
+                        // 2  # as triangular in edge samples
+                    )
+                else:
+                    # the block contains only edges
+                    split_indices.append(
+                        int(
+                            torch.sum(
+                                torch.logical_and(
+                                    system.types[neighbor_samples.column("first_atom")]
+                                    == atom_types[0],
+                                    system.types[neighbor_samples.column("second_atom")]
+                                    == atom_types[0],
+                                )
+                            )
+                        )
+                        // 2  # as triangular in edge samples
+                    )
+        else:
+            if s2_pi == 0 and atom_types[0] == atom_types[1]:  # node block
+                # can be treated as per-atom target
+                for system in systems:
+                    split_indices.append(
+                        int(
+                            torch.sum(
+                                system.types == atom_types[0],
+                            )
+                        )
+                    )
+
+            else:  # edge block
+                if s2_pi == 0:
+                    triangle_divisor = 1
+                else:
+                    triangle_divisor = 2
+
+                for system in systems:
+                    # get neighbor list
+                    neighbor_lists = system.known_neighbor_lists()
+                    if len(neighbor_lists) == 0:
+                        raise ValueError(
+                            "systems must have neighbor lists pre-computed. None found."
+                        )
+                    if len(neighbor_lists) > 1:
+                        raise ValueError("more than one neighbor list found")
+                    neighbor_samples = system.get_neighbor_list(
+                        neighbor_lists[0]
+                    ).samples
+
+                    split_indices.append(
+                        int(
+                            torch.sum(
+                                torch.logical_and(
+                                    system.types[neighbor_samples.column("first_atom")]
+                                    == atom_types[0],
+                                    system.types[neighbor_samples.column("second_atom")]
+                                    == atom_types[1],
+                                )
+                            )
+                        )
+                        // triangle_divisor
+                    )
+    else:
+        raise ValueError(f"unexpected sample_kind: {sample_kind}")
+
+    return split_indices
+
+
 @torch.jit.script  # script for speed
 def _apply_random_augmentations(  # pragma: no cover
     systems: List[System],
     targets: Dict[str, TensorMap],
     transformations: List[torch.Tensor],
     wigner_D_matrices: Dict[int, List[torch.Tensor]],
+    target_types: Dict[str, str],
 ) -> Tuple[List[System], Dict[str, TensorMap]]:
     # Apply the transformations to the systems
     new_systems: List[System] = []
@@ -205,23 +411,7 @@ def _apply_random_augmentations(  # pragma: no cover
     # Apply the transformation to the targets
     new_targets: Dict[str, TensorMap] = {}
     for name, target_tmap in targets.items():
-        is_scalar = False
-        if len(target_tmap.blocks()) == 1:
-            if len(target_tmap.block().components) == 0:
-                is_scalar = True
-
-        is_cartesian = False
-        if len(target_tmap.blocks()) == 1:
-            if len(target_tmap.block().components) > 0:
-                if "xyz" in target_tmap.block().components[0].names[0]:
-                    is_cartesian = True
-
-        is_spherical = all(
-            len(block.components) == 1 and block.components[0].names == ["o3_mu"]
-            for block in target_tmap.blocks()
-        )
-
-        if is_scalar:
+        if target_types[name] == "scalar":
             # no change for energies
             energy_block = TensorBlock(
                 values=target_tmap.block().values,
@@ -280,12 +470,16 @@ def _apply_random_augmentations(  # pragma: no cover
                 blocks=[energy_block],
             )
 
-        elif is_spherical:
+        elif target_types[name].startswith("spherical"):
             new_targets[name] = _apply_wigner_D_matrices(
-                systems, target_tmap, transformations, wigner_D_matrices
+                systems,
+                target_tmap,
+                transformations,
+                wigner_D_matrices,
+                target_types[name],
             )
 
-        elif is_cartesian:
+        elif target_types[name] == "cartesian":
             rank = len(target_tmap.block().components)
             if rank == 1:
                 # transform Cartesian vector:
@@ -345,6 +539,9 @@ def _apply_random_augmentations(  # pragma: no cover
                         )
                     ],
                 )
+
+        else:
+            raise ValueError(f"unexpected target type: {target_types[name]}")
 
     return new_systems, new_targets
 

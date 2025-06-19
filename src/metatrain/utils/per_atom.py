@@ -53,10 +53,9 @@ def divide_by_num_atoms(tensor_map: TensorMap, num_atoms: torch.Tensor) -> Tenso
 
     :return: A new tensor map with the values divided by the number of atoms.
     """
-
     blocks = []
     for block in tensor_map.blocks():
-        if "atom" in block.samples.names:
+        if "atom" in block.samples.names or "first_atom" in block.samples.names:
             new_block = block
         else:
             values = block.values / num_atoms.view(
@@ -69,7 +68,10 @@ def divide_by_num_atoms(tensor_map: TensorMap, num_atoms: torch.Tensor) -> Tenso
                 properties=block.properties,
             )
             for gradient_name, gradient in block.gradients():
-                if "atom" in gradient.samples.names:
+                if (
+                    "atom" in gradient.samples.names
+                    or "first_atom" in gradient.samples.names
+                ):
                     new_gradient = gradient
                 else:
                     values = gradient.values / num_atoms.view(

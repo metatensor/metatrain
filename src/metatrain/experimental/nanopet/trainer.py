@@ -289,6 +289,7 @@ class Trainer(TrainerInterface):
                 optimizer.zero_grad()
 
                 systems, targets = batch
+
                 systems, targets = rotational_augmenter.apply_random_augmentations(
                     systems, targets
                 )
@@ -305,6 +306,7 @@ class Trainer(TrainerInterface):
                     targets, (model.module if is_distributed else model).scaler
                 )
                 systems, targets = systems_and_targets_to_dtype(systems, targets, dtype)
+
                 predictions = evaluate_model(
                     model,
                     systems,
@@ -348,10 +350,9 @@ class Trainer(TrainerInterface):
             val_loss = 0.0
             for batch in val_dataloader:
                 systems, targets = batch
-                systems = [system.to(device=device) for system in systems]
-                targets = {
-                    key: value.to(device=device) for key, value in targets.items()
-                }
+                systems, targets = systems_and_targets_to_device(
+                    systems, targets, device
+                )
                 for additive_model in (
                     model.module if is_distributed else model
                 ).additive_models:
@@ -361,8 +362,7 @@ class Trainer(TrainerInterface):
                 targets = remove_scale(
                     targets, (model.module if is_distributed else model).scaler
                 )
-                systems = [system.to(dtype=dtype) for system in systems]
-                targets = {key: value.to(dtype=dtype) for key, value in targets.items()}
+                systems, targets = systems_and_targets_to_dtype(systems, targets, dtype)
                 predictions = evaluate_model(
                     model,
                     systems,

@@ -4,17 +4,19 @@ import torch
 from metatensor.torch import Labels, TensorBlock, TensorMap
 from omegaconf import DictConfig
 
+from .layout import get_sample_kind, get_target_type
+
 
 class TargetInfo:
     """A class that contains information about a target.
 
     :param quantity: The physical quantity of the target (e.g., "energy").
-    :param layout: The layout of the target, as a ``TensorMap`` with 0 samples.
-        This ``TensorMap`` will be used to retrieve the names of
-        the ``samples``, as well as the ``components`` and ``properties`` of the
-        target and their gradients. For example, this allows to infer the type of
-        the target (scalar, Cartesian tensor, spherical tensor), whether it is per
-        atom, the names of its gradients, etc.
+    :param layout: The layout of the target, as a ``TensorMap`` with 0 samples. This
+        ``TensorMap`` will be used to retrieve the names of the ``samples``, as well as
+        the ``components`` and ``properties`` of the target and their gradients. For
+        example, this allows to infer the type of the target (scalar, Cartesian tensor,
+        spherical tensor, spherical tensor on atomic basis), whether it is per atom, the
+        names of its gradients, etc.
     :param unit: The unit of the target. If :py:obj:`None` the ``unit`` will be set to
         an empty string ``""``.
     """
@@ -25,34 +27,36 @@ class TargetInfo:
         layout: TensorMap,
         unit: Union[None, str] = "",
     ):
-        # one of these will be set to True inside the _check_layout method
-        self.is_scalar = False
-        self.is_cartesian = False
-        self.is_spherical = False
-
-        self._check_layout(layout)
-
         self.quantity = quantity  # float64: otherwise metatensor can't serialize
         self.layout = layout
         self.unit = unit if unit is not None else ""
 
+        # get the layout type
+        self.sample_kind = get_sample_kind(layout)
+        self.target_type = get_target_type(layout)
+
+        # check that the layout is valid
+        self._check_layout(layout)
+
     @property
     def gradients(self) -> List[str]:
         """Sorted and unique list of gradient names."""
-        if self.is_scalar:
+        if self.target_type == "scalar":
             return sorted(self.layout.block().gradients_list())
         else:
             return []
 
     @property
     def per_atom(self) -> bool:
-        """Whether the target is per atom."""
-        return "atom" in self.layout.block(0).samples.names
+        """Whether the target is per atom. Also applies to per-pair quantities."""
+        # TODO: separate once per-pair quantities are supported in ModelOutput
+        return self.sample_kind == "per_atom" or self.sample_kind == "per_pair"
 
     def __repr__(self):
         return (
             f"TargetInfo(quantity={self.quantity!r}, unit={self.unit!r}, "
-            f"layout={self.layout!r})"
+            f"layout={self.layout!r}, target_type={self.target_type!r}, "
+            f"sample_kind={self.sample_kind!r})"
         )
 
     def __eq__(self, other):
@@ -72,47 +76,7 @@ class TargetInfo:
     def _check_layout(self, layout: TensorMap) -> None:
         """Check that the layout is a valid layout."""
 
-        # examine basic properties of all blocks
-        for block in layout.blocks():
-            for sample_name in block.samples.names:
-                if sample_name not in ["system", "atom"]:
-                    raise ValueError(
-                        "The layout ``TensorMap`` of a target should only have samples "
-                        "named 'system' or 'atom', but found "
-                        f"'{sample_name}' instead."
-                    )
-            if len(block.values) != 0:
-                raise ValueError(
-                    "The layout ``TensorMap`` of a target should have 0 "
-                    f"samples, but found {len(block.values)} samples."
-                )
-
-        # examine the components of the first block to decide whether this is
-        # a scalar, a Cartesian tensor or a spherical tensor
-
-        if len(layout) == 0:
-            raise ValueError(
-                "The layout ``TensorMap`` of a target should have at least one "
-                "block, but found 0 blocks."
-            )
-        components_first_block = layout.block(0).components
-        if len(components_first_block) == 0:
-            self.is_scalar = True
-        elif components_first_block[0].names[0].startswith("xyz"):
-            self.is_cartesian = True
-        elif (
-            len(components_first_block) == 1
-            and components_first_block[0].names[0] == "o3_mu"
-        ):
-            self.is_spherical = True
-        else:
-            raise ValueError(
-                "The layout ``TensorMap`` of a target should be "
-                "either scalars, Cartesian tensors or spherical tensors. The type of "
-                "the target could not be determined."
-            )
-
-        if self.is_scalar:
+        if self.target_type == "scalar":
             if layout.keys.names != ["_"]:
                 raise ValueError(
                     "The layout ``TensorMap`` of a scalar target should have "
@@ -131,7 +95,7 @@ class TargetInfo:
                         "scalar targets. "
                         f"Found '{gradient_name}' instead."
                     )
-        if self.is_cartesian:
+        elif self.target_type == "cartesian":
             if layout.keys.names != ["_"]:
                 raise ValueError(
                     "The layout ``TensorMap`` of a Cartesian tensor target should have "
@@ -147,7 +111,7 @@ class TargetInfo:
                     "Gradients of Cartesian tensor targets are not supported."
                 )
 
-        if self.is_spherical:
+        elif self.target_type == "spherical":
             if layout.keys.names != ["o3_lambda", "o3_sigma"]:
                 raise ValueError(
                     "The layout ``TensorMap`` of a spherical tensor target "
@@ -188,6 +152,86 @@ class TargetInfo:
                         "Gradients of spherical tensor targets are not supported."
                     )
 
+        elif self.target_type == "spherical_atomic_basis":
+            o3_lambda_like_dims = [
+                name for name in layout.keys.names if name.startswith("o3_lambda")
+            ]
+            # If "o3_lambda" is in the keys, there should be one "o3_mu" component
+            if o3_lambda_like_dims == ["o3_lambda"]:
+                for key, block in layout.items():
+                    o3_lambda, o3_sigma = (
+                        int(key.values[layout.keys.names.index("o3_lambda")].item()),
+                        int(key.values[layout.keys.names.index("o3_sigma")].item()),
+                    )
+                    if o3_sigma not in [-1, 1]:
+                        raise ValueError(
+                            "The layout ``TensorMap`` of an atomic-basis spherical "
+                            "tensor target should have a key dimension 'o3_sigma' "
+                            f"that is either -1 or 1. Found '{o3_sigma}' instead."
+                        )
+                    if o3_lambda < 0:
+                        raise ValueError(
+                            "The layout ``TensorMap`` of an atomic-basis spherical "
+                            "tensor target should have a key sample 'o3_lambda' that "
+                            f"is non-negative. Found '{o3_lambda}' instead."
+                        )
+                    components = block.components
+                    if len(components) != 1:
+                        raise ValueError(
+                            "The layout ``TensorMap`` of an atomic-basis spherical "
+                            "tensor target should have a single component."
+                        )
+                    if len(components[0]) != 2 * o3_lambda + 1:
+                        raise ValueError(
+                            "Each ``TensorBlock`` of an atomic-basis spherical "
+                            "tensor target should have a component with 2*o3_lambda "
+                            f"+ 1 elements. Found '{len(components[0])}' elements "
+                            "instead."
+                        )
+                    if len(block.gradients_list()) > 0:
+                        raise ValueError(
+                            "Gradients of an atomic-basis spherical tensor "
+                            "targets are not supported."
+                        )
+
+            else:
+                raise ValueError(
+                    "atomic basis spherical targets should only have 'o3_lambda' "
+                    "key dimension for spherical symmetry"
+                )
+
+            # check correct atom types dimensions in the keys
+            if self.sample_kind == "per_atom":
+                assert "center_type" in layout.keys.names, (
+                    "per-atom spherical atomic basis targets must have "
+                    "'center_type' in the keys."
+                )
+            elif self.sample_kind == "per_pair":
+                assert (
+                    "first_atom_type" in layout.keys.names
+                    and "second_atom_type" in layout.keys.names
+                ), (
+                    "per-pair spherical atomic basis targets must have "
+                    "'first_atom_type' and 'second_atom_type' in the keys."
+                )
+                # check traingularization of atom types for per-pair targets
+                assert all(
+                    layout.keys.values[:, layout.keys.names.index("first_atom_type")]
+                    <= layout.keys.values[
+                        :, layout.keys.names.index("second_atom_type")
+                    ]
+                ), (
+                    "atom type key dimensions should be triangularized such that"
+                    " 'first_atom_type' <= 'second_atom_type'"
+                )
+            else:
+                raise ValueError(
+                    "only per-atom and per-pair sample kinds are supported for "
+                    "spherical atomic basis targets"
+                )
+        else:
+            raise ValueError(f"unknown target type for target: {self.target_type}.")
+
     def is_compatible_with(self, other: "TargetInfo") -> bool:
         """Check if two targets are compatible.
 
@@ -200,6 +244,8 @@ class TargetInfo:
         :return: :py:obj:`True` if the two target infos are compatible,
             :py:obj:`False` otherwise.
         """
+        if self.target_type != other.target_type:
+            return False
         if self.quantity != other.quantity:
             return False
         if self.unit != other.unit:
@@ -296,10 +342,19 @@ def get_generic_target_info(target: DictConfig) -> TargetInfo:
         return _get_cartesian_target_info(target)
     elif len(target["type"]) == 1 and next(iter(target["type"])) == "spherical":
         return _get_spherical_target_info(target)
+    elif target["type"].startswith("spherical_atomic_basis"):
+        raise ValueError(
+            "while 'spherical_atomic_basis' targets are supported, "
+            "generic TargetInfo cannot be constructed due to the "
+            "flexibility in this target's metadata. Please construct "
+            "a TargetInfo object directly using metadata inferred from "
+            "target TensorMaps."
+        )
     else:
         raise ValueError(
             f"Target type {target['type']} is not supported. "
-            "Supported types are 'scalar', 'cartesian' and 'spherical'."
+            "Supported types are 'scalar', 'cartesian', 'spherical', "
+            "and 'spherical_atomic_basis'"
         )
 
 

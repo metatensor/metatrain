@@ -18,7 +18,7 @@ from torch.utils.data import Subset
 
 from ..external_naming import to_external_name
 from ..units import get_gradient_units
-from .readers.metatensor import _check_tensor_map_metadata, _empty_tensor_map_like
+from .readers.metatensor import _check_tensor_map_metadata, _wrapped_metatensor_read
 from .target_info import TargetInfo, get_energy_target_info, get_generic_target_info
 
 
@@ -235,11 +235,13 @@ def get_all_targets(datasets: Union[Dataset, List[Dataset]]) -> List[str]:
 def collate_fn(batch: List[Dict[str, Any]]) -> Tuple[List, Dict[str, TensorMap]]:
     """
     Wraps `group_and_join` to
-    return the data fields as a list of systems, and a dictionary of nameed
+    return the data fields as a list of systems, and a dictionary of named
     targets.
     """
 
-    collated_targets = group_and_join(batch, join_kwargs={"remove_tensor_name": True})
+    collated_targets = group_and_join(
+        batch, join_kwargs={"remove_tensor_name": True, "different_keys": "union"}
+    )
     collated_targets = collated_targets._asdict()
     systems = collated_targets.pop("system")
     return systems, collated_targets
@@ -417,6 +419,7 @@ class DiskDataset(torch.utils.data.Dataset):
         :param target_config: The user-provided (through the yaml file) target
             configuration.
         """
+
         target_info_dict = {}
         for target_key, target in target_config.items():
             is_energy = (
@@ -425,8 +428,8 @@ class DiskDataset(torch.utils.data.Dataset):
                 and target["num_subtargets"] == 1
                 and target["type"] == "scalar"
             )
-            tensor_map = self[0][target_key]  # always > 0 samples, see above
             if is_energy:
+                tensor_map = self[0][target_key]  # always > 0 samples, see above
                 if len(tensor_map) != 1:
                     raise ValueError("Energy TensorMaps should have exactly one block.")
                 add_position_gradients = tensor_map.block().has_gradient("positions")
@@ -436,13 +439,34 @@ class DiskDataset(torch.utils.data.Dataset):
                 )
                 _check_tensor_map_metadata(tensor_map, target_info.layout)
                 target_info_dict[target_key] = target_info
+
+            # For "spherical_atomic_basis_{}" targets, the rules on metadata are relaxed
+            # such that 'generic' target info with the correct metadata cannot be
+            # constructed from the information in `target_config`. Instead, construct a
+            # TargetInfo object directly, with metadata read in from a pre-defined
+            # TensorMap on disk at "layout.mts". In any case, the metadata structure
+            # will be checked in the constructor of `TargetInfo`.
+            elif target["type"].startswith("spherical_atomic_basis"):
+                # TODO: read this in generically and properly. Requires a
+                # "layout_{target_name}.mts" to exist.
+                tensor_map = _wrapped_metatensor_read("layout_hamiltonian.mts")
+
+                target_info_dict[target_key] = TargetInfo(
+                    quantity=target["quantity"],
+                    unit=target["unit"],
+                    layout=tensor_map,
+                )
+
+            # All other targets are treated as 'generic'
             else:
+                tensor_map = self[0][target_key]  # always > 0 samples, see above
                 target_info = get_generic_target_info(target)
                 _check_tensor_map_metadata(tensor_map, target_info.layout)
-                # make sure that the properties of the target_info.layout also match the
-                # actual properties of the tensor maps
-                target_info.layout = _empty_tensor_map_like(tensor_map)
+                # make sure that the properties of the target_info.layout also match
+                # the actual properties of the tensor maps
+                target_info.layout = tensor_map
                 target_info_dict[target_key] = target_info
+
         return target_info_dict
 
 
