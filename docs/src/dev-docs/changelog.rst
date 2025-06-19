@@ -27,7 +27,7 @@ Unreleased
 Added
 #####
 
-- Added a refactored composition model `MetatranCompositionModel` to be be phased in to
+- Added a refactored composition model ``MetatranCompositionModel`` to be be phased in to
   individual architectures. This can be used as a standalone model and will be extended
   to support more complex targets in the future.
 
