@@ -12,9 +12,12 @@ from ...external_naming import to_external_name
 
 
 def clean_xyz_name(name: str) -> str:
-    """
-    Replaces ASE extxyz protected characters with '_'.
+    """Replaces ASE extxyz protected characters with '_'.
+
     Replaces: '=', '\"', ',', '[', ']', '{', '}', '\\', ':'.
+
+    :param name: name to be cleaned.
+    :return: cleaned name.
     """
     pattern = r"[\s=\",\[\]\{\}\\:]"
     return re.sub(pattern, "_", name)
