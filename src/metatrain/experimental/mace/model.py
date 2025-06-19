@@ -83,6 +83,10 @@ class MetaMACE(ModelInterface):
             "features": ModelOutput(unit="", per_atom=True)
         }
         self.output_shapes: Dict[str, Dict[str, List[int]]] = {}
+        self.key_labels: Dict[str, Labels] = {}
+        self.component_labels: Dict[str, List[List[Labels]]] = {}
+        self.property_labels: Dict[str, List[Labels]] = {}
+        self.heads: Dict[str, torch.nn.Module] = {}
         for target_name, target_info in dataset_info.targets.items():
             self._add_output(target_name, target_info)
 
@@ -176,7 +180,7 @@ class MetaMACE(ModelInterface):
             n_types=len(self.atomic_types),
         )
 
-        output = self.mace_model(data, training=self.training)
+        mace_output = self.mace_model(data, training=self.training)
 
         device = systems[0].device
 
@@ -187,20 +191,20 @@ class MetaMACE(ModelInterface):
 
         return_dict: Dict[str, TensorMap] = {}
 
-        return_dict["energy"] = TensorMap(
-            keys=Labels.single(),
-            blocks=[
-                TensorBlock(
-                    values=output["energy"].reshape(-1, 1),
-                    samples=sample_labels,
-                    components=[],
-                    properties=Labels(
-                        names=["energy"],
-                        values=torch.tensor([[0]], device=device),
-                    ),
-                )
-            ]
-        )
+        # return_dict["energy"] = TensorMap(
+        #     keys=Labels.single(),
+        #     blocks=[
+        #         TensorBlock(
+        #             values=mace_output["energy"].reshape(-1, 1),
+        #             samples=sample_labels,
+        #             components=[],
+        #             properties=Labels(
+        #                 names=["energy"],
+        #                 values=torch.tensor([[0]], device=device),
+        #             ),
+        #         )
+        #     ]
+        # )
 
         # output the hidden features, if requested:
         # if "features" in outputs:
@@ -230,51 +234,80 @@ class MetaMACE(ModelInterface):
         # for output_name, head in self.heads.items():
         #     atomic_features_dict[output_name] = head(node_features)
 
+        system_indices = torch.concatenate(
+            [
+                torch.full(
+                    (len(system),),
+                    i_system,
+                    device=device,
+                )
+                for i_system, system in enumerate(systems)
+            ],
+        )
+
+        sample_values = torch.stack(
+            [
+                system_indices,
+                torch.concatenate(
+                    [
+                        torch.arange(
+                            len(system),
+                            device=device,
+                        )
+                        for system in systems
+                    ],
+                ),
+            ],
+            dim=1,
+        )
+        atom_sample_labels = Labels(
+            names=["system", "atom"],
+            values=sample_values,
+        )
+
+        node_features = mace_output["node_feats"]
         # # output the last-layer features for the outputs, if requested:
-        # for output_name in outputs.keys():
-        #     if not (
-        #         output_name.startswith("mtt::aux::")
-        #         and output_name.endswith("_last_layer_features")
-        #     ):
-        #         continue
-        #     base_name = output_name.replace("mtt::aux::", "").replace(
-        #         "_last_layer_features", ""
-        #     )
-        #     # the corresponding output could be base_name or mtt::base_name
-        #     if (
-        #         f"mtt::{base_name}" not in atomic_features_dict
-        #         and base_name not in atomic_features_dict
-        #     ):
-        #         raise ValueError(
-        #             f"Features {output_name} can only be requested "
-        #             f"if the corresponding output {base_name} is also requested."
-        #         )
-        #     if f"mtt::{base_name}" in atomic_features_dict:
-        #         base_name = f"mtt::{base_name}"
-        #     last_layer_feature_tmap = TensorMap(
-        #         keys=self.single_label,
-        #         blocks=[
-        #             TensorBlock(
-        #                 values=atomic_features_dict[base_name],
-        #                 samples=sample_labels,
-        #                 components=[],
-        #                 properties=Labels(
-        #                     names=["properties"],
-        #                     values=torch.arange(
-        #                         atomic_features_dict[base_name].shape[-1],
-        #                         device=atomic_features_dict[base_name].device,
-        #                     ).reshape(-1, 1),
-        #                 ),
-        #             )
-        #         ],
-        #     )
-        #     last_layer_features_options = outputs[output_name]
-        #     if last_layer_features_options.per_atom:
-        #         return_dict[output_name] = last_layer_feature_tmap
-        #     else:
-        #         return_dict[output_name] = sum_over_atoms(
-        #             last_layer_feature_tmap,
-        #         )
+        for output_name in outputs.keys():
+            node_target = self.heads[output_name](node_features)
+
+            atom_target = TensorMap(
+                keys=self.key_labels[output_name],
+                blocks=[
+                    TensorBlock(
+                        values=node_target.reshape(*node_target.shape, 1),
+                        samples=atom_sample_labels,
+                        components=self.component_labels[output_name][0],
+                        properties=self.property_labels[output_name][0],
+                    )
+                ]
+            )
+
+            return_dict[output_name] = sum_over_atoms(atom_target)
+
+            # last_layer_feature_tmap = TensorMap(
+            #     keys=self.single_label,
+            #     blocks=[
+            #         TensorBlock(
+            #             values=atomic_features_dict[base_name],
+            #             samples=sample_labels,
+            #             components=[],
+            #             properties=Labels(
+            #                 names=["properties"],
+            #                 values=torch.arange(
+            #                     atomic_features_dict[base_name].shape[-1],
+            #                     device=atomic_features_dict[base_name].device,
+            #                 ).reshape(-1, 1),
+            #             ),
+            #         )
+            #     ],
+            # )
+            # last_layer_features_options = outputs[output_name]
+            # if last_layer_features_options.per_atom:
+            #     return_dict[output_name] = last_layer_feature_tmap
+            # else:
+            #     return_dict[output_name] = sum_over_atoms(
+            #         last_layer_feature_tmap,
+            #     )
 
         # atomic_properties_tmap_dict: Dict[str, TensorMap] = {}
         # for output_name, last_layer in self.last_layers.items():
@@ -442,10 +475,15 @@ class MetaMACE(ModelInterface):
 
         # one output shape for each tensor block, grouped by target (i.e. tensormap)
         self.output_shapes[target_name] = {}
+        irreps = []
         for key, block in target_info.layout.items():
             dict_key = target_name
             for n, k in zip(key.names, key.values):
                 dict_key += f"_{n}_{int(k)}"
+                if n == "o3_lambda":
+                    l = int(k)
+                    multiplicity = len(block.properties.values)
+                    irreps.append((multiplicity, (l, (-1)**l))) 
             self.output_shapes[target_name][dict_key] = [
                 len(comp.values) for comp in block.components
             ] + [len(block.properties.values)]
@@ -455,6 +493,18 @@ class MetaMACE(ModelInterface):
             unit=target_info.unit,
             per_atom=True,
         )
+
+        hidden_irreps = o3.Irreps(self.hypers["hidden_irreps"])
+        n_scalars = hidden_irreps.count((0, 1)) 
+        mace_out_irreps = o3.Irreps([(n_scalars, (0, 1))]) + hidden_irreps * (self.hypers["num_interactions"] - 1)
+
+        
+        self.heads[target_name] = o3.Linear(
+            irreps_in=mace_out_irreps,
+            irreps_out=o3.Irreps(irreps)
+        )
+
+        self.heads[target_name].to(torch.float64)
         # if (
         #     target_name not in self.head_types  # default to MLP
         #     or self.head_types[target_name] == "mlp"
@@ -493,13 +543,13 @@ class MetaMACE(ModelInterface):
         #     }
         # )
 
-        # self.key_labels[target_name] = target_info.layout.keys
-        # self.component_labels[target_name] = [
-        #     block.components for block in target_info.layout.blocks()
-        # ]
-        # self.property_labels[target_name] = [
-        #     block.properties for block in target_info.layout.blocks()
-        # ]
+        self.key_labels[target_name] = target_info.layout.keys
+        self.component_labels[target_name] = [
+            block.components for block in target_info.layout.blocks()
+        ]
+        self.property_labels[target_name] = [
+            block.properties for block in target_info.layout.blocks()
+        ]
 
 
 def manual_prod(shape: List[int]) -> int:
