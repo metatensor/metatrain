@@ -321,7 +321,7 @@ class Trainer(TrainerInterface):
                     predictions, systems, per_structure_targets
                 )
                 targets = average_by_num_atoms(targets, systems, per_structure_targets)
-
+                
                 train_loss_batch = loss_fn(predictions, targets)
                 train_loss_batch.backward()
                 torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
