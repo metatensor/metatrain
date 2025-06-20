@@ -24,12 +24,6 @@ changelog <https://keepachangelog.com/en/1.1.0/>`_ format. This project follows
 Unreleased
 ----------
 
-Added
-#####
-
-- Added a refactored composition model ``MetatranCompositionModel`` to be be phased in to
-  individual architectures. This can be used as a standalone model and will be extended
-  to support more complex targets in the future.
 
 Version 2025.8 - 2025-06-11
 ---------------------------

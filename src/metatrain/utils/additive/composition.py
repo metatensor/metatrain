@@ -12,7 +12,7 @@ from ..jsonschema import validate
 from ._base_composition import BaseCompositionModel
 
 
-class MetatrainCompositionModel(torch.nn.Module):
+class CompositionModel(torch.nn.Module):
     """
     A simple model that calculates the per-species contributions to targets
     based on the stoichiometry in a system.
@@ -83,7 +83,7 @@ class MetatrainCompositionModel(torch.nn.Module):
     ) -> None:
         self.model.fit(dataloader)
 
-    def restart(self, dataset_info: DatasetInfo) -> "MetatrainCompositionModel":
+    def restart(self, dataset_info: DatasetInfo) -> "CompositionModel":
         """Restart the model with a new dataset info.
 
         :param dataset_info: New dataset information to be used.
@@ -139,18 +139,12 @@ class MetatrainCompositionModel(torch.nn.Module):
         :raises ValueError: If no weights have been computed or if `outputs` keys
             contain unsupported keys.
         """
-        for output_name, output in outputs.items():
+        for output_name in outputs.keys():
             if output_name not in self.outputs:
                 raise ValueError(
                     f"Output {output_name} is not supported by the "
                     "composition model. Supported outputs are: "
                     f"{list(self.outputs.keys())}"
-                )
-            if output.quantity != self.outputs[output_name].quantity:
-                raise ValueError(
-                    f"Output {output_name} has a different quantity "
-                    f"({output.quantity}) than the expected one "
-                    f"({self.outputs[output_name].quantity})."
                 )
 
         return self.model.forward(

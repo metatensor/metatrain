@@ -12,7 +12,7 @@ from omegaconf import OmegaConf
 from metatrain.utils.additive import (
     ZBL,
     CompositionModel,
-    MetatrainCompositionModel,
+    OldCompositionModel,
     remove_additive,
 )
 from metatrain.utils.data import Dataset, DatasetInfo
@@ -30,7 +30,7 @@ from metatrain.utils.neighbor_lists import (
 RESOURCES_PATH = Path(__file__).parents[1] / "resources"
 
 
-def test_composition_model_train():
+def test_old_composition_model_train():
     """Test the calculation of composition weights for a per-structure scalar."""
 
     # Here we use three synthetic structures:
@@ -88,7 +88,7 @@ def test_composition_model_train():
     ]
     dataset = Dataset.from_dict({"system": systems, "energy": energies})
 
-    composition_model = CompositionModel(
+    composition_model = OldCompositionModel(
         model_hypers={},
         dataset_info=DatasetInfo(
             length_unit="angstrom",
@@ -155,7 +155,7 @@ def test_composition_model_train():
     )
 
 
-def test_new_composition_model_train():
+def test_composition_model_train():
     """Test the calculation of composition weights for a per-structure scalar."""
 
     # Here we use three synthetic structures:
@@ -214,7 +214,7 @@ def test_new_composition_model_train():
     dataset = Dataset.from_dict({"system": systems, "energy": energies})
     dataloader = DataLoader(dataset, batch_size=1)
 
-    composition_model = MetatrainCompositionModel(
+    composition_model = CompositionModel(
         model_hypers={},
         dataset_info=DatasetInfo(
             length_unit="angstrom",
@@ -252,7 +252,7 @@ def test_new_composition_model_train():
     )
 
 
-def test_composition_model_predict():
+def test_old_composition_model_predict():
     """Test the prediction of composition energies."""
 
     dataset_path = RESOURCES_PATH / "qm9_reduced_100.xyz"
@@ -277,7 +277,7 @@ def test_composition_model_predict():
     targets, target_info = read_targets(OmegaConf.create(conf))
     dataset = Dataset.from_dict({"system": systems, "mtt::U0": targets["mtt::U0"]})
 
-    composition_model = CompositionModel(
+    composition_model = OldCompositionModel(
         model_hypers={},
         dataset_info=DatasetInfo(
             length_unit="angstrom",
@@ -331,7 +331,7 @@ def test_composition_model_predict():
     assert output["mtt::U0"].block().values.shape == (1, 1)
 
 
-def test_new_composition_model_predict():
+def test_composition_model_predict():
     """Test the prediction of composition energies."""
 
     dataset_path = RESOURCES_PATH / "qm9_reduced_100.xyz"
@@ -357,7 +357,7 @@ def test_new_composition_model_predict():
     dataset = Dataset.from_dict({"system": systems, "mtt::U0": targets["mtt::U0"]})
     dataloader = DataLoader(dataset, batch_size=1)
 
-    composition_model = MetatrainCompositionModel(
+    composition_model = CompositionModel(
         model_hypers={},
         dataset_info=DatasetInfo(
             length_unit="angstrom",
@@ -417,7 +417,7 @@ def test_new_composition_model_predict():
     assert output["mtt::U0"].block().values.shape == (1, 1)
 
 
-def test_composition_model_torchscript(tmpdir):
+def test_old_composition_model_torchscript(tmpdir):
     """Test the torchscripting, saving and loading of the composition model."""
     system = System(
         positions=torch.tensor([[0.0, 0.0, 0.0]], dtype=torch.float64),
@@ -426,7 +426,7 @@ def test_composition_model_torchscript(tmpdir):
         pbc=torch.tensor([True, True, True]),
     )
 
-    composition_model = CompositionModel(
+    composition_model = OldCompositionModel(
         model_hypers={},
         dataset_info=DatasetInfo(
             length_unit="angstrom",
@@ -448,7 +448,7 @@ def test_composition_model_torchscript(tmpdir):
     )
 
 
-def test_new_composition_model_torchscript(tmpdir):
+def test_composition_model_torchscript(tmpdir):
     """Test the torchscripting, saving and loading of the composition model."""
     system = System(
         positions=torch.tensor([[0.0, 0.0, 0.0]], dtype=torch.float64),
@@ -457,7 +457,7 @@ def test_new_composition_model_torchscript(tmpdir):
         pbc=torch.tensor([True, True, True]),
     )
 
-    composition_model = MetatrainCompositionModel(
+    composition_model = CompositionModel(
         model_hypers={},
         dataset_info=DatasetInfo(
             length_unit="angstrom",
@@ -504,7 +504,7 @@ def test_remove_additive():
     targets, target_info = read_targets(OmegaConf.create(conf))
     dataset = Dataset.from_dict({"system": systems, "mtt::U0": targets["mtt::U0"]})
 
-    composition_model = CompositionModel(
+    composition_model = OldCompositionModel(
         model_hypers={},
         dataset_info=DatasetInfo(
             length_unit="angstrom",
@@ -526,7 +526,7 @@ def test_remove_additive():
     assert std_after < 100.0 * std_before
 
 
-def test_composition_model_missing_types(caplog):
+def test_old_composition_model_missing_types(caplog):
     """
     Test the error when there are too many types in the dataset
     compared to those declared at initialization.
@@ -587,7 +587,7 @@ def test_composition_model_missing_types(caplog):
     ]
     dataset = Dataset.from_dict({"system": systems, "energy": energies})
 
-    composition_model = CompositionModel(
+    composition_model = OldCompositionModel(
         model_hypers={},
         dataset_info=DatasetInfo(
             length_unit="angstrom",
@@ -601,7 +601,7 @@ def test_composition_model_missing_types(caplog):
     ):
         composition_model.train_model(dataset, [])
 
-    composition_model = CompositionModel(
+    composition_model = OldCompositionModel(
         model_hypers={},
         dataset_info=DatasetInfo(
             length_unit="angstrom",
@@ -615,12 +615,12 @@ def test_composition_model_missing_types(caplog):
     assert "do not contain atomic types" in caplog.text
 
 
-def test_composition_model_wrong_target():
+def test_old_composition_model_wrong_target():
     """
     Test the error when a non-scalar is fed to the composition model.
     """
     with pytest.raises(ValueError, match="does not support target quantity force"):
-        CompositionModel(
+        OldCompositionModel(
             model_hypers={},
             dataset_info=DatasetInfo(
                 length_unit="angstrom",
@@ -721,7 +721,7 @@ def test_zbl():
 
 
 @pytest.mark.parametrize("where_is_center_type", ["keys", "samples", "nowhere"])
-def test_composition_model_train_per_atom(where_is_center_type):
+def test_old_composition_model_train_per_atom(where_is_center_type):
     """Test the calculation of composition weights for a per-atom scalar."""
 
     # Here we use two synthetic structures:
@@ -793,7 +793,7 @@ def test_composition_model_train_per_atom(where_is_center_type):
     energies = [tensor_map_1, tensor_map_2]
     dataset = Dataset.from_dict({"system": systems, "energy": energies})
 
-    composition_model = CompositionModel(
+    composition_model = OldCompositionModel(
         model_hypers={},
         dataset_info=DatasetInfo(
             length_unit="angstrom",
@@ -901,7 +901,7 @@ def test_composition_many_subtargets():
     ]
     dataset = Dataset.from_dict({"system": systems, "energy": energies})
 
-    composition_model = CompositionModel(
+    composition_model = OldCompositionModel(
         model_hypers={},
         dataset_info=DatasetInfo(
             length_unit="angstrom",
@@ -1028,7 +1028,7 @@ def test_composition_spherical():
     ]
     dataset = Dataset.from_dict({"system": systems, "energy": energies})
 
-    composition_model = CompositionModel(
+    composition_model = OldCompositionModel(
         model_hypers={},
         dataset_info=DatasetInfo(
             length_unit="angstrom",

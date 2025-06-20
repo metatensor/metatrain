@@ -1,6 +1,6 @@
 """
 Contains the ``BaseCompositionModel class. This is intended for eventual porting to
-metatomic. The class ``MetatrainCompositionModel`` wraps this to be compatible with
+metatomic. The class ``CompositionModel`` wraps this to be compatible with
 metatrain-style objects.
 """
 
@@ -21,8 +21,8 @@ class BaseCompositionModel(torch.nn.Module):
     composition of the system, i.e., the chemical identity of atoms in the system.
 
     Only invariant blocks of the specified targets are fitted, i.e. those indexed by
-    keys with a single name "_" (for scalars) or keys with including names "o3_lambda"
-    and "o3_sigma" (for spherical targets).
+    keys with a single name "_" (for scalars) or keys where "o3_lambda=0" and
+    "o3_sigma=1" (for spherical targets).
     """
 
     def __init__(
@@ -87,7 +87,7 @@ class BaseCompositionModel(torch.nn.Module):
             for target_name, layout in layouts.items()
         }
 
-        # Initialize dict of TensorMaps for XTX and XTY:
+        # Initialize dict of TensorMaps (one for each target) for XTX and XTY:
         #
         #  - XTX is a square matrix of shape (n_atomic_types, n_atomic_types)
         #  - XTY is a matrix of shape (n_atomic_types, n_components, n_properties)
@@ -315,8 +315,7 @@ class BaseCompositionModel(torch.nn.Module):
         for output_name, model_output in outputs.items():
             if output_name not in self.target_names:
                 raise ValueError(
-                    f"output key {output_name} is not supported by this composition "
-                    "model."
+                    f"output {output_name} is not supported by this composition model."
                 )
             weights = self.weights[output_name]
 

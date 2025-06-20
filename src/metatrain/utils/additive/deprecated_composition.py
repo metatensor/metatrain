@@ -1,4 +1,5 @@
 import logging
+import warnings
 from typing import Dict, List, Optional, Union
 
 import metatensor.torch
@@ -13,7 +14,7 @@ from ..transfer import systems_and_targets_to_device
 from .remove import remove_additive
 
 
-class CompositionModel(torch.nn.Module):
+class OldCompositionModel(torch.nn.Module):
     """A simple model that calculates the contributions to scalar targets
     based on the stoichiometry in a system.
 
@@ -27,6 +28,11 @@ class CompositionModel(torch.nn.Module):
     outputs: Dict[str, ModelOutput]
 
     def __init__(self, model_hypers: Dict, dataset_info: DatasetInfo):
+        warnings.warn(
+            "this composition model is deprecated. "
+            "Please use `CompositionModel` instead.",
+            stacklevel=1,
+        )
         super().__init__()
 
         # `model_hypers` should be an empty dictionary
@@ -339,7 +345,7 @@ class CompositionModel(torch.nn.Module):
                 ).to(device),
             )
 
-    def restart(self, dataset_info: DatasetInfo) -> "CompositionModel":
+    def restart(self, dataset_info: DatasetInfo) -> "OldCompositionModel":
         """Restart the model with a new dataset info.
 
         :param dataset_info: New dataset information to be used.
