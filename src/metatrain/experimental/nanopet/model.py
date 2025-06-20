@@ -15,7 +15,7 @@ from metatomic.torch import (
 )
 
 from metatrain.utils.abc import ModelInterface
-from metatrain.utils.additive import ZBL, CompositionModel
+from metatrain.utils.additive import ZBL, OldCompositionModel
 from metatrain.utils.data import DatasetInfo, TargetInfo
 from metatrain.utils.dtype import dtype_to_str
 from metatrain.utils.long_range import DummyLongRangeFeaturizer, LongRangeFeaturizer
@@ -152,7 +152,7 @@ class NanoPET(ModelInterface):
 
         # additive models: these are handled by the trainer at training
         # time, and they are added to the output at evaluation time
-        composition_model = CompositionModel(
+        composition_model = OldCompositionModel(
             model_hypers={},
             dataset_info=DatasetInfo(
                 length_unit=dataset_info.length_unit,
@@ -160,7 +160,7 @@ class NanoPET(ModelInterface):
                 targets={
                     target_name: target_info
                     for target_name, target_info in dataset_info.targets.items()
-                    if CompositionModel.is_valid_target(target_name, target_info)
+                    if OldCompositionModel.is_valid_target(target_name, target_info)
                 },
             ),
         )
@@ -223,7 +223,7 @@ class NanoPET(ModelInterface):
                 targets={
                     target_name: target_info
                     for target_name, target_info in dataset_info.targets.items()
-                    if CompositionModel.is_valid_target(target_name, target_info)
+                    if OldCompositionModel.is_valid_target(target_name, target_info)
                 },
             ),
         )
