@@ -536,49 +536,83 @@ class Trainer(TrainerInterface):
         return trainer
 
 
+def wrap_delta(delta, dipole_quantum, is_continuous: bool = True):
+    """
+    Wraps the delta vector into the dipole quantum.
+    Assumes dipole_quantum is a 3x3 matrix.
+    """
+    # Solve for the nearest shift by a dipole quantum
+    u = torch.bmm(torch.inverse(dipole_quantum), delta.unsqueeze(-1)).squeeze(-1)
+
+    if is_continuous:
+        return soft_round(u, beta=20)  # [N,3]
+    else:
+        n = torch.round(u)
+
+    shift = torch.bmm(dipole_quantum, n.unsqueeze(-1)).squeeze(-1)  # [N,3]
+    return delta - shift  # [N,3]
+
+
+def soft_round(u: torch.Tensor, beta: float = 1.0, K: int = 5) -> torch.Tensor:
+    """
+    Differentiable approximation of torch.round(u) via soft-argmin over integers.
+
+    For each element u_i, we consider k in [-K..K] and form
+        w_k = softmax(-beta * (u_i - k)^2)
+        n_i = sum_k k * w_k
+    As beta -> inf this recovers hard round(u_i), but remains fully smooth for
+    finite beta.
+
+    Args:
+        u:    Tensor of any shape.
+        beta: Inverse temperature (larger => sharper approximation).
+        K:    Maximum |k| to consider (usually 1 or 2).
+
+    Returns:
+        Tensor of same shape as u, with values ≈ round(u).
+    """
+    # Build candidate integer shifts k = [-K, ..., 0, ..., +K]
+    device, dtype = u.device, u.dtype
+    ks = torch.arange(-K, K + 1, device=device, dtype=dtype)  # [2K+1]
+    # Broadcast u to [..., 1] so that we can subtract ks
+    u_exp = u.unsqueeze(-1)  # [..., 1]
+    # Residuals to each k: [..., 2K+1]
+    r = u_exp - ks  # [..., 2K+1]
+    # Soft weights via Gaussian kernel + softmax
+    w = torch.nn.functional.softmax(-beta * r.pow(2), dim=-1)  # [..., 2K+1]
+    # Soft-argmin: expected k
+    return (w * ks).sum(dim=-1)
+
+
 def compute_modulo_dipole_quantum(predictions, targets, systems):
     """
-    Assumes Cartesian dipoles being in e * length units
+    Assumes dipoles being in e * length units
     Computes the modulo dipole quantum for each system in the batch.
     """
 
+    is_spherical = False
     out = {}
     for k in predictions:
+
+        if k != "mtt::dipole":
+            out[k] = predictions[k]
+            continue
+
+        if "o3_lambda" in predictions[k].keys[0].names:
+            is_spherical = True
+
         pred_values = predictions[k][0].values.squeeze(-1)  # (N, 3)
         target_values = targets[k][0].values.squeeze(-1)  # (N, 3)
 
         delta = pred_values - target_values  # (N, 3)
-        delta = torch.roll(delta, shifts=1, dims=1)
+        if is_spherical:
+            delta = torch.roll(delta, shifts=1, dims=1)
 
-        # Calculate the dipole quantum (columns = quantum vectors TODO: check)
         dipole_quantum = torch.stack([system.cell for system in systems])
+        delta = wrap_delta(delta, dipole_quantum)
 
-        # Invert each lattice matrix (N, 3, 3)
-        B_inv = torch.linalg.inv(dipole_quantum)  # Each row has its own inverse
-
-        # Transform delta into fractional coordinates (N, 1, 3) x (N, 3, 3) -> (N, 3)
-        # coeffs = torch.bmm(delta.unsqueeze(1), B_inv).squeeze(1)
-        coeffs = torch.einsum(
-            "nab,nb->na", B_inv, delta
-        )  # (N, 3) - this is the fractional coordinates
-
-        # Round to nearest lattice vector
-        coeffs_rounded = torch.round(coeffs)
-
-        print(coeffs_rounded, pred_values, target_values)
-
-        # Convert back to Cartesian
-        lattice_vecs = torch.bmm(
-            coeffs_rounded.unsqueeze(1), dipole_quantum.transpose(1, 2)
-        ).squeeze(
-            1
-        )  # (N, 3)
-
-        # Minimal image difference
-        delta = delta - lattice_vecs
-        delta = torch.roll(delta, shifts=-1, dims=1)
-
-        # FIXME Divide by 2 somewhere?
+        if is_spherical:
+            delta = torch.roll(delta, shifts=-1, dims=1)
 
         out[k] = mts.TensorMap(
             predictions[k].keys,
