@@ -132,7 +132,13 @@ ignore_missing_imports = true
 [tool.pytest.ini_options]
 # ignore" a bunch of internal warnings with Python 3.13 and PyTorch
 filterwarnings = [
+    "error",
+    # PyTorch deprecation warnings
     "ignore:ast.Str is deprecated and will be removed in Python 3.14:DeprecationWarning",
     "ignore:Attribute s is deprecated and will be removed in Python 3.14:DeprecationWarning",
     "ignore:ast.NameConstant is deprecated and will be removed in Python 3.14:DeprecationWarning",
+    # PyTorch does not want these, but mypy requires them
+    "ignore:The TorchScript type system doesn't support instance-level annotations on empty non-base types",
+    # Sphericart double backward warning
+    "ignore:Second derivatives of the spherical harmonics with respect to the Cartesian coordinates were not requested at class creation."
 ]
