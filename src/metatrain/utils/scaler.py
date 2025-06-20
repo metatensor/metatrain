@@ -32,9 +32,6 @@ class Scaler(torch.nn.Module):
         target quantities and atomic types.
     """
 
-    outputs: Dict[str, ModelOutput]
-    scales: torch.Tensor
-
     def __init__(self, model_hypers: Dict, dataset_info: DatasetInfo):
         super().__init__()
 
@@ -45,12 +42,12 @@ class Scaler(torch.nn.Module):
         )
 
         self.dataset_info = dataset_info
-
-        self.new_targets: Dict[str, TargetInfo] = dataset_info.targets
+        self.new_targets = dataset_info.targets
         self.outputs: Dict[str, ModelOutput] = {}
 
         # Initially, the scales are empty. They will be expanded as new outputs
         # are registered with `_add_output`.
+        self.scales: torch.Tensor  # mypy does not understand register_buffer
         self.register_buffer("scales", torch.ones((0,), dtype=torch.float64))
         self.output_name_to_output_index: Dict[str, int] = {}
         for target_name, target_info in self.dataset_info.targets.items():

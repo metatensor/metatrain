@@ -39,6 +39,7 @@ def test_long_range(periodicity, model_name, model_cls, tmpdir):
 
     hypers = get_default_hypers(model_name)
     hypers["model"]["long_range"]["enable"] = True
+    hypers["model"]["long_range"]["use_ewald"] = True
     model = model_cls(hypers["model"], dataset_info)
     requested_nls = get_requested_neighbor_lists(model)
 

@@ -104,7 +104,9 @@ def write_xyz(
                     )
 
         atoms = ase.Atoms(
-            symbols=system.types, positions=system.positions.detach(), info=info
+            symbols=system.types.numpy(),
+            positions=system.positions.detach().numpy(),
+            info=info,
         )
 
         # assign cell and pbcs

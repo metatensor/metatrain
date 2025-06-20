@@ -100,10 +100,7 @@ class PET(ModelInterface):
 
         self.register_buffer(
             "species_to_species_index",
-            torch.full(
-                (max(self.atomic_types) + 1,),
-                -1,
-            ),
+            torch.full((max(self.atomic_types) + 1,), -1),
         )
         for i, species in enumerate(self.atomic_types):
             self.species_to_species_index[species] = i

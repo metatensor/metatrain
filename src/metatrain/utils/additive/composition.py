@@ -69,6 +69,7 @@ class CompositionModel(torch.nn.Module):
         )
 
         self.outputs: Dict[str, ModelOutput] = {}
+
         for target_name, target_info in self.dataset_info.targets.items():
             self._add_output(target_name, target_info)
 
