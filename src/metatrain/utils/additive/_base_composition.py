@@ -23,6 +23,11 @@ class BaseCompositionModel(torch.nn.Module):
     Only invariant blocks of the specified targets are fitted, i.e. those indexed by
     keys with a single name "_" (for scalars) or keys where "o3_lambda=0" and
     "o3_sigma=1" (for spherical targets).
+
+    The :py:method:`accumulate` method is used to accumulate the necessary quantities
+    based on the training data, and the :py:method:`fit` method is used to
+    fit the model based on the accumulated quantities. These should both be called
+    before the :py:method:`forward` method is called to compute the predictions.
     """
 
     def __init__(
@@ -49,17 +54,6 @@ class BaseCompositionModel(torch.nn.Module):
 
             elif layout.sample_names == ["system", "atom"]:
                 sample_kinds[target_name] = "per_atom"
-
-            # TODO: per_pair sample kinds.
-            # elif layout.sample_names == [
-            #     "system",
-            #     "first_atom",
-            #     "second_atom",
-            #     "cell_shift_a",
-            #     "cell_shift_b",
-            #     "cell_shift_c",
-            # ]:
-            #     sample_kinds[target_name] = "per_pair"
 
             else:
                 raise ValueError(
@@ -95,8 +89,11 @@ class BaseCompositionModel(torch.nn.Module):
         # Both are initialized with zeros, and accumulated during fitting by iterating
         # over batches in the passed dataloader.
         #
-        # Then a linear system is solved for each target to obtain the
-        # composition weights, which are stored in the `weights` attribute.
+        # The weights are also a matrix of shape (n_atomic_types, n_components,
+        # n_properties), and are initialized for torchscript compatibility.
+        #
+        # Then a linear system is solved for each target to obtain the composition
+        # weights, which are stored in the `weights` attribute.
         self.XTX: Dict[str, TensorMap] = {
             target_name: TensorMap(
                 layout.keys,
@@ -176,17 +173,29 @@ class BaseCompositionModel(torch.nn.Module):
             )
             for target_name, layout in layouts.items()
         }
-        self.is_fitted: bool = False
 
-    def _accumulate(
+    def accumulate(
         self,
         systems: List[System],
         targets: Dict[str, TensorMap],
     ) -> None:
         """
-        Accumulates the necessary quantities (XTX and XTY) for the composition model
-        based on the provided systems and targets.
+        Takes a batch of systems and targets, and for each target accumulates the
+        necessary quantities (XTX and XTY).
         """
+        # check that the systems contain no unexpected atom types
+        reference_atomic_types = torch.tensor(self.atomic_types, dtype=torch.int32)
+        for system in systems:
+            if not torch.all(
+                torch.isin(system.types, reference_atomic_types)
+            ):
+                raise ValueError(
+                    "system contains unexpected atom types. "
+                    f"Expected atomic types: {self.atomic_types}, "
+                    f"found: {torch.unique(system.types)}"
+                )
+        
+        # accumulate
         for target_name, target in targets.items():
             for key, block in target.items():
                 if not _include_key(key):
@@ -198,10 +207,7 @@ class BaseCompositionModel(torch.nn.Module):
                 if self.sample_kinds[target_name] == "per_structure":
                     X = self._compute_X_per_structure(systems)
 
-                elif self.sample_kinds[target_name] in [
-                    "per_atom",
-                    # "per_pair"
-                ]:
+                elif self.sample_kinds[target_name] == "per_atom":
                     X = self._compute_X_per_atom(
                         systems, self._get_sliced_atomic_types(key)
                     )
@@ -220,77 +226,63 @@ class BaseCompositionModel(torch.nn.Module):
                     X, Y, dims=([0], [0])
                 )
 
-    def fit(self, dataloader: DataLoader) -> None:
+    def fit(
+        self,
+        fixed_weights: Optional[Dict[str, Dict[int, float]]] = None,
+    ) -> None:
         """
-        Iterates over the batches in ``dataloader`` and accumulates the necessary
-        quantities (XTX and XTY). Then, fits the compositions for each target.
-
-        Assumes the systems are stored in the ``system`` attribute of the batch.
+        Based on the pre-accumulated quantities from the training data, fits the
+        compositions for each target.
         """
 
         # TODO: add an option to pass a subset of the names of the targets to fit.
 
-        # accumulate
-        for batch in dataloader:
-            self._accumulate(
-                batch.system,
-                {target_name: batch[target_name] for target_name in self.target_names},
-            )
+        if fixed_weights is None:
+            fixed_weights = {}
 
         # fit
         for target_name in self.target_names:
             blocks = []
-            if self.sample_kinds[target_name] == "per_structure":
-                for key in self.XTX[target_name].keys:
-                    XTX_block = self.XTX[target_name][key]
-                    XTY_block = self.XTY[target_name][key]
-                    blocks.append(
-                        TensorBlock(
-                            values=_solve_linear_system(
-                                XTX_block.values, XTY_block.values
-                            ),
-                            samples=XTY_block.samples,
-                            components=XTY_block.components,
-                            properties=XTY_block.properties,
-                        )
+            for key in self.XTX[target_name].keys:
+                XTX_block = self.XTX[target_name][key]
+                XTY_block = self.XTY[target_name][key]
+
+                XTX_values = XTX_block.values
+                XTY_values = XTY_block.values
+
+                if target_name in fixed_weights:
+                    weight_vals = torch.vstack(
+                        [
+                            torch.full(
+                                (
+                                    1,
+                                    *[len(c) for c in XTY_block.components],
+                                    len(XTY_block.properties),
+                                ),
+                                fixed_weights[target_name][atomic_type],
+                                dtype=XTY_values.dtype,
+                                device=XTY_values.device,
+                            )
+                            for atomic_type in self.atomic_types
+                        ]
                     )
-
-            elif self.sample_kinds[target_name] in [
-                "per_atom",
-                # "per_pair",
-            ]:
-                blocks = []
-                for key in self.XTX[target_name].keys:
-                    XTX_block = self.XTX[target_name][key]
-                    XTY_block = self.XTY[target_name][key]
-
-                    XTX_values = XTX_block.values
-                    XTY_values = XTY_block.values
-
+                else:
                     XTY_shape = XTY_values.shape
                     if len(XTY_values.shape) != 2:
                         XTY_values = XTY_values.reshape(XTY_values.shape[0], -1)
+                    weight_vals = _solve_linear_system(XTX_values, XTY_values)
+                    weight_vals = weight_vals.reshape(*XTY_shape)
 
-                    weight_block = _solve_linear_system(XTX_values, XTY_values)
-                    weight_block = weight_block.reshape(*XTY_shape)
-
-                    blocks.append(
-                        TensorBlock(
-                            values=weight_block,
-                            samples=XTY_block.samples,
-                            components=XTY_block.components,
-                            properties=XTY_block.properties,
-                        )
+                blocks.append(
+                    TensorBlock(
+                        values=weight_vals,
+                        samples=XTY_block.samples,
+                        components=XTY_block.components,
+                        properties=XTY_block.properties,
                     )
-
-            else:
-                raise ValueError(
-                    f"unknown sample kind: {self.sample_kinds[target_name]}"
-                    f" for target {target_name}"
                 )
 
             self.weights[target_name] = TensorMap(self.XTX[target_name].keys, blocks)
-            self.is_fitted = True
 
     def forward(
         self,
@@ -350,10 +342,7 @@ class BaseCompositionModel(torch.nn.Module):
 
                 # TODO: add support for per_pair. As compositions are only fitted for
                 # on-site blocks this extension is simple, reusing the per_atom code.
-                elif self.sample_kinds[output_name] in [
-                    "per_atom",
-                    # "per_pair",
-                ]:
+                elif self.sample_kinds[output_name] == "per_atom":
                     sample_values = []
                     for A, system in enumerate(systems):
                         for i in torch.arange(len(system), dtype=torch.int32):
@@ -506,17 +495,6 @@ def _include_key(key: LabelsEntry) -> bool:
         elif "center_type" in key.names:
             if key["o3_lambda"] == 0 and key["o3_sigma"] == 1:
                 include_key = True
-
-        # TODO: for two-center targets include only invariant on-site blocks, assuming
-        # permutational symmetrization.
-        # elif "first_atom_type" in key.names and "second_atom_type" in key.names:
-        #   if (
-        #     key["o3_lambda"] == 0 and
-        #     key["o3_sigma"] == 1 and
-        #     key["s2_pi"] == 0 and
-        #     key["first_atom_type"] == key["second_atom_type"]
-        # ):
-        #     include_key = True
 
         else:
             raise ValueError("unknown target type")

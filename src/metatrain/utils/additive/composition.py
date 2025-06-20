@@ -53,7 +53,7 @@ class CompositionModel(torch.nn.Module):
                     "Please report this issue and help us improve!"
                 )
 
-        self.new_targets = {
+        self.target_infos = {
             target_name: target_info
             for target_name, target_info in dataset_info.targets.items()
         }
@@ -62,9 +62,9 @@ class CompositionModel(torch.nn.Module):
         self.model = BaseCompositionModel(
             atomic_types=self.atomic_types,
             layouts={
-                target_name: target.layout
-                for target_name, target in self.dataset_info.targets.items()
-            },
+                target_name: target_info.layout
+                for target_name, target_info in self.target_infos.items()
+            }
         )
 
         self.outputs: Dict[str, ModelOutput] = {}
@@ -77,14 +77,55 @@ class CompositionModel(torch.nn.Module):
     def train_model(
         self,
         dataloader: DataLoader,
-        # additive_models: List[torch.nn.Module],  # TODO: support this here?
-        # fixed_weights: Optional[Dict[str, Dict[int, str]]] = None,
-        # # TODO: support this here?
+        additive_models: List[torch.nn.Module],
+        fixed_weights: Optional[Dict[str, Dict[int, str]]] = None,
     ) -> None:
-        self.model.fit(dataloader)
+        """
+        Train the composition model on the provided training data in the ``dataloader``.
+        
+        Assumes the systems are stored in the ``system`` attribute of the batch. Targets
+        are expected to be in the batch as well, with keys corresponding to the target
+        names defined in the dataset info.
+
+        Any additive contributions from the provided ``additive_models`` will be
+        removed from the targets before training. The `fixed_weights` argument can be
+        used to specify which targets should be treated as fixed weights during
+        training.
+        """
+        if fixed_weights is None:
+            fixed_weights = {}
+
+        # accumulate
+        for batch in dataloader:
+            # only accumulate the targets that do not use fixed weights
+            targets = {
+                target_name: batch[target_name] 
+                for target_name in self.target_infos.keys()
+                if target_name not in fixed_weights
+            }
+            if len(targets) == 0:
+                break  # target field names are the same in all batches
+
+            # remove additive contributions from these targets
+            for additive_model in additive_models:
+                targets = remove_additive(  # remove other additive models
+                    batch.system,
+                    targets,
+                    additive_model,
+                    {
+                        target_name: target_info
+                        for target_name, target_info in self.target_infos.items()
+                        if target_name not in fixed_weights
+                    },
+                )
+            self.model.accumulate(batch.system, targets)
+
+        # fit
+        self.model.fit(fixed_weights)
 
     def restart(self, dataset_info: DatasetInfo) -> "CompositionModel":
-        """Restart the model with a new dataset info.
+        """
+        Restart the model with a new dataset info.
 
         :param dataset_info: New dataset information to be used.
         """
@@ -108,7 +149,7 @@ class CompositionModel(torch.nn.Module):
                 "The composition model does not support adding new atomic types."
             )
 
-        self.new_targets = {
+        self.target_infos = {
             target_name: target_info
             for target_name, target_info in merged_info.targets.items()
             if target_name not in self.dataset_info.targets
@@ -117,7 +158,7 @@ class CompositionModel(torch.nn.Module):
         self.dataset_info = merged_info
 
         # register new outputs
-        for target_name, target_info in self.new_targets.items():
+        for target_name, target_info in self.target_infos.items():
             self._add_output(target_name, target_info)
 
         return self
