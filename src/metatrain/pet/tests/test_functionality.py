@@ -546,7 +546,14 @@ def test_pet_rank_2(per_atom):
             )
         },
     )
-    model = PET(MODEL_HYPERS, dataset_info)
+
+    message = (
+        "PET assumes that Cartesian tensors of rank 2 are stress-like, "
+        "meaning that they are symmetric and intensive. "
+        "If this is not the case, please use a different model."
+    )
+    with pytest.warns(match=message):
+        model = PET(MODEL_HYPERS, dataset_info)
 
     system = System(
         types=torch.tensor([6]),

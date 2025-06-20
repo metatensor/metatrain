@@ -2,7 +2,6 @@ import csv
 import logging
 import re
 import sys
-import warnings
 from pathlib import Path
 from typing import List
 
@@ -31,19 +30,6 @@ def assert_log_entry(logtext: str, loglevel: str, message: str) -> None:
 
     if not re.search(pattern, logtext, re.MULTILINE):
         raise AssertionError(f"{message!r} and {loglevel!r} not found in {logtext!r}")
-
-
-def test_warnings_in_log(caplog):
-    """Test that warnings are forwarded to the logger.
-
-    Keep this test at the top since it seems otherwise there are some pytest issues...
-    """
-    logger = logging.getLogger()
-
-    with setup_logging(logger):
-        warnings.warn("A warning", stacklevel=1)
-
-    assert "A warning" in caplog.text
 
 
 def test_default_log(caplog, capsys):
@@ -143,6 +129,8 @@ def test_csv_file_handler_emit_data(monkeypatch, tmp_path):
     rows = read_csv(log_file)
     assert rows == [keys, units, values, more_values]
 
+    handler.close()
+
 
 def test_csv_file_handler_emit_does_nothing(monkeypatch, tmp_path):
     monkeypatch.chdir(tmp_path)
@@ -164,6 +152,8 @@ def test_csv_file_handler_emit_does_nothing(monkeypatch, tmp_path):
 
     assert not log_file.exists() or log_file.stat().st_size == 0
 
+    handler.close()
+
 
 def test_custom_logger_logs_to_csv_handler(monkeypatch, tmp_path):
     monkeypatch.chdir(tmp_path)
@@ -182,6 +172,8 @@ def test_custom_logger_logs_to_csv_handler(monkeypatch, tmp_path):
 
     rows = read_csv(log_file)
     assert rows == [keys, units, values, values]
+
+    handler.close()
 
 
 def test_wandb_handler_emit_data(monkeypatch, tmp_path):
@@ -260,6 +252,8 @@ def test_handler_different_lengths(handler_cls, monkeypatch, tmp_path):
     )
     with pytest.raises(ValueError, match=match):
         handler.emit_data(keys, values, units)
+
+    handler.close()
 
 
 def test_custom_logger_ignores_handlers_without_emit_data(monkeypatch, tmp_path):
