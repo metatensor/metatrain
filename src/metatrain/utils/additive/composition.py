@@ -10,6 +10,7 @@ from metatomic.torch import ModelOutput, System
 from ..data import DatasetInfo, TargetInfo
 from ..jsonschema import validate
 from ._base_composition import BaseCompositionModel
+from .remove import remove_additive
 
 
 class CompositionModel(torch.nn.Module):
@@ -64,7 +65,7 @@ class CompositionModel(torch.nn.Module):
             layouts={
                 target_name: target_info.layout
                 for target_name, target_info in self.target_infos.items()
-            }
+            },
         )
 
         self.outputs: Dict[str, ModelOutput] = {}
@@ -78,11 +79,11 @@ class CompositionModel(torch.nn.Module):
         self,
         dataloader: DataLoader,
         additive_models: List[torch.nn.Module],
-        fixed_weights: Optional[Dict[str, Dict[int, str]]] = None,
+        fixed_weights: Optional[Dict[str, Dict[int, float]]] = None,
     ) -> None:
         """
         Train the composition model on the provided training data in the ``dataloader``.
-        
+
         Assumes the systems are stored in the ``system`` attribute of the batch. Targets
         are expected to be in the batch as well, with keys corresponding to the target
         names defined in the dataset info.
@@ -99,7 +100,7 @@ class CompositionModel(torch.nn.Module):
         for batch in dataloader:
             # only accumulate the targets that do not use fixed weights
             targets = {
-                target_name: batch[target_name] 
+                target_name: batch[target_name]
                 for target_name in self.target_infos.keys()
                 if target_name not in fixed_weights
             }

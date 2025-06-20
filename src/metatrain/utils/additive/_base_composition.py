@@ -9,7 +9,6 @@ from typing import Dict, List, Optional
 import metatensor.torch as mts
 import torch
 from metatensor.torch import Labels, LabelsEntry, TensorBlock, TensorMap
-from metatensor.torch.learn.data import DataLoader
 from metatomic.torch import ModelOutput, System
 
 
@@ -186,15 +185,13 @@ class BaseCompositionModel(torch.nn.Module):
         # check that the systems contain no unexpected atom types
         reference_atomic_types = torch.tensor(self.atomic_types, dtype=torch.int32)
         for system in systems:
-            if not torch.all(
-                torch.isin(system.types, reference_atomic_types)
-            ):
+            if not torch.all(torch.isin(system.types, reference_atomic_types)):
                 raise ValueError(
                     "system contains unexpected atom types. "
                     f"Expected atomic types: {self.atomic_types}, "
                     f"found: {torch.unique(system.types)}"
                 )
-        
+
         # accumulate
         for target_name, target in targets.items():
             for key, block in target.items():

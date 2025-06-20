@@ -525,6 +525,7 @@ def test_old_remove_additive():
     # of the energies is reduced by a factor of over 100 upon removing the composition
     assert std_after < 100.0 * std_before
 
+
 def test_remove_additive():
     """Tests the remove_additive function."""
 
@@ -763,6 +764,7 @@ def test_old_composition_model_wrong_target():
             ),
         )
 
+
 def test_composition_model_wrong_target():
     """
     Test the error when a non-scalar is fed to the composition model.
@@ -987,6 +989,7 @@ def test_old_composition_model_train_per_atom(where_is_center_type):
     torch.testing.assert_close(
         output_O["energy"].block().values, torch.tensor([[1.5]], dtype=torch.float64)
     )
+
 
 @pytest.mark.parametrize("where_is_center_type", ["keys", "samples", "nowhere"])
 def test_composition_model_train_per_atom(where_is_center_type):
@@ -1218,6 +1221,7 @@ def test_old_composition_many_subtargets():
         output_O["energy"].block().values,
         torch.tensor([[1.0, 0.0]], dtype=torch.float64),
     )
+
 
 def test_composition_many_subtargets():
     """Test the calculation of composition weights for a per-structure scalar."""
@@ -1470,6 +1474,7 @@ def test_old_composition_spherical():
         output_O["energy"].block({"o3_lambda": 1}).values,
         torch.zeros_like(output_O["energy"].block({"o3_lambda": 1}).values),
     )
+
 
 def test_composition_spherical():
     """Test the calculation of composition weights for a per-structure scalar."""
