@@ -129,16 +129,15 @@ def test_huggingface(monkeypatch, tmp_path):
     model from HuggingFace."""
     monkeypatch.chdir(tmp_path)
 
-    HF_TOKEN = os.getenv("HUGGINGFACE_TOKEN_METATRAIN")
-    if HF_TOKEN is None:
+    hf_token = os.getenv("HUGGINGFACE_TOKEN_METATRAIN")
+    if hf_token is None or len(hf_token) == 0:
         pytest.skip("HuggingFace token not found in environment.")
-    assert len(HF_TOKEN) > 0
 
     command = [
         "mtt",
         "export",
         "https://huggingface.co/metatensor/metatrain-test/resolve/main/model.ckpt",
-        f"--token={HF_TOKEN}",
+        f"--token={hf_token}",
     ]
 
     output = "model.pt"
@@ -157,13 +156,13 @@ def test_huggingface(monkeypatch, tmp_path):
 def test_huggingface_env(monkeypatch, tmp_path):
     """Test that huggingphase export works with env variable."""
 
-    token = os.getenv("HUGGINGFACE_TOKEN_METATRAIN")
-    if token is None:
+    hf_token = os.getenv("HUGGINGFACE_TOKEN_METATRAIN")
+    if hf_token is None or len(hf_token) == 0:
         pytest.skip("HuggingFace token not found in environment.")
 
     monkeypatch.chdir(tmp_path)
     env = os.environ.copy()
-    env["HF_TOKEN"] = token
+    env["HF_TOKEN"] = hf_token
 
     assert len(env["HF_TOKEN"]) > 0
 

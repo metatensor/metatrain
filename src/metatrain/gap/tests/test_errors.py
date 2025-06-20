@@ -26,7 +26,7 @@ np.random.seed(0)
 torch.manual_seed(0)
 
 
-def test_ethanol_regression_train_and_invariance():
+def test_more_sparse_points_than_envs():
     """test the error if the number of sparse point
     is bigger than the number of environments
     """

@@ -17,14 +17,11 @@ from metatrain.utils.neighbor_lists import (
 from . import DATASET_PATH, DEFAULT_HYPERS, MODEL_HYPERS
 
 
-# reproducibility
-random.seed(0)
-np.random.seed(0)
-torch.manual_seed(0)
-
-
 def test_regression_init():
     """Perform a regression test on the model at initialization"""
+    random.seed(0)
+    np.random.seed(0)
+    torch.manual_seed(0)
 
     targets = {}
     targets["mtt::U0"] = get_energy_target_info({"unit": "eV"})
@@ -50,11 +47,11 @@ def test_regression_init():
 
     expected_output = torch.tensor(
         [
-            [-0.101833008230],
-            [-0.072022750974],
-            [0.049263622612],
-            [-0.041890706867],
-            [-0.038003440946],
+            [0.115978844464],
+            [0.074449732900],
+            [-0.024028975517],
+            [0.192573457956],
+            [-0.221303701401],
         ]
     )
 
@@ -66,8 +63,10 @@ def test_regression_init():
 
 
 def test_regression_train():
-    """Perform a regression test on the model when
-    trained for 2 epoch on a small dataset"""
+    """Regression test for the model when trained for 2 epoch on a small dataset"""
+    random.seed(0)
+    np.random.seed(0)
+    torch.manual_seed(0)
 
     systems = read_systems(DATASET_PATH)
 
@@ -122,11 +121,11 @@ def test_regression_train():
 
     expected_output = torch.tensor(
         [
-            [1.620890259743],
-            [5.662323951721],
-            [9.532886505127],
-            [4.712886810303],
-            [2.171051025391],
+            [1.643912792206],
+            [1.634970188141],
+            [5.043813705444],
+            [10.300852775574],
+            [2.965628623962],
         ]
     )
 

@@ -79,9 +79,8 @@ def test_load_model_token():
     model from HuggingFace."""
 
     hf_token = os.getenv("HUGGINGFACE_TOKEN_METATRAIN")
-    if hf_token is None:
+    if hf_token is None or len(hf_token) == 0:
         pytest.skip("HuggingFace token not found in environment.")
-    assert len(hf_token) > 0
 
     path = "https://huggingface.co/metatensor/metatrain-test/resolve/main/model.ckpt"
     load_model(path, hf_token=hf_token)
@@ -89,9 +88,8 @@ def test_load_model_token():
 
 def test_load_model_token_invalid_url_style():
     hf_token = os.getenv("HUGGINGFACE_TOKEN_METATRAIN")
-    if hf_token is None:
+    if hf_token is None or len(hf_token) == 0:
         pytest.skip("HuggingFace token not found in environment.")
-    assert len(hf_token) > 0
 
     # change `resolve` to ``foo`` to make the URL scheme invalid
     path = "https://huggingface.co/metatensor/metatrain-test/foo/main/model.ckpt"
