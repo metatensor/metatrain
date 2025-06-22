@@ -81,13 +81,20 @@ class TensorMapLoss:
     ) -> Tuple[torch.Tensor, Dict[str, Tuple[float, int]]]:
         # Check that the two have the same metadata, except for the samples,
         # which can be different due to batching, but must have the same size:
-        if predictions_tensor_map.keys != targets_tensor_map.keys:
+        if len(predictions_tensor_map.keys) != len(targets_tensor_map.keys):
             raise ValueError(
-                "TensorMapLoss requires the two TensorMaps to have the same keys."
+                "TensorMapSlidingLoss requires the two TensorMaps to have the "
+                "same number of keys."
             )
-        for block_1, block_2 in zip(
-            predictions_tensor_map.blocks(), targets_tensor_map.blocks()
-        ):
+        # check all keys are present in both TensorMaps
+        for key in targets_tensor_map.keys:
+            if key not in predictions_tensor_map.keys:
+                raise ValueError(
+                    f"TensorMapSlidingLoss requires the two TensorMaps to have the "
+                    f"same keys. Missing key {key} in predictions."
+                )
+            block_1 = predictions_tensor_map[key]
+            block_2 = targets_tensor_map[key]
             if block_1.properties != block_2.properties:
                 raise ValueError(
                     "TensorMapLoss requires the two TensorMaps to have the same "
@@ -247,7 +254,10 @@ class TensorMapDictLoss:
         tensor_map_dict_2: Dict[str, TensorMap],
     ) -> torch.Tensor:
         # Assert that the two have the keys:
-        assert set(tensor_map_dict_1.keys()) == set(tensor_map_dict_2.keys())
+        assert set(tensor_map_dict_1.keys()) == set(tensor_map_dict_2.keys()), (
+            tensor_map_dict_1.keys(),
+            tensor_map_dict_2.keys(),
+        )
 
         # Initialize the loss:
         first_values = next(iter(tensor_map_dict_1.values())).block(0).values

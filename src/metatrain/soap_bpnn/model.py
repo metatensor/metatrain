@@ -717,7 +717,7 @@ class SoapBpnn(ModelInterface):
         # register bases of spherical tensors (TensorBasis)
         self.num_properties[target_name] = {}
         self.basis_calculators[target_name] = torch.nn.ModuleDict({})
-        if target.is_scalar:
+        if target.target_type == "scalar":
             for key, block in target.layout.items():
                 dict_key = target_name
                 for n, k in zip(key.names, key.values):
@@ -732,7 +732,7 @@ class SoapBpnn(ModelInterface):
                     o3_sigma=1,
                     add_lambda_basis=self.hypers["add_lambda_basis"],
                 )
-        elif target.is_spherical:
+        elif target.target_type == "spherical":
             for key, block in target.layout.items():
                 dict_key = target_name
                 for n, k in zip(key.names, key.values):
@@ -755,7 +755,7 @@ class SoapBpnn(ModelInterface):
         if target_name not in self.head_types:  # default to linear head
             self.heads[target_name] = Identity()
         elif self.head_types[target_name] == "mlp":
-            if not target.is_scalar:
+            if not target.target_type == "scalar":
                 raise ValueError(
                     "MLP head is only supported for scalar targets, "
                     f"but target {target_name} is not scalar."

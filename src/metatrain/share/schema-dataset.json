@@ -142,7 +142,7 @@
                   "oneOf": [
                     {
                       "type": "string",
-                      "enum": ["scalar"]
+                      "enum": ["scalar", "spherical_atomic_basis"]
                     },
                     {
                       "type": "object",
