@@ -172,7 +172,7 @@ class TensorMapPointwiseLoss(LossBase):
     def __init__(
         self,
         name: str,
-        gradients: Optional[List[str]] = None,
+        gradient: Optional[str] = None,
         weight: float = 1.0,
         reduction: str = "mean",
         *,
@@ -181,7 +181,7 @@ class TensorMapPointwiseLoss(LossBase):
     ):
 
         self.target = name
-        self.gradients = gradients or []
+        self.gradient = gradient or None
         self.weight = weight
 
         self.loss_kwargs = loss_kwargs
@@ -206,15 +206,11 @@ class TensorMapPointwiseLoss(LossBase):
         pred_tensor = predictions[self.target]
         targ_tensor = targets[self.target]
 
-        gradients = self.gradients or [None]
-
-        for grad in gradients:
-            for key in pred_tensor.keys:
-                pred_block = pred_tensor.block(key)
-                targ_block = targ_tensor.block(key)
-
-                pred_parts.append(grab(pred_block, grad))
-                targ_parts.append(grab(targ_block, grad))
+        for key in pred_tensor.keys:
+            pred_block = pred_tensor.block(key)
+            targ_block = targ_tensor.block(key)
+            pred_parts.append(grab(pred_block, self.gradient))
+            targ_parts.append(grab(targ_block, self.gradient))
 
         # concatenate all parts into a single tensor
         all_pred = torch.cat(pred_parts)
@@ -330,7 +326,7 @@ class LossAggregator(LossBase):
 
             # losses on gradients
             all_grads = list(target.layout[0].gradients_list())
-            grad_cfgs = tgt_cfg.get("gradients", {})
+            grad_cfgs = tgt_cfg.get("gradients", {}) 
 
             for grad_name in all_grads:
 
@@ -342,9 +338,10 @@ class LossAggregator(LossBase):
                 grad_reduction = grad_cfg.get("reduction", main_reduction)
 
                 GradCls = LossRegistry.get(grad_type)
+
                 self.losses[key_grad] = GradCls(
                     name=target_name,
-                    gradients=[grad_name],
+                    gradient=grad_name,
                     weight=grad_weight,
                     reduction=grad_reduction,
                 )
