@@ -61,9 +61,10 @@ class TensorMapMSELoss(LossBase):
         self.weight = weight
         self.loss_fn = torch.nn.MSELoss(reduction=reduction)
 
-    def compute(self, predictions: Dict[str, TensorMap], batch: Any) -> torch.Tensor:
+    def compute(
+        self, predictions: Dict[str, TensorMap], targets: Dict[str, TensorMap]
+    ) -> torch.Tensor:
         pred_tm = predictions[self.target]
-        _, targets = batch
         tgt_tm = targets[self.target]
         loss = torch.zeros(
             (),
@@ -85,10 +86,10 @@ class TensorMapMAELoss(LossBase):
         self.weight = weight
         self.loss_fn = torch.nn.L1Loss(reduction=reduction)
 
-    def compute(self, predictions: Dict[str, TensorMap], batch: Any) -> torch.Tensor:
+    def compute(
+        self, predictions: Dict[str, TensorMap], targets: Dict[str, TensorMap]
+    ) -> torch.Tensor:
         pred_tm = predictions[self.target]
-        _, targets = batch
-
         tgt_tm = targets[self.target]
         loss = torch.zeros(
             (),
@@ -116,9 +117,10 @@ class TensorMapHuberLoss(LossBase):
         self.weight = weight
         self.loss_fn = torch.nn.HuberLoss(reduction=reduction, delta=delta)
 
-    def compute(self, predictions: Dict[str, TensorMap], batch: Any) -> torch.Tensor:
+    def compute(
+        self, predictions: Dict[str, TensorMap], targets: Dict[str, TensorMap]
+    ) -> torch.Tensor:
         pred_tm = predictions[self.target]
-        _, targets = batch
         tgt_tm = targets[self.target]
         loss = torch.zeros(
             (),
@@ -132,28 +134,10 @@ class TensorMapHuberLoss(LossBase):
         return self.weight * loss
 
 
-# Example of a user‐defined custom loss
-class PolarizationMSE(LossBase):
-    registry_name = "polarization_mse"
-
-    def __init__(self, name: str, weight: float = 1.0):
-        self.target = name  # e.g. 'polarization' or 'dipole' or 'dipole_moment'
-        self.weight = weight
-
-    def compute(self, predictions: Dict[str, TensorMap], batch: Any) -> torch.Tensor:
-        pred_tm = predictions[self.target]
-
-        # 1) Compute the polarization quanta
-        # 2) Compute the periodic difference
-        # 3) Compute the MSE loss
-
-        pass
-
-
 # --- aggregator -----------------------------------------------------------------------
 
 
-class TensorMapDictLoss(LossBase):
+class LossAggregator(LossBase):  # TensorMapDictLoss
     """Aggregate per-target sub-losses according to a config dict.
 
     Config example:
@@ -171,7 +155,9 @@ class TensorMapDictLoss(LossBase):
         self.config = config or {}
         self.losses: Dict[str, LossBase] = {}
 
-    def compute(self, predictions: Dict[str, TensorMap], batch: Any) -> torch.Tensor:
+    def compute(
+        self, predictions: Dict[str, TensorMap], targets: Dict[str, TensorMap]
+    ) -> torch.Tensor:
         # get device/dtype from first TensorMap
         first_tm = next(iter(predictions.values()))
         total = torch.zeros(
@@ -193,6 +179,6 @@ class TensorMapDictLoss(LossBase):
                 LossCls = LossRegistry.get(loss_type)
                 self.losses[target] = LossCls.from_config(params)
 
-            total = total + self.losses[target](predictions, batch)
+            total = total + self.losses[target](predictions, targets)
 
         return total

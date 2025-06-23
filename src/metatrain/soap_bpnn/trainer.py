@@ -9,7 +9,7 @@ from torch.utils.data import DataLoader, DistributedSampler
 
 from metatrain.utils.abc import TrainerInterface
 from metatrain.utils.additive import remove_additive
-from metatrain.utils.custom_loss import TensorMapDictLoss as LossAggregator
+from metatrain.utils.custom_loss import LossAggregator
 from metatrain.utils.data import (
     CombinedDataLoader,
     Dataset,
@@ -176,11 +176,13 @@ class Trainer(TrainerInterface):
                     sampler=train_sampler,
                     shuffle=(
                         # the sampler takes care of this (if present)
-                        train_sampler is None
+                        train_sampler
+                        is None
                     ),
                     drop_last=(
                         # the sampler takes care of this (if present)
-                        train_sampler is None
+                        train_sampler
+                        is None
                     ),
                     collate_fn=collate_fn,
                 )
