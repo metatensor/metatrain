@@ -483,18 +483,9 @@ def _include_key(key: LabelsEntry) -> bool:
     if len(key.names) == 1 and key.names[0] == "_":  # scalar
         include_key = True
 
-    if "o3_lambda" in key.names:
-        if key.names == ["o3_lambda", "o3_sigma"]:  # normal spherical target
-            if key["o3_lambda"] == 0 and key["o3_sigma"] == 1:
-                include_key = True
-
-        # For one-center targets include invariant blocks
-        elif "center_type" in key.names:
-            if key["o3_lambda"] == 0 and key["o3_sigma"] == 1:
-                include_key = True
-
-        else:
-            raise ValueError("unknown target type")
+    if "o3_lambda" in key.names and "o3_sigma" in key.names:
+        if key["o3_lambda"] == 0 and key["o3_sigma"] == 1:
+            include_key = True
 
     return include_key
 

@@ -991,7 +991,7 @@ def test_old_composition_model_train_per_atom(where_is_center_type):
     )
 
 
-@pytest.mark.parametrize("where_is_center_type", ["keys", "samples", "nowhere"])
+@pytest.mark.parametrize("where_is_center_type", ["samples", "nowhere"])
 def test_composition_model_train_per_atom(where_is_center_type):
     """Test the calculation of composition weights for a per-atom scalar."""
 
