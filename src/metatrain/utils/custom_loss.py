@@ -4,6 +4,8 @@ from abc import ABC, ABCMeta, abstractmethod
 from typing import Any, Dict, List, Optional, Type
 
 import torch
+from torch.nn.modules.loss import _Loss
+
 from metatensor.torch import TensorMap
 
 
