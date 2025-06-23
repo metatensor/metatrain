@@ -175,11 +175,13 @@ class Trainer(TrainerInterface):
                     sampler=train_sampler,
                     shuffle=(
                         # the sampler takes care of this (if present)
-                        train_sampler is None
+                        train_sampler
+                        is None
                     ),
                     drop_last=(
                         # the sampler takes care of this (if present)
-                        train_sampler is None
+                        train_sampler
+                        is None
                     ),
                     collate_fn=collate_fn,
                 )
@@ -212,14 +214,19 @@ class Trainer(TrainerInterface):
         # Create a loss function:
         loss_hypers = copy.deepcopy(self.hypers.get("loss", {}))
         loss_fn = LossAggregator(
-            target_names=list(train_targets.keys()),
+            targets=train_targets,
             config=loss_hypers,
         )
         logging.info("Using the following loss functions:")
         for name, loss in loss_fn.losses.items():
+            if name.split("_")[-1] == "gradients":
+                # this is a gradient loss, we will not log it
+                continue
             logging.info(
                 f"\t'{name}': type: '{loss.registry_name}' with weight: {loss.weight}"
             )
+            if loss.loss_kwargs:
+                logging.info(f"\t\twith loss kwargs: {loss.loss_kwargs}")
 
         # Create an optimizer:
         optimizer = torch.optim.Adam(

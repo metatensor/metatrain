@@ -24,9 +24,8 @@ class LossRegistry(ABCMeta):
                 key = "".join(
                     f"_{c.lower()}" if c.isupper() else c for c in name
                 ).lstrip("_")
-            if key in mcs._registry:
-                raise KeyError(f"Loss '{key}' already registered")
-            mcs._registry[key] = cls
+            # only register the very first class under each key
+            mcs._registry.setdefault(key, cls)
         return cls
 
     @classmethod
@@ -58,197 +57,316 @@ class LossBase(ABC, metaclass=LossRegistry):
 # --- specific losses ------------------------------------------------------------------
 
 
-class TensorMapMSELoss(LossBase):
+# class TensorMapMSELossWithSliding(LossBase):
+#     registry_name = "mse_sliding"
+
+#     def __init__(
+#         self,
+#         name: str,
+#         weight: float = 1.0,
+#         reduction: str = "mean",
+#         *,
+#         gradient_weights: Optional[Dict[str, float]] = None,
+#         sliding_factor: Optional[float] = None,
+#     ):
+#         self.target = name
+
+#         if gradient_weights is None:
+#             gradient_weights = {}
+#         loss_fns = {}
+#         loss_fns[self.target] = torch.nn.MSELoss(reduction=reduction)
+#         for key in gradient_weights.keys():
+#             loss_fns[f"{self.target}_{key}"] = torch.nn.MSELoss(reduction=reduction)
+#         self.loss_fns = loss_fns
+
+#         self.weight = weight
+#         self.gradient_weights = gradient_weights
+#         self.sliding_factor = sliding_factor
+#         self.sliding_weights: Optional[Dict[str, TensorMap]] = None
+
+#     def compute(
+#         self, predictions: Dict[str, TensorMap], targets: Dict[str, TensorMap]
+#     ) -> torch.Tensor:
+
+#         pred_tm = predictions[self.target]
+#         tgt_tm = targets[self.target]
+
+#         # IMPLEMENT CHECK ROUTINE
+
+#         # First time the function is called: compute the sliding weights only
+#         # from the targets (if they are enabled)
+#         if self.sliding_factor is not None and self.sliding_weights is None:
+#             self.sliding_weights = get_sliding_weights(
+#                 self.losses,
+#                 self.sliding_factor,
+#                 tgt_tm,
+#             )
+
+#         loss = torch.zeros(
+#             (),
+#             dtype=pred_tm.block(0).values.dtype,
+#             device=pred_tm.block(0).values.device,
+#         )
+
+#         for key in pred_tm.keys:
+
+#             pred_block = pred_tm.block(key)
+#             targ_block = tgt_tm.block(key)
+#             pred_values = pred_block.values
+#             targ_values = targ_block.values
+
+#             # sliding weights: default to 1.0 if not used/provided for this target
+#             sliding_weight = (
+#                 1.0
+#                 if self.sliding_weights is None
+#                 else self.sliding_weights.get("values", 1.0)
+#             )
+
+#             # loss on the main values with the sliding weight
+#             loss += (
+#                 self.weight
+#                 * self.losses["values"](pred_values, targ_values)
+#                 / sliding_weight
+#             )
+
+#             for gradient_name in targ_block.gradients_list():  # check if this works
+
+#                 target_and_gradient = f"{self.target}_{gradient_name}"
+
+#                 gradient_weight = self.gradient_weights.get(target_and_gradient, 1.0)
+
+#                 pred_values = pred_block.gradient(gradient_name).values
+#                 targ_values = targ_block.gradient(gradient_name).values
+
+#                 loss += gradient_weight * self.losses[target_and_gradient](
+#                     pred_values, targ_values
+#                 )
+
+#                 # sliding_weight = (
+#                 #     1.0
+#                 #     if self.sliding_weights is None
+#                 #     else self.sliding_weights.get(target_and_gradient, 1.0)
+#                 # )
+#                 # loss += (
+#                 #     gradient_weight
+#                 #     * self.losses[target_and_gradient](pred_values, targ_values)
+#                 #     / sliding_weight
+#                 # )
+
+#         # update sliding weights
+#         if self.sliding_factor is not None:
+#             self.sliding_weights = get_sliding_weights(
+#                 self.losses,
+#                 self.sliding_factor,
+#                 tgt_tm,
+#                 pred_tm,
+#                 self.sliding_weights,
+#             )
+
+#         return loss
+
+
+class TensorMapPointwiseLoss(LossBase):
+    registry_name = "pointwise"
+
+    def __init__(
+        self,
+        name: str,
+        gradients: Optional[List[str]] = None,
+        weight: float = 1.0,
+        reduction: str = "mean",
+        *,
+        loss_cls: Type[_Loss],
+        **loss_kwargs,
+    ):
+
+        self.target = name
+        self.gradients = gradients or []
+        self.weight = weight
+
+        self.loss_kwargs = loss_kwargs
+
+        params = {"reduction": reduction, **loss_kwargs}
+        self.loss_fn = loss_cls(**params)
+
+    def compute(
+        self, predictions: Dict[str, TensorMap], targets: Dict[str, TensorMap]
+    ) -> torch.Tensor:
+
+        pred_parts = []
+        targ_parts = []
+
+        def grab(block, grad):
+            # if grad is  None, take values; else take that gradient
+            if grad is not None:
+                return block.gradient(grad).values.reshape(-1)
+            else:
+                return block.values.reshape(-1)
+
+        pred_tensor = predictions[self.target]
+        targ_tensor = targets[self.target]
+
+        gradients = self.gradients or [None]
+
+        for grad in gradients:
+            for key in pred_tensor.keys:
+                pred_block = pred_tensor.block(key)
+                targ_block = targ_tensor.block(key)
+
+                pred_parts.append(grab(pred_block, grad))
+                targ_parts.append(grab(targ_block, grad))
+
+        # concatenate all parts into a single tensor
+        all_pred = torch.cat(pred_parts)
+        all_targ = torch.cat(targ_parts)
+
+        return self.loss_fn(all_pred, all_targ)
+
+
+class TensorMapMSELoss(TensorMapPointwiseLoss):
     registry_name = "mse"
 
-    def __init__(self, name: str, weight: float = 1.0, reduction: str = "mean",  gradient_weights: Optional[Dict[str, float]] = None, sliding_factor: Optional[float] = None):
-        self.target = name
-
-        if gradient_weights is None:
-            gradient_weights = {}
-        losses = {}
-        losses["values"] = torch.nn.MSELoss(reduction=reduction)
-        for key in gradient_weights.keys():
-            losses[key] = torch.nn.L1Loss(reduction=reduction)        
-        self.losses = losses
-        
-        self.weight = weight
-        self.gradient_weights = gradient_weights
-        self.sliding_factor = sliding_factor
-        self.sliding_weights: Optional[Dict[str, TensorMap]] = None
-
-    def compute(
-        self, predictions: Dict[str, TensorMap], targets: Dict[str, TensorMap]
-    ) -> torch.Tensor:
-        
-        pred_tm = predictions[self.target]
-        tgt_tm = targets[self.target]
-
-        ## IMPLEMENT CHECK ROUTINE
-
-        # First time the function is called: compute the sliding weights only
-        # from the targets (if they are enabled)
-        if self.sliding_factor is not None and self.sliding_weights is None:
-            self.sliding_weights = get_sliding_weights(
-                self.losses,
-                self.sliding_factor,
-                tgt_tm,
-            )
-
-        loss = torch.zeros(
-            (),
-            dtype=pred_tm.block(0).values.dtype,
-            device=pred_tm.block(0).values.device,
+    def __init__(
+        self,
+        name: str,
+        gradients: Optional[List[str]] = None,
+        weight: float = 1.0,
+        reduction: str = "mean",
+    ):
+        super().__init__(
+            name=name,
+            gradients=gradients,
+            weight=weight,
+            reduction=reduction,
+            loss_cls=torch.nn.MSELoss,
         )
 
-        for key in pred_tm.keys:
 
-            block_1 = predictions_tensor_map.block(key)
-            block_2 = targets_tensor_map.block(key)
-            values_1 = block_1.values
-            values_2 = block_2.values
-
-            # sliding weights: default to 1.0 if not used/provided for this target
-            sliding_weight = (
-                1.0
-                if self.sliding_weights is None
-                else self.sliding_weights.get("values", 1.0)
-            )
-
-            ## loss on the main values with the sliding weight
-            loss += (
-                self.weight * self.losses["values"](values_1, values_2) / sliding_weight
-            )
-
-            for gradient_name in block_2.gradients_list():    ## check if this works
-                gradient_weight = self.gradient_weights[gradient_name]
-                values_1 = block_1.gradient(gradient_name).values
-                values_2 = block_2.gradient(gradient_name).values
-
-                sliding_weight = (
-                    1.0
-                    if self.sliding_weights is None
-                    else self.sliding_weights.get(gradient_name, 1.0)
-                )
-                loss += (
-                    gradient_weight
-                    * self.losses[gradient_name](values_1, values_2)
-                    / sliding_weight
-                )
-
-        # update sliding weights 
-        if self.sliding_factor is not None:
-            self.sliding_weights = get_sliding_weights(
-                self.losses,
-                self.sliding_factor,
-                tgt_tm,
-                pred_tm,
-                self.sliding_weights,
-            )
-
-        return loss
-
-
-class TensorMapMAELoss(LossBase):
+class TensorMapMAELoss(TensorMapPointwiseLoss):
     registry_name = "mae"
 
-    def __init__(self, name: str, weight: float = 1.0, reduction: str = "mean"):
-        self.target = name
-        self.weight = weight
-        self.loss_fn = torch.nn.L1Loss(reduction=reduction)
-
-    def compute(
-        self, predictions: Dict[str, TensorMap], targets: Dict[str, TensorMap]
-    ) -> torch.Tensor:
-        pred_tm = predictions[self.target]
-        tgt_tm = targets[self.target]
-        loss = torch.zeros(
-            (),
-            dtype=pred_tm.block(0).values.dtype,
-            device=pred_tm.block(0).values.device,
+    def __init__(
+        self,
+        name: str,
+        gradients: Optional[List[str]] = None,
+        weight: float = 1.0,
+        reduction: str = "mean",
+    ):
+        super().__init__(
+            name=name,
+            gradients=gradients,
+            weight=weight,
+            reduction=reduction,
+            loss_cls=torch.nn.L1Loss,
         )
-        for key in pred_tm.keys:
-            loss = loss + self.loss_fn(
-                pred_tm.block(key).values, tgt_tm.block(key).values
-            )
-        return self.weight * loss
 
 
-class TensorMapHuberLoss(LossBase):
+class TensorMapHuberLoss(TensorMapPointwiseLoss):
     registry_name = "huber"
 
     def __init__(
         self,
         name: str,
+        gradients: Optional[List[str]] = None,
         weight: float = 1.0,
         reduction: str = "mean",
         delta: float = 1.0,
     ):
-        self.target = name
-        self.weight = weight
-        self.loss_fn = torch.nn.HuberLoss(reduction=reduction, delta=delta)
-
-    def compute(
-        self, predictions: Dict[str, TensorMap], targets: Dict[str, TensorMap]
-    ) -> torch.Tensor:
-        pred_tm = predictions[self.target]
-        tgt_tm = targets[self.target]
-        loss = torch.zeros(
-            (),
-            dtype=pred_tm.block(0).values.dtype,
-            device=pred_tm.block(0).values.device,
+        super().__init__(
+            name=name,
+            gradients=gradients,
+            weight=weight,
+            reduction=reduction,
+            loss_cls=torch.nn.HuberLoss,
+            delta=delta,
         )
-        for key in pred_tm.keys:
-            loss = loss + self.loss_fn(
-                pred_tm.block(key).values, tgt_tm.block(key).values
-            )
-        return self.weight * loss
 
 
 # --- aggregator -----------------------------------------------------------------------
-class LossAggregator(LossBase):
 
+
+class LossAggregator(LossBase):
     registry_name = "aggregate"
 
     def __init__(
         self,
-        target_names: List[str],
-        config: Optional[Dict[str, Dict[str, Any]]] = None
+        targets: Dict[str, TensorMap],  # TODO: actually targetinfo
+        config: Dict[str, Dict[str, Any]],
     ):
-        self.config = config or {}
+        """
+        config:
+          {
+            "energy": {
+                "type":      "mse",
+                "weight":    1.0,
+                "reduction": "mean",        # optional, default "mean"
+                "gradients": {
+                  "positions": { "type": "mse", "weight": 1.0 },
+                  "cell":      { "type": "mse", "weight": 1.0 },
+                }
+            },
+            "another_target": { … },
+            …
+          }
+        """
         self.losses: Dict[str, LossBase] = {}
+        cfg = config or {}
 
-        # for target, cfg in self.config.items():
-        for target in target_names:
-            cfg = self.config.get(target, {})
-            loss_type = cfg.get("type", "mse")
-            weight = cfg.get("weight", 1.0)
+        for target_name, target in targets.items():
 
-            # build kwargs for sub-loss
-            params = {k: v for k, v in cfg.items() if k not in ("type", "weight")}
-            params.update({"name": target, "weight": weight})
+            # main loss on the target
+            tgt_cfg = cfg.get(target_name, {})
+            main_type = tgt_cfg.get("type", "mse")
+            main_weight = tgt_cfg.get("weight", 1.0)
+            main_reduction = tgt_cfg.get("reduction", "mean")
 
-            LossCls = LossRegistry.get(loss_type)
-            self.losses[target] = LossCls.from_config(params)
+            MainCls = LossRegistry.get(main_type)
+            self.losses[target_name] = MainCls(
+                name=target_name,
+                gradients=[],  # not a gradient
+                weight=main_weight,
+                reduction=main_reduction,
+            )
+
+            # losses on gradients
+            all_grads = list(target.layout[0].gradients_list())
+            grad_cfgs = tgt_cfg.get("gradients", {})
+
+            for grad_name in all_grads:
+
+                key_grad = f"{target_name}_{grad_name}"
+
+                grad_cfg = grad_cfgs.get(grad_name, {})
+                grad_type = grad_cfg.get("type", main_type)
+                grad_weight = grad_cfg.get("weight", 1.0)
+                grad_reduction = grad_cfg.get("reduction", main_reduction)
+
+                GradCls = LossRegistry.get(grad_type)
+                self.losses[key_grad] = GradCls(
+                    name=target_name,
+                    gradients=[grad_name],
+                    weight=grad_weight,
+                    reduction=grad_reduction,
+                )
 
     def compute(
-        self, predictions: Dict[str, TensorMap], targets: Dict[str, TensorMap]
+        self,
+        predictions: Dict[str, TensorMap],
+        targets: Dict[str, TensorMap],
     ) -> torch.Tensor:
-        
-        # get device/dtype from first TensorMap
-        first_tm = next(iter(predictions.values()))
-        total = torch.zeros(
+        # start from zero on the right device/dtype
+        example = next(iter(predictions.values()))
+        out = torch.zeros(
             (),
-            dtype=first_tm.block(0).values.dtype,
-            device=first_tm.block(0).values.device,
+            dtype=example.block(0).values.dtype,
+            device=example.block(0).values.device,
         )
+        for loss_fn in self.losses.values():
+            out = out + loss_fn.compute(predictions, targets) * loss_fn.weight
+        return out
 
-        for target in predictions:
-            self.losses[target](predictions, targets)
-            
-            total = total + 
 
-        return total
+# --- helper functions -----------------------------------------------------------------
 
 
 def get_sliding_weights(
