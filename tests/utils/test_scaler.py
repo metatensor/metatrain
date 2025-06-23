@@ -73,7 +73,7 @@ def test_scaler_train():
     dataset = Dataset.from_dict({"system": systems, "energy": energies})
 
     scaler = Scaler(
-        model_hypers={},
+        hypers={},
         dataset_info=DatasetInfo(
             length_unit="angstrom",
             atomic_types=[1, 8],
@@ -132,7 +132,7 @@ def test_scale():
     dataset = Dataset.from_dict({"system": systems, "mtt::U0": targets["mtt::U0"]})
 
     scaler = Scaler(
-        model_hypers={},
+        hypers={},
         dataset_info=DatasetInfo(
             length_unit="angstrom",
             atomic_types=[1, 6, 7, 8],
@@ -179,7 +179,7 @@ def test_scaler_torchscript(tmpdir):
     """Test the torchscripting, saving and loading of a scaler model."""
 
     scaler = Scaler(
-        model_hypers={},
+        hypers={},
         dataset_info=DatasetInfo(
             length_unit="angstrom",
             atomic_types=[1, 8],

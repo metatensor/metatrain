@@ -182,13 +182,30 @@ def model_from_checkpoint(
         )
     architecture = import_architecture(architecture_name)
 
+    model_ckpt_version = checkpoint.get("model_ckpt_version")
+    if model_ckpt_version is None:
+        model_ckpt_version = 1
+        checkpoint["model_ckpt_version"] = model_ckpt_version
+    else:
+        if model_ckpt_version != architecture.__model__.__checkpoint_version__:
+            try:
+                checkpoint = architecture.__model__.upgrade_checkpoint(checkpoint)
+            except Exception as e:
+                raise RuntimeError(
+                    f"Unable to load the model checkpoint from '{path}' for "
+                    f"the '{architecture_name}' architecture: the checkpoint is using "
+                    f"version {model_ckpt_version}, while the current version is "
+                    f"{architecture.__model__.__checkpoint_version__}; and trying to "
+                    "upgrade the checkpoint failed."
+                ) from e
+
     try:
         return architecture.__model__.load_checkpoint(checkpoint, context=context)
-    except Exception as err:
+    except Exception as e:
         raise ValueError(
-            f"path '{path}' is not a valid checkpoint for the {architecture_name} "
-            "architecture"
-        ) from err
+            f"the file at '{path}' does not contain a valid checkpoint for "
+            f"the '{architecture_name}' architecture"
+        ) from e
 
 
 def trainer_from_checkpoint(
@@ -211,6 +228,23 @@ def trainer_from_checkpoint(
             f"{find_all_architectures()}"
         )
     architecture = import_architecture(architecture_name)
+
+    trainer_ckpt_version = checkpoint.get("trainer_ckpt_version")
+    if trainer_ckpt_version is None:
+        trainer_ckpt_version = 1
+        checkpoint["trainer_ckpt_version"] = trainer_ckpt_version
+    else:
+        if trainer_ckpt_version != architecture.__trainer__.__checkpoint_version__:
+            try:
+                checkpoint = architecture.__trainer__.upgrade_checkpoint(checkpoint)
+            except Exception as e:
+                raise RuntimeError(
+                    f"Unable to load the trainer checkpoint from '{path}' for "
+                    f"the '{architecture_name}' architecture: the checkpoint is using "
+                    f"version {trainer_ckpt_version}, while the current version is "
+                    f"{architecture.__trainer__.__checkpoint_version__}; and trying to "
+                    "upgrade the checkpoint failed."
+                ) from e
 
     try:
         return architecture.__trainer__.load_checkpoint(

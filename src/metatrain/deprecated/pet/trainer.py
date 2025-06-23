@@ -45,8 +45,11 @@ from .utils.fine_tuning import LoRAWrapper
 
 
 class Trainer(TrainerInterface):
-    def __init__(self, train_hypers):
-        self.hypers = {"FITTING_SCHEME": train_hypers}
+    __checkpoint_version__ = 1
+
+    def __init__(self, hypers):
+        super().__init__(hypers={"FITTING_SCHEME": hypers})
+
         self.pet_dir = None
         self.pet_trainer_state = None
         self.epoch = None
@@ -750,8 +753,11 @@ Units of the Energy and Forces are the same units given in input"""
             }
         else:
             lora_state_dict = None
+
         last_model_checkpoint = {
             "architecture_name": "deprecated.pet",
+            "model_ckpt_version": model.__checkpoint_version__,
+            "trainer_ckpt_version": self.__checkpoint_version__,
             "trainer_state_dict": trainer_state_dict,
             "model_state_dict": last_model_state_dict,
             "best_model_state_dict": self.best_model_state_dict,
@@ -762,8 +768,11 @@ Units of the Energy and Forces are the same units given in input"""
             "self_contributions": model.pet.self_contributions.numpy(),
             "lora_state_dict": lora_state_dict,
         }
+
         best_model_checkpoint = {
             "architecture_name": "deprecated.pet",
+            "model_ckpt_version": model.__checkpoint_version__,
+            "trainer_ckpt_version": self.__checkpoint_version__,
             "trainer_state_dict": None,
             "model_state_dict": self.best_model_state_dict,
             "best_model_state_dict": None,
@@ -820,3 +829,10 @@ Units of the Energy and Forces are the same units given in input"""
         trainer.best_metric = best_metric
         trainer.best_model_state_dict = best_model_state_dict
         return trainer
+
+    @staticmethod
+    def upgrade_checkpoint(checkpoint: Dict) -> Dict:
+        raise NotImplementedError(
+            "checkpoint upgrade is not implemented for the deprecated PET "
+            "implementation"
+        )
