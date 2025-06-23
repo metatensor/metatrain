@@ -21,7 +21,6 @@ from metatrain.utils.distributed.distributed_data_parallel import (
 )
 from metatrain.utils.distributed.slurm import DistributedEnvironment
 from metatrain.utils.evaluate_model import evaluate_model
-from metatrain.utils.external_naming import to_external_name
 from metatrain.utils.io import check_file_extension
 from metatrain.utils.logging import ROOT_LOGGER, MetricLogger
 from metatrain.utils.metrics import MAEAccumulator, RMSEAccumulator, get_selected_metric
@@ -176,13 +175,11 @@ class Trainer(TrainerInterface):
                     sampler=train_sampler,
                     shuffle=(
                         # the sampler takes care of this (if present)
-                        train_sampler
-                        is None
+                        train_sampler is None
                     ),
                     drop_last=(
                         # the sampler takes care of this (if present)
-                        train_sampler
-                        is None
+                        train_sampler is None
                     ),
                     collate_fn=collate_fn,
                 )

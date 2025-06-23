@@ -155,13 +155,11 @@
           "enum": ["rmse_prod", "mae_prod", "loss"]
         },
 
-
-
         "loss": {
           "type": "object",
           "patternProperties": {
-            ".*": { 
-              "type": "object", 
+            ".*": {
+              "type": "object",
               "properties": {
                 "weight": {
                   "type": "number",
@@ -205,9 +203,6 @@
           },
           "additionalProperties": false
         }
-
-
-        
       },
       "additionalProperties": false
     },

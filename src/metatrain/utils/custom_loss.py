@@ -1,7 +1,7 @@
 # losses.py
 
 from abc import ABC, ABCMeta, abstractmethod
-from typing import Any, Dict, Optional, Type, List
+from typing import Any, Dict, List, Optional, Type
 
 import torch
 from metatensor.torch import TensorMap
@@ -38,6 +38,9 @@ class LossRegistry(ABCMeta):
 
 class LossBase(ABC, metaclass=LossRegistry):
     """All losses implement compute(predictions, batch) -> scalar Tensor."""
+
+    registry_name: str = "base"
+    weight: float = 0.0
 
     @abstractmethod
     def compute(self, predictions: Any, batch: Any) -> torch.Tensor: ...
