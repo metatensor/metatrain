@@ -9,6 +9,7 @@ from torch.utils.data import DataLoader, DistributedSampler
 
 from metatrain.utils.abc import TrainerInterface
 from metatrain.utils.additive import remove_additive
+from metatrain.utils.custom_loss import TensorMapDictLoss as LossAggregator
 from metatrain.utils.data import (
     CombinedDataLoader,
     Dataset,
@@ -23,7 +24,6 @@ from metatrain.utils.evaluate_model import evaluate_model
 from metatrain.utils.external_naming import to_external_name
 from metatrain.utils.io import check_file_extension
 from metatrain.utils.logging import ROOT_LOGGER, MetricLogger
-from metatrain.utils.loss import TensorMapDictLoss
 from metatrain.utils.metrics import MAEAccumulator, RMSEAccumulator, get_selected_metric
 from metatrain.utils.neighbor_lists import (
     get_requested_neighbor_lists,
@@ -229,10 +229,18 @@ class Trainer(TrainerInterface):
         logging.info(f"Training with loss weights: {loss_weights_dict_external}")
 
         # Create a loss function:
-        loss_fn = TensorMapDictLoss(
-            **loss_hypers,
+        print(loss_hypers)
+        # {"type": "mse", "weights": {"energy": 1.0}, "reduction": "mean"}
+        LOSS_HYPERS = {
+            "energy": {
+                "type": loss_hypers["type"],
+                "weight": loss_hypers["weights"]["energy"],
+                "reduction": loss_hypers["reduction"],
+            }
+        }
+        loss_fn = LossAggregator(
+            LOSS_HYPERS,
         )
-
         # Create an optimizer:
         optimizer = torch.optim.Adam(
             model.parameters(), lr=self.hypers["learning_rate"]
@@ -313,7 +321,9 @@ class Trainer(TrainerInterface):
                 )
                 targets = average_by_num_atoms(targets, systems, per_structure_targets)
 
-                train_loss_batch = loss_fn(predictions, targets)
+                batch = systems, targets
+
+                train_loss_batch = loss_fn(predictions, batch)
 
                 train_loss_batch.backward()
                 optimizer.step()
@@ -369,7 +379,9 @@ class Trainer(TrainerInterface):
                 )
                 targets = average_by_num_atoms(targets, systems, per_structure_targets)
 
-                val_loss_batch = loss_fn(predictions, targets)
+                # TODO: don't do this, Guillaume thinks it's confusing
+                batch = systems, targets
+                val_loss_batch = loss_fn(predictions, batch)
 
                 if is_distributed:
                     # sum the loss over all processes
