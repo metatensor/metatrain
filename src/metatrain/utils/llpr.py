@@ -21,6 +21,7 @@ from metatrain.utils.metadata import merge_metadata
 
 
 class LLPRUncertaintyModel(torch.nn.Module):
+    __checkpoint_version__ = 1
     __default_metadata__ = ModelMetadata(
         references={
             "architecture": [
@@ -596,6 +597,7 @@ class LLPRUncertaintyModel(torch.nn.Module):
 
         checkpoint = {
             "architecture_name": "llpr",
+            "model_ckpt_version": self.__checkpoint_version__,
             "wrapped_architecture_name": wrapped_architecture_name,
             "wrapped_model_data": {  # necessary to re-instantiate the wrapped model
                 "model_hypers": self.model.hypers,
@@ -617,7 +619,10 @@ class LLPRUncertaintyModel(torch.nn.Module):
         wrapped_model_class = import_architecture(
             checkpoint["wrapped_architecture_name"]
         ).__model__
-        wrapped_model = wrapped_model_class(**wrapped_model_data).to(dtype)
+        wrapped_model = wrapped_model_class(
+            hypers=wrapped_model_data["model_hypers"],
+            dataset_info=wrapped_model_data["dataset_info"],
+        ).to(dtype)
 
         # Find the size of the ensemble weights, if any:
         ensemble_weight_sizes = {}

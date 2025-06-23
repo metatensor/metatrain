@@ -119,13 +119,15 @@ Defining a new model can then be done as follow;
 
     class MyModel(ModelInterface):
 
+        __checkpoint_version__ = 1
         __supported_devices__ = ["cuda", "cpu"]
         __supported_dtypes__ = [torch.float64, torch.float32]
         __default_metadata__ = ModelMetadata(
             references = {"implementation": ["ref1"], "architecture": ["ref2"]}
         )
 
-        def __init__(self, model_hypers: Dict, dataset_info: DatasetInfo):
+        def __init__(self, hypers: Dict, dataset_info: DatasetInfo):
+            super().__init__(hypers, dataset_info)
             ...
 
         ... # implementation of all the functions from ModelInterface
@@ -137,18 +139,20 @@ following class attributes:
 - ``__supported_devices__`` list of the suported torch devices for running the
   model;
 - ``__supported_dtypes__`` list of the supported dtype for this model;
-
-Both lists should be sorted in order of preference since ``metatrain`` will use
-these to determine, based on the user request and machines' availability, the
-optimal ``dtype`` and ``device`` for training.
-
 - ``__default_metadata__`` can be used to provide references that will be
   stored in the exported model. The references are stored in a dictionary with
   keys ``implementation`` and ``architecture``. The ``implementation`` key
   should contain references to the software used in the implementation of the
   architecture, while the ``architecture`` key should contain references about
   the general architecture.
+- ``__checkpoint_version__`` stores the current version of the checkpoint, used
+  to upgrade checkpoints produced with earlier versions of the code. See
+  :ref:`ckpt_version` for more information.
 
+Both ``__supported_devices__`` and ``__supported_dtypes__`` should be sorted in
+order of preference since ``metatrain`` will use these to determine, based on
+the user request and machines' availability, the optimal ``dtype`` and
+``device`` for training.
 
 Trainer class (``trainer.py``)
 ------------------------------
@@ -156,7 +160,7 @@ Trainer class (``trainer.py``)
 .. autoclass:: metatrain.utils.abc.TrainerInterface
     :members:
 
-Defining a new model can then be done as like this;
+Defining a new trainer can then be done as like this;
 
 .. code-block:: python
 
@@ -164,6 +168,8 @@ Defining a new model can then be done as like this;
     from metatrain.utils.abc import TrainerInterface
 
     class MyTrainer(TrainerInterface):
+
+        __checkpoint_version__ = 1
 
         def __init__(self, train_hypers):
             ...
@@ -265,3 +271,28 @@ page describing the architecture and its default hyperparameters will be
 sufficient. You can take inspiration from existing architectures. The various
 targets that the architecture can fit should be added to the table in the
 "Fitting generic targets" section.
+
+.. _ckpt_version:
+
+Checkpoint versioning
+----------------------
+
+Checkpoints are used to save the weights of a models and the state of the
+trainer to disk, enabling to restart interupted training runs, to fine-tune
+existing models on new dataset, and to export standalone models based on
+TorchScript.
+
+A checkpoint created for one version might need to be read again
+by a later version of the architecture, where the internal structure might have
+changed. To enable this, all ``Model`` classes are required to have a
+``__checkpoint_version__`` class attribute containing the version of the
+checkoint, as a strictly inreasing integer. Additionally, architectures should
+provide an ``upgrade_checkpoint(checkpoint: Dict) -> Dict`` function, that will
+be called when a user is trying to load some outdated checkpoint. This function
+is responsible for updating the checkpoint data and returning a checkpoint
+compatible with the current version.
+
+Similarly, the ``Trainer`` state is also saved in checkpoint and used to restart
+training. All trainer must thus have a ``__checkpoint_version__`` class
+attribute as well as a ``upgrade_checkpoint(checkpoint: Dict) -> Dict`` function
+to updgrade from previous checkpoints.

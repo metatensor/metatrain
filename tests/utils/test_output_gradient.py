@@ -27,7 +27,7 @@ def test_forces(is_training):
             )
         },
     )
-    model = __model__(model_hypers=MODEL_HYPERS, dataset_info=dataset_info)
+    model = __model__(hypers=MODEL_HYPERS, dataset_info=dataset_info)
     model.to(dtype=torch.float64)
 
     systems = read_systems(RESOURCES_PATH / "qm9_reduced_100.xyz")[:5]
@@ -93,7 +93,7 @@ def test_virial(is_training):
             "energy": get_energy_target_info({"unit": "eV"}, add_strain_gradients=True)
         },
     )
-    model = __model__(model_hypers=MODEL_HYPERS, dataset_info=dataset_info)
+    model = __model__(hypers=MODEL_HYPERS, dataset_info=dataset_info)
     model.to(dtype=torch.float64)
 
     systems = read_systems(RESOURCES_PATH / "carbon_reduced_100.xyz")[:2]
@@ -175,7 +175,7 @@ def test_both(is_training):
             )
         },
     )
-    model = __model__(model_hypers=MODEL_HYPERS, dataset_info=dataset_info)
+    model = __model__(hypers=MODEL_HYPERS, dataset_info=dataset_info)
     model.to(dtype=torch.float64)
 
     systems = read_systems(RESOURCES_PATH / "carbon_reduced_100.xyz")[:2]

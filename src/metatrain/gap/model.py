@@ -26,6 +26,7 @@ from metatrain.utils.metadata import merge_metadata
 
 
 class GAP(ModelInterface):
+    __checkpoint_version__ = 1
     __supported_devices__ = ["cpu"]
     __supported_dtypes__ = [torch.float64]
     __default_metadata__ = ModelMetadata(
@@ -40,8 +41,8 @@ class GAP(ModelInterface):
         }
     )
 
-    def __init__(self, model_hypers: Dict, dataset_info: DatasetInfo) -> None:
-        super().__init__()
+    def __init__(self, hypers: Dict, dataset_info: DatasetInfo) -> None:
+        super().__init__(hypers, dataset_info)
 
         if len(dataset_info.targets) > 1:
             raise NotImplementedError("GAP only supports a single output")
@@ -68,8 +69,6 @@ class GAP(ModelInterface):
         if dataset_info.targets[target_name].per_atom:
             raise ValueError("GAP does not support per-atom energies")
 
-        self.dataset_info = dataset_info
-
         self.outputs = {
             key: ModelOutput(
                 quantity=value.quantity,
@@ -80,7 +79,6 @@ class GAP(ModelInterface):
         }
 
         self.atomic_types = dataset_info.atomic_types
-        self.hypers = model_hypers
 
         # creates a composition weight tensor that can be directly indexed by species,
         # this can be left as a tensor of zero or set from the outside using
@@ -103,24 +101,24 @@ class GAP(ModelInterface):
         self.register_buffer(
             "kernel_weights",
             torch.zeros(
-                model_hypers["krr"]["num_sparse_points"],
+                self.hypers["krr"]["num_sparse_points"],
                 dtype=torch.float64,  # we only support float64 for now
             ),
         )
-        # print(model_hypers["soap"])
+
         self._soap_torch_calculator = featomic.torch.SoapPowerSpectrum(
-            **model_hypers["soap"]
+            **self.hypers["soap"]
         )
 
         kernel_kwargs = {
-            "degree": model_hypers["krr"]["degree"],
+            "degree": self.hypers["krr"]["degree"],
             "aggregate_names": ["atom", "center_type"],
         }
         self._subset_of_regressors = SubsetOfRegressors(
             kernel_kwargs=kernel_kwargs,
         )
 
-        self._sampler = _FPS(n_to_select=model_hypers["krr"]["num_sparse_points"])
+        self._sampler = _FPS(n_to_select=self.hypers["krr"]["num_sparse_points"])
 
         # set it do dummy keys, these are properly set during training
         self._keys = TorchLabels.empty("_")
@@ -145,7 +143,7 @@ class GAP(ModelInterface):
         # additive models: these are handled by the trainer at training
         # time, and they are added to the output at evaluation time
         composition_model = OldCompositionModel(
-            model_hypers={},
+            hypers={},
             dataset_info=dataset_info,
         )
         additive_models = [composition_model]
@@ -179,6 +177,10 @@ class GAP(ModelInterface):
         context: Literal["restart", "finetune", "export"],
     ) -> "GAP":
         raise NotImplementedError("GAP does not allow loading checkpoints")
+
+    @staticmethod
+    def upgrade_checkpoint(checkpoint: Dict) -> Dict:
+        raise NotImplementedError("checkpoint upgrade is not implemented for GAP")
 
     def forward(
         self,
