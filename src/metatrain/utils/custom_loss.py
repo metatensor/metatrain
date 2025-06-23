@@ -59,26 +59,92 @@ class LossBase(ABC, metaclass=LossRegistry):
 class TensorMapMSELoss(LossBase):
     registry_name = "mse"
 
-    def __init__(self, name: str, weight: float = 1.0, reduction: str = "mean"):
+    def __init__(self, name: str, weight: float = 1.0, reduction: str = "mean",  gradient_weights: Optional[Dict[str, float]] = None, sliding_factor: Optional[float] = None):
         self.target = name
+
+        if gradient_weights is None:
+            gradient_weights = {}
+        losses = {}
+        losses["values"] = torch.nn.MSELoss(reduction=reduction)
+        for key in gradient_weights.keys():
+            losses[key] = torch.nn.L1Loss(reduction=reduction)        
+        self.losses = losses
+        
         self.weight = weight
-        self.loss_fn = torch.nn.MSELoss(reduction=reduction)
+        self.gradient_weights = gradient_weights
+        self.sliding_factor = sliding_factor
+        self.sliding_weights: Optional[Dict[str, TensorMap]] = None
 
     def compute(
         self, predictions: Dict[str, TensorMap], targets: Dict[str, TensorMap]
     ) -> torch.Tensor:
+        
         pred_tm = predictions[self.target]
         tgt_tm = targets[self.target]
+
+        ## IMPLEMENT CHECK ROUTINE
+
+        # First time the function is called: compute the sliding weights only
+        # from the targets (if they are enabled)
+        if self.sliding_factor is not None and self.sliding_weights is None:
+            self.sliding_weights = get_sliding_weights(
+                self.losses,
+                self.sliding_factor,
+                tgt_tm,
+            )
+
         loss = torch.zeros(
             (),
             dtype=pred_tm.block(0).values.dtype,
             device=pred_tm.block(0).values.device,
         )
+
         for key in pred_tm.keys:
-            loss = loss + self.loss_fn(
-                pred_tm.block(key).values, tgt_tm.block(key).values
+
+            block_1 = predictions_tensor_map.block(key)
+            block_2 = targets_tensor_map.block(key)
+            values_1 = block_1.values
+            values_2 = block_2.values
+
+            # sliding weights: default to 1.0 if not used/provided for this target
+            sliding_weight = (
+                1.0
+                if self.sliding_weights is None
+                else self.sliding_weights.get("values", 1.0)
             )
-        return self.weight * loss
+
+            ## loss on the main values with the sliding weight
+            loss += (
+                self.weight * self.losses["values"](values_1, values_2) / sliding_weight
+            )
+
+            for gradient_name in block_2.gradients_list():    ## check if this works
+                gradient_weight = self.gradient_weights[gradient_name]
+                values_1 = block_1.gradient(gradient_name).values
+                values_2 = block_2.gradient(gradient_name).values
+
+                sliding_weight = (
+                    1.0
+                    if self.sliding_weights is None
+                    else self.sliding_weights.get(gradient_name, 1.0)
+                )
+                loss += (
+                    gradient_weight
+                    * self.losses[gradient_name](values_1, values_2)
+                    / sliding_weight
+                )
+
+        # update sliding weights 
+        if self.sliding_factor is not None:
+            self.sliding_weights = get_sliding_weights(
+                self.losses,
+                self.sliding_factor,
+                tgt_tm,
+                pred_tm,
+                self.sliding_weights,
+            )
+
+        return loss
 
 
 class TensorMapMAELoss(LossBase):
@@ -138,26 +204,14 @@ class TensorMapHuberLoss(LossBase):
 
 
 # --- aggregator -----------------------------------------------------------------------
-
-
-class LossAggregator(LossBase):  # TensorMapDictLoss
-    """Aggregate per-target sub-losses according to a config dict.
-
-    Config example:
-      {
-        'energy': {'type':'mse',   'weight':1.0},
-        'forces': {'type':'mse',   'weight':1.0},
-        'dos':    {'type':'super_dos_loss', 'weight':1.0, 'mask_names':'foo'}
-      }
-    Unspecified targets default to type='mse', weight=1.0.
-    """
+class LossAggregator(LossBase):
 
     registry_name = "aggregate"
 
     def __init__(
         self,
         target_names: List[str],
-        config: Optional[Dict[str, Dict[str, Any]]] = None,
+        config: Optional[Dict[str, Dict[str, Any]]] = None
     ):
         self.config = config or {}
         self.losses: Dict[str, LossBase] = {}
@@ -178,6 +232,7 @@ class LossAggregator(LossBase):  # TensorMapDictLoss
     def compute(
         self, predictions: Dict[str, TensorMap], targets: Dict[str, TensorMap]
     ) -> torch.Tensor:
+        
         # get device/dtype from first TensorMap
         first_tm = next(iter(predictions.values()))
         total = torch.zeros(
@@ -187,6 +242,69 @@ class LossAggregator(LossBase):  # TensorMapDictLoss
         )
 
         for target in predictions:
-            total = total + self.losses[target](predictions, targets)
+            self.losses[target](predictions, targets)
+            
+            total = total + 
 
         return total
+
+
+def get_sliding_weights(
+    losses: Dict[str, _Loss],
+    sliding_factor: float,
+    targets: TensorMap,
+    predictions: Optional[TensorMap] = None,
+    previous_sliding_weights: Optional[Dict[str, float]] = None,
+) -> Dict[str, float]:
+    """
+    Compute the sliding weights for the loss function.
+
+    The sliding weights are computed as the absolute difference between the
+    predictions and the targets.
+
+    :param predictions: The predictions.
+    :param targets: The targets.
+
+    :return: The sliding weights.
+    """
+    sliding_weights = {}
+    if predictions is None:
+        for block in targets.blocks():
+            values = block.values
+            sliding_weights["values"] = (
+                losses["values"](values, values.mean() * torch.ones_like(values)) + 1e-6
+            )
+            for gradient_name, gradient_block in block.gradients():
+                values = gradient_block.values
+                sliding_weights[gradient_name] = losses[gradient_name](
+                    values, torch.zeros_like(values)
+                )
+    elif predictions is not None:
+        if previous_sliding_weights is None:
+            raise RuntimeError(
+                "previous_sliding_weights must be provided if predictions is not None"
+            )
+        else:
+            for predictions_block, target_block in zip(
+                predictions.blocks(), targets.blocks()
+            ):
+                target_values = target_block.values
+                predictions_values = predictions_block.values
+                sliding_weights["values"] = (
+                    sliding_factor * previous_sliding_weights["values"]
+                    + (1 - sliding_factor)
+                    * losses["values"](predictions_values, target_values).detach()
+                )
+                for gradient_name, gradient_block in target_block.gradients():
+                    target_values = gradient_block.values
+                    predictions_values = predictions_block.gradient(
+                        gradient_name
+                    ).values
+                    sliding_weights[gradient_name] = (
+                        sliding_factor * previous_sliding_weights[gradient_name]
+                        + (1 - sliding_factor)
+                        * losses[gradient_name](
+                            predictions_values, target_values
+                        ).detach()
+                    )
+    return sliding_weights
