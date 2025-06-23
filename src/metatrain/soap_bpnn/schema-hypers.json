@@ -154,39 +154,43 @@
           "type": "string",
           "enum": ["rmse_prod", "mae_prod", "loss"]
         },
+
+
+
         "loss": {
           "type": "object",
-          "properties": {
-            "weights": {
-              "type": "object",
-              "patternProperties": {
-                ".*": {
-                  "type": "number"
-                }
-              },
-              "additionalProperties": false
-            },
-            "reduction": {
-              "type": "string",
-              "enum": ["sum", "mean", "none"]
-            },
-            "type": {
-              "oneOf": [
-                {
-                  "type": "string",
-                  "enum": ["mse", "mae"]
+          "patternProperties": {
+            ".*": { 
+              "type": "object", 
+              "properties": {
+                "weight": {
+                  "type": "number",
+                  "minimum": 0.0
                 },
-                {
-                  "type": "object",
-                  "properties": {
-                    "huber": {
+                "reduction": {
+                  "type": "string",
+                  "enum": ["sum", "mean", "none"]
+                },
+                "type": {
+                  "oneOf": [
+                    {
+                      "type": "string",
+                      "enum": ["mse", "mae"]
+                    },
+                    {
                       "type": "object",
                       "properties": {
-                        "deltas": {
+                        "huber": {
                           "type": "object",
-                          "patternProperties": {
-                            ".*": {
-                              "type": "number"
+                          "properties": {
+                            "deltas": {
+                              "type": "object",
+                              "patternProperties": {
+                                ".*": {
+                                  "type": "number"
+                                }
+                              },
+                              "additionalProperties": false
                             }
                           },
                           "additionalProperties": false
@@ -194,14 +198,16 @@
                       },
                       "additionalProperties": false
                     }
-                  },
-                  "additionalProperties": false
+                  ]
                 }
-              ]
+              }
             }
           },
           "additionalProperties": false
         }
+
+
+        
       },
       "additionalProperties": false
     },

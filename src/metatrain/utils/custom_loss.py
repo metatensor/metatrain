@@ -1,7 +1,7 @@
 # losses.py
 
 from abc import ABC, ABCMeta, abstractmethod
-from typing import Any, Dict, Optional, Type
+from typing import Any, Dict, Optional, Type, List
 
 import torch
 from metatensor.torch import TensorMap
@@ -151,9 +151,26 @@ class LossAggregator(LossBase):  # TensorMapDictLoss
 
     registry_name = "aggregate"
 
-    def __init__(self, config: Optional[Dict[str, Dict[str, Any]]] = None):
+    def __init__(
+        self,
+        target_names: List[str],
+        config: Optional[Dict[str, Dict[str, Any]]] = None,
+    ):
         self.config = config or {}
         self.losses: Dict[str, LossBase] = {}
+
+        # for target, cfg in self.config.items():
+        for target in target_names:
+            cfg = self.config.get(target, {})
+            loss_type = cfg.get("type", "mse")
+            weight = cfg.get("weight", 1.0)
+
+            # build kwargs for sub-loss
+            params = {k: v for k, v in cfg.items() if k not in ("type", "weight")}
+            params.update({"name": target, "weight": weight})
+
+            LossCls = LossRegistry.get(loss_type)
+            self.losses[target] = LossCls.from_config(params)
 
     def compute(
         self, predictions: Dict[str, TensorMap], targets: Dict[str, TensorMap]
@@ -167,18 +184,6 @@ class LossAggregator(LossBase):  # TensorMapDictLoss
         )
 
         for target in predictions:
-            if target not in self.losses:
-                cfg = self.config.get(target, {})
-                loss_type = cfg.get("type", "mse")
-                weight = cfg.get("weight", 1.0)
-
-                # build kwargs for sub-loss
-                params = {k: v for k, v in cfg.items() if k not in ("type", "weight")}
-                params.update({"name": target, "weight": weight})
-
-                LossCls = LossRegistry.get(loss_type)
-                self.losses[target] = LossCls.from_config(params)
-
             total = total + self.losses[target](predictions, targets)
 
         return total
