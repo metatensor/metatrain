@@ -590,6 +590,7 @@ class LLPRUncertaintyModel(torch.nn.Module):
         if self.dos:
             all_masks = []
             all_shifts = []
+            all_lens = []
 
         for batch in valid_loader:
 
@@ -600,6 +601,11 @@ class LLPRUncertaintyModel(torch.nn.Module):
                 del targets["mtt::mask"]  # DOS-specific
 
             systems = [system.to(device=device, dtype=dtype) for system in systems]
+
+            if self.dos:
+                lens = [len(system) for system in systems]
+                all_lens += lens
+
             targets = {
                 name: target.to(device=device, dtype=dtype)
                 for name, target in targets.items()
@@ -648,7 +654,7 @@ class LLPRUncertaintyModel(torch.nn.Module):
                     # accumulate shifts
                     _, cur_shifts = get_dynamic_shift_agnostic_mse(
                         outputs[name].block().values.detach(),
-                        target.block().values,
+                        target.block().values * torch.tensor(lens).to(device=device, dtype=dtype),
                         cur_mask,
                         return_shift=True)
 
@@ -657,6 +663,7 @@ class LLPRUncertaintyModel(torch.nn.Module):
         if self.dos:
             all_masks = torch.cat(all_masks, dim=0)
             all_shifts = torch.cat(all_shifts, dim=0)
+            all_lens = torch.tensor(all_lens, device=device, dtype=dtype)
 
         for name in all_predictions:
             all_predictions[name] = torch.cat(all_predictions[name], dim=0)
@@ -691,22 +698,23 @@ class LLPRUncertaintyModel(torch.nn.Module):
                 low_e_cols = torch.arange(dos_predictions.shape[1]).unsqueeze(0).expand(len(rows), -1).to(device=device)
                 low_e_mask = low_e_cols < all_shifts.unsqueeze(1)
                 revised_masks[low_e_mask] = 1
-
-                # raw residuals
-                residuals = all_predictions[name] - revised_dos_targets
-
-                # true/pred ratios
-                ratios = residuals ** 2 / uncertainties
-                masked_sum = (ratios * revised_masks).sum(dim=0)
                 mask_count = revised_masks.sum(dim=0)
 
-                masked_mean = masked_sum / mask_count.clamp(min=1)
-                masked_mean = torch.where(mask_count > 0, masked_mean, torch.tensor(float('nan')))
+                # raw residuals
+                resid = all_predictions[name] - (revised_dos_targets * all_lens.unsqueeze(-1))
+                resid_masked_sum = ((resid ** 2) * revised_masks).sum(dim=0)
+                resid_masked_mean = resid_masked_sum / mask_count.clamp(min=1)
 
-                self.uncertainty_multipliers[uncertainty_name] = masked_mean
+                uncer_masked_sum = (uncertainties * revised_masks).sum(dim=0)
+                uncer_masked_mean = uncer_masked_sum / mask_count.clamp(min=1)
+
+                # true/pred ratios
+                ratios = resid_masked_mean / uncer_masked_mean
+                ratios = torch.where(mask_count > 0, ratios, torch.tensor(float('nan')))
+                self.uncertainty_multipliers[uncertainty_name] = ratios
 
             # generic case with num_subtargets > 1
-            elif self.num_subtargets[name] > 1: 
+            elif self.num_subtargets[name] > 1:
                 residuals = all_predictions[name] - all_targets[name]
                 self.uncertainty_multipliers[uncertainty_name] = torch.mean(
                         residuals**2 / uncertainties,
