@@ -266,13 +266,21 @@
           "additionalProperties": false
         },
         "use_permanent": {
-          "type": "object",
-          "patternProperties": {
-            "n_samples": {
-              "type": "number"
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "object",
+              "properties": {
+                "n_samples": {
+                  "type": "number"
+                }
+              },
+              "required": ["n_samples"],
+              "additionalProperties": false
             }
-          },
-          "additionalProperties": false
+          ]
         },
         "integral_penalty": {
           "type": "number"
