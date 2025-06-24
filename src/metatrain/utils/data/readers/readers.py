@@ -105,7 +105,11 @@ def read_targets(
 
     for target_key, target in conf.items():
         is_standard_target = target_key in standard_outputs_list
-        if not is_standard_target and not target_key.startswith("mtt::"):
+        if (
+            not is_standard_target
+            and not target_key.startswith("mtt::")
+            and not target_key.startswith("ext::")
+        ):
             if target_key.lower() in ["force", "forces", "virial", "stress"]:
                 warnings.warn(
                     f"{target_key!r} should not be its own top-level target, "

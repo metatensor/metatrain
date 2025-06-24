@@ -162,6 +162,8 @@ def get_stats(dataset: Union[Dataset, Subset], dataset_info: DatasetInfo) -> str
     # Find units
     units = {}
     for key in target_names:
+        if key not in dataset_info.targets:
+            continue
         # Gets the units of an output
         if key.endswith("_gradients"):
             # handling <base_name>_<gradient_name>_gradients
@@ -178,6 +180,8 @@ def get_stats(dataset: Union[Dataset, Subset], dataset_info: DatasetInfo) -> str
 
     stats += "\n    Mean and standard deviation of targets:"
     for key in target_names:
+        if key not in means or key not in units or key not in stds:
+            continue
         stats += (
             f"\n    - {to_external_name(key, dataset_info.targets)}: "  # type: ignore
             + f"\n      - mean {means[key]:.4g}"
@@ -234,7 +238,7 @@ def get_all_targets(datasets: Union[Dataset, List[Dataset]]) -> List[str]:
 
 def collate_fn(
     batch: List[Dict[str, Any]],
-) -> Tuple[List, Dict[str, TensorMap]]:
+) -> Tuple[List, Dict[str, TensorMap], Dict[str, TensorMap]]:
     """
     Wraps `group_and_join` to return the data fields as a list of systems, and a
     dictionary of named targets.
@@ -247,20 +251,22 @@ def collate_fn(
     returned tuple.
     """
 
-    collated_targets = group_and_join(
+    collated_targets_and_extra_data = group_and_join(
         batch,
         join_kwargs={"remove_tensor_name": True, "different_keys": "union"},
     )
-    collated_targets = collated_targets._asdict()
-    systems = collated_targets.pop("system")
+    collated_targets_and_extra_data = collated_targets_and_extra_data._asdict()
+    systems = collated_targets_and_extra_data.pop("system")
 
-    # for targets whose names start with "ext::", remove these from ``collated_targets``
-    # and store them in an "extra_data" dictionary
+    # Separate the targets and extra data
+    # Extra data are those that start with "ext::", all others are targets
     collated_extra_data = {}
-    for key, value in collated_targets.items():
+    collated_targets = {}
+    for key, value in collated_targets_and_extra_data.items():
         if key.startswith("ext::"):
             collated_extra_data[key] = value
-            del collated_targets[key]
+        else:
+            collated_targets[key] = value
 
     return systems, collated_targets, collated_extra_data
 
