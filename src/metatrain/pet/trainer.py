@@ -142,6 +142,22 @@ class Trainer(TrainerInterface):
         for additive_model in model.additive_models:
             additive_model.to(dtype=torch.float64)
 
+        logging.info("Calculating composition weights")
+        model.additive_models[0].train_model(  # this is the composition model
+            train_datasets,
+            model.additive_models[1:],
+            self.hypers["fixed_composition_weights"],
+        )
+
+        if self.hypers["scale_targets"]:
+            logging.info("Calculating scaling weights")
+            model.scaler.train_model(
+                train_datasets, model.additive_models, treat_as_additive=True
+            )
+
+        if is_distributed:
+            model = DistributedDataParallel(model, device_ids=[device])
+
         logging.info("Setting up data loaders")
 
         if is_distributed:
@@ -204,22 +220,6 @@ class Trainer(TrainerInterface):
                 )
             )
         val_dataloader = CombinedDataLoader(val_dataloaders, shuffle=False)
-
-        logging.info("Calculating composition weights")
-        model.additive_models[0].train_model(  # this is the composition model
-            train_dataloader,
-            model.additive_models[1:],
-            self.hypers["fixed_composition_weights"],
-        )
-
-        if self.hypers["scale_targets"]:
-            logging.info("Calculating scaling weights")
-            model.scaler.train_model(
-                train_datasets, model.additive_models, treat_as_additive=True
-            )
-
-        if is_distributed:
-            model = DistributedDataParallel(model, device_ids=[device])
 
         train_targets = (model.module if is_distributed else model).dataset_info.targets
         outputs_list = []
