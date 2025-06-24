@@ -42,6 +42,7 @@ class LossBase(ABC, metaclass=LossRegistry):
 
     registry_name: str = "base"
     weight: float = 0.0
+    reduction: str = "mean"
     loss_kwargs: Dict[str, Any]
     target: str = ""
 
@@ -80,6 +81,7 @@ class TensorMapPointwiseLoss(LossBase):
         self.target = name
         self.gradient = gradient or None
         self.weight = weight
+        self.reduction = reduction
 
         self.loss_kwargs = loss_kwargs
 
@@ -226,7 +228,7 @@ class LossAggregator(LossBase):
             self.metadata[target_name] = {
                 "type": main_loss.registry_name,
                 "weight": main_loss.weight,
-                "reduction": main_loss.loss_kwargs.get("reduction"),
+                "reduction": main_loss.reduction,
                 "sliding_factor": sf,
                 "gradients": {},
             }
@@ -252,7 +254,7 @@ class LossAggregator(LossBase):
                 self.metadata[target_name]["gradients"][grad_name] = {
                     "type": grad_loss.registry_name,
                     "weight": grad_loss.weight,
-                    "reduction": grad_loss.loss_kwargs.get("reduction"),
+                    "reduction": grad_loss.reduction,
                     "sliding_factor": sf,
                 }
 
