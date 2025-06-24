@@ -234,18 +234,18 @@ def get_all_targets(datasets: Union[Dataset, List[Dataset]]) -> List[str]:
 
 def collate_fn(
     batch: List[Dict[str, Any]],
-    target_names: Optional[List[str]] = None,
+    # target_names: Optional[List[str]] = None,
 ) -> Tuple[List, Dict[str, TensorMap]]:
     """
     Wraps `group_and_join` to return the data fields as a list of systems, and a
     dictionary of named targets.
-    
-    If ``target_names=None``, all fields except ``"system"`` will returned in the
-    targets dictionary, with ``"extra_data"`` being returned as en empty dictionary.
 
-    If ``target_names`` is provided, it will only the fields named will be included in
-    the returned targets dictionary. All other fields will be instead returned in the
-    ``"extra_data"`` dictionary. 
+    The ``system`` field is treated specially, and is returned as the first element in
+    the returned tuple. All other fields whose names do not start with "ext::" are
+    considered to be targets and returned in a dictionary as the second element of the
+    returned tuple. Any fields whose names start with "ext::" are considered to be
+    extra data, and are returned in a separate dictionary as the third element of the
+    returned tuple.
     """
 
     collated_targets = group_and_join(
@@ -254,18 +254,15 @@ def collate_fn(
     )
     collated_targets = collated_targets._asdict()
     systems = collated_targets.pop("system")
-    
-    if target_name is None:
-        collated_extra_data = {}
-    else:
-        # filter the targets to only include the requested ones
-        collated_targets = {
-            key: value for key, value in collated_targets.items() if key in target_names
-        }
-        # put all other fields into "extra_data"
-        collated_extra_data = {
-            key: value for key, value in collated_targets.items() if key not in target_names
-        }
+
+    # for targets whose names start with "ext::", remove these from ``collated_targets``
+    # and store them in an "extra_data" dictionary
+    collated_extra_data = {}
+    for key, value in collated_targets.items():
+        if key.startswith("ext::"):
+            collated_extra_data[key] = value
+            del collated_targets[key]
+
     return systems, collated_targets, collated_extra_data
 
 
