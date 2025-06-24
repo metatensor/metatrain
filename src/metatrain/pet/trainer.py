@@ -1,6 +1,5 @@
 import copy
 import logging
-from functools import partial
 from pathlib import Path
 from typing import Any, Dict, List, Literal, Union
 
@@ -202,9 +201,7 @@ class Trainer(TrainerInterface):
                         # the sampler takes care of this (if present)
                         train_sampler is None
                     ),
-                    collate_fn=partial(
-                        collate_fn, target_names=model.dataset_info.targets.keys()
-                    ),
+                    collate_fn=collate_fn,
                 )
             )
         train_dataloader = CombinedDataLoader(train_dataloaders, shuffle=True)
@@ -219,9 +216,7 @@ class Trainer(TrainerInterface):
                     sampler=val_sampler,
                     shuffle=False,
                     drop_last=False,
-                    collate_fn=partial(
-                        collate_fn, target_names=model.dataset_info.targets.keys()
-                    ),
+                    collate_fn=collate_fn,
                 )
             )
         val_dataloader = CombinedDataLoader(val_dataloaders, shuffle=False)

@@ -234,7 +234,6 @@ def get_all_targets(datasets: Union[Dataset, List[Dataset]]) -> List[str]:
 
 def collate_fn(
     batch: List[Dict[str, Any]],
-    # target_names: Optional[List[str]] = None,
 ) -> Tuple[List, Dict[str, TensorMap]]:
     """
     Wraps `group_and_join` to return the data fields as a list of systems, and a
