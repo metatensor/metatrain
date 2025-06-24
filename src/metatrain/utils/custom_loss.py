@@ -8,9 +8,15 @@ import torch
 from metatensor.torch import TensorMap
 from torch.nn.modules.loss import _Loss
 
+from metatrain.utils.data import TargetInfo
+
 
 class LossRegistry(ABCMeta):
-    """Metaclass that auto-registers every LossBase subclass."""
+    """
+    Metaclass to auto-register LossBase subclasses.
+
+    Maintains a mapping from registry_name to the subclass type.
+    """
 
     _registry: Dict[str, Type["LossBase"]] = {}
 
@@ -30,6 +36,13 @@ class LossRegistry(ABCMeta):
 
     @classmethod
     def get(cls, key: str) -> Type["LossBase"]:
+        """
+        Retrieve a registered LossBase subclass by its registry_name.
+
+        :param key: The registry key for the loss.
+        :return: The corresponding LossBase subclass.
+        :raises KeyError: If the key is not found in the registry.
+        """
         if key not in cls._registry:
             raise KeyError(
                 f"Unknown loss '{key}'. Available: {list(cls._registry.keys())}"
@@ -38,7 +51,11 @@ class LossRegistry(ABCMeta):
 
 
 class LossBase(ABC, metaclass=LossRegistry):
-    """All losses implement compute(predictions, batch) -> scalar Tensor."""
+    """
+    Abstract base for all loss functions.
+
+    Subclasses must implement compute(predictions, targets) -> torch.Tensor.
+    """
 
     registry_name: str = "base"
     weight: float = 0.0
@@ -52,13 +69,34 @@ class LossBase(ABC, metaclass=LossRegistry):
         super().__init__()
 
     @abstractmethod
-    def compute(self, predictions: Any, targets: Any) -> torch.Tensor: ...
+    def compute(self, predictions: Any, targets: Any) -> torch.Tensor:
+        """
+        Compute the loss given predictions and targets.
+
+        :param predictions: Model outputs.
+        :param targets: Ground-truth data.
+        :return: Scalar loss tensor.
+        """
+        ...
 
     def __call__(self, predictions: Any, targets: Any) -> torch.Tensor:
+        """
+        Alias to compute(), so loss instances are callable.
+
+        :param predictions: Model outputs.
+        :param targets: Ground-truth data.
+        :return: Scalar loss tensor.
+        """
         return self.compute(predictions, targets)
 
     @classmethod
     def from_config(cls, cfg: Dict[str, Any]) -> "LossBase":
+        """
+        Instantiate a LossBase subclass from a config dict.
+
+        :param cfg: Keyword arguments for the loss constructor.
+        :return: An instance of the loss subclass.
+        """
         return cls(**cfg)
 
 
@@ -66,6 +104,13 @@ class LossBase(ABC, metaclass=LossRegistry):
 
 
 class TensorMapPointwiseLoss(LossBase):
+    """
+    Pointwise loss on :py:class:`TensorMap` entries using a :py:mod:`torch.nn` loss
+    function.
+
+    Extracts values or gradients, flattens them, and applies ``loss_fn``.
+    """
+
     registry_name = "pointwise"
 
     def __init__(
@@ -91,6 +136,13 @@ class TensorMapPointwiseLoss(LossBase):
     def compute(
         self, predictions: Dict[str, TensorMap], targets: Dict[str, TensorMap]
     ) -> torch.Tensor:
+        """
+        Gather and flatten target and prediction blocks, then compute loss.
+
+        :param predictions: Mapping from target names to TensorMaps.
+        :param targets: Mapping from target names to TensorMaps.
+        :return: Scalar loss tensor.
+        """
         pred_parts = []
         targ_parts = []
 
@@ -180,31 +232,17 @@ class TensorMapHuberLoss(TensorMapPointwiseLoss):
 
 
 class LossAggregator(LossBase):
+    """
+    Aggregate multiple :py:class:`LossBase` terms with optional sliding weights.
+    """
+
     registry_name = "aggregate"
 
     def __init__(
         self,
-        targets: Dict[str, TensorMap],  # TODO: actually targetinfo
+        targets: Dict[str, TargetInfo],
         config: Dict[str, Dict[str, Any]],
     ):
-        """
-        config:
-          {
-            "energy": {
-                "type":      "mse",
-                "weight":    1.0,
-                "reduction": "mean",        # optional, default "mean"
-                "gradients": {
-                  "positions": { "type": "mse", "weight": 1.0 },
-                  "cell":      { "type": "mse", "weight": 1.0 },
-                }
-                "sliding_factor": 0.5,      # optional, default "None"
-            },
-            "another_target": { ... },
-            ...
-          }
-        """
-
         self.sliding_weights_schedulers: Dict[str, SlidingWeightScheduler] = {}
         self.metadata: Dict[str, Dict[str, Any]] = {}
         cfg = config or {}
@@ -298,8 +336,10 @@ class LossAggregator(LossBase):
 
 class SlidingWeightScheduler:
     """
-    Wraps one LossBase and keeps a running 'sliding weight' for it,
-    initializing by comparing the target TensorMap to its own pointwise mean.
+    Maintain a running Exponential Moving Average (EMA) weight for a single
+    :py:class:`LossBase` term.
+
+    Initialize from a target-mean baseline, then update via EMA.
     """
 
     EPS = 1e-6
@@ -317,7 +357,9 @@ class SlidingWeightScheduler:
 
     def initialize(self, targets: Dict[str, TensorMap]) -> None:
         """
-        Compute the initial sliding weight via target vs (target-mean) TensorMap.
+        Compute initial weight by comparing the target to its mean or zeros.
+
+        :param targets: Mapping from target names to :py:class:`TensorMap`s.
         """
         if self.sf <= 0.0:
             self.weight = 1.0
@@ -359,7 +401,14 @@ class SlidingWeightScheduler:
         predictions: Dict[str, TensorMap],
         targets: Dict[str, TensorMap],
     ) -> None:
-        """Slide the weight toward the current loss."""
+        """
+        Update the weight with the current loss via exponential moving average.
+
+        :param predictions: Mapping from target names to predicted
+            :py:class:`TensorMap`s.
+        :param targets: Mapping from target names to :py:class:`TensorMap`s.
+        """
+
         if self.sf <= 0.0:
             return
 
