@@ -1,5 +1,6 @@
 import copy
 import logging
+from functools import partial
 from pathlib import Path
 from typing import Any, Dict, List, Literal, Union
 
@@ -201,7 +202,9 @@ class Trainer(TrainerInterface):
                         # the sampler takes care of this (if present)
                         train_sampler is None
                     ),
-                    collate_fn=collate_fn,
+                    collate_fn=partial(
+                        collate_fn, target_names=model.dataset_info.targets.keys()
+                    ),
                 )
             )
         train_dataloader = CombinedDataLoader(train_dataloaders, shuffle=True)
@@ -216,7 +219,9 @@ class Trainer(TrainerInterface):
                     sampler=val_sampler,
                     shuffle=False,
                     drop_last=False,
-                    collate_fn=collate_fn,
+                    collate_fn=partial(
+                        collate_fn, target_names=model.dataset_info.targets.keys()
+                    ),
                 )
             )
         val_dataloader = CombinedDataLoader(val_dataloaders, shuffle=False)
@@ -309,7 +314,7 @@ class Trainer(TrainerInterface):
             for batch in train_dataloader:
                 optimizer.zero_grad()
 
-                systems, targets = batch
+                systems, targets, extra_data = batch
                 systems, targets = rotational_augmenter.apply_random_augmentations(
                     systems, targets
                 )
@@ -369,7 +374,7 @@ class Trainer(TrainerInterface):
 
             val_loss = 0.0
             for batch in val_dataloader:
-                systems, targets = batch
+                systems, targets, extra_data = batch
                 systems = [system.to(device=device) for system in systems]
                 targets = {
                     key: value.to(device=device) for key, value in targets.items()

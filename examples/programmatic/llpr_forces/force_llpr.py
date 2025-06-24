@@ -184,7 +184,7 @@ force_uncertainties = []
 
 for batch in test_dataloader:
     dtype = getattr(torch, model.capabilities().dtype)
-    systems, targets = batch
+    systems, targets, extra_data = batch
     systems = [system.to("cuda", dtype) for system in systems]
     for system in systems:
         system.positions.requires_grad = True

@@ -286,7 +286,7 @@ class Trainer(TrainerInterface):
             for batch in train_dataloader:
                 optimizer.zero_grad()
 
-                systems, targets = batch
+                systems, targets, extra_data = batch
                 systems, targets = systems_and_targets_to_device(
                     systems, targets, device
                 )
@@ -342,7 +342,7 @@ class Trainer(TrainerInterface):
 
             val_loss = 0.0
             for batch in val_dataloader:
-                systems, targets = batch
+                systems, targets, extra_data = batch
                 systems, targets = systems_and_targets_to_device(
                     systems, targets, device
                 )

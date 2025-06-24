@@ -232,17 +232,41 @@ def get_all_targets(datasets: Union[Dataset, List[Dataset]]) -> List[str]:
     return sorted(set(target_names))
 
 
-def collate_fn(batch: List[Dict[str, Any]]) -> Tuple[List, Dict[str, TensorMap]]:
+def collate_fn(
+    batch: List[Dict[str, Any]],
+    target_names: Optional[List[str]] = None,
+) -> Tuple[List, Dict[str, TensorMap]]:
     """
-    Wraps `group_and_join` to
-    return the data fields as a list of systems, and a dictionary of nameed
-    targets.
+    Wraps `group_and_join` to return the data fields as a list of systems, and a
+    dictionary of named targets.
+    
+    If ``target_names=None``, all fields except ``"system"`` will returned in the
+    targets dictionary, with ``"extra_data"`` being returned as en empty dictionary.
+
+    If ``target_names`` is provided, it will only the fields named will be included in
+    the returned targets dictionary. All other fields will be instead returned in the
+    ``"extra_data"`` dictionary. 
     """
 
-    collated_targets = group_and_join(batch, join_kwargs={"remove_tensor_name": True})
+    collated_targets = group_and_join(
+        batch,
+        join_kwargs={"remove_tensor_name": True, "different_keys": "union"},
+    )
     collated_targets = collated_targets._asdict()
     systems = collated_targets.pop("system")
-    return systems, collated_targets
+    
+    if target_name is None:
+        collated_extra_data = {}
+    else:
+        # filter the targets to only include the requested ones
+        collated_targets = {
+            key: value for key, value in collated_targets.items() if key in target_names
+        }
+        # put all other fields into "extra_data"
+        collated_extra_data = {
+            key: value for key, value in collated_targets.items() if key not in target_names
+        }
+    return systems, collated_targets, collated_extra_data
 
 
 def check_datasets(train_datasets: List[Dataset], val_datasets: List[Dataset]):
