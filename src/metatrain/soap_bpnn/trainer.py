@@ -216,15 +216,15 @@ class Trainer(TrainerInterface):
             config=loss_hypers,
         )
         logging.info("Using the following loss functions:")
-        for name, loss in loss_fn.loss_fns.items():
-            if name.split("_")[-1] == "gradients":
-                # this is a gradient loss, we will not log it
+        for name, info in loss_fn.metadata.items():
+            logging.info(f"{name}:")
+            main = {k: v for k, v in info.items() if k != "gradients"}
+            logging.info(main)
+            if "gradients" not in info:
                 continue
-            logging.info(
-                f"\t'{name}': type: '{loss.registry_name}' with weight: {loss.weight}"
-            )
-            if loss.loss_kwargs:
-                logging.info(f"\t\twith loss kwargs: {loss.loss_kwargs}")
+            logging.info("With gradients:")
+            for grad, ginfo in info["gradients"].items():
+                logging.info(f"\t{name}::{grad}: {ginfo}")
 
         # Create an optimizer:
         optimizer = torch.optim.Adam(
