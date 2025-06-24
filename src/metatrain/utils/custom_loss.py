@@ -64,115 +64,6 @@ class LossBase(ABC, metaclass=LossRegistry):
 # --- specific losses ------------------------------------------------------------------
 
 
-# class TensorMapMSELossWithSliding(LossBase):
-#     registry_name = "mse_sliding"
-
-#     def __init__(
-#         self,
-#         name: str,
-#         weight: float = 1.0,
-#         reduction: str = "mean",
-#         *,
-#         gradient_weights: Optional[Dict[str, float]] = None,
-#         sliding_factor: Optional[float] = None,
-#     ):
-#         self.target = name
-
-#         if gradient_weights is None:
-#             gradient_weights = {}
-#         loss_fns = {}
-#         loss_fns[self.target] = torch.nn.MSELoss(reduction=reduction)
-#         for key in gradient_weights.keys():
-#             loss_fns[f"{self.target}_{key}"] = torch.nn.MSELoss(reduction=reduction)
-#         self.loss_fns = loss_fns
-
-#         self.weight = weight
-#         self.gradient_weights = gradient_weights
-#         self.sliding_factor = sliding_factor
-#         self.sliding_weights: Optional[Dict[str, TensorMap]] = None
-
-#     def compute(
-#         self, predictions: Dict[str, TensorMap], targets: Dict[str, TensorMap]
-#     ) -> torch.Tensor:
-
-#         pred_tm = predictions[self.target]
-#         tgt_tm = targets[self.target]
-
-#         # IMPLEMENT CHECK ROUTINE
-
-#         # First time the function is called: compute the sliding weights only
-#         # from the targets (if they are enabled)
-#         if self.sliding_factor is not None and self.sliding_weights is None:
-#             self.sliding_weights = get_sliding_weights(
-#                 self.losses,
-#                 self.sliding_factor,
-#                 tgt_tm,
-#             )
-
-#         loss = torch.zeros(
-#             (),
-#             dtype=pred_tm.block(0).values.dtype,
-#             device=pred_tm.block(0).values.device,
-#         )
-
-#         for key in pred_tm.keys:
-
-#             pred_block = pred_tm.block(key)
-#             targ_block = tgt_tm.block(key)
-#             pred_values = pred_block.values
-#             targ_values = targ_block.values
-
-#             # sliding weights: default to 1.0 if not used/provided for this target
-#             sliding_weight = (
-#                 1.0
-#                 if self.sliding_weights is None
-#                 else self.sliding_weights.get("values", 1.0)
-#             )
-
-#             # loss on the main values with the sliding weight
-#             loss += (
-#                 self.weight
-#                 * self.losses["values"](pred_values, targ_values)
-#                 / sliding_weight
-#             )
-
-#             for gradient_name in targ_block.gradients_list():  # check if this works
-
-#                 target_and_gradient = f"{self.target}_{gradient_name}"
-
-#                 gradient_weight = self.gradient_weights.get(target_and_gradient, 1.0)
-
-#                 pred_values = pred_block.gradient(gradient_name).values
-#                 targ_values = targ_block.gradient(gradient_name).values
-
-#                 loss += gradient_weight * self.losses[target_and_gradient](
-#                     pred_values, targ_values
-#                 )
-
-#                 # sliding_weight = (
-#                 #     1.0
-#                 #     if self.sliding_weights is None
-#                 #     else self.sliding_weights.get(target_and_gradient, 1.0)
-#                 # )
-#                 # loss += (
-#                 #     gradient_weight
-#                 #     * self.losses[target_and_gradient](pred_values, targ_values)
-#                 #     / sliding_weight
-#                 # )
-
-#         # update sliding weights
-#         if self.sliding_factor is not None:
-#             self.sliding_weights = get_sliding_weights(
-#                 self.losses,
-#                 self.sliding_factor,
-#                 tgt_tm,
-#                 pred_tm,
-#                 self.sliding_weights,
-#             )
-
-#         return loss
-
-
 class TensorMapPointwiseLoss(LossBase):
     registry_name = "pointwise"
 
@@ -311,11 +202,6 @@ class LossAggregator(LossBase):
             ...
           }
         """
-        # self.loss_fns: Dict[str, LossBase] = {}
-        # self.grad_loss_fns: Dict[str, Dict[str, LossBase]] = {}
-        # self.sliding_factors: Dict[str, Optional[float]] = {}
-        # self.sliding_weights: Dict[str, Optional[float]] = {}
-        # self.update_sliding_weights = False  # initialized as false
 
         self.sliding_weights_schedulers: Dict[str, SlidingWeightScheduler] = {}
         self.metadata: Dict[str, Dict[str, Any]] = {}
@@ -369,48 +255,6 @@ class LossAggregator(LossBase):
                     "reduction": grad_loss.loss_kwargs.get("reduction"),
                     "sliding_factor": sf,
                 }
-
-        # for target_name, target in targets.items():
-        #     # main loss on the target
-        #     tgt_cfg = cfg.get(target_name, {})
-        #     main_type = tgt_cfg.get("type", "mse")
-        #     main_weight = tgt_cfg.get("weight", 1.0)
-        #     main_reduction = tgt_cfg.get("reduction", "mean")
-
-        #     MainCls = LossRegistry.get(main_type)
-        #     self.loss_fns[target_name] = MainCls(
-        #         name=target_name,
-        #         gradient=None,  # not a gradient
-        #         weight=main_weight,
-        #         reduction=main_reduction,
-        #     )
-
-        #     # loss_fns on gradients
-        #     all_grads = list(target.layout[0].gradients_list())
-        #     grad_cfgs = tgt_cfg.get("gradients", {})
-
-        #     for grad_name in all_grads:
-        #         self.grad_loss_fns[target_name] = {}
-
-        #         key_grad = f"{target_name}_grad_{grad_name}"
-
-        #         grad_cfg = grad_cfgs.get(grad_name, {})
-        #         grad_type = grad_cfg.get("type", main_type)
-        #         grad_weight = grad_cfg.get("weight", 1.0)
-        #         grad_reduction = grad_cfg.get("reduction", main_reduction)
-
-        #         GradCls = LossRegistry.get(grad_type)
-
-        #         self.grad_loss_fns[target_name][key_grad] = GradCls(
-        #             name=target_name,
-        #             gradient=grad_name,
-        #             weight=grad_weight,
-        #             reduction=grad_reduction,
-        #         )
-
-        #     self.sliding_factors[target_name] = tgt_cfg.get(
-        #         "sliding_factor", None
-        #     )  # TODO: check type
 
     def compute(
         self,
