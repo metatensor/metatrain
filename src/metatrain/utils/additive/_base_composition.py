@@ -285,7 +285,7 @@ class BaseCompositionModel(torch.nn.Module):
         self,
         systems: List[System],
         outputs: Dict[str, ModelOutput],
-        selected_samples: Optional[Labels] = None,
+        selected_atoms: Optional[Labels] = None,
     ) -> Dict[str, TensorMap]:
         """
         Compute the targets for each system based on the composition weights.
@@ -360,10 +360,10 @@ class BaseCompositionModel(torch.nn.Module):
                         f" for target {output_name}"
                     )
 
-                # If selected_samples is provided, slice the samples labels and the X
+                # If selected_atoms is provided, slice the samples labels and the X
                 # tensor
-                if selected_samples is not None:
-                    sample_indices = sample_labels.select(selected_samples)
+                if selected_atoms is not None:
+                    sample_indices = sample_labels.select(selected_atoms)
                     sample_labels = Labels(
                         sample_labels.names,
                         sample_labels.values[sample_indices],

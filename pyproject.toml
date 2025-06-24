@@ -142,5 +142,5 @@ filterwarnings = [
     # Sphericart double backward warning
     "ignore:Second derivatives of the spherical harmonics with respect to the Cartesian coordinates were not requested at class creation.",
     # OldCompositionModel deprecation warning
-    "ignore:this composition model is deprecated. Please use `CompositionModel` instead."
+    "ignore:`OldCompositionModel` composition model is deprecated. Please use `CompositionModel` instead."
 ]

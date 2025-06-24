@@ -170,13 +170,13 @@ class CompositionModel(torch.nn.Module):
         self,
         systems: List[System],
         outputs: Dict[str, ModelOutput],
-        selected_samples: Optional[Labels] = None,
+        selected_atoms: Optional[Labels] = None,
     ) -> Dict[str, TensorMap]:
         """Compute the targets for each system based on the composition weights.
 
         :param systems: List of systems to calculate the energy.
         :param outputs: Dictionary containing the model outputs.
-        :param selected_samples: Optional selection of samples for which to compute the
+        :param selected_atoms: Optional selection of samples for which to compute the
             predictions.
         :returns: A dictionary with the computed predictions for each system.
 
@@ -194,7 +194,7 @@ class CompositionModel(torch.nn.Module):
         return self.model.forward(
             systems,
             outputs=outputs,
-            selected_samples=selected_samples,
+            selected_atoms=selected_atoms,
         )
 
     def supported_outputs(self) -> Dict[str, ModelOutput]:

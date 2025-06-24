@@ -29,8 +29,8 @@ class OldCompositionModel(torch.nn.Module):
 
     def __init__(self, model_hypers: Dict, dataset_info: DatasetInfo):
         warnings.warn(
-            "this composition model is deprecated. "
-            "Please use `CompositionModel` instead.",
+            "`OldCompositionModel` composition model is deprecated."
+            " Please use `CompositionModel` instead.",
             stacklevel=1,
         )
         super().__init__()
