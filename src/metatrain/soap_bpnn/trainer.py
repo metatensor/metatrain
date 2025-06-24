@@ -175,13 +175,11 @@ class Trainer(TrainerInterface):
                     sampler=train_sampler,
                     shuffle=(
                         # the sampler takes care of this (if present)
-                        train_sampler
-                        is None
+                        train_sampler is None
                     ),
                     drop_last=(
                         # the sampler takes care of this (if present)
-                        train_sampler
-                        is None
+                        train_sampler is None
                     ),
                     collate_fn=collate_fn,
                 )
@@ -218,7 +216,7 @@ class Trainer(TrainerInterface):
             config=loss_hypers,
         )
         logging.info("Using the following loss functions:")
-        for name, loss in loss_fn.losses.items():
+        for name, loss in loss_fn.loss_fns.items():
             if name.split("_")[-1] == "gradients":
                 # this is a gradient loss, we will not log it
                 continue
