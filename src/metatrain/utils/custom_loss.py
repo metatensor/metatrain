@@ -327,27 +327,27 @@ class SlidingWeightScheduler:
 
             # build a TensorMap baseline whose blocks hold the per‐block mean
             if grad is None:
-                # mean over samples, using your old utility
+                # mean over samples
                 mean_tm = mts.mean_over_samples(tm, tm.sample_names)
-                # now expand each block to a constant map of those means:
-                blocks = []
-                for block, mean_block in zip(tm.blocks(), mean_tm.blocks()):
-                    constant_values = torch.ones_like(block.values) * mean_block.values
-                    blocks.append(
+                # Create a baseline TensorMap with the same structure
+                baseline = TensorMap(
+                    keys=tm.keys,
+                    blocks=[
                         mts.TensorBlock(
                             samples=block.samples,
                             components=block.components,
                             properties=block.properties,
-                            values=constant_values,
+                            values=torch.ones_like(block.values) * mean_block.values,
                         )
-                    )
-                baseline = TensorMap(keys=tm.keys, blocks=blocks)
+                        for block, mean_block in zip(tm, mean_tm)
+                    ],
+                )
 
             else:
                 # for a gradient‐loss, baseline is zero‐valued tensormap
                 baseline = mts.zeros_like(tm)
 
-            # 2) now compute the loss_fn between tm and baseline
+            # now compute the loss_fn between tm and baseline
             val = self.loss_fn.compute({name: tm}, {name: baseline})
             self.weight = float(val.clamp_min(self.EPS))
         self.initialized = True
