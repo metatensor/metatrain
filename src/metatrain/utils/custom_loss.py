@@ -69,12 +69,15 @@ class LossBase(ABC, metaclass=LossRegistry):
         super().__init__()
 
     @abstractmethod
-    def compute(self, predictions: Any, targets: Any) -> torch.Tensor:
+    def compute(
+        self, predictions: Any, targets: Any, extra_data: Optional[Any] = None
+    ) -> torch.Tensor:
         """
         Compute the loss given predictions and targets.
 
         :param predictions: Model outputs.
         :param targets: Ground-truth data.
+        :param extra_data: Optional additional data for loss computation.
         :return: Scalar loss tensor.
         """
         ...
@@ -134,15 +137,21 @@ class TensorMapPointwiseLoss(LossBase):
         self.loss_fn = loss_cls(**params)
 
     def compute(
-        self, predictions: Dict[str, TensorMap], targets: Dict[str, TensorMap]
+        self,
+        predictions: Dict[str, TensorMap],
+        targets: Dict[str, TensorMap],
+        extra_data: Optional[Any] = None,
     ) -> torch.Tensor:
         """
         Gather and flatten target and prediction blocks, then compute loss.
 
         :param predictions: Mapping from target names to TensorMaps.
         :param targets: Mapping from target names to TensorMaps.
+        :param extra_data: Additional data for loss computation [ignored].
         :return: Scalar loss tensor.
         """
+
+        del extra_data  # Unused, but kept for compatibility
         pred_parts = []
         targ_parts = []
 
@@ -300,6 +309,7 @@ class LossAggregator(LossBase):
         self,
         predictions: Dict[str, TensorMap],
         targets: Dict[str, TensorMap],
+        extra_data: Optional[Any] = None,
     ) -> torch.Tensor:
         # initialize all on the first call
         if not all(s.initialized for s in self.sliding_weights_schedulers.values()):
@@ -315,7 +325,9 @@ class LossAggregator(LossBase):
 
         # sum up loss_i * weight_i / sliding_weight_i
         for sched in self.sliding_weights_schedulers.values():
-            loss_val = sched.loss_fn.compute(predictions, targets)
+            loss_val = sched.loss_fn.compute(
+                predictions, targets, extra_data=extra_data
+            )
             total += loss_val * sched.loss_fn.weight / sched.weight
 
         # update for next batch
