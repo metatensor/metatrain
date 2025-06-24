@@ -5,9 +5,9 @@ import metatensor.torch
 import pytest
 import torch
 from metatensor.torch import Labels, TensorBlock, TensorMap
-from metatensor.torch.learn.data import DataLoader
 from metatomic.torch import ModelOutput, System
 from omegaconf import OmegaConf
+from torch.utils.data import DataLoader
 
 from metatrain.utils.additive import (
     ZBL,
@@ -15,7 +15,7 @@ from metatrain.utils.additive import (
     OldCompositionModel,
     remove_additive,
 )
-from metatrain.utils.data import Dataset, DatasetInfo
+from metatrain.utils.data import Dataset, DatasetInfo, collate_fn
 from metatrain.utils.data.readers import read_systems, read_targets
 from metatrain.utils.data.target_info import (
     get_energy_target_info,
@@ -212,7 +212,7 @@ def test_composition_model_train():
         for i, e in enumerate(energies)
     ]
     dataset = Dataset.from_dict({"system": systems, "energy": energies})
-    dataloader = DataLoader(dataset, batch_size=1)
+    dataloader = DataLoader(dataset, batch_size=1, collate_fn=collate_fn)
 
     composition_model = CompositionModel(
         model_hypers={},
@@ -355,7 +355,7 @@ def test_composition_model_predict():
     }
     targets, target_info = read_targets(OmegaConf.create(conf))
     dataset = Dataset.from_dict({"system": systems, "mtt::U0": targets["mtt::U0"]})
-    dataloader = DataLoader(dataset, batch_size=1)
+    dataloader = DataLoader(dataset, batch_size=1, collate_fn=collate_fn)
 
     composition_model = CompositionModel(
         model_hypers={},
@@ -550,7 +550,7 @@ def test_remove_additive():
     }
     targets, target_info = read_targets(OmegaConf.create(conf))
     dataset = Dataset.from_dict({"system": systems, "mtt::U0": targets["mtt::U0"]})
-    dataloader = DataLoader(dataset, batch_size=1)
+    dataloader = DataLoader(dataset, batch_size=1, collate_fn=collate_fn)
 
     composition_model = CompositionModel(
         model_hypers={},
@@ -723,7 +723,7 @@ def test_composition_model_missing_types(caplog):
         for i, e in enumerate(energies)
     ]
     dataset = Dataset.from_dict({"system": systems, "energy": energies})
-    dataloader = DataLoader(dataset, batch_size=1)
+    dataloader = DataLoader(dataset, batch_size=1, collate_fn=collate_fn)
 
     composition_model = CompositionModel(
         model_hypers={},
@@ -1063,7 +1063,7 @@ def test_composition_model_train_per_atom(where_is_center_type):
 
     energies = [tensor_map_1, tensor_map_2]
     dataset = Dataset.from_dict({"system": systems, "energy": energies})
-    dataloader = DataLoader(dataset, batch_size=1)
+    dataloader = DataLoader(dataset, batch_size=1, collate_fn=collate_fn)
 
     composition_model = CompositionModel(
         model_hypers={},
@@ -1282,7 +1282,7 @@ def test_composition_many_subtargets():
         for i, e in enumerate(energies)
     ]
     dataset = Dataset.from_dict({"system": systems, "energy": energies})
-    dataloader = DataLoader(dataset, batch_size=1)
+    dataloader = DataLoader(dataset, batch_size=1, collate_fn=collate_fn)
 
     composition_model = CompositionModel(
         model_hypers={},
@@ -1552,7 +1552,7 @@ def test_composition_spherical():
         for i, e in enumerate(energies)
     ]
     dataset = Dataset.from_dict({"system": systems, "energy": energies})
-    dataloader = DataLoader(dataset, batch_size=1)
+    dataloader = DataLoader(dataset, batch_size=1, collate_fn=collate_fn)
 
     composition_model = CompositionModel(
         model_hypers={},
