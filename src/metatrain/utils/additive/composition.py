@@ -207,6 +207,19 @@ class CompositionModel(torch.nn.Module):
             per_atom=True,
         )
 
+    def _move_weights_to_device_and_dtype(
+        self, device: torch.device, dtype: torch.dtype
+    ):
+        if len(self.model.weights) != 0:
+            if self.model.weights[list(self.model.weights.keys())[0]].device != device:
+                self.model.weights = {
+                    k: v.to(device) for k, v in self.model.weights.items()
+                }
+            if self.model.weights[list(self.model.weights.keys())[0]].dtype != dtype:
+                self.model.weights = {
+                    k: v.to(dtype) for k, v in self.model.weights.items()
+                }
+
     @staticmethod
     def is_valid_target(target_name: str, target_info: TargetInfo) -> bool:
         """Finds if a ``TargetInfo`` object is compatible with a composition model.
