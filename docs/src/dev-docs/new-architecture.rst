@@ -119,13 +119,15 @@ Defining a new model can then be done as follow;
 
     class MyModel(ModelInterface):
 
+        __checkpoint_version__ = 1
         __supported_devices__ = ["cuda", "cpu"]
         __supported_dtypes__ = [torch.float64, torch.float32]
         __default_metadata__ = ModelMetadata(
             references = {"implementation": ["ref1"], "architecture": ["ref2"]}
         )
 
-        def __init__(self, model_hypers: Dict, dataset_info: DatasetInfo):
+        def __init__(self, hypers: Dict, dataset_info: DatasetInfo):
+            super().__init__(hypers, dataset_info)
             ...
 
         ... # implementation of all the functions from ModelInterface
@@ -265,3 +267,26 @@ page describing the architecture and its default hyperparameters will be
 sufficient. You can take inspiration from existing architectures. The various
 targets that the architecture can fit should be added to the table in the
 "Fitting generic targets" section.
+
+Checkpoint versioning
+----------------------
+
+Checkpoints are used to save the weights of a models and the state of the
+trainer to disk, enabling to restart interupted training runs, to fine-tune
+existing models on new dataset, and to export standalone models based on
+TorchScript.
+
+A checkpoint created by a given version of metatrain might need to be read again
+by a later version, where the internal structure of the model might have
+changed. To enable this, all ``Model`` classes are required to have a
+``__checkpoint_version__`` class attribute containing the version of the
+checkoint, as a strictly inreasing integer. Additionally, architectures should
+provide an ``upgrade_checkpoint(checkpoint: Dict) -> Dict`` function, that will
+be called when a user is trying to load some outdated checkpoint. This function
+is responsible for updating the checkpoint data and returning a checkpoint
+compatible with the current version.
+
+Similarly, the ``Trainer`` state is also saved in checkpoint and used to restart
+training. All trainer must thus have a ``__checkpoint_version__`` class
+attribute as well as a ``upgrade_checkpoint(checkpoint: Dict) -> Dict`` function
+to updgrade from previous checkpoints.

@@ -38,6 +38,7 @@ class PET(ModelInterface):
 
     """
 
+    __checkpoint_version__ = 1
     __supported_devices__ = ["cuda", "cpu"]
     __supported_dtypes__ = [torch.float32, torch.float64]
     __default_metadata__ = ModelMetadata(
@@ -45,11 +46,10 @@ class PET(ModelInterface):
     )
     component_labels: Dict[str, List[List[Labels]]]
 
-    def __init__(self, model_hypers: Dict, dataset_info: DatasetInfo) -> None:
-        super().__init__()
-        self.dataset_info = dataset_info
+    def __init__(self, hypers: Dict, dataset_info: DatasetInfo) -> None:
+        super().__init__(hypers, dataset_info)
+
         self.atomic_types = dataset_info.atomic_types
-        self.hypers = model_hypers
         self.requested_nl = NeighborListOptions(
             cutoff=self.hypers["cutoff"],
             full_list=True,
@@ -129,7 +129,7 @@ class PET(ModelInterface):
         # additive models: these are handled by the trainer at training
         # time, and they are added to the output at evaluation time
         composition_model = CompositionModel(
-            model_hypers={},
+            hypers={},
             dataset_info=DatasetInfo(
                 length_unit=dataset_info.length_unit,
                 atomic_types=self.atomic_types,
@@ -161,7 +161,7 @@ class PET(ModelInterface):
         self.additive_models = torch.nn.ModuleList(additive_models)
 
         # scaler: this is also handled by the trainer at training time
-        self.scaler = Scaler(model_hypers={}, dataset_info=dataset_info)
+        self.scaler = Scaler(hypers={}, dataset_info=dataset_info)
 
         self.single_label = Labels.single()
 
@@ -674,7 +674,10 @@ class PET(ModelInterface):
         finetune_config = checkpoint["train_hypers"].get("finetune", {})
 
         # Create the model
-        model = cls(**model_data)
+        model = cls(
+            hypers=model_data["model_hypers"],
+            dataset_info=model_data["dataset_info"],
+        )
 
         if finetune_config:
             # Apply the finetuning strategy
@@ -865,3 +868,7 @@ class PET(ModelInterface):
             values=sample_values,
         )
         return system_indices, sample_labels
+
+    @staticmethod
+    def upgrade_checkpoint(checkpoint: Dict) -> Dict:
+        raise NotImplementedError("checkpoint upgrade is not implemented for PET")

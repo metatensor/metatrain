@@ -35,7 +35,7 @@ def test_evaluate_model(training, exported):
     dataset_info = DatasetInfo(
         length_unit="angstrom", atomic_types=atomic_types, targets=targets
     )
-    model = __model__(model_hypers=MODEL_HYPERS, dataset_info=dataset_info)
+    model = __model__(hypers=MODEL_HYPERS, dataset_info=dataset_info)
 
     if exported:
         model = model.export()
