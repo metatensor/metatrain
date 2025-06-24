@@ -650,11 +650,12 @@ class LLPRUncertaintyModel(torch.nn.Module):
                     # accumulate masks
                     cur_mask = orig_targets["mtt::mask"].block().values.to(device=device, dtype=dtype)
                     all_masks.append(cur_mask)
-
+                    print(target.block().values.device, target.block().values.dtype)
+                    print(device)
                     # accumulate shifts
                     _, cur_shifts = get_dynamic_shift_agnostic_mse(
                         outputs[name].block().values.detach(),
-                        target.block().values * torch.tensor(lens).to(device=device, dtype=dtype),
+                        target.block().values * torch.tensor(lens).unsqueeze(-1).to(device=device, dtype=dtype),
                         cur_mask,
                         return_shift=True)
 
