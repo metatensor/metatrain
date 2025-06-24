@@ -1,7 +1,7 @@
 # losses.py
 
 from abc import ABC, ABCMeta, abstractmethod
-from typing import Any, Dict, List, Optional, Type
+from typing import Any, Dict, Optional, Type
 
 import torch
 from metatensor.torch import TensorMap
@@ -191,6 +191,7 @@ class TensorMapPointwiseLoss(LossBase):
         self.loss_kwargs = loss_kwargs
 
         params = {"reduction": reduction, **loss_kwargs}
+        print(params)
         self.loss_fn = loss_cls(**params)
 
     def compute(
@@ -228,13 +229,13 @@ class TensorMapMSELoss(TensorMapPointwiseLoss):
     def __init__(
         self,
         name: str,
-        gradients: Optional[List[str]] = None,
+        gradient: Optional[str] = None,
         weight: float = 1.0,
         reduction: str = "mean",
     ):
         super().__init__(
             name=name,
-            gradients=gradients,
+            gradient=gradient,
             weight=weight,
             reduction=reduction,
             loss_cls=torch.nn.MSELoss,
@@ -247,13 +248,13 @@ class TensorMapMAELoss(TensorMapPointwiseLoss):
     def __init__(
         self,
         name: str,
-        gradients: Optional[List[str]] = None,
+        gradient: Optional[str] = None,
         weight: float = 1.0,
         reduction: str = "mean",
     ):
         super().__init__(
             name=name,
-            gradients=gradients,
+            gradient=gradient,
             weight=weight,
             reduction=reduction,
             loss_cls=torch.nn.L1Loss,
@@ -266,14 +267,14 @@ class TensorMapHuberLoss(TensorMapPointwiseLoss):
     def __init__(
         self,
         name: str,
-        gradients: Optional[List[str]] = None,
+        gradient: Optional[str] = None,
         weight: float = 1.0,
         reduction: str = "mean",
         delta: float = 1.0,
     ):
         super().__init__(
             name=name,
-            gradients=gradients,
+            gradient=gradient,
             weight=weight,
             reduction=reduction,
             loss_cls=torch.nn.HuberLoss,
@@ -326,7 +327,7 @@ class LossAggregator(LossBase):
             MainCls = LossRegistry.get(main_type)
             self.loss_fns[target_name] = MainCls(
                 name=target_name,
-                gradients=None,  # not a gradient
+                gradient=None,  # not a gradient
                 weight=main_weight,
                 reduction=main_reduction,
             )
