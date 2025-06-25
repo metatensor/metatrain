@@ -325,6 +325,9 @@ class LossAggregator(LossBase):
 
         # sum up loss_i * weight_i / sliding_weight_i
         for sched in self.sliding_weights_schedulers.values():
+            if sched.loss_fn.target not in predictions:
+                # Should only happen for multiple-dataset training
+                continue
             loss_val = sched.loss_fn.compute(
                 predictions, targets, extra_data=extra_data
             )
