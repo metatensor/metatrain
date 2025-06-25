@@ -277,7 +277,6 @@ def train_model(
 
     train_datasets = []
     target_info_dict: Dict[str, TargetInfo] = {}
-    # extra_data_info_dict: Dict[str, TargetInfo] = {}
     for train_options in options["training_set"]:  # loop over training sets
         dataset, target_info_dict_single = get_dataset(train_options)
         train_datasets.append(dataset)
@@ -290,19 +289,6 @@ def train_model(
                     f"Got {target_info_dict[key]} and {target_info_dict_single[key]}."
                 )
         target_info_dict.update(target_info_dict_single)
-
-        # intersecting_keys = (
-        #     extra_data_info_dict.keys() & extra_data_info_dict_single.keys()
-        # )
-        # for key in intersecting_keys:
-        #     if extra_data_info_dict[key] != extra_data_info_dict_single[key]:
-        #         raise ValueError(
-        #             f"Extra data information for key {key} differs between "
-        #             "training sets. "
-        #             f"Got {extra_data_info_dict[key]} and "
-        #             f" {extra_data_info_dict_single[key]}."
-        #         )
-        # extra_data_info_dict.update(extra_data_info_dict_single)
 
     train_size = 1.0
 
@@ -425,11 +411,6 @@ def train_model(
         atomic_types=atomic_types,
         targets=target_info_dict,
     )
-    # extra_data_info = DatasetInfo(
-    #     length_unit=options["training_set"][0]["systems"]["length_unit"],
-    #     atomic_types=atomic_types,
-    #     targets=extra_data_info_dict,
-    # )
 
     ###########################
     # PRINT DATASET STATS #####
@@ -498,7 +479,7 @@ def train_model(
         if training_context == "restart" and restart_from is not None:
             logging.info(f"Restarting training from '{restart_from}'")
             model = model_from_checkpoint(path=restart_from, context=training_context)
-            model = model.restart(dataset_info)  # TODO: add extra_data_info?
+            model = model.restart(dataset_info)
             trainer = trainer_from_checkpoint(
                 path=restart_from,
                 hypers=hypers["training"],
