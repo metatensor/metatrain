@@ -232,6 +232,6 @@ section to your ``options.yaml`` file:
 
 .. warning::
 
-   While the ``extra_data`` section can always be passed, it can be used only with 
-   some loss functions. If the loss function does not support the extra data, it will 
+   While the ``extra_data`` section can always be present, it can be used only with
+   some loss functions. If the loss function does not support the extra data, it will
    be ignored. You might have to implement a custom loss function to use the extra data.
