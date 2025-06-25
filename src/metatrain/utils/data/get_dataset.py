@@ -34,6 +34,8 @@ def get_dataset(options: DictConfig) -> Tuple[Dataset, Dict[str, TargetInfo]]:
         targets, target_info_dictionary = read_targets(conf=options["targets"])
         if "extra_data" in options:
             extra_data = read_extra_data(conf=options["extra_data"])
+        else:
+            extra_data = {}
         dataset = Dataset.from_dict({"system": systems, **targets, **extra_data})
 
     return dataset, target_info_dictionary
