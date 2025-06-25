@@ -14,6 +14,7 @@ from metatrain.utils.data import (
     get_all_targets,
     get_atomic_types,
     get_stats,
+    read_extra_data,
     read_systems,
     read_targets,
 )
@@ -565,7 +566,7 @@ def test_collate_fn():
     """Tests the collate_fn function."""
 
     systems = read_systems(RESOURCES_PATH / "qm9_reduced_100.xyz")
-    conf = {
+    conf_targets = {
         "mtt::U0": {
             "quantity": "energy",
             "read_from": str(RESOURCES_PATH / "qm9_reduced_100.xyz"),
@@ -580,8 +581,29 @@ def test_collate_fn():
             "virial": False,
         }
     }
-    targets, _ = read_targets(OmegaConf.create(conf))
-    dataset = Dataset.from_dict({"system": systems, "mtt::U0": targets["mtt::U0"]})
+    targets, _ = read_targets(OmegaConf.create(conf_targets))
+
+    conf_extra_data = {
+        "ext::U0": {
+            "quantity": "",
+            "read_from": str(RESOURCES_PATH / "qm9_reduced_100.xyz"),
+            "reader": "ase",
+            "key": "U0",
+            "unit": "eV",
+            "type": "scalar",
+            "per_atom": False,
+            "num_subtargets": 1,
+        }
+    }
+    extra_data = read_extra_data(OmegaConf.create(conf_extra_data))
+
+    dataset = Dataset.from_dict(
+        {
+            "system": systems,
+            "mtt::U0": targets["mtt::U0"],
+            "ext::U0": extra_data["ext::U0"],
+        }
+    )
 
     batch = collate_fn([dataset[0], dataset[1], dataset[2]])
 
