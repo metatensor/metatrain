@@ -11,7 +11,7 @@ from metatensor.torch import Labels
 from omegaconf import OmegaConf
 from test_targets_ase import ase_system, ase_systems
 
-from metatrain.utils.data import TargetInfo, read_systems, read_targets
+from metatrain.utils.data import TargetInfo, read_extra_data, read_systems, read_targets
 
 
 @pytest.mark.parametrize("reader", (None, "ase"))
@@ -357,3 +357,38 @@ def test_read_targets_generic_errors(monkeypatch, tmp_path):
         with pytest.warns(UserWarning, match="should not be its own top-level target"):
             with pytest.warns(UserWarning, match="resembles to a gradient of energies"):
                 read_targets(OmegaConf.create(conf))
+
+
+def test_read_extra_data(monkeypatch, tmp_path):
+    monkeypatch.chdir(tmp_path)
+
+    filename = "systems.xyz"
+    systems = ase_systems()
+    ase.io.write(filename, systems)
+
+    energy_section = {
+        "quantity": "",
+        "read_from": filename,
+        "reader": "ase",
+        "key": "true_energy",
+        "unit": "eV",
+        "type": "scalar",
+        "per_atom": False,
+        "num_subtargets": 1,
+    }
+
+    conf = {"ext::energy": energy_section}
+
+    result = read_extra_data(OmegaConf.create(conf))
+
+    assert type(result) is dict
+
+    for target_list in result.values():
+        assert type(target_list) is list
+        for target in target_list:
+            assert target.keys == Labels(["_"], torch.tensor([[0]]))
+
+            result_block = target.block()
+            assert result_block.values.dtype is torch.float64
+            assert result_block.samples.names == ["system"]
+            assert result_block.properties == Labels("properties", torch.tensor([[0]]))

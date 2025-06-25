@@ -6,6 +6,8 @@ from metatomic.torch import System
 from metatrain.utils.transfer import (
     systems_and_targets_to_device,
     systems_and_targets_to_dtype,
+    tensormap_to_device,
+    tensormap_to_dtype,
 )
 
 
@@ -60,4 +62,34 @@ def test_systems_and_targets_to_dtype_and_device():
 
     assert systems[0].positions.device == torch.device("meta")
     assert systems[0].types.device == torch.device("meta")
+    assert targets["energy"].block().values.device == torch.device("meta")
+
+
+def test_tensormap_to_dtype():
+    targets = TensorMap(
+        keys=Labels.single(),
+        blocks=[metatensor.torch.block_from_array(torch.tensor([[1.0]]))],
+    )
+
+    targets = {"energy": targets}
+
+    assert targets["energy"].block().values.dtype == torch.float32
+
+    targets = tensormap_to_dtype(targets, torch.float64)
+
+    assert targets["energy"].block().values.dtype == torch.float64
+
+
+def test_tensormap_to_device():
+    targets = TensorMap(
+        keys=Labels.single(),
+        blocks=[metatensor.torch.block_from_array(torch.tensor([[1.0]]))],
+    )
+
+    targets = {"energy": targets}
+
+    assert targets["energy"].block().values.device == torch.device("cpu")
+
+    targets = tensormap_to_device(targets, torch.device("meta"))
+
     assert targets["energy"].block().values.device == torch.device("meta")
