@@ -29,6 +29,11 @@ class BaseCompositionModel(torch.nn.Module):
     before the :py:method:`forward` method is called to compute the predictions.
     """
 
+    # Needed for torchscript compatibility
+    target_names: List[str]
+    weights: Dict[str, TensorMap]
+    sample_kinds: Dict[str, str]
+
     def __init__(self, atomic_types: List[int], layouts: Dict[str, TensorMap]) -> None:
         """
         Initializes the composition model with the given atomic types and layouts.
@@ -288,13 +293,16 @@ class BaseCompositionModel(torch.nn.Module):
                 blocks.append(
                     TensorBlock(
                         values=weight_vals,
-                        samples=XTY_block.samples,
+                        samples=XTY_block.samples.to(device=weight_vals.device),
                         components=XTY_block.components,
-                        properties=XTY_block.properties,
+                        properties=XTY_block.properties.to(device=weight_vals.device),
                     )
                 )
 
-            self.weights[target_name] = TensorMap(self.XTX[target_name].keys, blocks)
+            self.weights[target_name] = TensorMap(
+                self.XTX[target_name].keys.to(device=weight_vals.device),
+                blocks,
+            )
             self.is_fitted[target_name] = True
 
             # save a dummy buffer

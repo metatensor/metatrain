@@ -24,6 +24,9 @@ class CompositionModel(torch.nn.Module):
         target quantities and atomic types.
     """
 
+    # Needed for torchscript compatibility
+    outputs: Dict[str, ModelOutput]
+
     def __init__(
         self,
         model_hypers: Dict,

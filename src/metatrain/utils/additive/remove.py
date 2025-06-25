@@ -56,11 +56,12 @@ def remove_additive(
         # subtraction
         blocks = []
         for block_key, old_block in additive_contribution[target_key].items():
+            device = targets[target_key].block(block_key).values.device
             block = metatensor.torch.TensorBlock(
-                values=old_block.values.detach(),
+                values=old_block.values.detach().to(device=device),
                 samples=targets[target_key].block(block_key).samples,
-                components=old_block.components,
-                properties=old_block.properties,
+                components=[c.to(device=device) for c in old_block.components],
+                properties=old_block.properties.to(device=device),
             )
             for gradient_name in targets[target_key].block(block_key).gradients_list():
                 gradient = (
@@ -82,7 +83,7 @@ def remove_additive(
                 )
             blocks.append(block)
         additive_contribution[target_key] = TensorMap(
-            keys=additive_contribution[target_key].keys,
+            keys=additive_contribution[target_key].keys.to(device=device),
             blocks=blocks,
         )
         # Sparse subtract the additive contribution from the appropriate target blocks
