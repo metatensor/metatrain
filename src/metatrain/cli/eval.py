@@ -252,7 +252,7 @@ def _eval_targets(
 
     # Evaluate the model
     for batch in dataloader:
-        systems, batch_targets = batch
+        systems, batch_targets, _ = batch
         systems = [system.to(dtype=dtype, device=device) for system in systems]
         batch_targets = {
             key: value.to(dtype=dtype, device=device)

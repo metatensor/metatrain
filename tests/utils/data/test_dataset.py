@@ -585,10 +585,11 @@ def test_collate_fn():
 
     batch = collate_fn([dataset[0], dataset[1], dataset[2]])
 
-    assert len(batch) == 2
+    assert len(batch) == 3
     assert isinstance(batch[0], tuple)
     assert len(batch[0]) == 3
     assert isinstance(batch[1], dict)
+    assert isinstance(batch[2], dict)
 
 
 def test_get_stats(layout_scalar):

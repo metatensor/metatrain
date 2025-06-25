@@ -34,10 +34,11 @@ def get_dataset(options: DictConfig) -> Tuple[Dataset, Dict[str, TargetInfo]]:
         )
         targets, target_info_dictionary = read_targets(conf=options["targets"])
         # extra_data, extra_data_info_dictionary = read_targets(
-        extra_data, _ = read_targets(
-            conf=options["extra_data"],
-        )
-        targets.update(extra_data)
+        if "extra_data" in options:
+            extra_data, _ = read_targets(
+                conf=options["extra_data"],
+            )
+            targets.update(extra_data)
         dataset = Dataset.from_dict({"system": systems, **targets})
 
     return dataset, target_info_dictionary  # , extra_data_info_dictionary
