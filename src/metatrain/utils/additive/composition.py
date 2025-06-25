@@ -135,9 +135,11 @@ class CompositionModel(torch.nn.Module):
         for target_name in self.weights.keys():
             self.register_buffer(
                 target_name + "_composition_buffer",
-                mts.save_buffer(self.weights[target_name].to("cpu", torch.float64)).to(
-                    self.dummy_buffer.device
-                ),
+                mts.save_buffer(
+                    mts.make_contiguous(
+                        self.weights[target_name].to("cpu", torch.float64)
+                    )
+                ).to(self.dummy_buffer.device),
             )
 
     def restart(self, dataset_info: DatasetInfo) -> "CompositionModel":
@@ -266,7 +268,7 @@ class CompositionModel(torch.nn.Module):
         )
         self.register_buffer(
             target_name + "_composition_buffer",
-            mts.save_buffer(fake_weights),
+            mts.save_buffer(mts.make_contiguous(fake_weights)),
         )
 
     def _move_weights_to_device_and_dtype(

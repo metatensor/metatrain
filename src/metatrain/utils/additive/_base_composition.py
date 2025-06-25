@@ -177,8 +177,10 @@ class BaseCompositionModel(torch.nn.Module):
         )
         self.register_buffer(
             target_name + "_composition_buffer",
-            mts.save_buffer(self.weights[target_name].to("cpu", torch.float64)).to(
-                self.dummy_buffer.device
+            mts.save_buffer(
+                mts.make_contiguous(
+                    self.weights[target_name].to("cpu", torch.float64)
+                ).to(self.dummy_buffer.device)
             ),
         )
 
@@ -298,9 +300,11 @@ class BaseCompositionModel(torch.nn.Module):
             # save a dummy buffer
             self.register_buffer(
                 target_name + "_composition_buffer",
-                mts.save_buffer(self.weights[target_name].to("cpu", torch.float64)).to(
-                    self.dummy_buffer.device
-                ),
+                mts.save_buffer(
+                    mts.make_contiguous(
+                        self.weights[target_name].to("cpu", torch.float64)
+                    )
+                ).to(self.dummy_buffer.device),
             )
 
     def forward(
