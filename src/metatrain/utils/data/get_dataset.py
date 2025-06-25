@@ -3,7 +3,7 @@ from typing import Dict, Tuple
 from omegaconf import DictConfig
 
 from .dataset import Dataset, DiskDataset
-from .readers import read_systems, read_targets
+from .readers import read_extra_data, read_systems, read_targets
 from .target_info import TargetInfo
 
 
@@ -26,19 +26,14 @@ def get_dataset(options: DictConfig) -> Tuple[Dataset, Dict[str, TargetInfo]]:
     if options["systems"]["read_from"].endswith(".zip"):  # disk dataset
         dataset = DiskDataset(options["systems"]["read_from"])
         target_info_dictionary = dataset.get_target_info(options["targets"])
-        # extra_data_info_dictionary = dataset.get_target_info(options["extra_data"])
     else:
         systems = read_systems(
             filename=options["systems"]["read_from"],
             reader=options["systems"]["reader"],
         )
         targets, target_info_dictionary = read_targets(conf=options["targets"])
-        # extra_data, extra_data_info_dictionary = read_targets(
         if "extra_data" in options:
-            extra_data, _ = read_targets(
-                conf=options["extra_data"],
-            )
-            targets.update(extra_data)
-        dataset = Dataset.from_dict({"system": systems, **targets})
+            extra_data = read_extra_data(conf=options["extra_data"])
+        dataset = Dataset.from_dict({"system": systems, **targets, **extra_data})
 
-    return dataset, target_info_dictionary  # , extra_data_info_dictionary
+    return dataset, target_info_dictionary

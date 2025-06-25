@@ -105,11 +105,7 @@ def read_targets(
 
     for target_key, target in conf.items():
         is_standard_target = target_key in standard_outputs_list
-        if (
-            not is_standard_target
-            and not target_key.startswith("mtt::")
-            and not target_key.startswith("ext::")
-        ):
+        if not is_standard_target and not target_key.startswith("mtt::"):
             if target_key.lower() in ["force", "forces", "virial", "stress"]:
                 warnings.warn(
                     f"{target_key!r} should not be its own top-level target, "
@@ -186,3 +182,70 @@ def read_targets(
         target_info_dictionary[target_key] = target_info
 
     return target_dictionary, target_info_dictionary
+
+
+def read_extra_data(
+    conf: DictConfig,
+) -> Dict[str, List[TensorMap]]:
+    """Read extra data from a fully expanded config.
+
+    This function is similar to :func:`read_targets`, but it is used to read additional
+    data that is not part of the main targets. It can be used to read auxiliary data
+    that might be useful for training or evaluation.
+
+    :param conf: config containing the keys for what should be read.
+    :returns: Dictionary containing a list of TensorMaps for each extra data section in
+        the config as well as a ``Dict[str, TargetInfo]`` object containing the metadata
+        of the extra data.
+    """
+    extra_data_dictionary = {}
+
+    for extra_data_key, extra_data in conf.items():
+        if not extra_data_key.startswith("ext::"):
+            raise ValueError(
+                f"extra_data name ({extra_data_key}) must start with `ext::`."
+            )
+
+        reader = extra_data["reader"]
+        filename = extra_data["read_from"]
+
+        if reader is None:
+            try:
+                file_suffix = Path(filename).suffix
+                reader = DEFAULT_READER[file_suffix]
+            except KeyError:
+                raise ValueError(
+                    f"File extension {file_suffix!r} is not linked to a default reader "
+                    "library. You can try reading it by setting a specific 'reader' "
+                    f"from the known ones: {', '.join(AVAILABLE_READERS)} "
+                )
+
+        try:
+            reader_mod = importlib.import_module(
+                name=f".{reader}", package="metatrain.utils.data.readers"
+            )
+        except ImportError:
+            raise ValueError(
+                f"Reader library {reader!r} not supported. Choose from "
+                f"{', '.join(AVAILABLE_READERS)}"
+            )
+
+        try:
+            reader_met = reader_mod.read_generic
+        except AttributeError:
+            raise ValueError(
+                f"Reader library {reader!r} cannot read {extra_data!r}."
+                f"You can try with other readers: {AVAILABLE_READERS}"
+            )
+
+        extra_datas_as_list_of_tensor_maps, _ = reader_met(extra_data)
+
+        # elements in data are `torch.ScriptObject`s and their `dtype` is an integer.
+        # A C++ double/torch.float64 is `7` according to
+        # https://github.com/pytorch/pytorch/blob/207564bab1c4fe42750931765734ee604032fb69/c10/core/ScalarType.h#L54-L93
+        if not all(t.dtype == 7 for t in extra_datas_as_list_of_tensor_maps):
+            raise ValueError("The loaded extra_datas are not in double precision.")
+
+        extra_data_dictionary[extra_data_key] = extra_datas_as_list_of_tensor_maps
+
+    return extra_data_dictionary

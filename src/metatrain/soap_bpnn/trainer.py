@@ -365,6 +365,12 @@ class Trainer(TrainerInterface):
                     targets, (model.module if is_distributed else model).scaler
                 )
                 systems, targets = systems_and_targets_to_dtype(systems, targets, dtype)
+
+                extra_data = tensormap_to_device(
+                    tensormap_dict=extra_data, device=device
+                )
+                extra_data = tensormap_to_dtype(tensormap_dict=extra_data, dtype=dtype)
+
                 predictions = evaluate_model(
                     model,
                     systems,
