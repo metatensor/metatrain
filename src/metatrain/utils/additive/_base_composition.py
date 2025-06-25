@@ -65,6 +65,9 @@ class BaseCompositionModel(torch.nn.Module):
         self.target_names = target_names
         self.sample_kinds = sample_kinds
 
+        # keeps track of dtype and device of the composition model
+        self.register_buffer("dummy_buffer", torch.randn(1))
+
         # Find the keys that of the blocks the composition actually applies to
         in_keys = {
             target_name: Labels(
@@ -173,6 +176,16 @@ class BaseCompositionModel(torch.nn.Module):
             for target_name, layout in layouts.items()
         }
 
+        # save a dummy buffer
+        for target_name in self.target_names:
+            self.register_buffer(
+                target_name + "_composition_buffer",
+                mts.save_buffer(
+                    self.weights[target_name].to("cpu", torch.float64)
+                ).to(self.dummy_buffer.device)
+            )
+
+
     def accumulate(
         self,
         systems: List[System],
@@ -280,6 +293,14 @@ class BaseCompositionModel(torch.nn.Module):
                 )
 
             self.weights[target_name] = TensorMap(self.XTX[target_name].keys, blocks)
+
+            # save a dummy buffer
+            self.register_buffer(
+                target_name + "_composition_buffer",
+                mts.save_buffer(
+                    self.weights[target_name].to("cpu", torch.float64)
+                ).to(self.dummy_buffer.device)
+            )
 
     def forward(
         self,
@@ -505,13 +526,22 @@ def _solve_linear_system(
     trace_magnitude = float(torch.diag(XTX_vals).abs().mean())
     regularizer = 1e-14 * trace_magnitude
     shape = (XTX_vals.shape[0], *XTY_vals.shape[1:])
-    return torch.linalg.solve(
-        XTX_vals
-        + regularizer
-        * torch.eye(
-            XTX_vals.shape[1],
-            dtype=XTX_vals.dtype,
-            device=XTX_vals.device,
-        ),
-        XTY_vals.reshape(XTY_vals.shape[0], -1),
-    ).reshape(shape)
+    try:
+        return torch.linalg.solve(
+            XTX_vals
+            + regularizer
+            * torch.eye(
+                XTX_vals.shape[1],
+                dtype=XTX_vals.dtype,
+                device=XTX_vals.device,
+            ),
+            XTY_vals.reshape(XTY_vals.shape[0], -1),
+        ).reshape(shape)
+    except:
+        # For some reason, upon restart the XTX and XTY quantities aren't accumulated
+        # (i.e. all zero) properly and the linear system solution fails with a singular
+        # matrix error.
+        print(
+            XTX_vals, XTY_vals,
+        )
+        raise

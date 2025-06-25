@@ -3,7 +3,7 @@ from typing import Dict, List, Optional
 
 import metatensor.torch as mts
 import torch
-from metatensor.torch import Labels, TensorMap
+from metatensor.torch import Labels, TensorBlock, TensorMap
 from metatensor.torch.learn.data import DataLoader
 from metatomic.torch import ModelOutput, System
 
@@ -67,14 +67,14 @@ class CompositionModel(torch.nn.Module):
                 for target_name, target_info in self.target_infos.items()
             },
         )
-
+        self.weights: Dict[str, TensorMap] = {}
         self.outputs: Dict[str, ModelOutput] = {}
-
-        for target_name, target_info in self.dataset_info.targets.items():
-            self._add_output(target_name, target_info)
 
         # keeps track of dtype and device of the composition model
         self.register_buffer("dummy_buffer", torch.randn(1))
+
+        for target_name, target_info in self.dataset_info.targets.items():
+            self._add_output(target_name, target_info)
 
     def train_model(
         self,
@@ -106,25 +106,34 @@ class CompositionModel(torch.nn.Module):
                 for target_name in self.target_infos.keys()
                 if target_name not in fixed_weights
             }
-            if len(targets) == 0:
-                break  # target field names are the same in all batches
+            # if len(targets) == 0:
+            #    break 
+
 
             # remove additive contributions from these targets
             for additive_model in additive_models:
                 targets = remove_additive(  # remove other additive models
-                    batch.system,
+                    systems,
                     targets,
                     additive_model,
                     {
-                        target_name: target_info
-                        for target_name, target_info in self.target_infos.items()
-                        if target_name not in fixed_weights
+                        target_name: self.target_infos[target_name]
+                        for target_name in targets
                     },
                 )
             self.model.accumulate(systems, targets)
 
         # fit
         self.model.fit(fixed_weights)
+
+        # update the buffer weights now fitted
+        for target_name, weights in self.weights.items():
+            self.register_buffer(
+                target_name + "_composition_buffer",
+                mts.save_buffer(
+                    weights.to("cpu", torch.float64)
+                ).to(self.dummy_buffer.device)
+            )
 
     def restart(self, dataset_info: DatasetInfo) -> "CompositionModel":
         """
@@ -206,6 +215,52 @@ class CompositionModel(torch.nn.Module):
             unit=target_info.unit,
             per_atom=True,
         )
+        self.weights[target_name] = TensorMap(
+            target_info.layout.keys,
+            blocks=[
+                TensorBlock(
+                    values=torch.zeros(
+                        len(self.atomic_types),
+                        *[len(c) for c in block.components],
+                        len(block.properties),
+                        dtype=torch.float64,
+                    ),
+                    samples=Labels(
+                        ["center_type"],
+                        torch.tensor(self.atomic_types, dtype=torch.int32).reshape(
+                            -1, 1
+                        ),
+                    ),
+                    components=block.components,
+                    properties=block.properties,
+                )
+                for block in target_info.layout
+            ],
+        )
+        fake_weights = TensorMap(
+            keys=self.dataset_info.targets[target_name].layout.keys,
+            blocks=[
+                TensorBlock(
+                    values=torch.zeros(
+                        (len(self.atomic_types),) + b.values.shape[1:],
+                        dtype=torch.float64,
+                    ),
+                    samples=Labels(
+                        names=["center_type"],
+                        values=torch.tensor(self.atomic_types, dtype=torch.int).reshape(
+                            -1, 1
+                        ),
+                    ),
+                    components=b.components,
+                    properties=b.properties,
+                )
+                for b in target_info.layout.blocks()
+            ],
+        )
+        self.register_buffer(
+            target_name + "_composition_buffer",
+            mts.save_buffer(fake_weights),
+        )
 
     def _move_weights_to_device_and_dtype(
         self, device: torch.device, dtype: torch.dtype
@@ -248,6 +303,6 @@ class CompositionModel(torch.nn.Module):
         # Reload the weights of the (old) targets, which are not stored in the model
         # state_dict, from the buffers
         for k in self.dataset_info.targets:
-            self.model.weights[k] = mts.load_buffer(
+            self.weights[k] = mts.load_buffer(
                 self.__getattr__(k + "_composition_buffer")
             )
