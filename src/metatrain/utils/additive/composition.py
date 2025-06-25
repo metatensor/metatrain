@@ -94,6 +94,9 @@ class CompositionModel(torch.nn.Module):
         used to specify which targets should be treated as fixed weights during
         training.
         """
+        if len(self.target_infos) == 0:  # no (new) targets to fit
+            return
+
         if fixed_weights is None:
             fixed_weights = {}
 
@@ -106,9 +109,8 @@ class CompositionModel(torch.nn.Module):
                 for target_name in self.target_infos.keys()
                 if target_name not in fixed_weights
             }
-            # if len(targets) == 0:
-            #    break 
-
+            if len(targets) == 0:
+                break
 
             # remove additive contributions from these targets
             for additive_model in additive_models:
@@ -126,13 +128,16 @@ class CompositionModel(torch.nn.Module):
         # fit
         self.model.fit(fixed_weights)
 
-        # update the buffer weights now fitted
-        for target_name, weights in self.weights.items():
+        # copy the weights from the base_model composition model to this one
+        self.weights.update(self.model.weights)
+
+        # update the buffer weights now they are fitted
+        for target_name in self.weights.keys():
             self.register_buffer(
                 target_name + "_composition_buffer",
-                mts.save_buffer(
-                    weights.to("cpu", torch.float64)
-                ).to(self.dummy_buffer.device)
+                mts.save_buffer(self.weights[target_name].to("cpu", torch.float64)).to(
+                    self.dummy_buffer.device
+                ),
             )
 
     def restart(self, dataset_info: DatasetInfo) -> "CompositionModel":
@@ -171,6 +176,7 @@ class CompositionModel(torch.nn.Module):
 
         # register new outputs
         for target_name, target_info in self.target_infos.items():
+            self.model._add_output(target_name, target_info.layout)
             self._add_output(target_name, target_info)
 
         return self
@@ -200,11 +206,12 @@ class CompositionModel(torch.nn.Module):
                     f"{list(self.outputs.keys())}"
                 )
 
-        return self.model.forward(
+        pred = self.model.forward(
             systems,
             outputs=outputs,
             selected_atoms=selected_atoms,
         )
+        return pred
 
     def supported_outputs(self) -> Dict[str, ModelOutput]:
         return self.outputs
@@ -265,6 +272,11 @@ class CompositionModel(torch.nn.Module):
     def _move_weights_to_device_and_dtype(
         self, device: torch.device, dtype: torch.dtype
     ):
+        if len(self.weights) != 0:
+            if self.weights[list(self.weights.keys())[0]].device != device:
+                self.weights = {k: v.to(device) for k, v in self.weights.items()}
+            if self.weights[list(self.weights.keys())[0]].dtype != dtype:
+                self.weights = {k: v.to(dtype) for k, v in self.weights.items()}
         if len(self.model.weights) != 0:
             if self.model.weights[list(self.model.weights.keys())[0]].device != device:
                 self.model.weights = {
@@ -306,3 +318,6 @@ class CompositionModel(torch.nn.Module):
             self.weights[k] = mts.load_buffer(
                 self.__getattr__(k + "_composition_buffer")
             )
+            # The weights also need to be copied to the underlying base composition
+            # model
+            self.model.weights[k] = self.weights[k]

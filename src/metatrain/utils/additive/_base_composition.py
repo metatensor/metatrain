@@ -29,11 +29,7 @@ class BaseCompositionModel(torch.nn.Module):
     before the :py:method:`forward` method is called to compute the predictions.
     """
 
-    def __init__(
-        self,
-        atomic_types: List[int],
-        layouts: Dict[str, TensorMap],
-    ) -> None:
+    def __init__(self, atomic_types: List[int], layouts: Dict[str, TensorMap]) -> None:
         """
         Initializes the composition model with the given atomic types and layouts.
 
@@ -44,46 +40,59 @@ class BaseCompositionModel(torch.nn.Module):
             target.
         """
         super().__init__()
-        target_names = []
-        sample_kinds = {}
-        for target_name, layout in layouts.items():  # identify target_type
-            target_names.append(target_name)
-            if layout.sample_names == ["system"]:
-                sample_kinds[target_name] = "per_structure"
+        self.atomic_types: List[int] = atomic_types
+        self.target_names: List[str] = []
+        self.sample_kinds: Dict[str, str] = {}
+        self.XTX: Dict[str, TensorMap] = {}
+        self.XTY: Dict[str, TensorMap] = {}
+        self.weights: Dict[str, TensorMap] = {}
+        self.is_fitted: Dict[str, bool] = {}
 
-            elif layout.sample_names == ["system", "atom"]:
-                sample_kinds[target_name] = "per_atom"
-
-            else:
-                raise ValueError(
-                    "unknown sample kind. TensorMap has sample names"
-                    f" {layout.sample_names} but expected either"
-                    "['system'], or ['system', 'atom']"
-                )
-
-        self.atomic_types = atomic_types
-        self.target_names = target_names
-        self.sample_kinds = sample_kinds
-
-        # keeps track of dtype and device of the composition model
+        # Initialize dummy buffer for dtype and device tracking
         self.register_buffer("dummy_buffer", torch.randn(1))
 
-        # Find the keys that of the blocks the composition actually applies to
-        in_keys = {
-            target_name: Labels(
+        # Add targets based on provided layouts
+        for target_name, layout in layouts.items():
+            self._add_output(target_name, layout)
+
+    def _add_output(self, target_name: str, layout: TensorMap) -> None:
+        """
+        Adds a new target to the composition model.
+
+        :param target_name: Name of the target to add.
+        :param layout: Layout of the target as a :py:class:`TensorMap`.
+        """
+        if target_name in self.target_names:
+            raise ValueError(f"target {target_name} already exists in the model.")
+
+        self.target_names.append(target_name)
+        self.is_fitted[target_name] = False
+        if layout.sample_names == ["system"]:
+            self.sample_kinds[target_name] = "per_structure"
+
+        elif layout.sample_names == ["system", "atom"]:
+            self.sample_kinds[target_name] = "per_atom"
+
+        else:
+            raise ValueError(
+                "unknown sample kind. TensorMap has sample names"
+                f" {layout.sample_names} but expected either"
+                "['system'], or ['system', 'atom']"
+            )
+
+        # First slice the layout to only include the keys that the composition
+        # model applies to. This is done by filtering the keys that have a single name
+        # "_" (for scalars) or keys where "o3_lambda=0" and "o3_sigma=1"
+        # (for spherical targets).
+        layout = mts.filter_blocks(
+            layout,
+            Labels(
                 layout.keys.names,
                 torch.vstack([key.values for key in layout.keys if _include_key(key)]),
-            )
-            for target_name, layout in layouts.items()
-        }
+            ),
+        )
 
-        # Filter the layout TensorMaps according to these sliced keys
-        layouts = {
-            target_name: mts.filter_blocks(layout, in_keys[target_name])
-            for target_name, layout in layouts.items()
-        }
-
-        # Initialize dict of TensorMaps (one for each target) for XTX and XTY:
+        # Initialize TensorMaps for XTX and XTY for this target.
         #
         #  - XTX is a square matrix of shape (n_atomic_types, n_atomic_types)
         #  - XTY is a matrix of shape (n_atomic_types, n_components, n_properties)
@@ -96,95 +105,82 @@ class BaseCompositionModel(torch.nn.Module):
         #
         # Then a linear system is solved for each target to obtain the composition
         # weights, which are stored in the `weights` attribute.
-        self.XTX: Dict[str, TensorMap] = {
-            target_name: TensorMap(
-                layout.keys,
-                blocks=[
-                    TensorBlock(
-                        values=torch.zeros(
-                            len(self.atomic_types),
-                            len(self.atomic_types),
-                            dtype=torch.float64,
+        self.XTX[target_name] = TensorMap(
+            layout.keys,
+            blocks=[
+                TensorBlock(
+                    values=torch.zeros(
+                        len(self.atomic_types),
+                        len(self.atomic_types),
+                        dtype=torch.float64,
+                    ),
+                    samples=Labels(
+                        ["center_type"],
+                        torch.tensor(self.atomic_types, dtype=torch.int32).reshape(
+                            -1, 1
                         ),
-                        samples=Labels(
-                            ["center_type"],
-                            torch.tensor(self.atomic_types, dtype=torch.int32).reshape(
-                                -1, 1
-                            ),
+                    ),
+                    components=[],
+                    properties=Labels(
+                        ["center_type"],
+                        torch.tensor(self.atomic_types, dtype=torch.int32).reshape(
+                            -1, 1
                         ),
-                        components=[],
-                        properties=Labels(
-                            ["center_type"],
-                            torch.tensor(self.atomic_types, dtype=torch.int32).reshape(
-                                -1, 1
-                            ),
+                    ),
+                )
+                for _ in layout
+            ],
+        )
+        self.XTY[target_name] = TensorMap(
+            layout.keys,
+            blocks=[
+                TensorBlock(
+                    values=torch.zeros(
+                        len(self.atomic_types),
+                        *[len(c) for c in block.components],
+                        len(block.properties),
+                        dtype=torch.float64,
+                    ),
+                    samples=Labels(
+                        ["center_type"],
+                        torch.tensor(self.atomic_types, dtype=torch.int32).reshape(
+                            -1, 1
                         ),
-                    )
-                    for _ in layout
-                ],
-            )
-            for target_name, layout in layouts.items()
-        }
-        self.XTY: Dict[str, TensorMap] = {
-            target_name: TensorMap(
-                layout.keys,
-                blocks=[
-                    TensorBlock(
-                        values=torch.zeros(
-                            len(self.atomic_types),
-                            *[len(c) for c in block.components],
-                            len(block.properties),
-                            dtype=torch.float64,
+                    ),
+                    components=block.components,
+                    properties=block.properties,
+                )
+                for block in layout
+            ],
+        )
+        self.weights[target_name] = TensorMap(
+            layout.keys,
+            blocks=[
+                TensorBlock(
+                    values=torch.zeros(
+                        len(self.atomic_types),
+                        *[len(c) for c in block.components],
+                        len(block.properties),
+                        dtype=torch.float64,
+                    ),
+                    samples=Labels(
+                        ["center_type"],
+                        torch.tensor(self.atomic_types, dtype=torch.int32).reshape(
+                            -1, 1
                         ),
-                        samples=Labels(
-                            ["center_type"],
-                            torch.tensor(self.atomic_types, dtype=torch.int32).reshape(
-                                -1, 1
-                            ),
-                        ),
-                        components=block.components,
-                        properties=block.properties,
-                    )
-                    for block in layout
-                ],
-            )
-            for target_name, layout in layouts.items()
-        }
-        self.weights: Dict[str, TensorMap] = {
-            target_name: TensorMap(
-                layout.keys,
-                blocks=[
-                    TensorBlock(
-                        values=torch.zeros(
-                            len(self.atomic_types),
-                            *[len(c) for c in block.components],
-                            len(block.properties),
-                            dtype=torch.float64,
-                        ),
-                        samples=Labels(
-                            ["center_type"],
-                            torch.tensor(self.atomic_types, dtype=torch.int32).reshape(
-                                -1, 1
-                            ),
-                        ),
-                        components=block.components,
-                        properties=block.properties,
-                    )
-                    for block in layout
-                ],
-            )
-            for target_name, layout in layouts.items()
-        }
-
-        # save a dummy buffer
-        for target_name in self.target_names:
-            self.register_buffer(
-                target_name + "_composition_buffer",
-                mts.save_buffer(
-                    self.weights[target_name].to("cpu", torch.float64)
-                ).to(self.dummy_buffer.device)
-            )
-
+                    ),
+                    components=block.components,
+                    properties=block.properties,
+                )
+                for block in layout
+            ],
+        )
+        self.register_buffer(
+            target_name + "_composition_buffer",
+            mts.save_buffer(self.weights[target_name].to("cpu", torch.float64)).to(
+                self.dummy_buffer.device
+            ),
+        )
 
     def accumulate(
         self,
@@ -229,6 +225,7 @@ class BaseCompositionModel(torch.nn.Module):
                     )
 
                 # Compute "XTX", i.e. X.T @ X
+                # TODO: store XTX by sample kind instead, saving memory
                 self.XTX[target_name][key].values[:] += X.T @ X
 
                 # Compute "XTY", i.e. X.T @ Y
@@ -252,6 +249,9 @@ class BaseCompositionModel(torch.nn.Module):
 
         # fit
         for target_name in self.target_names:
+            if self.is_fitted[target_name]:  # already fitted
+                continue
+
             blocks = []
             for key in self.XTX[target_name].keys:
                 XTX_block = self.XTX[target_name][key]
@@ -293,13 +293,14 @@ class BaseCompositionModel(torch.nn.Module):
                 )
 
             self.weights[target_name] = TensorMap(self.XTX[target_name].keys, blocks)
+            self.is_fitted[target_name] = True
 
             # save a dummy buffer
             self.register_buffer(
                 target_name + "_composition_buffer",
-                mts.save_buffer(
-                    self.weights[target_name].to("cpu", torch.float64)
-                ).to(self.dummy_buffer.device)
+                mts.save_buffer(self.weights[target_name].to("cpu", torch.float64)).to(
+                    self.dummy_buffer.device
+                ),
             )
 
     def forward(
@@ -526,22 +527,13 @@ def _solve_linear_system(
     trace_magnitude = float(torch.diag(XTX_vals).abs().mean())
     regularizer = 1e-14 * trace_magnitude
     shape = (XTX_vals.shape[0], *XTY_vals.shape[1:])
-    try:
-        return torch.linalg.solve(
-            XTX_vals
-            + regularizer
-            * torch.eye(
-                XTX_vals.shape[1],
-                dtype=XTX_vals.dtype,
-                device=XTX_vals.device,
-            ),
-            XTY_vals.reshape(XTY_vals.shape[0], -1),
-        ).reshape(shape)
-    except:
-        # For some reason, upon restart the XTX and XTY quantities aren't accumulated
-        # (i.e. all zero) properly and the linear system solution fails with a singular
-        # matrix error.
-        print(
-            XTX_vals, XTY_vals,
-        )
-        raise
+    return torch.linalg.solve(
+        XTX_vals
+        + regularizer
+        * torch.eye(
+            XTX_vals.shape[1],
+            dtype=XTX_vals.dtype,
+            device=XTX_vals.device,
+        ),
+        XTY_vals.reshape(XTY_vals.shape[0], -1),
+    ).reshape(shape)
