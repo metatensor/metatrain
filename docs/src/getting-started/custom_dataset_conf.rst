@@ -205,3 +205,33 @@ file:
 
 In the next tutorials we explain and show how to set some advanced global training
 parameters.
+
+Datasets requiring additional data
+----------------------------------
+Some targets require additional data to be passed to the loss function for training.
+For example, training a model to predict the polarization for extended systems under
+periodic boundary conditions might require the quantum of polarization to be provided
+for each system in the dataset.
+
+``metatrain`` supports passing additional data in the ``options.yaml`` file.
+For example, if you want to train a polarization model, you can add the following
+section to your ``options.yaml`` file:
+
+.. code-block:: yaml
+
+    training_set:
+        systems:
+            read_from: dataset_0.xyz
+            length_unit: angstrom
+        targets:
+            mtt::polarization:
+                read_from: polarization.mts
+        extra_data:
+            ext::polarization_quantum:
+                read_from: polarization_quantum.mts
+
+.. warning::
+
+   While the ``extra_data`` section can always be passed, it can be used only with 
+   some loss functions. If the loss function does not support the extra data, it will 
+   be ignored. You might have to implement a custom loss function to use the extra data.
