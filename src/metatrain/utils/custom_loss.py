@@ -1,5 +1,3 @@
-# losses.py
-
 from abc import ABC, ABCMeta, abstractmethod
 from typing import Any, Dict, Optional, Type
 
@@ -13,17 +11,17 @@ from metatrain.utils.data import TargetInfo
 
 class LossRegistry(ABCMeta):
     """
-    Metaclass to auto-register LossBase subclasses.
+    Metaclass to auto-register :py:class:`LossInterface` subclasses.
 
-    Maintains a mapping from registry_name to the subclass type.
+    Maintains a mapping from ``registry_name`` to the subclass type.
     """
 
-    _registry: Dict[str, Type["LossBase"]] = {}
+    _registry: Dict[str, Type["LossInterface"]] = {}
 
     def __new__(mcs, name, bases, attrs):
         cls = super().__new__(mcs, name, bases, attrs)
         # Skip the abstract base itself
-        if name != "LossBase" and issubclass(cls, LossBase):
+        if name != "LossInterface" and issubclass(cls, LossInterface):
             # Use explicit registry_name if given, else snake_case from class name
             key = getattr(cls, "registry_name", None)
             if key is None:
@@ -35,7 +33,7 @@ class LossRegistry(ABCMeta):
         return cls
 
     @classmethod
-    def get(cls, key: str) -> Type["LossBase"]:
+    def get(cls, key: str) -> Type["LossInterface"]:
         """
         Retrieve a registered LossBase subclass by its registry_name.
 
@@ -50,7 +48,7 @@ class LossRegistry(ABCMeta):
         return cls._registry[key]
 
 
-class LossBase(ABC, metaclass=LossRegistry):
+class LossInterface(ABC, metaclass=LossRegistry):
     """
     Abstract base for all loss functions.
 
@@ -93,7 +91,7 @@ class LossBase(ABC, metaclass=LossRegistry):
         return self.compute(predictions, targets)
 
     @classmethod
-    def from_config(cls, cfg: Dict[str, Any]) -> "LossBase":
+    def from_config(cls, cfg: Dict[str, Any]) -> "LossInterface":
         """
         Instantiate a LossBase subclass from a config dict.
 
@@ -103,10 +101,136 @@ class LossBase(ABC, metaclass=LossRegistry):
         return cls(**cfg)
 
 
+# --- scheduler interface and implementations ----------------------------------------
+
+
+class WeightScheduler(ABC):
+    """
+    Abstract interface for scheduling a weight for a :py:class:`LossInterface`.
+    """
+
+    initialized: bool = False
+
+    @abstractmethod
+    def initialize(
+        self, loss_fn: LossInterface, targets: Dict[str, TensorMap]
+    ) -> float:
+        """Compute and return the initial weight."""
+
+    @abstractmethod
+    def update(
+        self,
+        loss_fn: LossInterface,
+        predictions: Dict[str, TensorMap],
+        targets: Dict[str, TensorMap],
+    ) -> float:
+        """Update and return the new weight after a batch."""
+
+
+class EMAScheduler(WeightScheduler):
+    """
+    Exponential moving average scheduler for loss weights.
+    """
+
+    EPS = 1e-6
+    initialized: bool = False
+
+    def __init__(self, sliding_factor: Optional[float]) -> None:
+        self.sf: float = float(sliding_factor or 0.0)
+        self.weight: float = 1.0
+        self.initialized: bool = False
+
+    def initialize(
+        self, loss_fn: LossInterface, targets: Dict[str, TensorMap]
+    ) -> float:
+        if self.sf <= 0.0:
+            self.weight = 1.0
+        else:
+            name = loss_fn.target
+            grad = getattr(loss_fn, "gradient", None)
+            tm = targets[name]
+            if grad is None:
+                mean_tm = mts.mean_over_samples(tm, tm.sample_names)
+                baseline = TensorMap(
+                    keys=tm.keys,
+                    blocks=[
+                        mts.TensorBlock(
+                            samples=block.samples,
+                            components=block.components,
+                            properties=block.properties,
+                            values=torch.ones_like(block.values) * mean_block.values,
+                        )
+                        for block, mean_block in zip(tm, mean_tm)
+                    ],
+                )
+            else:
+                baseline = mts.zeros_like(tm)
+
+            val = loss_fn.compute({name: tm}, {name: baseline})
+            self.weight = float(val.clamp_min(self.EPS))
+        self.initialized = True
+        return self.weight
+
+    def update(
+        self,
+        loss_fn: LossInterface,
+        predictions: Dict[str, TensorMap],
+        targets: Dict[str, TensorMap],
+    ) -> float:
+        if self.sf <= 0.0:
+            return self.weight
+        err = loss_fn.compute(predictions, targets).detach().item()
+        new_weight = self.sf * self.weight + (1.0 - self.sf) * err
+        self.weight = max(new_weight, self.EPS)
+        return self.weight
+
+
+class ScheduledLoss(LossInterface):
+    """
+    Wrap a base :py:class:`LossInterface` with a :py:class:`WeightScheduler`.
+
+    After each compute, the scheduler updates the loss weight.
+    """
+
+    def __init__(
+        self,
+        base_loss: LossInterface,
+        scheduler: WeightScheduler,
+    ):
+        # Delegate attributes
+        self.base = base_loss
+        self.scheduler = scheduler
+        self.target = base_loss.target
+        self.reduction = base_loss.reduction
+        self.loss_kwargs = getattr(base_loss, "loss_kwargs", {})
+        self.scheduler = scheduler
+
+    def compute(
+        self,
+        predictions: Dict[str, TensorMap],
+        targets: Dict[str, TensorMap],
+        extra_data: Optional[Any] = None,
+    ) -> torch.Tensor:
+        # Initialize the base loss weight on the first call
+        if not self.scheduler.initialized:
+            self.sliding_weight = self.scheduler.initialize(self.base, targets)
+
+        # compute the raw loss using the base loss function
+        raw_loss = self.base.compute(predictions, targets, extra_data)
+
+        # scale by the fixed weight and divide by the sliding weight
+        weighted_loss = raw_loss * (self.base.weight / self.sliding_weight)
+
+        # update the sliding weight
+        self.sliding_weight = self.scheduler.update(self.base, predictions, targets)
+
+        return weighted_loss
+
+
 # --- specific losses ------------------------------------------------------------------
 
 
-class TensorMapPointwiseLoss(LossBase):
+class TensorMapPointwiseLoss(LossInterface):
     """
     Pointwise loss on :py:class:`TensorMap` entries using a :py:mod:`torch.nn` loss
     function.
@@ -127,12 +251,10 @@ class TensorMapPointwiseLoss(LossBase):
         **loss_kwargs,
     ):
         self.target = name
-        self.gradient = gradient or None
+        self.gradient = gradient
         self.weight = weight
         self.reduction = reduction
-
         self.loss_kwargs = loss_kwargs
-
         params = {"reduction": reduction, **loss_kwargs}
         self.loss_fn = loss_cls(**params)
 
@@ -188,13 +310,7 @@ class TensorMapMSELoss(TensorMapPointwiseLoss):
         weight: float = 1.0,
         reduction: str = "mean",
     ):
-        super().__init__(
-            name=name,
-            gradient=gradient,
-            weight=weight,
-            reduction=reduction,
-            loss_cls=torch.nn.MSELoss,
-        )
+        super().__init__(name, gradient, weight, reduction, loss_cls=torch.nn.MSELoss)
 
 
 class TensorMapMAELoss(TensorMapPointwiseLoss):
@@ -207,13 +323,7 @@ class TensorMapMAELoss(TensorMapPointwiseLoss):
         weight: float = 1.0,
         reduction: str = "mean",
     ):
-        super().__init__(
-            name=name,
-            gradient=gradient,
-            weight=weight,
-            reduction=reduction,
-            loss_cls=torch.nn.L1Loss,
-        )
+        super().__init__(name, gradient, weight, reduction, loss_cls=torch.nn.L1Loss)
 
 
 class TensorMapHuberLoss(TensorMapPointwiseLoss):
@@ -228,10 +338,10 @@ class TensorMapHuberLoss(TensorMapPointwiseLoss):
         delta: float = 1.0,
     ):
         super().__init__(
-            name=name,
-            gradient=gradient,
-            weight=weight,
-            reduction=reduction,
+            name,
+            gradient,
+            weight,
+            reduction,
             loss_cls=torch.nn.HuberLoss,
             delta=delta,
         )
@@ -240,9 +350,10 @@ class TensorMapHuberLoss(TensorMapPointwiseLoss):
 # --- aggregator -----------------------------------------------------------------------
 
 
-class LossAggregator(LossBase):
+class LossAggregator(LossInterface):
     """
-    Aggregate multiple :py:class:`LossBase` terms with optional sliding weights.
+    Aggregate multiple :py:class:`LossInterface` terms with scheduled weights and
+    metadata.
     """
 
     registry_name = "aggregate"
@@ -252,57 +363,52 @@ class LossAggregator(LossBase):
         targets: Dict[str, TargetInfo],
         config: Dict[str, Dict[str, Any]],
     ):
-        self.sliding_weights_schedulers: Dict[str, SlidingWeightScheduler] = {}
+        # Scheduled losses and metadata stored by term key
+        self.losses: Dict[str, ScheduledLoss] = {}
         self.metadata: Dict[str, Dict[str, Any]] = {}
-        cfg = config or {}
 
-        for target_name, tm in targets.items():
-            tgt_cfg = cfg.get(target_name, {})
+        for name, tm_info in targets.items():
+            cfg = config.get(name, {})
 
-            # main term
-            MainCls = LossRegistry.get(tgt_cfg.get("type", "mse"))
-            main_loss = MainCls(
-                name=target_name,
+            # Main loss
+            MainCls = LossRegistry.get(cfg.get("type", "mse"))
+            base_loss = MainCls(
+                name=name,
                 gradient=None,
-                weight=tgt_cfg.get("weight", 1.0),
-                reduction=tgt_cfg.get("reduction", "mean"),
+                weight=cfg.get("weight", 1.0),
+                reduction=cfg.get("reduction", "mean"),
             )
-            sf = tgt_cfg.get("sliding_factor", None)
-            self.sliding_weights_schedulers[target_name] = SlidingWeightScheduler(
-                loss_fn=main_loss, sliding_factor=sf
-            )
-
-            self.metadata[target_name] = {
-                "type": main_loss.registry_name,
-                "weight": main_loss.weight,
-                "reduction": main_loss.reduction,
-                "sliding_factor": sf,
+            ema = EMAScheduler(cfg.get("sliding_factor", None))
+            sched_loss = ScheduledLoss(base_loss, ema)
+            self.losses[name] = sched_loss
+            self.metadata[name] = {
+                "type": base_loss.registry_name,
+                "weight": base_loss.weight,
+                "reduction": base_loss.reduction,
+                "sliding_factor": cfg.get("sliding_factor", None),
                 "gradients": {},
             }
 
-            # gradients
-            all_grads = list(tm.layout[0].gradients_list())
-            grad_cfgs = tgt_cfg.get("gradients", {})
-            for grad_name in all_grads:
-                key = f"{target_name}_grad_{grad_name}"
+            # Gradient losses
+            grad_cfgs = cfg.get("gradients", {})
+            for grad_name in tm_info.layout[0].gradients_list():
+                key = f"{name}_grad_{grad_name}"
                 gcfg = grad_cfgs.get(grad_name, {})
-                GradCls = LossRegistry.get(gcfg.get("type", tgt_cfg.get("type", "mse")))
+                GradCls = LossRegistry.get(gcfg.get("type", cfg.get("type", "mse")))
                 grad_loss = GradCls(
-                    name=target_name,
+                    name=name,
                     gradient=grad_name,
                     weight=gcfg.get("weight", 1.0),
-                    reduction=gcfg.get("reduction", tgt_cfg.get("reduction", "mean")),
+                    reduction=gcfg.get("reduction", cfg.get("reduction", "mean")),
                 )
-                self.sliding_weights_schedulers[key] = SlidingWeightScheduler(
-                    loss_fn=grad_loss,
-                    sliding_factor=tgt_cfg.get("sliding_factor", None),
-                )
-
-                self.metadata[target_name]["gradients"][grad_name] = {
+                ema_grad = EMAScheduler(cfg.get("sliding_factor", None))
+                sched_grad = ScheduledLoss(grad_loss, ema_grad)
+                self.losses[key] = sched_grad
+                self.metadata[name]["gradients"][grad_name] = {
                     "type": grad_loss.registry_name,
                     "weight": grad_loss.weight,
                     "reduction": grad_loss.reduction,
-                    "sliding_factor": sf,
+                    "sliding_factor": cfg.get("sliding_factor", None),
                 }
 
     def compute(
@@ -311,123 +417,14 @@ class LossAggregator(LossBase):
         targets: Dict[str, TensorMap],
         extra_data: Optional[Any] = None,
     ) -> torch.Tensor:
-        # initialize all on the first call
-        if not all(s.initialized for s in self.sliding_weights_schedulers.values()):
-            for s in self.sliding_weights_schedulers.values():
-                s.initialize(targets)
-
         example = next(iter(predictions.values()))
         total = torch.zeros(
             (),
             dtype=example.block(0).values.dtype,
             device=example.block(0).values.device,
         )
-
-        # sum up loss_i * weight_i / sliding_weight_i
-        for sched in self.sliding_weights_schedulers.values():
-            if sched.loss_fn.target not in predictions:
-                # Should only happen for multiple-dataset training
+        for term in self.losses.values():
+            if term.target not in predictions:
                 continue
-            loss_val = sched.loss_fn.compute(
-                predictions, targets, extra_data=extra_data
-            )
-            total += loss_val * sched.loss_fn.weight / sched.weight
-
-        # update for next batch
-        for sched in self.sliding_weights_schedulers.values():
-            sched.update(predictions, targets)
-
-        # # debug: print every updated sliding weight
-        # print("=== DEBUG: updated sliding weights ===")
-        # for key, sched in self.sliding_weights_schedulers.items():
-        #     print(f"  {key:30s}: {sched.weight:.6f}")
-        # print("======================================")
-
+            total = total + term.compute(predictions, targets, extra_data)
         return total
-
-
-# --- helper classes and functions -----------------------------------------------------
-
-
-class SlidingWeightScheduler:
-    """
-    Maintain a running Exponential Moving Average (EMA) weight for a single
-    :py:class:`LossBase` term.
-
-    Initialize from a target-mean baseline, then update via EMA.
-    """
-
-    EPS = 1e-6
-
-    def __init__(
-        self,
-        loss_fn: LossBase,
-        sliding_factor: Optional[float],
-    ):
-        self.loss_fn = loss_fn
-        # collapse None to 0.0 so we never slide unless sf>0
-        self.sf: float = float(sliding_factor or 0.0)
-        self.weight: float = 1.0
-        self.initialized = False
-
-    def initialize(self, targets: Dict[str, TensorMap]) -> None:
-        """
-        Compute initial weight by comparing the target to its mean or zeros.
-
-        :param targets: Mapping from target names to :py:class:`TensorMap`s.
-        """
-        if self.sf <= 0.0:
-            self.weight = 1.0
-        else:
-            name = self.loss_fn.target
-            grad = getattr(self.loss_fn, "gradient", None)
-
-            tm = targets[name]
-
-            # build a TensorMap baseline whose blocks hold the per‐block mean
-            if grad is None:
-                # mean over samples
-                mean_tm = mts.mean_over_samples(tm, tm.sample_names)
-                # Create a baseline TensorMap with the same structure
-                baseline = TensorMap(
-                    keys=tm.keys,
-                    blocks=[
-                        mts.TensorBlock(
-                            samples=block.samples,
-                            components=block.components,
-                            properties=block.properties,
-                            values=torch.ones_like(block.values) * mean_block.values,
-                        )
-                        for block, mean_block in zip(tm, mean_tm)
-                    ],
-                )
-
-            else:
-                # for a gradient‐loss, baseline is zero‐valued tensormap
-                baseline = mts.zeros_like(tm)
-
-            # now compute the loss_fn between tm and baseline
-            val = self.loss_fn.compute({name: tm}, {name: baseline})
-            self.weight = float(val.clamp_min(self.EPS))
-        self.initialized = True
-
-    def update(
-        self,
-        predictions: Dict[str, TensorMap],
-        targets: Dict[str, TensorMap],
-    ) -> None:
-        """
-        Update the weight with the current loss via exponential moving average.
-
-        :param predictions: Mapping from target names to predicted
-            :py:class:`TensorMap`s.
-        :param targets: Mapping from target names to :py:class:`TensorMap`s.
-        """
-
-        if self.sf <= 0.0:
-            return
-
-        # compute the current error
-        err = self.loss_fn.compute(predictions, targets).detach().item()
-        # Exponential moving average update
-        self.weight = self.sf * self.weight + (1.0 - self.sf) * err
