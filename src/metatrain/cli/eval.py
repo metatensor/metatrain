@@ -15,6 +15,7 @@ from omegaconf import DictConfig, OmegaConf
 from ..utils.data import (
     Dataset,
     DiskDataset,
+    DiskDatasetWriter,
     TargetInfo,
     collate_fn,
     get_dataset,
@@ -169,11 +170,12 @@ def _concatenate_tensormaps(
 
 def _eval_targets(
     model: Union[AtomisticModel, torch.jit.RecursiveScriptModule],
-    dataset: Union[Dataset, torch.utils.data.Subset],
+    dataset: Union[Dataset, torch.utils.data.Subset, DiskDataset],
     options: Dict[str, TargetInfo],
     return_predictions: bool,
     batch_size: int = 1,
     check_consistency: bool = False,
+    disk_dataset_filename: Optional[str] = None,
 ) -> Optional[Dict[str, TensorMap]]:
     """Evaluates an exported model on a dataset and prints the RMSEs for each target.
     Optionally, it also returns the predictions of the model.
@@ -186,6 +188,10 @@ def _eval_targets(
     if len(dataset) == 0:
         logging.info("This dataset is empty. No evaluation will be performed.")
         return None
+
+    if disk_dataset_filename is not None:
+        # Set up a DiskDatasetWriter
+        disk_dataset_writer = DiskDatasetWriter(disk_dataset_filename)
 
     # Attach neighbor lists to the systems:
     # TODO: these might already be present... find a way to avoid recomputing
@@ -289,6 +295,28 @@ def _eval_targets(
         total_time += time_taken
         timings_per_atom.append(time_taken / sum(len(system) for system in systems))
 
+        # Write the predictions to the disk dataset
+        if disk_dataset_filename is not None:
+            # Split the predicted tensormaps
+            split_selection = [
+                Labels("system", torch.tensor([[i]], device=device))
+                for i in range(len(systems))
+            ]
+            batch_predictions_split = {
+                key: metatensor.torch.split(tensormap, "samples", split_selection)
+                for key, tensormap in batch_predictions.items()
+            }
+
+            # Write each sample to the disk dataset
+            for i in range(len(systems)):
+                disk_dataset_writer.write_sample(
+                    systems[i].to(device="cpu", dtype=torch.float64),
+                    {
+                        key: tensormap[i].to(device="cpu", dtype=torch.float64)
+                        for key, tensormap in batch_predictions_split.items()
+                    },
+                )
+
     # Finalize the metrics
     rmse_values = rmse_accumulator.finalize(not_per_atom=["positions_gradients"])
     mae_values = mae_accumulator.finalize(not_per_atom=["positions_gradients"])
@@ -311,6 +339,9 @@ def _eval_targets(
         f"[{1000.0 * mean_per_atom:.4f} ± "
         f"{1000.0 * std_per_atom:.4f} ms per atom]"
     )
+
+    if disk_dataset_filename:
+        del disk_dataset_writer
 
     if return_predictions:
         # concatenate the TensorMaps
@@ -353,25 +384,36 @@ def eval_model(
             file_index_suffix = f"_{i}"
         logging.info(f"Evaluating dataset{extra_log_message}")
 
+        is_disk_dataset = options["systems"]["read_from"].endswith(".zip")
+        write_disk_dataset = output.suffix == ".zip"
+        filename = f"{output.stem}{file_index_suffix}{output.suffix}"
+
         if hasattr(options, "targets"):
             # in this case, we only evaluate the targets specified in the options
             # and we calculate RMSEs
-            eval_dataset, eval_info_dict = get_dataset(options)
-            eval_systems = [d.system for d in eval_dataset]
+            try:
+                eval_dataset, eval_info_dict = get_dataset(options)
+                if not write_disk_dataset:
+                    eval_systems = [d.system for d in eval_dataset]
+            except MemoryError as e:
+                raise ArchitectureError(f"Out of memory: Failed to load dataset: {e}.")
+            except Exception as e:
+                raise ArchitectureError(f"Failed to load dataset: {e}.")
 
         else:
             # in this case, we have no targets: we evaluate everything
             # (but we don't/can't calculate RMSEs)
             # TODO: allow the user to specify which outputs to evaluate
 
-            if options["systems"]["read_from"].endswith(".zip"):
-                eval_dataset = DiskDataset(options["systems"]["read_from"])
-                eval_systems = [d.system for d in eval_dataset]
-            else:
-                eval_systems = read_systems(
-                    filename=options["systems"]["read_from"],
-                    reader=options["systems"]["reader"],
+            if is_disk_dataset:
+                raise ArchitectureError(
+                    "DiskDataset is not supported for evaluation without targets."
                 )
+
+            eval_systems = read_systems(
+                filename=options["systems"]["read_from"],
+                reader=options["systems"]["reader"],
+            )
 
             # FIXME: this works only for energy models
             eval_targets: Dict[str, TensorMap] = {}
@@ -381,7 +423,6 @@ def eval_model(
             )
             layout = _get_energy_layout(do_strain_grad)  # TODO: layout from the user
             for key in model.capabilities().outputs.keys():
-                print(f"Adding target {key} to evaluation dataset")
                 eval_info_dict[key] = TargetInfo(
                     quantity=model.capabilities().outputs[key].quantity,
                     unit=model.capabilities().outputs[key].unit,
@@ -397,19 +438,21 @@ def eval_model(
                 model=model,
                 dataset=eval_dataset,
                 options=eval_info_dict,
-                return_predictions=True,
+                return_predictions=not write_disk_dataset,
                 batch_size=batch_size,
                 check_consistency=check_consistency,
+                disk_dataset_filename=filename if write_disk_dataset else None,
             )
         except Exception as e:
             raise ArchitectureError(e)
 
-        write_predictions(
-            filename=f"{output.stem}{file_index_suffix}{output.suffix}",
-            systems=eval_systems,
-            capabilities=model.capabilities(),
-            predictions=predictions,
-        )
+        if not write_disk_dataset:
+            write_predictions(
+                filename=filename,
+                systems=eval_systems,
+                capabilities=model.capabilities(),
+                predictions=predictions,
+            )
 
 
 def _get_energy_layout(strain_gradient: bool) -> TensorMap:
