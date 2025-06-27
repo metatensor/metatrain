@@ -14,10 +14,11 @@ from omegaconf import DictConfig, OmegaConf
 
 from ..utils.data import (
     Dataset,
+    DiskDataset,
     TargetInfo,
     collate_fn,
+    get_dataset,
     read_systems,
-    read_targets,
     write_predictions,
 )
 from ..utils.errors import ArchitectureError
@@ -352,26 +353,35 @@ def eval_model(
             file_index_suffix = f"_{i}"
         logging.info(f"Evaluating dataset{extra_log_message}")
 
-        eval_systems = read_systems(
-            filename=options["systems"]["read_from"],
-            reader=options["systems"]["reader"],
-        )
-
         if hasattr(options, "targets"):
             # in this case, we only evaluate the targets specified in the options
             # and we calculate RMSEs
-            eval_targets, eval_info_dict = read_targets(options["targets"])
+            eval_dataset, eval_info_dict = get_dataset(options)
+            eval_systems = [d.system for d in eval_dataset]
+
         else:
             # in this case, we have no targets: we evaluate everything
             # (but we don't/can't calculate RMSEs)
             # TODO: allow the user to specify which outputs to evaluate
-            eval_targets = {}
+
+            if options["systems"]["read_from"].endswith(".zip"):
+                eval_dataset = DiskDataset(options["systems"]["read_from"])
+                eval_systems = [d.system for d in eval_dataset]
+            else:
+                eval_systems = read_systems(
+                    filename=options["systems"]["read_from"],
+                    reader=options["systems"]["reader"],
+                )
+
+            # FIXME: this works only for energy models
+            eval_targets: Dict[str, TensorMap] = {}
             eval_info_dict = {}
             do_strain_grad = all(
                 not torch.all(system.cell == 0) for system in eval_systems
             )
             layout = _get_energy_layout(do_strain_grad)  # TODO: layout from the user
             for key in model.capabilities().outputs.keys():
+                print(f"Adding target {key} to evaluation dataset")
                 eval_info_dict[key] = TargetInfo(
                     quantity=model.capabilities().outputs[key].quantity,
                     unit=model.capabilities().outputs[key].unit,
@@ -379,7 +389,7 @@ def eval_model(
                     layout=layout,
                 )
 
-        eval_dataset = Dataset.from_dict({"system": eval_systems, **eval_targets})
+            eval_dataset = Dataset.from_dict({"system": eval_systems, **eval_targets})
 
         # Evaluate the model
         try:
