@@ -207,7 +207,8 @@ class Trainer:
                 for val_dataset in val_datasets
             ]
             # CHANGE: Include the permanent dataset but that should not be distributed
-            permanent_samplers = [None] * len(permanent_datasets)
+            if self.hypers['use_permanent']: # CHANGE: Include the permanent dataset
+                permanent_samplers = [None] * len(permanent_datasets)
         else:
             train_samplers = [None] * len(train_datasets)
             val_samplers = [None] * len(val_datasets)
