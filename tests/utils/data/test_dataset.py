@@ -584,7 +584,7 @@ def test_collate_fn():
     targets, _ = read_targets(OmegaConf.create(conf_targets))
 
     conf_extra_data = {
-        "ext::U0": {
+        "extra::U0": {
             "quantity": "",
             "read_from": str(RESOURCES_PATH / "qm9_reduced_100.xyz"),
             "reader": "ase",
@@ -601,7 +601,7 @@ def test_collate_fn():
         {
             "system": systems,
             "mtt::U0": targets["mtt::U0"],
-            "ext::U0": extra_data["ext::U0"],
+            "extra::U0": extra_data["extra::U0"],
         }
     )
 

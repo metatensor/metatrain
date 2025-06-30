@@ -244,9 +244,9 @@ def collate_fn(
     dictionary of named targets.
 
     The ``system`` field is treated specially, and is returned as the first element in
-    the returned tuple. All other fields whose names do not start with "ext::" are
+    the returned tuple. All other fields whose names do not start with "extra::" are
     considered to be targets and returned in a dictionary as the second element of the
-    returned tuple. Any fields whose names start with "ext::" are considered to be
+    returned tuple. Any fields whose names start with "extra::" are considered to be
     extra data, and are returned in a separate dictionary as the third element of the
     returned tuple.
     """
@@ -259,11 +259,11 @@ def collate_fn(
     systems = collated_targets_and_extra_data.pop("system")
 
     # Separate the targets and extra data
-    # Extra data are those that start with "ext::", all others are targets
+    # Extra data are those that start with "extra::", all others are targets
     collated_extra_data = {}
     collated_targets = {}
     for key, value in collated_targets_and_extra_data.items():
-        if key.startswith("ext::"):
+        if key.startswith("extra::"):
             collated_extra_data[key] = value
         else:
             collated_targets[key] = value

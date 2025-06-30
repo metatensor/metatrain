@@ -201,9 +201,9 @@ def read_extra_data(
     extra_data_dictionary = {}
 
     for extra_data_key, extra_data in conf.items():
-        if not extra_data_key.startswith("ext::"):
+        if not extra_data_key.startswith("extra::"):
             raise ValueError(
-                f"extra_data name ({extra_data_key}) must start with `ext::`."
+                f"extra_data name ({extra_data_key}) must start with `extra::`."
             )
 
         reader = extra_data["reader"]

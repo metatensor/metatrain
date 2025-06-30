@@ -377,7 +377,7 @@ def test_read_extra_data(monkeypatch, tmp_path):
         "num_subtargets": 1,
     }
 
-    conf = {"ext::energy": energy_section}
+    conf = {"extra::energy": energy_section}
 
     result = read_extra_data(OmegaConf.create(conf))
 

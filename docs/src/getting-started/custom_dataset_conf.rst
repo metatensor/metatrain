@@ -227,7 +227,7 @@ section to your ``options.yaml`` file:
             mtt::polarization:
                 read_from: polarization.mts
         extra_data:
-            ext::polarization_quantum:
+            extra::polarization_quantum:
                 read_from: polarization_quantum.mts
 
 .. warning::
