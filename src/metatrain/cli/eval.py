@@ -5,7 +5,6 @@ import time
 from pathlib import Path
 from typing import Dict, Optional, Union
 
-import metatensor.torch
 import numpy as np
 import torch
 from metatensor.torch import Labels, TensorBlock, TensorMap
@@ -178,9 +177,6 @@ def _eval_targets(
     total_time = 0.0
     timings = []
 
-    # Count systems for batched writing
-    isystem = 0
-
     # Main evaluation loop
     for batch in dataloader:
         systems, batch_targets = batch
@@ -213,37 +209,7 @@ def _eval_targets(
 
         # Write out each sample if a writer is configured
         if writer:
-            # split the TensorMaps per-system
-            split_selection = [
-                Labels("system", torch.tensor([[i]], device=device))
-                for i in range(len(systems))
-            ]
-            batch_predictions_split = {
-                key: metatensor.torch.split(tensormap, "samples", split_selection)
-                for key, tensormap in batch_predictions.items()
-            }
-
-            for i, system in enumerate(systems):
-                # build a per-sample dict
-                single = {
-                    k: TensorMap(
-                        keys=batch_predictions_split[k][i].keys,
-                        blocks=[
-                            TensorBlock(
-                                samples=Labels(
-                                    "system", torch.tensor([[isystem]], device=device)
-                                ),
-                                components=block.components,
-                                properties=block.properties,
-                                values=block.values,
-                            )
-                            for block in batch_predictions_split[k][i]
-                        ],
-                    )
-                    for k in batch_predictions_split.keys()
-                }
-                writer.write(system.to("cpu").to(torch.float64), single)
-                isystem += 1
+            writer.write(systems, batch_predictions)
 
         # Timing
         dt = end - start

@@ -1,16 +1,18 @@
 # writer.py
 import zipfile
+from abc import ABC, abstractmethod
 from pathlib import Path
-from typing import Dict, Literal, Optional, Union
+from typing import Dict, List, Literal, Optional, Union
 
+import metatensor.torch
 import metatomic.torch as mta
 import numpy as np
 import torch
-from metatensor.torch import TensorMap
+from metatensor.torch import Labels, TensorBlock, TensorMap
 from metatomic.torch import ModelCapabilities, System
 
 
-class Writer:
+class Writer(ABC):
     def __init__(
         self,
         filename: Union[str, Path],
@@ -21,10 +23,12 @@ class Writer:
         self.capabilities = capabilities
         self.append = append
 
-    def write(self, system: System, predictions: Dict[str, TensorMap]):
+    @abstractmethod
+    def write(self, systems: List[System], predictions: Dict[str, TensorMap]):
         """Write a single system + its predictions."""
         ...
 
+    @abstractmethod
     def finish(self):
         """Called after all writes. Optional to override."""
         ...
@@ -44,24 +48,77 @@ class DiskDatasetWriter(Writer):
         self.zip_file = zipfile.ZipFile(path, mode)
         self.index = 0
 
-    def write(self, system: System, predictions: Dict[str, TensorMap]):
+    def write(self, systems: List[System], predictions: Dict[str, TensorMap]):
         """
         Write a single (system, predictions) into the zip under
         a new folder "<index>/".
         """
-        # system
-        with self.zip_file.open(f"{self.index}/system.mta", "w") as f:
-            mta.save(f, system)
 
-        # each target
-        for target_name, tensor_map in predictions.items():
-            with self.zip_file.open(f"{self.index}/{target_name}.mts", "w") as f:
-                buf = tensor_map.to("cpu").to(torch.float64)
-                # metatensor.torch.save_buffer returns a torch.Tensor buffer
-                buffer = buf.save_buffer()
-                np.save(f, buffer.numpy())
+        split_predictions = _split_tensormaps(
+            systems, predictions, istart_system=self.index
+        )
 
-        self.index += 1
+        for system, predictions in zip(systems, split_predictions):
+            # system
+            with self.zip_file.open(f"{self.index}/system.mta", "w") as f:
+                mta.save(f, system.to("cpu").to(torch.float64))
+
+            # each target
+            for target_name, tensor_map in predictions.items():
+                with self.zip_file.open(f"{self.index}/{target_name}.mts", "w") as f:
+                    buf = tensor_map.to("cpu").to(torch.float64)
+                    # metatensor.torch.save_buffer returns a torch.Tensor buffer
+                    buffer = buf.save_buffer()
+                    np.save(f, buffer.numpy())
+
+            self.index += 1
 
     def finish(self):
         self.zip_file.close()
+
+
+def _split_tensormaps(
+    systems: List[System],
+    batch_predictions: Dict[str, TensorMap],
+    istart_system: Optional[int] = 0,
+) -> Dict[str, TensorMap]:
+    """
+    Split a TensorMap into multiple TensorMaps, one for each key.
+    """
+
+    device = next(iter(batch_predictions.values()))[0].values.device
+
+    split_selection = [
+        Labels("system", torch.tensor([[i]], device=device))
+        for i in range(len(systems))
+    ]
+    batch_predictions_split = {
+        key: metatensor.torch.split(tensormap, "samples", split_selection)
+        for key, tensormap in batch_predictions.items()
+    }
+
+    out_tensormaps: List[Dict[str, TensorMap]] = []
+    for i in range(len(systems)):
+        # build a per-sample dict
+        out_tensormaps.append(
+            {
+                k: TensorMap(
+                    keys=batch_predictions_split[k][i].keys,
+                    blocks=[
+                        TensorBlock(
+                            samples=Labels(
+                                "system",
+                                torch.tensor([[istart_system + i]], device=device),
+                            ),
+                            components=block.components,
+                            properties=block.properties,
+                            values=block.values,
+                        )
+                        for block in batch_predictions_split[k][i]
+                    ],
+                )
+                for k in batch_predictions_split.keys()
+            }
+        )
+
+    return out_tensormaps

@@ -9,7 +9,7 @@ from metatomic.torch import ModelCapabilities, System
 
 from metatrain.utils.external_naming import to_external_name
 
-from .writers import Writer
+from .writers import Writer, _split_tensormaps
 
 
 class ASEWriter(Writer):
@@ -29,10 +29,10 @@ class ASEWriter(Writer):
         self._systems: List[System] = []
         self._preds: List[Dict[str, TensorMap]] = []
 
-    def write(self, system: System, predictions: Dict[str, TensorMap]):
+    def write(self, systems: List[System], predictions: Dict[str, TensorMap]):
         # just accumulate
-        self._systems.append(system)
-        self._preds.append(predictions)
+        self._systems.extend([system.to("cpu").to(torch.float64) for system in systems])
+        self._preds.extend(_split_tensormaps(systems, predictions))
 
     def finish(self):
         if not self._systems:

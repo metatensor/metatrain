@@ -22,9 +22,9 @@ class MetatensorWriter(Writer):
         self._systems: List[System] = []
         self._preds: List[Dict[str, TensorMap]] = []
 
-    def write(self, system: System, predictions: Dict[str, TensorMap]):
+    def write(self, systems: List[System], predictions: Dict[str, TensorMap]):
         # just accumulate
-        self._systems.append(system)
+        self._systems.extend(systems)
         self._preds.append(predictions)
 
     def finish(self):
