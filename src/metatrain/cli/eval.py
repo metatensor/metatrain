@@ -175,7 +175,7 @@ def _eval_targets(
         )
 
     total_time = 0.0
-    timings = []
+    timings_per_atom = []
 
     # Main evaluation loop
     for batch in dataloader:
@@ -185,7 +185,7 @@ def _eval_targets(
             k: v.to(device=device, dtype=dtype) for k, v in batch_targets.items()
         }
 
-        start = time.time()
+        start_time = time.time()
         batch_predictions = evaluate_model(
             model,
             systems,
@@ -195,7 +195,7 @@ def _eval_targets(
         )
         if torch.cuda.is_available():
             torch.cuda.synchronize()
-        end = time.time()
+        end_time = time.time()
 
         # Update metrics
         preds_per_atom = average_by_num_atoms(
@@ -212,9 +212,9 @@ def _eval_targets(
             writer.write(systems, batch_predictions)
 
         # Timing
-        dt = end - start
-        total_time += dt
-        timings.append(dt / sum(len(s) for s in systems))
+        time_taken = end_time - start_time
+        total_time += time_taken
+        timings_per_atom.append(time_taken / sum(len(system) for system in systems))
 
     # Finish writer
     if writer:
@@ -229,11 +229,14 @@ def _eval_targets(
     )
     metric_logger.log(metrics)
 
-    timings = np.array(timings)
-    mean_ms = 1000.0 * np.mean(timings)
-    std_ms = 1000.0 * np.std(timings)
+    # Log timings
+    timings_per_atom = np.array(timings_per_atom)
+    mean_per_atom = np.mean(timings_per_atom)
+    std_per_atom = np.std(timings_per_atom)
     logging.info(
-        f"Total evaluation: {total_time:.2f}s [{mean_ms:.4f}±{std_ms:.4f} ms/atom]"
+        f"evaluation time: {total_time:.2f} s "
+        f"[{1000.0 * mean_per_atom:.4f} ± "
+        f"{1000.0 * std_per_atom:.4f} ms per atom]"
     )
 
 
@@ -259,7 +262,7 @@ def eval_model(
 
         # build the dataset & target-info
         if hasattr(options, "targets"):
-            eval_dataset, info_dict = get_dataset(options)
+            eval_dataset, eval_info_dict = get_dataset(options)
             eval_systems = (
                 [d.system for d in eval_dataset] if output.suffix != ".zip" else None
             )
@@ -303,7 +306,7 @@ def eval_model(
             _eval_targets(
                 model=model,
                 dataset=eval_dataset,
-                options=info_dict,
+                options=eval_info_dict,
                 batch_size=batch_size,
                 check_consistency=check_consistency,
                 writer=writer,

@@ -106,9 +106,16 @@ def _split_tensormaps(
                     keys=batch_predictions_split[k][i].keys,
                     blocks=[
                         TensorBlock(
+                            # system indices are shifted by istart_system
                             samples=Labels(
-                                "system",
-                                torch.tensor([[istart_system + i]], device=device),
+                                block.samples.names,
+                                block.samples.values
+                                + istart_system
+                                * torch.eye(
+                                    block.samples.values.size(-1),
+                                    device=block.samples.values.device,
+                                    dtype=block.samples.values.dtype,
+                                )[0],
                             ),
                             components=block.components,
                             properties=block.properties,

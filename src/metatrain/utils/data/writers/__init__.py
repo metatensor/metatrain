@@ -1,7 +1,7 @@
 from pathlib import Path
 from typing import Dict, Optional, Protocol, Type, Union
 
-from metatensor.torch import ModelCapabilities
+from metatomic.torch import ModelCapabilities
 
 from .ase import ASEWriter
 from .metatensor import MetatensorWriter

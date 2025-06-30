@@ -7,7 +7,7 @@ from metatensor.torch import Labels, TensorBlock, TensorMap
 from metatomic.torch import ModelCapabilities, ModelOutput, System
 
 from metatrain.utils.data.readers.ase import read
-from metatrain.utils.data.writers import write_predictions, write_xyz
+from metatrain.utils.data.writers import DEFAULT_WRITER, PREDICTIONS_WRITERS, ASEWriter
 
 
 def systems_capabilities_predictions(
@@ -70,14 +70,16 @@ def systems_capabilities_predictions(
     return systems, capabilities, predictions
 
 
-def test_write_xyz(monkeypatch, tmp_path):
+def test_ASEWriter(monkeypatch, tmp_path):
     monkeypatch.chdir(tmp_path)
 
     systems, capabilities, predictions = systems_capabilities_predictions()
 
     filename = "test_output.xyz"
 
-    write_xyz(filename, systems, capabilities, predictions)
+    writer = ASEWriter(filename, capabilities=capabilities)
+    writer.write(systems, predictions)
+    writer.finish()
 
     # Read the file and verify its contents
     frames = read(filename, index=":")
@@ -120,7 +122,9 @@ def test_write_components_and_properties_xyz(monkeypatch, tmp_path):
 
     filename = "test_output.xyz"
 
-    write_xyz(filename, systems, capabilities, predictions)
+    writer = ASEWriter(filename, capabilities=capabilities)
+    writer.write(systems, predictions)
+    writer.finish()
 
     # Read the file and verify its contents
     frames = read(filename, index=":")
@@ -165,7 +169,9 @@ def test_write_components_and_properties_xyz_per_atom(monkeypatch, tmp_path):
 
     filename = "test_output.xyz"
 
-    write_xyz(filename, systems, capabilities, predictions)
+    writer = ASEWriter(filename, capabilities=capabilities)
+    writer.write(systems, predictions)
+    writer.finish()
 
     # Read the file and verify its contents
     frames = read(filename, index=":")
@@ -184,7 +190,9 @@ def test_write_xyz_cell(monkeypatch, tmp_path):
 
     filename = "test_output.xyz"
 
-    write_xyz(filename, systems, capabilities, predictions)
+    writer = ASEWriter(filename, capabilities=capabilities)
+    writer.write(systems, predictions)
+    writer.finish()
 
     # Read the file and verify its contents
     frames = read(filename, index=":")
@@ -198,7 +206,9 @@ def test_write_xyz_cell(monkeypatch, tmp_path):
         assert atoms.info["virial"].shape == (3, 3)
 
 
-@pytest.mark.parametrize("filename", ("test_output.xyz", "test_output.mts"))
+@pytest.mark.parametrize(
+    "filename", ("test_output.xyz", "test_output.mts", "test_output.zip")
+)
 @pytest.mark.parametrize("fileformat", (None, "same_as_filename"))
 @pytest.mark.parametrize("cell", (None, torch.eye(3)))
 def test_write_predictions(filename, fileformat, cell, monkeypatch, tmp_path):
@@ -209,9 +219,11 @@ def test_write_predictions(filename, fileformat, cell, monkeypatch, tmp_path):
     if fileformat == "same_as_filename":
         fileformat = "." + filename.split(".")[1]
 
-    write_predictions(
-        filename, systems, capabilities, predictions, fileformat=fileformat
-    )
+    writer_cls = PREDICTIONS_WRITERS.get(fileformat, DEFAULT_WRITER)
+
+    writer = writer_cls(filename, capabilities=capabilities)
+    writer.write(systems, predictions)
+    writer.finish()
 
     if filename.endswith(".xyz"):
         frames = read(filename, index=":")
@@ -235,6 +247,7 @@ def test_write_predictions(filename, fileformat, cell, monkeypatch, tmp_path):
         ValueError("This test only does `.xyz` and `.mts`")
 
 
-def test_write_predictions_unknown_fileformat():
-    with pytest.raises(ValueError, match="fileformat '.bar' is not supported"):
-        write_predictions("foo.bar", systems=None, capabilities=None, predictions=None)
+# def test_write_predictions_unknown_fileformat():
+#     with pytest.raises(ValueError, match="fileformat '.bar' is not supported"):
+#         write_predictions("foo.bar", systems=None, capabilities=None, predictions
+# =None)

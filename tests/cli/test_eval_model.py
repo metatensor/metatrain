@@ -12,9 +12,10 @@ from omegaconf import OmegaConf
 
 from metatrain.cli.eval import eval_model
 from metatrain.soap_bpnn import __model__
-from metatrain.utils.data import DatasetInfo, DiskDataset, DiskDatasetWriter
+from metatrain.utils.data import DatasetInfo, DiskDataset
 from metatrain.utils.data.readers.ase import read
 from metatrain.utils.data.target_info import get_energy_target_info
+from metatrain.utils.data.writers import DiskDatasetWriter
 from metatrain.utils.neighbor_lists import get_system_with_neighbor_lists
 
 from . import EVAL_OPTIONS_PATH, MODEL_HYPERS, MODEL_PATH, RESOURCES_PATH
@@ -210,15 +211,15 @@ def test_eval_disk_dataset(monkeypatch, tmp_path, caplog, suffix):
                     values=torch.tensor([[frame.info["U0"]]], dtype=torch.float64),
                     samples=Labels(
                         names=["system"],
-                        values=torch.tensor([[i]]),
+                        values=torch.tensor([[0]]),
                     ),
                     components=[],
                     properties=Labels("energy", torch.tensor([[0]])),
                 )
             ],
         )
-        disk_dataset_writer.write_sample(system, {"energy": energy})
-    disk_dataset_writer.close()
+        disk_dataset_writer.write([system], {"energy": energy})
+    disk_dataset_writer.finish()
 
     eval_model(
         model=model,

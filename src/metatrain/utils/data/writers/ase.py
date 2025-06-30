@@ -77,7 +77,10 @@ class ASEWriter(Writer):
                     if "forces" in external_name:
                         arrays[external_name] = (
                             # squeeze the property dimension
-                            -gradient_block.values.detach().cpu().squeeze(-1).numpy()
+                            -gradient_block.values.detach()
+                            .cpu()
+                            .squeeze(-1)
+                            .numpy()
                         )
                     elif "virial" in external_name:
                         # in this case, we write both the virial and the stress
@@ -85,7 +88,10 @@ class ASEWriter(Writer):
                         external_name_stress = external_name.replace("virial", "stress")
                         strain_derivatives = (
                             # squeeze the property dimension
-                            gradient_block.values.detach().cpu().squeeze(-1).numpy()
+                            gradient_block.values.detach()
+                            .cpu()
+                            .squeeze(-1)
+                            .numpy()
                         )
                         if not torch.any(system.cell != 0):
                             raise ValueError(
@@ -104,7 +110,10 @@ class ASEWriter(Writer):
                     else:
                         info[external_name] = (
                             # squeeze the property dimension
-                            gradient_block.values.detach().cpu().squeeze(-1).numpy()
+                            gradient_block.values.detach()
+                            .cpu()
+                            .squeeze(-1)
+                            .numpy()
                         )
 
             atoms = ase.Atoms(
