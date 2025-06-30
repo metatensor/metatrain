@@ -140,5 +140,7 @@ filterwarnings = [
     # PyTorch does not want these, but mypy requires them
     "ignore:The TorchScript type system doesn't support instance-level annotations on empty non-base types",
     # Sphericart double backward warning
-    "ignore:Second derivatives of the spherical harmonics with respect to the Cartesian coordinates were not requested at class creation."
+    "ignore:Second derivatives of the spherical harmonics with respect to the Cartesian coordinates were not requested at class creation.",
+    # OldCompositionModel deprecation warning
+    "ignore:`OldCompositionModel` composition model is deprecated. Please use `CompositionModel` instead."
 ]
