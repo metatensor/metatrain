@@ -605,7 +605,6 @@ def train_model(
             mts_atomistic_model,
             train_dataset,
             dataset_info.targets,
-            return_predictions=False,
             batch_size=batch_size,
         )
 
@@ -620,7 +619,6 @@ def train_model(
             mts_atomistic_model,
             val_dataset,
             dataset_info.targets,
-            return_predictions=False,
             batch_size=batch_size,
         )
 
@@ -635,7 +633,6 @@ def train_model(
             mts_atomistic_model,
             test_dataset,
             dataset_info.targets,
-            return_predictions=False,
             batch_size=batch_size,
         )
 

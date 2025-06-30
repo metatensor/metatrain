@@ -3,7 +3,7 @@ import itertools
 import logging
 import time
 from pathlib import Path
-from typing import Dict, List, Optional, Union
+from typing import Dict, Optional, Union
 
 import metatensor.torch
 import numpy as np
@@ -12,15 +12,18 @@ from metatensor.torch import Labels, TensorBlock, TensorMap
 from metatomic.torch import AtomisticModel
 from omegaconf import DictConfig, OmegaConf
 
+from metatrain.utils.data.writers import (
+    DEFAULT_WRITER,
+    PREDICTIONS_WRITERS,
+    Writer,
+)
+
 from ..utils.data import (
     Dataset,
-    DiskDataset,
-    DiskDatasetWriter,
     TargetInfo,
     collate_fn,
     get_dataset,
     read_systems,
-    write_predictions,
 )
 from ..utils.errors import ArchitectureError
 from ..utils.evaluate_model import evaluate_model
@@ -113,142 +116,57 @@ def _prepare_eval_model_args(args: argparse.Namespace) -> None:
     )
 
 
-def _concatenate_tensormaps(
-    tensormap_dict_list: List[Dict[str, TensorMap]],
-) -> Dict[str, TensorMap]:
-    # Concatenating TensorMaps is tricky, because the model does not know the
-    # "number" of the system it is predicting. For example, if a model predicts
-    # 3 batches of 4 atoms each, the system labels will be [0, 1, 2, 3],
-    # [0, 1, 2, 3], [0, 1, 2, 3] for the three batches, respectively. Due
-    # to this, the join operation would not achieve the desired result
-    # ([0, 1, 2, ..., 11, 12]). Here, we fix this by renaming the system labels.
-
-    system_counter = 0
-    n_systems = 0
-    tensormaps_shifted_systems = []
-    for tensormap_dict in tensormap_dict_list:
-        tensormap_dict_shifted = {}
-        for name, tensormap in tensormap_dict.items():
-            new_keys = []
-            new_blocks = []
-            for key, block in tensormap.items():
-                new_key = key
-                where_system = block.samples.names.index("system")
-                n_systems = torch.max(block.samples.column("system")) + 1
-                new_samples_values = block.samples.values
-                new_samples_values[:, where_system] += system_counter
-                new_block = TensorBlock(
-                    values=block.values,
-                    samples=Labels(block.samples.names, values=new_samples_values),
-                    components=block.components,
-                    properties=block.properties,
-                )
-                for gradient_name, gradient_block in block.gradients():
-                    new_block.add_gradient(
-                        gradient_name,
-                        gradient_block,
-                    )
-                new_keys.append(new_key)
-                new_blocks.append(new_block)
-            tensormap_dict_shifted[name] = TensorMap(
-                keys=Labels(
-                    names=tensormap.keys.names,
-                    values=torch.stack([new_key.values for new_key in new_keys]),
-                ),
-                blocks=new_blocks,
-            )
-        tensormaps_shifted_systems.append(tensormap_dict_shifted)
-        system_counter += n_systems
-
-    return {
-        target: metatensor.torch.join(
-            [pred[target] for pred in tensormaps_shifted_systems], axis="samples"
-        )
-        for target in tensormaps_shifted_systems[0].keys()
-    }
-
-
 def _eval_targets(
     model: Union[AtomisticModel, torch.jit.RecursiveScriptModule],
-    dataset: Union[Dataset, torch.utils.data.Subset, DiskDataset],
+    dataset: Dataset,
     options: Dict[str, TargetInfo],
-    return_predictions: bool,
     batch_size: int = 1,
     check_consistency: bool = False,
-    disk_dataset_filename: Optional[str] = None,
-) -> Optional[Dict[str, TensorMap]]:
-    """Evaluates an exported model on a dataset and prints the RMSEs for each target.
-    Optionally, it also returns the predictions of the model.
-
-    The total and per-atom timings for the evaluation are also printed.
-
-    Wraps around metatrain.cli.evaluate_model.
+    writer: Optional[Writer] = None,
+) -> None:
     """
-
+    Evaluate `model` on `dataset`, accumulate RMSE/MAE, and (if `writer` is provided)
+    stream or buffer out per-sample writes.
+    """
     if len(dataset) == 0:
-        logging.info("This dataset is empty. No evaluation will be performed.")
+        logging.info("Empty dataset; nothing to do.")
         return None
 
-    if disk_dataset_filename is not None:
-        # Set up a DiskDatasetWriter
-        disk_dataset_writer = DiskDatasetWriter(disk_dataset_filename)
-
-    # Attach neighbor lists to the systems:
-    # TODO: these might already be present... find a way to avoid recomputing
-    # if already present (e.g. if this function is called after training)
+    # Attach neighbor-lists
     for sample in dataset:
         system = sample["system"]
         get_system_with_neighbor_lists(system, get_requested_neighbor_lists(model))
 
-    # Infer the device and dtype from the model
+    # Infer device/dtype
     model_tensor = next(itertools.chain(model.parameters(), model.buffers()))
     dtype = model_tensor.dtype
-    device = "cpu"
-    if torch.cuda.is_available() and "cuda" in model.capabilities().supported_devices:
-        device = "cuda"
+    device = (
+        "cuda"
+        if torch.cuda.is_available()
+        and "cuda" in model.capabilities().supported_devices
+        else "cpu"
+    )
     logging.info(f"Running on device {device} with dtype {dtype}")
     model.to(dtype=dtype, device=device)
 
+    # DataLoader & metrics setup
     if len(dataset) % batch_size != 0:
-        # debug level: we don't want to clutter the output at the end of training
-        # gross issues will still show up in the standard deviation of the timings
         logging.debug(
-            f"The dataset size ({len(dataset)}) is not a multiple of the batch size "
-            f"({batch_size}). {len(dataset) // batch_size} batches will be "
-            f"constructed with a batch size of {batch_size}, and the last batch will "
-            f"have a size of {len(dataset) % batch_size}. This might lead to "
-            "inaccurate average timings."
+            f"Dataset size ({len(dataset)}) not a multiple of batch size "
+            f"({batch_size}); final batch will be smaller."
         )
 
-    # Create a dataloader
     dataloader = torch.utils.data.DataLoader(
-        dataset,
-        batch_size=batch_size,
-        collate_fn=collate_fn,
-        shuffle=False,
+        dataset, batch_size=batch_size, collate_fn=collate_fn, shuffle=False
     )
+    rmse_acc = RMSEAccumulator()
+    mae_acc = MAEAccumulator()
 
-    # Initialize RMSE accumulator:
-    rmse_accumulator = RMSEAccumulator()
-    mae_accumulator = MAEAccumulator()
-
-    # If we're returning the predictions, we need to store them:
-    if return_predictions:
-        all_predictions = []
-
-    # Set up timings:
-    total_time = 0.0
-    timings_per_atom = []
-
-    # Warm up with a single batch 10 times (to get accurate timings later).
-    # We use different batches to warm up torch potentially with different
-    # tensor sizes, so dynamic shape compilation happens. We have to cycle
-    # the dataloader in case there are few batches.
-    cycled_dataloader = itertools.cycle(dataloader)
+    # Warm-up
+    cycled = itertools.cycle(dataloader)
     for _ in range(10):
-        batch = next(cycled_dataloader)
-        systems = batch[0]
-        systems = [system.to(dtype=dtype, device=device) for system in systems]
+        batch = next(cycled)
+        systems = [s.to(device=device, dtype=dtype) for s in batch[0]]
         evaluate_model(
             model,
             systems,
@@ -257,17 +175,21 @@ def _eval_targets(
             check_consistency=check_consistency,
         )
 
-    # Evaluate the model
+    total_time = 0.0
+    timings = []
+
+    # Count systems for batched writing
+    isystem = 0
+
+    # Main evaluation loop
     for batch in dataloader:
         systems, batch_targets = batch
-        systems = [system.to(dtype=dtype, device=device) for system in systems]
+        systems = [s.to(device=device, dtype=dtype) for s in systems]
         batch_targets = {
-            key: value.to(dtype=dtype, device=device)
-            for key, value in batch_targets.items()
+            k: v.to(device=device, dtype=dtype) for k, v in batch_targets.items()
         }
 
-        start_time = time.time()
-
+        start = time.time()
         batch_predictions = evaluate_model(
             model,
             systems,
@@ -275,29 +197,23 @@ def _eval_targets(
             is_training=False,
             check_consistency=check_consistency,
         )
-
         if torch.cuda.is_available():
             torch.cuda.synchronize()
-        end_time = time.time()
+        end = time.time()
 
-        batch_predictions_per_atom = average_by_num_atoms(
+        # Update metrics
+        preds_per_atom = average_by_num_atoms(
             batch_predictions, systems, per_structure_keys=[]
         )
-        batch_targets_per_atom = average_by_num_atoms(
+        targ_per_atom = average_by_num_atoms(
             batch_targets, systems, per_structure_keys=[]
         )
-        rmse_accumulator.update(batch_predictions_per_atom, batch_targets_per_atom)
-        mae_accumulator.update(batch_predictions_per_atom, batch_targets_per_atom)
-        if return_predictions:
-            all_predictions.append(batch_predictions)
+        rmse_acc.update(preds_per_atom, targ_per_atom)
+        mae_acc.update(preds_per_atom, targ_per_atom)
 
-        time_taken = end_time - start_time
-        total_time += time_taken
-        timings_per_atom.append(time_taken / sum(len(system) for system in systems))
-
-        # Write the predictions to the disk dataset
-        if disk_dataset_filename is not None:
-            # Split the predicted tensormaps
+        # Write out each sample if a writer is configured
+        if writer:
+            # split the TensorMaps per-system
             split_selection = [
                 Labels("system", torch.tensor([[i]], device=device))
                 for i in range(len(systems))
@@ -307,48 +223,52 @@ def _eval_targets(
                 for key, tensormap in batch_predictions.items()
             }
 
-            # Write each sample to the disk dataset
-            for i in range(len(systems)):
-                disk_dataset_writer.write_sample(
-                    systems[i].to(device="cpu", dtype=torch.float64),
-                    {
-                        key: tensormap[i].to(device="cpu", dtype=torch.float64)
-                        for key, tensormap in batch_predictions_split.items()
-                    },
-                )
+            for i, system in enumerate(systems):
+                # build a per-sample dict
+                single = {
+                    k: TensorMap(
+                        keys=batch_predictions_split[k][i].keys,
+                        blocks=[
+                            TensorBlock(
+                                samples=Labels(
+                                    "system", torch.tensor([[isystem]], device=device)
+                                ),
+                                components=block.components,
+                                properties=block.properties,
+                                values=block.values,
+                            )
+                            for block in batch_predictions_split[k][i]
+                        ],
+                    )
+                    for k in batch_predictions_split.keys()
+                }
+                writer.write(system.to("cpu").to(torch.float64), single)
+                isystem += 1
 
-    # Finalize the metrics
-    rmse_values = rmse_accumulator.finalize(not_per_atom=["positions_gradients"])
-    mae_values = mae_accumulator.finalize(not_per_atom=["positions_gradients"])
-    metrics = {**rmse_values, **mae_values}
+        # Timing
+        dt = end - start
+        total_time += dt
+        timings.append(dt / sum(len(s) for s in systems))
 
-    # print the RMSEs with MetricLogger
+    # Finish writer
+    if writer:
+        writer.finish()
+
+    # Finalize metrics and log
+    rmse_vals = rmse_acc.finalize(not_per_atom=["positions_gradients"])
+    mae_vals = mae_acc.finalize(not_per_atom=["positions_gradients"])
+    metrics = {**rmse_vals, **mae_vals}
     metric_logger = MetricLogger(
-        log_obj=logger,
-        dataset_info=model.capabilities(),
-        initial_metrics=metrics,
+        log_obj=logger, dataset_info=model.capabilities(), initial_metrics=metrics
     )
     metric_logger.log(metrics)
 
-    # Log timings
-    timings_per_atom = np.array(timings_per_atom)
-    mean_per_atom = np.mean(timings_per_atom)
-    std_per_atom = np.std(timings_per_atom)
+    timings = np.array(timings)
+    mean_ms = 1000.0 * np.mean(timings)
+    std_ms = 1000.0 * np.std(timings)
     logging.info(
-        f"evaluation time: {total_time:.2f} s "
-        f"[{1000.0 * mean_per_atom:.4f} ± "
-        f"{1000.0 * std_per_atom:.4f} ms per atom]"
+        f"Total evaluation: {total_time:.2f}s [{mean_ms:.4f}±{std_ms:.4f} ms/atom]"
     )
-
-    if disk_dataset_filename:
-        disk_dataset_writer.close()
-
-    if return_predictions:
-        # concatenate the TensorMaps
-        all_predictions_joined = _concatenate_tensormaps(all_predictions)
-        return all_predictions_joined
-    else:
-        return None
 
 
 def eval_model(
@@ -357,59 +277,29 @@ def eval_model(
     output: Union[Path, str] = "output.xyz",
     batch_size: int = 1,
     check_consistency: bool = False,
+    append: Optional[bool] = None,
 ) -> None:
-    """Evaluate an exported model on a given data set.
-
-    If ``options`` contains a ``targets`` sub-section, RMSE values will be reported. If
-    this sub-section is missing, only a xyz-file with containing the properties the
-    model was trained against is written.
-
-    :param model: Saved model to be evaluated.
-    :param options: DictConfig to define a test dataset taken for the evaluation.
-    :param output: Path to save the predicted values.
-    :param check_consistency: Whether to run consistency checks during model evaluation.
+    """
+    Top-level entry point; picks the right Writer and calls _eval_targets_and_write.
     """
     logging.info("Setting up evaluation set.")
-
-    if isinstance(output, str):
-        output = Path(output)
+    output = Path(output) if isinstance(output, str) else output
 
     options_list = expand_dataset_config(options)
     for i, options in enumerate(options_list):
-        if len(options_list) == 1:
-            extra_log_message = ""
-            file_index_suffix = ""
-        else:
-            extra_log_message = f" with index {i}"
-            file_index_suffix = f"_{i}"
-        logging.info(f"Evaluating dataset{extra_log_message}")
+        idx_suffix = f"_{i}" if len(options_list) > 1 else ""
+        logging.info(f"Evaluating dataset{idx_suffix}")
+        filename = f"{output.stem}{idx_suffix}{output.suffix}"
 
-        is_disk_dataset = options["systems"]["read_from"].endswith(".zip")
-        write_disk_dataset = output.suffix == ".zip"
-        filename = f"{output.stem}{file_index_suffix}{output.suffix}"
-
+        # build the dataset & target-info
         if hasattr(options, "targets"):
-            # in this case, we only evaluate the targets specified in the options
-            # and we calculate RMSEs
-            try:
-                eval_dataset, eval_info_dict = get_dataset(options)
-                if not write_disk_dataset:
-                    eval_systems = [d.system for d in eval_dataset]
-            except MemoryError as e:
-                raise ArchitectureError(f"Out of memory: Failed to load dataset: {e}.")
-            except Exception as e:
-                raise ArchitectureError(f"Failed to load dataset: {e}.")
-
+            eval_dataset, info_dict = get_dataset(options)
+            eval_systems = (
+                [d.system for d in eval_dataset] if output.suffix != ".zip" else None
+            )
         else:
-            # in this case, we have no targets: we evaluate everything
-            # (but we don't/can't calculate RMSEs)
-            # TODO: allow the user to specify which outputs to evaluate
-
-            if is_disk_dataset:
-                raise ArchitectureError(
-                    "DiskDataset is not supported for evaluation without targets."
-                )
-
+            if options["systems"]["read_from"].endswith(".zip"):
+                raise ArchitectureError("DiskDataset not allowed without targets.")
             eval_systems = read_systems(
                 filename=options["systems"]["read_from"],
                 reader=options["systems"]["reader"],
@@ -432,27 +322,30 @@ def eval_model(
 
             eval_dataset = Dataset.from_dict({"system": eval_systems, **eval_targets})
 
-        # Evaluate the model
+        # pick the right writer
+        writer_cls = PREDICTIONS_WRITERS.get(output.suffix, DEFAULT_WRITER)
+        writer = writer_cls(
+            filename,
+            capabilities=model.capabilities(),
+            append=append,
+        )
+
+        # run evaluation & writing
         try:
-            predictions = _eval_targets(
+            # we always let the writer handle I/O, so we never need return_predictions
+            # here
+            _eval_targets(
                 model=model,
                 dataset=eval_dataset,
-                options=eval_info_dict,
-                return_predictions=not write_disk_dataset,
+                options=info_dict,
                 batch_size=batch_size,
                 check_consistency=check_consistency,
-                disk_dataset_filename=filename if write_disk_dataset else None,
+                writer=writer,
             )
         except Exception as e:
-            raise ArchitectureError(e)
+            raise ArchitectureError(f"Evaluation failed: {e}") from e
 
-        if not write_disk_dataset:
-            write_predictions(
-                filename=filename,
-                systems=eval_systems,
-                capabilities=model.capabilities(),
-                predictions=predictions,
-            )
+        # no post-call write_predictions necessary anymore—writer did it all
 
 
 def _get_energy_layout(strain_gradient: bool) -> TensorMap:

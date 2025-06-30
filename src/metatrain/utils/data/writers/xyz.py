@@ -15,6 +15,7 @@ def write_xyz(
     systems: List[System],
     capabilities: ModelCapabilities,
     predictions: Dict[str, TensorMap],
+    append: bool = False,
 ) -> None:
     """An ase-based xyz file writer. Writes the systems and predictions to an xyz file.
 
@@ -62,6 +63,7 @@ def write_xyz(
                 # reshaping here is necessary because `arrays` only accepts 2D arrays
             else:
                 # save inside info
+                print(block)
                 if block.values.numel() == 1:
                     info[target_name] = block.values.item()
                 else:
@@ -120,4 +122,4 @@ def write_xyz(
 
         frames.append(atoms)
 
-    ase.io.write(filename, frames)
+    ase.io.write(filename, frames, append=append)

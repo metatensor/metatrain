@@ -5,14 +5,12 @@ import zipfile
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple, Union
 
-import metatensor.torch as mts
-import metatomic.torch as mta
 import numpy as np
 import torch
 from metatensor.learn.data import Dataset, group_and_join
 from metatensor.learn.data._namedtuple import namedtuple
 from metatensor.torch import TensorMap, load_buffer
-from metatomic.torch import System, load_system
+from metatomic.torch import load_system
 from omegaconf import DictConfig
 from torch.utils.data import Subset
 
@@ -456,40 +454,40 @@ def _is_disk_dataset(dataset: Any) -> bool:
     return False
 
 
-class DiskDatasetWriter:
-    """
-    A class for writing a dataset to disk, to be read by the :py:class:`DiskDataset`
-    class.
+# class DiskDatasetWriter:
+#     """
+#     A class for writing a dataset to disk, to be read by the :py:class:`DiskDataset`
+#     class.
 
-    The class is initialized with a path to a zip file, and samples can be written to
-    the zip file using the :py:meth:`write_sample` method.
+#     The class is initialized with a path to a zip file, and samples can be written to
+#     the zip file using the :py:meth:`write_sample` method.
 
-    :param path: Path to the zip file to write the dataset to.
-    """
+#     :param path: Path to the zip file to write the dataset to.
+#     """
 
-    def __init__(self, path: Union[str, Path], mode: str = "w"):
-        self.zip_file = zipfile.ZipFile(path, mode)
-        self.index = 0
+#     def __init__(self, path: Union[str, Path], mode: Literal["w", "a"] = "w"):
+#         self.zip_file = zipfile.ZipFile(path, mode)
+#         self.index = 0
 
-    def write_sample(self, system: System, targets: Dict[str, TensorMap]):
-        """
-        Write a sample to the zip file.
+#     def write_sample(self, system: System, targets: Dict[str, TensorMap]):
+#         """
+#         Write a sample to the zip file.
 
-        :param system: The system to write.
-        :param targets: A dictionary of targets to write, where each value is
-            a :py:class:`TensorMap`.
-        """
-        with self.zip_file.open(f"{self.index}/system.mta", "w") as file:
-            mta.save(file, system)
-        for target_name, target in targets.items():
-            with self.zip_file.open(f"{self.index}/{target_name}.mts", "w") as file:
-                tensor_buffer = mts.save_buffer(target)
-                numpy_buffer = tensor_buffer.numpy()
-                np.save(file, numpy_buffer)
-        self.index += 1
+#         :param system: The system to write.
+#         :param targets: A dictionary of targets to write, where each value is
+#             a :py:class:`TensorMap`.
+#         """
+#         with self.zip_file.open(f"{self.index}/system.mta", "w") as file:
+#             mta.save(file, system)
+#         for target_name, target in targets.items():
+#             with self.zip_file.open(f"{self.index}/{target_name}.mts", "w") as file:
+#                 tensor_buffer = mts.save_buffer(target)
+#                 numpy_buffer = tensor_buffer.numpy()
+#                 np.save(file, numpy_buffer)
+#         self.index += 1
 
-    def close(self):
-        self.zip_file.close()
+#     def close(self):
+#         self.zip_file.close()
 
 
 def _save_indices(
