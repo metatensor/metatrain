@@ -49,8 +49,7 @@ for i in range(100):
         ],
     )
     disk_dataset_writer.write_sample(system, {"energy": energy})
-del disk_dataset_writer  # not necessary if the file ends here, but good in general
-
+disk_dataset_writer.close()
 # %%
 #
 # The dataset is saved to disk. You can now provide it to ``metatrain`` as a

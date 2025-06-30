@@ -775,7 +775,7 @@ def test_train_disk_dataset(monkeypatch, tmp_path, options):
             ],
         )
         disk_dataset_writer.write_sample(system, {"energy": energy})
-    del disk_dataset_writer
+    disk_dataset_writer.close()
 
     options["training_set"]["systems"]["read_from"] = "qm9_reduced_100.zip"
     options["training_set"]["targets"]["energy"]["read_from"] = "qm9_reduced_100.zip"
@@ -815,7 +815,7 @@ def test_train_disk_dataset_splits_issue_601(monkeypatch, tmp_path, options):
                 ],
             )
             disk_dataset_writer.write_sample(system, {"energy": energy})
-        del disk_dataset_writer
+        disk_dataset_writer.close()
 
         options[f"{subset_name}_set"] = {
             "systems": {

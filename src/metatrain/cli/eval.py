@@ -341,7 +341,7 @@ def _eval_targets(
     )
 
     if disk_dataset_filename:
-        del disk_dataset_writer
+        disk_dataset_writer.close()
 
     if return_predictions:
         # concatenate the TensorMaps

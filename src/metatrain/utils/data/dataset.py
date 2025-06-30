@@ -467,8 +467,8 @@ class DiskDatasetWriter:
     :param path: Path to the zip file to write the dataset to.
     """
 
-    def __init__(self, path: Union[str, Path]):
-        self.zip_file = zipfile.ZipFile(path, "w")
+    def __init__(self, path: Union[str, Path], mode: str = "w"):
+        self.zip_file = zipfile.ZipFile(path, mode)
         self.index = 0
 
     def write_sample(self, system: System, targets: Dict[str, TensorMap]):
@@ -488,7 +488,7 @@ class DiskDatasetWriter:
                 np.save(file, numpy_buffer)
         self.index += 1
 
-    def __del__(self):
+    def close(self):
         self.zip_file.close()
 
 

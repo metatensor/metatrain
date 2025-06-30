@@ -218,7 +218,7 @@ def test_eval_disk_dataset(monkeypatch, tmp_path, caplog, suffix):
             ],
         )
         disk_dataset_writer.write_sample(system, {"energy": energy})
-    del disk_dataset_writer
+    disk_dataset_writer.close()
 
     eval_model(
         model=model,
