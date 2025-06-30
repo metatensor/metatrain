@@ -6,6 +6,7 @@ architecture:
     zbl: false
   training:
     num_epochs: 10
+    batch_size: 10
 
 # training set section
 training_set:
