@@ -10,10 +10,10 @@ from torch.utils.data import DataLoader, DistributedSampler
 from metatrain.utils.abc import TrainerInterface
 from metatrain.utils.additive import remove_additive
 from metatrain.utils.data import (
+    CollateFn,
     CombinedDataLoader,
     Dataset,
     _is_disk_dataset,
-    collate_fn,
 )
 from metatrain.utils.distributed.distributed_data_parallel import (
     DistributedDataParallel,
@@ -165,6 +165,12 @@ class Trainer(TrainerInterface):
         else:
             train_samplers = [None] * len(train_datasets)
             val_samplers = [None] * len(val_datasets)
+
+        # Create a collate function:
+        targets_keys = list(
+            (model.module if is_distributed else model).dataset_info.targets.keys()
+        )
+        collate_fn = CollateFn(target_keys=targets_keys)
 
         # Create dataloader for the training datasets:
         train_dataloaders = []

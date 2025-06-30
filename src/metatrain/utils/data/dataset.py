@@ -3,7 +3,7 @@ import os
 import warnings
 import zipfile
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple, Union
+from typing import Any, Dict, List, Optional, Set, Tuple, Union
 
 import metatensor.torch as mts
 import metatomic.torch as mta
@@ -236,39 +236,79 @@ def get_all_targets(datasets: Union[Dataset, List[Dataset]]) -> List[str]:
     return sorted(set(target_names))
 
 
-def collate_fn(
-    batch: List[Dict[str, Any]],
-) -> Tuple[List, Dict[str, TensorMap], Dict[str, TensorMap]]:
-    """
-    Wraps `group_and_join` to return the data fields as a list of systems, and a
-    dictionary of named targets.
+# def collate_fn(
+#     batch: List[Dict[str, Any]],
+# ) -> Tuple[List, Dict[str, TensorMap], Dict[str, TensorMap]]:
+#     """
+#     Wraps `group_and_join` to return the data fields as a list of systems, and a
+#     dictionary of named targets.
 
-    The ``system`` field is treated specially, and is returned as the first element in
-    the returned tuple. All other fields whose names do not start with "extra::" are
-    considered to be targets and returned in a dictionary as the second element of the
-    returned tuple. Any fields whose names start with "extra::" are considered to be
-    extra data, and are returned in a separate dictionary as the third element of the
-    returned tuple.
-    """
+#     The ``system`` field is treated specially, and is returned as the first element in
+#     the returned tuple. All other fields whose names do not start with "extra::" are
+#     considered to be targets and returned in a dictionary as the second element of the
+#     returned tuple. Any fields whose names start with "extra::" are considered to be
+#     extra data, and are returned in a separate dictionary as the third element of the
+#     returned tuple.
+#     """
 
-    collated_targets_and_extra_data = group_and_join(
-        batch,
-        join_kwargs={"remove_tensor_name": True, "different_keys": "union"},
-    )
-    collated_targets_and_extra_data = collated_targets_and_extra_data._asdict()
-    systems = collated_targets_and_extra_data.pop("system")
+#     collated_targets_and_extra_data = group_and_join(
+#         batch,
+#         join_kwargs={"remove_tensor_name": True, "different_keys": "union"},
+#     )
+#     collated_targets_and_extra_data = collated_targets_and_extra_data._asdict()
+#     systems = collated_targets_and_extra_data.pop("system")
 
-    # Separate the targets and extra data
-    # Extra data are those that start with "extra::", all others are targets
-    collated_extra_data = {}
-    collated_targets = {}
-    for key, value in collated_targets_and_extra_data.items():
-        if key.startswith("extra::"):
-            collated_extra_data[key] = value
-        else:
-            collated_targets[key] = value
+#     # Separate the targets and extra data
+#     # Extra data are those that start with "extra::", all others are targets
+#     collated_extra_data = {}
+#     collated_targets = {}
+#     for key, value in collated_targets_and_extra_data.items():
+#         if key.startswith("extra::"):
+#             collated_extra_data[key] = value
+#         else:
+#             collated_targets[key] = value
 
-    return systems, collated_targets, collated_extra_data
+#     return systems, collated_targets, collated_extra_data
+
+
+class CollateFn:
+    def __init__(
+        self,
+        target_keys: List[str],
+        join_kwargs: Optional[Dict[str, Any]] = None,
+    ):
+        self.target_keys: Set[str] = set(target_keys)
+        self.join_kwargs: Dict[str, Any] = join_kwargs or {
+            "remove_tensor_name": True,
+            "different_keys": "union",
+        }
+
+    def __call__(
+        self,
+        batch: List[Dict[str, Any]],
+    ) -> Tuple[
+        Any,  # systems
+        Dict[str, TensorMap],  # targets
+        Dict[str, TensorMap],  # extra data
+    ]:
+        # group & join
+        collated = group_and_join(batch, join_kwargs=self.join_kwargs)
+        data = collated._asdict()
+
+        # pull off systems
+        systems = data.pop("system")
+
+        # split into targets vs extra data
+        targets: Dict[str, TensorMap] = {}
+        extra: Dict[str, TensorMap] = {}
+
+        for key, value in data.items():
+            if key in self.target_keys:
+                targets[key] = value
+            else:
+                extra[key] = value
+
+        return systems, targets, extra
 
 
 def check_datasets(train_datasets: List[Dataset], val_datasets: List[Dataset]):

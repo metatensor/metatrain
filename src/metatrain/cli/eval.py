@@ -13,9 +13,9 @@ from metatomic.torch import AtomisticModel
 from omegaconf import DictConfig, OmegaConf
 
 from ..utils.data import (
+    CollateFn,
     Dataset,
     TargetInfo,
-    collate_fn,
     read_systems,
     read_targets,
     write_predictions,
@@ -214,6 +214,8 @@ def _eval_targets(
         )
 
     # Create a dataloader
+    target_keys = list(model.capabilities().outputs.keys())
+    collate_fn = CollateFn(target_keys=target_keys)
     dataloader = torch.utils.data.DataLoader(
         dataset,
         batch_size=batch_size,
