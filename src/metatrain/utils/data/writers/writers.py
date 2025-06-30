@@ -58,13 +58,13 @@ class DiskDatasetWriter(Writer):
             systems, predictions, istart_system=self.index
         )
 
-        for system, predictions in zip(systems, split_predictions):
+        for system, preds in zip(systems, split_predictions):
             # system
             with self.zip_file.open(f"{self.index}/system.mta", "w") as f:
                 mta.save(f, system.to("cpu").to(torch.float64))
 
             # each target
-            for target_name, tensor_map in predictions.items():
+            for target_name, tensor_map in preds.items():
                 with self.zip_file.open(f"{self.index}/{target_name}.mts", "w") as f:
                     buf = tensor_map.to("cpu").to(torch.float64)
                     # metatensor.torch.save_buffer returns a torch.Tensor buffer
@@ -81,7 +81,7 @@ def _split_tensormaps(
     systems: List[System],
     batch_predictions: Dict[str, TensorMap],
     istart_system: Optional[int] = 0,
-) -> Dict[str, TensorMap]:
+) -> List[Dict[str, TensorMap]]:
     """
     Split a TensorMap into multiple TensorMaps, one for each key.
     """

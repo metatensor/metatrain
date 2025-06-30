@@ -1,23 +1,39 @@
-from typing import Dict, Type, Union
+from pathlib import Path
+from typing import Dict, Optional, Protocol, Type, Union
+
+from metatensor.torch import ModelCapabilities
 
 from .ase import ASEWriter
 from .metatensor import MetatensorWriter
-from .writers import DiskDatasetWriter
-from .writers import Writer as Writer
+from .writers import DiskDatasetWriter, Writer  # noqa E61
 
 
-# make mypy happy
-ConcreteWriterClass = Union[
-    Type[ASEWriter],
-    Type[MetatensorWriter],
-    Type[DiskDatasetWriter],
-]
+class WriterFactory(Protocol):
+    def __call__(
+        self,
+        filename: Union[str, Path],
+        capabilities: Optional[ModelCapabilities] = None,
+        append: Optional[bool] = None,
+    ) -> Writer: ...
 
-PREDICTIONS_WRITERS: Dict[str, ConcreteWriterClass] = {
-    ".xyz": ASEWriter,
-    ".mts": MetatensorWriter,
-    ".zip": DiskDatasetWriter,
+
+def _make_factory(
+    cls: Type[Writer],
+) -> WriterFactory:
+    def factory(
+        filename: Union[str, Path],
+        capabilities: Optional[ModelCapabilities] = None,
+        append: Optional[bool] = None,
+    ) -> Writer:
+        return cls(filename, capabilities, append)
+
+    return factory
+
+
+# PREDICTIONS_WRITERS: Dict[str, Writer] = {
+PREDICTIONS_WRITERS: Dict[str, WriterFactory] = {
+    ".xyz": _make_factory(ASEWriter),
+    ".mts": _make_factory(MetatensorWriter),
+    ".zip": _make_factory(DiskDatasetWriter),
 }
-""":py:class:`dict`: dictionary mapping file suffixes to a prediction writers"""
-
-DEFAULT_WRITER: ConcreteWriterClass = ASEWriter
+DEFAULT_WRITER: WriterFactory = _make_factory(ASEWriter)
