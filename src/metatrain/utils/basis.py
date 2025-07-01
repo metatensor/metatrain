@@ -1,4 +1,4 @@
-from typing import List
+from typing import List, Tuple
 
 import torch
 from metatensor.torch import Labels, TensorMap
@@ -293,3 +293,24 @@ def symmetrize_edge_features(
             edge_features_sym_m1,
         ]
     )
+
+
+def extract_irrep_idxs(s: str) -> Tuple[int, int, int]:
+    lambda_val = -1000
+    sigma_val = -1000
+    pi_val = 1000
+    parts = s.split("_")
+    for i in range(len(parts)):
+        if parts[i] == "o3" and i + 2 < len(parts):
+            if parts[i + 1] == "lambda":
+                lambda_val = int(parts[i + 2])
+            elif parts[i + 1] == "sigma":
+                sigma_val = int(parts[i + 2])
+        elif parts[i] == "s2" and i + 2 < len(parts):
+            if parts[i + 1] == "pi":
+                pi_val = int(parts[i + 2])
+
+    if lambda_val == -1000 or sigma_val == -1000:
+        raise ValueError(f"Missing required irrep indices in string: {s}")
+
+    return (lambda_val, sigma_val, pi_val)
