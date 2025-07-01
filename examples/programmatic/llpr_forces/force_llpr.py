@@ -9,7 +9,7 @@ from metatomic.torch import (
     load_atomistic_model,
 )
 
-from metatrain.utils.data import Dataset, CollateFn, read_systems, read_targets
+from metatrain.utils.data import CollateFn, Dataset, read_systems, read_targets
 from metatrain.utils.llpr import LLPRUncertaintyModel
 from metatrain.utils.loss import TensorMapDictLoss
 from metatrain.utils.neighbor_lists import get_system_with_neighbor_lists
