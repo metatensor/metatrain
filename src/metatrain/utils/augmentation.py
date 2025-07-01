@@ -84,6 +84,7 @@ class RotationalAugmenter:
                     for block in extra_data_info.layout.blocks()
                 )
             largest_l = max(largest_l_targets, largest_l_extra_data)
+            print("###LARGEST L", largest_l_targets, largest_l_extra_data, largest_l)
 
             self.wigner = spherical.Wigner(largest_l)
             for ell in range(largest_l + 1):
@@ -136,29 +137,30 @@ class RotationalAugmenter:
                     if tensormap_info.is_spherical:
                         for block in tensormap_info.layout.blocks():
                             ell = (len(block.components[0]) - 1) // 2
-                        if ell not in wigner_D_matrices:  # skip if already computed
-                            wigner_D_matrices_l = []
-                            for wigner_D_matrix_complex in wigner_D_matrices_complex:
-                                wigner_D_matrix = np.zeros(
-                                    (2 * ell + 1, 2 * ell + 1), dtype=np.complex128
-                                )
-                                for mp in range(-ell, ell + 1):
-                                    for m in range(-ell, ell + 1):
-                                        wigner_D_matrix[m + ell, mp + ell] = (
-                                            wigner_D_matrix_complex[
-                                                self.wigner.Dindex(ell, m, mp)
-                                            ]
-                                        ).conj()
-                                U = self.complex_to_real_spherical_harmonics_transforms[
-                                    ell
-                                ]
-                                wigner_D_matrix = U.conj() @ wigner_D_matrix @ U.T
-                                assert np.allclose(wigner_D_matrix.imag, 0.0)
-                                wigner_D_matrix = wigner_D_matrix.real
-                                wigner_D_matrices_l.append(
-                                    torch.from_numpy(wigner_D_matrix)
-                                )
-                            wigner_D_matrices[ell] = wigner_D_matrices_l
+                            U = self.complex_to_real_spherical_harmonics_transforms[ell]
+                            if ell not in wigner_D_matrices:  # skip if already computed
+                                wigner_D_matrices_l = []
+                                for (
+                                    wigner_D_matrix_complex
+                                ) in wigner_D_matrices_complex:
+                                    wigner_D_matrix = np.zeros(
+                                        (2 * ell + 1, 2 * ell + 1), dtype=np.complex128
+                                    )
+                                    for mp in range(-ell, ell + 1):
+                                        for m in range(-ell, ell + 1):
+                                            wigner_D_matrix[m + ell, mp + ell] = (
+                                                wigner_D_matrix_complex[
+                                                    self.wigner.Dindex(ell, m, mp)
+                                                ]
+                                            ).conj()
+
+                                    wigner_D_matrix = U.conj() @ wigner_D_matrix @ U.T
+                                    assert np.allclose(wigner_D_matrix.imag, 0.0)
+                                    wigner_D_matrix = wigner_D_matrix.real
+                                    wigner_D_matrices_l.append(
+                                        torch.from_numpy(wigner_D_matrix)
+                                    )
+                                wigner_D_matrices[ell] = wigner_D_matrices_l
 
         return _apply_random_augmentations(
             systems, targets, transformations, wigner_D_matrices, extra_data=extra_data

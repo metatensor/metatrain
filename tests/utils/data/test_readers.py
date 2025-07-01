@@ -379,16 +379,25 @@ def test_read_extra_data(monkeypatch, tmp_path):
 
     conf = {"energy": energy_section}
 
-    result = read_extra_data(OmegaConf.create(conf))
+    result, info_dict = read_extra_data(OmegaConf.create(conf))
 
     assert type(result) is dict
+    assert type(info_dict) is dict
 
-    for target_list in result.values():
-        assert type(target_list) is list
-        for target in target_list:
-            assert target.keys == Labels(["_"], torch.tensor([[0]]))
+    for name, extra_data_list in result.items():
+        extra_data_section = conf[name]
 
-            result_block = target.block()
+        assert type(extra_data_list) is list
+        for tensormap in extra_data_list:
+            assert tensormap.keys == Labels(["_"], torch.tensor([[0]]))
+
+            result_block = tensormap.block()
             assert result_block.values.dtype is torch.float64
             assert result_block.samples.names == ["system"]
             assert result_block.properties == Labels("properties", torch.tensor([[0]]))
+
+        extra_data_info = info_dict[name]
+        assert type(extra_data_info) is TargetInfo
+        assert extra_data_info.quantity == extra_data_section["quantity"]
+        assert extra_data_info.unit == extra_data_section["unit"]
+        assert extra_data_info.per_atom is False

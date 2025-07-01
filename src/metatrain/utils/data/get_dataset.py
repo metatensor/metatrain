@@ -25,22 +25,24 @@ def get_dataset(
         physical quantities, ...) on the targets in the dataset
     """
 
+    extra_data_info_dictionary = {}
+
     if options["systems"]["read_from"].endswith(".zip"):  # disk dataset
         dataset = DiskDataset(options["systems"]["read_from"])
         target_info_dictionary = dataset.get_target_info(options["targets"])
+        if "extra_data" in options:
+            extra_data_info_dictionary = dataset.get_target_info(options["extra_data"])
     else:
         systems = read_systems(
             filename=options["systems"]["read_from"],
             reader=options["systems"]["reader"],
         )
         targets, target_info_dictionary = read_targets(conf=options["targets"])
+        extra_data = {}
         if "extra_data" in options:
             extra_data, extra_data_info_dictionary = read_extra_data(
                 conf=options["extra_data"]
             )
-        else:
-            extra_data = {}
-            extra_data_info_dictionary = {}
         dataset = Dataset.from_dict({"system": systems, **targets, **extra_data})
 
     return dataset, target_info_dictionary, extra_data_info_dictionary

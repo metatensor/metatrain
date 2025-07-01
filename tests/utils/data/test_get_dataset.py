@@ -43,7 +43,7 @@ def test_get_dataset():
         },
     }
 
-    dataset, target_info = get_dataset(OmegaConf.create(options))
+    dataset, target_info, _ = get_dataset(OmegaConf.create(options))
 
     dataset[0].system
     dataset[0].energy

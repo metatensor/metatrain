@@ -200,7 +200,7 @@ class OldCompositionModel(torch.nn.Module):
                     for sample in dataset:
                         systems = [sample["system"]]
                         targets = {target_key: sample[target_key]}
-                        systems, targets = systems_and_tensormap_dict_to_device(
+                        systems, targets, _ = systems_and_tensormap_dict_to_device(
                             systems, targets, device
                         )
                         for additive_model in additive_models:
