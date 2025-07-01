@@ -54,9 +54,13 @@ class DiskDatasetWriter(Writer):
         a new folder "<index>/".
         """
 
-        split_predictions = _split_tensormaps(
-            systems, predictions, istart_system=self.index
-        )
+        if len(systems) == 1:
+            # Avoid reindexing samples
+            split_predictions = [predictions]
+        else:
+            split_predictions = _split_tensormaps(
+                systems, predictions, istart_system=self.index
+            )
 
         for system, preds in zip(systems, split_predictions):
             # system
@@ -100,32 +104,50 @@ def _split_tensormaps(
     out_tensormaps: List[Dict[str, TensorMap]] = []
     for i in range(len(systems)):
         # build a per-sample dict
-        out_tensormaps.append(
-            {
-                k: TensorMap(
-                    keys=batch_predictions_split[k][i].keys,
-                    blocks=[
+        tensormaps: Dict[str, TensorMap] = {}
+        for k in batch_predictions_split.keys():
+            new_blocks: List[TensorBlock] = []
+            for block in batch_predictions_split[k][i]:
+                new_block = TensorBlock(
+                    samples=Labels(
+                        block.samples.names,
+                        block.samples.values
+                        + istart_system
+                        * torch.eye(
+                            block.samples.values.size(-1),
+                            device=block.samples.values.device,
+                            dtype=block.samples.values.dtype,
+                        )[0],
+                    ),
+                    components=block.components,
+                    properties=block.properties,
+                    values=block.values,
+                )
+                for gradient_name, gradient_block in block.gradients():
+                    new_block.add_gradient(
+                        gradient_name,
                         TensorBlock(
-                            # system indices are shifted by istart_system
                             samples=Labels(
-                                block.samples.names,
-                                block.samples.values
+                                gradient_block.samples.names,
+                                gradient_block.samples.values
                                 + istart_system
                                 * torch.eye(
-                                    block.samples.values.size(-1),
-                                    device=block.samples.values.device,
-                                    dtype=block.samples.values.dtype,
+                                    gradient_block.samples.values.size(-1),
+                                    device=gradient_block.samples.values.device,
+                                    dtype=gradient_block.samples.values.dtype,
                                 )[0],
                             ),
-                            components=block.components,
-                            properties=block.properties,
-                            values=block.values,
-                        )
-                        for block in batch_predictions_split[k][i]
-                    ],
-                )
-                for k in batch_predictions_split.keys()
-            }
-        )
+                            components=gradient_block.components,
+                            properties=gradient_block.properties,
+                            values=gradient_block.values,
+                        ),
+                    )
+                new_blocks.append(new_block)
+            tensormaps[k] = TensorMap(
+                keys=batch_predictions_split[k][i].keys,
+                blocks=new_blocks,
+            )
+
+        out_tensormaps.append(tensormaps)
 
     return out_tensormaps

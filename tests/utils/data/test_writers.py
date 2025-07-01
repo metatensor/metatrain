@@ -7,7 +7,7 @@ from metatensor.torch import Labels, TensorBlock, TensorMap
 from metatomic.torch import ModelCapabilities, ModelOutput, System
 
 from metatrain.utils.data.readers.ase import read
-from metatrain.utils.data.writers import DEFAULT_WRITER, PREDICTIONS_WRITERS, ASEWriter
+from metatrain.utils.data.writers import ASEWriter, get_writer
 
 
 def systems_capabilities_predictions(
@@ -216,12 +216,14 @@ def test_write_predictions(filename, fileformat, cell, monkeypatch, tmp_path):
 
     systems, capabilities, predictions = systems_capabilities_predictions(cell=cell)
 
-    if fileformat == "same_as_filename":
+    if fileformat == "same_as_filename" or fileformat is None:
         fileformat = "." + filename.split(".")[1]
 
-    writer_cls = PREDICTIONS_WRITERS.get(fileformat, DEFAULT_WRITER)
+    try:
+        writer = get_writer(filename, capabilities=capabilities)
+    except KeyError:
+        raise ValueError(f"fileformat '{fileformat}' is not supported")
 
-    writer = writer_cls(filename, capabilities=capabilities)
     writer.write(systems, predictions)
     writer.finish()
 
@@ -247,7 +249,6 @@ def test_write_predictions(filename, fileformat, cell, monkeypatch, tmp_path):
         ValueError("This test only does `.xyz` and `.mts`")
 
 
-# def test_write_predictions_unknown_fileformat():
-#     with pytest.raises(ValueError, match="fileformat '.bar' is not supported"):
-#         write_predictions("foo.bar", systems=None, capabilities=None, predictions
-# =None)
+def test_write_predictions_unknown_fileformat():
+    with pytest.raises(ValueError, match="fileformat '.bar' is not supported"):
+        get_writer("foo.bar", capabilities=None)

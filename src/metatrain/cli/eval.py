@@ -12,9 +12,8 @@ from metatomic.torch import AtomisticModel
 from omegaconf import DictConfig, OmegaConf
 
 from metatrain.utils.data.writers import (
-    DEFAULT_WRITER,
-    PREDICTIONS_WRITERS,
     Writer,
+    get_writer,
 )
 
 from ..utils.data import (
@@ -296,12 +295,7 @@ def eval_model(
             eval_dataset = Dataset.from_dict({"system": eval_systems, **eval_targets})
 
         # pick the right writer
-        writer_cls = PREDICTIONS_WRITERS.get(output.suffix, DEFAULT_WRITER)
-        writer = writer_cls(
-            filename,
-            capabilities=model.capabilities(),
-            append=append,
-        )
+        writer = get_writer(filename, capabilities=model.capabilities(), append=append)
 
         # run evaluation & writing
         try:
