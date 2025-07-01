@@ -1,5 +1,6 @@
-from typing import Dict, Tuple
+from typing import Dict, List, Tuple
 
+from metatensor.torch import TensorMap
 from omegaconf import DictConfig
 
 from .dataset import Dataset, DiskDataset
@@ -38,7 +39,7 @@ def get_dataset(
             reader=options["systems"]["reader"],
         )
         targets, target_info_dictionary = read_targets(conf=options["targets"])
-        extra_data = {}
+        extra_data: Dict[str, List[TensorMap]] = {}
         if "extra_data" in options:
             extra_data, extra_data_info_dictionary = read_extra_data(
                 conf=options["extra_data"]
