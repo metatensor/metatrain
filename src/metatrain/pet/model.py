@@ -17,6 +17,12 @@ from metatomic.torch import (
 
 from metatrain.utils.abc import ModelInterface
 from metatrain.utils.additive import ZBL, CompositionModel
+from metatrain.utils.basis import (
+    get_block_sample_idxs_per_atom,
+    get_block_sample_idxs_per_pair,
+    symmetrize_edge_features,
+    symmetrize_edge_samples,
+)
 from metatrain.utils.data import DatasetInfo, TargetInfo
 from metatrain.utils.dtype import dtype_to_str
 from metatrain.utils.long_range import DummyLongRangeFeaturizer, LongRangeFeaturizer
@@ -95,6 +101,8 @@ class PET(ModelInterface):
         self.property_labels: Dict[str, List[Labels]] = {}
         self.component_labels: Dict[str, List[List[Labels]]] = {}
         self.target_names: List[str] = []
+        self.sample_kinds: Dict[str, str] = {}
+        self.atomic_basis: Dict[str, List[Dict[str, int]]] = {}
         for target_name, target_info in dataset_info.targets.items():
             self.target_names.append(target_name)
             self._add_output(target_name, target_info)
@@ -251,7 +259,7 @@ class PET(ModelInterface):
                 for output_name, properties_tmap in self.property_labels.items()
             }
 
-        system_indices, sample_labels = self._get_system_indices_and_labels(
+        system_indices, node_sample_labels = self._get_system_indices_and_labels(
             systems, device
         )
 
@@ -288,6 +296,27 @@ class PET(ModelInterface):
             self.species_to_species_index,
             selected_atoms,
         )
+        if any([basis is not None for basis in self.atomic_basis.values()]):
+            (
+                node_sample_labels_with_types,
+                edge_sample_labels,
+                edge_sample_labels_with_types,
+                edge_sample_labels_with_types_sym,
+            ) = self._get_sample_labels_for_atomic_basis_targets(
+                systems, nl_options, device
+            )
+        else:
+            (
+                node_sample_labels_with_types,
+                edge_sample_labels,
+                edge_sample_labels_with_types,
+                edge_sample_labels_with_types_sym,
+            ) = (  # for torchscript
+                Labels(["_"], torch.empty(0, 1)),
+                Labels(["_"], torch.empty(0, 1)),
+                Labels(["_"], torch.empty(0, 1)),
+                Labels(["_"], torch.empty(0, 1)),
+            )
 
         # the scaled_dot_product_attention function from torch cannot do
         # double backward, so we will use manual attention if needed
@@ -368,7 +397,7 @@ class PET(ModelInterface):
                 blocks=[
                     TensorBlock(
                         values=features,
-                        samples=sample_labels,
+                        samples=node_sample_labels,
                         components=[],
                         properties=Labels(
                             names=["properties"],
@@ -393,6 +422,7 @@ class PET(ModelInterface):
 
         node_last_layer_features_dict: Dict[str, List[torch.Tensor]] = {}
         edge_last_layer_features_dict: Dict[str, List[torch.Tensor]] = {}
+        edge_last_layer_features_sym_dict: Dict[str, List[torch.Tensor]] = {}
 
         # Calculating node last layer features
         for output_name, node_heads in self.node_heads.items():
@@ -411,6 +441,42 @@ class PET(ModelInterface):
                 edge_last_layer_features_dict[output_name].append(
                     edge_head(edge_features_list[i])
                 )
+
+        # Symmetrize edge last layer features
+        for output_name in self.edge_heads.keys():
+            if self.sample_kinds[output_name] == "per_pair":
+                if output_name not in edge_last_layer_features_sym_dict:
+                    edge_last_layer_features_sym_dict[output_name] = []
+                for edge_last_layer_features in edge_last_layer_features_dict[
+                    output_name
+                ]:
+                    # first apply the padding mask and cutoffs
+                    expanded_padding_mask = padding_mask[..., None].repeat(
+                        1, 1, edge_last_layer_features.shape[2]
+                    )
+                    edge_last_layer_features = torch.where(
+                        ~expanded_padding_mask, 0.0, edge_last_layer_features
+                    )
+                    edge_last_layer_features = (
+                        edge_last_layer_features * cutoff_factors[:, :, None]
+                    )
+
+                    # reshape to have i,j in samples and use the padding mask to slice
+                    # out non-real neighbors
+                    edge_last_layer_features = edge_last_layer_features.reshape(
+                        -1, edge_last_layer_features.shape[-1]
+                    )
+                    edge_last_layer_features = edge_last_layer_features[
+                        padding_mask.reshape(-1)
+                    ]
+
+                    # symmetrize
+                    edge_last_layer_features_sym = symmetrize_edge_features(
+                        edge_sample_labels_with_types, edge_last_layer_features
+                    )
+                    edge_last_layer_features_sym_dict[output_name].append(
+                        edge_last_layer_features_sym
+                    )
 
         # Stacking node and edge last layer features to get the final
         # last-layer-features tensor. As was done earlier to `features`
@@ -459,7 +525,7 @@ class PET(ModelInterface):
                 blocks=[
                     TensorBlock(
                         values=last_layer_features_values,
-                        samples=sample_labels,
+                        samples=node_sample_labels,
                         components=[],
                         properties=Labels(
                             names=["properties"],
@@ -502,9 +568,78 @@ class PET(ModelInterface):
                         output_name
                     ][i]
                     node_atomic_predictions_by_block: List[torch.Tensor] = []
-                    for node_last_layer_by_block in node_last_layer.values():
+                    for block_i, node_last_layer_by_block in enumerate(
+                        node_last_layer.values()
+                    ):
+                        # unpack the relevant key values
+                        o3_lambda = int(self.key_labels[output_name].values[block_i][0])
+                        o3_sigma = int(self.key_labels[output_name].values[block_i][1])
+                        if len(self.key_labels[output_name].names) == 2:
+                            s2_pi = 1000  # for torchscript
+                        else:
+                            assert len(self.key_labels[output_name].names) == 3
+                            s2_pi = int(self.key_labels[output_name].values[block_i][2])
+
+                        # a) per-structure or per-atom targets
+
+                        if self.sample_kinds[output_name] != "per_pair":
+                            # if this is a normal target, no slicing of samples needs to
+                            # be done
+
+                            if self.atomic_basis[output_name] is None:
+                                node_last_layer_features_sliced = (
+                                    node_last_layer_features
+                                )
+
+                            # if this is a spherical target on an atomic basis, slice
+                            # the samples to only the atom types present in this block.
+
+                            else:
+                                assert self.sample_kinds[output_name] == "per_atom"
+
+                                sample_idxs = get_block_sample_idxs_per_atom(
+                                    node_sample_labels_with_types,
+                                    self.atomic_basis[output_name],
+                                    o3_lambda,
+                                )
+                                node_last_layer_features_sliced = (
+                                    node_last_layer_features[sample_idxs]
+                                )
+
+                        # b) per-pair targets
+
+                        else:
+                            assert self.atomic_basis[output_name] is not None, (
+                                "currently the only per-pair targets supported are "
+                                "spherical targets on an atomic basis"
+                            )
+                            assert s2_pi != 1000, (
+                                "per-pair spherical targets must be symmetrized"
+                            )
+
+                            if s2_pi == 0:
+                                sample_idxs = get_block_sample_idxs_per_pair(
+                                    node_sample_labels_with_types,
+                                    self.atomic_basis[output_name],
+                                    o3_lambda,
+                                    o3_sigma,
+                                    s2_pi,
+                                    node_or_edge="node",
+                                )
+                                node_last_layer_features_sliced = (
+                                    node_last_layer_features[sample_idxs]
+                                )
+
+                            else:
+                                # this is by definition an off-site block, slice to zero
+                                # samples
+
+                                node_last_layer_features_sliced = (
+                                    node_last_layer_features[:0]
+                                )
+
                         node_atomic_predictions_by_block.append(
-                            node_last_layer_by_block(node_last_layer_features)
+                            node_last_layer_by_block(node_last_layer_features_sliced)
                         )
                     node_atomic_predictions_dict[output_name].append(
                         node_atomic_predictions_by_block
@@ -520,26 +655,82 @@ class PET(ModelInterface):
                     List[List[torch.Tensor]], []
                 )
                 for i, edge_last_layer in enumerate(edge_last_layers):
-                    edge_last_layer_features = edge_last_layer_features_dict[
-                        output_name
-                    ][i]
                     edge_atomic_predictions_by_block: List[torch.Tensor] = []
-                    for edge_last_layer_by_block in edge_last_layer.values():
-                        edge_atomic_predictions = edge_last_layer_by_block(
-                            edge_last_layer_features
-                        )
-                        expanded_padding_mask = padding_mask[..., None].repeat(
-                            1, 1, edge_atomic_predictions.shape[2]
-                        )
-                        edge_atomic_predictions = torch.where(
-                            ~expanded_padding_mask, 0.0, edge_atomic_predictions
-                        )
-                        edge_atomic_predictions = (
-                            edge_atomic_predictions * cutoff_factors[:, :, None]
-                        )
-                        edge_atomic_predictions_by_block.append(
-                            edge_atomic_predictions.sum(dim=1)
-                        )
+
+                    for block_i, edge_last_layer_by_block in enumerate(
+                        edge_last_layer.values()
+                    ):
+                        # unpack the relevant key values
+                        o3_lambda = int(self.key_labels[output_name].values[block_i][0])
+                        o3_sigma = int(self.key_labels[output_name].values[block_i][1])
+                        if len(self.key_labels[output_name].names) == 2:
+                            s2_pi = 1000  # for torchscript
+                        else:
+                            assert len(self.key_labels[output_name].names) == 3
+                            s2_pi = int(self.key_labels[output_name].values[block_i][2])
+
+                        # use the normal edge features and reshape them
+
+                        if self.sample_kinds[output_name] != "per_pair":
+                            edge_atomic_predictions = edge_last_layer_by_block(
+                                edge_last_layer_features_dict[output_name][i]
+                            )
+                            expanded_padding_mask = padding_mask[..., None].repeat(
+                                1, 1, edge_atomic_predictions.shape[2]
+                            )
+                            edge_atomic_predictions = torch.where(
+                                ~expanded_padding_mask, 0.0, edge_atomic_predictions
+                            )
+                            edge_atomic_predictions = (
+                                edge_atomic_predictions * cutoff_factors[:, :, None]
+                            )
+
+                            edge_atomic_predictions = edge_atomic_predictions.sum(dim=1)
+
+                            # if this is a spherical target on an atomic basis, slice
+                            # the samples to only the atom types present in this block.
+                            # Here the atomic predictions are sliced after masking and
+                            # summing, for simplicity.
+
+                            if self.atomic_basis[output_name] is None:  # nothing to do
+                                edge_atomic_predictions_sliced = edge_atomic_predictions
+
+                            else:  # slice
+                                sample_idxs = get_block_sample_idxs_per_atom(
+                                    node_sample_labels_with_types,
+                                    self.atomic_basis[output_name],
+                                    o3_lambda,
+                                )
+                                edge_atomic_predictions_sliced = (
+                                    edge_atomic_predictions[sample_idxs]
+                                )
+
+                            edge_atomic_predictions_by_block.append(
+                                edge_atomic_predictions_sliced
+                            )
+
+                        # use the symmetrized edge features
+
+                        else:
+                            # slice features to the those needed for this block
+                            sample_idxs = get_block_sample_idxs_per_pair(
+                                edge_sample_labels_with_types_sym,
+                                self.atomic_basis[output_name],
+                                o3_lambda,
+                                o3_sigma,
+                                s2_pi,
+                                node_or_edge="edge",
+                            )
+                            edge_atomic_predictions_sym = edge_last_layer_by_block(
+                                edge_last_layer_features_sym_dict[output_name][i][
+                                    sample_idxs
+                                ]
+                            )
+
+                            edge_atomic_predictions_by_block.append(
+                                edge_atomic_predictions_sym
+                            )
+
                     edge_atomic_predictions_dict[output_name].append(
                         edge_atomic_predictions_by_block
                     )
@@ -568,9 +759,31 @@ class PET(ModelInterface):
                     for j, key in enumerate(atomic_predictions_by_block):
                         node_atomic_predictions = node_atomic_prediction_block[j]
                         edge_atomic_predictions = edge_atomic_prediction_block[j]
-                        atomic_predictions_by_block[key] = atomic_predictions_by_block[
-                            key
-                        ] + (node_atomic_predictions + edge_atomic_predictions)
+
+                        # for per-structure or per-atom targets, the node atomic
+                        # predictions are summed with the summed-over-neighbors edge
+                        # predictions
+
+                        if self.sample_kinds[output_name] != "per_pair":
+                            atomic_predictions_by_block[key] = (
+                                atomic_predictions_by_block[key]
+                                + (node_atomic_predictions + edge_atomic_predictions)
+                            )
+
+                        # for per-pair targets, the node predictions are stacked with
+                        # the edge predictions, ensuring that the nodes and edges for
+                        # each structure are zipped together reflecting the batching
+                        # across structures
+
+                        else:
+                            # TODO: split the predictions by system index to avoid
+                            # sorting the block along the samples axis.
+                            atomic_predictions_by_block[key] = (
+                                atomic_predictions_by_block[key]
+                                + torch.vstack(
+                                    [node_atomic_predictions, edge_atomic_predictions]
+                                )
+                            )
 
                 all_components = self.component_labels[output_name]
                 if len(all_components[0]) == 2 and all(
@@ -598,20 +811,118 @@ class PET(ModelInterface):
                     ) / 2.0
                     atomic_predictions_by_block[block_key] = tensor_as_three_by_three
 
-                blocks = [
-                    TensorBlock(
-                        values=atomic_predictions_by_block[key].reshape([-1] + shape),
-                        samples=sample_labels,
-                        components=components,
-                        properties=properties,
-                    )
-                    for key, shape, components, properties in zip(
+                blocks: List[TensorBlock] = []
+                for block_i, (key, shape, components, properties) in enumerate(
+                    zip(
                         self.output_shapes[output_name].keys(),
                         self.output_shapes[output_name].values(),
                         self.component_labels[output_name],
                         self.property_labels[output_name],
                     )
-                ]
+                ):
+                    # unpack the relevant key values
+                    o3_lambda = int(self.key_labels[output_name].values[block_i][0])
+                    o3_sigma = int(self.key_labels[output_name].values[block_i][1])
+                    if len(self.key_labels[output_name].names) == 2:
+                        s2_pi = 1000  # for torchscript
+                    else:
+                        assert len(self.key_labels[output_name].names) == 3
+                        s2_pi = int(self.key_labels[output_name].values[block_i][2])
+
+                    # build the samples labels - the normal case these are just the node
+                    # sample labels
+
+                    if self.atomic_basis[output_name] is None:
+                        sample_labels_block = node_sample_labels
+
+                    # if this is a spherical target on an atomic basis, slice the
+                    # samples labels to only the atom types present in this block.
+
+                    else:
+                        # per-atom target: slice the node sample labels
+
+                        if self.sample_kinds[output_name] == "per_atom":
+                            sample_labels_block = Labels(
+                                names=node_sample_labels.names,
+                                values=node_sample_labels.values[
+                                    get_block_sample_idxs_per_atom(
+                                        node_sample_labels_with_types,
+                                        self.atomic_basis[output_name],
+                                        o3_lambda,
+                                    )
+                                ],
+                            )
+
+                        # per-pair target: slice both the node (on-site) and edge
+                        # (off-site) sample labels and stack
+
+                        else:
+                            assert self.sample_kinds[output_name] == "per_pair"
+
+                            block_samples_values = []
+                            if s2_pi == 0:  # has on-site contributions
+                                node_sample_labels_sliced = node_sample_labels.values[
+                                    get_block_sample_idxs_per_pair(
+                                        node_sample_labels_with_types,
+                                        self.atomic_basis[output_name],
+                                        o3_lambda,
+                                        o3_sigma,
+                                        s2_pi,
+                                        node_or_edge="node",
+                                    )
+                                ]
+                                block_samples_values.append(
+                                    torch.hstack(
+                                        [
+                                            node_sample_labels_sliced,
+                                            node_sample_labels_sliced[:, 1].reshape(
+                                                -1, 1
+                                            ),
+                                            torch.zeros(
+                                                (node_sample_labels_sliced.shape[0], 3),
+                                                dtype=torch.int32,
+                                            ),
+                                        ]
+                                    )
+                                )
+
+                            block_samples_values.append(
+                                edge_sample_labels_with_types_sym.values[
+                                    get_block_sample_idxs_per_pair(
+                                        edge_sample_labels_with_types_sym,
+                                        self.atomic_basis[output_name],
+                                        o3_lambda,
+                                        o3_sigma,
+                                        s2_pi,
+                                        node_or_edge="edge",
+                                    )
+                                ][:, :6]
+                            )
+
+                            sample_labels_block = Labels(
+                                names=edge_sample_labels.names,
+                                values=torch.vstack(block_samples_values),
+                            )
+
+                    block_values = atomic_predictions_by_block[key].reshape(
+                        [-1] + shape
+                    )
+
+                    block = TensorBlock(
+                        values=block_values,
+                        samples=sample_labels_block,
+                        components=components,
+                        properties=properties,
+                    )
+
+                    # if a per-pair target, the samples need sorting as the batch of
+                    # node and edge predictions are stacked and not zipped by system
+                    # index as would be found in the target batch
+
+                    if self.sample_kinds[output_name] == "per_pair":
+                        block = metatensor.torch.sort_block(block, "samples")
+
+                    blocks.append(block)
                 atomic_predictions_tmap_dict[output_name] = TensorMap(
                     keys=self.key_labels[output_name],
                     blocks=blocks,
@@ -785,6 +1096,23 @@ class PET(ModelInterface):
             unit=target_info.unit,
             per_atom=True,
         )
+        # store the sample kind
+        if target_info.layout.sample_names == ["system"]:
+            self.sample_kinds[target_name] = "per_structure"
+        elif target_info.layout.sample_names == ["system", "atom"]:
+            self.sample_kinds[target_name] = "per_atom"
+        else:
+            assert target_info.layout.sample_names == [
+                "system",
+                "first_atom",
+                "second_atom",
+                "cell_shift_a",
+                "cell_shift_b",
+                "cell_shift_c",
+            ]
+            self.sample_kinds[target_name] = "per_pair"
+        # store the atomic basis (if present)
+        self.atomic_basis[target_name] = target_info.atomic_basis
 
         self.node_heads[target_name] = torch.nn.ModuleList(
             [
@@ -883,8 +1211,150 @@ class PET(ModelInterface):
             ],
             dim=1,
         )
-        sample_labels = Labels(
+        node_sample_labels = Labels(
             names=["system", "atom"],
             values=sample_values,
         )
-        return system_indices, sample_labels
+        return system_indices, node_sample_labels
+
+    def _get_sample_labels_for_atomic_basis_targets(
+        self,
+        systems: List[System],
+        options: NeighborListOptions,
+        device: torch.device,
+    ):
+        """
+        For the batch of systems, builds the samples that labels needed for predicting
+        per-pair targets. These are:
+
+        - the standard samples labels with dimensions: ["system", "first_atom",
+        "second_atom", "cell_shift_a", "cell_shift_b", "cell_shift_c"]. - the same
+        labels object but with the types of the first and second atom, i.e. with
+        appended dimensions ["first_atom_type", "second_atom_type"] - the
+        permutationally-symmetrized samples labels, with appended dimension "s2_pi"
+        """
+        system_indices = torch.concatenate(
+            [
+                torch.full(
+                    (len(system),),
+                    i_system,
+                    device=device,
+                )
+                for i_system, system in enumerate(systems)
+            ],
+        )
+        sample_values_with_types = torch.stack(
+            [
+                system_indices,
+                torch.concatenate(
+                    [
+                        torch.arange(
+                            len(system),
+                            device=systems[0].device,
+                        )
+                        for system in systems
+                    ],
+                ),
+                torch.concatenate(
+                    [system.types for system in systems],
+                ),
+            ],
+            dim=1,
+        )
+
+        node_sample_labels_with_types = Labels(
+            names=["system", "atom", "center_type"],
+            values=sample_values_with_types,
+        )
+
+        # build the edge sample labels
+        edge_sample_values = []
+        for system_idx, system in enumerate(systems):
+            neighbor_list = system.get_neighbor_list(options)
+            nl_values = neighbor_list.samples.values
+
+            edge_sample_values.append(
+                torch.hstack(
+                    [torch.full((nl_values.shape[0], 1), system_idx), nl_values],
+                )
+            )
+        edge_sample_values = torch.vstack(edge_sample_values)
+
+        edge_sample_labels = Labels(
+            [
+                "system",
+                "first_atom",
+                "second_atom",
+                "cell_shift_a",
+                "cell_shift_b",
+                "cell_shift_c",
+            ],
+            edge_sample_values,
+        )
+
+        edge_sample_values_with_types = []
+        for sample in edge_sample_values:
+            edge_sample_values_with_types.append(
+                torch.concat(
+                    [
+                        sample,
+                        torch.tensor(
+                            [
+                                systems[sample[0]].types[sample[1]],
+                                systems[sample[0]].types[sample[2]],
+                            ]
+                        ),
+                    ]
+                )
+            )
+        if len(edge_sample_values_with_types) == 0:
+            edge_sample_labels_with_types = Labels(
+                [
+                    "system",
+                    "first_atom",
+                    "second_atom",
+                    "cell_shift_a",
+                    "cell_shift_b",
+                    "cell_shift_c",
+                    "first_atom_type",
+                    "second_atom_type",
+                ],
+                torch.empty((0, 8), dtype=torch.int32, device=device),
+            )
+        else:
+            edge_sample_labels_with_types = Labels(
+                [
+                    "system",
+                    "first_atom",
+                    "second_atom",
+                    "cell_shift_a",
+                    "cell_shift_b",
+                    "cell_shift_c",
+                    "first_atom_type",
+                    "second_atom_type",
+                ],
+                torch.vstack(edge_sample_values_with_types),
+            )
+
+        # build the symmetrized edge samples labels
+        edge_sample_labels_with_types_sym = Labels(
+            [
+                "system",
+                "first_atom",
+                "second_atom",
+                "cell_shift_a",
+                "cell_shift_b",
+                "cell_shift_c",
+                "first_atom_type",
+                "second_atom_type",
+                "s2_pi",
+            ],
+            symmetrize_edge_samples(edge_sample_labels_with_types),
+        )
+
+        return (
+            node_sample_labels_with_types,
+            edge_sample_labels,
+            edge_sample_labels_with_types,
+            edge_sample_labels_with_types_sym,
+        )

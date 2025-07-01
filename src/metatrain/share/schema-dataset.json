@@ -171,9 +171,27 @@
                                 "type": "object",
                                 "properties": {
                                   "o3_lambda": { "type": "integer" },
-                                  "o3_sigma": { "type": "number" }
+                                  "o3_sigma": { "type": "number" },
+                                  "s2_pi": { "type": "number" }
                                 },
                                 "required": ["o3_lambda", "o3_sigma"],
+                                "additionalProperties": false
+                              }
+                            },
+                            "atomic_basis": {
+                              "type": "array",
+                              "items": {
+                                "type": "object",
+                                "properties": {
+                                  "o3_lambda": { "type": "integer" },
+                                  "o3_sigma": { "type": "integer" },
+                                  "s2_pi": { "type": "integer" },
+                                  "center_type": { "type": "number" },
+                                  "first_atom_type": { "type": "number" },
+                                  "second_atom_type": { "type": "number" },
+                                  "n_radial": { "type": "number" }
+                                },
+                                "required": ["o3_lambda"],
                                 "additionalProperties": false
                               }
                             }

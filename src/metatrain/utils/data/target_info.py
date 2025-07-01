@@ -24,6 +24,7 @@ class TargetInfo:
         quantity: str,
         layout: TensorMap,
         unit: Union[None, str] = "",
+        atomic_basis: Labels = None,
     ):
         # one of these will be set to True inside the _check_layout method
         self.is_scalar = False
@@ -35,6 +36,7 @@ class TargetInfo:
         self.quantity = quantity  # float64: otherwise metatensor can't serialize
         self.layout = layout
         self.unit = unit if unit is not None else ""
+        self.atomic_basis = atomic_basis
 
     @property
     def gradients(self) -> List[str]:
@@ -47,12 +49,16 @@ class TargetInfo:
     @property
     def per_atom(self) -> bool:
         """Whether the target is per atom."""
-        return "atom" in self.layout.block(0).samples.names
+        return "atom" in self.layout.block(0).samples.names or (
+            "first_atom" in self.layout.block(0).samples.names
+            and "second_atom" in self.layout.block(0).samples.names
+        )
 
     def __repr__(self):
         return (
             f"TargetInfo(quantity={self.quantity!r}, unit={self.unit!r}, "
-            f"layout={self.layout!r})"
+            f"layout={self.layout!r}), "
+            f"atomic_basis={self.atomic_basis!r})"
         )
 
     def __eq__(self, other):
@@ -73,19 +79,27 @@ class TargetInfo:
         """Check that the layout is a valid layout."""
 
         # examine basic properties of all blocks
-        for block in layout.blocks():
-            for sample_name in block.samples.names:
-                if sample_name not in ["system", "atom"]:
-                    raise ValueError(
-                        "The layout ``TensorMap`` of a target should only have samples "
-                        "named 'system' or 'atom', but found "
-                        f"'{sample_name}' instead."
-                    )
-            if len(block.values) != 0:
-                raise ValueError(
-                    "The layout ``TensorMap`` of a target should have 0 "
-                    f"samples, but found {len(block.values)} samples."
-                )
+        valid_sample_names = [
+            ["system"],
+            [
+                "system",
+                "atom",
+            ],
+            [
+                "system",
+                "first_atom",
+                "second_atom",
+                "cell_shift_a",
+                "cell_shift_b",
+                "cell_shift_c",
+            ],
+        ]
+        if layout.sample_names not in valid_sample_names:
+            raise ValueError(
+                "The layout ``TensorMap`` of a target should only have samples "
+                f"named as one of: {valid_sample_names}, but found "
+                f"'{layout.sample_names}' instead."
+            )
 
         # examine the components of the first block to decide whether this is
         # a scalar, a Cartesian tensor or a spherical tensor
@@ -148,39 +162,59 @@ class TargetInfo:
                 )
 
         if self.is_spherical:
-            if layout.keys.names != ["o3_lambda", "o3_sigma"]:
+            valid_key_names = [
+                ["o3_lambda", "o3_sigma"],
+                ["o3_lambda", "o3_sigma", "s2_pi"],
+            ]
+            if layout.keys.names not in valid_key_names:
                 raise ValueError(
                     "The layout ``TensorMap`` of a spherical tensor target "
-                    "should have  two keys named 'o3_lambda' and 'o3_sigma'."
+                    f"should have key names as one of {valid_key_names}. "
                     f"Found '{layout.keys.names}' instead."
                 )
             for key, block in layout.items():
-                o3_lambda, o3_sigma = (
-                    int(key.values[0].item()),
-                    int(key.values[1].item()),
-                )
+                if len(key.names) == 2:
+                    o3_lambda, o3_sigma, s2_pi = (
+                        int(key.values[0].item()),
+                        int(key.values[1].item()),
+                        None,
+                    )
+                else:
+                    assert len(key.names) == 3
+                    o3_lambda, o3_sigma, s2_pi = (
+                        int(key.values[0].item()),
+                        int(key.values[1].item()),
+                        int(key.values[2].item()),
+                    )
                 if o3_sigma not in [-1, 1]:
                     raise ValueError(
-                        "The layout ``TensorMap`` of a spherical tensor target should "
-                        "have a key sample 'o3_sigma' that is either -1 or 1."
-                        f"Found '{o3_sigma}' instead."
+                        "The layout ``TensorMap`` of a spherical tensor "
+                        "target should have key dimension 'o3_sigma' that "
+                        f"is either -1 or 1. Found '{o3_sigma}' instead."
                     )
                 if o3_lambda < 0:
                     raise ValueError(
-                        "The layout ``TensorMap`` of a spherical tensor target should "
-                        "have a key sample 'o3_lambda' that is non-negative."
-                        f"Found '{o3_lambda}' instead."
+                        "The layout ``TensorMap`` of a spherical tensor "
+                        "target should have key dimension 'o3_lambda' that "
+                        f"is non-negative. Found '{o3_lambda}' instead."
                     )
+                if s2_pi is not None:
+                    if s2_pi not in [-1, 0, +1]:
+                        raise ValueError(
+                            "The layout ``TensorMap`` of a spherical tensor "
+                            "target should have key dimension 's2_pi' that "
+                            f"is either -1, 0, or +1. Found '{s2_pi}' instead."
+                        )
                 components = block.components
                 if len(components) != 1:
                     raise ValueError(
-                        "The layout ``TensorMap`` of a spherical tensor target should "
-                        "have a single component."
+                        "The layout ``TensorMap`` of a spherical tensor "
+                        "target should have a single component."
                     )
                 if len(components[0]) != 2 * o3_lambda + 1:
                     raise ValueError(
-                        "Each ``TensorBlock`` of a spherical tensor target should have "
-                        "a component with 2*o3_lambda + 1 elements."
+                        "Each ``TensorBlock`` of a spherical tensor target"
+                        "should have a component with 2*o3_lambda + 1 elements."
                         f"Found '{len(components[0])}' elements instead."
                     )
                 if len(block.gradients_list()) > 0:
@@ -377,11 +411,46 @@ def _get_cartesian_target_info(target: DictConfig) -> TargetInfo:
 
 
 def _get_spherical_target_info(target: DictConfig) -> TargetInfo:
-    sample_names = ["system"]
-    if target["per_atom"]:
-        sample_names.append("atom")
-
     irreps = target["type"]["spherical"]["irreps"]
+    atomic_basis = target["type"]["spherical"].get("atomic_basis", None)
+
+    # Define the block keys as the irreps
+    key_names = list(irreps[0].keys())
+
+    # Parse the atomic basis
+    if atomic_basis is not None:
+        atomic_basis_names = list(atomic_basis[0].keys())
+        atomic_basis = Labels(
+            names=atomic_basis_names,
+            values=torch.tensor(
+                [[i[name] for name in atomic_basis_names] for i in atomic_basis],
+                dtype=torch.int32,
+            ),
+        )
+
+    # Infer the sample names
+    if target["per_atom"]:
+        if atomic_basis is None:
+            sample_names = ["system", "atom"]
+        else:
+            if "center_type" in atomic_basis.names:
+                sample_names = ["system", "atom"]
+            else:
+                assert (
+                    "first_atom_type" in atomic_basis.names
+                    and "second_atom_type" in atomic_basis.names
+                )
+                sample_names = [
+                    "system",
+                    "first_atom",
+                    "second_atom",
+                    "cell_shift_a",
+                    "cell_shift_b",
+                    "cell_shift_c",
+                ]
+    else:
+        sample_names = ["system"]
+
     keys = []
     blocks = []
     for irrep in irreps:
@@ -408,11 +477,11 @@ def _get_spherical_target_info(target: DictConfig) -> TargetInfo:
             components=components,
             properties=Labels.range("properties", target["num_subtargets"]),
         )
-        keys.append([irrep["o3_lambda"], irrep["o3_sigma"]])
+        keys.append([irrep[name] for name in key_names])
         blocks.append(block)
 
     layout = TensorMap(
-        keys=Labels(["o3_lambda", "o3_sigma"], torch.tensor(keys, dtype=torch.int32)),
+        keys=Labels(key_names, torch.tensor(keys, dtype=torch.int32)),
         blocks=blocks,
     )
 
@@ -420,6 +489,7 @@ def _get_spherical_target_info(target: DictConfig) -> TargetInfo:
         quantity=target["quantity"],
         unit=target["unit"],
         layout=layout,
+        atomic_basis=atomic_basis,
     )
     return target_info
 

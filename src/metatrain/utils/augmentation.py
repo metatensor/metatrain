@@ -8,6 +8,7 @@ from metatensor.torch import TensorBlock, TensorMap
 from metatomic.torch import System, register_autograd_neighbors
 from scipy.spatial.transform import Rotation
 
+from .basis import is_spherical_atomic_basis
 from .data import TargetInfo
 
 
@@ -135,16 +136,37 @@ def _apply_wigner_D_matrices(
     transformations: List[torch.Tensor],
     wigner_D_matrices: Dict[int, List[torch.Tensor]],
 ) -> TensorMap:
+    # Determine whether the target is on a spherical atomic basis
+    target_is_spherical_atomic_basis = is_spherical_atomic_basis(target_tmap)
+
+    # For each block, split the samples by system and apply the Wigner D-matrix
+    # transformation to the values.
     new_blocks: List[TensorBlock] = []
     for key, block in target_tmap.items():
         ell, sigma = int(key[0]), int(key[1])
         values = block.values
-        if "atom" in block.samples.names:
-            split_values = torch.split(
-                values, [len(system.positions) for system in systems]
+
+        if len(block.samples) == 0:  # no samples, nothing to do
+            new_blocks.append(block)
+            continue
+
+        if target_is_spherical_atomic_basis:
+            # This is spherical target on an atomic basis. Not all samples are
+            # present in each block, so special slicing is needed.
+            unique_system_ids, inverse_indices = torch.unique(
+                block.samples.values[:, 0], return_inverse=True
             )
+            split_values = [
+                values[inverse_indices == i] for i in range(len(unique_system_ids))
+            ]
         else:
-            split_values = torch.split(values, [1 for _ in systems])
+            if "atom" in block.samples.names:
+                split_values = torch.split(
+                    values, [len(system.positions) for system in systems]
+                )
+
+            else:
+                split_values = torch.split(values, [1 for _ in systems])
         new_values = []
         ell = (len(block.components[0]) - 1) // 2
         for v, transformation, wigner_D_matrix in zip(
