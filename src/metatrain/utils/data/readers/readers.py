@@ -199,12 +199,9 @@ def read_extra_data(
         of the extra data.
     """
     extra_data_dictionary = {}
+    extra_data_info_dictionary = {}
 
     for extra_data_key, extra_data in conf.items():
-        if not extra_data_key.startswith("extra::"):
-            raise ValueError(
-                f"extra_data name ({extra_data_key}) must start with `extra::`."
-            )
 
         reader = extra_data["reader"]
         filename = extra_data["read_from"]
@@ -238,7 +235,7 @@ def read_extra_data(
                 f"You can try with other readers: {AVAILABLE_READERS}"
             )
 
-        extra_datas_as_list_of_tensor_maps, _ = reader_met(extra_data)
+        extra_datas_as_list_of_tensor_maps, extra_data_info = reader_met(extra_data)
 
         # elements in data are `torch.ScriptObject`s and their `dtype` is an integer.
         # A C++ double/torch.float64 is `7` according to
@@ -247,5 +244,6 @@ def read_extra_data(
             raise ValueError("The loaded extra_datas are not in double precision.")
 
         extra_data_dictionary[extra_data_key] = extra_datas_as_list_of_tensor_maps
+        extra_data_info_dictionary[extra_data_key] = extra_data_info
 
     return extra_data_dictionary

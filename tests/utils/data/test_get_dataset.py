@@ -30,7 +30,7 @@ def test_get_dataset():
             }
         },
         "extra_data": {
-            "extra::energy": {
+            "extra_energy": {
                 "quantity": "",
                 "read_from": str(RESOURCES_PATH / "qm9_reduced_100.xyz"),
                 "reader": "ase",
@@ -47,7 +47,7 @@ def test_get_dataset():
 
     dataset[0].system
     dataset[0].energy
-    dataset[0]["extra::energy"]
+    dataset[0]["extra_energy"]
     assert "energy" in target_info
     assert target_info["energy"].quantity == "energy"
     assert target_info["energy"].unit == "eV"
