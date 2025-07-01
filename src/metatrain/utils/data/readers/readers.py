@@ -186,7 +186,7 @@ def read_targets(
 
 def read_extra_data(
     conf: DictConfig,
-) -> Dict[str, List[TensorMap]]:
+) -> Tuple[Dict[str, List[TensorMap]], Dict[str, TargetInfo]]:
     """Read extra data from a fully expanded config.
 
     This function is similar to :func:`read_targets`, but it is used to read additional

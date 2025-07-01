@@ -345,7 +345,7 @@ def train_model(
         )
 
         for valid_options in options["validation_set"]:
-            dataset, _ = get_dataset(valid_options)
+            dataset, _, _ = get_dataset(valid_options)
             val_datasets.append(dataset)
             train_indices.append(None)
             val_indices.append(None)
@@ -398,7 +398,7 @@ def train_model(
         )
 
         for test_options in options["test_set"]:
-            dataset, _ = get_dataset(test_options)
+            dataset, _, _ = get_dataset(test_options)
             test_datasets.append(dataset)
             test_indices.append(None)
 

@@ -7,7 +7,9 @@ from .readers import read_extra_data, read_systems, read_targets
 from .target_info import TargetInfo
 
 
-def get_dataset(options: DictConfig) -> Tuple[Dataset, Dict[str, TargetInfo]]:
+def get_dataset(
+    options: DictConfig,
+) -> Tuple[Dataset, Dict[str, TargetInfo], Dict[str, TargetInfo]]:
     """
     Gets a dataset given a configuration dictionary.
 
