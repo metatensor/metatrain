@@ -277,8 +277,11 @@ def train_model(
 
     train_datasets = []
     target_info_dict: Dict[str, TargetInfo] = {}
+    extra_data_info_dict: Dict[str, TargetInfo] = {}
     for train_options in options["training_set"]:  # loop over training sets
-        dataset, target_info_dict_single = get_dataset(train_options)
+        dataset, target_info_dict_single, extra_data_info_dict_single = get_dataset(
+            train_options
+        )
         train_datasets.append(dataset)
 
         intersecting_keys = target_info_dict.keys() & target_info_dict_single.keys()
@@ -289,6 +292,18 @@ def train_model(
                     f"Got {target_info_dict[key]} and {target_info_dict_single[key]}."
                 )
         target_info_dict.update(target_info_dict_single)
+
+        intersecting_keys = (
+            extra_data_info_dict.keys() & extra_data_info_dict_single.keys()
+        )
+        for key in intersecting_keys:
+            if extra_data_info_dict[key] != extra_data_info_dict_single[key]:
+                raise ValueError(
+                    f"Target information for key {key} differs between training sets. "
+                    f"Got {extra_data_info_dict[key]} and"
+                    f" {extra_data_info_dict_single[key]}."
+                )
+        extra_data_info_dict.update(extra_data_info_dict_single)
 
     train_size = 1.0
 
