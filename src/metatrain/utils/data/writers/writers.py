@@ -41,7 +41,7 @@ class DiskDatasetWriter(Writer):
         capabilities: Optional[
             ModelCapabilities
         ] = None,  # unused, but matches base signature
-        append: Optional[bool] = True,  # if True, open zip in append mode
+        append: Optional[bool] = False,  # if True, open zip in append mode
     ):
         super().__init__(filename=path, capabilities=capabilities, append=append)
         mode: Literal["w", "a"] = "a" if append else "w"

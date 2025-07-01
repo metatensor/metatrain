@@ -52,11 +52,12 @@ for i in range(100):
 disk_dataset_writer.finish()
 
 # %%
+#
 # Alternatively, you can also write the whole dataset at once, which can be more
 # efficient.
 
-disk_dataset_writer = DiskDatasetWriter("qm9_reduced_100.zip")
-frames = ase.io.read("qm9_reduced_100.xyz", index=":100")
+disk_dataset_writer = DiskDatasetWriter("qm9_reduced_100_all_at_once.zip")
+frames = ase.io.read("qm9_reduced_100.xyz", ":")
 systems = systems_to_torch(frames, dtype=torch.float64)
 systems = [
     get_system_with_neighbor_lists(
@@ -70,8 +71,8 @@ energy = TensorMap(
     blocks=[
         TensorBlock(
             values=torch.tensor(
-                [[frame.info["U0"] for frame in frames]], dtype=torch.float64
-            ),
+                [frame.info["U0"] for frame in frames], dtype=torch.float64
+            ).reshape(-1, 1),
             samples=Labels.range("system", len(frames)),
             components=[],
             properties=Labels("energy", torch.tensor([[0]])),
