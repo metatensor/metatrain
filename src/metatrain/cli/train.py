@@ -425,6 +425,7 @@ def train_model(
         length_unit=options["training_set"][0]["systems"]["length_unit"],
         atomic_types=atomic_types,
         targets=target_info_dict,
+        extra_data=extra_data_info_dict,
     )
 
     ###########################

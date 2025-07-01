@@ -202,7 +202,6 @@ def read_extra_data(
     extra_data_info_dictionary = {}
 
     for extra_data_key, extra_data in conf.items():
-
         reader = extra_data["reader"]
         filename = extra_data["read_from"]
 
@@ -246,4 +245,4 @@ def read_extra_data(
         extra_data_dictionary[extra_data_key] = extra_datas_as_list_of_tensor_maps
         extra_data_info_dictionary[extra_data_key] = extra_data_info
 
-    return extra_data_dictionary
+    return extra_data_dictionary, extra_data_info_dictionary

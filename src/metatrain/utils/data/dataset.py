@@ -34,6 +34,8 @@ class DatasetInfo:
         dataset. ``atomic_types`` will be stored as a sorted list of **unique** atomic
         types.
     :param targets: Information about targets in the dataset.
+    :param extra_data: Optional dictionary containing additional data that is not
+        used as a target, but is still relevant to the dataset.
     """
 
     def __init__(
@@ -41,10 +43,12 @@ class DatasetInfo:
         length_unit: Optional[str],
         atomic_types: List[int],
         targets: Dict[str, TargetInfo],
+        extra_data: Optional[Dict[str, TargetInfo]] = None,
     ):
         self.length_unit = length_unit if length_unit is not None else ""
         self._atomic_types = set(atomic_types)
         self.targets = targets
+        self.extra_data = extra_data if extra_data is not None else {}
 
     @property
     def atomic_types(self) -> List[int]:
@@ -71,6 +75,7 @@ class DatasetInfo:
             self.length_unit == other.length_unit
             and self._atomic_types == other._atomic_types
             and self.targets == other.targets
+            and self.extra_data == other.extra_data
         )
 
     def copy(self) -> "DatasetInfo":
@@ -79,6 +84,7 @@ class DatasetInfo:
             length_unit=self.length_unit,
             atomic_types=self.atomic_types.copy(),
             targets=self.targets.copy(),
+            extra_data=self.extra_data.copy(),
         )
 
     def update(self, other: "DatasetInfo") -> None:
@@ -105,6 +111,18 @@ class DatasetInfo:
                     "internal metadata of the layout."
                 )
         self.targets.update(other.targets)
+
+        intersecting_extra_data_keys = self.extra_data.keys() & other.extra_data.keys()
+        for key in intersecting_extra_data_keys:
+            if not self.extra_data[key].is_compatible_with(other.extra_data[key]):
+                raise ValueError(
+                    f"Can't update DatasetInfo with different extra data information "
+                    f"for key '{key}': {self.extra_data[key]} is not compatible with "
+                    f"{other.extra_data[key]}. If the units, quantity and keys of the "
+                    "two extra data dictionaries are the same, this must be due to a "
+                    "mismatch in the internal metadata of the layout."
+                )
+        self.extra_data.update(other.extra_data)
 
     def union(self, other: "DatasetInfo") -> "DatasetInfo":
         """Return the union of this instance with ``other``."""
@@ -177,6 +195,8 @@ def get_stats(dataset: Union[Dataset, Subset], dataset_info: DatasetInfo) -> str
         else:
             unit = dataset_info.targets[key].unit
         units[key] = unit
+
+    # TODO: add extra data statistics?
 
     stats += "\n    Mean and standard deviation of targets:"
     for key in target_names:

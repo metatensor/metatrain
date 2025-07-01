@@ -10,7 +10,7 @@ from metatomic.torch import ModelOutput, System
 from ..data import Dataset, DatasetInfo, TargetInfo, get_all_targets, get_atomic_types
 from ..jsonschema import validate
 from ..sum_over_atoms import sum_over_atoms
-from ..transfer import systems_and_targets_to_device
+from ..transfer import systems_and_tensormap_dict_to_device
 from .remove import remove_additive
 
 
@@ -200,7 +200,7 @@ class OldCompositionModel(torch.nn.Module):
                     for sample in dataset:
                         systems = [sample["system"]]
                         targets = {target_key: sample[target_key]}
-                        systems, targets = systems_and_targets_to_device(
+                        systems, targets = systems_and_tensormap_dict_to_device(
                             systems, targets, device
                         )
                         for additive_model in additive_models:

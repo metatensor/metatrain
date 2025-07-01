@@ -38,6 +38,7 @@ def get_dataset(options: DictConfig) -> Tuple[Dataset, Dict[str, TargetInfo]]:
             )
         else:
             extra_data = {}
+            extra_data_info_dictionary = {}
         dataset = Dataset.from_dict({"system": systems, **targets, **extra_data})
 
     return dataset, target_info_dictionary, extra_data_info_dictionary
