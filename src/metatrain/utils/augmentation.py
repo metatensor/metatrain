@@ -220,6 +220,7 @@ def _apply_random_augmentations(  # pragma: no cover
     extra_data: Optional[Dict[str, TensorMap]] = None,
 ) -> Tuple[List[System], Dict[str, TensorMap], Dict[str, TensorMap]]:
     # Apply the transformations to the systems
+
     new_systems: List[System] = []
     for system, transformation in zip(systems, transformations):
         new_system = System(
@@ -248,6 +249,7 @@ def _apply_random_augmentations(  # pragma: no cover
     ):
         if tensormap_dict is None:
             continue
+        assert tensormap_dict is not None
         for name, original_tmap in tensormap_dict.items():
             is_scalar = False
             if len(original_tmap.blocks()) == 1:
