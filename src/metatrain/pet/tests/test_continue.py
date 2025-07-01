@@ -22,7 +22,6 @@ def test_continue(monkeypatch, tmp_path):
     shutil.copy(DATASET_PATH, "qm9_reduced_100.xyz")
 
     systems = read_systems(DATASET_PATH)
-    systems = [system.to(torch.float32) for system in systems]
 
     target_info_dict = {}
     target_info_dict["mtt::U0"] = get_energy_target_info(
@@ -86,15 +85,32 @@ def test_continue(monkeypatch, tmp_path):
     )
 
     # evaluation
-    systems = [system.to(torch.float32) for system in systems]
+    systems = read_systems(DATASET_PATH)
+    systems = [system.to(torch.float32) for system in systems[:5]]
     for system in systems:
+        system.positions.requires_grad_(True)
         get_system_with_neighbor_lists(system, model.requested_neighbor_lists())
 
     model.eval()
     model_after.eval()
 
-    # Predict on the first five systems
     output_before = model(systems[:5], {"mtt::U0": model.outputs["mtt::U0"]})
     output_after = model_after(systems[:5], {"mtt::U0": model_after.outputs["mtt::U0"]})
 
     assert metatensor.torch.allclose(output_before["mtt::U0"], output_after["mtt::U0"])
+
+    # also check forces predictions
+    energy_before = output_before["mtt::U0"].block().values
+    energy_before.backward(torch.ones_like(energy_before))
+
+    forces_before = [s.positions.grad for s in systems]
+
+    for system in systems:
+        system.positions.grad = None
+
+    energy_after = output_after["mtt::U0"].block().values
+    energy_after.backward(torch.ones_like(energy_after))
+
+    forces_after = [s.positions.grad for s in systems]
+
+    assert torch.allclose(torch.vstack(forces_before), torch.vstack(forces_after))
