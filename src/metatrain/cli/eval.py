@@ -128,7 +128,7 @@ def _eval_targets(
     stream or buffer out per-sample writes.
     """
     if len(dataset) == 0:
-        logging.info("Empty dataset; nothing to do.")
+        logging.info("This dataset is empty. No evaluation will be performed.")
         return None
 
     # Attach neighbor-lists
@@ -151,8 +151,11 @@ def _eval_targets(
     # DataLoader & metrics setup
     if len(dataset) % batch_size != 0:
         logging.debug(
-            f"Dataset size ({len(dataset)}) not a multiple of batch size "
-            f"({batch_size}); final batch will be smaller."
+            f"The dataset size ({len(dataset)}) is not a multiple of the batch size "
+            f"({batch_size}). {len(dataset) // batch_size} batches will be "
+            f"constructed with a batch size of {batch_size}, and the last batch will "
+            f"have a size of {len(dataset) % batch_size}. This might lead to "
+            "inaccurate average timings."
         )
 
     dataloader = torch.utils.data.DataLoader(
@@ -257,7 +260,8 @@ def eval_model(
     options_list = expand_dataset_config(options)
     for i, options in enumerate(options_list):
         idx_suffix = f"_{i}" if len(options_list) > 1 else ""
-        logging.info(f"Evaluating dataset{idx_suffix}")
+        extra_log_message = f" with index {i}" if len(options_list) > 1 else ""
+        logging.info(f"Evaluating dataset{extra_log_message}")
         filename = f"{output.stem}{idx_suffix}{output.suffix}"
 
         # build the dataset & target-info
