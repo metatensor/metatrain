@@ -1,7 +1,7 @@
 from metatensor.learn.data import DataLoader
 
 from ....utils.additive import remove_additive
-from ....utils.data import collate_fn
+from ....utils.data import CollateFn
 from ....utils.data.system_to_ase import system_to_ase
 from ....utils.neighbor_lists import (
     get_requested_neighbor_lists,
@@ -11,6 +11,12 @@ from ....utils.neighbor_lists import (
 
 # dummy dataloaders due to https://github.com/metatensor/metatensor/issues/521
 def dataset_to_ase(dataset, model, do_forces=True, target_name="energy"):
+
+    collate_fn = CollateFn(
+        target_keys=list(model.dataset_info.targets.keys()),
+    )
+    # create a DataLoader object to iterate over the dataset
+
     dataloader = DataLoader(
         dataset,
         batch_size=1,

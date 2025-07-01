@@ -11,10 +11,10 @@ from metatrain.utils.abc import TrainerInterface
 from metatrain.utils.additive import remove_additive
 from metatrain.utils.augmentation import RotationalAugmenter
 from metatrain.utils.data import (
+    CollateFn,
     CombinedDataLoader,
     Dataset,
     _is_disk_dataset,
-    collate_fn,
 )
 from metatrain.utils.distributed.distributed_data_parallel import (
     DistributedDataParallel,
@@ -169,6 +169,12 @@ class Trainer(TrainerInterface):
             train_samplers = [None] * len(train_datasets)
             val_samplers = [None] * len(val_datasets)
 
+        # Create a collate function:
+        targets_keys = list(
+            (model.module if is_distributed else model).dataset_info.targets.keys()
+        )
+        collate_fn = CollateFn(target_keys=targets_keys)
+
         # Create dataloader for the training datasets:
         train_dataloaders = []
         for train_dataset, train_sampler in zip(train_datasets, train_samplers):
@@ -310,8 +316,10 @@ class Trainer(TrainerInterface):
                 optimizer.zero_grad()
 
                 systems, targets, extra_data = batch
-                systems, targets = rotational_augmenter.apply_random_augmentations(
-                    systems, targets
+                systems, targets, extra_data = (
+                    rotational_augmenter.apply_random_augmentations(
+                        systems, targets, extra_data=extra_data
+                    )
                 )
                 systems, targets, extra_data = systems_and_tensormap_dict_to_device(
                     systems, targets, device, extra_data=extra_data
@@ -387,6 +395,10 @@ class Trainer(TrainerInterface):
                 )
                 systems = [system.to(dtype=dtype) for system in systems]
                 targets = {key: value.to(dtype=dtype) for key, value in targets.items()}
+                extra_data = {
+                    key: value.to(device=device, dtype=dtype)
+                    for key, value in extra_data.items()
+                }
                 predictions = evaluate_model(
                     model,
                     systems,

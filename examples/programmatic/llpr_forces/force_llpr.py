@@ -9,7 +9,7 @@ from metatomic.torch import (
     load_atomistic_model,
 )
 
-from metatrain.utils.data import Dataset, collate_fn, read_systems, read_targets
+from metatrain.utils.data import Dataset, CollateFn, read_systems, read_targets
 from metatrain.utils.llpr import LLPRUncertaintyModel
 from metatrain.utils.loss import TensorMapDictLoss
 from metatrain.utils.neighbor_lists import get_system_with_neighbor_lists
@@ -121,6 +121,8 @@ test_systems = [
     for system in test_systems
 ]
 test_dataset = Dataset.from_dict({"system": test_systems, **test_targets})
+
+collate_fn = CollateFn(target_keys=list(train_targets.keys()))
 
 train_dataloader = torch.utils.data.DataLoader(
     train_dataset,
