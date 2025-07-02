@@ -14,7 +14,30 @@ which writer is used for which file type is stored in
 Implemented Writers
 -------------------
 
-.. autofunction:: metatrain.utils.data.writers.Writer
-.. autofunction:: metatrain.utils.data.writers.ASEWriter
-.. autofunction:: metatrain.utils.data.writers.DiskDatasetWriter
-.. autofunction:: metatrain.utils.data.writers.MetatensorWriter
+Writer Abstract Class
+^^^^^^^^^^^^^^^^^^^^^
+
+.. autoclass:: metatrain.utils.data.writers.Writer
+    :members:
+    :undoc-members:
+    :show-inheritance:
+
+
+Available Implementations
+^^^^^^^^^^^^^^^^^^^^^^^^^
+
+The available implementations listed below represent concrete writers that inherit from
+the ``Writer`` abstract class.
+
+.. autoclass:: metatrain.utils.data.writers.ASEWriter
+    :members:
+    :undoc-members:
+    :show-inheritance:
+.. autoclass:: metatrain.utils.data.writers.DiskDatasetWriter
+    :members:
+    :undoc-members:
+    :show-inheritance:
+.. autoclass:: metatrain.utils.data.writers.MetatensorWriter
+    :members:
+    :undoc-members:
+    :show-inheritance:

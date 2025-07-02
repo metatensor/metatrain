@@ -7,13 +7,12 @@ import torch
 from metatensor.torch import TensorMap
 from metatomic.torch import ModelCapabilities, System
 
+from metatrain.utils.data.writers import Writer, _split_tensormaps
 from metatrain.utils.external_naming import to_external_name
-
-from .writers import Writer, _split_tensormaps
 
 
 class ASEWriter(Writer):
-    """Streams out one frame at a time via write_xyz."""
+    """Write systems and predictions to an ASE-compatible XYZ file."""
 
     def __init__(
         self,
@@ -30,11 +29,16 @@ class ASEWriter(Writer):
         self._preds: List[Dict[str, TensorMap]] = []
 
     def write(self, systems: List[System], predictions: Dict[str, TensorMap]):
-        # just accumulate
+        """
+        Accumulate systems and predictions to write them all at once in ``finish``.
+        """
         self._systems.extend([system.to("cpu").to(torch.float64) for system in systems])
         self._preds.extend(_split_tensormaps(systems, predictions))
 
     def finish(self):
+        """
+        Write all accumulated systems and predictions to the XYZ file.
+        """
         if not self._systems:
             return
 

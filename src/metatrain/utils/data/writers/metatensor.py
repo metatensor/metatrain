@@ -6,11 +6,13 @@ import torch
 from metatensor.torch import Labels, TensorBlock, TensorMap
 from metatomic.torch import ModelCapabilities, System
 
-from .writers import Writer
+from metatrain.utils.data.writers import Writer
 
 
 class MetatensorWriter(Writer):
-    """Buffers all samples in memory, then emits full .mts files at finish()."""
+    """
+    Write systems and predictions to Metatensor files (.mts).
+    """
 
     def __init__(
         self,
@@ -23,11 +25,17 @@ class MetatensorWriter(Writer):
         self._preds: List[Dict[str, TensorMap]] = []
 
     def write(self, systems: List[System], predictions: Dict[str, TensorMap]):
+        """
+        Accumulate systems and predictions to write them all at once in ``finish``.
+        """
         # just accumulate
         self._systems.extend(systems)
         self._preds.append(predictions)
 
     def finish(self):
+        """
+        Write all accumulated systems and predictions to Metatensor files.
+        """
         # concatenate per-sample TensorMaps into full ones
         predictions = _concatenate_tensormaps(self._preds)
         # write out .mts files (writes one file per target)

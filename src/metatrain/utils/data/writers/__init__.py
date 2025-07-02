@@ -3,9 +3,15 @@ from typing import Dict, Optional, Protocol, Type, Union
 
 from metatomic.torch import ModelCapabilities
 
-from .ase import ASEWriter
-from .metatensor import MetatensorWriter
-from .writers import DiskDatasetWriter, Writer  # noqa E61
+from metatrain.utils.data.writers.ase import ASEWriter
+from metatrain.utils.data.writers.diskdataset import DiskDatasetWriter
+from metatrain.utils.data.writers.metatensor import MetatensorWriter
+from metatrain.utils.data.writers.writers import (
+    Writer,
+)
+from metatrain.utils.data.writers.writers import (
+    _split_tensormaps as _split_tensormaps,
+)
 
 
 class WriterFactory(Protocol):

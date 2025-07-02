@@ -11,30 +11,31 @@ from metatensor.torch import Labels, TensorBlock, TensorMap
 from metatomic.torch import AtomisticModel
 from omegaconf import DictConfig, OmegaConf
 
-from metatrain.utils.data.writers import (
-    Writer,
-    get_writer,
-)
-
-from ..utils.data import (
+from metatrain.cli.formatter import CustomHelpFormatter
+from metatrain.utils.data import (
     Dataset,
     TargetInfo,
     collate_fn,
     get_dataset,
     read_systems,
 )
-from ..utils.errors import ArchitectureError
-from ..utils.evaluate_model import evaluate_model
-from ..utils.io import load_model
-from ..utils.logging import MetricLogger
-from ..utils.metrics import MAEAccumulator, RMSEAccumulator
-from ..utils.neighbor_lists import (
+from metatrain.utils.data.writers import (
+    DiskDatasetWriter,
+    Writer,
+    get_writer,
+)
+from metatrain.utils.devices import pick_devices
+from metatrain.utils.errors import ArchitectureError
+from metatrain.utils.evaluate_model import evaluate_model
+from metatrain.utils.io import load_model
+from metatrain.utils.logging import MetricLogger
+from metatrain.utils.metrics import MAEAccumulator, RMSEAccumulator
+from metatrain.utils.neighbor_lists import (
     get_requested_neighbor_lists,
     get_system_with_neighbor_lists,
 )
-from ..utils.omegaconf import expand_dataset_config
-from ..utils.per_atom import average_by_num_atoms
-from .formatter import CustomHelpFormatter
+from metatrain.utils.omegaconf import expand_dataset_config
+from metatrain.utils.per_atom import average_by_num_atoms
 
 
 logger = logging.getLogger(__name__)
@@ -138,12 +139,10 @@ def _eval_targets(
     # Infer device/dtype
     model_tensor = next(itertools.chain(model.parameters(), model.buffers()))
     dtype = model_tensor.dtype
-    device = (
-        "cuda"
-        if torch.cuda.is_available()
-        and "cuda" in model.capabilities().supported_devices
-        else "cpu"
-    )
+
+    device = pick_devices(architecture_devices=model.capabilities().supported_devices)[
+        0
+    ]
     logging.info(f"Running on device {device} with dtype {dtype}")
     model.to(dtype=dtype, device=device)
 
@@ -251,7 +250,17 @@ def eval_model(
     append: Optional[bool] = None,
 ) -> None:
     """
-    Top-level entry point; picks the right Writer and calls _eval_targets_and_write.
+    Evaluate an exported model on a given data set.
+
+    If ``options`` contains a ``targets`` sub-section, RMSE values will be reported. If
+    this sub-section is missing, only a xyz-file with containing the properties the
+    model was trained against is written.
+
+    :param model: Saved model to be evaluated.
+    :param options: DictConfig to define a test dataset taken for the evaluation.
+    :param output: Path to save the predicted values.
+    :param check_consistency: Whether to run consistency checks during model evaluation.
+    :param append: If ``True``, open the output file in append mode.
     """
     logging.info("Setting up evaluation set.")
     output = Path(output) if isinstance(output, str) else output
@@ -263,15 +272,23 @@ def eval_model(
         logging.info(f"Evaluating dataset{extra_log_message}")
         filename = f"{output.stem}{idx_suffix}{output.suffix}"
 
+        # pick the right writer
+        writer = get_writer(filename, capabilities=model.capabilities(), append=append)
+
         # build the dataset & target-info
         if hasattr(options, "targets"):
             eval_dataset, eval_info_dict = get_dataset(options)
             eval_systems = (
-                [d.system for d in eval_dataset] if output.suffix != ".zip" else None
+                [d.system for d in eval_dataset]
+                if not isinstance(writer, DiskDatasetWriter)
+                else None
             )
         else:
-            if options["systems"]["read_from"].endswith(".zip"):
-                raise ArchitectureError("DiskDataset not allowed without targets.")
+            if isinstance(writer, DiskDatasetWriter):
+                raise ValueError(
+                    "Writing to DiskDataset is not allowed without explicitly"
+                    " defining targets in the input file."
+                )
             eval_systems = read_systems(
                 filename=options["systems"]["read_from"],
                 reader=options["systems"]["reader"],
@@ -294,9 +311,6 @@ def eval_model(
 
             eval_dataset = Dataset.from_dict({"system": eval_systems, **eval_targets})
 
-        # pick the right writer
-        writer = get_writer(filename, capabilities=model.capabilities(), append=append)
-
         # run evaluation & writing
         try:
             # we always let the writer handle I/O, so we never need return_predictions
@@ -312,7 +326,7 @@ def eval_model(
         except Exception as e:
             raise ArchitectureError(f"Evaluation failed: {e}") from e
 
-        # no post-call write_predictions necessary anymore—writer did it all
+        # no post-call write_predictions necessary anymore-writer did it all
 
 
 def _get_energy_layout(strain_gradient: bool) -> TensorMap:
