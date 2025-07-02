@@ -125,7 +125,7 @@ def test_train(capfd, monkeypatch, tmp_path, output):
     assert "train" in stdout_log
     assert "energy" in stdout_log
     assert "with index" not in stdout_log  # index only printed for more than 1 dataset
-    assert "Running final evaluation with batch size 16" in stdout_log
+    assert "Running final evaluation with batch size 5" in stdout_log
     assert "Atomic types" in stdout_log
     assert "Model defined for atomic types" in stdout_log
     assert "Starting training from scratch" in stdout_log

@@ -140,7 +140,7 @@ def remap_neighborlists(
             ),
             components=nl.components,
             properties=nl.properties,
-            values=distances,
+            values=distances.detach(),
         )
 
         register_autograd_neighbors(system, new_nl)
