@@ -32,8 +32,7 @@ from metatrain.utils.neighbor_lists import (
 from metatrain.utils.per_atom import average_by_num_atoms
 from metatrain.utils.scaler import remove_scale
 from metatrain.utils.transfer import (
-    systems_and_tensormap_dict_to_device,
-    systems_and_tensormap_dict_to_dtype,
+    batch_to,
 )
 
 from .model import SoapBpnn
@@ -308,8 +307,8 @@ class Trainer(TrainerInterface):
                 optimizer.zero_grad()
 
                 systems, targets, extra_data = batch
-                systems, targets, extra_data = systems_and_tensormap_dict_to_device(
-                    systems, targets, device, extra_data=extra_data
+                systems, targets, extra_data = batch_to(
+                    systems, targets, extra_data, device=device
                 )
                 for additive_model in (
                     model.module if is_distributed else model
@@ -320,8 +319,8 @@ class Trainer(TrainerInterface):
                 targets = remove_scale(
                     targets, (model.module if is_distributed else model).scaler
                 )
-                systems, targets, extra_data = systems_and_tensormap_dict_to_dtype(
-                    systems, targets, dtype, extra_data=extra_data
+                systems, targets, extra_data = batch_to(
+                    systems, targets, extra_data, dtype=dtype
                 )
 
                 predictions = evaluate_model(
@@ -367,8 +366,8 @@ class Trainer(TrainerInterface):
             val_loss = 0.0
             for batch in val_dataloader:
                 systems, targets, extra_data = batch
-                systems, targets, extra_data = systems_and_tensormap_dict_to_device(
-                    systems, targets, device, extra_data=extra_data
+                systems, targets, extra_data = batch_to(
+                    systems, targets, extra_data, device=device
                 )
                 for additive_model in (
                     model.module if is_distributed else model
@@ -379,8 +378,8 @@ class Trainer(TrainerInterface):
                 targets = remove_scale(
                     targets, (model.module if is_distributed else model).scaler
                 )
-                systems, targets, extra_data = systems_and_tensormap_dict_to_dtype(
-                    systems, targets, dtype, extra_data=extra_data
+                systems, targets, extra_data = batch_to(
+                    systems, targets, extra_data, dtype=dtype
                 )
 
                 predictions = evaluate_model(

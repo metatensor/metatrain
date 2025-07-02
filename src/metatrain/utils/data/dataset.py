@@ -256,15 +256,23 @@ def get_all_targets(datasets: Union[Dataset, List[Dataset]]) -> List[str]:
     return sorted(set(target_names))
 
 
-
-
 class CollateFn:
     def __init__(
         self,
-        target_keys: List[str],
+        dataset_info: Optional[DatasetInfo] = None,
+        target_keys: Optional[List[str]] = None,
         join_kwargs: Optional[Dict[str, Any]] = None,
     ):
-        self.target_keys: Set[str] = set(target_keys)
+        if dataset_info is not None:
+            self.target_keys: Set[str] = set(dataset_info.targets.keys())
+        else:
+            if target_keys is None:
+                raise ValueError(
+                    "Either `dataset_info` or `target_keys` must be provided to "
+                    "initialize the CollateFn."
+                )
+            self.target_keys = set(target_keys)
+
         self.join_kwargs: Dict[str, Any] = join_kwargs or {
             "remove_tensor_name": True,
             "different_keys": "union",
