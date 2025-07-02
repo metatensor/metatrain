@@ -6,7 +6,7 @@ import torch
 from metatensor.torch import Labels, TensorBlock, TensorMap
 from metatomic.torch import ModelCapabilities, System
 
-from metatrain.utils.data.writers import Writer
+from .writers import Writer
 
 
 class MetatensorWriter(Writer):

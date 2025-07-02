@@ -8,7 +8,7 @@ import torch
 from metatensor.torch import TensorMap
 from metatomic.torch import ModelCapabilities, System
 
-from metatrain.utils.data.writers import Writer, _split_tensormaps
+from .writers import Writer, _split_tensormaps
 
 
 class DiskDatasetWriter(Writer):

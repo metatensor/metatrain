@@ -7,8 +7,9 @@ import torch
 from metatensor.torch import TensorMap
 from metatomic.torch import ModelCapabilities, System
 
-from metatrain.utils.data.writers import Writer, _split_tensormaps
 from metatrain.utils.external_naming import to_external_name
+
+from .writers import Writer, _split_tensormaps
 
 
 class ASEWriter(Writer):

@@ -3,13 +3,13 @@ from typing import Dict, Optional, Protocol, Type, Union
 
 from metatomic.torch import ModelCapabilities
 
-from metatrain.utils.data.writers.ase import ASEWriter
-from metatrain.utils.data.writers.diskdataset import DiskDatasetWriter
-from metatrain.utils.data.writers.metatensor import MetatensorWriter
-from metatrain.utils.data.writers.writers import (
+from .ase import ASEWriter
+from .diskdataset import DiskDatasetWriter
+from .metatensor import MetatensorWriter
+from .writers import (
     Writer,
 )
-from metatrain.utils.data.writers.writers import (
+from .writers import (
     _split_tensormaps as _split_tensormaps,
 )
 
