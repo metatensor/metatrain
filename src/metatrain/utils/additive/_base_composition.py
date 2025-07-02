@@ -255,6 +255,7 @@ class BaseCompositionModel(torch.nn.Module):
                 self.XTX[target_name][key].values[:] += X.T @ X
 
                 # Compute "XTY", i.e. X.T @ Y
+                print(X.shape, Y.shape)
                 self.XTY[target_name][key].values[:] += torch.tensordot(
                     X, Y, dims=([0], [0])
                 )
@@ -563,7 +564,7 @@ def _include_key(key: LabelsEntry) -> bool:
     ]
     include_key = False
 
-    if key.names == valid_key_names[0]:  
+    if key.names == valid_key_names[0]:
         include_key = True
 
     elif key.names == valid_key_names[1]:
@@ -575,7 +576,12 @@ def _include_key(key: LabelsEntry) -> bool:
             include_key = True
 
     elif key.names == valid_key_names[3]:
-        if key["o3_lambda"] == 0 and key["o3_sigma"] == 1 and key["s2_pi"] == 0 and key["n_centers"] == 1:
+        if (
+            key["o3_lambda"] == 0
+            and key["o3_sigma"] == 1
+            and key["s2_pi"] == 0
+            and key["n_centers"] == 1
+        ):
             include_key = True
 
     else:
