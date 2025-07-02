@@ -14,8 +14,8 @@ def dataset_to_ase(dataset, model, do_forces=True, target_name="energy"):
     collate_fn = CollateFn(
         target_keys=list(model.dataset_info.targets.keys()),
     )
-    # create a DataLoader object to iterate over the dataset
 
+    # create a DataLoader object to iterate over the dataset
     dataloader = DataLoader(
         dataset,
         batch_size=1,
