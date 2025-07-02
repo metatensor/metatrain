@@ -11,8 +11,6 @@ import torch
 from metatensor.torch import Labels, LabelsEntry, TensorBlock, TensorMap
 from metatomic.torch import ModelOutput, System
 
-from metatrain.utils.basis import get_onsite_samples_mask
-
 
 class BaseCompositionModel(torch.nn.Module):
     """
@@ -245,12 +243,6 @@ class BaseCompositionModel(torch.nn.Module):
                     X = self._compute_X_per_atom(
                         systems, self._get_sliced_atomic_types(key)
                     )
-
-                    # if a per-pair target, slice the target to only contain on-site
-                    # samples
-                    if self.sample_kinds[target_name] == "per_pair":
-                        onsite_samples_mask = get_onsite_samples_mask(block.samples)
-                        Y = Y[onsite_samples_mask]
 
                 else:
                     raise ValueError(
@@ -563,18 +555,33 @@ def _include_key(key: LabelsEntry) -> bool:
           if values are 0, 1, 0 respectively, indicating an unsymmetrized
           invariant block of a per-pair target.
     """
+    valid_key_names = [
+        ["_"],  # scalar
+        ["o3_lambda", "o3_sigma"],  # spherical
+        ["o3_lambda", "o3_sigma", "n_centers"],  # spherical per-atom
+        ["o3_lambda", "o3_sigma", "n_centers", "s2_pi"],  # spherical per-pair
+    ]
     include_key = False
 
-    if len(key.names) == 1 and key.names[0] == "_":  # scalar
+    if key.names == valid_key_names[0]:  
         include_key = True
 
-    if "o3_lambda" in key.names and "o3_sigma" in key.names:
+    elif key.names == valid_key_names[1]:
         if key["o3_lambda"] == 0 and key["o3_sigma"] == 1:
-            if "s2_pi" in key.names:
-                if key["s2_pi"] == 0:
-                    include_key = True
-            else:
-                include_key = True
+            include_key = True
+
+    elif key.names == valid_key_names[2]:
+        if key["o3_lambda"] == 0 and key["o3_sigma"] == 1 and key["n_centers"] == 1:
+            include_key = True
+
+    elif key.names == valid_key_names[3]:
+        if key["o3_lambda"] == 0 and key["o3_sigma"] == 1 and key["s2_pi"] == 0 and key["n_centers"] == 1:
+            include_key = True
+
+    else:
+        raise ValueError(
+            f"key names {key.names} not in valid key names {valid_key_names}"
+        )
 
     return include_key
 
