@@ -44,6 +44,12 @@ def get_dataset(
             extra_data, extra_data_info_dictionary = read_extra_data(
                 conf=options["extra_data"]
             )
+            intersecting_keys = targets.keys() & extra_data.keys()
+            if intersecting_keys:
+                raise ValueError(
+                    f"Extra data keys {intersecting_keys} overlap with target keys. "
+                    "Please use unique keys for targets and extra data."
+                )
         dataset = Dataset.from_dict({"system": systems, **targets, **extra_data})
 
     return dataset, target_info_dictionary, extra_data_info_dictionary

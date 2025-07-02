@@ -299,8 +299,8 @@ def train_model(
         for key in intersecting_keys:
             if extra_data_info_dict[key] != extra_data_info_dict_single[key]:
                 raise ValueError(
-                    f"Target information for key {key} differs between training sets. "
-                    f"Got {extra_data_info_dict[key]} and"
+                    f"Extra data information for key {key} differs between training "
+                    f"sets. Got {extra_data_info_dict[key]} and"
                     f" {extra_data_info_dict_single[key]}."
                 )
         extra_data_info_dict.update(extra_data_info_dict_single)

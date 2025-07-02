@@ -1,7 +1,9 @@
 import importlib
+import logging
 import warnings
+from functools import lru_cache
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple
+from typing import Callable, Dict, List, Optional, Tuple
 
 from metatensor.torch import TensorMap
 from metatomic.torch import System
@@ -13,8 +15,14 @@ from ..target_info import TargetInfo
 AVAILABLE_READERS = ["ase", "metatensor"]
 """:py:class:`list`: list containing all implemented reader libraries"""
 
-DEFAULT_READER = {".xyz": "ase", ".extxyz": "ase", ".mts": "metatensor"}
-""":py:class:`dict`: dictionary mapping file extensions to a default reader"""
+DEFAULT_READER = {
+    ".xyz": "ase",
+    ".extxyz": "ase",
+    ".mts": "metatensor",
+}
+""":py:class:`dict`: mapping file extensions to a default reader"""
+
+logger = logging.getLogger(__name__)
 
 
 def read_systems(
@@ -29,11 +37,12 @@ def read_systems(
     :param dtype: desired data type of returned tensor
     :returns: list of systems
         determined from the file extension.
-    :returns: list of systems stored in double precision
+    :raises ValueError: if no reader is found or data not in double precision
     """
+    # Determine reader if not provided
     if reader is None:
+        file_suffix = Path(filename).suffix
         try:
-            file_suffix = Path(filename).suffix
             reader = DEFAULT_READER[file_suffix]
         except KeyError:
             raise ValueError(
@@ -42,23 +51,16 @@ def read_systems(
                 f"the known ones: {', '.join(AVAILABLE_READERS)} "
             )
 
-    try:
-        reader_mod = importlib.import_module(
-            name=f".{reader}", package="metatrain.utils.data.readers"
-        )
-    except ImportError:
-        raise ValueError(
-            f"Reader library {reader!r} not supported. Choose from "
-            f"{', '.join(AVAILABLE_READERS)}"
-        )
+    module = _load_reader_module(reader)
 
+    # Fetch and call read_systems
     try:
-        reader_met = reader_mod.read_systems
-    except AttributeError:
+        reader_met = module.read_systems
+    except AttributeError as e:
         raise ValueError(
             f"Reader library {reader!r} cannot read systems."
             f"You can try with other readers: {AVAILABLE_READERS}"
-        )
+        ) from e
 
     systems = reader_met(filename)
 
@@ -95,93 +97,11 @@ def read_targets(
         outputs of ``metatomic`` (see
         https://docs.metatensor.org/metatomic/latest/outputs/)
     """
-    target_dictionary = {}
-    target_info_dictionary = {}
-    standard_outputs_list = [
-        "energy",
-        "non_conservative_forces",
-        "non_conservative_stress",
-    ]
-
-    for target_key, target in conf.items():
-        is_standard_target = target_key in standard_outputs_list
-        if not is_standard_target and not target_key.startswith("mtt::"):
-            if target_key.lower() in ["force", "forces", "virial", "stress"]:
-                warnings.warn(
-                    f"{target_key!r} should not be its own top-level target, "
-                    "but rather a sub-section of the 'energy' target",
-                    stacklevel=2,
-                )
-            else:
-                raise ValueError(
-                    f"Target name ({target_key}) must either be one of "
-                    f"{standard_outputs_list} or start with `mtt::`."
-                )
-        if (
-            "force" in target_key.lower()
-            or "virial" in target_key.lower()
-            or "stress" in target_key.lower()
-        ):
-            warnings.warn(
-                f"the name of {target_key!r} resembles to a gradient of "
-                "energies; it should probably not be its own top-level target, "
-                "but rather a gradient sub-section of a target with the "
-                "`energy` quantity",
-                stacklevel=2,
-            )
-
-        is_energy = (
-            (target["quantity"] == "energy")
-            and (not target["per_atom"])
-            and target["num_subtargets"] == 1
-            and target["type"] == "scalar"
-        )
-        energy_or_generic = "energy" if is_energy else "generic"
-
-        reader = target["reader"]
-        filename = target["read_from"]
-
-        if reader is None:
-            try:
-                file_suffix = Path(filename).suffix
-                reader = DEFAULT_READER[file_suffix]
-            except KeyError:
-                raise ValueError(
-                    f"File extension {file_suffix!r} is not linked to a default reader "
-                    "library. You can try reading it by setting a specific 'reader' "
-                    f"from the known ones: {', '.join(AVAILABLE_READERS)} "
-                )
-
-        try:
-            reader_mod = importlib.import_module(
-                name=f".{reader}", package="metatrain.utils.data.readers"
-            )
-        except ImportError:
-            raise ValueError(
-                f"Reader library {reader!r} not supported. Choose from "
-                f"{', '.join(AVAILABLE_READERS)}"
-            )
-
-        try:
-            reader_met = getattr(reader_mod, f"read_{energy_or_generic}")
-        except AttributeError:
-            raise ValueError(
-                f"Reader library {reader!r} cannot read {target!r}."
-                f"You can try with other readers: {AVAILABLE_READERS}"
-            )
-
-        targets_as_list_of_tensor_maps, target_info = reader_met(target)
-
-        # elements in data are `torch.ScriptObject`s and their `dtype` is an integer.
-        # A C++ double/torch.float64 is `7` according to
-        # https://github.com/pytorch/pytorch/blob/207564bab1c4fe42750931765734ee604032fb69/c10/core/ScalarType.h#L54-L93
-        if not all(t.dtype == 7 for t in targets_as_list_of_tensor_maps):
-            raise ValueError("The loaded targets are not in double precision.")
-
-        target_dictionary[target_key] = targets_as_list_of_tensor_maps
-        target_info_dictionary[target_key] = target_info
-
-    return target_dictionary, target_info_dictionary
+    return _read_conf_section(
+        conf,
+        decide_reader=_decide_target_reader,
+        validate_key=_validate_target,
+    )
 
 
 def read_extra_data(
@@ -198,51 +118,137 @@ def read_extra_data(
         the config as well as a ``Dict[str, TargetInfo]`` object containing the metadata
         of the extra data.
     """
-    extra_data_dictionary = {}
-    extra_data_info_dictionary = {}
+    return _read_conf_section(
+        conf,
+        decide_reader=_decide_generic_reader,
+        validate_key=_no_validate,
+    )
 
-    for extra_data_key, extra_data in conf.items():
-        reader = extra_data["reader"]
-        filename = extra_data["read_from"]
 
+def _read_conf_section(
+    conf: DictConfig,
+    decide_reader: Callable[[str, DictConfig], str],
+    validate_key: Callable[[str, DictConfig], None],
+) -> Tuple[Dict[str, List[TensorMap]], Dict[str, TargetInfo]]:
+    """
+    Generic loader for any DictConfig section (targets, extra_data, …).
+
+    :param conf:          mapping of section names to entry configs
+    :param decide_reader: callback(key, entry) -> either "energy" or "generic"
+    :param validate_key:  callback(key, entry) -> None (may raise or log)
+    :returns: (data_dict, info_dict)
+    :raises ValueError: on unsupported file types, readers, or dtype mismatch
+    """
+    data_dict: Dict[str, List[TensorMap]] = {}
+    info_dict: Dict[str, TargetInfo] = {}
+
+    for key, entry in conf.items():
+        # section-specific key validation
+        validate_key(key, entry)
+
+        # decide which reader method to call
+        reader_kind = decide_reader(key, entry)
+
+        # resolve reader name (explicit or default via suffix)
+        reader = entry.get("reader")
+        filename = entry.get("read_from")
         if reader is None:
+            suffix = Path(filename).suffix
             try:
-                file_suffix = Path(filename).suffix
-                reader = DEFAULT_READER[file_suffix]
+                reader = DEFAULT_READER[suffix]
             except KeyError:
                 raise ValueError(
-                    f"File extension {file_suffix!r} is not linked to a default reader "
-                    "library. You can try reading it by setting a specific 'reader' "
-                    f"from the known ones: {', '.join(AVAILABLE_READERS)} "
+                    f"File extension {suffix!r} has no default reader. "
+                    f"Set 'reader' explicitly from: {AVAILABLE_READERS}"
                 )
 
+        module = _load_reader_module(reader)
+
+        # fetch the appropriate read_* function
+        method_name = f"read_{reader_kind}"
         try:
-            reader_mod = importlib.import_module(
-                name=f".{reader}", package="metatrain.utils.data.readers"
-            )
-        except ImportError:
+            reader_fn = getattr(module, method_name)
+        except AttributeError as e:
+            available = [m for m in dir(module) if m.startswith("read_")]
             raise ValueError(
-                f"Reader library {reader!r} not supported. Choose from "
-                f"{', '.join(AVAILABLE_READERS)}"
-            )
+                f"Reader {reader!r} has no method {method_name!r}. "
+                f"Available methods: {available}"
+            ) from e
 
-        try:
-            reader_met = reader_mod.read_generic
-        except AttributeError:
+        # execute reader and collect outputs
+        tensormaps, info = reader_fn(entry)
+
+        # enforce double precision (dtype == 7)
+        if not all(t.dtype == 7 for t in tensormaps):
+            raise ValueError(f"Data for '{key}' not in double precision (dtype==7).")
+
+        data_dict[key] = tensormaps
+        info_dict[key] = info
+
+    return data_dict, info_dict
+
+
+# Callbacks for targets
+_standard_outputs_list = {
+    "energy",
+    "non_conservative_forces",
+    "non_conservative_stress",
+}
+
+
+def _validate_target(key: str, entry: DictConfig) -> None:
+    if key not in _standard_outputs_list and not key.startswith("mtt::"):
+        if key.lower() in {"force", "forces", "virial", "stress"}:
+            warnings.warn(
+                f"{key!r} should not be its own top-level target, "
+                "but rather a sub-section of the 'energy' target",
+                stacklevel=2,
+            )
+        else:
             raise ValueError(
-                f"Reader library {reader!r} cannot read {extra_data!r}."
-                f"You can try with other readers: {AVAILABLE_READERS}"
+                f"Target name ({key}) must either be one of "
+                f"{_standard_outputs_list} or start with `mtt::`."
             )
+    if any(name in key.lower() for name in ("force", "virial", "stress")):
+        warnings.warn(
+            f"the name of {key!r} resembles to a gradient of "
+            "energies; it should probably not be its own top-level target, "
+            "but rather a gradient sub-section of a target with the "
+            "`energy` quantity",
+            stacklevel=2,
+        )
 
-        extra_datas_as_list_of_tensor_maps, extra_data_info = reader_met(extra_data)
 
-        # elements in data are `torch.ScriptObject`s and their `dtype` is an integer.
-        # A C++ double/torch.float64 is `7` according to
-        # https://github.com/pytorch/pytorch/blob/207564bab1c4fe42750931765734ee604032fb69/c10/core/ScalarType.h#L54-L93
-        if not all(t.dtype == 7 for t in extra_datas_as_list_of_tensor_maps):
-            raise ValueError("The loaded extra_datas are not in double precision.")
+def _decide_target_reader(key: str, entry: DictConfig) -> str:
+    is_energy = (
+        entry.get("quantity") == "energy"
+        and not entry.get("per_atom", False)
+        and entry.get("num_subtargets", 1) == 1
+        and entry.get("type") == "scalar"
+    )
+    return "energy" if is_energy else "generic"
 
-        extra_data_dictionary[extra_data_key] = extra_datas_as_list_of_tensor_maps
-        extra_data_info_dictionary[extra_data_key] = extra_data_info
 
-    return extra_data_dictionary, extra_data_info_dictionary
+# Callbacks for "extra_data"
+def _no_validate(key: str, entry: DictConfig) -> None:
+    pass
+
+
+def _decide_generic_reader(key: str, entry: DictConfig) -> str:
+    return "generic"
+
+
+@lru_cache(maxsize=None)
+def _load_reader_module(reader_name: str):
+    """
+    Load (and cache) a reader module by name.
+    Raises ValueError if the module cannot be imported.
+    """
+    module_path = f"metatrain.utils.data.readers.{reader_name}"
+    try:
+        return importlib.import_module(module_path)
+    except ImportError as e:
+        raise ValueError(
+            f"Reader library {reader_name!r} not supported. Choose from "
+            f"{', '.join(AVAILABLE_READERS)}"
+        ) from e
