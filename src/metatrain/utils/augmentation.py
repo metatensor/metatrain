@@ -84,7 +84,6 @@ class RotationalAugmenter:
                     for block in extra_data_info.layout.blocks()
                 )
             largest_l = max(largest_l_targets, largest_l_extra_data)
-            print("###LARGEST L", largest_l_targets, largest_l_extra_data, largest_l)
 
             self.wigner = spherical.Wigner(largest_l)
             for ell in range(largest_l + 1):
