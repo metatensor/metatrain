@@ -51,6 +51,7 @@ jobs:
     - name: upload to codecov.io
       uses: codecov/codecov-action@v5
       with:
-        fail_ci_if_error: true
+        # https://github.com/codecov/codecov-action/issues/1842
+        fail_ci_if_error: false
         files: tests/coverage.xml
         token: ${{ secrets.CODECOV_TOKEN }}

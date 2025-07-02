@@ -5,7 +5,7 @@ seed: 42
 architecture:
   name: soap_bpnn
   training:
-    batch_size: 16
+    batch_size: 10
     num_epochs: 10
     learning_rate: 0.01
 
