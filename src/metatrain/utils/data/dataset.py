@@ -256,39 +256,6 @@ def get_all_targets(datasets: Union[Dataset, List[Dataset]]) -> List[str]:
     return sorted(set(target_names))
 
 
-# def collate_fn(
-#     batch: List[Dict[str, Any]],
-# ) -> Tuple[List, Dict[str, TensorMap], Dict[str, TensorMap]]:
-#     """
-#     Wraps `group_and_join` to return the data fields as a list of systems, and a
-#     dictionary of named targets.
-
-#     The ``system`` field is treated specially, and is returned as the first element in
-#     the returned tuple. All other fields whose names do not start with "extra::" are
-#     considered to be targets and returned in a dictionary as the second element of the
-#     returned tuple. Any fields whose names start with "extra::" are considered to be
-#     extra data, and are returned in a separate dictionary as the third element of the
-#     returned tuple.
-#     """
-
-#     collated_targets_and_extra_data = group_and_join(
-#         batch,
-#         join_kwargs={"remove_tensor_name": True, "different_keys": "union"},
-#     )
-#     collated_targets_and_extra_data = collated_targets_and_extra_data._asdict()
-#     systems = collated_targets_and_extra_data.pop("system")
-
-#     # Separate the targets and extra data
-#     # Extra data are those that start with "extra::", all others are targets
-#     collated_extra_data = {}
-#     collated_targets = {}
-#     for key, value in collated_targets_and_extra_data.items():
-#         if key.startswith("extra::"):
-#             collated_extra_data[key] = value
-#         else:
-#             collated_targets[key] = value
-
-#     return systems, collated_targets, collated_extra_data
 
 
 class CollateFn:
