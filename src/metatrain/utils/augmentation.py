@@ -1,5 +1,5 @@
 import random
-from typing import Dict, List, Tuple
+from typing import Dict, List, Optional, Tuple
 
 import metatensor.torch as mts
 import numpy as np
@@ -29,7 +29,11 @@ class RotationalAugmenter:
         how to apply the augmentations.
     """
 
-    def __init__(self, target_info_dict: Dict[str, TargetInfo]):
+    def __init__(
+        self,
+        target_info_dict: Dict[str, TargetInfo],
+        extra_data_info_dict: Optional[Dict[str, TargetInfo]] = None,
+    ):
         # checks on targets
         for target_info in target_info_dict.values():
             if target_info.is_cartesian:
@@ -40,13 +44,20 @@ class RotationalAugmenter:
                     )
 
         self.target_info_dict = target_info_dict
+        if extra_data_info_dict is None:
+            extra_data_info_dict = {}
+        self.extra_data_info_dict = extra_data_info_dict
 
         self.wigner = None
         self.complex_to_real_spherical_harmonics_transforms = {}
         is_any_target_spherical = any(
             target_info.is_spherical for target_info in target_info_dict.values()
         )
-        if is_any_target_spherical:
+        is_any_extra_data_spherical = any(
+            extra_data_info.is_spherical
+            for extra_data_info in extra_data_info_dict.values()
+        )
+        if is_any_target_spherical or is_any_extra_data_spherical:
             try:
                 import spherical
             except ImportError:
@@ -55,12 +66,25 @@ class RotationalAugmenter:
                     "To use spherical targets with nanoPET, please install the "
                     "`spherical` package with `pip install spherical`."
                 )
-            largest_l = max(
-                (len(block.components[0]) - 1) // 2
-                for target_info in target_info_dict.values()
-                if target_info.is_spherical
-                for block in target_info.layout.blocks()
-            )
+
+            largest_l_targets = -1
+            largest_l_extra_data = -1
+            if is_any_target_spherical:
+                largest_l_targets = max(
+                    (len(block.components[0]) - 1) // 2
+                    for target_info in target_info_dict.values()
+                    if target_info.is_spherical
+                    for block in target_info.layout.blocks()
+                )
+            if is_any_extra_data_spherical:
+                largest_l_extra_data = max(
+                    (len(block.components[0]) - 1) // 2
+                    for extra_data_info in extra_data_info_dict.values()
+                    if extra_data_info.is_spherical
+                    for block in extra_data_info.layout.blocks()
+                )
+            largest_l = max(largest_l_targets, largest_l_extra_data)
+
             self.wigner = spherical.Wigner(largest_l)
             for ell in range(largest_l + 1):
                 self.complex_to_real_spherical_harmonics_transforms[ell] = (
@@ -68,8 +92,11 @@ class RotationalAugmenter:
                 )
 
     def apply_random_augmentations(
-        self, systems: List[System], targets: Dict[str, TensorMap]
-    ) -> Tuple[List[System], Dict[str, TensorMap]]:
+        self,
+        systems: List[System],
+        targets: Dict[str, TensorMap],
+        extra_data: Optional[Dict[str, TensorMap]] = None,
+    ) -> Tuple[List[System], Dict[str, TensorMap], Dict[str, TensorMap]]:
         """
         Apply a random augmentation to a number of ``System`` objects and its targets.
 
@@ -95,37 +122,47 @@ class RotationalAugmenter:
             wigner_D_matrices_complex = [
                 self.wigner.D(q) for q in quaternionic_quaternions
             ]
-            for target_name in targets.keys():
-                target_info = self.target_info_dict[target_name]
-                if target_info.is_spherical:
-                    for block in target_info.layout.blocks():
-                        ell = (len(block.components[0]) - 1) // 2
-                        if ell not in wigner_D_matrices:  # skip if already computed
-                            wigner_D_matrices_l = []
-                            for wigner_D_matrix_complex in wigner_D_matrices_complex:
-                                wigner_D_matrix = np.zeros(
-                                    (2 * ell + 1, 2 * ell + 1), dtype=np.complex128
-                                )
-                                for mp in range(-ell, ell + 1):
-                                    for m in range(-ell, ell + 1):
-                                        wigner_D_matrix[m + ell, mp + ell] = (
-                                            wigner_D_matrix_complex[
-                                                self.wigner.Dindex(ell, m, mp)
-                                            ]
-                                        ).conj()
-                                U = self.complex_to_real_spherical_harmonics_transforms[
-                                    ell
-                                ]
-                                wigner_D_matrix = U.conj() @ wigner_D_matrix @ U.T
-                                assert np.allclose(wigner_D_matrix.imag, 0.0)
-                                wigner_D_matrix = wigner_D_matrix.real
-                                wigner_D_matrices_l.append(
-                                    torch.from_numpy(wigner_D_matrix)
-                                )
-                            wigner_D_matrices[ell] = wigner_D_matrices_l
+            tensormap_dicts = (
+                [targets, extra_data] if extra_data is not None else [targets]
+            )
+            info_dicts = (
+                [self.target_info_dict, self.extra_data_info_dict]
+                if extra_data is not None
+                else [self.target_info_dict]
+            )
+            for tensormap_dict, info_dict in zip(tensormap_dicts, info_dicts):
+                for name in tensormap_dict.keys():
+                    tensormap_info = info_dict[name]
+                    if tensormap_info.is_spherical:
+                        for block in tensormap_info.layout.blocks():
+                            ell = (len(block.components[0]) - 1) // 2
+                            U = self.complex_to_real_spherical_harmonics_transforms[ell]
+                            if ell not in wigner_D_matrices:  # skip if already computed
+                                wigner_D_matrices_l = []
+                                for (
+                                    wigner_D_matrix_complex
+                                ) in wigner_D_matrices_complex:
+                                    wigner_D_matrix = np.zeros(
+                                        (2 * ell + 1, 2 * ell + 1), dtype=np.complex128
+                                    )
+                                    for mp in range(-ell, ell + 1):
+                                        for m in range(-ell, ell + 1):
+                                            wigner_D_matrix[m + ell, mp + ell] = (
+                                                wigner_D_matrix_complex[
+                                                    self.wigner.Dindex(ell, m, mp)
+                                                ]
+                                            ).conj()
+
+                                    wigner_D_matrix = U.conj() @ wigner_D_matrix @ U.T
+                                    assert np.allclose(wigner_D_matrix.imag, 0.0)
+                                    wigner_D_matrix = wigner_D_matrix.real
+                                    wigner_D_matrices_l.append(
+                                        torch.from_numpy(wigner_D_matrix)
+                                    )
+                                wigner_D_matrices[ell] = wigner_D_matrices_l
 
         return _apply_random_augmentations(
-            systems, targets, transformations, wigner_D_matrices
+            systems, targets, transformations, wigner_D_matrices, extra_data=extra_data
         )
 
 
@@ -181,8 +218,10 @@ def _apply_random_augmentations(  # pragma: no cover
     targets: Dict[str, TensorMap],
     transformations: List[torch.Tensor],
     wigner_D_matrices: Dict[int, List[torch.Tensor]],
-) -> Tuple[List[System], Dict[str, TensorMap]]:
+    extra_data: Optional[Dict[str, TensorMap]] = None,
+) -> Tuple[List[System], Dict[str, TensorMap], Dict[str, TensorMap]]:
     # Apply the transformations to the systems
+
     new_systems: List[System] = []
     for system, transformation in zip(systems, transformations):
         new_system = System(
@@ -202,151 +241,161 @@ def _apply_random_augmentations(  # pragma: no cover
             new_system.add_neighbor_list(options, neighbors)
         new_systems.append(new_system)
 
-    # Apply the transformation to the targets
+    # Apply the transformation to the targets and extra data
     new_targets: Dict[str, TensorMap] = {}
-    for name, target_tmap in targets.items():
-        is_scalar = False
-        if len(target_tmap.blocks()) == 1:
-            if len(target_tmap.block().components) == 0:
-                is_scalar = True
+    new_extra_data: Dict[str, TensorMap] = {}
 
-        is_cartesian = False
-        if len(target_tmap.blocks()) == 1:
-            if len(target_tmap.block().components) > 0:
-                if "xyz" in target_tmap.block().components[0].names[0]:
-                    is_cartesian = True
+    for tensormap_dict, new_dict in zip(
+        [targets, extra_data], [new_targets, new_extra_data]
+    ):
+        if tensormap_dict is None:
+            continue
+        assert tensormap_dict is not None
+        for name, original_tmap in tensormap_dict.items():
+            is_scalar = False
+            if len(original_tmap.blocks()) == 1:
+                if len(original_tmap.block().components) == 0:
+                    is_scalar = True
 
-        is_spherical = all(
-            len(block.components) == 1 and block.components[0].names == ["o3_mu"]
-            for block in target_tmap.blocks()
-        )
+            is_cartesian = False
+            if len(original_tmap.blocks()) == 1:
+                if len(original_tmap.block().components) > 0:
+                    if "xyz" in original_tmap.block().components[0].names[0]:
+                        is_cartesian = True
 
-        if is_scalar:
-            # no change for energies
-            energy_block = TensorBlock(
-                values=target_tmap.block().values,
-                samples=target_tmap.block().samples,
-                components=target_tmap.block().components,
-                properties=target_tmap.block().properties,
+            is_spherical = all(
+                len(block.components) == 1 and block.components[0].names == ["o3_mu"]
+                for block in original_tmap.blocks()
             )
-            if target_tmap.block().has_gradient("positions"):
-                # transform position gradients:
-                block = target_tmap.block().gradient("positions")
-                position_gradients = block.values.squeeze(-1)
-                split_sizes_forces = [system.positions.shape[0] for system in systems]
-                split_position_gradients = torch.split(
-                    position_gradients, split_sizes_forces
+
+            if is_scalar:
+                # no change for energies
+                energy_block = TensorBlock(
+                    values=original_tmap.block().values,
+                    samples=original_tmap.block().samples,
+                    components=original_tmap.block().components,
+                    properties=original_tmap.block().properties,
                 )
-                position_gradients = torch.cat(
-                    [
-                        split_position_gradients[i] @ transformations[i].T
-                        for i in range(len(systems))
+                if original_tmap.block().has_gradient("positions"):
+                    # transform position gradients:
+                    block = original_tmap.block().gradient("positions")
+                    position_gradients = block.values.squeeze(-1)
+                    split_sizes_forces = [
+                        system.positions.shape[0] for system in systems
                     ]
-                )
-                energy_block.add_gradient(
-                    "positions",
-                    TensorBlock(
-                        values=position_gradients.unsqueeze(-1),
-                        samples=block.samples,
-                        components=block.components,
-                        properties=block.properties,
-                    ),
-                )
-            if target_tmap.block().has_gradient("strain"):
-                # transform strain gradients (rank-2 tensor):
-                block = target_tmap.block().gradient("strain")
-                strain_gradients = block.values.squeeze(-1)
-                split_strain_gradients = torch.split(strain_gradients, 1)
-                new_strain_gradients = torch.stack(
-                    [
-                        transformations[i]
-                        @ split_strain_gradients[i].squeeze(0)
-                        @ transformations[i].T
-                        for i in range(len(systems))
-                    ],
-                    dim=0,
-                )
-                energy_block.add_gradient(
-                    "strain",
-                    TensorBlock(
-                        values=new_strain_gradients.unsqueeze(-1),
-                        samples=block.samples,
-                        components=block.components,
-                        properties=block.properties,
-                    ),
-                )
-            new_targets[name] = TensorMap(
-                keys=target_tmap.keys,
-                blocks=[energy_block],
-            )
-
-        elif is_spherical:
-            new_targets[name] = _apply_wigner_D_matrices(
-                systems, target_tmap, transformations, wigner_D_matrices
-            )
-
-        elif is_cartesian:
-            rank = len(target_tmap.block().components)
-            if rank == 1:
-                # transform Cartesian vector:
-                block = target_tmap.block()
-                vectors = block.values
-                if "atom" in target_tmap.block().samples.names:
-                    split_vectors = torch.split(
-                        vectors, [len(system.positions) for system in systems]
+                    split_position_gradients = torch.split(
+                        position_gradients, split_sizes_forces
                     )
-                else:
-                    split_vectors = torch.split(vectors, [1 for _ in systems])
-                new_vectors = []
-                for v, transformation in zip(split_vectors, transformations):
-                    # fold property dimension in, apply transformation,
-                    # unfold property dimension
-                    new_v = v.transpose(1, 2)
-                    new_v = new_v @ transformation.T
-                    new_v = new_v.transpose(1, 2)
-                    new_vectors.append(new_v)
-                new_vectors = torch.cat(new_vectors)
-                new_targets[name] = TensorMap(
-                    keys=target_tmap.keys,
-                    blocks=[
+                    position_gradients = torch.cat(
+                        [
+                            split_position_gradients[i] @ transformations[i].T
+                            for i in range(len(systems))
+                        ]
+                    )
+                    energy_block.add_gradient(
+                        "positions",
                         TensorBlock(
-                            values=new_vectors,
+                            values=position_gradients.unsqueeze(-1),
                             samples=block.samples,
                             components=block.components,
                             properties=block.properties,
-                        )
-                    ],
-                )
-            elif rank == 2:
-                # transform Cartesian rank-2 tensor:
-                block = target_tmap.block()
-                tensor = block.values
-                if "atom" in target_tmap.block().samples.names:
-                    split_tensors = torch.split(
-                        tensor, [len(system.positions) for system in systems]
+                        ),
                     )
-                else:
-                    split_tensors = torch.split(tensor, [1 for _ in systems])
-                new_tensors = []
-                for tensor, transformation in zip(split_tensors, transformations):
-                    new_tensor = torch.einsum(
-                        "Aa,iabp,bB->iABp", transformation, tensor, transformation.T
+                if original_tmap.block().has_gradient("strain"):
+                    # transform strain gradients (rank-2 tensor):
+                    block = original_tmap.block().gradient("strain")
+                    strain_gradients = block.values.squeeze(-1)
+                    split_strain_gradients = torch.split(strain_gradients, 1)
+                    new_strain_gradients = torch.stack(
+                        [
+                            transformations[i]
+                            @ split_strain_gradients[i].squeeze(0)
+                            @ transformations[i].T
+                            for i in range(len(systems))
+                        ],
+                        dim=0,
                     )
-                    new_tensors.append(new_tensor)
-                new_tensors = torch.cat(new_tensors)
-                new_targets[name] = TensorMap(
-                    keys=target_tmap.keys,
-                    blocks=[
+                    energy_block.add_gradient(
+                        "strain",
                         TensorBlock(
-                            values=new_tensors,
+                            values=new_strain_gradients.unsqueeze(-1),
                             samples=block.samples,
                             components=block.components,
                             properties=block.properties,
-                        )
-                    ],
+                        ),
+                    )
+                new_dict[name] = TensorMap(
+                    keys=original_tmap.keys,
+                    blocks=[energy_block],
                 )
 
-    return new_systems, new_targets
+            elif is_spherical:
+                new_dict[name] = _apply_wigner_D_matrices(
+                    systems, original_tmap, transformations, wigner_D_matrices
+                )
+
+            elif is_cartesian:
+                rank = len(original_tmap.block().components)
+                if rank == 1:
+                    # transform Cartesian vector:
+                    block = original_tmap.block()
+                    vectors = block.values
+                    if "atom" in original_tmap.block().samples.names:
+                        split_vectors = torch.split(
+                            vectors, [len(system.positions) for system in systems]
+                        )
+                    else:
+                        split_vectors = torch.split(vectors, [1 for _ in systems])
+                    new_vectors = []
+                    for v, transformation in zip(split_vectors, transformations):
+                        # fold property dimension in, apply transformation,
+                        # unfold property dimension
+                        new_v = v.transpose(1, 2)
+                        new_v = new_v @ transformation.T
+                        new_v = new_v.transpose(1, 2)
+                        new_vectors.append(new_v)
+                    new_vectors = torch.cat(new_vectors)
+                    new_dict[name] = TensorMap(
+                        keys=original_tmap.keys,
+                        blocks=[
+                            TensorBlock(
+                                values=new_vectors,
+                                samples=block.samples,
+                                components=block.components,
+                                properties=block.properties,
+                            )
+                        ],
+                    )
+                elif rank == 2:
+                    # transform Cartesian rank-2 tensor:
+                    block = original_tmap.block()
+                    tensor = block.values
+                    if "atom" in original_tmap.block().samples.names:
+                        split_tensors = torch.split(
+                            tensor, [len(system.positions) for system in systems]
+                        )
+                    else:
+                        split_tensors = torch.split(tensor, [1 for _ in systems])
+                    new_tensors = []
+                    for tensor, transformation in zip(split_tensors, transformations):
+                        new_tensor = torch.einsum(
+                            "Aa,iabp,bB->iABp", transformation, tensor, transformation.T
+                        )
+                        new_tensors.append(new_tensor)
+                    new_tensors = torch.cat(new_tensors)
+                    new_dict[name] = TensorMap(
+                        keys=original_tmap.keys,
+                        blocks=[
+                            TensorBlock(
+                                values=new_tensors,
+                                samples=block.samples,
+                                components=block.components,
+                                properties=block.properties,
+                            )
+                        ],
+                    )
+
+    return new_systems, new_targets, new_extra_data
 
 
 def _complex_to_real_spherical_harmonics_transform(ell: int):
