@@ -62,7 +62,7 @@ def read_systems(
             f"You can try with other readers: {AVAILABLE_READERS}"
         ) from e
 
-    systems = reader_met(filename)
+    systems = reader_fn(filename)
 
     # elements in data are `torch.ScriptObject`s and their `dtype` is an integer.
     # A C++ double/torch.float64 is `7` according to
