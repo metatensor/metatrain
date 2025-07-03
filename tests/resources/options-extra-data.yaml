@@ -1,0 +1,27 @@
+seed: 42
+
+architecture:
+  name: soap_bpnn
+  training:
+    batch_size: 5
+    num_epochs: 1
+  model:
+    soap:
+      max_radial: 4
+      max_angular: 2
+
+training_set:
+  systems:
+    read_from: qm9_reduced_100.xyz
+    length_unit: angstrom
+  targets:
+    energy:
+      key: U0
+      unit: eV
+  extra_data:
+    extra:
+      key: U0
+      unit: eV
+
+test_set: 0.5
+validation_set: 0.1

@@ -13,10 +13,9 @@ from omegaconf import DictConfig, OmegaConf
 
 from metatrain.cli.formatter import CustomHelpFormatter
 from metatrain.utils.data import (
+    CollateFn,
     Dataset,
     TargetInfo,
-    collate_fn,
-    get_dataset,
     read_systems,
 )
 from metatrain.utils.data.writers import (
@@ -156,6 +155,9 @@ def _eval_targets(
             "inaccurate average timings."
         )
 
+    # Create a dataloader
+    target_keys = list(model.capabilities().outputs.keys())
+    collate_fn = CollateFn(target_keys=target_keys)
     dataloader = torch.utils.data.DataLoader(
         dataset, batch_size=batch_size, collate_fn=collate_fn, shuffle=False
     )
@@ -180,8 +182,8 @@ def _eval_targets(
 
     # Main evaluation loop
     for batch in dataloader:
-        systems, batch_targets = batch
-        systems = [s.to(device=device, dtype=dtype) for s in systems]
+        systems, batch_targets, _ = batch
+        systems = [system.to(dtype=dtype, device=device) for system in systems]
         batch_targets = {
             k: v.to(device=device, dtype=dtype) for k, v in batch_targets.items()
         }
