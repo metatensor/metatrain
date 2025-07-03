@@ -3,7 +3,6 @@ from .dataset import (  # noqa: F401
     Dataset,
     DatasetInfo,
     DiskDataset,
-    # DiskDatasetWriter,
     _is_disk_dataset,
     check_datasets,
     collate_fn,
