@@ -55,7 +55,7 @@ def read_systems(
 
     # Fetch and call read_systems
     try:
-        reader_met = module.read_systems
+        reader_fn = module.read_systems
     except AttributeError as e:
         raise ValueError(
             f"Reader library {reader!r} cannot read systems."
