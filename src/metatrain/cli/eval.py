@@ -16,6 +16,7 @@ from metatrain.utils.data import (
     CollateFn,
     Dataset,
     TargetInfo,
+    get_dataset,
     read_systems,
 )
 from metatrain.utils.data.writers import (
@@ -279,7 +280,7 @@ def eval_model(
 
         # build the dataset & target-info
         if hasattr(options, "targets"):
-            eval_dataset, eval_info_dict = get_dataset(options)
+            eval_dataset, eval_info_dict, _ = get_dataset(options)
             eval_systems = (
                 [d.system for d in eval_dataset]
                 if not isinstance(writer, DiskDatasetWriter)
