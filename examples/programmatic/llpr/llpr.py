@@ -94,8 +94,10 @@ ethanol_system = get_system_with_neighbor_lists(
 # The dataset is fully compatible with torch. For example, be used to create
 # a DataLoader object.
 
-from metatrain.utils.data import collate_fn  # noqa: E402
+from metatrain.utils.data import CollateFn  # noqa: E402
 
+
+collate_fn = CollateFn(target_keys=list(targets.keys()))
 
 dataloader = torch.utils.data.DataLoader(
     dataset,

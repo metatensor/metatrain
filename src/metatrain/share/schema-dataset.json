@@ -221,6 +221,110 @@
         }
       },
       "additionalProperties": false
+    },
+    "extra_data": {
+      "type": "object",
+      "patternProperties": {
+        ".*": {
+          "oneOf": [
+            {
+              "$ref": "#/$defs/read_from"
+            },
+            {
+              "type": "object",
+              "properties": {
+                "quantity": {
+                  "type": "string"
+                },
+                "read_from": {
+                  "$ref": "#/$defs/read_from"
+                },
+                "reader": {
+                  "oneOf": [
+                    {
+                      "$ref": "#/$defs/reader"
+                    },
+                    {
+                      "type": "object",
+                      "additionalProperties": true
+                    }
+                  ]
+                },
+                "key": {
+                  "type": "string"
+                },
+                "unit": {
+                  "oneOf": [
+                    {
+                      "type": "null"
+                    },
+                    {
+                      "type": "string"
+                    }
+                  ]
+                },
+                "per_atom": {
+                  "type": "boolean"
+                },
+                "num_subtargets": {
+                  "type": "integer"
+                },
+                "type": {
+                  "oneOf": [
+                    {
+                      "type": "string",
+                      "enum": ["scalar"]
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "cartesian": {
+                          "type": "object",
+                          "properties": {
+                            "rank": { "type": "integer" }
+                          },
+                          "required": ["rank"],
+                          "additionalProperties": false
+                        }
+                      },
+                      "required": ["cartesian"],
+                      "additionalProperties": false
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "spherical": {
+                          "type": "object",
+                          "properties": {
+                            "irreps": {
+                              "type": "array",
+                              "items": {
+                                "type": "object",
+                                "properties": {
+                                  "o3_lambda": { "type": "integer" },
+                                  "o3_sigma": { "type": "number" }
+                                },
+                                "required": ["o3_lambda", "o3_sigma"],
+                                "additionalProperties": false
+                              }
+                            }
+                          },
+                          "required": ["irreps"],
+                          "additionalProperties": false
+                        }
+                      },
+                      "required": ["spherical"],
+                      "additionalProperties": false
+                    }
+                  ]
+                }
+              },
+              "additionalProperties": false
+            }
+          ]
+        }
+      },
+      "additionalProperties": false
     }
   },
   "additionalProperties": false
