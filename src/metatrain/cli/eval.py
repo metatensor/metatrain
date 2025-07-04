@@ -359,10 +359,10 @@ def eval_model(
             reader=options["systems"]["reader"],
         )
 
-        # if hasattr(options, "targets"):
-        #     # in this case, we only evaluate the targets specified in the options
-        #     # and we calculate RMSEs
-        #     eval_targets, eval_info_dict = read_targets(options["targets"])
+        if hasattr(options, "targets"):
+            # in this case, we only evaluate the targets specified in the options
+            # and we calculate RMSEs
+            eval_targets, eval_info_dict = read_targets(options["targets"])
         # else:
         # in this case, we have no targets: we evaluate everything
         # (but we don't/can't calculate RMSEs)
