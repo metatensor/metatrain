@@ -27,8 +27,7 @@ from metatrain.utils.sum_over_atoms import sum_over_atoms
 from .modules.finetuning import apply_finetuning_strategy
 from .modules.structures import remap_neighborlists, systems_to_batch
 from .modules.transformer import CartesianTransformer
-from .modules.utilities import cutoff_func
-
+from .modules.utilities import cutoff_func, DummyModule
 
 class PET(ModelInterface):
     """
@@ -59,9 +58,12 @@ class PET(ModelInterface):
 
         self.cutoff = float(self.hypers["cutoff"])
         self.cutoff_width = float(self.hypers["cutoff_width"])
+
         self.embedding = torch.nn.Embedding(
             len(self.atomic_types) + 1, self.hypers["d_pet"]
         )
+
+        # Core GNN layers of the PET model are initialized here. 
         gnn_layers = []
         for layer_index in range(self.hypers["num_gnn_layers"]):
             transformer_layer = CartesianTransformer(
@@ -95,71 +97,25 @@ class PET(ModelInterface):
         self.property_labels: Dict[str, List[Labels]] = {}
         self.component_labels: Dict[str, List[List[Labels]]] = {}
         self.target_names: List[str] = []
+
+        # We initialize the heads and last layers for each target, that will be attached
+        # to the each of the GNN layers defined above. The actual architecture of the 
+        # heads and last layers is defined in `_add_output`.
         for target_name, target_info in dataset_info.targets.items():
             self.target_names.append(target_name)
             self._add_output(target_name, target_info)
 
-        self.register_buffer(
-            "species_to_species_index",
-            torch.full((max(self.atomic_types) + 1,), -1),
-        )
-        for i, species in enumerate(self.atomic_types):
-            self.species_to_species_index[species] = i
+        # Mapping the atomic species of the database to progressively increasing indices
+        self._init_species_index_map()
 
-        # long-range module
-        if self.hypers["long_range"]["enable"]:
-            self.long_range = True
-            if not self.hypers["long_range"]["use_ewald"]:
-                warnings.warn(
-                    "Training PET with the LongRangeFeaturizer initialized "
-                    "with `use_ewald=False` causes instabilities during training. "
-                    "The `use_ewald` variable will be force-switched to `True`. "
-                    "during training.",
-                    UserWarning,
-                    stacklevel=2,
-                )
-            self.long_range_featurizer = LongRangeFeaturizer(
-                hypers=self.hypers["long_range"],
-                feature_dim=self.hypers["d_pet"],
-                neighbor_list_options=self.requested_nl,
-            )
-        else:
-            self.long_range = False
-            self.long_range_featurizer = DummyLongRangeFeaturizer()  # for torchscript
+        # Long range module initialization: check if the long range features are request 
+        # and initialize them
+        self._init_long_range_featurizer()
 
         # additive models: these are handled by the trainer at training
-        # time, and they are added to the output at evaluation time
-        composition_model = CompositionModel(
-            model_hypers={},
-            dataset_info=DatasetInfo(
-                length_unit=dataset_info.length_unit,
-                atomic_types=self.atomic_types,
-                targets={
-                    target_name: target_info
-                    for target_name, target_info in dataset_info.targets.items()
-                    if CompositionModel.is_valid_target(target_name, target_info)
-                },
-            ),
-        )
-        additive_models = [composition_model]
-
-        # Adds the ZBL repulsion model if requested
-        if self.hypers["zbl"]:
-            additive_models.append(
-                ZBL(
-                    {},
-                    dataset_info=DatasetInfo(
-                        length_unit=dataset_info.length_unit,
-                        atomic_types=self.atomic_types,
-                        targets={
-                            target_name: target_info
-                            for target_name, target_info in dataset_info.targets.items()
-                            if ZBL.is_valid_target(target_name, target_info)
-                        },
-                    ),
-                )
-            )
-        self.additive_models = torch.nn.ModuleList(additive_models)
+        # time, and they are added to the output at evaluation time.
+        # It also adds the ZBL reulsion model if requested.
+        self._init_additive_models(dataset_info)
 
         # scaler: this is also handled by the trainer at training time
         self.scaler = Scaler(model_hypers={}, dataset_info=dataset_info)
@@ -304,7 +260,9 @@ class PET(ModelInterface):
         node_features_list: List[torch.Tensor] = []
         edge_features_list: List[torch.Tensor] = []
 
-        input_messages = self.embedding(element_indices_neighbors)
+        input_messages = self.embedding(
+                element_indices_neighbors
+            )
         for gnn_layer in self.gnn_layers:
             output_node_embeddings, output_edge_embeddings = gnn_layer(
                 input_messages,
@@ -318,7 +276,6 @@ class PET(ModelInterface):
             )
             node_features_list.append(output_node_embeddings)
             edge_features_list.append(output_edge_embeddings)
-
             # The GNN contraction happens by reordering the messages,
             # using a reversed neighbor list, so the new input message
             # from atom `j` to atom `i` in on the GNN layer N+1 is a
@@ -350,47 +307,23 @@ class PET(ModelInterface):
                     node_features_list[i] + long_range_features
                 ) * 0.5**0.5
 
-        # Stage 2. If `features` requested in the model outputs, we concatenate
-        # the node and edge representations from all layers to provide the intermediate
-        # representation of the systems. Since edge features are calculated for each
-        # pair of atoms, we sum them up with cutoff factors to get their per-node
-        # contribution.
-
+        # Construct the feature TensorMap if requested.
         if "features" in outputs:
-            node_features = torch.cat(node_features_list, dim=1)
-            edge_features = torch.cat(edge_features_list, dim=2)
-            edge_features = edge_features * cutoff_factors[:, :, None]
-            edge_features = edge_features.sum(dim=1)
-            features = torch.cat([node_features, edge_features], dim=1)
-
-            feature_tmap = TensorMap(
-                keys=self.single_label,
-                blocks=[
-                    TensorBlock(
-                        values=features,
-                        samples=sample_labels,
-                        components=[],
-                        properties=Labels(
-                            names=["properties"],
-                            values=torch.arange(
-                                features.shape[-1], device=features.device
-                            ).reshape(-1, 1),
-                        ),
-                    )
-                ],
+            self._build_feature_tmap(
+                node_features_list, 
+                edge_features_list, 
+                cutoff_factors, 
+                sample_labels, 
+                outputs, 
+                return_dict
             )
-            features_options = outputs["features"]
-            if features_options.per_atom:
-                return_dict["features"] = feature_tmap
-            else:
-                return_dict["features"] = sum_over_atoms(feature_tmap)
 
-        # Stage 3. We compute last layer features for each requested output,
-        # for both node and edge features from each GNN layer. To do this, apply the
-        # corresponding heads to both node and edge features, and save the results
-        # to the corresponsing dicts. Finally, we stack all the last layer features
-        # to get the final last-layer-features tensor.
-
+        # We compute the heads and the last layer features for each requested output,
+        # for both node and edge features from each GNN layer. 
+        # This is done by applying the modules initialized in _add_output to the output 
+        # of each of the GNN layers, for both the nodes and the edges. At the end of 
+        # this stage, we have the last layer features for each output, for both nodes
+        # and edges.
         node_last_layer_features_dict: Dict[str, List[torch.Tensor]] = {}
         edge_last_layer_features_dict: Dict[str, List[torch.Tensor]] = {}
 
@@ -411,73 +344,19 @@ class PET(ModelInterface):
                 edge_last_layer_features_dict[output_name].append(
                     edge_head(edge_features_list[i])
                 )
+        
+        # Having the last layer features we can build a corresponding TensorMap, 
+        # if requested.
+        self._build_last_layer_feature_tmap(
+            node_last_layer_features_dict,
+            edge_last_layer_features_dict,
+            cutoff_factors,
+            sample_labels,
+            outputs,
+            return_dict,
+        )
 
-        # Stacking node and edge last layer features to get the final
-        # last-layer-features tensor. As was done earlier to `features`
-        # tensor, we sum the edge features with cutoff factors to get their
-        # per-node contribution.
-
-        last_layer_features_dict: Dict[str, List[torch.Tensor]] = {}
-        for output_name in self.target_names:
-            if output_name not in last_layer_features_dict:
-                last_layer_features_dict[output_name] = []
-            for i in range(len(node_last_layer_features_dict[output_name])):
-                node_last_layer_features = node_last_layer_features_dict[output_name][i]
-                edge_last_layer_features = edge_last_layer_features_dict[output_name][i]
-                edge_last_layer_features = (
-                    edge_last_layer_features * cutoff_factors[:, :, None]
-                )
-                edge_last_layer_features = edge_last_layer_features.sum(dim=1)
-                last_layer_features_dict[output_name].append(node_last_layer_features)
-                last_layer_features_dict[output_name].append(edge_last_layer_features)
-
-        for output_name in outputs.keys():
-            if not (
-                output_name.startswith("mtt::aux::")
-                and output_name.endswith("_last_layer_features")
-            ):
-                continue
-            base_name = output_name.replace("mtt::aux::", "").replace(
-                "_last_layer_features", ""
-            )
-            # the corresponding output could be base_name or mtt::base_name
-            if (
-                f"mtt::{base_name}" not in last_layer_features_dict
-                and base_name not in last_layer_features_dict
-            ):
-                raise ValueError(
-                    f"Features {output_name} can only be requested "
-                    f"if the corresponding output {base_name} is also requested."
-                )
-            if f"mtt::{base_name}" in last_layer_features_dict:
-                base_name = f"mtt::{base_name}"
-            last_layer_features_values = torch.cat(
-                last_layer_features_dict[base_name], dim=1
-            )
-            last_layer_feature_tmap = TensorMap(
-                keys=self.single_label,
-                blocks=[
-                    TensorBlock(
-                        values=last_layer_features_values,
-                        samples=sample_labels,
-                        components=[],
-                        properties=Labels(
-                            names=["properties"],
-                            values=torch.arange(
-                                last_layer_features_values.shape[-1],
-                                device=last_layer_features_values.device,
-                            ).reshape(-1, 1),
-                        ),
-                    )
-                ],
-            )
-            last_layer_features_options = outputs[output_name]
-            if last_layer_features_options.per_atom:
-                return_dict[output_name] = last_layer_feature_tmap
-            else:
-                return_dict[output_name] = sum_over_atoms(last_layer_feature_tmap)
-
-        # Stage 4. We compute the per-atom predictions by applying the
+        # We compute the per-atom predictions by applying the
         # linear layers to both node and edge last layer features. To do this,
         # we iterate over the last layer features (both node and edge), and
         # apply the corresponding last layer to each feature for each requested
@@ -546,7 +425,7 @@ class PET(ModelInterface):
 
         # Finally, we sum all the node and edge atomic predictions from each GNN
         # layer to a single atomic predictions tensor.
-
+        
         for output_name in self.target_names:
             if output_name in outputs:
                 atomic_predictions_by_block = {
@@ -619,7 +498,6 @@ class PET(ModelInterface):
 
         # If selected atoms request is provided, we slice the atomic predictions
         # tensor maps to get the predictions for the selected atoms only.
-
         if selected_atoms is not None:
             for output_name, tmap in atomic_predictions_tmap_dict.items():
                 atomic_predictions_tmap_dict[output_name] = metatensor.torch.slice(
@@ -629,7 +507,6 @@ class PET(ModelInterface):
         # If per-atom predictions are requested, we return the atomic predictions
         # tensor maps. Otherwise, we sum the atomic predictions over the atoms
         # to get the final per-structure predictions for each requested output.
-
         for output_name, atomic_property in atomic_predictions_tmap_dict.items():
             if outputs[output_name].per_atom:
                 return_dict[output_name] = atomic_property
@@ -854,6 +731,68 @@ class PET(ModelInterface):
             block.properties for block in target_info.layout.blocks()
         ]
 
+    def _init_species_index_map(self):
+        self.register_buffer(
+            "species_to_species_index",
+            torch.full((max(self.atomic_types) + 1,), -1),
+        )
+        for i, species in enumerate(self.atomic_types):
+            self.species_to_species_index[species] = i
+
+    def _init_long_range_featurizer(self):
+        if self.hypers["long_range"]["enable"]:
+            self.long_range = True
+            if not self.hypers["long_range"]["use_ewald"]:
+                warnings.warn(
+                    "Training PET with the LongRangeFeaturizer initialized "
+                    "with `use_ewald=False` causes instabilities during training. "
+                    "The `use_ewald` variable will be force-switched to `True`. "
+                    "during training.",
+                    UserWarning,
+                    stacklevel=2,
+                )
+            self.long_range_featurizer = LongRangeFeaturizer(
+                hypers=self.hypers["long_range"],
+                feature_dim=self.hypers["d_pet"],
+                neighbor_list_options=self.requested_nl,
+            )
+        else:
+            self.long_range = False
+            self.long_range_featurizer = DummyLongRangeFeaturizer()
+
+    def _init_additive_models(self, dataset_info: DatasetInfo):
+        composition_model = CompositionModel(
+            model_hypers={},
+            dataset_info=DatasetInfo(
+                length_unit=dataset_info.length_unit,
+                atomic_types=self.atomic_types,
+                targets={
+                    target_name: target_info
+                    for target_name, target_info in dataset_info.targets.items()
+                    if CompositionModel.is_valid_target(target_name, target_info)
+                },
+            ),
+        )
+        additive_models = [composition_model]
+
+        if self.hypers["zbl"]:
+            additive_models.append(
+                ZBL(
+                    {},
+                    dataset_info=DatasetInfo(
+                        length_unit=dataset_info.length_unit,
+                        atomic_types=self.atomic_types,
+                        targets={
+                            target_name: target_info
+                            for target_name, target_info in dataset_info.targets.items()
+                            if ZBL.is_valid_target(target_name, target_info)
+                        },
+                    ),
+                )
+            )
+
+        self.additive_models = torch.nn.ModuleList(additive_models)
+
     def _get_system_indices_and_labels(
         self, systems: List[System], device: torch.device
     ):
@@ -888,3 +827,113 @@ class PET(ModelInterface):
             values=sample_values,
         )
         return system_indices, sample_labels
+
+    def _build_feature_tmap(
+        self,
+        node_features_list: List[torch.Tensor],
+        edge_features_list: List[torch.Tensor],
+        cutoff_factors: torch.Tensor,
+        sample_labels: Labels,
+        outputs: Dict[str, ModelOutput],
+        return_dict: Dict[str, TensorMap]
+    ): 
+        """
+        If `features` requested in the model outputs, we concatenate
+        the node and edge representations from all layers to provide the intermediate
+        representation of the systems. Since edge features are calculated for each
+        pair of atoms, we sum them up with cutoff factors to get their per-node
+        contribution.
+        """
+        node_features = torch.cat(node_features_list, dim=1)
+        edge_features = torch.cat(edge_features_list, dim=2)
+        edge_features = edge_features * cutoff_factors[:, :, None]
+        edge_features = edge_features.sum(dim=1)
+        features = torch.cat([node_features, edge_features], dim=1)
+
+        feature_tmap = TensorMap(
+            keys=self.single_label,
+            blocks=[
+                TensorBlock(
+                    values=features,
+                    samples=sample_labels,
+                    components=[],
+                    properties=Labels(
+                        names=["properties"],
+                        values=torch.arange(
+                            features.shape[-1], device=features.device
+                        ).reshape(-1, 1),
+                    ),
+                )
+            ],
+        )
+        features_options = outputs["features"]
+        if features_options.per_atom:
+            return_dict["features"] = feature_tmap
+        else:
+            return_dict["features"] = sum_over_atoms(feature_tmap)
+
+    # TODO: this function seems to work but the testing is not complete yet.
+    def _build_last_layer_feature_tmap(
+        self,
+        node_last_layer_features_dict: Dict[str, List[torch.Tensor]],
+        edge_last_layer_features_dict: Dict[str, List[torch.Tensor]],
+        cutoff_factors: torch.Tensor,
+        sample_labels: Labels,
+        outputs: Dict[str, ModelOutput],
+        return_dict: Dict[str, TensorMap],
+    ) -> None:
+        """Build tensor maps for last-layer features as optional outputs."""
+        last_layer_features_dict: Dict[str, List[torch.Tensor]] = {}
+        for output_name in self.target_names:
+            if output_name not in last_layer_features_dict:
+                last_layer_features_dict[output_name] = []
+            for i in range(len(node_last_layer_features_dict[output_name])):
+                node_last_layer_features = node_last_layer_features_dict[output_name][i]
+                edge_last_layer_features = edge_last_layer_features_dict[output_name][i]
+                edge_last_layer_features = (
+                    edge_last_layer_features * cutoff_factors[:, :, None]
+                )
+                edge_last_layer_features = edge_last_layer_features.sum(dim=1)
+                last_layer_features_dict[output_name].append(node_last_layer_features)
+                last_layer_features_dict[output_name].append(edge_last_layer_features)
+
+        for output_name in outputs.keys():
+            if not (
+                output_name.startswith("mtt::aux::")
+                and output_name.endswith("_last_layer_features")
+            ):
+                continue
+            base_name = output_name.replace("mtt::aux::", "").replace(
+                "_last_layer_features", ""
+            )
+            if f"mtt::{base_name}" in last_layer_features_dict:
+                base_name = f"mtt::{base_name}"
+            if base_name not in last_layer_features_dict:
+                raise ValueError(
+                    f"Features {output_name} can only be requested "
+                    f"if the corresponding output {base_name} is also requested."
+                )
+            last_layer_features_values = torch.cat(
+                last_layer_features_dict[base_name], dim=1
+            )
+            last_layer_feature_tmap = TensorMap(
+                keys=self.single_label,
+                blocks=[
+                    TensorBlock(
+                        values=last_layer_features_values,
+                        samples=sample_labels,
+                        components=[],
+                        properties=Labels(
+                            names=["properties"],
+                            values=torch.arange(
+                                last_layer_features_values.shape[-1],
+                                device=last_layer_features_values.device,
+                            ).reshape(-1, 1),
+                        ),
+                    )
+                ],
+            )
+            opts = outputs[output_name]
+            return_dict[output_name] = (
+                last_layer_feature_tmap if opts.per_atom else sum_over_atoms(last_layer_feature_tmap)
+            )

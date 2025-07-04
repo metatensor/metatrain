@@ -3,7 +3,7 @@ import warnings
 import pytest
 
 
-pytest.skip("Activate this test only if needed", allow_module_level=True)
+# pytest.skip("Activate this test only if needed", allow_module_level=True)
 
 warnings.filterwarnings(
     "ignore",
@@ -222,6 +222,17 @@ def test_pet_mad_model_compatibility(monkeypatch, tmp_path):
         path, _ = urlretrieve(path)
 
     checkpoint = torch.load(path, map_location="cpu", weights_only=False)
+    # Remap checkpoint keys to match new architecture
+    new_state_dict = {}
+    for key, value in checkpoint["best_model_state_dict"].items():
+        new_key = key
+        new_key = new_key.replace("gnn_layers.", "gnn_layers.")
+        new_key = new_key.replace(".edge_embedder", ".token_encoder.edge_embedder")
+        new_key = new_key.replace(".node_embedder", ".token_encoder.node_embedder")
+        new_key = new_key.replace(".neighbor_embedder", ".token_encoder.neighbor_embedder")
+        new_key = new_key.replace(".compress", ".token_encoder.compress")
+        new_state_dict[new_key] = value
+    checkpoint["best_model_state_dict"] = new_state_dict
     model = PET.load_checkpoint(checkpoint, context="export").eval()
 
     _, systems = get_test_environment()
@@ -277,6 +288,16 @@ def test_pet_mad_non_conservative_heads_compatibility(monkeypatch, tmp_path):
         path, _ = urlretrieve(path)
 
     checkpoint = torch.load(path, map_location="cpu", weights_only=False)
+    # Remap checkpoint keys to match new architecture
+    new_state_dict = {}
+    for key, value in checkpoint["best_model_state_dict"].items():
+        new_key = key
+        new_key = new_key.replace(".edge_embedder", ".token_encoder.edge_embedder")
+        new_key = new_key.replace(".node_embedder", ".token_encoder.node_embedder")
+        new_key = new_key.replace(".neighbor_embedder", ".token_encoder.neighbor_embedder")
+        new_key = new_key.replace(".compress", ".token_encoder.compress")
+        new_state_dict[new_key] = value
+    checkpoint["best_model_state_dict"] = new_state_dict
     model = PET.load_checkpoint(checkpoint, context="export").eval()
 
     _, systems = get_test_environment()
@@ -330,6 +351,23 @@ def test_pet_mad_ase_calculator_inference_timings(monkeypatch, tmp_path):
         path, _ = urlretrieve(path)
 
     checkpoint = torch.load(path, map_location="cpu", weights_only=False)
+    
+    # Change the model architecture
+    # Remap checkpoint keys to match new architecture
+    # TODO: Remove this when the model is updated or add to load old checkpoints
+    new_state_dict = {}
+    for key, value in checkpoint["best_model_state_dict"].items():
+        new_key = key
+        new_key = new_key.replace("gnn_layers.", "gnn_layers.")
+        new_key = new_key.replace(".edge_embedder", ".token_encoder.edge_embedder")
+        new_key = new_key.replace(".node_embedder", ".token_encoder.node_embedder")
+        new_key = new_key.replace(".neighbor_embedder", ".token_encoder.neighbor_embedder")
+        new_key = new_key.replace(".compress", ".token_encoder.compress")
+        new_state_dict[new_key] = value
+    checkpoint["best_model_state_dict"] = new_state_dict
+
+
+
     model = PET.load_checkpoint(checkpoint, context="export").export()
     model.save("model.pt")
     calc = MetatomicCalculator("model.pt", device="cpu")
