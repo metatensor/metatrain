@@ -16,8 +16,8 @@ from omegaconf import OmegaConf
 
 from metatrain import RANDOM_SEED
 from metatrain.cli.train import _process_restart_from, train_model
-from metatrain.utils.data import DiskDatasetWriter
 from metatrain.utils.data.readers.ase import read
+from metatrain.utils.data.writers import DiskDatasetWriter
 from metatrain.utils.errors import ArchitectureError
 from metatrain.utils.neighbor_lists import get_system_with_neighbor_lists
 
@@ -853,29 +853,30 @@ def test_train_disk_dataset(monkeypatch, tmp_path, options):
     shutil.copy(DATASET_PATH_QM9, "qm9_reduced_100.xyz")
 
     disk_dataset_writer = DiskDatasetWriter("qm9_reduced_100.zip")
-    for i in range(100):
-        frame = read("qm9_reduced_100.xyz", index=i)
-        system = systems_to_torch(frame, dtype=torch.float64)
-        system = get_system_with_neighbor_lists(
+
+    frames = read("qm9_reduced_100.xyz", index=":100")
+    systems = [
+        get_system_with_neighbor_lists(
             system,
             [NeighborListOptions(cutoff=5.0, full_list=True, strict=True)],
         )
-        energy = TensorMap(
-            keys=Labels.single(),
-            blocks=[
-                TensorBlock(
-                    values=torch.tensor([[frame.info["U0"]]], dtype=torch.float64),
-                    samples=Labels(
-                        names=["system"],
-                        values=torch.tensor([[i]]),
-                    ),
-                    components=[],
-                    properties=Labels("energy", torch.tensor([[0]])),
-                )
-            ],
-        )
-        disk_dataset_writer.write_sample(system, {"energy": energy})
-    del disk_dataset_writer
+        for system in systems_to_torch(frames, dtype=torch.float64)
+    ]
+    energy = TensorMap(
+        keys=Labels.single(),
+        blocks=[
+            TensorBlock(
+                samples=Labels.range("system", len(systems)),
+                components=[],
+                properties=Labels.range("energy", 1),
+                values=torch.tensor(
+                    [[frame.info["U0"]] for frame in frames], dtype=torch.float64
+                ),
+            )
+        ],
+    )
+    disk_dataset_writer.write(systems, {"energy": energy})
+    disk_dataset_writer.finish()
 
     options["training_set"]["systems"]["read_from"] = "qm9_reduced_100.zip"
     options["training_set"]["targets"]["energy"]["read_from"] = "qm9_reduced_100.zip"
@@ -914,8 +915,8 @@ def test_train_disk_dataset_splits_issue_601(monkeypatch, tmp_path, options):
                     )
                 ],
             )
-            disk_dataset_writer.write_sample(system, {"energy": energy})
-        del disk_dataset_writer
+            disk_dataset_writer.write([system], {"energy": energy})
+        disk_dataset_writer.finish()
 
         options[f"{subset_name}_set"] = {
             "systems": {
