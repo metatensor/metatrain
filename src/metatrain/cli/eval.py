@@ -363,23 +363,23 @@ def eval_model(
             # in this case, we only evaluate the targets specified in the options
             # and we calculate RMSEs
             eval_targets, eval_info_dict = read_targets(options["targets"])
-        # else:
+        else:
         # in this case, we have no targets: we evaluate everything
         # (but we don't/can't calculate RMSEs)
         # TODO: allow the user to specify which outputs to evaluate
-        eval_targets = {}
-        eval_info_dict = {}
-        do_strain_grad = all(
-            not torch.all(system.cell == 0) for system in eval_systems
-        )
-        layout = _get_energy_layout(do_strain_grad)  # TODO: layout from the user
-        for key in model.capabilities().outputs.keys():
-            eval_info_dict[key] = TargetInfo(
-                quantity=model.capabilities().outputs[key].quantity,
-                unit=model.capabilities().outputs[key].unit,
-                # TODO: allow the user to specify whether per-atom or not
-                layout=layout,
+            eval_targets = {}
+            eval_info_dict = {}
+            do_strain_grad = all(
+                not torch.all(system.cell == 0) for system in eval_systems
             )
+            layout = _get_energy_layout(do_strain_grad)  # TODO: layout from the user
+            for key in model.capabilities().outputs.keys():
+                eval_info_dict[key] = TargetInfo(
+                    quantity=model.capabilities().outputs[key].quantity,
+                    unit=model.capabilities().outputs[key].unit,
+                    # TODO: allow the user to specify whether per-atom or not
+                    layout=layout,
+                )
 
         eval_dataset = Dataset.from_dict({"system": eval_systems, **eval_targets})
 
