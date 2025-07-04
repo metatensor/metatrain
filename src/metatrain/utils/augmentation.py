@@ -172,7 +172,6 @@ def _apply_wigner_D_matrices(
     transformations: List[torch.Tensor],
     wigner_D_matrices: Dict[int, List[torch.Tensor]],
 ) -> TensorMap:
-
     # For each block, split the samples by system and apply the Wigner D-matrix
     # transformation to the values.
     new_blocks: List[TensorBlock] = []
@@ -188,10 +187,9 @@ def _apply_wigner_D_matrices(
             split_values = torch.split(
                 values, [len(system.positions) for system in systems]
             )
-        
+
         elif (
-            "first_atom" in block.samples.names
-            and "second_atom" in block.samples.names
+            "first_atom" in block.samples.names and "second_atom" in block.samples.names
         ):
             # TODO: make sure this is correct
             unique_system_ids, inverse_indices = torch.unique(

@@ -1,24 +1,24 @@
-from typing import List, Tuple
+from typing import List
 
 import torch
-from metatensor.torch import Labels, TensorMap
-
-from metatomic.torch import System, NeighborListOptions
+from metatensor.torch import Labels
+from metatomic.torch import NeighborListOptions, System
 
 
 def extract_key_value(key_str: str, dimension_name: str) -> int:
-    idx = key_str.find(dimension_name + '_')
+    idx = key_str.find(dimension_name + "_")
     if idx == -1:
         raise KeyError(f"Dimension '{dimension_name}' not found in key string.")
-    
+
     # Start after the matched dimension_name and underscore
     start = idx + len(dimension_name) + 1
     end = start
-    while end < len(key_str) and (key_str[end] == '-' or key_str[end].isdigit()):
+    while end < len(key_str) and (key_str[end] == "-" or key_str[end].isdigit()):
         end += 1
 
     value_str = key_str[start:end]
     return int(value_str)
+
 
 def get_system_indices_and_node_sample_labels(
     systems: List[System], device: torch.device
@@ -81,14 +81,14 @@ def get_edge_sample_labels(
         torch.hstack(
             [
                 node_sample_labels.values,
-                node_sample_labels.values[:, 1]. unsqueeze(1),  # i == j
+                node_sample_labels.values[:, 1].unsqueeze(1),  # i == j
                 torch.zeros(  # cell shifts are 0
                     (node_sample_labels.values.shape[0], 3),
                     dtype=node_sample_labels.values.dtype,
                     device=node_sample_labels.values.device,
                 ),
             ]
-        )
+        ),
     )
 
     edge_sample_values_2_center = []
@@ -106,16 +106,13 @@ def get_edge_sample_labels(
         torch.vstack(edge_sample_values_2_center),
     )
 
-    return [
-        edge_sample_labels_1_center, edge_sample_labels_2_center
-    ]
+    return [edge_sample_labels_1_center, edge_sample_labels_2_center]
 
 
 def get_permutation_symmetrization_arrays(
     systems: List[System],
     edge_sample_labels_2_center: Labels,
 ) -> List[torch.Tensor]:
-    
     assert edge_sample_labels_2_center.names == [
         "system",
         "first_atom",
@@ -137,8 +134,10 @@ def get_permutation_symmetrization_arrays(
                 systems[system_idx].types[second_atom_idx],
             ]
         )
-    atom_types = torch.tensor(atom_types, dtype=torch.int32, device=edge_sample_labels_2_center.device)
-    
+    atom_types = torch.tensor(
+        atom_types, dtype=torch.int32, device=edge_sample_labels_2_center.device
+    )
+
     # build the masks for same and different atom types
     samples_mask_2_center_same_types = atom_types[:, 0] == atom_types[:, 1]
     samples_mask_2_center_diff_types = atom_types[:, 0] != atom_types[:, 1]
@@ -150,14 +149,16 @@ def get_permutation_symmetrization_arrays(
     )
     edge_sample_labels_2_center_diff_types = Labels(
         edge_sample_labels_2_center.names,
-        edge_sample_labels_2_center.values[samples_mask_2_center_diff_types]
+        edge_sample_labels_2_center.values[samples_mask_2_center_diff_types],
     )
 
     # create permuted sample labels by swapping the atom indices and inverting the sign
     # of the cell shifts
-    edge_sample_values_2_center_same_types_perm = edge_sample_labels_2_center_same_types.permute(
-        [0, 2, 1, 3, 4, 5]
-    ).values.clone()
+    edge_sample_values_2_center_same_types_perm = (
+        edge_sample_labels_2_center_same_types.permute(
+            [0, 2, 1, 3, 4, 5]
+        ).values.clone()
+    )
     edge_sample_values_2_center_same_types_perm[:, 3:6] *= -1
     edge_sample_labels_2_center_same_types_perm = Labels(
         edge_sample_labels_2_center_same_types.names,
@@ -177,6 +178,7 @@ def get_permutation_symmetrization_arrays(
         edge_sample_labels_2_center_diff_types,
     ]
 
+
 def get_sample_labels_block(
     key: str,
     sample_kind: str,
@@ -189,7 +191,6 @@ def get_sample_labels_block(
     """Returns the correct block samples labels for the given
     output, based on the key"""
     if "n_centers" not in key:
-
         sample_labels_block = node_sample_labels
     else:
         if extract_key_value(key, "n_centers") == 1:

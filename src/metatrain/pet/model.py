@@ -321,7 +321,9 @@ class PET(ModelInterface):
                 permuted_samples_map_same_types,
                 edge_sample_labels_2_center_same_types,
                 edge_sample_labels_2_center_diff_types,
-            ) = get_permutation_symmetrization_arrays(systems, edge_sample_labels_2_center)
+            ) = get_permutation_symmetrization_arrays(
+                systems, edge_sample_labels_2_center
+            )
         else:
             (
                 edge_sample_labels_2_center_same_types,
@@ -545,7 +547,6 @@ class PET(ModelInterface):
                     ][i]
                     node_atomic_predictions_by_block: List[torch.Tensor] = []
                     for key, node_last_layer_by_block in node_last_layer.items():
-
                         # depending on the block key, the edge predictions are handled
                         # in different ways:
                         #
@@ -600,14 +601,15 @@ class PET(ModelInterface):
                     edge_atomic_predictions_by_block: List[torch.Tensor] = []
 
                     for key, edge_last_layer_by_block in edge_last_layer.items():
-
                         # for each GNN layer, the edge last layer features are
                         # transformed into block predictions by means of the
                         # corresponding edge last (linear) layer. Then, predictions for
                         # edges not in the neighbor list are masked out and the cutoff
                         # function is applied.
 
-                        edge_last_layer_features = edge_last_layer_features_dict[output_name][i]
+                        edge_last_layer_features = edge_last_layer_features_dict[
+                            output_name
+                        ][i]
                         edge_atomic_predictions = edge_last_layer_by_block(
                             edge_last_layer_features
                         )
@@ -649,48 +651,54 @@ class PET(ModelInterface):
 
                         else:
                             if extract_key_value(key, "n_centers") == 1:  # 2)
-                                edge_atomic_predictions = edge_atomic_predictions.sum(dim=1)
+                                edge_atomic_predictions = edge_atomic_predictions.sum(
+                                    dim=1
+                                )
 
                             else:  # 3)
-
                                 assert extract_key_value(key, "n_centers") == 2
 
                                 # reshape the edge predictions to have both central
                                 # atoms and neighbors in the samples axis and slice out
                                 # the samples not in the actual neighbor list
 
-                                edge_atomic_predictions = edge_atomic_predictions.reshape(
-                                    -1, edge_atomic_predictions.shape[-1]
+                                edge_atomic_predictions = (
+                                    edge_atomic_predictions.reshape(
+                                        -1, edge_atomic_predictions.shape[-1]
+                                    )
                                 )
                                 edge_atomic_predictions = edge_atomic_predictions[
                                     padding_mask.reshape(-1)
                                 ]
 
                                 if "s2_pi" in key:
-
                                     # if s2_pi == 0, slice the edge predictions to atom
-                                    # pairs of different atomic types. No symmetrization is
-                                    # required.
+                                    # pairs of different atomic types. No symmetrization
+                                    # is required.
 
                                     if extract_key_value(key, "s2_pi") == 0:
-                                        edge_atomic_predictions = edge_atomic_predictions[
-                                            samples_mask_2_center_diff_types
-                                        ]
+                                        edge_atomic_predictions = (
+                                            edge_atomic_predictions[
+                                                samples_mask_2_center_diff_types
+                                            ]
+                                        )
 
                                     # otherwise if s2_pi = +/- 1, slice to atom pairs of
-                                    # different types and permutation-symmetrize depending
-                                    # on the value of s2_pi.
+                                    # different types and permutation-symmetrize
+                                    # depending on the value of s2_pi.
 
                                     else:  # same atom type
                                         s2_pi = extract_key_value(key, "s2_pi")
                                         assert s2_pi in [1, -1]
-                                        edge_atomic_predictions = edge_atomic_predictions[
-                                            samples_mask_2_center_same_types
-                                        ]
                                         edge_atomic_predictions = (
-                                            edge_atomic_predictions 
+                                            edge_atomic_predictions[
+                                                samples_mask_2_center_same_types
+                                            ]
+                                        )
+                                        edge_atomic_predictions = (
+                                            edge_atomic_predictions
                                             + (
-                                                s2_pi 
+                                                s2_pi
                                                 * edge_atomic_predictions[
                                                     permuted_samples_map_same_types
                                                 ]
@@ -702,8 +710,8 @@ class PET(ModelInterface):
                         edge_atomic_predictions_by_block
                     )
 
-        # Finally, we sum all the node and edge atomic predictions from each GNN
-        # layer to a single atomic predictions tensor.
+        # Finally, we sum all the node and edge atomic predictions from each GNN layer
+        # to a single atomic predictions tensor.
 
         for output_name in self.target_names:
             if output_name in outputs:
@@ -744,15 +752,19 @@ class PET(ModelInterface):
                         #    accumulated across GNN layers.
 
                         if "n_centers" not in key:  # 1)
-                            atomic_predictions_by_block[key] = atomic_predictions_by_block[
-                                key
-                            ] + (node_atomic_predictions + edge_atomic_predictions)
+                            atomic_predictions_by_block[key] = (
+                                atomic_predictions_by_block[key]
+                                + (node_atomic_predictions + edge_atomic_predictions)
+                            )
 
                         else:
                             if extract_key_value(key, "n_centers") == 1:  # 2)
                                 atomic_predictions_by_block[key] = (
                                     atomic_predictions_by_block[key]
-                                    + (node_atomic_predictions + edge_atomic_predictions)
+                                    + (
+                                        node_atomic_predictions
+                                        + edge_atomic_predictions
+                                    )
                                 )
 
                             else:  # 3)
@@ -1065,7 +1077,9 @@ class PET(ModelInterface):
         ]
 
     def _init_node_last_layer_by_key(
-        self, key, shape,
+        self,
+        key,
+        shape,
     ) -> torch.nn.Module:
         if "n_centers" not in key:
             return torch.nn.Linear(

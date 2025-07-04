@@ -183,7 +183,7 @@ class TargetInfo:
                         int(key.values[0].item()),
                         int(key.values[1].item()),
                         int(key.values[2].item()),
-                        None
+                        None,
                     )
                 else:
                     assert len(key.names) == 4
@@ -435,7 +435,6 @@ def _get_spherical_target_info(target: DictConfig) -> TargetInfo:
 
     # Infer the sample names
     if key_names == valid_key_names[0]:
-
         if target["per_atom"]:
             sample_names = ["system", "atom"]
         else:

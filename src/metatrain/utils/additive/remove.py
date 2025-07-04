@@ -56,8 +56,6 @@ def remove_additive(
         # subtraction
         blocks = []
         for block_key, old_block in additive_contribution[target_key].items():
-            values = old_block.values.detach()
-
             device = targets[target_key].block(block_key).values.device
             block = metatensor.torch.TensorBlock(
                 values=old_block.values.detach().to(device=device),
