@@ -276,8 +276,8 @@ trainer to disk, enabling to restart interupted training runs, to fine-tune
 existing models on new dataset, and to export standalone models based on
 TorchScript.
 
-A checkpoint created by a given version of metatrain might need to be read again
-by a later version, where the internal structure of the model might have
+A checkpoint created for one version might need to be read again
+by a later version of the architecture, where the internal structure might have
 changed. To enable this, all ``Model`` classes are required to have a
 ``__checkpoint_version__`` class attribute containing the version of the
 checkoint, as a strictly inreasing integer. Additionally, architectures should
