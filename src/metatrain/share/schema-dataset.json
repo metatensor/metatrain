@@ -172,26 +172,10 @@
                                 "properties": {
                                   "o3_lambda": { "type": "integer" },
                                   "o3_sigma": { "type": "number" },
+                                  "n_centers": { "type": "integer" },
                                   "s2_pi": { "type": "number" }
                                 },
                                 "required": ["o3_lambda", "o3_sigma"],
-                                "additionalProperties": false
-                              }
-                            },
-                            "atomic_basis": {
-                              "type": "array",
-                              "items": {
-                                "type": "object",
-                                "properties": {
-                                  "o3_lambda": { "type": "integer" },
-                                  "o3_sigma": { "type": "integer" },
-                                  "s2_pi": { "type": "integer" },
-                                  "center_type": { "type": "number" },
-                                  "first_atom_type": { "type": "number" },
-                                  "second_atom_type": { "type": "number" },
-                                  "n_radial": { "type": "number" }
-                                },
-                                "required": ["o3_lambda"],
                                 "additionalProperties": false
                               }
                             }
@@ -213,110 +197,6 @@
                 },
                 "virial": {
                   "$ref": "#/$defs/gradient_section"
-                }
-              },
-              "additionalProperties": false
-            }
-          ]
-        }
-      },
-      "additionalProperties": false
-    },
-    "extra_data": {
-      "type": "object",
-      "patternProperties": {
-        ".*": {
-          "oneOf": [
-            {
-              "$ref": "#/$defs/read_from"
-            },
-            {
-              "type": "object",
-              "properties": {
-                "quantity": {
-                  "type": "string"
-                },
-                "read_from": {
-                  "$ref": "#/$defs/read_from"
-                },
-                "reader": {
-                  "oneOf": [
-                    {
-                      "$ref": "#/$defs/reader"
-                    },
-                    {
-                      "type": "object",
-                      "additionalProperties": true
-                    }
-                  ]
-                },
-                "key": {
-                  "type": "string"
-                },
-                "unit": {
-                  "oneOf": [
-                    {
-                      "type": "null"
-                    },
-                    {
-                      "type": "string"
-                    }
-                  ]
-                },
-                "per_atom": {
-                  "type": "boolean"
-                },
-                "num_subtargets": {
-                  "type": "integer"
-                },
-                "type": {
-                  "oneOf": [
-                    {
-                      "type": "string",
-                      "enum": ["scalar"]
-                    },
-                    {
-                      "type": "object",
-                      "properties": {
-                        "cartesian": {
-                          "type": "object",
-                          "properties": {
-                            "rank": { "type": "integer" }
-                          },
-                          "required": ["rank"],
-                          "additionalProperties": false
-                        }
-                      },
-                      "required": ["cartesian"],
-                      "additionalProperties": false
-                    },
-                    {
-                      "type": "object",
-                      "properties": {
-                        "spherical": {
-                          "type": "object",
-                          "properties": {
-                            "irreps": {
-                              "type": "array",
-                              "items": {
-                                "type": "object",
-                                "properties": {
-                                  "o3_lambda": { "type": "integer" },
-                                  "o3_sigma": { "type": "number" }
-                                },
-                                "required": ["o3_lambda", "o3_sigma"],
-                                "additionalProperties": false
-                              }
-                            }
-                          },
-                          "required": ["irreps"],
-                          "additionalProperties": false
-                        }
-                      },
-                      "required": ["spherical"],
-                      "additionalProperties": false
-                    }
-                  ]
                 }
               },
               "additionalProperties": false

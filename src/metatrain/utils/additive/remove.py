@@ -8,7 +8,6 @@ from metatensor.torch.operations._add import _add_block_block
 from metatensor.torch.operations._multiply import _multiply_block_constant
 from metatomic.torch import System
 
-from ..basis import get_onsite_samples_mask
 from ..data import TargetInfo
 from ..evaluate_model import evaluate_model
 
@@ -55,39 +54,18 @@ def remove_additive(
         # make the samples the same so we can use metatensor.torch.subtract
         # we also need to detach the values to avoid backpropagating through the
         # subtraction
-
-        # if this is a per-pair target, additive contributions only exist for on-site
-        # terms
-        is_per_pair = additive_contribution[target_key].sample_names == [
-            "system",
-            "first_atom",
-            "second_atom",
-            "cell_shift_a",
-            "cell_shift_b",
-            "cell_shift_c",
-        ]
         blocks = []
         for block_key, old_block in additive_contribution[target_key].items():
-            if is_per_pair:
-                onsite_sample_idxs = get_onsite_samples_mask(
-                    targets[target_key].block(block_key).samples
-                )
-                values = torch.zeros_like(
-                    targets[target_key].block(block_key).values
-                ).detach()
-                values[onsite_sample_idxs] = old_block.values.detach()
-            else:
-                values = old_block.values.detach()
+            values = old_block.values.detach()
 
             device = targets[target_key].block(block_key).values.device
             block = metatensor.torch.TensorBlock(
-                values=values.to(device=device),
+                values=old_block.values.detach().to(device=device),
                 samples=targets[target_key].block(block_key).samples,
                 components=[c.to(device=device) for c in old_block.components],
                 properties=old_block.properties.to(device=device),
             )
             for gradient_name in targets[target_key].block(block_key).gradients_list():
-                assert not is_per_pair, "gradients not supported for per-pair targets"
                 gradient = (
                     additive_contribution[target_key]
                     .block(block_key)

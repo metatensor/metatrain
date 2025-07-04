@@ -24,7 +24,6 @@ class TargetInfo:
         quantity: str,
         layout: TensorMap,
         unit: Union[None, str] = "",
-        atomic_basis: Labels = None,
     ):
         # one of these will be set to True inside the _check_layout method
         self.is_scalar = False
@@ -36,7 +35,6 @@ class TargetInfo:
         self.quantity = quantity  # float64: otherwise metatensor can't serialize
         self.layout = layout
         self.unit = unit if unit is not None else ""
-        self.atomic_basis = atomic_basis
 
     @property
     def gradients(self) -> List[str]:
@@ -57,8 +55,7 @@ class TargetInfo:
     def __repr__(self):
         return (
             f"TargetInfo(quantity={self.quantity!r}, unit={self.unit!r}, "
-            f"layout={self.layout!r}), "
-            f"atomic_basis={self.atomic_basis!r})"
+            f"layout={self.layout!r})"
         )
 
     def __eq__(self, other):
@@ -164,7 +161,8 @@ class TargetInfo:
         if self.is_spherical:
             valid_key_names = [
                 ["o3_lambda", "o3_sigma"],
-                ["o3_lambda", "o3_sigma", "s2_pi"],
+                ["o3_lambda", "o3_sigma", "n_centers"],
+                ["o3_lambda", "o3_sigma", "n_centers", "s2_pi"],
             ]
             if layout.keys.names not in valid_key_names:
                 raise ValueError(
@@ -174,17 +172,26 @@ class TargetInfo:
                 )
             for key, block in layout.items():
                 if len(key.names) == 2:
-                    o3_lambda, o3_sigma, s2_pi = (
+                    o3_lambda, o3_sigma, n_centers, s2_pi = (
                         int(key.values[0].item()),
                         int(key.values[1].item()),
+                        1,
                         None,
                     )
-                else:
-                    assert len(key.names) == 3
-                    o3_lambda, o3_sigma, s2_pi = (
+                elif len(key.names) == 3:
+                    o3_lambda, o3_sigma, n_centers, s2_pi = (
                         int(key.values[0].item()),
                         int(key.values[1].item()),
                         int(key.values[2].item()),
+                        None
+                    )
+                else:
+                    assert len(key.names) == 4
+                    o3_lambda, o3_sigma, n_centers, s2_pi = (
+                        int(key.values[0].item()),
+                        int(key.values[1].item()),
+                        int(key.values[2].item()),
+                        int(key.values[3].item()),
                     )
                 if o3_sigma not in [-1, 1]:
                     raise ValueError(
@@ -197,6 +204,11 @@ class TargetInfo:
                         "The layout ``TensorMap`` of a spherical tensor "
                         "target should have key dimension 'o3_lambda' that "
                         f"is non-negative. Found '{o3_lambda}' instead."
+                    )
+                if n_centers == 2:
+                    assert s2_pi is not None, (
+                        "The layout ``TensorMap`` of a spherical tensor "
+                        "target with two centers should have key dimension 's2_pi'."
                     )
                 if s2_pi is not None:
                     if s2_pi not in [-1, 0, +1]:
@@ -412,44 +424,44 @@ def _get_cartesian_target_info(target: DictConfig) -> TargetInfo:
 
 def _get_spherical_target_info(target: DictConfig) -> TargetInfo:
     irreps = target["type"]["spherical"]["irreps"]
-    atomic_basis = target["type"]["spherical"].get("atomic_basis", None)
 
     # Define the block keys as the irreps
     key_names = list(irreps[0].keys())
-
-    # Parse the atomic basis
-    if atomic_basis is not None:
-        atomic_basis_names = list(atomic_basis[0].keys())
-        atomic_basis = Labels(
-            names=atomic_basis_names,
-            values=torch.tensor(
-                [[i[name] for name in atomic_basis_names] for i in atomic_basis],
-                dtype=torch.int32,
-            ),
-        )
+    valid_key_names = [
+        ["o3_lambda", "o3_sigma"],
+        ["o3_lambda", "o3_sigma", "n_centers"],
+        ["o3_lambda", "o3_sigma", "n_centers", "s2_pi"],
+    ]
 
     # Infer the sample names
-    if target["per_atom"]:
-        if atomic_basis is None:
+    if key_names == valid_key_names[0]:
+
+        if target["per_atom"]:
             sample_names = ["system", "atom"]
         else:
-            if "center_type" in atomic_basis.names:
-                sample_names = ["system", "atom"]
-            else:
-                assert (
-                    "first_atom_type" in atomic_basis.names
-                    and "second_atom_type" in atomic_basis.names
-                )
-                sample_names = [
-                    "system",
-                    "first_atom",
-                    "second_atom",
-                    "cell_shift_a",
-                    "cell_shift_b",
-                    "cell_shift_c",
-                ]
+            sample_names = ["system"]
+    elif key_names in valid_key_names[1:]:
+        assert target["per_atom"], (
+            "Spherical targets with 'n_centers' as an irrep dimension "
+            "should be per atom."
+        )
+        if all([irrep["n_centers"] == 1 for irrep in irreps]):  # per-atom
+            sample_names = ["system", "atom"]
+        else:  # per-pair
+            assert all([irrep["n_centers"] in [1, 2] for irrep in irreps])
+            sample_names = [
+                "system",
+                "first_atom",
+                "second_atom",
+                "cell_shift_a",
+                "cell_shift_b",
+                "cell_shift_c",
+            ]
     else:
-        sample_names = ["system"]
+        raise ValueError(
+            f"Invalid key names {key_names} for spherical target. "
+            f"Expected one of {valid_key_names}."
+        )
 
     keys = []
     blocks = []
@@ -489,7 +501,6 @@ def _get_spherical_target_info(target: DictConfig) -> TargetInfo:
         quantity=target["quantity"],
         unit=target["unit"],
         layout=layout,
-        atomic_basis=atomic_basis,
     )
     return target_info
 
