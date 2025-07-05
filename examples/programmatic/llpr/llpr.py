@@ -31,10 +31,9 @@ import torch
 
 # %%
 #
-# Models can be loaded using the :func:`metatrain.utils.io.load_model` function from
-# the. For already exported models The function requires the path to the exported model
-# and, for many models, also the path to the respective extensions directory. Both are
-# produced during the training process.
+# Models can be loaded using the :func:`metatrain.utils.io.load_model` function. The
+# function requires the path to the exported model and, for some models, also the path
+# to the respective extensions directory. Both are produced during the training process.
 # %%
 #
 # In metatrain, a Dataset is composed of a list of systems and a dictionary of targets.
@@ -72,7 +71,7 @@ from metatrain.utils.llpr import LLPRUncertaintyModel  # noqa: E402
 
 
 model = load_model("model.ckpt")
-llpr_model = LLPRUncertaintyModel(model)
+llpr_model = LLPRUncertaintyModel(model)  # wrap the model in a LLPR uncertainty model
 
 requested_neighbor_lists = get_requested_neighbor_lists(llpr_model)
 qm9_systems = [
@@ -109,7 +108,7 @@ dataloader = torch.utils.data.DataLoader(
 
 # %%
 #
-# We now wrap the model in a LLPRUncertaintyModel object, which will allows us
+# Wrapping the model in a LLPRUncertaintyModel object allows us
 # to compute prediction rigidity metrics, which are useful for uncertainty
 # quantification and model introspection.
 
@@ -144,10 +143,14 @@ exported_model = load_atomistic_model(
 
 # %%
 #
-# We can now use the model to compute the LPR for every atom in the ethanol molecule.
-# To do so, we create a ModelEvaluationOptions object, which is used to request
-# specific outputs from the model. In this case, we request the uncertainty in the
-# atomic energy predictions. The LPR is then the square of the per-atom uncertainty.
+# We can now use the model to compute the uncertainty for every atom in the ethanol
+# molecule. To do so, we create a ModelEvaluationOptions object, which is used to
+# request specific outputs from the model. In this case, we request the uncertainty in
+# the atomic energy predictions. (Note that this "uncertainty" is in part due to the
+# fact that the model has never been trained on per-atom energies, but only on total
+# energies. This effect has been studied in the literature by means of the local
+# prediction rigidity, or LPR. The LPR is the inverse of the square of the per-atom
+# uncertainty, as defined here.)
 
 from metatomic.torch import ModelEvaluationOptions, ModelOutput  # noqa: E402
 

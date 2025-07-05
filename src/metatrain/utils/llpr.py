@@ -61,7 +61,7 @@ class LLPRUncertaintyModel(torch.nn.Module):
             additional_capabilities[uncertainty_name] = ModelOutput(
                 quantity=output.quantity,
                 unit=output.unit,
-                per_atom=True,
+                per_atom=output.per_atom,
             )
         self.capabilities = ModelCapabilities(
             outputs={**old_capabilities.outputs, **additional_capabilities},
@@ -72,7 +72,7 @@ class LLPRUncertaintyModel(torch.nn.Module):
             dtype=old_capabilities.dtype,
         )
 
-        # register covariance and inverse covariance buffers
+        # register covariance, inverse covariance and multiplier buffers
         for name in self.outputs_list:
             uncertainty_name = _get_uncertainty_name(name)
             self.register_buffer(
@@ -151,16 +151,8 @@ class LLPRUncertaintyModel(torch.nn.Module):
                 "been computed yet."
             )
 
-        per_atom_all_targets = [output.per_atom for output in outputs.values()]
-        # impose either all per atom or all not per atom
-        if not all(per_atom_all_targets) and any(per_atom_all_targets):
-            raise ValueError(
-                "All output uncertainties must be either be requested per "
-                "atom or not per atom with LLPR."
-            )
-        per_atom = per_atom_all_targets[0]
         outputs_for_model: Dict[str, ModelOutput] = {}
-        for name in outputs.keys():
+        for name, output in outputs.items():
             if name.endswith("_uncertainty"):
                 base_name = name.replace("_uncertainty", "").replace("mtt::aux::", "")
                 if base_name not in outputs and f"mtt::{base_name}" not in outputs:
@@ -174,7 +166,7 @@ class LLPRUncertaintyModel(torch.nn.Module):
                     ModelOutput(
                         quantity="",
                         unit="",
-                        per_atom=per_atom,
+                        per_atom=output.per_atom,
                     )
                 )
         for name, output in outputs.items():
@@ -224,6 +216,7 @@ class LLPRUncertaintyModel(torch.nn.Module):
                 ),
                 blocks=[
                     TensorBlock(
+                        # the output is a standard deviation (not a variance)
                         values=torch.sqrt(one_over_pr_values),
                         samples=ll_features.block().samples,
                         components=ll_features.block().components,
@@ -374,6 +367,12 @@ class LLPRUncertaintyModel(torch.nn.Module):
             inverse without regularization and increase the regularization
             parameter until the matrix is invertible.
         """
+        if not self.covariance_computed:
+            raise ValueError(
+                "Trying to compute inverse covariance, but covariance has not "
+                "been computed yet."
+            )
+
         for name in self.outputs_list:
             uncertainty_name = _get_uncertainty_name(name)
             covariance = self._get_covariance(uncertainty_name)
