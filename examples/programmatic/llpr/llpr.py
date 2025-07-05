@@ -29,25 +29,16 @@ the :ref:`label_basic_usage` tutorial.
 
 import torch
 
-from metatrain.utils.io import load_model
-
-
 # %%
 #
-# Models can be loaded using the :func:`metatrain.utils.io.load_model` function from
-# the. For already exported models The function requires the path to the exported model
-# and, for many models, also the path to the respective extensions directory. Both are
-# produced during the training process.
-
-
-model = load_model("model.pt", extensions_directory="extensions/")
-
+# Models can be loaded using the :func:`metatrain.utils.io.load_model` function. The
+# function requires the path to the exported model and, for some models, also the path
+# to the respective extensions directory. Both are produced during the training process.
 # %%
 #
 # In metatrain, a Dataset is composed of a list of systems and a dictionary of targets.
 # The following lines illustrate how to read systems and targets from xyz files, and
 # how to create a Dataset object from them.
-
 from metatrain.utils.data import Dataset, read_systems, read_targets  # noqa: E402
 from metatrain.utils.neighbor_lists import (  # noqa: E402
     get_requested_neighbor_lists,
@@ -74,7 +65,15 @@ target_config = {
 }
 targets, _ = read_targets(target_config)
 
-requested_neighbor_lists = get_requested_neighbor_lists(model)
+
+from metatrain.utils.io import load_model  # noqa: E402
+from metatrain.utils.llpr import LLPRUncertaintyModel  # noqa: E402
+
+
+model = load_model("model.ckpt")
+llpr_model = LLPRUncertaintyModel(model)  # wrap the model in a LLPR uncertainty model
+
+requested_neighbor_lists = get_requested_neighbor_lists(llpr_model)
 qm9_systems = [
     get_system_with_neighbor_lists(system, requested_neighbor_lists)
     for system in qm9_systems
@@ -109,19 +108,10 @@ dataloader = torch.utils.data.DataLoader(
 
 # %%
 #
-# We now wrap the model in a LLPRUncertaintyModel object, which will allows us
+# Wrapping the model in a LLPRUncertaintyModel object allows us
 # to compute prediction rigidity metrics, which are useful for uncertainty
 # quantification and model introspection.
 
-from metatomic.torch import (  # noqa: E402
-    AtomisticModel,
-    ModelMetadata,
-)
-
-from metatrain.utils.llpr import LLPRUncertaintyModel  # noqa: E402
-
-
-llpr_model = LLPRUncertaintyModel(model)
 llpr_model.compute_covariance(dataloader)
 llpr_model.compute_inverse_covariance(regularizer=1e-4)
 
@@ -129,18 +119,38 @@ llpr_model.compute_inverse_covariance(regularizer=1e-4)
 # calibration/validation dataset should be used.
 llpr_model.calibrate(dataloader)
 
-exported_model = AtomisticModel(
-    llpr_model.eval(),
-    ModelMetadata(),
-    llpr_model.capabilities,
+# Finally, we can save a checkpoint of the LLPR model
+llpr_model.save_checkpoint("llpr_model.ckpt")
+
+# %%
+#
+# Using the LLPR model to perform uncertainty calculations requires loading it as a
+# metatomic model. To do this, we need to export it and load the exported version.
+
+import subprocess  # noqa: E402
+
+from metatomic.torch import load_atomistic_model  # noqa: E402
+
+
+# First, we run "mtt export" to export the model. This generates an exported model
+# named "llpr_model.pt" and an extension directory named "llpr_extensions/".
+subprocess.run(["mtt", "export", "llpr_model.ckpt", "-e", "llpr_extensions/"])
+
+# Finally, we load the exported model using metatomic's `load_atomistic_model` function.
+exported_model = load_atomistic_model(
+    "llpr_model.pt", extensions_directory="llpr_extensions/"
 )
 
 # %%
 #
-# We can now use the model to compute the LPR for every atom in the ethanol molecule.
-# To do so, we create a ModelEvaluationOptions object, which is used to request
-# specific outputs from the model. In this case, we request the uncertainty in the
-# atomic energy predictions.
+# We can now use the model to compute the uncertainty for every atom in the ethanol
+# molecule. To do so, we create a ModelEvaluationOptions object, which is used to
+# request specific outputs from the model. In this case, we request the uncertainty in
+# the atomic energy predictions. (Note that this "uncertainty" is in part due to the
+# fact that the model has never been trained on per-atom energies, but only on total
+# energies. This effect has been studied in the literature by means of the local
+# prediction rigidity, or LPR. The LPR is the inverse of the square of the per-atom
+# uncertainty, as defined here.)
 
 from metatomic.torch import ModelEvaluationOptions, ModelOutput  # noqa: E402
 
@@ -150,7 +160,7 @@ evaluation_options = ModelEvaluationOptions(
     outputs={
         # request the uncertainty in the atomic energy predictions
         "energy": ModelOutput(per_atom=True),  # needed to request the uncertainties
-        "mtt::aux::energy_uncertainty": ModelOutput(per_atom=True),
+        "energy_uncertainty": ModelOutput(per_atom=True),
         # `per_atom=False` would return the total uncertainty for the system,
         # or (the inverse of) the TPR (total prediction rigidity)
         # you also can request other outputs from the model here, for example:
@@ -160,7 +170,7 @@ evaluation_options = ModelEvaluationOptions(
 )
 
 outputs = exported_model([ethanol_system], evaluation_options, check_consistency=False)
-lpr = outputs["mtt::aux::energy_uncertainty"].block().values.detach().cpu().numpy()
+one_over_lpr = outputs["energy_uncertainty"].block().values.detach().cpu().numpy() ** 2
 
 # %%
 #
@@ -174,11 +184,11 @@ from matplotlib.colors import LogNorm  # noqa: E402
 
 
 structure = ase.io.read("ethanol_reduced_100.xyz")
-norm = LogNorm(vmin=min(lpr), vmax=max(lpr))
+norm = LogNorm(vmin=min(one_over_lpr), vmax=max(one_over_lpr))
 colormap = plt.get_cmap("viridis")
-colors = colormap(norm(lpr))
+colors = colormap(norm(one_over_lpr))
 ax = plot_atoms(structure, colors=colors, rotation="180x,0y,0z")
-custom_ticks = [1e10, 2e10, 5e10, 1e11, 2e11]
+custom_ticks = [2e9, 5e9, 1e10, 2e10, 5e10]
 cbar = plt.colorbar(
     plt.cm.ScalarMappable(norm=norm, cmap=colormap),
     ax=ax,
