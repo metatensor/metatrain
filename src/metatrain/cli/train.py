@@ -14,6 +14,7 @@ import torch
 from omegaconf import DictConfig, OmegaConf
 
 from .. import PACKAGE_ROOT
+from ..utils.abc import ModelInterface, TrainerInterface
 from ..utils.architectures import (
     check_architecture_options,
     get_default_hypers,
@@ -198,7 +199,18 @@ def train_model(
     logging.info(f"Running training for {architecture_name!r} architecture")
 
     Model = architecture.__model__
+    if not issubclass(Model, ModelInterface):
+        raise TypeError(
+            f"Model class for {architecture_name} must be a subclass of "
+            " `metatrain.utils.abc.ModelInterface`"
+        )
+
     Trainer = architecture.__trainer__
+    if not issubclass(Trainer, TrainerInterface):
+        raise TypeError(
+            f"Trainer class for {architecture_name} must be a subclass of "
+            " `metatrain.utils.abc.TrainerInterface`"
+        )
 
     ###########################
     # MERGE OPTIONS ###########
@@ -265,9 +277,13 @@ def train_model(
 
     train_datasets = []
     target_info_dict: Dict[str, TargetInfo] = {}
+    extra_data_info_dict: Dict[str, TargetInfo] = {}
     for train_options in options["training_set"]:  # loop over training sets
-        dataset, target_info_dict_single = get_dataset(train_options)
+        dataset, target_info_dict_single, extra_data_info_dict_single = get_dataset(
+            train_options
+        )
         train_datasets.append(dataset)
+
         intersecting_keys = target_info_dict.keys() & target_info_dict_single.keys()
         for key in intersecting_keys:
             if target_info_dict[key] != target_info_dict_single[key]:
@@ -276,6 +292,18 @@ def train_model(
                     f"Got {target_info_dict[key]} and {target_info_dict_single[key]}."
                 )
         target_info_dict.update(target_info_dict_single)
+
+        intersecting_keys = (
+            extra_data_info_dict.keys() & extra_data_info_dict_single.keys()
+        )
+        for key in intersecting_keys:
+            if extra_data_info_dict[key] != extra_data_info_dict_single[key]:
+                raise ValueError(
+                    f"Extra data information for key {key} differs between training "
+                    f"sets. Got {extra_data_info_dict[key]} and"
+                    f" {extra_data_info_dict_single[key]}."
+                )
+        extra_data_info_dict.update(extra_data_info_dict_single)
 
     train_size = 1.0
 
@@ -317,7 +345,7 @@ def train_model(
         )
 
         for valid_options in options["validation_set"]:
-            dataset, _ = get_dataset(valid_options)
+            dataset, _, _ = get_dataset(valid_options)
             val_datasets.append(dataset)
             train_indices.append(None)
             val_indices.append(None)
@@ -370,7 +398,7 @@ def train_model(
         )
 
         for test_options in options["test_set"]:
-            dataset, _ = get_dataset(test_options)
+            dataset, _, _ = get_dataset(test_options)
             test_datasets.append(dataset)
             test_indices.append(None)
 
@@ -384,13 +412,20 @@ def train_model(
     ###########################
     # CREATE DATASET_INFO #####
     ###########################
+    if options["architecture"].get("atomic_types") is None:  # infer from datasets
+        logging.info("Atomic types inferred from training and validation datasets")
+        atomic_types = get_atomic_types(train_datasets + val_datasets)
+    else:  # use explicitly defined atomic types
+        logging.info("Atomic types explicitly defined in options.yaml")
+        atomic_types = sorted(options["architecture"]["atomic_types"])
 
-    atomic_types = get_atomic_types(train_datasets + val_datasets)
+    logging.info(f"Model defined for atomic types: {atomic_types}")
 
     dataset_info = DatasetInfo(
         length_unit=options["training_set"][0]["systems"]["length_unit"],
         atomic_types=atomic_types,
         targets=target_info_dict,
+        extra_data=extra_data_info_dict,
     )
 
     ###########################
@@ -440,19 +475,51 @@ def train_model(
     ###########################
 
     logging.info("Setting up model")
-    try:
-        if restart_from is not None:
-            logging.info(f"Restarting training from `{restart_from}`")
-            trainer = trainer_from_checkpoint(
-                path=restart_from, context="restart", hypers=hypers["training"]
+
+    # Resolving the model initialization options
+    if restart_from is not None:
+        training_context = "restart"
+    elif "finetune" in hypers["training"]:
+        if "read_from" not in hypers["training"]["finetune"]:
+            raise ValueError(
+                "Finetuning is enabled but no checkpoint was provided. Please "
+                "provide one using the `read_from` option in the `finetune` "
+                "section."
             )
-            model = model_from_checkpoint(path=restart_from, context="restart")
+        restart_from = hypers["training"]["finetune"]["read_from"]
+        training_context = "finetune"
+    else:
+        training_context = None
+
+    try:
+        if training_context == "restart" and restart_from is not None:
+            logging.info(f"Restarting training from '{restart_from}'")
+            model = model_from_checkpoint(path=restart_from, context=training_context)
             model = model.restart(dataset_info)
+            trainer = trainer_from_checkpoint(
+                path=restart_from,
+                hypers=hypers["training"],
+                context=training_context,  # type: ignore
+            )
+        elif training_context == "finetune" and restart_from is not None:
+            logging.info(f"Starting finetuning from '{restart_from}'")
+            model = model_from_checkpoint(path=restart_from, context=training_context)
+            model = model.restart(dataset_info)
+            trainer = Trainer(hypers["training"])
         else:
+            logging.info("Starting training from scratch")
             model = Model(hypers["model"], dataset_info)
             trainer = Trainer(hypers["training"])
     except Exception as e:
         raise ArchitectureError(e)
+
+    n_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
+    logging.info(
+        (
+            f"The model has {_human_readable(n_params)} parameters "
+            f"(actual number: {n_params})."
+        )
+    )
 
     ###########################
     # TRAIN MODEL #############
@@ -555,7 +622,6 @@ def train_model(
             mts_atomistic_model,
             train_dataset,
             dataset_info.targets,
-            return_predictions=False,
             batch_size=batch_size,
         )
 
@@ -570,7 +636,6 @@ def train_model(
             mts_atomistic_model,
             val_dataset,
             dataset_info.targets,
-            return_predictions=False,
             batch_size=batch_size,
         )
 
@@ -585,7 +650,6 @@ def train_model(
             mts_atomistic_model,
             test_dataset,
             dataset_info.targets,
-            return_predictions=False,
             batch_size=batch_size,
         )
 
@@ -606,3 +670,23 @@ def _get_batch_size_from_hypers(hypers: Union[Dict, DictConfig]) -> Optional[int
         ):
             return value
     return None
+
+
+def _human_readable(n):
+    """
+    Turn a number into a human-friendly string
+    """
+    suffixes = ["", "K", "M", "B", "T"]
+    if n == 0:
+        return "0"
+    # figure out which suffix to use
+    idx = min(int(np.log10(abs(n)) // 3), len(suffixes) - 1)
+    value = n / (1000**idx)
+    # pick formatting: one decimal if <10, otherwise integer with commas
+    if value < 10:
+        s = f"{value:.1f}"
+    else:
+        s = f"{int(value):,d}"
+    # drop any trailing ".0"
+    s = s.rstrip(".0")
+    return f"{s}{suffixes[idx]}"

@@ -2,7 +2,7 @@ Output naming
 =============
 
 The name and format of the outputs in ``metatrain`` are based on those of the
-`<metatomic https://docs.metatensor.org/metatomic/latest/outputs/index.html>`_
+`metatomic <https://docs.metatensor.org/metatomic/latest/outputs/index.html>`_
 package. An immediate example is given by the ``energy`` output.
 
 Any additional outputs present within the library are denoted by the

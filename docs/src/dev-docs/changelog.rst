@@ -24,6 +24,25 @@ changelog <https://keepachangelog.com/en/1.1.0/>`_ format. This project follows
 Unreleased
 ----------
 
+Added
+#####
+
+- ``extra_data`` is now a valid section in the ``options.yaml`` file, allowing users to
+  add custom data to the training set. The data is contained in the dataloader and can
+  be used in custom loss functions or models.
+- ``mtt eval`` can be used to evaluate models on a ``DiskDataset``.
+
+Version 2025.8 - 2025-06-11
+---------------------------
+
+Changed
+#######
+
+- Checkpoints for fine-tuning files are now passed from the ``options.yaml``.
+
+Version 2025.7 - 2025-05-27
+---------------------------
+
 Changed
 #######
 

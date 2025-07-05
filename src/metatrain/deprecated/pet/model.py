@@ -12,18 +12,19 @@ from metatomic.torch import (
     System,
 )
 
+from metatrain.utils.abc import ModelInterface
 from metatrain.utils.additive import ZBL
 from metatrain.utils.data import DatasetInfo
 from metatrain.utils.data.target_info import is_auxiliary_output
 from metatrain.utils.dtype import dtype_to_str
-from metatrain.utils.metadata import append_metadata_references
+from metatrain.utils.metadata import merge_metadata
 from metatrain.utils.sum_over_atoms import sum_over_atoms
 
 from .modules.pet import PET as RawPET
 from .utils import load_raw_pet_model, systems_to_batch_dict
 
 
-class PET(torch.nn.Module):
+class PET(ModelInterface):
     __supported_devices__ = ["cuda", "cpu"]
     __supported_dtypes__ = [torch.float32]
     __default_metadata__ = ModelMetadata(
@@ -312,6 +313,6 @@ class PET(torch.nn.Module):
         if metadata is None:
             metadata = ModelMetadata()
 
-        append_metadata_references(metadata, self.__default_metadata__)
+        metadata = merge_metadata(self.__default_metadata__, metadata)
 
         return AtomisticModel(self.eval(), metadata, capabilities)

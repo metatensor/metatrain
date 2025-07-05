@@ -7,13 +7,14 @@ import torch
 import torch.distributed
 from torch.utils.data import DataLoader, DistributedSampler
 
+from metatrain.utils.abc import TrainerInterface
 from metatrain.utils.additive import remove_additive
 from metatrain.utils.augmentation import RotationalAugmenter
 from metatrain.utils.data import (
+    CollateFn,
     CombinedDataLoader,
     Dataset,
     _is_disk_dataset,
-    collate_fn,
 )
 from metatrain.utils.distributed.distributed_data_parallel import (
     DistributedDataParallel,
@@ -31,15 +32,12 @@ from metatrain.utils.neighbor_lists import (
 )
 from metatrain.utils.per_atom import average_by_num_atoms
 from metatrain.utils.scaler import remove_scale
-from metatrain.utils.transfer import (
-    systems_and_targets_to_device,
-    systems_and_targets_to_dtype,
-)
+from metatrain.utils.transfer import batch_to
 
 from .model import NanoPET
 
 
-class Trainer:
+class Trainer(TrainerInterface):
     def __init__(self, train_hypers):
         self.hypers = train_hypers
         self.optimizer_state_dict = None
@@ -148,7 +146,7 @@ class Trainer:
                     num_replicas=world_size,
                     rank=rank,
                     shuffle=True,
-                    drop_last=len(train_dataset) > self.hypers["batch_size"],
+                    drop_last=True,
                 )
                 for train_dataset in train_datasets
             ]
@@ -166,9 +164,21 @@ class Trainer:
             train_samplers = [None] * len(train_datasets)
             val_samplers = [None] * len(val_datasets)
 
+        # Create a collate function:
+        targets_keys = list(
+            (model.module if is_distributed else model).dataset_info.targets.keys()
+        )
+        collate_fn = CollateFn(target_keys=targets_keys)
         # Create dataloader for the training datasets:
         train_dataloaders = []
         for train_dataset, train_sampler in zip(train_datasets, train_samplers):
+            if len(train_dataset) < self.hypers["batch_size"]:
+                raise ValueError(
+                    f"A training dataset has fewer samples "
+                    f"({len(train_dataset)}) than the batch size "
+                    f"({self.hypers['batch_size']}). "
+                    "Please reduce the batch size."
+                )
             train_dataloaders.append(
                 DataLoader(
                     dataset=train_dataset,
@@ -180,9 +190,7 @@ class Trainer:
                     ),
                     drop_last=(
                         # the sampler takes care of this (if present)
-                        # check if batch size > train_dataset
-                        len(train_dataset) > self.hypers["batch_size"]
-                        and train_sampler is None
+                        train_sampler is None
                     ),
                     collate_fn=collate_fn,
                 )
@@ -192,6 +200,13 @@ class Trainer:
         # Create dataloader for the validation datasets:
         val_dataloaders = []
         for val_dataset, val_sampler in zip(val_datasets, val_samplers):
+            if len(val_dataset) < self.hypers["batch_size"]:
+                raise ValueError(
+                    f"A validation dataset has fewer samples "
+                    f"({len(val_dataset)}) than the batch size "
+                    f"({self.hypers['batch_size']}). "
+                    "Please reduce the batch size."
+                )
             val_dataloaders.append(
                 DataLoader(
                     dataset=val_dataset,
@@ -206,6 +221,9 @@ class Trainer:
 
         # Extract all the possible outputs and their gradients:
         train_targets = (model.module if is_distributed else model).dataset_info.targets
+        extra_data_info = (
+            model.module if is_distributed else model
+        ).dataset_info.extra_data
         outputs_list = []
         for target_name, target_info in train_targets.items():
             outputs_list.append(target_name)
@@ -263,7 +281,9 @@ class Trainer:
         old_lr = optimizer.param_groups[0]["lr"]
         logging.info(f"Initial learning rate: {old_lr}")
 
-        rotational_augmenter = RotationalAugmenter(train_targets)
+        rotational_augmenter = RotationalAugmenter(
+            train_targets, extra_data_info_dict=extra_data_info
+        )
 
         start_epoch = 0 if self.epoch is None else self.epoch + 1
 
@@ -289,12 +309,14 @@ class Trainer:
             for batch in train_dataloader:
                 optimizer.zero_grad()
 
-                systems, targets = batch
-                systems, targets = rotational_augmenter.apply_random_augmentations(
-                    systems, targets
+                systems, targets, extra_data = batch
+                systems, targets, extra_data = (
+                    rotational_augmenter.apply_random_augmentations(
+                        systems, targets, extra_data=extra_data
+                    )
                 )
-                systems, targets = systems_and_targets_to_device(
-                    systems, targets, device
+                systems, targets, extra_data = batch_to(
+                    systems, targets, extra_data, device=device
                 )
                 for additive_model in (
                     model.module if is_distributed else model
@@ -305,7 +327,9 @@ class Trainer:
                 targets = remove_scale(
                     targets, (model.module if is_distributed else model).scaler
                 )
-                systems, targets = systems_and_targets_to_dtype(systems, targets, dtype)
+                systems, targets, extra_data = batch_to(
+                    systems, targets, extra_data, dtype=dtype
+                )
                 predictions = evaluate_model(
                     model,
                     systems,
@@ -348,7 +372,7 @@ class Trainer:
 
             val_loss = 0.0
             for batch in val_dataloader:
-                systems, targets = batch
+                systems, targets, extra_data = batch
                 systems = [system.to(device=device) for system in systems]
                 targets = {
                     key: value.to(device=device) for key, value in targets.items()
@@ -364,6 +388,10 @@ class Trainer:
                 )
                 systems = [system.to(dtype=dtype) for system in systems]
                 targets = {key: value.to(dtype=dtype) for key, value in targets.items()}
+                extra_data = {
+                    key: value.to(device=device, dtype=dtype)
+                    for key, value in extra_data.items()
+                }
                 predictions = evaluate_model(
                     model,
                     systems,
@@ -487,6 +515,7 @@ class Trainer:
     def save_checkpoint(self, model, path: Union[str, Path]):
         checkpoint = {
             "architecture_name": "experimental.nanopet",
+            "metadata": model.__default_metadata__,
             "model_data": {
                 "model_hypers": model.hypers,
                 "dataset_info": model.dataset_info,

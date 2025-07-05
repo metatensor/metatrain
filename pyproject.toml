@@ -3,7 +3,7 @@ name = "metatrain"
 dynamic = ["version"]
 requires-python = ">=3.9"
 
-readme = "README.rst"
+readme = "README.md"
 license = "BSD-3-Clause"
 description = "Training and evaluating machine learning models for atomistic systems."
 authors = [{name = "metatrain developers"}]
@@ -14,9 +14,9 @@ dependencies = [
     "metatensor-learn >=0.3.2,<0.4",
     "metatensor-operations >=0.3.3,<0.4",
     "metatensor-torch >=0.7.6,<0.8",
-    "metatomic-torch >=0.1.0,<0.2",
+    "metatomic-torch >=0.1.2,<0.2",
     "jsonschema",
-    "omegaconf",
+    "omegaconf >= 2.3.0",
     "python-hostlist",
     "vesin",
 ]
@@ -132,7 +132,15 @@ ignore_missing_imports = true
 [tool.pytest.ini_options]
 # ignore" a bunch of internal warnings with Python 3.13 and PyTorch
 filterwarnings = [
+    "error",
+    # PyTorch deprecation warnings
     "ignore:ast.Str is deprecated and will be removed in Python 3.14:DeprecationWarning",
     "ignore:Attribute s is deprecated and will be removed in Python 3.14:DeprecationWarning",
     "ignore:ast.NameConstant is deprecated and will be removed in Python 3.14:DeprecationWarning",
+    # PyTorch does not want these, but mypy requires them
+    "ignore:The TorchScript type system doesn't support instance-level annotations on empty non-base types",
+    # Sphericart double backward warning
+    "ignore:Second derivatives of the spherical harmonics with respect to the Cartesian coordinates were not requested at class creation.",
+    # OldCompositionModel deprecation warning
+    "ignore:`OldCompositionModel` composition model is deprecated. Please use `CompositionModel` instead."
 ]

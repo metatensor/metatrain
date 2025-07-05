@@ -14,11 +14,12 @@ from metatomic.torch import (
     System,
 )
 
-from metatrain.utils.additive import ZBL, CompositionModel
+from metatrain.utils.abc import ModelInterface
+from metatrain.utils.additive import ZBL, OldCompositionModel
 from metatrain.utils.data import DatasetInfo, TargetInfo
 from metatrain.utils.dtype import dtype_to_str
 from metatrain.utils.long_range import DummyLongRangeFeaturizer, LongRangeFeaturizer
-from metatrain.utils.metadata import append_metadata_references
+from metatrain.utils.metadata import merge_metadata
 from metatrain.utils.scaler import Scaler
 from metatrain.utils.sum_over_atoms import sum_over_atoms
 
@@ -34,7 +35,7 @@ from .modules.structures import concatenate_structures
 from .modules.transformer import Transformer
 
 
-class NanoPET(torch.nn.Module):
+class NanoPET(ModelInterface):
     """
     Re-implementation of the PET architecture (https://arxiv.org/pdf/2305.19302).
 
@@ -151,7 +152,7 @@ class NanoPET(torch.nn.Module):
 
         # additive models: these are handled by the trainer at training
         # time, and they are added to the output at evaluation time
-        composition_model = CompositionModel(
+        composition_model = OldCompositionModel(
             model_hypers={},
             dataset_info=DatasetInfo(
                 length_unit=dataset_info.length_unit,
@@ -159,7 +160,7 @@ class NanoPET(torch.nn.Module):
                 targets={
                     target_name: target_info
                     for target_name, target_info in dataset_info.targets.items()
-                    if CompositionModel.is_valid_target(target_name, target_info)
+                    if OldCompositionModel.is_valid_target(target_name, target_info)
                 },
             ),
         )
@@ -222,7 +223,7 @@ class NanoPET(torch.nn.Module):
                 targets={
                     target_name: target_info
                     for target_name, target_info in dataset_info.targets.items()
-                    if CompositionModel.is_valid_target(target_name, target_info)
+                    if OldCompositionModel.is_valid_target(target_name, target_info)
                 },
             ),
         )
@@ -577,6 +578,11 @@ class NanoPET(torch.nn.Module):
         model.to(dtype).load_state_dict(model_state_dict)
         model.additive_models[0].sync_tensor_maps()
 
+        # Loading the metadata from the checkpoint
+        metadata = checkpoint.get("metadata", None)
+        if metadata is not None:
+            model.__default_metadata__ = metadata
+
         return model
 
     def export(self, metadata: Optional[ModelMetadata] = None) -> AtomisticModel:
@@ -613,9 +619,9 @@ class NanoPET(torch.nn.Module):
         )
 
         if metadata is None:
-            metadata = ModelMetadata()
-
-        append_metadata_references(metadata, self.__default_metadata__)
+            metadata = self.__default_metadata__
+        else:
+            metadata = merge_metadata(self.__default_metadata__, metadata)
 
         return AtomisticModel(self.eval(), metadata, capabilities)
 

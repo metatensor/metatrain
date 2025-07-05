@@ -102,6 +102,19 @@ CONF_TARGET_FIELDS = OmegaConf.create(
     }
 )
 
+CONF_EXTRA_FIELDS = OmegaConf.create(
+    {
+        "quantity": "",
+        "read_from": "${...systems.read_from}",
+        "reader": None,
+        "key": None,
+        "unit": None,
+        "per_atom": False,
+        "type": "scalar",
+        "num_subtargets": 1,
+    }
+)
+
 CONF_GRADIENTS = OmegaConf.create({"forces": False, "stress": False, "virial": False})
 CONF_GRADIENT = OmegaConf.create(
     {
@@ -118,6 +131,7 @@ CONF_TARGET = OmegaConf.merge(CONF_TARGET_FIELDS, CONF_GRADIENTS)
 CONF_ENERGY = CONF_TARGET.copy()
 CONF_ENERGY["forces"] = CONF_GRADIENT.copy()
 CONF_ENERGY["stress"] = CONF_GRADIENT.copy()
+CONF_EXTRA_DATA = CONF_EXTRA_FIELDS.copy()
 
 # Schema with the dataset options
 with open(PACKAGE_ROOT / "share/schema-dataset.json") as f:
@@ -153,6 +167,11 @@ def check_dataset_options(dataset_config: ListConfig) -> None:
         desired_length_unit = desired_config["systems"]["length_unit"]
     else:
         desired_length_unit = None
+
+    if hasattr(desired_config, "extra_data"):
+        # save unit for each extra_data section for later comparison
+        for extra_data_key, extra_data in desired_config["extra_data"].items():
+            unit_dict[extra_data_key] = extra_data["unit"]
 
     # loop over ALL configs because we have check units for all elements in
     # `dataset_config`
@@ -191,6 +210,24 @@ def check_dataset_options(dataset_config: ListConfig) -> None:
                         f"Two targets with the names `{target_key}` and "
                         f"`mtt::{target_key}` are not allowed to be present "
                         "at the same time."
+                    )
+
+        if hasattr(actual_config, "extra_data"):
+            for extra_data_key, extra_data in actual_config["extra_data"].items():
+                unit = extra_data["unit"]
+
+                # If a extra_data section name is not part of the saved units we add it
+                # for later comparison. We do not have to start the loop again because
+                # this extra_data section name is not present in one of the datasets
+                # checked before.
+                if extra_data_key not in unit_dict.keys():
+                    unit_dict[extra_data_key] = unit
+
+                if unit_dict[extra_data_key] != unit:
+                    raise ValueError(
+                        f"Units of extra_data section {extra_data_key!r} are "
+                        "inconsistent. "
+                        f"Found {unit!r} and {unit_dict[extra_data_key]!r}!"
                     )
 
 
@@ -308,6 +345,19 @@ def expand_dataset_config(conf: Union[str, DictConfig, ListConfig]) -> ListConfi
                         f"as in section {target_key}. Set either `virials: off` or "
                         "`stress: off`."
                     )
+
+        if hasattr(conf_element, "extra_data"):
+            for extra_data_key, extra_data in conf_element["extra_data"].items():
+                if type(extra_data) is str:
+                    extra_data = _resolve_single_str(extra_data)
+
+                extra_data = OmegaConf.merge(CONF_EXTRA_DATA, extra_data)
+
+                if extra_data["key"] is None:
+                    extra_data["key"] = extra_data_key
+
+                # update DictConfig to allow for config node interpolation
+                conf_element["extra_data"][extra_data_key] = extra_data
 
     check_dataset_options(conf)
     return conf

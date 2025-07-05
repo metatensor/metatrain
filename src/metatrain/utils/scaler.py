@@ -10,7 +10,7 @@ from .additive import remove_additive
 from .data import Dataset, DatasetInfo, TargetInfo, get_all_targets
 from .jsonschema import validate
 from .per_atom import average_by_num_atoms
-from .transfer import systems_and_targets_to_device
+from .transfer import batch_to
 
 
 class Scaler(torch.nn.Module):
@@ -32,9 +32,6 @@ class Scaler(torch.nn.Module):
         target quantities and atomic types.
     """
 
-    outputs: Dict[str, ModelOutput]
-    scales: torch.Tensor
-
     def __init__(self, model_hypers: Dict, dataset_info: DatasetInfo):
         super().__init__()
 
@@ -45,12 +42,12 @@ class Scaler(torch.nn.Module):
         )
 
         self.dataset_info = dataset_info
-
-        self.new_targets: Dict[str, TargetInfo] = dataset_info.targets
+        self.new_targets = dataset_info.targets
         self.outputs: Dict[str, ModelOutput] = {}
 
         # Initially, the scales are empty. They will be expanded as new outputs
         # are registered with `_add_output`.
+        self.scales: torch.Tensor  # mypy does not understand register_buffer
         self.register_buffer("scales", torch.ones((0,), dtype=torch.float64))
         self.output_name_to_output_index: Dict[str, int] = {}
         for target_name, target_info in self.dataset_info.targets.items():
@@ -105,9 +102,7 @@ class Scaler(torch.nn.Module):
                     systems = [sample["system"]]
                     targets = {target_key: sample[target_key]}
 
-                    systems, targets = systems_and_targets_to_device(
-                        systems, targets, device
-                    )
+                    systems, targets, _ = batch_to(systems, targets, device=device)
 
                     for additive_model in additive_models:
                         target_info_dict = {target_key: self.new_targets[target_key]}

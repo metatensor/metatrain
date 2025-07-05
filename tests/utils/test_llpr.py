@@ -6,7 +6,7 @@ from metatomic.torch import (
     ModelOutput,
 )
 
-from metatrain.utils.data import Dataset, collate_fn, read_systems, read_targets
+from metatrain.utils.data import CollateFn, Dataset, read_systems, read_targets
 from metatrain.utils.io import load_model
 from metatrain.utils.llpr import LLPRUncertaintyModel
 from metatrain.utils.neighbor_lists import (
@@ -47,6 +47,7 @@ def test_llpr(tmpdir):
         for system in qm9_systems
     ]
     dataset = Dataset.from_dict({"system": qm9_systems, **targets})
+    collate_fn = CollateFn(target_keys=list(targets.keys()))
     dataloader = torch.utils.data.DataLoader(
         dataset,
         batch_size=10,

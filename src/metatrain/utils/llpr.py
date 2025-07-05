@@ -328,7 +328,7 @@ class LLPRUncertaintyModel(torch.nn.Module):
         device = next(iter(self.buffers())).device
         dtype = next(iter(self.buffers())).dtype
         for batch in train_loader:
-            systems, targets = batch
+            systems, targets, extra_data = batch
             n_atoms = torch.tensor(
                 [len(system.positions) for system in systems], device=device
             )
@@ -431,7 +431,7 @@ class LLPRUncertaintyModel(torch.nn.Module):
         all_targets = {}  # type: ignore
         all_uncertainties = {}  # type: ignore
         for batch in valid_loader:
-            systems, targets = batch
+            systems, targets, extra_data = batch
             systems = [system.to(device=device, dtype=dtype) for system in systems]
             targets = {
                 name: target.to(device=device, dtype=dtype)

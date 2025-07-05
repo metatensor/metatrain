@@ -10,18 +10,16 @@ import subprocess
 from pathlib import Path
 from subprocess import CalledProcessError
 
+import metatomic.torch  # noqa: F401
 import pytest
 import torch
 from omegaconf import OmegaConf
 
 from metatrain.cli.export import export_model
-from metatrain.soap_bpnn import __model__
 from metatrain.utils.architectures import find_all_architectures
-from metatrain.utils.data import DatasetInfo
-from metatrain.utils.data.target_info import get_energy_target_info
 from metatrain.utils.io import load_model
 
-from . import MODEL_HYPERS, RESOURCES_PATH
+from . import RESOURCES_PATH
 
 
 @pytest.mark.parametrize("path", [Path("exported.pt"), "exported.pt"])
@@ -30,13 +28,8 @@ def test_export(monkeypatch, tmp_path, path, caplog):
     monkeypatch.chdir(tmp_path)
     caplog.set_level(logging.INFO)
 
-    dataset_info = DatasetInfo(
-        length_unit="angstrom",
-        atomic_types={1},
-        targets={"energy": get_energy_target_info({"unit": "eV"})},
-    )
-    model = __model__(model_hypers=MODEL_HYPERS, dataset_info=dataset_info)
-    export_model(model, path)
+    checkpoint_path = RESOURCES_PATH / "model-64-bit.ckpt"
+    export_model(checkpoint_path, path)
 
     # Test if extensions are saved
     extensions_glob = glob.glob("extensions/")
@@ -49,7 +42,7 @@ def test_export(monkeypatch, tmp_path, path, caplog):
 
 
 @pytest.mark.parametrize("output", [None, "exported.pt"])
-@pytest.mark.parametrize("model_type", ["32-bit", "64-bit", "no-extensions"])
+@pytest.mark.parametrize("model_type", ["32-bit", "64-bit", "pet"])
 def test_export_cli(monkeypatch, tmp_path, output, model_type):
     """Test that the export cli runs without an error raise."""
     monkeypatch.chdir(tmp_path)
@@ -68,9 +61,9 @@ def test_export_cli(monkeypatch, tmp_path, output, model_type):
     subprocess.check_call(command)
     assert Path(output).is_file()
 
-    # Test if extensions are saved
+    # Test if extensions are saved. A PET model should have no extensions
     extensions_glob = glob.glob("extensions/")
-    if model_type == "no-extensions":
+    if model_type == "pet":
         assert len(extensions_glob) == 0
     else:
         assert len(extensions_glob) == 1
@@ -84,7 +77,8 @@ def test_export_cli(monkeypatch, tmp_path, output, model_type):
     elif model_type == "64-bit":
         correct_dtype = torch.float64
     else:
-        correct_dtype = torch.float64
+        correct_dtype = torch.float32
+
     assert next(model.parameters()).dtype == correct_dtype
     assert next(model.parameters()).device.type == "cpu"
 
@@ -123,17 +117,9 @@ def test_reexport(monkeypatch, tmp_path):
     """Test that an already exported model can be loaded and again exported."""
     monkeypatch.chdir(tmp_path)
 
-    dataset_info = DatasetInfo(
-        length_unit="angstrom",
-        atomic_types={1, 6, 7, 8},
-        targets={"energy": get_energy_target_info({"unit": "eV"})},
-    )
-    model = __model__(model_hypers=MODEL_HYPERS, dataset_info=dataset_info)
-
-    export_model(model, "exported.pt")
-
-    model_loaded = load_model("exported.pt")
-    export_model(model_loaded, "exported_new.pt")
+    checkpoint_path = RESOURCES_PATH / "model-64-bit.ckpt"
+    export_model(checkpoint_path, "exported.pt")
+    export_model("exported.pt", "exported_new.pt")
 
     assert Path("exported_new.pt").is_file()
 
@@ -143,16 +129,15 @@ def test_huggingface(monkeypatch, tmp_path):
     model from HuggingFace."""
     monkeypatch.chdir(tmp_path)
 
-    HF_TOKEN = os.getenv("HUGGINGFACE_TOKEN_METATRAIN")
-    if HF_TOKEN is None:
+    hf_token = os.getenv("HUGGINGFACE_TOKEN_METATRAIN")
+    if hf_token is None or len(hf_token) == 0:
         pytest.skip("HuggingFace token not found in environment.")
-    assert len(HF_TOKEN) > 0
 
     command = [
         "mtt",
         "export",
         "https://huggingface.co/metatensor/metatrain-test/resolve/main/model.ckpt",
-        f"--token={HF_TOKEN}",
+        f"--token={hf_token}",
     ]
 
     output = "model.pt"
@@ -171,13 +156,13 @@ def test_huggingface(monkeypatch, tmp_path):
 def test_huggingface_env(monkeypatch, tmp_path):
     """Test that huggingphase export works with env variable."""
 
-    token = os.getenv("HUGGINGFACE_TOKEN_METATRAIN")
-    if token is None:
+    hf_token = os.getenv("HUGGINGFACE_TOKEN_METATRAIN")
+    if hf_token is None or len(hf_token) == 0:
         pytest.skip("HuggingFace token not found in environment.")
 
     monkeypatch.chdir(tmp_path)
     env = os.environ.copy()
-    env["HF_TOKEN"] = token
+    env["HF_TOKEN"] = hf_token
 
     assert len(env["HF_TOKEN"]) > 0
 
@@ -232,5 +217,41 @@ def test_metadata(monkeypatch, tmp_path):
 
     subprocess.check_call(command)
     model = load_model("model-32-bit.pt", extensions_directory="extensions/")
+
+    assert f"This is the {model_name} model" in str(model.metadata())
+
+
+def test_export_checkpoint_with_metadata(monkeypatch, tmp_path):
+    """Tests that the metadata is correctly assigned to the exported
+    model if the checkpoint has the metadata inside."""
+
+    monkeypatch.chdir(tmp_path)
+
+    model_name = "test"
+    conf = OmegaConf.create({"name": model_name})
+    OmegaConf.save(config=conf, f="metadata.yaml")
+
+    command = [
+        "mtt",
+        "export",
+        str(RESOURCES_PATH / "model-32-bit.ckpt"),
+        "-o=model-32-bit-with-metadata.ckpt",
+        "--metadata=metadata.yaml",
+    ]
+
+    subprocess.check_call(command)
+
+    command = [
+        "mtt",
+        "export",
+        "model-32-bit-with-metadata.ckpt",
+        "-o=model-32-bit-with-metadata.pt",
+    ]
+
+    subprocess.check_call(command)
+
+    model = load_model(
+        "model-32-bit-with-metadata.pt", extensions_directory="extensions/"
+    )
 
     assert f"This is the {model_name} model" in str(model.metadata())

@@ -6,14 +6,15 @@ from metatensor.torch import Labels, TensorBlock, TensorMap
 from omegaconf import OmegaConf
 
 from metatrain.utils.data import (
+    CollateFn,
     Dataset,
     DatasetInfo,
     TargetInfo,
     check_datasets,
-    collate_fn,
     get_all_targets,
     get_atomic_types,
     get_stats,
+    read_extra_data,
     read_systems,
     read_targets,
 )
@@ -384,6 +385,7 @@ def test_dataset():
     }
     targets, _ = read_targets(OmegaConf.create(conf))
     dataset = Dataset.from_dict({"system": systems, "energy": targets["energy"]})
+    collate_fn = CollateFn(target_keys=["energy"])
     dataloader = torch.utils.data.DataLoader(
         dataset, batch_size=10, collate_fn=collate_fn
     )
@@ -565,7 +567,7 @@ def test_collate_fn():
     """Tests the collate_fn function."""
 
     systems = read_systems(RESOURCES_PATH / "qm9_reduced_100.xyz")
-    conf = {
+    conf_targets = {
         "mtt::U0": {
             "quantity": "energy",
             "read_from": str(RESOURCES_PATH / "qm9_reduced_100.xyz"),
@@ -580,15 +582,38 @@ def test_collate_fn():
             "virial": False,
         }
     }
-    targets, _ = read_targets(OmegaConf.create(conf))
-    dataset = Dataset.from_dict({"system": systems, "mtt::U0": targets["mtt::U0"]})
+    targets, _ = read_targets(OmegaConf.create(conf_targets))
 
+    conf_extra_data = {
+        "U0": {
+            "quantity": "",
+            "read_from": str(RESOURCES_PATH / "qm9_reduced_100.xyz"),
+            "reader": "ase",
+            "key": "U0",
+            "unit": "eV",
+            "type": "scalar",
+            "per_atom": False,
+            "num_subtargets": 1,
+        }
+    }
+    extra_data, _ = read_extra_data(OmegaConf.create(conf_extra_data))
+
+    dataset = Dataset.from_dict(
+        {
+            "system": systems,
+            "mtt::U0": targets["mtt::U0"],
+            "U0": extra_data["U0"],
+        }
+    )
+
+    collate_fn = CollateFn(target_keys=["mtt::U0"])
     batch = collate_fn([dataset[0], dataset[1], dataset[2]])
 
-    assert len(batch) == 2
+    assert len(batch) == 3
     assert isinstance(batch[0], tuple)
     assert len(batch[0]) == 3
     assert isinstance(batch[1], dict)
+    assert isinstance(batch[2], dict)
 
 
 def test_get_stats(layout_scalar):

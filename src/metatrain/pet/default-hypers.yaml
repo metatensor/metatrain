@@ -1,5 +1,4 @@
 architecture:
-
   name: pet
 
   model:
@@ -12,7 +11,7 @@ architecture:
     num_attention_layers: 2
     num_gnn_layers: 2
     zbl: false
-    long_range: 
+    long_range:
       enable: false
       use_ewald: false
       smearing: 1.4
@@ -36,7 +35,6 @@ architecture:
     log_mae: true
     log_separate_blocks: false
     best_model_metric: rmse_prod
-    finetune: {}
     grad_clip_norm: .inf
     loss:
       type: mse

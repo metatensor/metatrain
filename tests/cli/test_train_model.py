@@ -16,8 +16,8 @@ from omegaconf import OmegaConf
 
 from metatrain import RANDOM_SEED
 from metatrain.cli.train import _process_restart_from, train_model
-from metatrain.utils.data import DiskDatasetWriter
 from metatrain.utils.data.readers.ase import read
+from metatrain.utils.data.writers import DiskDatasetWriter
 from metatrain.utils.errors import ArchitectureError
 from metatrain.utils.neighbor_lists import get_system_with_neighbor_lists
 
@@ -27,8 +27,10 @@ from . import (
     DATASET_PATH_QM7X,
     DATASET_PATH_QM9,
     MODEL_PATH_64_BIT,
-    OPTIONS_NANOPET_PATH,
+    MODEL_PATH_PET,
+    OPTIONS_EXTRA_DATA_PATH,
     OPTIONS_PATH,
+    OPTIONS_PET_PATH,
     RESOURCES_PATH,
 )
 from .dump_spherical_targets import dump_spherical_targets
@@ -37,6 +39,16 @@ from .dump_spherical_targets import dump_spherical_targets
 @pytest.fixture
 def options():
     return OmegaConf.load(OPTIONS_PATH)
+
+
+@pytest.fixture
+def options_pet():
+    return OmegaConf.load(OPTIONS_PET_PATH)
+
+
+@pytest.fixture
+def options_extra():
+    return OmegaConf.load(OPTIONS_EXTRA_DATA_PATH)
 
 
 @pytest.mark.parametrize("output", [None, "mymodel.pt"])
@@ -102,6 +114,10 @@ def test_train(capfd, monkeypatch, tmp_path, output):
     assert stdout_log.count("This log is also available") == 1  # only once
     assert "Running training for 'soap_bpnn' architecture"
     assert re.search(r"Random seed of this run is [1-9]\d*", stdout_log)
+    assert re.search(
+        r"The model has (\d+(?:\.\d+)?[KMBT]?) parameters \(actual number: (\d+)\)",
+        stdout_log,
+    )
     assert "Training dataset:" in stdout_log
     assert "Validation dataset:" in stdout_log
     assert "Test dataset:" in stdout_log
@@ -115,7 +131,10 @@ def test_train(capfd, monkeypatch, tmp_path, output):
     assert "train" in stdout_log
     assert "energy" in stdout_log
     assert "with index" not in stdout_log  # index only printed for more than 1 dataset
-    assert "Running final evaluation with batch size 16" in stdout_log
+    assert "Running final evaluation with batch size 5" in stdout_log
+    assert "Atomic types" in stdout_log
+    assert "Model defined for atomic types" in stdout_log
+    assert "Starting training from scratch" in stdout_log
 
     # Open the CSV log file and check if the logging is correct
     csv_glob = glob.glob("outputs/*/*/train.csv")
@@ -293,19 +312,6 @@ def test_empty_training_set(monkeypatch, tmp_path, options):
         train_model(options)
 
 
-def test_batch_size_smaller_training_set(monkeypatch, tmp_path, options):
-    """Test that training still runs for batch size > train_size."""
-    monkeypatch.chdir(tmp_path)
-
-    shutil.copy(DATASET_PATH_QM9, "qm9_reduced_100.xyz")
-
-    options["validation_set"] = 0.55
-    options["test_set"] = 0.4
-    options["architecture"]["training"]["batch_size"] = 1000
-
-    train_model(options)
-
-
 @pytest.mark.parametrize("split", [-0.1, 1.1])
 def test_wrong_test_split_size(split, monkeypatch, tmp_path, options):
     """Test that an error is raised if the test split has the wrong size"""
@@ -427,13 +433,13 @@ def test_inconsistent_number_of_datasets(
 
 
 @pytest.mark.parametrize(
-    "taining_set_file, test_set_file, validation_set_file",
+    "training_set_file, test_set_file, validation_set_file",
     [(True, False, False), (False, True, False), (False, False, True)],
 )
 def test_inconsistencies_within_list_datasets(
     monkeypatch,
     tmp_path,
-    taining_set_file,
+    training_set_file,
     test_set_file,
     validation_set_file,
     options,
@@ -451,7 +457,7 @@ def test_inconsistencies_within_list_datasets(
     options["validation_set"] = ref_dataset_conf
     options["test_set"] = ref_dataset_conf
 
-    if taining_set_file:
+    if training_set_file:
         options["training_set"] = broken_dataset_conf
     if test_set_file:
         options["test_set"] = broken_dataset_conf
@@ -462,12 +468,139 @@ def test_inconsistencies_within_list_datasets(
         train_model(options)
 
 
+@pytest.mark.parametrize(
+    "break_target, break_extra",
+    [(True, False), (False, True), (False, False)],
+)
+def test_conflicting_info_between_training_sets(
+    monkeypatch,
+    tmp_path,
+    break_target,
+    break_extra,
+    options_extra,
+):
+    """
+    Test that train_model raises ValueError if either the target-info dicts or the
+    extra-data dicts disagree between two entries in options_extra['training_set']
+    """
+    monkeypatch.chdir(tmp_path)
+    shutil.copy(DATASET_PATH_QM9, "qm9_reduced_100.xyz")
+
+    ref_dataset_conf = OmegaConf.create(2 * [options_extra["training_set"]])
+    broken_dataset_conf = ref_dataset_conf.copy()
+
+    options_extra["training_set"] = ref_dataset_conf
+    options_extra["validation_set"] = ref_dataset_conf
+    options_extra["test_set"] = ref_dataset_conf
+
+    if break_target:
+        broken_dataset_conf[0]["targets"]["energy"]["quantity"] = "foo"
+        broken_dataset_conf[1]["targets"]["energy"]["quantity"] = "bar"
+        options_extra["training_set"] = broken_dataset_conf
+        msg = (
+            r"(?s)"  # now "." matches newlines
+            r"Target information for key energy differs between training sets\.\s*"
+            r"Got TargetInfo\(quantity='foo'.*?"
+            r"and TargetInfo\(quantity='bar'.*?\)\."
+        )
+        with pytest.raises(ValueError, match=msg):
+            train_model(options_extra)
+    elif break_extra:
+        broken_dataset_conf[0]["extra_data"]["extra"]["quantity"] = "foo"
+        broken_dataset_conf[1]["extra_data"]["extra"]["quantity"] = "bar"
+        options_extra["training_set"] = broken_dataset_conf
+        msg = (
+            r"(?s)"  # now "." matches newlines
+            r"Extra data information for key extra differs between training sets\.\s*"
+            r"Got TargetInfo\(quantity='foo'.*?"
+            r"and TargetInfo\(quantity='bar'.*?\)\."
+        )
+        with pytest.raises(ValueError, match=msg):
+            train_model(options_extra)
+    else:
+        # no exception should be raised
+        train_model(options_extra)
+
+
+@pytest.mark.parametrize(
+    "same_name",
+    [True, False],
+)
+def test_same_name_targets_extra_data(
+    monkeypatch,
+    tmp_path,
+    same_name,
+    options_extra,
+):
+    """
+    Test that train_model raises ValueError if the same name is used for
+    targets and extra_data in the same training set.
+    """
+    monkeypatch.chdir(tmp_path)
+    shutil.copy(DATASET_PATH_QM9, "qm9_reduced_100.xyz")
+
+    ref_dataset_conf = OmegaConf.create(options_extra["training_set"])
+    broken_dataset_conf = ref_dataset_conf.copy()
+
+    options_extra["training_set"] = ref_dataset_conf
+    options_extra["validation_set"] = ref_dataset_conf
+    options_extra["test_set"] = ref_dataset_conf
+
+    if same_name:
+        broken_dataset_conf["extra_data"]["energy"] = broken_dataset_conf["extra_data"][
+            "extra"
+        ]
+        options_extra["training_set"] = broken_dataset_conf
+        msg = (
+            "Extra data keys {'energy'} overlap with target keys. "
+            "Please use unique keys for targets and extra data."
+        )
+        with pytest.raises(ValueError, match=msg):
+            train_model(options_extra)
+    else:
+        # no exception should be raised
+        train_model(options_extra)
+
+
 def test_continue(options, monkeypatch, tmp_path):
     """Test that continuing training from a checkpoint runs without an error raise."""
     monkeypatch.chdir(tmp_path)
     shutil.copy(DATASET_PATH_QM9, "qm9_reduced_100.xyz")
 
     train_model(options, restart_from=MODEL_PATH_64_BIT)
+
+
+def test_finetune(options_pet, caplog, monkeypatch, tmp_path):
+    monkeypatch.chdir(tmp_path)
+
+    options_pet["architecture"]["training"]["finetune"] = {
+        "method": "heads",
+        "read_from": str(MODEL_PATH_PET),
+        "config": {
+            "head_modules": ["node_heads", "edge_heads"],
+            "last_layer_modules": ["node_last_layers", "edge_last_layers"],
+        },
+    }
+    shutil.copy(DATASET_PATH_QM9, "qm9_reduced_100.xyz")
+
+    caplog.set_level(logging.INFO)
+    train_model(options_pet)
+
+    assert f"Starting finetuning from '{MODEL_PATH_PET}'" in caplog.text
+
+
+def test_finetune_no_read_from(options_pet, monkeypatch, tmp_path):
+    monkeypatch.chdir(tmp_path)
+
+    options_pet["architecture"]["training"]["finetune"] = OmegaConf.create({})
+    shutil.copy(DATASET_PATH_QM9, "qm9_reduced_100.xyz")
+
+    match = (
+        "Finetuning is enabled but no checkpoint was provided. Please provide one "
+        "using the `read_from` option in the `finetune` section."
+    )
+    with pytest.raises(ValueError, match=match):
+        train_model(options_pet)
 
 
 def test_continue_auto(options, caplog, monkeypatch, tmp_path):
@@ -594,8 +727,11 @@ def test_architecture_error(options, monkeypatch, tmp_path):
         train_model(options)
 
 
-def test_train_issue_290(monkeypatch, tmp_path):
-    """Test the potential problem from issue #290."""
+def test_train_split_failure(monkeypatch, tmp_path):
+    """Test the potential problem from a split of large to very large datasets.
+
+    See issue #290.
+    """
     monkeypatch.chdir(tmp_path)
     shutil.copy(DATASET_PATH_ETHANOL, "ethanol_reduced_100.xyz")
 
@@ -610,6 +746,16 @@ def test_train_issue_290(monkeypatch, tmp_path):
     options["validation_set"] = 0.01
     options["test_set"] = 0.85
 
+    train_model(options)
+
+
+@pytest.mark.parametrize("atomic_types", [[1, 6, 7, 8], [1, 6, 7, 8, 100]])
+def test_train_atomic_types(options, monkeypatch, tmp_path, atomic_types):
+    """Tests that passing a complete and an over-complete
+    list of atomic types works."""
+    monkeypatch.chdir(tmp_path)
+    shutil.copy(DATASET_PATH_QM9, "qm9_reduced_100.xyz")
+    options["architecture"]["atomic_types"] = atomic_types
     train_model(options)
 
 
@@ -681,7 +827,7 @@ def test_train_generic_target_metatensor(monkeypatch, tmp_path, with_scalar_part
     )
 
     # run training with original options
-    options = OmegaConf.load(OPTIONS_NANOPET_PATH)
+    options = OmegaConf.load(OPTIONS_PET_PATH)
     options["training_set"]["systems"]["read_from"] = "qm7x_reduced_100.xyz"
     options["training_set"]["targets"] = {
         "mtt::polarizability": {
@@ -707,31 +853,83 @@ def test_train_disk_dataset(monkeypatch, tmp_path, options):
     shutil.copy(DATASET_PATH_QM9, "qm9_reduced_100.xyz")
 
     disk_dataset_writer = DiskDatasetWriter("qm9_reduced_100.zip")
-    for i in range(100):
-        frame = read("qm9_reduced_100.xyz", index=i)
-        system = systems_to_torch(frame, dtype=torch.float64)
-        system = get_system_with_neighbor_lists(
+
+    frames = read("qm9_reduced_100.xyz", index=":100")
+    systems = [
+        get_system_with_neighbor_lists(
             system,
             [NeighborListOptions(cutoff=5.0, full_list=True, strict=True)],
         )
-        energy = TensorMap(
-            keys=Labels.single(),
-            blocks=[
-                TensorBlock(
-                    values=torch.tensor([[frame.info["U0"]]], dtype=torch.float64),
-                    samples=Labels(
-                        names=["system"],
-                        values=torch.tensor([[i]]),
-                    ),
-                    components=[],
-                    properties=Labels("energy", torch.tensor([[0]])),
-                )
-            ],
-        )
-        disk_dataset_writer.write_sample(system, {"energy": energy})
-    del disk_dataset_writer
+        for system in systems_to_torch(frames, dtype=torch.float64)
+    ]
+    energy = TensorMap(
+        keys=Labels.single(),
+        blocks=[
+            TensorBlock(
+                samples=Labels.range("system", len(systems)),
+                components=[],
+                properties=Labels.range("energy", 1),
+                values=torch.tensor(
+                    [[frame.info["U0"]] for frame in frames], dtype=torch.float64
+                ),
+            )
+        ],
+    )
+    disk_dataset_writer.write(systems, {"energy": energy})
+    disk_dataset_writer.finish()
 
     options["training_set"]["systems"]["read_from"] = "qm9_reduced_100.zip"
+    options["training_set"]["targets"]["energy"]["read_from"] = "qm9_reduced_100.zip"
+    train_model(options)
+
+
+def test_train_disk_dataset_splits_issue_601(monkeypatch, tmp_path, options):
+    """Test that training via the training cli runs without an error raise
+    when learning from multiple `DiskDataset` objects for training and test datasets, as
+    per issue https://github.com/metatensor/metatrain/issues/601."""
+    monkeypatch.chdir(tmp_path)
+    shutil.copy(DATASET_PATH_QM9, "qm9_reduced_100.xyz")
+
+    for subset_name, xyz_idxs in zip(
+        ["training", "test"], [range(0, 80), range(80, 100)]
+    ):
+        disk_dataset_writer = DiskDatasetWriter(f"qm9_reduced_100_{subset_name}.zip")
+        for subset_i, xyz_i in enumerate(xyz_idxs):
+            frame = read("qm9_reduced_100.xyz", index=xyz_i)
+            system = systems_to_torch(frame, dtype=torch.float64)
+            system = get_system_with_neighbor_lists(
+                system,
+                [NeighborListOptions(cutoff=5.0, full_list=True, strict=True)],
+            )
+            energy = TensorMap(
+                keys=Labels.single(),
+                blocks=[
+                    TensorBlock(
+                        values=torch.tensor([[frame.info["U0"]]], dtype=torch.float64),
+                        samples=Labels(
+                            names=["system"],
+                            values=torch.tensor([[subset_i]]),
+                        ),
+                        components=[],
+                        properties=Labels("energy", torch.tensor([[0]])),
+                    )
+                ],
+            )
+            disk_dataset_writer.write([system], {"energy": energy})
+        disk_dataset_writer.finish()
+
+        options[f"{subset_name}_set"] = {
+            "systems": {
+                "read_from": f"qm9_reduced_100_{subset_name}.zip",
+                "length_unit": "angstrom",
+            },
+            "targets": {
+                "energy": {
+                    "read_from": f"qm9_reduced_100_{subset_name}.zip",
+                    "unit": "eV",
+                }
+            },
+        }
     train_model(options)
 
 
