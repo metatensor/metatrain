@@ -5,11 +5,10 @@ from typing import List, Union
 
 import torch
 import torch.distributed
-import torch.nn.grad
 from torch.utils.data import DataLoader, DistributedSampler
 
 from ...utils.additive import remove_additive
-from ...utils.data import CombinedDataLoader, Dataset, collate_fn
+from ...utils.data import CombinedDataLoader, Dataset, CollateFn
 from ...utils.distributed.distributed_data_parallel import DistributedDataParallel
 from ...utils.distributed.slurm import DistributedEnvironment
 from ...utils.evaluate_model import evaluate_model
@@ -24,17 +23,15 @@ from ...utils.neighbor_lists import (
 )
 from ...utils.per_atom import average_by_num_atoms
 from ...utils.scaler import remove_scale
-from ...utils.transfer import (
-    systems_and_targets_to_device,
-    systems_and_targets_to_dtype,
-)
+from ...utils.transfer import batch_to
 from .model import PhACE
+from metatrain.utils.abc import TrainerInterface
 
 
 logger = logging.getLogger(__name__)
 
 
-class Trainer:
+class Trainer(TrainerInterface):
     def __init__(self, train_hypers):
         self.hypers = train_hypers
         self.optimizer_state_dict = None
@@ -105,9 +102,11 @@ class Trainer:
         for additive_model in model.additive_models:
             additive_model.to(dtype=torch.float64)
 
-        logger.info("Calculating composition weights")
+        logging.info("Calculating composition weights")
         model.additive_models[0].train_model(  # this is the composition model
-            train_datasets, self.hypers["fixed_composition_weights"]
+            train_datasets,
+            model.additive_models[1:],
+            self.hypers["fixed_composition_weights"],
         )
 
         if self.hypers["scale_targets"]:
@@ -142,6 +141,12 @@ class Trainer:
         else:
             train_samplers = [None] * len(train_datasets)
             val_samplers = [None] * len(val_datasets)
+
+        # Create a collate function:
+        targets_keys = list(
+            (model.module if is_distributed else model).dataset_info.targets.keys()
+        )
+        collate_fn = CollateFn(target_keys=targets_keys)
 
         # Create dataloader for the training datasets:
         train_dataloaders = []
@@ -264,9 +269,9 @@ class Trainer:
             for batch in train_dataloader:
                 optimizer.zero_grad()
 
-                systems, targets = batch
-                systems, targets = systems_and_targets_to_device(
-                    systems, targets, device
+                systems, targets, extra_data = batch
+                systems, targets, extra_data = batch_to(
+                    systems, targets, extra_data, device=device
                 )
                 for additive_model in (
                     scripted_model.module if is_distributed else scripted_model
@@ -280,7 +285,9 @@ class Trainer:
                         scripted_model.module if is_distributed else scripted_model
                     ).scaler,
                 )
-                systems, targets = systems_and_targets_to_dtype(systems, targets, dtype)
+                systems, targets, extra_data = batch_to(
+                    systems, targets, extra_data, dtype=dtype
+                )
                 predictions = evaluate_model(
                     scripted_model,
                     systems,
@@ -326,9 +333,9 @@ class Trainer:
 
             val_loss = 0.0
             for batch in val_dataloader:
-                systems, targets = batch
-                systems, targets = systems_and_targets_to_device(
-                    systems, targets, device
+                systems, targets, extra_data = batch
+                systems, targets, extra_data = batch_to(
+                    systems, targets, extra_data, device=device
                 )
                 for additive_model in (
                     scripted_model.module if is_distributed else scripted_model
@@ -342,7 +349,9 @@ class Trainer:
                         scripted_model.module if is_distributed else scripted_model
                     ).scaler,
                 )
-                systems, targets = systems_and_targets_to_dtype(systems, targets, dtype)
+                systems, targets, extra_data = batch_to(
+                    systems, targets, extra_data, dtype=dtype
+                )
                 predictions = evaluate_model(
                     scripted_model,
                     systems,

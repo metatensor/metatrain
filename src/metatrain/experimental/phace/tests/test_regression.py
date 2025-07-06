@@ -2,7 +2,7 @@ import random
 
 import numpy as np
 import torch
-from metatensor.torch.atomistic import ModelOutput
+from metatomic.torch import ModelOutput
 from omegaconf import OmegaConf
 
 from metatrain.experimental.phace import PhACE, Trainer

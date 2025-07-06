@@ -31,9 +31,7 @@ from metatrain.utils.neighbor_lists import (
 )
 from metatrain.utils.per_atom import average_by_num_atoms
 from metatrain.utils.scaler import remove_scale
-from metatrain.utils.transfer import (
-    batch_to,
-)
+from metatrain.utils.transfer import batch_to
 
 from .model import SoapBpnn
 

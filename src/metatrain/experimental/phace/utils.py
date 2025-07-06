@@ -1,7 +1,7 @@
 from typing import Dict, List
 
 import torch
-from metatensor.torch.atomistic import NeighborListOptions, System
+from metatomic.torch import NeighborListOptions, System
 
 
 def systems_to_batch(

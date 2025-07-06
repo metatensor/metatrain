@@ -5,8 +5,8 @@ from typing import Dict, List, Optional, Tuple, Union
 import metatensor.torch
 import torch
 from metatensor.torch import Labels, TensorBlock, TensorMap
-from metatensor.torch.atomistic import (
-    MetatensorAtomisticModel,
+from metatomic.torch import (
+    AtomisticModel,
     ModelCapabilities,
     ModelMetadata,
     ModelOutput,
@@ -16,11 +16,12 @@ from metatensor.torch.atomistic import (
 
 from .modules.tensor_product import TensorProduct
 
-from ...utils.additive import ZBL, CompositionModel
-from ...utils.data.dataset import DatasetInfo, TargetInfo
-from ...utils.dtype import dtype_to_str
-from ...utils.io import check_file_extension
-from ...utils.scaler import Scaler
+from metatrain.utils.abc import ModelInterface
+from metatrain.utils.additive import ZBL, OldCompositionModel
+from metatrain.utils.data.dataset import DatasetInfo, TargetInfo
+from metatrain.utils.dtype import dtype_to_str
+from metatrain.utils.io import check_file_extension
+from metatrain.utils.scaler import Scaler
 from .modules.center_embedding import embed_centers, embed_centers_tensor_map
 from .modules.cg import get_cg_coefficients
 from .modules.cg_iterator import CGIterator
@@ -44,10 +45,13 @@ warnings.filterwarnings(
 )
 
 
-class PhACE(torch.nn.Module):
+class PhACE(ModelInterface):
 
     __supported_devices__ = ["cuda", "cpu"]
     __supported_dtypes__ = [torch.float64, torch.float32]
+    __default_metadata__ = ModelMetadata(
+        references={}
+    )
 
     component_labels: Dict[str, List[List[Labels]]]
     U_dict: Dict[int, torch.Tensor]
@@ -174,7 +178,7 @@ class PhACE(torch.nn.Module):
 
         # additive models: these are handled by the trainer at training
         # time, and they are added to the output at evaluation time
-        composition_model = CompositionModel(
+        composition_model = OldCompositionModel(
             model_hypers={},
             dataset_info=DatasetInfo(
                 length_unit=dataset_info.length_unit,
@@ -182,7 +186,7 @@ class PhACE(torch.nn.Module):
                 targets={
                     target_name: target_info
                     for target_name, target_info in dataset_info.targets.items()
-                    if CompositionModel.is_valid_target(target_info)
+                    if OldCompositionModel.is_valid_target(target_name, target_info)
                 },
             ),
         )
@@ -195,6 +199,10 @@ class PhACE(torch.nn.Module):
         self.scaler = Scaler(model_hypers={}, dataset_info=dataset_info)
 
         self.single_label = Labels.single()
+
+    @torch.jit.export
+    def supported_outputs(self) -> Dict[str, ModelOutput]:
+        return self.outputs
 
     def restart(self, dataset_info: DatasetInfo) -> "PhACE":
         # merge old and new dataset info
@@ -229,7 +237,7 @@ class PhACE(torch.nn.Module):
                 targets={
                     target_name: target_info
                     for target_name, target_info in dataset_info.targets.items()
-                    if CompositionModel.is_valid_target(target_info)
+                    if OldCompositionModel.is_valid_target(target_info)
                 },
             ),
         )
@@ -477,7 +485,7 @@ class PhACE(torch.nn.Module):
 
         return model
 
-    def export(self) -> MetatensorAtomisticModel:
+    def export(self) -> AtomisticModel:
         dtype = next(self.parameters()).dtype
         if dtype not in self.__supported_dtypes__:
             raise ValueError(f"unsupported dtype {self.dtype} for PhACE")

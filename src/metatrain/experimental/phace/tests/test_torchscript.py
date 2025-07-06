@@ -1,6 +1,6 @@
 import pytest
 import torch
-from metatensor.torch.atomistic import System
+from metatomic.torch import System
 
 from metatrain.experimental.phace import PhACE
 from metatrain.utils.data import DatasetInfo

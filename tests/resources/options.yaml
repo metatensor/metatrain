@@ -5,14 +5,15 @@ architecture:
   name: experimental.phace
   model:
     num_message_passing_layers: 2
-    num_element_channels: 128
+    num_element_channels: 32
     radial_basis:
-      max_eigenvalue: 70.0
+      max_eigenvalue: 30.0
   training:
     batch_size: 5
     num_epochs: 1000
     per_structure_targets: ["energy"]
     log_mae: true
+    log_interval: 1
 
 training_set:
   systems:
@@ -23,6 +24,6 @@ training_set:
       key: energy
       unit: eV
 
-test_set: 0.05
-validation_set: 0.90
+test_set: 0.90
+validation_set: 0.05
 

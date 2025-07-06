@@ -4,7 +4,7 @@ import ase.io
 import numpy as np
 import pytest
 import torch
-from metatensor.torch.atomistic import System, systems_to_torch
+from metatomic.torch import System, systems_to_torch
 
 from metatrain.experimental.phace import PhACE
 from metatrain.utils.data import DatasetInfo
