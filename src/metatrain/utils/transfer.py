@@ -1,34 +1,17 @@
-from typing import Dict, List
+from typing import Dict, List, Optional
 
 import torch
 from metatensor.torch import TensorMap
-from metatensor.torch.atomistic import System
+from metatomic.torch import System
 
 
 @torch.jit.script
-def systems_and_targets_to_device(
+def batch_to(  # pragma: no cover
     systems: List[System],
     targets: Dict[str, TensorMap],
-    device: torch.device,
-):
-    """
-    Transfers the systems and targets to the specified device.
-
-    :param systems: List of systems.
-    :param targets: Dictionary of targets.
-    :param device: Device to transfer to.
-    """
-
-    systems = [system.to(device=device) for system in systems]
-    targets = {key: value.to(device=device) for key, value in targets.items()}
-    return systems, targets
-
-
-@torch.jit.script
-def systems_and_targets_to_dtype(
-    systems: List[System],
-    targets: Dict[str, TensorMap],
-    dtype: torch.dtype,
+    extra_data: Optional[Dict[str, TensorMap]] = None,
+    dtype: Optional[torch.dtype] = None,
+    device: Optional[torch.device] = None,
 ):
     """
     Changes the systems and targets to the specified floating point data type.
@@ -38,6 +21,14 @@ def systems_and_targets_to_dtype(
     :param dtype: Desired floating point data type.
     """
 
-    systems = [system.to(dtype=dtype) for system in systems]
-    targets = {key: value.to(dtype=dtype) for key, value in targets.items()}
-    return systems, targets
+    systems = [system.to(dtype=dtype, device=device) for system in systems]
+    targets = {
+        key: value.to(dtype=dtype, device=device) for key, value in targets.items()
+    }
+    if extra_data is not None:
+        extra_data = {
+            key: value.to(dtype=dtype, device=device)
+            for key, value in extra_data.items()
+        }
+
+    return systems, targets, extra_data

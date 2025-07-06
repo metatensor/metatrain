@@ -9,7 +9,7 @@ from typing import List
 
 import pytest
 
-from metatrain import PACKAGE_ROOT, __version__
+from metatrain import __version__
 
 
 COMPFILE = Path(__file__).parents[2] / "src/metatrain/share/metatrain-completion.bash"
@@ -54,22 +54,26 @@ def test_shell_completion_flag():
     assert Path(completion_path.decode("ascii")).is_file
 
 
-# TODO: There seems to be an issue with zsh, Github CI and subprocesses.
-@pytest.mark.parametrize(
-    "shell",
-    [
-        "bash",
-        pytest.param("zsh", marks=pytest.mark.xfail(reason="Github CI - zsh issue")),
-    ],
-)
-def test_syntax_completion(shell):
-    """Test that the completion can be sourced"""
+def test_syntax_completion_bash():
     subprocess.check_call(
         args=[
-            shutil.which(shell),
-            "-i",
+            shutil.which("bash"),
+            "--noprofile",
+            "--norc",
             "-c",
             "source $(mtt --shell-completion)",
+        ],
+    )
+
+
+@pytest.mark.xfail(reason="This fails on github Action for an unknown reason")
+def test_syntax_completion_zsh():
+    subprocess.check_call(
+        args=[
+            shutil.which("zsh"),
+            "--no-rcs",
+            "-c",
+            "autoload -Uz compinit && compinit && source $(mtt --shell-completion)",
         ],
     )
 
@@ -142,18 +146,3 @@ def test_error(subcommand, capfd, monkeypatch, tmp_path):
     assert f"please include the full traceback log from {error_file!r}" in stdout_log
     assert "No such file or directory" in stdout_log
     assert "Traceback" in error_log
-
-
-def test_run_information(capfd, monkeypatch, tmp_path):
-    """Test that run informations are displayed correctly"""
-    monkeypatch.chdir(tmp_path)
-
-    with pytest.raises(CalledProcessError):
-        subprocess.check_call(["mtt", "export", "model.ckpt"])
-
-    stdout_log = capfd.readouterr().out
-
-    assert f"Package directory: {PACKAGE_ROOT}" in stdout_log
-    assert f"Working directory: {Path('.').absolute()}" in stdout_log
-    assert f"Metatrain version: {__version__}" in stdout_log
-    assert "Executed command: mtt export model.ckpt" in stdout_log

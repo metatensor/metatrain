@@ -1,7 +1,7 @@
 seed: 42
 
 architecture:
-  name: experimental.soap_bpnn
+  name: soap_bpnn
   training:
     batch_size: 8
     num_epochs: 100

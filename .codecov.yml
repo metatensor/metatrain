@@ -9,7 +9,13 @@ coverage:
   ignore:
     - "tests/.*"
     - "examples/.*"
+    - "src/metatrain/deprecated/.*"
     - "src/metatrain/experimental/.*"
+    - "src/metatrain/gap/.*"
+    - "src/metatrain/pet/.*"
+    - "src/metatrain/soap_bpnn/.*"
     - "src/metatrain/utils/distributed/.*"
+    - "src/metatrain/utils/sum_over_atoms.py"
+    - "src/metatrain/utils/augmentation.py"
 
 comment: false

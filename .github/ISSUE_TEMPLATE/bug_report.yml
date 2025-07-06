@@ -1,0 +1,79 @@
+name: 🐛 Bug report
+description: Create a bug report to help us eliminate issues and improve.
+title: "[BUG] "
+labels: [Bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for taking the time to fill out this bug report!
+  - type: textarea
+    id: summary
+    attributes:
+      label: Summary
+      description: A clear and concise description of what the bug is.
+      placeholder: Describe the bug clearly and concisely.
+    validations:
+      required: true
+  - type: textarea
+    id: expected_behavior
+    attributes:
+      label: Expected behavior
+      description: |
+        A clear and concise description of what you want to do and what you think should happen.
+        (Code and files to reproduce the behavior can be added below).
+      placeholder: Describe what you expected to happen.
+    validations:
+      required: true
+  - type: textarea
+    id: actual_behavior
+    attributes:
+      label: Actual behavior
+      description: |
+        Describe the actual behavior, how it differs from the expected behavior, and how this can be observed.
+
+        Try to be specific and do **not** use vague terms like "doesn't work" or "wrong result".
+
+        Do not assume that the person reading this has any experience with or knowledge of your specific area of research.
+      placeholder: Describe the actual behavior.
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Version
+      description: |
+        What version of our software are you using? You can find it by running:
+
+        ```
+        mtt --version
+        ```
+      placeholder: e.g., 2025.8.1
+    validations:
+      required: true
+  - type: textarea
+    id: steps_to_reproduce
+    attributes:
+      label: Steps to reproduce
+      description: |
+        Describe the steps required to (quickly) reproduce the issue.
+
+        You can attach (small) files to the section below or add URLs where to download an archive with all necessary files.
+
+        Please try to create an input set that is as minimal and small as possible and reproduces the bug as quickly as possible.
+
+        **NOTE:** the less effort and time it takes to reproduce your reported bug, the more likely it becomes that somebody will look into it and fix the problem.
+      placeholder: List the steps to reproduce here.
+    validations:
+      required: false
+  - type: textarea
+    id: further_info
+    attributes:
+      label: Further information, files, and links
+      description: |
+        Provide the *train*, *error log*, and the input **options.yaml** of your run, if applicable.
+
+        Any relevant information that might help us to understand the issue.
+      placeholder: Add relevant files, logs, or links here.
+    validations:
+      required: false

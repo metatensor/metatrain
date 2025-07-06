@@ -39,6 +39,26 @@
         },
         "zbl": {
           "type": "boolean"
+        },
+        "long_range": {
+          "type": "object",
+          "properties": {
+            "enable": {
+              "type": "boolean"
+            },
+            "use_ewald": {
+              "type": "boolean"
+            },
+            "smearing": {
+              "type": "number"
+            },
+            "kspace_resolution": {
+              "type": "number"
+            },
+            "interpolation_nodes": {
+              "type": "integer"
+            }
+          }
         }
       },
       "additionalProperties": false
@@ -158,6 +178,11 @@
         }
       },
       "additionalProperties": false
+    },
+    "atomic_types": {
+      "type": "array",
+      "items": { "type": "integer", "minimum": 1 },
+      "uniqueItems": true
     }
   },
   "additionalProperties": false

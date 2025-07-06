@@ -2,7 +2,7 @@ from pathlib import Path
 
 import torch
 from metatensor.torch import Labels, TensorBlock, TensorMap
-from metatensor.torch.atomistic import System
+from metatomic.torch import System
 from omegaconf import OmegaConf
 
 from metatrain.utils.data import Dataset, DatasetInfo
@@ -205,6 +205,9 @@ def test_scaler_torchscript(tmpdir):
 
     scaler = torch.jit.script(scaler)
     scaler(fake_output)
-    torch.jit.save(scaler, tmpdir / "scaler.pt")
-    scaler = torch.jit.load(tmpdir / "scaler.pt")
+
+    with tmpdir.as_cwd():
+        torch.jit.save(scaler, tmpdir / "scaler.pt")
+        scaler = torch.jit.load(tmpdir / "scaler.pt")
+
     scaler(fake_output)

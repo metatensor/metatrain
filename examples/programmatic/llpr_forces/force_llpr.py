@@ -1,15 +1,15 @@
 import matplotlib.pyplot as plt
 import numpy as np
 import torch
-from metatensor.torch.atomistic import (
-    MetatensorAtomisticModel,
+from metatomic.torch import (
+    AtomisticModel,
     ModelEvaluationOptions,
     ModelMetadata,
     ModelOutput,
     load_atomistic_model,
 )
 
-from metatrain.utils.data import Dataset, collate_fn, read_systems, read_targets
+from metatrain.utils.data import CollateFn, Dataset, read_systems, read_targets
 from metatrain.utils.llpr import LLPRUncertaintyModel
 from metatrain.utils.loss import TensorMapDictLoss
 from metatrain.utils.neighbor_lists import get_system_with_neighbor_lists
@@ -122,6 +122,8 @@ test_systems = [
 ]
 test_dataset = Dataset.from_dict({"system": test_systems, **test_targets})
 
+collate_fn = CollateFn(target_keys=list(train_targets.keys()))
+
 train_dataloader = torch.utils.data.DataLoader(
     train_dataset,
     batch_size=4,
@@ -163,7 +165,7 @@ llpr_model.compute_covariance_as_pseudo_hessian(
 llpr_model.compute_inverse_covariance()
 llpr_model.calibrate(valid_dataloader)
 
-exported_model = MetatensorAtomisticModel(
+exported_model = AtomisticModel(
     llpr_model.eval(),
     ModelMetadata(),
     llpr_model.capabilities,
@@ -184,7 +186,7 @@ force_uncertainties = []
 
 for batch in test_dataloader:
     dtype = getattr(torch, model.capabilities().dtype)
-    systems, targets = batch
+    systems, targets, extra_data = batch
     systems = [system.to("cuda", dtype) for system in systems]
     for system in systems:
         system.positions.requires_grad = True

@@ -20,7 +20,7 @@ to other potential users. Other than that, you can help with:
 All these contributions are very welcome. We accept contributions via Github `pull
 request <https://github.com/metatrain/pulls>`_. If you want to work on the code
 and pick something easy to get started, have a look at the `good first issues
-<https://github.com/lab-cosmo/metatrain/labels/Good%20first%20issue>`_.
+<https://github.com/metatensor/metatrain/labels/Good%20first%20issue>`_.
 
 
 Bug reports and feature requests
@@ -32,7 +32,7 @@ happened instead? Please provide any useful code snippet or input file with your
 report.
 
 If you want to add a new feature to metatrain, please create an `issue
-<https://github.com/lab-cosmo/metatrain/issues/new>`_ so that we can discuss it,
+<https://github.com/metatensor/metatrain/issues/new>`_ so that we can discuss it,
 and you have more chances to see your changes incorporated.
 
 
@@ -54,7 +54,7 @@ Then this package itself
 
 .. code-block:: bash
 
-  git clone https://github.com/lab-cosmo/metatrain 
+  git clone https://github.com/metatensor/metatrain 
   cd metatrain 
   pip install -e .
 
@@ -130,3 +130,48 @@ Contributing new architectures
 ------------------------------
 If you want to contribute a new model pleas read the pages on
 :ref:`architecture-life-cycle` and :ref:`adding-new-architecture`.
+
+How to Perform a Release
+-------------------------
+
+1. **Prepare a Release Pull Request**
+
+   - Based on the main branch create branch ``release-2025.3`` and a PR.
+   - Ensure that all `CI tests <https://github.com/lab-cosmo/torch-pme/actions>`_ pass.
+   - Optionally, run the tests locally to double-check.
+
+2. **Update the Changelog**
+
+   - Edit the changelog located in ``docs/src/dev-docs/changelog.rst``:
+      - Add a new section for the new version, summarizing the changes based on the
+        PRs merged since the last release.
+      - Leave a placeholder section titled *Unreleased* for future updates.
+
+3. **Merge the PR and Create a Tag**
+
+   - Merge the release PR.
+   - Update the ``main`` branch and check that the latest commit is the release PR with
+     ``git log``
+   - Create a tag on directly the ``main`` branch.
+   - Push the tag to GitHub. For example for a release of version ``2025.3``:
+
+     .. code-block:: bash
+
+        git checkout main
+        git pull
+        git tag -a v2025.3 -m "Release v2025.3"
+        git push --tags
+
+4. **Finalize the GitHub Release**
+
+   - Once the PR is merged, the CI will automatically:
+      - Publish the package to PyPI.
+      - Create a draft release on GitHub.
+   - Update the GitHub release notes by pasting the changelog for the version.
+
+5. **Merge Conda Recipe Changes**
+
+   - May resolve and then merge an automatically created PR on the `conda recipe
+     <https://github.com/conda-forge/metatrain-feedstock>`_.
+   - Once thus PR is merged and the new version will be published automatically on the
+     `conda-forge <https://anaconda.org/conda-forge/metatrain>`_ channel.

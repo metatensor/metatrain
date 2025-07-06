@@ -1,29 +1,32 @@
 .. _architecture-nanopet:
 
-NanoPET
-=======
+NanoPET (experimental)
+======================
 
 .. warning::
 
-  This is an **experimental model**.  You should not use it for anything important.
+  This is an **experimental model**. You should not use it for anything important.
 
-This is a more user-friendly re-implementation of the original PET (which lives in
-https://github.com/spozdn/pet), with slightly improved training and evaluation speed.
+This is a more user-friendly re-implementation of the original
+PET :footcite:p:`pozdnyakov_smooth_2023` (which lives in https://github.com/spozdn/pet),
+with slightly improved training and evaluation speed.
 
 Installation
 ------------
+
 To install the package, you can run the following command in the root
 directory of the repository:
 
 .. code-block:: bash
 
-    pip install .[nanopet]
+    pip install metatrain[nanopet]
 
 This will install the package with the nanoPET dependencies.
 
 
 Default Hyperparameters
 -----------------------
+
 The default hyperparameters for the nanoPET model are:
 
 .. literalinclude:: ../../../src/metatrain/experimental/nanopet/default-hypers.yaml
@@ -32,6 +35,7 @@ The default hyperparameters for the nanoPET model are:
 
 Tuning Hyperparameters
 ----------------------
+
 The default hyperparameters above will work well in most cases, but they
 may not be optimal for your specific dataset. In general, the most important
 hyperparameters to tune are (in decreasing order of importance):
@@ -69,10 +73,14 @@ hyperparameters to tune are (in decreasing order of importance):
   ``deltas: {"energy": 0.1, "forces": 0.01}``). 3. ``reduction``. This controls how the
   loss is reduced over batches. The default value is ``mean``, and the other allowed
   option is ``sum``.
+- ``long_range``: In some systems and datasets, enabling long-range Coulomb interactions
+  might be beneficial for the accuracy of the model and/or its physical correctness.
+  See below for a breakdown of the long-range section of the model hyperparameters.
 
 
 All Hyperparameters
 -------------------
+
 :param name: ``experimental.nanopet``
 
 model
@@ -91,9 +99,17 @@ The model-related hyperparameters are
   MLP (multi-layer perceptron) head. MLP heads consist of two hidden layers with
   dimensionality ``d_pet``.
 :param zbl: Whether to use the ZBL short-range repulsion as the baseline for the model
+:param long_range: Parameters related to long-range interactions. ``enable``: whether
+  to use long-range interactions; ``use_ewald``: whether to use an Ewald calculator
+  (faster for smaller systems); ``smearing``: the width of the Gaussian function used
+  to approximate the charge distribution in Fourier space; ``kspace_resolution``: the
+  spatial resolution of the Fourier-space used for calculating long-range interactions;
+  ``interpolation_nodes``: the number of grid points used in spline
+  interpolation for the P3M method.
 
 training
 ########
+
 The hyperparameters for training are
 
 :param distributed: Whether to use distributed training
@@ -120,3 +136,8 @@ The hyperparameters for training are
     the current directory and in the checkpoint directory. The default is ``rmse_prod``,
     i.e., the product of the RMSEs for each target. Other options are ``mae_prod`` and
     ``loss``.
+
+References
+----------
+
+.. footbibliography::

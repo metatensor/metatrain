@@ -117,20 +117,13 @@ def cartesian_tensor_map():
 
 def test_read_systems():
     with pytest.raises(NotImplementedError):
-        read_systems("foo.npz")
+        read_systems("foo.mts")
 
 
-def test_read_energy(monkeypatch, tmpdir, energy_tensor_map):
-    monkeypatch.chdir(tmpdir)
-
-    metatensor.torch.save(
-        "energy.npz",
-        energy_tensor_map,
-    )
-
+def test_read_energy(tmpdir, energy_tensor_map):
     conf = {
         "quantity": "energy",
-        "read_from": "energy.npz",
+        "read_from": "energy.mts",
         "reader": "metatensor",
         "key": "true_energy",
         "unit": "eV",
@@ -142,7 +135,9 @@ def test_read_energy(monkeypatch, tmpdir, energy_tensor_map):
         "virial": False,
     }
 
-    tensor_maps, target_info = read_energy(OmegaConf.create(conf))
+    with tmpdir.as_cwd():
+        metatensor.torch.save("energy.mts", energy_tensor_map)
+        tensor_maps, _ = read_energy(OmegaConf.create(conf))
 
     tensor_map = metatensor.torch.join(
         tensor_maps, axis="samples", remove_tensor_name=True
@@ -150,17 +145,10 @@ def test_read_energy(monkeypatch, tmpdir, energy_tensor_map):
     assert metatensor.torch.equal(tensor_map, energy_tensor_map)
 
 
-def test_read_generic_scalar(monkeypatch, tmpdir, scalar_tensor_map):
-    monkeypatch.chdir(tmpdir)
-
-    metatensor.torch.save(
-        "generic.npz",
-        scalar_tensor_map,
-    )
-
+def test_read_generic_scalar(tmpdir, scalar_tensor_map):
     conf = {
         "quantity": "generic",
-        "read_from": "generic.npz",
+        "read_from": "generic.mts",
         "reader": "metatensor",
         "keys": ["scalar"],
         "per_atom": True,
@@ -169,7 +157,9 @@ def test_read_generic_scalar(monkeypatch, tmpdir, scalar_tensor_map):
         "num_subtargets": 10,
     }
 
-    tensor_maps, target_info = read_generic(OmegaConf.create(conf))
+    with tmpdir.as_cwd():
+        metatensor.torch.save("generic.mts", scalar_tensor_map)
+        tensor_maps, _ = read_generic(OmegaConf.create(conf))
 
     tensor_map = metatensor.torch.join(
         tensor_maps, axis="samples", remove_tensor_name=True
@@ -177,17 +167,10 @@ def test_read_generic_scalar(monkeypatch, tmpdir, scalar_tensor_map):
     assert metatensor.torch.equal(tensor_map, scalar_tensor_map)
 
 
-def test_read_generic_spherical(monkeypatch, tmpdir, spherical_tensor_map):
-    monkeypatch.chdir(tmpdir)
-
-    metatensor.torch.save(
-        "generic.npz",
-        spherical_tensor_map,
-    )
-
+def test_read_generic_spherical(tmpdir, spherical_tensor_map):
     conf = {
         "quantity": "generic",
-        "read_from": "generic.npz",
+        "read_from": "generic.mts",
         "reader": "metatensor",
         "keys": ["o3_lambda", "o3_sigma"],
         "per_atom": False,
@@ -203,7 +186,9 @@ def test_read_generic_spherical(monkeypatch, tmpdir, spherical_tensor_map):
         "num_subtargets": 1,
     }
 
-    tensor_maps, target_info = read_generic(OmegaConf.create(conf))
+    with tmpdir.as_cwd():
+        metatensor.torch.save("generic.mts", spherical_tensor_map)
+        tensor_maps, _ = read_generic(OmegaConf.create(conf))
 
     tensor_map = metatensor.torch.join(
         tensor_maps, axis="samples", remove_tensor_name=True
@@ -211,17 +196,10 @@ def test_read_generic_spherical(monkeypatch, tmpdir, spherical_tensor_map):
     assert metatensor.torch.equal(tensor_map, spherical_tensor_map)
 
 
-def test_read_generic_cartesian(monkeypatch, tmpdir, cartesian_tensor_map):
-    monkeypatch.chdir(tmpdir)
-
-    metatensor.torch.save(
-        "generic.npz",
-        cartesian_tensor_map,
-    )
-
+def test_read_generic_cartesian(tmpdir, cartesian_tensor_map):
     conf = {
         "quantity": "generic",
-        "read_from": "generic.npz",
+        "read_from": "generic.mts",
         "reader": "metatensor",
         "keys": ["cartesian"],
         "per_atom": False,
@@ -234,29 +212,24 @@ def test_read_generic_cartesian(monkeypatch, tmpdir, cartesian_tensor_map):
         "num_subtargets": 1,
     }
 
-    tensor_maps, target_info = read_generic(OmegaConf.create(conf))
-
-    print(tensor_maps)
+    with tmpdir.as_cwd():
+        metatensor.torch.save("generic.mts", cartesian_tensor_map)
+        tensor_maps, _ = read_generic(OmegaConf.create(conf))
 
     tensor_map = metatensor.torch.join(
         tensor_maps, axis="samples", remove_tensor_name=True
     )
-    print(tensor_map)
-    print(cartesian_tensor_map)
+
     assert metatensor.torch.equal(tensor_map, cartesian_tensor_map)
 
 
-def test_read_errors(monkeypatch, tmpdir, energy_tensor_map, scalar_tensor_map):
-    monkeypatch.chdir(tmpdir)
-
-    metatensor.torch.save(
-        "energy.npz",
-        energy_tensor_map,
-    )
+def test_read_errors(tmpdir, energy_tensor_map, scalar_tensor_map):
+    with tmpdir.as_cwd():
+        metatensor.torch.save("energy.mts", energy_tensor_map)
 
     conf = {
         "quantity": "energy",
-        "read_from": "energy.npz",
+        "read_from": "energy.mts",
         "reader": "metatensor",
         "key": "true_energy",
         "unit": "eV",
@@ -269,22 +242,21 @@ def test_read_errors(monkeypatch, tmpdir, energy_tensor_map, scalar_tensor_map):
     }
 
     numpy_array = np.zeros((2, 2))
-    np.save("numpy_array.npz", numpy_array)
-    conf["read_from"] = "numpy_array.npz"
-    with pytest.raises(ValueError, match="Failed to read"):
-        read_energy(OmegaConf.create(conf))
-    conf["read_from"] = "energy.npz"
 
-    conf["forces"] = True
-    with pytest.raises(ValueError, match="Unexpected gradients"):
-        read_energy(OmegaConf.create(conf))
-    conf["forces"] = False
+    with tmpdir.as_cwd():
+        np.save("numpy_array.mts", numpy_array)
+        conf["read_from"] = "numpy_array.mts"
+        with pytest.raises(ValueError, match="Failed to read"):
+            read_energy(OmegaConf.create(conf))
+        conf["read_from"] = "energy.mts"
 
-    metatensor.torch.save(
-        "scalar.npz",
-        scalar_tensor_map,
-    )
+        conf["forces"] = True
+        with pytest.raises(ValueError, match="Unexpected gradients"):
+            read_energy(OmegaConf.create(conf))
+        conf["forces"] = False
 
-    conf["read_from"] = "scalar.npz"
-    with pytest.raises(ValueError, match="Unexpected samples"):
-        read_generic(OmegaConf.create(conf))
+        metatensor.torch.save("scalar.mts", scalar_tensor_map)
+
+        conf["read_from"] = "scalar.mts"
+        with pytest.raises(ValueError, match="Unexpected samples"):
+            read_generic(OmegaConf.create(conf))

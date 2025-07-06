@@ -4,12 +4,13 @@ import metatensor.torch
 import numpy as np
 import torch
 from metatensor.torch import TensorMap
-from metatensor.torch.atomistic import ModelOutput
+from metatomic.torch import ModelOutput
 
 from .additive import remove_additive
 from .data import Dataset, DatasetInfo, TargetInfo, get_all_targets
 from .jsonschema import validate
 from .per_atom import average_by_num_atoms
+from .transfer import batch_to
 
 
 class Scaler(torch.nn.Module):
@@ -31,9 +32,6 @@ class Scaler(torch.nn.Module):
         target quantities and atomic types.
     """
 
-    outputs: Dict[str, ModelOutput]
-    scales: torch.Tensor
-
     def __init__(self, model_hypers: Dict, dataset_info: DatasetInfo):
         super().__init__()
 
@@ -44,12 +42,12 @@ class Scaler(torch.nn.Module):
         )
 
         self.dataset_info = dataset_info
-
-        self.new_targets: Dict[str, TargetInfo] = dataset_info.targets
+        self.new_targets = dataset_info.targets
         self.outputs: Dict[str, ModelOutput] = {}
 
         # Initially, the scales are empty. They will be expanded as new outputs
         # are registered with `_add_output`.
+        self.scales: torch.Tensor  # mypy does not understand register_buffer
         self.register_buffer("scales", torch.ones((0,), dtype=torch.float64))
         self.output_name_to_output_index: Dict[str, int] = {}
         for target_name, target_info in self.dataset_info.targets.items():
@@ -82,10 +80,11 @@ class Scaler(torch.nn.Module):
         if not isinstance(datasets, list):
             datasets = [datasets]
 
+        device = self.scales.device
+
         # Fill the scales for each "new" target (i.e. those that do not already
         # have scales from a previous training run)
         for target_key in self.new_targets:
-
             datasets_with_target = []
             for dataset in datasets:
                 if target_key in get_all_targets(dataset):
@@ -98,11 +97,12 @@ class Scaler(torch.nn.Module):
 
             sum_of_squared_targets = 0.0
             total_num_elements = 0
-
             for dataset in datasets_with_target:
                 for sample in dataset:
                     systems = [sample["system"]]
                     targets = {target_key: sample[target_key]}
+
+                    systems, targets, _ = batch_to(systems, targets, device=device)
 
                     for additive_model in additive_models:
                         target_info_dict = {target_key: self.new_targets[target_key]}
@@ -197,7 +197,6 @@ class Scaler(torch.nn.Module):
         return scaled_outputs
 
     def _add_output(self, target_name: str, target_info: TargetInfo) -> None:
-
         self.outputs[target_name] = ModelOutput(
             quantity=target_info.quantity,
             unit=target_info.unit,

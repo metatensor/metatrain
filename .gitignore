@@ -7,6 +7,7 @@ __pycache__/
 *.so
 
 # Distribution / packaging
+_version.py
 .Python
 build/
 develop-eggs/
@@ -162,11 +163,20 @@ cython_debug/
 # Don't save model outputs
 *.pt
 *.ckpt
+*.csv
+wandb/
 
-# model output directories
+# model output directories and extensions
 outputs/
 examples/basic_usage/*.xyz
+extensions/
 
 # sphinx gallery
 docs/src/examples
 *execution_times*
+qm9_reduced_100.zip
+
+# JavaScript
+node_modules/
+package-lock.json
+package.json

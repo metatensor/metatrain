@@ -1,17 +1,30 @@
 import math
 import os
 import warnings
+import zipfile
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple, Union
+from typing import Any, Dict, List, Optional, Set, Tuple, Union
 
 import numpy as np
+import torch
 from metatensor.learn.data import Dataset, group_and_join
-from metatensor.torch import TensorMap
+from metatensor.learn.data._namedtuple import namedtuple
+from metatensor.torch import TensorMap, load_buffer
+from metatomic.torch import load_system
+from omegaconf import DictConfig
 from torch.utils.data import Subset
 
-from ..external_naming import to_external_name
-from ..units import get_gradient_units
-from .target_info import TargetInfo
+from metatrain.utils.data.readers.metatensor import (
+    _check_tensor_map_metadata,
+    _empty_tensor_map_like,
+)
+from metatrain.utils.data.target_info import (
+    TargetInfo,
+    get_energy_target_info,
+    get_generic_target_info,
+)
+from metatrain.utils.external_naming import to_external_name
+from metatrain.utils.units import get_gradient_units
 
 
 class DatasetInfo:
@@ -21,19 +34,26 @@ class DatasetInfo:
     training functions of the individual models.
 
     :param length_unit: Unit of length used in the dataset. Examples are ``"angstrom"``
-        or ``"nanometer"``.
+        or ``"nanometer"``. If None, the unit will be set to the empty string.
     :param atomic_types: List containing all integer atomic types present in the
         dataset. ``atomic_types`` will be stored as a sorted list of **unique** atomic
         types.
     :param targets: Information about targets in the dataset.
+    :param extra_data: Optional dictionary containing additional data that is not
+        used as a target, but is still relevant to the dataset.
     """
 
     def __init__(
-        self, length_unit: str, atomic_types: List[int], targets: Dict[str, TargetInfo]
+        self,
+        length_unit: Optional[str],
+        atomic_types: List[int],
+        targets: Dict[str, TargetInfo],
+        extra_data: Optional[Dict[str, TargetInfo]] = None,
     ):
         self.length_unit = length_unit if length_unit is not None else ""
         self._atomic_types = set(atomic_types)
         self.targets = targets
+        self.extra_data = extra_data if extra_data is not None else {}
 
     @property
     def atomic_types(self) -> List[int]:
@@ -60,6 +80,7 @@ class DatasetInfo:
             self.length_unit == other.length_unit
             and self._atomic_types == other._atomic_types
             and self.targets == other.targets
+            and self.extra_data == other.extra_data
         )
 
     def copy(self) -> "DatasetInfo":
@@ -68,6 +89,7 @@ class DatasetInfo:
             length_unit=self.length_unit,
             atomic_types=self.atomic_types.copy(),
             targets=self.targets.copy(),
+            extra_data=self.extra_data.copy(),
         )
 
     def update(self, other: "DatasetInfo") -> None:
@@ -94,6 +116,18 @@ class DatasetInfo:
                     "internal metadata of the layout."
                 )
         self.targets.update(other.targets)
+
+        intersecting_extra_data_keys = self.extra_data.keys() & other.extra_data.keys()
+        for key in intersecting_extra_data_keys:
+            if not self.extra_data[key].is_compatible_with(other.extra_data[key]):
+                raise ValueError(
+                    f"Can't update DatasetInfo with different extra data information "
+                    f"for key '{key}': {self.extra_data[key]} is not compatible with "
+                    f"{other.extra_data[key]}. If the units, quantity and keys of the "
+                    "two extra data dictionaries are the same, this must be due to a "
+                    "mismatch in the internal metadata of the layout."
+                )
+        self.extra_data.update(other.extra_data)
 
     def union(self, other: "DatasetInfo") -> "DatasetInfo":
         """Return the union of this instance with ``other``."""
@@ -151,6 +185,8 @@ def get_stats(dataset: Union[Dataset, Subset], dataset_info: DatasetInfo) -> str
     # Find units
     units = {}
     for key in target_names:
+        if key not in dataset_info.targets:
+            continue
         # Gets the units of an output
         if key.endswith("_gradients"):
             # handling <base_name>_<gradient_name>_gradients
@@ -165,8 +201,12 @@ def get_stats(dataset: Union[Dataset, Subset], dataset_info: DatasetInfo) -> str
             unit = dataset_info.targets[key].unit
         units[key] = unit
 
+    # TODO: add extra data statistics?
+
     stats += "\n    Mean and standard deviation of targets:"
     for key in target_names:
+        if key not in means or key not in units or key not in stds:
+            continue
         stats += (
             f"\n    - {to_external_name(key, dataset_info.targets)}: "  # type: ignore
             + f"\n      - mean {means[key]:.4g}"
@@ -190,8 +230,8 @@ def get_atomic_types(datasets: Union[Dataset, List[Dataset]]) -> List[int]:
 
     types = set()
     for dataset in datasets:
-        for index in range(len(dataset)):
-            system = dataset[index]["system"]
+        for sample in dataset:
+            system = sample["system"]
             types.update(set(system.types.tolist()))
 
     return sorted(types)
@@ -221,17 +261,44 @@ def get_all_targets(datasets: Union[Dataset, List[Dataset]]) -> List[str]:
     return sorted(set(target_names))
 
 
-def collate_fn(batch: List[Dict[str, Any]]) -> Tuple[List, Dict[str, TensorMap]]:
-    """
-    Wraps `group_and_join` to
-    return the data fields as a list of systems, and a dictionary of nameed
-    targets.
-    """
+class CollateFn:
+    def __init__(
+        self,
+        target_keys: List[str],
+        join_kwargs: Optional[Dict[str, Any]] = None,
+    ):
+        self.target_keys: Set[str] = set(target_keys)
+        self.join_kwargs: Dict[str, Any] = join_kwargs or {
+            "remove_tensor_name": True,
+            "different_keys": "union",
+        }
 
-    collated_targets = group_and_join(batch, join_kwargs={"remove_tensor_name": True})
-    collated_targets = collated_targets._asdict()
-    systems = collated_targets.pop("system")
-    return systems, collated_targets
+    def __call__(
+        self,
+        batch: List[Dict[str, Any]],
+    ) -> Tuple[
+        Any,  # systems
+        Dict[str, TensorMap],  # targets
+        Dict[str, TensorMap],  # extra data
+    ]:
+        # group & join
+        collated = group_and_join(batch, join_kwargs=self.join_kwargs)
+        data = collated._asdict()
+
+        # pull off systems
+        systems = data.pop("system")
+
+        # split into targets vs extra data
+        targets: Dict[str, TensorMap] = {}
+        extra: Dict[str, TensorMap] = {}
+
+        for key, value in data.items():
+            if key in self.target_keys:
+                targets[key] = value
+            else:
+                extra[key] = value
+
+        return systems, targets, extra
 
 
 def check_datasets(train_datasets: List[Dataset], val_datasets: List[Dataset]):
@@ -341,6 +408,108 @@ def _train_test_random_split(
         Subset(train_dataset, train_indices),
         Subset(train_dataset, test_indices),
     ]
+
+
+class DiskDataset(torch.utils.data.Dataset):
+    """A class representing a dataset stored on disk.
+
+    The dataset is stored in a zip file, where each sample is stored in a separate
+    directory. The directory's name is the index of the sample (e.g. ``0/``), and the
+    files in the directory are the system (``system.mta``) and the targets (each named
+    ``<target_name>.mts``). These are ``metatomic.torch.System`` and
+    ``metatensor.torch.TensorMap`` objects, respectively.
+
+    Such a dataset can be created conveniently using the :py:class:`DiskDatasetWriter`
+    class.
+
+    :param path: Path to the zip file containing the dataset.
+    """
+
+    def __init__(self, path: Union[str, Path]):
+        self.zip_file = zipfile.ZipFile(path, "r")
+        self._field_names = ["system"]
+        # check that we have at least one sample:
+        if "0/system.mta" not in self.zip_file.namelist():
+            raise ValueError(
+                "Could not find `0/system.mta` in the zip file. "
+                "The dataset format might be wrong, or the dataset might be empty. "
+                "Empty disk datasets are not supported."
+            )
+        for file_name in self.zip_file.namelist():
+            if file_name.startswith("0/") and file_name.endswith(".mts"):
+                self._field_names.append(file_name[2:-4])
+        self._sample_class = namedtuple("Sample", self._field_names)
+        self._len = len([f for f in self.zip_file.namelist() if f.endswith(".mta")])
+
+    def __len__(self):
+        return self._len
+
+    def __getitem__(self, index):
+        system_and_targets = []
+        for field_name in self._field_names:
+            if field_name == "system":
+                with self.zip_file.open(f"{index}/system.mta", "r") as file:
+                    system = load_system(file)
+                    system_and_targets.append(system)
+            else:
+                with self.zip_file.open(f"{index}/{field_name}.mts", "r") as file:
+                    numpy_buffer = np.load(file)
+                    tensor_buffer = torch.from_numpy(numpy_buffer)
+                    tensor_map = load_buffer(tensor_buffer)
+                    system_and_targets.append(tensor_map)
+        return self._sample_class(*system_and_targets)
+
+    def __iter__(self):
+        for i in range(len(self)):
+            yield self[i]
+
+    def __del__(self):
+        self.zip_file.close()
+
+    def get_target_info(self, target_config: DictConfig) -> Dict[str, TargetInfo]:
+        """
+        Get information about the targets in the dataset.
+
+        :param target_config: The user-provided (through the yaml file) target
+            configuration.
+        """
+        target_info_dict = {}
+        for target_key, target in target_config.items():
+            is_energy = (
+                (target["quantity"] == "energy")
+                and (not target["per_atom"])
+                and target["num_subtargets"] == 1
+                and target["type"] == "scalar"
+            )
+            tensor_map = self[0][target_key]  # always > 0 samples, see above
+            if is_energy:
+                if len(tensor_map) != 1:
+                    raise ValueError("Energy TensorMaps should have exactly one block.")
+                add_position_gradients = tensor_map.block().has_gradient("positions")
+                add_strain_gradients = tensor_map.block().has_gradient("strain")
+                target_info = get_energy_target_info(
+                    target, add_position_gradients, add_strain_gradients
+                )
+                _check_tensor_map_metadata(tensor_map, target_info.layout)
+                target_info_dict[target_key] = target_info
+            else:
+                target_info = get_generic_target_info(target)
+                _check_tensor_map_metadata(tensor_map, target_info.layout)
+                # make sure that the properties of the target_info.layout also match the
+                # actual properties of the tensor maps
+                target_info.layout = _empty_tensor_map_like(tensor_map)
+                target_info_dict[target_key] = target_info
+        return target_info_dict
+
+
+def _is_disk_dataset(dataset: Any) -> bool:
+    # this also needs to detect if it's a ``torch.nn.utils.data.Subset`` object
+    # with a ``DiskDataset`` object as its dataset, recursively
+    if isinstance(dataset, DiskDataset):
+        return True
+    if isinstance(dataset, torch.utils.data.Subset):
+        return _is_disk_dataset(dataset.dataset)
+    return False
 
 
 def _save_indices(

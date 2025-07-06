@@ -1,13 +1,12 @@
 from typing import List
 
 import torch
-from metatensor.torch.atomistic import NeighborListOptions, System
+from metatomic.torch import NeighborListOptions, System
 
 
 def concatenate_structures(
     systems: List[System], neighbor_list_options: NeighborListOptions
 ):
-
     positions = []
     centers = []
     neighbors = []

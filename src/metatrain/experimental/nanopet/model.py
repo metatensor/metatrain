@@ -1,12 +1,12 @@
+import warnings
 from math import prod
-from pathlib import Path
-from typing import Dict, List, Optional, Union
+from typing import Any, Dict, List, Literal, Optional
 
 import metatensor.torch
 import torch
 from metatensor.torch import Labels, TensorBlock, TensorMap
-from metatensor.torch.atomistic import (
-    MetatensorAtomisticModel,
+from metatomic.torch import (
+    AtomisticModel,
     ModelCapabilities,
     ModelMetadata,
     ModelOutput,
@@ -14,10 +14,15 @@ from metatensor.torch.atomistic import (
     System,
 )
 
-from ...utils.additive import ZBL, CompositionModel
-from ...utils.data import DatasetInfo, TargetInfo
-from ...utils.dtype import dtype_to_str
-from ...utils.scaler import Scaler
+from metatrain.utils.abc import ModelInterface
+from metatrain.utils.additive import ZBL, OldCompositionModel
+from metatrain.utils.data import DatasetInfo, TargetInfo
+from metatrain.utils.dtype import dtype_to_str
+from metatrain.utils.long_range import DummyLongRangeFeaturizer, LongRangeFeaturizer
+from metatrain.utils.metadata import merge_metadata
+from metatrain.utils.scaler import Scaler
+from metatrain.utils.sum_over_atoms import sum_over_atoms
+
 from .modules.encoder import Encoder
 from .modules.nef import (
     edge_array_to_nef,
@@ -30,7 +35,7 @@ from .modules.structures import concatenate_structures
 from .modules.transformer import Transformer
 
 
-class NanoPET(torch.nn.Module):
+class NanoPET(ModelInterface):
     """
     Re-implementation of the PET architecture (https://arxiv.org/pdf/2305.19302).
 
@@ -49,6 +54,9 @@ class NanoPET(torch.nn.Module):
 
     __supported_devices__ = ["cuda", "cpu"]
     __supported_dtypes__ = [torch.float64, torch.float32]
+    __default_metadata__ = ModelMetadata(
+        references={"architecture": ["https://arxiv.org/abs/2305.19302v3"]}
+    )
 
     component_labels: Dict[str, List[List[Labels]]]
 
@@ -67,8 +75,8 @@ class NanoPET(torch.nn.Module):
             strict=True,
         )
 
-        self.cutoff = self.hypers["cutoff"]
-        self.cutoff_width = self.hypers["cutoff_width"]
+        self.cutoff = float(self.hypers["cutoff"])
+        self.cutoff_width = float(self.hypers["cutoff_width"])
 
         self.encoder = Encoder(len(self.atomic_types), self.hypers["d_pet"])
 
@@ -130,9 +138,21 @@ class NanoPET(torch.nn.Module):
         for i, species in enumerate(self.atomic_types):
             self.species_to_species_index[species] = i
 
+        # long-range module
+        if self.hypers["long_range"]["enable"]:
+            self.long_range = True
+            self.long_range_featurizer = LongRangeFeaturizer(
+                hypers=self.hypers["long_range"],
+                feature_dim=self.hypers["d_pet"],
+                neighbor_list_options=self.requested_nl,
+            )
+        else:
+            self.long_range = False
+            self.long_range_featurizer = DummyLongRangeFeaturizer()  # for torchscript
+
         # additive models: these are handled by the trainer at training
         # time, and they are added to the output at evaluation time
-        composition_model = CompositionModel(
+        composition_model = OldCompositionModel(
             model_hypers={},
             dataset_info=DatasetInfo(
                 length_unit=dataset_info.length_unit,
@@ -140,19 +160,35 @@ class NanoPET(torch.nn.Module):
                 targets={
                     target_name: target_info
                     for target_name, target_info in dataset_info.targets.items()
-                    if CompositionModel.is_valid_target(target_info)
+                    if OldCompositionModel.is_valid_target(target_name, target_info)
                 },
             ),
         )
         additive_models = [composition_model]
         if self.hypers["zbl"]:
-            additive_models.append(ZBL(model_hypers, dataset_info))
+            additive_models.append(
+                ZBL(
+                    {},
+                    dataset_info=DatasetInfo(
+                        length_unit=dataset_info.length_unit,
+                        atomic_types=self.atomic_types,
+                        targets={
+                            target_name: target_info
+                            for target_name, target_info in dataset_info.targets.items()
+                            if ZBL.is_valid_target(target_name, target_info)
+                        },
+                    ),
+                )
+            )
         self.additive_models = torch.nn.ModuleList(additive_models)
 
         # scaler: this is also handled by the trainer at training time
         self.scaler = Scaler(model_hypers={}, dataset_info=dataset_info)
 
         self.single_label = Labels.single()
+
+    def supported_outputs(self) -> Dict[str, ModelOutput]:
+        return self.outputs
 
     def restart(self, dataset_info: DatasetInfo) -> "NanoPET":
         # merge old and new dataset info
@@ -187,7 +223,7 @@ class NanoPET(torch.nn.Module):
                 targets={
                     target_name: target_info
                     for target_name, target_info in dataset_info.targets.items()
-                    if CompositionModel.is_valid_target(target_info)
+                    if OldCompositionModel.is_valid_target(target_name, target_info)
                 },
             ),
         )
@@ -202,7 +238,7 @@ class NanoPET(torch.nn.Module):
         selected_atoms: Optional[Labels] = None,
     ) -> Dict[str, TensorMap]:
         # Checks on systems (species) and outputs are done in the
-        # MetatensorAtomisticModel wrapper
+        # AtomisticModel wrapper
 
         device = systems[0].device
 
@@ -348,6 +384,12 @@ class NanoPET(torch.nn.Module):
         edge_features = features * radial_mask[:, :, None]
         node_features = torch.sum(edge_features, dim=1)
 
+        if self.long_range:
+            long_range_node_features = self.long_range_featurizer(
+                systems, node_features, r
+            )
+            node_features = (node_features + long_range_node_features) * 0.5**0.5
+
         return_dict: Dict[str, TensorMap] = {}
 
         # output the hidden features, if requested:
@@ -372,9 +414,7 @@ class NanoPET(torch.nn.Module):
             if features_options.per_atom:
                 return_dict["features"] = feature_tmap
             else:
-                return_dict["features"] = metatensor.torch.sum_over_samples(
-                    feature_tmap, ["atom"]
-                )
+                return_dict["features"] = sum_over_atoms(feature_tmap)
 
         atomic_features_dict: Dict[str, torch.Tensor] = {}
         for output_name, head in self.heads.items():
@@ -422,8 +462,8 @@ class NanoPET(torch.nn.Module):
             if last_layer_features_options.per_atom:
                 return_dict[output_name] = last_layer_feature_tmap
             else:
-                return_dict[output_name] = metatensor.torch.sum_over_samples(
-                    last_layer_feature_tmap, ["atom"]
+                return_dict[output_name] = sum_over_atoms(
+                    last_layer_feature_tmap,
                 )
 
         atomic_properties_tmap_dict: Dict[str, TensorMap] = {}
@@ -435,6 +475,29 @@ class NanoPET(torch.nn.Module):
                     atomic_properties_by_block.append(
                         last_layer_by_block(atomic_features)
                     )
+                all_components = self.component_labels[output_name]
+                if len(all_components[0]) == 2 and all(
+                    "xyz" in comp.names[0] for comp in all_components[0]
+                ):
+                    # rank-2 Cartesian tensor, symmetrize
+                    tensor_as_three_by_three = atomic_properties_by_block[0].reshape(
+                        -1, 3, 3, list(self.output_shapes[output_name].values())[0][-1]
+                    )
+                    volumes = torch.stack(
+                        [torch.abs(torch.det(system.cell)) for system in systems]
+                    )
+                    volumes_by_atom = (
+                        volumes[system_indices].unsqueeze(1).unsqueeze(2).unsqueeze(3)
+                    )
+                    tensor_as_three_by_three = (
+                        tensor_as_three_by_three / volumes_by_atom
+                    )
+                    tensor_as_three_by_three = (
+                        tensor_as_three_by_three
+                        + tensor_as_three_by_three.transpose(1, 2)
+                    ) / 2.0
+                    atomic_properties_by_block[0] = tensor_as_three_by_three
+
                 blocks = [
                     TensorBlock(
                         values=atomic_property.reshape([-1] + shape),
@@ -464,9 +527,7 @@ class NanoPET(torch.nn.Module):
             if outputs[output_name].per_atom:
                 return_dict[output_name] = atomic_property
             else:
-                return_dict[output_name] = metatensor.torch.sum_over_samples(
-                    atomic_property, ["atom"]
-                )
+                return_dict[output_name] = sum_over_atoms(atomic_property)
 
         if not self.training:
             # at evaluation, we also introduce the scaler and additive contributions
@@ -495,36 +556,57 @@ class NanoPET(torch.nn.Module):
         return [self.requested_nl]
 
     @classmethod
-    def load_checkpoint(cls, path: Union[str, Path]) -> "NanoPET":
+    def load_checkpoint(
+        cls,
+        checkpoint: Dict[str, Any],
+        context: Literal["restart", "finetune", "export"],
+    ) -> "NanoPET":
+        model_data = checkpoint["model_data"]
 
-        # Load the checkpoint
-        checkpoint = torch.load(path, weights_only=False, map_location="cpu")
-        model_hypers = checkpoint["model_hypers"]
-        model_state_dict = checkpoint["model_state_dict"]
+        if context == "restart":
+            model_state_dict = checkpoint["model_state_dict"]
+        elif context == "finetune" or context == "export":
+            model_state_dict = checkpoint["best_model_state_dict"]
+        else:
+            raise ValueError("Unknown context tag for checkpoint loading!")
 
         # Create the model
-        model = cls(**model_hypers)
+        model = cls(**model_data)
         state_dict_iter = iter(model_state_dict.values())
         next(state_dict_iter)  # skip `species_to_species_index` buffer (int)
         dtype = next(state_dict_iter).dtype
         model.to(dtype).load_state_dict(model_state_dict)
+        model.additive_models[0].sync_tensor_maps()
+
+        # Loading the metadata from the checkpoint
+        metadata = checkpoint.get("metadata", None)
+        if metadata is not None:
+            model.__default_metadata__ = metadata
 
         return model
 
-    def export(self) -> MetatensorAtomisticModel:
+    def export(self, metadata: Optional[ModelMetadata] = None) -> AtomisticModel:
         dtype = next(self.parameters()).dtype
         if dtype not in self.__supported_dtypes__:
-            raise ValueError(f"unsupported dtype {self.dtype} for NanoPET")
+            raise ValueError(f"unsupported dtype {dtype} for NanoPET")
 
         # Make sure the model is all in the same dtype
         # For example, after training, the additive models could still be in
         # float64
         self.to(dtype)
 
+        # Additionally, the composition model contains some `TensorMap`s that cannot
+        # be registered correctly with Pytorch. This funciton moves them:
+        self.additive_models[0]._move_weights_to_device_and_dtype(
+            torch.device("cpu"), torch.float64
+        )
+
         interaction_ranges = [self.hypers["num_gnn_layers"] * self.hypers["cutoff"]]
         for additive_model in self.additive_models:
             if hasattr(additive_model, "cutoff_radius"):
                 interaction_ranges.append(additive_model.cutoff_radius)
+            if self.long_range:
+                interaction_ranges.append(torch.inf)
         interaction_range = max(interaction_ranges)
 
         capabilities = ModelCapabilities(
@@ -536,9 +618,29 @@ class NanoPET(torch.nn.Module):
             dtype=dtype_to_str(dtype),
         )
 
-        return MetatensorAtomisticModel(self.eval(), ModelMetadata(), capabilities)
+        if metadata is None:
+            metadata = self.__default_metadata__
+        else:
+            metadata = merge_metadata(self.__default_metadata__, metadata)
+
+        return AtomisticModel(self.eval(), metadata, capabilities)
 
     def _add_output(self, target_name: str, target_info: TargetInfo) -> None:
+        # warn that, for Cartesian tensors, we assume that they are symmetric
+        if target_info.is_cartesian:
+            if len(target_info.layout.block().components) == 2:
+                warnings.warn(
+                    "NanoPET assumes that Cartesian tensors of rank 2 are "
+                    "stress-like, meaning that they are symmetric and intensive. "
+                    "If this is not the case, please use a different model.",
+                    UserWarning,
+                    stacklevel=2,
+                )
+            # error out for rank > 2
+            if len(target_info.layout.block().components) > 2:
+                raise ValueError(
+                    "NanoPET does not support Cartesian tensors with rank > 2."
+                )
 
         # one output shape for each tensor block, grouped by target (i.e. tensormap)
         self.output_shapes[target_name] = {}
@@ -560,9 +662,13 @@ class NanoPET(torch.nn.Module):
             or self.head_types[target_name] == "mlp"
         ):
             self.heads[target_name] = torch.nn.Sequential(
-                torch.nn.Linear(self.hypers["d_pet"], 4 * self.hypers["d_pet"]),
+                torch.nn.Linear(
+                    self.hypers["d_pet"], 4 * self.hypers["d_pet"], bias=False
+                ),
                 torch.nn.SiLU(),
-                torch.nn.Linear(4 * self.hypers["d_pet"], self.hypers["d_pet"]),
+                torch.nn.Linear(
+                    4 * self.hypers["d_pet"], self.hypers["d_pet"], bias=False
+                ),
                 torch.nn.SiLU(),
             )
         elif self.head_types[target_name] == "linear":

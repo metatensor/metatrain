@@ -1,3 +1,5 @@
+.. _checkpoints:
+
 Checkpoints
 ###########
 
@@ -16,13 +18,8 @@ The sub-command to continue training from a checkpoint is
 
 .. code-block:: bash
 
-    mtt train options.yaml --continue model.ckpt
+    mtt train options.yaml --restart model.ckpt
 
-or
-
-.. code-block:: bash
-
-    mtt train options.yaml -c model.ckpt
 
 Checkpoints can also be turned into exported models using the ``export`` sub-command.
 The command requires the *architecture name* and the saved checkpoint *path* as
@@ -38,6 +35,47 @@ or
 
     mtt export model.ckpt --output model.pt
 
+Adding information about models
+-------------------------------
+
+You can insert the model name, a description, the list of authors and references
+into the model. This information will be saved either in the existing checkpoint or in
+the exported model. In the first case, a new checkpoint file with attached metadata
+will be created. In the second case, the model will be exported with the metadata attached.
+This metadata will be displayed to users when the model is used, for example, in molecular
+dynamics simulations.
+
+.. code-block:: bash
+
+    mtt export model.ckpt --metadata metadata.yaml
+
+This will export the model with the metadata attached. Alternatively, if the intermediate
+checkpoint with the metadata attached is needed, you can run
+
+.. code-block:: bash
+
+    mtt export model.ckpt -o model-with-metadata.ckpt --metadata metadata.yaml
+
+The ``metadata.yaml`` file should have the following structure:
+
+.. code-block:: yaml
+
+    name: My model
+    description: This model was trained on the QM9 dataset.
+    authors:
+      - John Doe
+      - Jane Doe
+    references:
+      model:
+        - https://arxiv.org/abs/1234.5678
+
+You can also add additional keywords like additional references to the metadata
+file. The fields are the same for :class:`ModelMetadata
+<metatomic.torch.ModelMetadata>` class from metatomic.
+
+Exporting remote models
+-----------------------
+
 For a export of distribution of models the ``export`` command also supports parsing
 models from remote locations. To export a remote model you can provide a URL instead of
 a file path.
@@ -47,8 +85,8 @@ a file path.
     mtt export https://my.url.com/model.ckpt --output model.pt
 
 Downloading private HuggingFace models is also supported, by specifying the
-corresponding API token with the ``--huggingface_api_token`` flag or the
-``HF_TOKEN`` environment variable.
+corresponding API token with the ``--token`` flag or the ``HF_TOKEN`` environment
+variable.
 
 Keep in mind that a checkpoint (``.ckpt``) is only a temporary file, which can have
 several dependencies and may become unusable if the corresponding architecture is

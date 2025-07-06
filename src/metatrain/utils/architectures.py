@@ -40,6 +40,8 @@ def check_architecture_name(name: str) -> None:
                 f"`name: deprecated.{name}` in your options file to use this "
                 "deprecated architecture."
             )
+        else:  # not found anywhere, just raise the following except block
+            raise ModuleNotFoundError
     except ModuleNotFoundError:
         msg = f"Architecture {name!r} is not a valid architecture."
 
@@ -131,7 +133,7 @@ def import_architecture(name: str):
         raise ImportError(
             f"Trying to import '{name}' but architecture dependencies "
             f"seem not be installed. \n"
-            f"Try to install them with `pip install .[{name_for_deps}]`"
+            f"Try to install them with `pip install metatrain[{name_for_deps}]`"
         ) from err
 
 

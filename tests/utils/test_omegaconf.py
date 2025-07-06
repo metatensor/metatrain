@@ -4,7 +4,7 @@ import pytest
 import torch
 from omegaconf import ListConfig, OmegaConf
 
-from metatrain.experimental import soap_bpnn
+from metatrain import soap_bpnn
 from metatrain.utils import omegaconf
 from metatrain.utils.omegaconf import (
     check_dataset_options,
@@ -28,7 +28,7 @@ def test_default_device_resolver():
     conf = OmegaConf.create(
         {
             "device": "${default_device:}",
-            "architecture": {"name": "experimental.soap_bpnn"},
+            "architecture": {"name": "soap_bpnn"},
         }
     )
 
@@ -44,7 +44,7 @@ def test_default_device_resolver_multi(monkeypatch):
     conf = OmegaConf.create(
         {
             "device": "${default_device:}",
-            "architecture": {"name": "experimental.soap_bpnn"},
+            "architecture": {"name": "soap_bpnn"},
         }
     )
 
@@ -61,7 +61,7 @@ def test_default_precision_resolver(dtype, precision, monkeypatch):
     conf = OmegaConf.create(
         {
             "base_precision": "${default_precision:}",
-            "architecture": {"name": "experimental.soap_bpnn"},
+            "architecture": {"name": "soap_bpnn"},
         }
     )
 
@@ -74,7 +74,7 @@ def test_default_precision_resolver_unknown_dtype(monkeypatch):
     conf = OmegaConf.create(
         {
             "base_precision": "${default_precision:}",
-            "architecture": {"name": "experimental.soap_bpnn"},
+            "architecture": {"name": "soap_bpnn"},
         }
     )
 
@@ -393,9 +393,15 @@ def list_conf():
         "virial": {"read_from": "my_grad.dat", "key": "foo"},
     }
 
+    extra_data_section = {
+        "quantity": "",
+        "unit": "eV",
+    }
+
     conf = {
         "systems": system_section,
         "targets": {"energy": target_section, "my_target": target_section},
+        "extra_data": {"extra-data": extra_data_section},
     }
 
     return OmegaConf.create(3 * [conf])
@@ -421,8 +427,21 @@ def test_check_dataset_options_target_unit(list_conf):
     list_conf[2]["targets"]["new_target"] = OmegaConf.create({"unit": "bar"})
 
     match = (
-        "Units of target section 'new_target' are inconsistent. Found "
-        "'bar' and 'foo'"
+        "Units of target section 'new_target' are inconsistent. Found 'bar' and 'foo'"
+    )
+
+    with pytest.raises(ValueError, match=match):
+        check_dataset_options(list_conf)
+
+
+def test_check_dataset_options_extra_data_unit(list_conf):
+    """Test three datasets where the unit of the 2nd and the 3rd is inconsistent."""
+    list_conf[1]["extra_data"]["new_data"] = OmegaConf.create({"unit": "foo"})
+    list_conf[2]["extra_data"]["new_data"] = OmegaConf.create({"unit": "bar"})
+
+    match = (
+        "Units of extra_data section 'new_data' are inconsistent. "
+        "Found 'bar' and 'foo'!"
     )
 
     with pytest.raises(ValueError, match=match):

@@ -94,8 +94,10 @@ ethanol_system = get_system_with_neighbor_lists(
 # The dataset is fully compatible with torch. For example, be used to create
 # a DataLoader object.
 
-from metatrain.utils.data import collate_fn  # noqa: E402
+from metatrain.utils.data import CollateFn  # noqa: E402
 
+
+collate_fn = CollateFn(target_keys=list(targets.keys()))
 
 dataloader = torch.utils.data.DataLoader(
     dataset,
@@ -111,8 +113,8 @@ dataloader = torch.utils.data.DataLoader(
 # to compute prediction rigidity metrics, which are useful for uncertainty
 # quantification and model introspection.
 
-from metatensor.torch.atomistic import (  # noqa: E402
-    MetatensorAtomisticModel,
+from metatomic.torch import (  # noqa: E402
+    AtomisticModel,
     ModelMetadata,
 )
 
@@ -127,7 +129,7 @@ llpr_model.compute_inverse_covariance(regularizer=1e-4)
 # calibration/validation dataset should be used.
 llpr_model.calibrate(dataloader)
 
-exported_model = MetatensorAtomisticModel(
+exported_model = AtomisticModel(
     llpr_model.eval(),
     ModelMetadata(),
     llpr_model.capabilities,
@@ -140,7 +142,7 @@ exported_model = MetatensorAtomisticModel(
 # specific outputs from the model. In this case, we request the uncertainty in the
 # atomic energy predictions.
 
-from metatensor.torch.atomistic import ModelEvaluationOptions, ModelOutput  # noqa: E402
+from metatomic.torch import ModelEvaluationOptions, ModelOutput  # noqa: E402
 
 
 evaluation_options = ModelEvaluationOptions(

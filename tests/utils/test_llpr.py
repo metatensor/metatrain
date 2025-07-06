@@ -1,12 +1,12 @@
 import torch
-from metatensor.torch.atomistic import (
-    MetatensorAtomisticModel,
+from metatomic.torch import (
+    AtomisticModel,
     ModelEvaluationOptions,
     ModelMetadata,
     ModelOutput,
 )
 
-from metatrain.utils.data import Dataset, collate_fn, read_systems, read_targets
+from metatrain.utils.data import CollateFn, Dataset, read_systems, read_targets
 from metatrain.utils.io import load_model
 from metatrain.utils.llpr import LLPRUncertaintyModel
 from metatrain.utils.loss import TensorMapDictLoss
@@ -22,7 +22,6 @@ torch.manual_seed(42)
 
 
 def test_llpr(tmpdir):
-
     model = load_model(
         str(RESOURCES_PATH / "model-64-bit.pt"),
         extensions_directory=str(RESOURCES_PATH / "extensions/"),
@@ -50,6 +49,7 @@ def test_llpr(tmpdir):
         for system in qm9_systems
     ]
     dataset = Dataset.from_dict({"system": qm9_systems, **targets})
+    collate_fn = CollateFn(target_keys=list(targets.keys()))
     dataloader = torch.utils.data.DataLoader(
         dataset,
         batch_size=10,
@@ -61,7 +61,7 @@ def test_llpr(tmpdir):
     llpr_model.compute_covariance(dataloader)
     llpr_model.compute_inverse_covariance()
 
-    exported_model = MetatensorAtomisticModel(
+    exported_model = AtomisticModel(
         llpr_model.eval(),
         ModelMetadata(),
         llpr_model.capabilities,
@@ -107,19 +107,15 @@ def test_llpr(tmpdir):
     llpr_model.generate_ensemble({"energy": weights}, n_ensemble_members)
     assert "energy_ensemble" in llpr_model.capabilities.outputs
 
-    exported_model = MetatensorAtomisticModel(
+    exported_model = AtomisticModel(
         llpr_model.eval(),
         ModelMetadata(),
         llpr_model.capabilities,
     )
 
-    exported_model.save(
-        file=str(tmpdir / "llpr_model.pt"),
-        collect_extensions=str(tmpdir / "extensions"),
-    )
-    llpr_model = load_model(
-        str(tmpdir / "llpr_model.pt"), extensions_directory=str(tmpdir / "extensions")
-    )
+    with tmpdir.as_cwd():
+        exported_model.save(file="llpr_model.pt", collect_extensions="extensions")
+        llpr_model = load_model("llpr_model.pt", extensions_directory="extensions")
 
     evaluation_options = ModelEvaluationOptions(
         length_unit="angstrom",
@@ -148,7 +144,6 @@ def test_llpr(tmpdir):
 
 
 def test_llpr_covariance_as_pseudo_hessian(tmpdir):
-
     model = load_model(
         str(RESOURCES_PATH / "model-64-bit.pt"),
         extensions_directory=str(RESOURCES_PATH / "extensions/"),
@@ -176,6 +171,7 @@ def test_llpr_covariance_as_pseudo_hessian(tmpdir):
         for system in qm9_systems
     ]
     dataset = Dataset.from_dict({"system": qm9_systems, **targets})
+    collate_fn = CollateFn(target_keys=list(targets.keys()))
     dataloader = torch.utils.data.DataLoader(
         dataset,
         batch_size=10,
@@ -202,7 +198,7 @@ def test_llpr_covariance_as_pseudo_hessian(tmpdir):
     )
     llpr_model.compute_inverse_covariance()
 
-    exported_model = MetatensorAtomisticModel(
+    exported_model = AtomisticModel(
         llpr_model.eval(),
         ModelMetadata(),
         llpr_model.capabilities,
@@ -248,19 +244,15 @@ def test_llpr_covariance_as_pseudo_hessian(tmpdir):
     llpr_model.generate_ensemble({"energy": weights}, n_ensemble_members)
     assert "energy_ensemble" in llpr_model.capabilities.outputs
 
-    exported_model = MetatensorAtomisticModel(
+    exported_model = AtomisticModel(
         llpr_model.eval(),
         ModelMetadata(),
         llpr_model.capabilities,
     )
 
-    exported_model.save(
-        file=str(tmpdir / "llpr_model.pt"),
-        collect_extensions=str(tmpdir / "extensions"),
-    )
-    llpr_model = load_model(
-        str(tmpdir / "llpr_model.pt"), extensions_directory=str(tmpdir / "extensions")
-    )
+    with tmpdir.as_cwd():
+        exported_model.save(file="llpr_model.pt", collect_extensions="extensions")
+        llpr_model = load_model("llpr_model.pt", extensions_directory="extensions")
 
     evaluation_options = ModelEvaluationOptions(
         length_unit="angstrom",
@@ -278,11 +270,20 @@ def test_llpr_covariance_as_pseudo_hessian(tmpdir):
     assert "mtt::aux::energy_uncertainty" in outputs
     assert "energy_ensemble" in outputs
 
+    predictions = outputs["energy"].block().values
     analytical_uncertainty = outputs["mtt::aux::energy_uncertainty"].block().values
+    ensemble_mean = torch.mean(
+        outputs["energy_ensemble"].block().values, dim=1, keepdim=True
+    )
     ensemble_uncertainty = torch.var(
         outputs["energy_ensemble"].block().values, dim=1, keepdim=True
     )
 
+    print(predictions)
+    print(ensemble_mean)
+    print(predictions - ensemble_mean)
+
+    torch.testing.assert_close(predictions, ensemble_mean, rtol=5e-3, atol=0.0)
     torch.testing.assert_close(
         analytical_uncertainty, ensemble_uncertainty, rtol=5e-3, atol=0.0
     )

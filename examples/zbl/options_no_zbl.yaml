@@ -1,11 +1,12 @@
 seed: 42
 
 architecture:
-  name: experimental.soap_bpnn
+  name: soap_bpnn
   model:
     zbl: false
   training:
     num_epochs: 10
+    batch_size: 10
 
 # training set section
 training_set:

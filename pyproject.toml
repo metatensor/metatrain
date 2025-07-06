@@ -3,29 +3,28 @@ name = "metatrain"
 dynamic = ["version"]
 requires-python = ">=3.9"
 
-readme = "README.rst"
-license = {text = "BSD-3-Clause"}
+readme = "README.md"
+license = "BSD-3-Clause"
 description = "Training and evaluating machine learning models for atomistic systems."
 authors = [{name = "metatrain developers"}]
 
+# Strict version pinning to avoid regression test failing on new versions
 dependencies = [
-    "ase < 3.23.0",
-    "metatensor-learn==0.3.0",
-    "metatensor-operations==0.3.0",
-    "metatensor-torch==0.6.3",
+    "ase",
+    "metatensor-learn >=0.3.2,<0.4",
+    "metatensor-operations >=0.3.3,<0.4",
+    "metatensor-torch >=0.7.6,<0.8",
+    "metatomic-torch >=0.1.2,<0.2",
     "jsonschema",
-    "omegaconf",
+    "omegaconf >= 2.3.0",
     "python-hostlist",
-    "torch",
     "vesin",
-    "numpy < 2.0.0"
 ]
 
 keywords = ["machine learning", "molecular modeling"]
 classifiers = [
     "Development Status :: 4 - Beta",
     "Intended Audience :: Science/Research",
-    "License :: OSI Approved :: BSD License",
     "Operating System :: POSIX",
     "Operating System :: MacOS :: MacOS X",
     "Operating System :: Microsoft :: Windows",
@@ -40,10 +39,11 @@ classifiers = [
 ]
 
 [project.urls]
-homepage = "https://lab-cosmo.github.io/metatrain/latest/"
-documentation = "https://lab-cosmo.github.io/metatrain/latest/"
-repository = "https://github.com/lab-cosmo/metatrain"
-# changelog = "TODO"
+homepage = "https://metatensor.github.io/metatrain"
+documentation = "https://metatensor.github.io/metatrain"
+repository = "https://github.com/metatensor/metatrain"
+issues = "https://github.com/metatensor/metatrain/issues"
+changelog = "https://metatensor.github.io/metatrain/latest/dev-docs/changelog.html"
 
 [project.scripts]
 mtt = "metatrain.__main__:main"
@@ -52,24 +52,31 @@ mtt = "metatrain.__main__:main"
 
 [build-system]
 requires = [
-    "setuptools >= 68",
+    "setuptools >= 77",
+    "setuptools_scm>=8",
     "wheel",
 ]
 build-backend = "setuptools.build_meta"
 
 [project.optional-dependencies]
 soap-bpnn = [
-    "rascaline-torch @ git+https://github.com/luthaf/rascaline@5326b6e#subdirectory=python/rascaline-torch",
+    "torch-spex>=0.1,<0.2",
     "wigners",
 ]
-pet = [
-  "pet @ git+https://github.com/lab-cosmo/pet@5d40710",
+deprecated-pet = [
+    "pet-neighbors-convert",
+    "torch_geometric",
+    "matscipy",
+    "scikit-learn",
+    "pathos",
+    "scipy",
 ]
+
+pet = []
 nanopet = []
 gap = [
-    "rascaline-torch @ git+https://github.com/luthaf/rascaline@5326b6e#subdirectory=python/rascaline-torch",
+    "featomic-torch >=0.7,<0.8",
     "skmatter",
-    "metatensor-learn",
     "scipy",
 ]
 phace = [
@@ -77,11 +84,14 @@ phace = [
     "wigners",
 ]
 
+[tool.check-manifest]
+ignore = ["src/metatrain/_version.py"]
+
 [tool.setuptools.packages.find]
 where = ["src"]
 
-[tool.setuptools.dynamic]
-version = {attr = "metatrain.__version__"}
+[tool.setuptools_scm]
+version_file = "src/metatrain/_version.py"
 
 [tool.coverage.report]
 skip_covered = true
@@ -101,17 +111,21 @@ source = [
     ".tox/*/lib/python*/site-packages/metatrain"
 ]
 
-[tool.black]
-exclude = 'docs/src/examples'
+[tool.ruff]
+exclude = ["docs/src/examples/**", "src/metatrain/_version.py"]
+line-length = 88
 
-[tool.isort]
-skip = "__init__.py"
-profile = "black"
-line_length = 88
-indent = 4
-include_trailing_comma = true
-lines_after_imports = 2
-known_first_party = "metatrain"
+[tool.ruff.lint]
+select = ["E", "F", "B", "I"]
+ignore = ["B018", "B904"]
+
+[tool.ruff.lint.isort]
+lines-after-imports = 2
+known-first-party = ["metatrain"]
+known-third-party = ["torch"]
+
+[tool.ruff.format]
+docstring-code-format = true
 
 [tool.mypy]
 exclude = [
@@ -121,9 +135,17 @@ follow_imports = 'skip'
 ignore_missing_imports = true
 
 [tool.pytest.ini_options]
-# ignore" a bunch of internal warnings with Python 3.12 and PyTorch
+# ignore" a bunch of internal warnings with Python 3.13 and PyTorch
 filterwarnings = [
+    "error",
+    # PyTorch deprecation warnings
     "ignore:ast.Str is deprecated and will be removed in Python 3.14:DeprecationWarning",
     "ignore:Attribute s is deprecated and will be removed in Python 3.14:DeprecationWarning",
     "ignore:ast.NameConstant is deprecated and will be removed in Python 3.14:DeprecationWarning",
+    # PyTorch does not want these, but mypy requires them
+    "ignore:The TorchScript type system doesn't support instance-level annotations on empty non-base types",
+    # Sphericart double backward warning
+    "ignore:Second derivatives of the spherical harmonics with respect to the Cartesian coordinates were not requested at class creation.",
+    # OldCompositionModel deprecation warning
+    "ignore:`OldCompositionModel` composition model is deprecated. Please use `CompositionModel` instead."
 ]

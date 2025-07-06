@@ -1,6 +1,6 @@
 import pytest
 import torch
-from metatensor.torch.atomistic import ModelEvaluationOptions, System
+from metatomic.torch import ModelEvaluationOptions, ModelMetadata, System
 
 from metatrain.experimental.nanopet import NanoPET
 from metatrain.utils.data import DatasetInfo
@@ -28,7 +28,11 @@ def test_to(device, dtype):
         },
     )
     model = NanoPET(MODEL_HYPERS, dataset_info).to(dtype=dtype)
-    exported = model.export()
+
+    exported = model.export(metadata=ModelMetadata(name="test"))
+
+    # test correct metadata
+    assert "This is the test model" in str(exported.metadata())
 
     exported.to(device=device)
 

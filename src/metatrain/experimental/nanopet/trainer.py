@@ -1,38 +1,43 @@
 import copy
 import logging
 from pathlib import Path
-from typing import Dict, List, Tuple, Union
+from typing import Any, Dict, List, Literal, Union
 
 import torch
 import torch.distributed
-from metatensor.torch import TensorMap
-from metatensor.torch.atomistic import System
 from torch.utils.data import DataLoader, DistributedSampler
 
-from ...utils.additive import remove_additive
-from ...utils.data import CombinedDataLoader, Dataset, collate_fn
-from ...utils.distributed.distributed_data_parallel import DistributedDataParallel
-from ...utils.distributed.slurm import DistributedEnvironment
-from ...utils.evaluate_model import evaluate_model
-from ...utils.external_naming import to_external_name
-from ...utils.io import check_file_extension
-from ...utils.logging import MetricLogger
-from ...utils.loss import TensorMapDictLoss
-from ...utils.metrics import MAEAccumulator, RMSEAccumulator, get_selected_metric
-from ...utils.neighbor_lists import (
+from metatrain.utils.abc import TrainerInterface
+from metatrain.utils.additive import remove_additive
+from metatrain.utils.augmentation import RotationalAugmenter
+from metatrain.utils.data import (
+    CollateFn,
+    CombinedDataLoader,
+    Dataset,
+    _is_disk_dataset,
+)
+from metatrain.utils.distributed.distributed_data_parallel import (
+    DistributedDataParallel,
+)
+from metatrain.utils.distributed.slurm import DistributedEnvironment
+from metatrain.utils.evaluate_model import evaluate_model
+from metatrain.utils.external_naming import to_external_name
+from metatrain.utils.io import check_file_extension
+from metatrain.utils.logging import ROOT_LOGGER, MetricLogger
+from metatrain.utils.loss import TensorMapDictLoss
+from metatrain.utils.metrics import MAEAccumulator, RMSEAccumulator, get_selected_metric
+from metatrain.utils.neighbor_lists import (
     get_requested_neighbor_lists,
     get_system_with_neighbor_lists,
 )
-from ...utils.per_atom import average_by_num_atoms
-from ...utils.scaler import remove_scale
+from metatrain.utils.per_atom import average_by_num_atoms
+from metatrain.utils.scaler import remove_scale
+from metatrain.utils.transfer import batch_to
+
 from .model import NanoPET
-from .modules.augmentation import RotationalAugmenter
 
 
-logger = logging.getLogger(__name__)
-
-
-class Trainer:
+class Trainer(TrainerInterface):
     def __init__(self, train_hypers):
         self.hypers = train_hypers
         self.optimizer_state_dict = None
@@ -67,7 +72,7 @@ class Trainer:
             if len(devices) > 1:
                 raise ValueError(
                     "Requested distributed training with the `multi-gpu` device. "
-                    "If you want to run distributed training with nanoPET, please "
+                    " If you want to run distributed training with NanoPET, please "
                     "set `device` to cuda."
                 )
             # the calculation of the device number works both when GPUs on different
@@ -80,21 +85,34 @@ class Trainer:
             ]  # only one device, as we don't support multi-gpu for now
 
         if is_distributed:
-            logger.info(f"Training on {world_size} devices with dtype {dtype}")
+            logging.info(f"Training on {world_size} devices with dtype {dtype}")
         else:
-            logger.info(f"Training on device {device} with dtype {dtype}")
+            logging.info(f"Training on device {device} with dtype {dtype}")
 
         # Calculate the neighbor lists in advance (in particular, this
         # needs to happen before the additive models are trained, as they
         # might need them):
-        logger.info("Calculating neighbor lists for the datasets")
+        logging.info("Calculating neighbor lists for the datasets")
         requested_neighbor_lists = get_requested_neighbor_lists(model)
         for dataset in train_datasets + val_datasets:
-            for i in range(len(dataset)):
-                system = dataset[i]["system"]
-                # The following line attaches the neighbors lists to the system,
-                # and doesn't require to reassign the system to the dataset:
-                _ = get_system_with_neighbor_lists(system, requested_neighbor_lists)
+            # If the dataset is a disk dataset, the NLs are already attached, we will
+            # just check the first system
+            if _is_disk_dataset(dataset):
+                system = dataset[0]["system"]
+                for options in requested_neighbor_lists:
+                    if options not in system.known_neighbor_lists():
+                        raise ValueError(
+                            "The requested neighbor lists are not attached to the "
+                            f"system. Neighbor list {options} is missing from the "
+                            "first system in the disk dataset. Make sure you save "
+                            "the neighbor lists in the systems when saving the dataset."
+                        )
+            else:
+                for sample in dataset:
+                    system = sample["system"]
+                    # The following line attaches the neighbors lists to the system,
+                    # and doesn't require to reassign the system to the dataset:
+                    get_system_with_neighbor_lists(system, requested_neighbor_lists)
 
         # Move the model to the device and dtype:
         model.to(device=device, dtype=dtype)
@@ -103,13 +121,15 @@ class Trainer:
         for additive_model in model.additive_models:
             additive_model.to(dtype=torch.float64)
 
-        logger.info("Calculating composition weights")
+        logging.info("Calculating composition weights")
         model.additive_models[0].train_model(  # this is the composition model
-            train_datasets, self.hypers["fixed_composition_weights"]
+            train_datasets,
+            model.additive_models[1:],
+            self.hypers["fixed_composition_weights"],
         )
 
         if self.hypers["scale_targets"]:
-            logger.info("Calculating scaling weights")
+            logging.info("Calculating scaling weights")
             model.scaler.train_model(
                 train_datasets, model.additive_models, treat_as_additive=True
             )
@@ -117,7 +137,7 @@ class Trainer:
         if is_distributed:
             model = DistributedDataParallel(model, device_ids=[device])
 
-        logger.info("Setting up data loaders")
+        logging.info("Setting up data loaders")
 
         if is_distributed:
             train_samplers = [
@@ -144,20 +164,34 @@ class Trainer:
             train_samplers = [None] * len(train_datasets)
             val_samplers = [None] * len(val_datasets)
 
+        # Create a collate function:
+        targets_keys = list(
+            (model.module if is_distributed else model).dataset_info.targets.keys()
+        )
+        collate_fn = CollateFn(target_keys=targets_keys)
         # Create dataloader for the training datasets:
         train_dataloaders = []
-        for dataset, sampler in zip(train_datasets, train_samplers):
+        for train_dataset, train_sampler in zip(train_datasets, train_samplers):
+            if len(train_dataset) < self.hypers["batch_size"]:
+                raise ValueError(
+                    f"A training dataset has fewer samples "
+                    f"({len(train_dataset)}) than the batch size "
+                    f"({self.hypers['batch_size']}). "
+                    "Please reduce the batch size."
+                )
             train_dataloaders.append(
                 DataLoader(
-                    dataset=dataset,
+                    dataset=train_dataset,
                     batch_size=self.hypers["batch_size"],
-                    sampler=sampler,
+                    sampler=train_sampler,
                     shuffle=(
-                        sampler is None
-                    ),  # the sampler takes care of this (if present)
+                        # the sampler takes care of this (if present)
+                        train_sampler is None
+                    ),
                     drop_last=(
-                        sampler is None
-                    ),  # the sampler takes care of this (if present)
+                        # the sampler takes care of this (if present)
+                        train_sampler is None
+                    ),
                     collate_fn=collate_fn,
                 )
             )
@@ -165,12 +199,19 @@ class Trainer:
 
         # Create dataloader for the validation datasets:
         val_dataloaders = []
-        for dataset, sampler in zip(val_datasets, val_samplers):
+        for val_dataset, val_sampler in zip(val_datasets, val_samplers):
+            if len(val_dataset) < self.hypers["batch_size"]:
+                raise ValueError(
+                    f"A validation dataset has fewer samples "
+                    f"({len(val_dataset)}) than the batch size "
+                    f"({self.hypers['batch_size']}). "
+                    "Please reduce the batch size."
+                )
             val_dataloaders.append(
                 DataLoader(
-                    dataset=dataset,
+                    dataset=val_dataset,
                     batch_size=self.hypers["batch_size"],
-                    sampler=sampler,
+                    sampler=val_sampler,
                     shuffle=False,
                     drop_last=False,
                     collate_fn=collate_fn,
@@ -180,6 +221,9 @@ class Trainer:
 
         # Extract all the possible outputs and their gradients:
         train_targets = (model.module if is_distributed else model).dataset_info.targets
+        extra_data_info = (
+            model.module if is_distributed else model
+        ).dataset_info.extra_data
         outputs_list = []
         for target_name, target_info in train_targets.items():
             outputs_list.append(target_name)
@@ -235,38 +279,23 @@ class Trainer:
 
         # Log the initial learning rate:
         old_lr = optimizer.param_groups[0]["lr"]
-        logger.info(f"Initial learning rate: {old_lr}")
+        logging.info(f"Initial learning rate: {old_lr}")
+
+        rotational_augmenter = RotationalAugmenter(
+            train_targets, extra_data_info_dict=extra_data_info
+        )
 
         start_epoch = 0 if self.epoch is None else self.epoch + 1
-
-        @torch.jit.script
-        def systems_and_targets_to_device(
-            systems: List[System], targets: Dict[str, TensorMap], device: torch.device
-        ) -> Tuple[List[System], Dict[str, TensorMap]]:
-            return (
-                [system.to(device=device) for system in systems],
-                {key: value.to(device=device) for key, value in targets.items()},
-            )
-
-        @torch.jit.script
-        def systems_and_targets_to_dtype(
-            systems: List[System], targets: Dict[str, TensorMap], dtype: torch.dtype
-        ) -> Tuple[List[System], Dict[str, TensorMap]]:
-            return (
-                [system.to(dtype=dtype) for system in systems],
-                {key: value.to(dtype=dtype) for key, value in targets.items()},
-            )
-
-        rotational_augmenter = RotationalAugmenter(train_targets)
 
         # Train the model:
         if self.best_metric is None:
             self.best_metric = float("inf")
-        logger.info("Starting training")
+        logging.info("Starting training")
         epoch = start_epoch
         for epoch in range(start_epoch, start_epoch + self.hypers["num_epochs"]):
             if is_distributed:
-                sampler.set_epoch(epoch)
+                for train_sampler in train_samplers:
+                    train_sampler.set_epoch(epoch)
 
             train_rmse_calculator = RMSEAccumulator(self.hypers["log_separate_blocks"])
             val_rmse_calculator = RMSEAccumulator(self.hypers["log_separate_blocks"])
@@ -280,12 +309,14 @@ class Trainer:
             for batch in train_dataloader:
                 optimizer.zero_grad()
 
-                systems, targets = batch
-                systems, targets = rotational_augmenter.apply_random_augmentations(
-                    systems, targets
+                systems, targets, extra_data = batch
+                systems, targets, extra_data = (
+                    rotational_augmenter.apply_random_augmentations(
+                        systems, targets, extra_data=extra_data
+                    )
                 )
-                systems, targets = systems_and_targets_to_device(
-                    systems, targets, device
+                systems, targets, extra_data = batch_to(
+                    systems, targets, extra_data, device=device
                 )
                 for additive_model in (
                     model.module if is_distributed else model
@@ -296,7 +327,9 @@ class Trainer:
                 targets = remove_scale(
                     targets, (model.module if is_distributed else model).scaler
                 )
-                systems, targets = systems_and_targets_to_dtype(systems, targets, dtype)
+                systems, targets, extra_data = batch_to(
+                    systems, targets, extra_data, dtype=dtype
+                )
                 predictions = evaluate_model(
                     model,
                     systems,
@@ -339,7 +372,7 @@ class Trainer:
 
             val_loss = 0.0
             for batch in val_dataloader:
-                systems, targets = batch
+                systems, targets, extra_data = batch
                 systems = [system.to(device=device) for system in systems]
                 targets = {
                     key: value.to(device=device) for key, value in targets.items()
@@ -355,6 +388,10 @@ class Trainer:
                 )
                 systems = [system.to(dtype=dtype) for system in systems]
                 targets = {key: value.to(dtype=dtype) for key, value in targets.items()}
+                extra_data = {
+                    key: value.to(device=device, dtype=dtype)
+                    for key, value in extra_data.items()
+                }
                 predictions = evaluate_model(
                     model,
                     systems,
@@ -404,7 +441,7 @@ class Trainer:
                     model.module if is_distributed else model
                 ).scaler.get_scales_dict()
                 metric_logger = MetricLogger(
-                    log_obj=logger,
+                    log_obj=ROOT_LOGGER,
                     dataset_info=(
                         model.module if is_distributed else model
                     ).dataset_info,
@@ -430,10 +467,10 @@ class Trainer:
             new_lr = lr_scheduler.get_last_lr()[0]
             if new_lr != old_lr:
                 if new_lr < 1e-7:
-                    logger.info("Learning rate is too small, stopping training")
+                    logging.info("Learning rate is too small, stopping training")
                     break
                 else:
-                    logger.info(f"Changing learning rate from {old_lr} to {new_lr}")
+                    logging.info(f"Changing learning rate from {old_lr} to {new_lr}")
                     old_lr = new_lr
                     # load best model and optimizer state dict, re-initialize scheduler
                     (model.module if is_distributed else model).load_state_dict(
@@ -478,7 +515,8 @@ class Trainer:
     def save_checkpoint(self, model, path: Union[str, Path]):
         checkpoint = {
             "architecture_name": "experimental.nanopet",
-            "model_hypers": {
+            "metadata": model.__default_metadata__,
+            "model_data": {
                 "model_hypers": model.hypers,
                 "dataset_info": model.dataset_info,
             },
@@ -497,10 +535,12 @@ class Trainer:
         )
 
     @classmethod
-    def load_checkpoint(cls, path: Union[str, Path], train_hypers) -> "Trainer":
-
-        # Load the checkpoint
-        checkpoint = torch.load(path, weights_only=False)
+    def load_checkpoint(
+        cls,
+        checkpoint: Dict[str, Any],
+        train_hypers: Dict[str, Any],
+        context: Literal["restart", "finetune"],  # not used at the moment
+    ) -> "Trainer":
         epoch = checkpoint["epoch"]
         optimizer_state_dict = checkpoint["optimizer_state_dict"]
         scheduler_state_dict = checkpoint["scheduler_state_dict"]

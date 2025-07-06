@@ -4,7 +4,7 @@ import metatensor.torch
 import numpy as np
 import torch
 from metatensor.torch import Labels, TensorBlock, TensorMap
-from metatensor.torch.atomistic import (
+from metatomic.torch import (
     ModelCapabilities,
     ModelEvaluationOptions,
     ModelOutput,
@@ -32,7 +32,7 @@ class LLPRUncertaintyModel(torch.nn.Module):
 
     def __init__(
         self,
-        model: torch.jit._script.RecursiveScriptModule,
+        model: torch.jit.RecursiveScriptModule,
     ) -> None:
         super().__init__()
 
@@ -226,6 +226,25 @@ class LLPRUncertaintyModel(torch.nn.Module):
                 ll_features.block().values,
                 ensemble_weights,
             )
+
+            # since we know the exact mean of the ensemble from the model's prediction,
+            # it should be mathematically correct to use it to re-center the ensemble.
+            # Besides making sure that the average is always correct (so that results
+            # will always be consistent between LLPR ensembles and the original model),
+            # this also takes care of additive contributions that are not present in the
+            # last layer, which can be composition, short-range models, a bias in the
+            # last layer, etc.
+            original_name = (
+                name.replace("_ensemble", "").replace("aux::", "")
+                if name.replace("_ensemble", "").replace("aux::", "") in outputs
+                else name.replace("_ensemble", "").replace("mtt::aux::", "")
+            )
+            ensemble_values = (
+                ensemble_values
+                - ensemble_values.mean(dim=1, keepdim=True)
+                + return_dict[original_name].block().values
+            )
+
             property_name = "energy" if name == "energy_ensemble" else "ensemble_member"
             ensemble = TensorMap(
                 keys=Labels(
@@ -270,7 +289,7 @@ class LLPRUncertaintyModel(torch.nn.Module):
         device = next(iter(self.covariances.values())).device
         dtype = next(iter(self.covariances.values())).dtype
         for batch in train_loader:
-            systems, targets = batch
+            systems, targets, extra_data = batch
             n_atoms = torch.tensor(
                 [len(system.positions) for system in systems], device=device
             )
@@ -304,7 +323,7 @@ class LLPRUncertaintyModel(torch.nn.Module):
                 ll_feats = ll_feat_tmap.block().values.detach() / n_atoms.unsqueeze(1)
                 self.covariances[
                     f"mtt::aux::{name.replace('mtt::', '')}_uncertainty"
-                ] += (ll_feats.T @ ll_feats)
+                ] += ll_feats.T @ ll_feats
 
         self.covariance_computed = True
 
@@ -364,7 +383,7 @@ class LLPRUncertaintyModel(torch.nn.Module):
         device = next(iter(self.covariances.values())).device
         dtype = next(iter(self.covariances.values())).dtype
         for batch in train_loader:
-            systems, targets = batch
+            systems, targets, extra_data = batch
             systems = [system.to(device=device, dtype=dtype) for system in systems]
             targets = {
                 name: tmap.to(device=device, dtype=dtype)
@@ -401,7 +420,7 @@ class LLPRUncertaintyModel(torch.nn.Module):
                 grads = torch.cat(grads, dim=1)
                 self.covariances[
                     "mtt::aux::" + output_name.replace("mtt::", "") + "_uncertainty"
-                ] += (grads.T @ grads)
+                ] += grads.T @ grads
 
             for parameter in all_parameters_that_require_grad:
                 parameter.grad = None  # reset the gradients
@@ -481,7 +500,7 @@ class LLPRUncertaintyModel(torch.nn.Module):
         all_targets = {}  # type: ignore
         all_uncertainties = {}  # type: ignore
         for batch in valid_loader:
-            systems, targets = batch
+            systems, targets, extra_data = batch
             systems = [system.to(device=device, dtype=dtype) for system in systems]
             targets = {
                 name: target.to(device=device, dtype=dtype)

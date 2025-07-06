@@ -2,7 +2,7 @@ import metatensor.torch
 import pytest
 import torch
 from jsonschema.exceptions import ValidationError
-from metatensor.torch.atomistic import ModelOutput, System
+from metatomic.torch import ModelOutput, System
 from omegaconf import OmegaConf
 
 from metatrain.experimental.nanopet.model import NanoPET
@@ -20,10 +20,6 @@ from . import DEFAULT_HYPERS, MODEL_HYPERS
 def test_nanopet_padding():
     """Tests that the model predicts the same energy independently of the
     padding size."""
-
-    # we need float64 for this test, then we will change it back at the end
-    default_dtype_before = torch.get_default_dtype()
-    torch.set_default_dtype(torch.float64)
 
     dataset_info = DatasetInfo(
         length_unit="Angstrom",
@@ -69,9 +65,7 @@ def test_nanopet_padding():
     lone_energy = lone_output["energy"].block().values.squeeze(-1)[0]
     padded_energy = padded_output["energy"].block().values.squeeze(-1)[0]
 
-    assert torch.allclose(lone_energy, padded_energy)
-
-    torch.set_default_dtype(default_dtype_before)
+    assert torch.allclose(lone_energy, padded_energy, atol=1e-6, rtol=1e-6)
 
 
 def test_prediction_subset_elements():
@@ -466,3 +460,69 @@ def test_spherical_output_multi_block(per_atom):
         {"spherical_tensor": model.outputs["spherical_tensor"]},
     )
     assert len(outputs["spherical_tensor"]) == 3
+
+
+def test_nanopet_single_atom():
+    """Tests that the model predicts zero energies on a single atom."""
+    # (note that no composition energies are supplied or calculated here)
+
+    dataset_info = DatasetInfo(
+        length_unit="Angstrom",
+        atomic_types=[1, 6, 7, 8],
+        targets={
+            "energy": get_energy_target_info({"quantity": "energy", "unit": "eV"})
+        },
+    )
+    model = NanoPET(MODEL_HYPERS, dataset_info)
+
+    system = System(
+        types=torch.tensor([6]),
+        positions=torch.tensor([[0.0, 0.0, 1.0]]),
+        cell=torch.zeros(3, 3),
+        pbc=torch.tensor([False, False, False]),
+    )
+    system = get_system_with_neighbor_lists(system, model.requested_neighbor_lists())
+    outputs = {"energy": ModelOutput(per_atom=False)}
+    energy = model([system], outputs)["energy"].block().values.item()
+    assert energy == 0.0
+
+
+@pytest.mark.parametrize("per_atom", [True, False])
+def test_nanopet_rank_2(per_atom):
+    """Tests that the model can predict a symmetric rank-2 tensor."""
+    # (note that no composition energies are supplied or calculated here)
+
+    dataset_info = DatasetInfo(
+        length_unit="Angstrom",
+        atomic_types=[1, 6, 7, 8],
+        targets={
+            "stress": get_generic_target_info(
+                {
+                    "quantity": "stress",
+                    "unit": "",
+                    "type": {"cartesian": {"rank": 2}},
+                    "num_subtargets": 100,
+                    "per_atom": per_atom,
+                }
+            )
+        },
+    )
+
+    message = (
+        "NanoPET assumes that Cartesian tensors of rank 2 are stress-like, "
+        "meaning that they are symmetric and intensive. "
+        "If this is not the case, please use a different model."
+    )
+    with pytest.warns(match=message):
+        model = NanoPET(MODEL_HYPERS, dataset_info)
+
+    system = System(
+        types=torch.tensor([6]),
+        positions=torch.tensor([[0.0, 0.0, 1.0]]),
+        cell=torch.eye(3),
+        pbc=torch.tensor([True, True, True]),
+    )
+    system = get_system_with_neighbor_lists(system, model.requested_neighbor_lists())
+    outputs = {"stress": ModelOutput(per_atom=per_atom)}
+    stress = model([system], outputs)["stress"].block().values
+    assert torch.allclose(stress, stress.transpose(1, 2))
