@@ -365,32 +365,32 @@ class NanoPET(ModelInterface):
         # Transformer
         features = self.transformer(features, radial_mask)
 
-        # # GNN
-        # if self.num_mp_layers > 0:
-        #     corresponding_edges = get_corresponding_edges(
-        #         torch.concatenate(
-        #             [centers.unsqueeze(-1), neighbors.unsqueeze(-1), cell_shifts],
-        #             dim=-1,
-        #         )
-        #     )
-        #     for contraction, transformer in zip(
-        #         self.gnn_contractions, self.gnn_transformers
-        #     ):
-        #         new_features = nef_array_to_edges(
-        #             features, centers, nef_to_edges_neighbor
-        #         )
-        #         corresponding_new_features = new_features[corresponding_edges]
-        #         new_features = torch.concatenate(
-        #             [new_features, corresponding_new_features], dim=-3
-        #         )
+        # GNN
+        if self.num_mp_layers > 0:
+            corresponding_edges = get_corresponding_edges(
+                torch.concatenate(
+                    [centers.unsqueeze(-1), neighbors.unsqueeze(-1), cell_shifts],
+                    dim=-1,
+                )
+            )
+            for contraction, transformer in zip(
+                self.gnn_contractions, self.gnn_transformers
+            ):
+                new_features = nef_array_to_edges(
+                    features, centers, nef_to_edges_neighbor
+                )
+                corresponding_new_features = new_features[corresponding_edges]
+                new_features = torch.concatenate(
+                    [new_features, corresponding_new_features], dim=-3
+                )
 
-        #         new_features = new_features.permute(0, 2, 3, 1)  # [n_edges, l_max + 1, l_max + 1, 2*d_pet]
-        #         new_features = contraction(new_features)
-        #         new_features = new_features.permute(0, 3, 1, 2)  # [n_edges, d_pet, l_max + 1, l_max + 1]
+                new_features = new_features.permute(0, 2, 3, 1)  # [n_edges, l_max + 1, l_max + 1, 2*d_pet]
+                new_features = contraction(new_features)
+                new_features = new_features.permute(0, 3, 1, 2)  # [n_edges, d_pet, l_max + 1, l_max + 1]
                 
-        #         new_features = edge_array_to_nef(new_features, nef_indices)
-        #         new_features = transformer(new_features, radial_mask)
-        #         features = (features + new_features) * 0.5**0.5
+                new_features = edge_array_to_nef(new_features, nef_indices)
+                new_features = transformer(new_features, radial_mask)
+                features = (features + new_features) * 0.5**0.5
 
         edge_features = features * radial_mask[:, :, None, None, None]
         node_features = torch.sum(edge_features, dim=1)
