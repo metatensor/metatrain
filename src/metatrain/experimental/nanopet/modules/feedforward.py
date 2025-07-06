@@ -19,25 +19,28 @@ class FeedForwardBlock(torch.nn.Module):
             in_features=intermediate_size, out_features=hidden_size, bias=False
         )
 
-        self.layernorm = torch.nn.LayerNorm(normalized_shape=hidden_size)
-        self.dropout = torch.nn.Dropout(dropout_rate)
+        self.rms_norm = torch.nn.RMSNorm(normalized_shape=(hidden_size, 3, 3))
 
     def forward(
         self,
         inputs: torch.Tensor,  # hidden_size
     ) -> torch.Tensor:  # hidden_size
         # Pre-layer normalization
-        normed_inputs = self.layernorm(inputs)
+        normed_inputs = self.rms_norm(inputs)
+        # normed_inputs = inputs
 
         # Feed-forward
+        normed_inputs = normed_inputs.permute(0, 1, 3, 4, 2)
         hidden = self.mlp(normed_inputs)
-        hidden = torch.nn.functional.gelu(hidden)
+        hidden = hidden.permute(0, 1, 4, 2, 3)
+
+        # artificial "matrix SiLU"
+        hidden = hidden / torch.sum(torch.diagonal(1 + torch.matrix_exp(-hidden.contiguous()), dim1=-2, dim2=-1), dim=-1).unsqueeze(-1).unsqueeze(-2)
 
         # Project back to input size
+        hidden = hidden.permute(0, 1, 3, 4, 2)
         outputs = self.output(hidden)
-
-        # Apply dropout
-        outputs = self.dropout(outputs)
+        outputs = outputs.permute(0, 1, 4, 2, 3)
 
         # Residual connection
         outputs = (outputs + inputs) * 0.5**0.5

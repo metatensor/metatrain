@@ -2,13 +2,11 @@ seed: 42
 base_precision: 32
 
 architecture:
-  name: experimental.phace
+  name: experimental.nanopet
   model:
-    num_message_passing_layers: 2
-    num_element_channels: 32
-    radial_basis:
-      max_eigenvalue: 30.0
+    d_pet: 64
   training:
+    # learning_rate: 0.001
     batch_size: 5
     num_epochs: 1000
     per_structure_targets: ["energy"]

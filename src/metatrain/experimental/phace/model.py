@@ -29,10 +29,6 @@ from .modules.initial_features import get_initial_features
 from .modules.layers import EquivariantLastLayer, Identity, InvariantMLP
 from .modules.message_passing import EquivariantMessagePasser, InvariantMessagePasser
 from .modules.precomputations import Precomputer
-from .modules.tensor_product import (
-    couple_features,
-    uncouple_features,
-)
 from .utils import systems_to_batch
 
 

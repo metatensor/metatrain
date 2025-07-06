@@ -33,6 +33,7 @@ from .modules.nef import (
 from .modules.radial_mask import get_radial_mask
 from .modules.structures import concatenate_structures
 from .modules.transformer import Transformer
+from .modules.hartmut import SphericalToHartmut
 
 
 class NanoPET(ModelInterface):
@@ -78,7 +79,7 @@ class NanoPET(ModelInterface):
         self.cutoff = float(self.hypers["cutoff"])
         self.cutoff_width = float(self.hypers["cutoff_width"])
 
-        self.encoder = Encoder(len(self.atomic_types), self.hypers["d_pet"])
+        self.encoder = Encoder(len(self.atomic_types), self.hypers["d_pet"], self.hypers["max_angular"], self.hypers["max_radial"], self.cutoff)
 
         self.transformer = Transformer(
             self.hypers["d_pet"],
@@ -186,6 +187,10 @@ class NanoPET(ModelInterface):
         self.scaler = Scaler(model_hypers={}, dataset_info=dataset_info)
 
         self.single_label = Labels.single()
+
+        self.spherical_to_hartmut = SphericalToHartmut(
+            l_max=self.hypers["max_angular"],
+        )
 
     def supported_outputs(self) -> Dict[str, ModelOutput]:
         return self.outputs
@@ -334,16 +339,9 @@ class NanoPET(ModelInterface):
         element_indices_centers = element_indices_nodes[centers]
         element_indices_neighbors = element_indices_nodes[neighbors]
 
-        # Send everything to NEF:
-        edge_vectors = edge_array_to_nef(edge_vectors, nef_indices)
+        # Send to NEF:
         radial_mask = edge_array_to_nef(
             radial_mask, nef_indices, nef_mask, fill_value=0.0
-        )
-        element_indices_centers = edge_array_to_nef(
-            element_indices_centers, nef_indices
-        )
-        element_indices_neighbors = edge_array_to_nef(
-            element_indices_neighbors, nef_indices
         )
 
         features = {
@@ -352,43 +350,62 @@ class NanoPET(ModelInterface):
             "neighbor": element_indices_neighbors,
         }
 
-        # Encode
-        features = self.encoder(features)
+        # Encode edges
+        spherical_features = self.encoder(features)  # [n_nodes, n_edges, hidden_size, (max_angular + 1) ** 2]
+        spherical_features = spherical_features * 0.001  # scale down the features (needed to train decently)
+
+        # Convert edge features to NEF format
+        spherical_features = edge_array_to_nef(
+            spherical_features, nef_indices
+        )
+
+        # Convert to Hartmut
+        features = self.spherical_to_hartmut(spherical_features)  # [n_nodes, n_edges, hidden_size, l_max + 1, l_max + 1]
 
         # Transformer
         features = self.transformer(features, radial_mask)
 
-        # GNN
-        if self.num_mp_layers > 0:
-            corresponding_edges = get_corresponding_edges(
-                torch.concatenate(
-                    [centers.unsqueeze(-1), neighbors.unsqueeze(-1), cell_shifts],
-                    dim=-1,
-                )
-            )
-            for contraction, transformer in zip(
-                self.gnn_contractions, self.gnn_transformers
-            ):
-                new_features = nef_array_to_edges(
-                    features, centers, nef_to_edges_neighbor
-                )
-                corresponding_new_features = new_features[corresponding_edges]
-                new_features = torch.concatenate(
-                    [new_features, corresponding_new_features], dim=-1
-                )
-                new_features = contraction(new_features)
-                new_features = edge_array_to_nef(new_features, nef_indices)
-                new_features = transformer(new_features, radial_mask)
-                features = (features + new_features) * 0.5**0.5
+        # # GNN
+        # if self.num_mp_layers > 0:
+        #     corresponding_edges = get_corresponding_edges(
+        #         torch.concatenate(
+        #             [centers.unsqueeze(-1), neighbors.unsqueeze(-1), cell_shifts],
+        #             dim=-1,
+        #         )
+        #     )
+        #     for contraction, transformer in zip(
+        #         self.gnn_contractions, self.gnn_transformers
+        #     ):
+        #         new_features = nef_array_to_edges(
+        #             features, centers, nef_to_edges_neighbor
+        #         )
+        #         corresponding_new_features = new_features[corresponding_edges]
+        #         new_features = torch.concatenate(
+        #             [new_features, corresponding_new_features], dim=-3
+        #         )
 
-        edge_features = features * radial_mask[:, :, None]
+        #         new_features = new_features.permute(0, 2, 3, 1)  # [n_edges, l_max + 1, l_max + 1, 2*d_pet]
+        #         new_features = contraction(new_features)
+        #         new_features = new_features.permute(0, 3, 1, 2)  # [n_edges, d_pet, l_max + 1, l_max + 1]
+                
+        #         new_features = edge_array_to_nef(new_features, nef_indices)
+        #         new_features = transformer(new_features, radial_mask)
+        #         features = (features + new_features) * 0.5**0.5
+
+        edge_features = features * radial_mask[:, :, None, None, None]
         node_features = torch.sum(edge_features, dim=1)
 
-        if self.long_range:
-            long_range_node_features = self.long_range_featurizer(
-                systems, node_features, r
-            )
-            node_features = (node_features + long_range_node_features) * 0.5**0.5
+        # Back from Hartmut to spherical
+        node_features = self.spherical_to_hartmut.back_to_spherical(node_features)
+        
+        # Select L = 0 features
+        node_features = node_features[..., 0]
+
+        # if self.long_range:
+        #     long_range_node_features = self.long_range_featurizer(
+        #         systems, node_features, r
+        #     )
+        #     node_features = (node_features + long_range_node_features) * 0.5**0.5
 
         return_dict: Dict[str, TensorMap] = {}
 
