@@ -255,7 +255,6 @@ class BaseCompositionModel(torch.nn.Module):
                 self.XTX[target_name][key].values[:] += X.T @ X
 
                 # Compute "XTY", i.e. X.T @ Y
-                print(X.shape, Y.shape)
                 self.XTY[target_name][key].values[:] += torch.tensordot(
                     X, Y, dims=([0], [0])
                 )
@@ -547,20 +546,21 @@ def _include_key(key: LabelsEntry) -> bool:
     composition model.
 
     The rules are as follows:
-        - If the key has a single name "_" (indicating a scalar),
-          it is included.
-        - If the key has names ["o3_lambda", "o3_sigma"] it is included
-          if values are 0 and 1 respectively (indicating an invariant block of a
+        - If the key has a single name "_" (indicating a scalar), it is included.
+        - If the key has names ["o3_lambda", "o3_sigma"] it is included if values are 0
+          and 1 respectively (indicating an invariant block of a spherical target).
+        - If the key has names ["o3_lambda", "o3_sigma", "n_centers"], it is included if
+          values are 0, 1, 1 respectively (indicating an invariant block of a per-atom
           spherical target).
-        - If the key has names ["o3_lambda", "o3_sigma", "s2_pi], it is included
-          if values are 0, 1, 0 respectively, indicating an unsymmetrized
-          invariant block of a per-pair target.
+        - If the key has names ["o3_lambda", "o3_sigma", "n_center", "s2_pi"], it is
+          included if values are 0, 1, 1, 0 respectively (indicating an on-site
+          invariant block of a per-pair target).
     """
     valid_key_names = [
         ["_"],  # scalar
         ["o3_lambda", "o3_sigma"],  # spherical
         ["o3_lambda", "o3_sigma", "n_centers"],  # spherical per-atom
-        ["o3_lambda", "o3_sigma", "n_centers", "s2_pi"],  # spherical per-pair
+        ["o3_lambda", "o3_sigma", "n_centers", "s2_pi"],  # spherical per-pair, symmetrized
     ]
     include_key = False
 
