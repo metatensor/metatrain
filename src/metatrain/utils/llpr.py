@@ -17,9 +17,19 @@ from torch.utils.data import DataLoader
 from metatrain.utils.architectures import import_architecture
 from metatrain.utils.data.target_info import is_auxiliary_output
 from metatrain.utils.io import check_file_extension
+from metatrain.utils.metadata import merge_metadata
 
 
 class LLPRUncertaintyModel(torch.nn.Module):
+    __default_metadata__ = ModelMetadata(
+        references={
+            "architecture": [
+                "LLPR: https://iopscience.iop.org/article/10.1088/2632-2153/ad805f",
+                "LPR (per-atom prediction rigidity): https://pubs.acs.org/doi/10.1021/acs.jctc.3c00704",
+            ],
+        }
+    )
+
     """A wrapper that adds LLPR uncertainties to a model.
 
     In order to be compatible with this class, a model needs to have the last-layer
@@ -647,10 +657,9 @@ class LLPRUncertaintyModel(torch.nn.Module):
             pass
 
         if metadata is None:
-            metadata = ModelMetadata()
-
-        # append_metadata_references(metadata, self.__default_metadata__)
-        # TODO: LLPR references
+            metadata = self.__default_metadata__
+        else:
+            metadata = merge_metadata(self.__default_metadata__, metadata)
 
         return AtomisticModel(self.eval(), metadata, self.capabilities)
 
