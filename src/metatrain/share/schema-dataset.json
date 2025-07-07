@@ -171,7 +171,9 @@
                                 "type": "object",
                                 "properties": {
                                   "o3_lambda": { "type": "integer" },
-                                  "o3_sigma": { "type": "number" }
+                                  "o3_sigma": { "type": "number" },
+                                  "n_centers": { "type": "integer" },
+                                  "s2_pi": { "type": "number" }
                                 },
                                 "required": ["o3_lambda", "o3_sigma"],
                                 "additionalProperties": false
@@ -284,7 +286,9 @@
                                 "type": "object",
                                 "properties": {
                                   "o3_lambda": { "type": "integer" },
-                                  "o3_sigma": { "type": "number" }
+                                  "o3_sigma": { "type": "number" },
+                                  "n_centers": { "type": "integer" },
+                                  "s2_pi": { "type": "number" }
                                 },
                                 "required": ["o3_lambda", "o3_sigma"],
                                 "additionalProperties": false

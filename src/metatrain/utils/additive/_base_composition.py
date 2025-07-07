@@ -72,17 +72,36 @@ class BaseCompositionModel(torch.nn.Module):
 
         self.target_names.append(target_name)
         self.is_fitted[target_name] = False
-        if layout.sample_names == ["system"]:
+        valid_sample_names = [
+            ["system"],
+            [
+                "system",
+                "atom",
+            ],
+            [
+                "system",
+                "first_atom",
+                "second_atom",
+                "cell_shift_a",
+                "cell_shift_b",
+                "cell_shift_c",
+            ],
+        ]
+
+        if layout.sample_names == valid_sample_names[0]:
             self.sample_kinds[target_name] = "per_structure"
 
-        elif layout.sample_names == ["system", "atom"]:
+        elif layout.sample_names == valid_sample_names[1]:
             self.sample_kinds[target_name] = "per_atom"
+
+        elif layout.sample_names == valid_sample_names[2]:
+            self.sample_kinds[target_name] = "per_pair"
 
         else:
             raise ValueError(
                 "unknown sample kind. TensorMap has sample names"
-                f" {layout.sample_names} but expected either"
-                "['system'], or ['system', 'atom']"
+                f" {layout.sample_names} but expected one of "
+                f"{valid_sample_names}."
             )
 
         # First slice the layout to only include the keys that the composition
@@ -220,7 +239,7 @@ class BaseCompositionModel(torch.nn.Module):
                 if self.sample_kinds[target_name] == "per_structure":
                     X = self._compute_X_per_structure(systems)
 
-                elif self.sample_kinds[target_name] == "per_atom":
+                elif self.sample_kinds[target_name] in ["per_atom", "per_pair"]:
                     X = self._compute_X_per_atom(
                         systems, self._get_sliced_atomic_types(key)
                     )
@@ -373,17 +392,38 @@ class BaseCompositionModel(torch.nn.Module):
 
                 # TODO: add support for per_pair. As compositions are only fitted for
                 # on-site blocks this extension is simple, reusing the per_atom code.
-                elif self.sample_kinds[output_name] == "per_atom":
+                elif self.sample_kinds[output_name] in ["per_atom", "per_pair"]:
                     sample_values = []
                     for A, system in enumerate(systems):
                         for i in torch.arange(len(system), dtype=torch.int32):
-                            sample_values.append(
-                                torch.tensor([int(A), int(i)], dtype=torch.int32)
-                            )
-                    sample_labels = Labels(
-                        ["system", "atom"],
-                        torch.vstack(sample_values),
-                    )
+                            if self.sample_kinds[output_name] == "per_atom":
+                                sample_values.append(
+                                    torch.tensor([int(A), int(i)], dtype=torch.int32)
+                                )
+                            else:  # per_pair
+                                sample_values.append(
+                                    torch.tensor(
+                                        [int(A), int(i), int(i), 0, 0, 0],
+                                        dtype=torch.int32,
+                                    )
+                                )
+                    if self.sample_kinds[output_name] == "per_atom":
+                        sample_labels = Labels(
+                            ["system", "atom"],
+                            torch.vstack(sample_values),
+                        )
+                    else:
+                        sample_labels = Labels(
+                            [
+                                "system",
+                                "first_atom",
+                                "second_atom",
+                                "cell_shift_a",
+                                "cell_shift_b",
+                                "cell_shift_c",
+                            ],
+                            torch.vstack(sample_values),
+                        )
                     X = self._compute_X_per_atom(
                         systems, self._get_sliced_atomic_types(key)
                     )
@@ -506,20 +546,48 @@ def _include_key(key: LabelsEntry) -> bool:
     composition model.
 
     The rules are as follows:
-        - If the key has a single name "_" (indicating a scalar),
-          it is included.
-        - If the key has names "o3_lambda" and "o3_sigma", it is included
-          if values are 0 and 1 respectively (indicating an invariant block of a
+        - If the key has a single name "_" (indicating a scalar), it is included.
+        - If the key has names ["o3_lambda", "o3_sigma"] it is included if values are 0
+          and 1 respectively (indicating an invariant block of a spherical target).
+        - If the key has names ["o3_lambda", "o3_sigma", "n_centers"], it is included if
+          values are 0, 1, 1 respectively (indicating an invariant block of a per-atom
           spherical target).
+        - If the key has names ["o3_lambda", "o3_sigma", "n_center", "s2_pi"], it is
+          included if values are 0, 1, 1, 0 respectively (indicating an on-site
+          invariant block of a per-pair target).
     """
+    valid_key_names = [
+        ["_"],  # scalar
+        ["o3_lambda", "o3_sigma"],  # spherical
+        ["o3_lambda", "o3_sigma", "n_centers"],  # spherical per-atom
+        ["o3_lambda", "o3_sigma", "n_centers", "s2_pi"],  # spherical per-pair, symmetrized
+    ]
     include_key = False
 
-    if len(key.names) == 1 and key.names[0] == "_":  # scalar
+    if key.names == valid_key_names[0]:
         include_key = True
 
-    if "o3_lambda" in key.names and "o3_sigma" in key.names:
+    elif key.names == valid_key_names[1]:
         if key["o3_lambda"] == 0 and key["o3_sigma"] == 1:
             include_key = True
+
+    elif key.names == valid_key_names[2]:
+        if key["o3_lambda"] == 0 and key["o3_sigma"] == 1 and key["n_centers"] == 1:
+            include_key = True
+
+    elif key.names == valid_key_names[3]:
+        if (
+            key["o3_lambda"] == 0
+            and key["o3_sigma"] == 1
+            and key["s2_pi"] == 0
+            and key["n_centers"] == 1
+        ):
+            include_key = True
+
+    else:
+        raise ValueError(
+            f"key names {key.names} not in valid key names {valid_key_names}"
+        )
 
     return include_key
 
