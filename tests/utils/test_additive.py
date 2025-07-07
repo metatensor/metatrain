@@ -15,7 +15,7 @@ from metatrain.utils.additive import (
     OldCompositionModel,
     remove_additive,
 )
-from metatrain.utils.data import Dataset, DatasetInfo, collate_fn
+from metatrain.utils.data import CollateFn, Dataset, DatasetInfo
 from metatrain.utils.data.readers import read_systems, read_targets
 from metatrain.utils.data.target_info import (
     get_energy_target_info,
@@ -212,6 +212,7 @@ def test_composition_model_train():
         for i, e in enumerate(energies)
     ]
     dataset = Dataset.from_dict({"system": systems, "energy": energies})
+    collate_fn = CollateFn(target_keys=["energy"])
     dataloader = DataLoader(dataset, batch_size=1, collate_fn=collate_fn)
 
     composition_model = CompositionModel(
@@ -355,6 +356,7 @@ def test_composition_model_predict():
     }
     targets, target_info = read_targets(OmegaConf.create(conf))
     dataset = Dataset.from_dict({"system": systems, "mtt::U0": targets["mtt::U0"]})
+    collate_fn = CollateFn(target_keys=["mtt::U0"])
     dataloader = DataLoader(dataset, batch_size=1, collate_fn=collate_fn)
 
     composition_model = CompositionModel(
@@ -550,6 +552,7 @@ def test_remove_additive():
     }
     targets, target_info = read_targets(OmegaConf.create(conf))
     dataset = Dataset.from_dict({"system": systems, "mtt::U0": targets["mtt::U0"]})
+    collate_fn = CollateFn(target_keys=["mtt::U0"])
     dataloader = DataLoader(dataset, batch_size=1, collate_fn=collate_fn)
 
     composition_model = CompositionModel(
@@ -723,6 +726,7 @@ def test_composition_model_missing_types(caplog):
         for i, e in enumerate(energies)
     ]
     dataset = Dataset.from_dict({"system": systems, "energy": energies})
+    collate_fn = CollateFn(target_keys=["energy"])
     dataloader = DataLoader(dataset, batch_size=1, collate_fn=collate_fn)
 
     composition_model = CompositionModel(
@@ -1063,6 +1067,7 @@ def test_composition_model_train_per_atom(where_is_center_type):
 
     energies = [tensor_map_1, tensor_map_2]
     dataset = Dataset.from_dict({"system": systems, "energy": energies})
+    collate_fn = CollateFn(target_keys=["energy"])
     dataloader = DataLoader(dataset, batch_size=1, collate_fn=collate_fn)
 
     composition_model = CompositionModel(
@@ -1282,6 +1287,7 @@ def test_composition_many_subtargets():
         for i, e in enumerate(energies)
     ]
     dataset = Dataset.from_dict({"system": systems, "energy": energies})
+    collate_fn = CollateFn(target_keys=["energy"])
     dataloader = DataLoader(dataset, batch_size=1, collate_fn=collate_fn)
 
     composition_model = CompositionModel(
@@ -1552,6 +1558,7 @@ def test_composition_spherical():
         for i, e in enumerate(energies)
     ]
     dataset = Dataset.from_dict({"system": systems, "energy": energies})
+    collate_fn = CollateFn(target_keys=["energy"])
     dataloader = DataLoader(dataset, batch_size=1, collate_fn=collate_fn)
 
     composition_model = CompositionModel(

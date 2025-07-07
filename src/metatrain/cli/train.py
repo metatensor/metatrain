@@ -277,9 +277,13 @@ def train_model(
 
     train_datasets = []
     target_info_dict: Dict[str, TargetInfo] = {}
+    extra_data_info_dict: Dict[str, TargetInfo] = {}
     for train_options in options["training_set"]:  # loop over training sets
-        dataset, target_info_dict_single = get_dataset(train_options)
+        dataset, target_info_dict_single, extra_data_info_dict_single = get_dataset(
+            train_options
+        )
         train_datasets.append(dataset)
+
         intersecting_keys = target_info_dict.keys() & target_info_dict_single.keys()
         for key in intersecting_keys:
             if target_info_dict[key] != target_info_dict_single[key]:
@@ -288,6 +292,18 @@ def train_model(
                     f"Got {target_info_dict[key]} and {target_info_dict_single[key]}."
                 )
         target_info_dict.update(target_info_dict_single)
+
+        intersecting_keys = (
+            extra_data_info_dict.keys() & extra_data_info_dict_single.keys()
+        )
+        for key in intersecting_keys:
+            if extra_data_info_dict[key] != extra_data_info_dict_single[key]:
+                raise ValueError(
+                    f"Extra data information for key {key} differs between training "
+                    f"sets. Got {extra_data_info_dict[key]} and"
+                    f" {extra_data_info_dict_single[key]}."
+                )
+        extra_data_info_dict.update(extra_data_info_dict_single)
 
     train_size = 1.0
 
@@ -329,7 +345,7 @@ def train_model(
         )
 
         for valid_options in options["validation_set"]:
-            dataset, _ = get_dataset(valid_options)
+            dataset, _, _ = get_dataset(valid_options)
             val_datasets.append(dataset)
             train_indices.append(None)
             val_indices.append(None)
@@ -382,7 +398,7 @@ def train_model(
         )
 
         for test_options in options["test_set"]:
-            dataset, _ = get_dataset(test_options)
+            dataset, _, _ = get_dataset(test_options)
             test_datasets.append(dataset)
             test_indices.append(None)
 
@@ -409,6 +425,7 @@ def train_model(
         length_unit=options["training_set"][0]["systems"]["length_unit"],
         atomic_types=atomic_types,
         targets=target_info_dict,
+        extra_data=extra_data_info_dict,
     )
 
     ###########################
@@ -605,7 +622,6 @@ def train_model(
             mts_atomistic_model,
             train_dataset,
             dataset_info.targets,
-            return_predictions=False,
             batch_size=batch_size,
         )
 
@@ -620,7 +636,6 @@ def train_model(
             mts_atomistic_model,
             val_dataset,
             dataset_info.targets,
-            return_predictions=False,
             batch_size=batch_size,
         )
 
@@ -635,7 +650,6 @@ def train_model(
             mts_atomistic_model,
             test_dataset,
             dataset_info.targets,
-            return_predictions=False,
             batch_size=batch_size,
         )
 

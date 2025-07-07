@@ -10,7 +10,7 @@ from .additive import remove_additive
 from .data import Dataset, DatasetInfo, TargetInfo, get_all_targets
 from .jsonschema import validate
 from .per_atom import average_by_num_atoms
-from .transfer import systems_and_targets_to_device
+from .transfer import batch_to
 
 
 class Scaler(torch.nn.Module):
@@ -102,9 +102,7 @@ class Scaler(torch.nn.Module):
                     systems = [sample["system"]]
                     targets = {target_key: sample[target_key]}
 
-                    systems, targets = systems_and_targets_to_device(
-                        systems, targets, device
-                    )
+                    systems, targets, _ = batch_to(systems, targets, device=device)
 
                     for additive_model in additive_models:
                         target_info_dict = {target_key: self.new_targets[target_key]}
