@@ -24,8 +24,8 @@ class LLPRUncertaintyModel(torch.nn.Module):
     __default_metadata__ = ModelMetadata(
         references={
             "architecture": [
-                "LLPR: https://iopscience.iop.org/article/10.1088/2632-2153/ad805f",
-                "LPR (per-atom prediction rigidity): https://pubs.acs.org/doi/10.1021/acs.jctc.3c00704",
+                "LLPR (uncertainty method): https://iopscience.iop.org/article/10.1088/2632-2153/ad805f",  # noqa: E501
+                "LPR (if using per-atom uncertainty): https://pubs.acs.org/doi/10.1021/acs.jctc.3c00704",  # noqa: E501
             ],
         }
     )
@@ -660,6 +660,9 @@ class LLPRUncertaintyModel(torch.nn.Module):
             metadata = self.__default_metadata__
         else:
             metadata = merge_metadata(self.__default_metadata__, metadata)
+
+        # also add the metadata of the wrapped model
+        metadata = merge_metadata(metadata, self.model.export().metadata)
 
         return AtomisticModel(self.eval(), metadata, self.capabilities)
 
