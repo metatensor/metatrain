@@ -250,9 +250,6 @@
                 "per_atom": {
                   "type": "boolean"
                 },
-                "rotate": {
-                  "type": "boolean"
-                },
                 "num_subtargets": {
                   "type": "integer"
                 },
