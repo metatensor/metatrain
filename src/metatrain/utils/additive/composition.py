@@ -181,7 +181,7 @@ class CompositionModel(torch.nn.Module):
 
         # register new outputs
         for target_name, target_info in self.target_infos.items():
-            self.model._add_output(target_name, target_info.layout)
+            self.model.add_output(target_name, target_info.layout)
             self._add_output(target_name, target_info)
 
         return self
@@ -274,9 +274,7 @@ class CompositionModel(torch.nn.Module):
             mts.save_buffer(mts.make_contiguous(fake_weights)),
         )
 
-    def _move_weights_to_device_and_dtype(
-        self, device: torch.device, dtype: torch.dtype
-    ):
+    def weights_to(self, device: torch.device, dtype: torch.dtype):
         if len(self.weights) != 0:
             if self.weights[list(self.weights.keys())[0]].device != device:
                 self.weights = {k: v.to(device) for k, v in self.weights.items()}
