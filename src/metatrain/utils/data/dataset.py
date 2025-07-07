@@ -163,7 +163,9 @@ def get_stats(dataset: Union[Dataset, Subset], dataset_info: DatasetInfo) -> str
             if "_gradients" not in key:  # not a gradient
                 tensors = [block.values for block in sample[key].blocks()]
             else:
-                original_key = key.split("_")[0]
+                # The name is <basename>_<gradname>_gradients
+                split_by_underscore = key.split("_")
+                original_key = "_".join(split_by_underscore[:-2])
                 gradient_name = key.replace(f"{original_key}_", "").replace(
                     "_gradients", ""
                 )
