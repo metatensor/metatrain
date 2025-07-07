@@ -147,12 +147,11 @@ def remap_neighborlists(
         new_system.add_neighbor_list(neighbor_list_options, new_nl)
 
         # possibly re-attach other neighbor lists
-        for other_nl in system.known_neighbor_lists():
-            if other_nl.options != neighbor_list_options:
-                register_autograd_neighbors(system, other_nl)
-                new_system.add_neighbor_list(
-                    other_nl.options, system.get_neighbor_list(other_nl.options)
-                )
+        for other_nl_options in system.known_neighbor_lists():
+            if other_nl_options != neighbor_list_options:
+                other_neighbors = system.get_neighbor_list(other_nl_options)
+                register_autograd_neighbors(system, other_neighbors)
+                new_system.add_neighbor_list(other_nl_options, other_neighbors)
 
         new_systems.append(new_system)
 
