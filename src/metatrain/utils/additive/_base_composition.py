@@ -177,14 +177,6 @@ class BaseCompositionModel(torch.nn.Module):
                 for block in layout
             ],
         )
-        self.register_buffer(
-            target_name + "_composition_buffer",
-            mts.save_buffer(
-                mts.make_contiguous(
-                    self.weights[target_name].to("cpu", torch.float64)
-                ).to(self.dummy_buffer.device)
-            ),
-        )
 
     def accumulate(
         self,
@@ -301,16 +293,6 @@ class BaseCompositionModel(torch.nn.Module):
                 blocks,
             )
             self.is_fitted[target_name] = True
-
-            # save a dummy buffer
-            self.register_buffer(
-                target_name + "_composition_buffer",
-                mts.save_buffer(
-                    mts.make_contiguous(
-                        self.weights[target_name].to("cpu", torch.float64)
-                    )
-                ).to(self.dummy_buffer.device),
-            )
 
     def forward(
         self,
