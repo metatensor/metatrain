@@ -193,6 +193,7 @@ def test_eval_disk_dataset(monkeypatch, tmp_path, caplog, suffix, preload):
         {
             "systems": {"read_from": "qm9_reduced_100.zip"},
             "targets": {"energy": {"read_from": "qm9_reduced_100.zip"}},
+            "preload_disk_dataset": preload,
         }
     )
 
