@@ -352,7 +352,6 @@ class NanoPET(ModelInterface):
 
         # Encode edges
         spherical_features = self.encoder(features)  # [n_nodes, n_edges, hidden_size, (max_angular + 1) ** 2]
-        spherical_features = spherical_features * 0.001  # scale down the features (needed to train decently)
 
         # Convert edge features to NEF format
         spherical_features = edge_array_to_nef(

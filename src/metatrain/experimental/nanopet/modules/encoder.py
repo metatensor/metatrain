@@ -31,11 +31,11 @@ class Encoder(torch.nn.Module):
         )
         self.spherical_harmonics = SphericalHarmonics(l_max=max_angular)
         self.radial_mlp = torch.nn.Sequential(
-            torch.nn.Linear(in_features=max_radial, out_features=hidden_size),
+            torch.nn.Linear(in_features=max_radial, out_features=4*hidden_size, bias=False),
             torch.nn.SiLU(),
-            torch.nn.Linear(in_features=hidden_size, out_features=hidden_size),
+            torch.nn.Linear(in_features=4*hidden_size, out_features=4*hidden_size, bias=False),
             torch.nn.SiLU(),
-            torch.nn.Linear(in_features=hidden_size, out_features=hidden_size),
+            torch.nn.Linear(in_features=4*hidden_size, out_features=hidden_size, bias=False),
         )
 
         self.max_radial = max_radial

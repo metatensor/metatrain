@@ -19,15 +19,19 @@ class FeedForwardBlock(torch.nn.Module):
             in_features=intermediate_size, out_features=hidden_size, bias=False
         )
 
-        self.rms_norm = torch.nn.RMSNorm(normalized_shape=(hidden_size, 3, 3))
+        self.rms_norm = torch.nn.Parameter(torch.ones(hidden_size))
 
     def forward(
         self,
         inputs: torch.Tensor,  # hidden_size
     ) -> torch.Tensor:  # hidden_size
         # Pre-layer normalization
-        normed_inputs = self.rms_norm(inputs)
+        # normed_inputs = inputs.permute(0, 1, 3, 4, 2)
+        # normed_inputs = self.rms_norm(normed_inputs)
         # normed_inputs = inputs
+        # normed_inputs = normed_inputs.permute(0, 1, 4, 2, 3)
+        std = torch.std(torch.sum(torch.diagonal(inputs, dim1=-2, dim2=-1), dim=-1), dim=-1, keepdim=True).unsqueeze(-1).unsqueeze(-2)
+        normed_inputs = self.rms_norm.reshape(-1, 1, 1) * inputs / (std + 1e-8)  # Normalize along the feature dimension
 
         # Feed-forward
         normed_inputs = normed_inputs.permute(0, 1, 3, 4, 2)

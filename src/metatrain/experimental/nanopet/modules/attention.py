@@ -20,7 +20,7 @@ class AttentionBlock(torch.nn.Module):
         self.num_heads = num_heads
         self.in_proj = torch.nn.Linear(hidden_size, 3 * hidden_size, bias=False)
         self.out_proj = torch.nn.Linear(hidden_size, hidden_size, bias=False)
-        self.rms_norm = torch.nn.RMSNorm(normalized_shape=(hidden_size, 3, 3))
+        self.rms_norm = torch.nn.Parameter(torch.ones(hidden_size))
         self.attention_dropout_rate = attention_dropout_rate
 
     def forward(
@@ -29,8 +29,13 @@ class AttentionBlock(torch.nn.Module):
         radial_mask: torch.Tensor,  # [nodes, edges]
     ) -> torch.Tensor:  # [nodes, edges, d_pet, l_max+1, l_max+1]
         # Pre-layer normalization
-        normed_inputs = self.rms_norm(inputs)
+        # normed_inputs = inputs.permute(0, 1, 3, 4, 2)
+        # normed_inputs = self.rms_norm(normed_inputs)
         # normed_inputs = inputs
+        # normed_inputs = normed_inputs.permute(0, 1, 4, 2, 3)
+        std = torch.std(torch.sum(torch.diagonal(inputs, dim1=-2, dim2=-1), dim=-1), dim=-1, keepdim=True).unsqueeze(-1).unsqueeze(-2)
+        normed_inputs = inputs / (std + 1e-8)  # Normalize along the feature dimension
+        normed_inputs = self.rms_norm.reshape(-1, 1, 1) * inputs / (std + 1e-8)  # Normalize along the feature dimension
 
         # Input projection
         normed_inputs = normed_inputs.permute(0, 1, 3, 4, 2)  # [nodes, edges, l_max+1, l_max+1, d_pet]
