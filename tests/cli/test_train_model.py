@@ -846,7 +846,8 @@ def test_train_generic_target_metatensor(monkeypatch, tmp_path, with_scalar_part
     train_model(options)
 
 
-def test_train_disk_dataset(monkeypatch, tmp_path, options):
+@pytest.mark.parametrize("preload", [True, False])
+def test_train_disk_dataset(monkeypatch, tmp_path, options, preload):
     """Test that training via the training cli runs without an error raise
     when learning from a `DiskDataset`."""
     monkeypatch.chdir(tmp_path)
@@ -880,10 +881,12 @@ def test_train_disk_dataset(monkeypatch, tmp_path, options):
 
     options["training_set"]["systems"]["read_from"] = "qm9_reduced_100.zip"
     options["training_set"]["targets"]["energy"]["read_from"] = "qm9_reduced_100.zip"
+    options["training_set"]["preload_disk_dataset"] = preload
     train_model(options)
 
 
-def test_train_disk_dataset_splits_issue_601(monkeypatch, tmp_path, options):
+@pytest.mark.parametrize("preload", [True, False])
+def test_train_disk_dataset_splits_issue_601(monkeypatch, tmp_path, options, preload):
     """Test that training via the training cli runs without an error raise
     when learning from multiple `DiskDataset` objects for training and test datasets, as
     per issue https://github.com/metatensor/metatrain/issues/601."""
@@ -930,6 +933,7 @@ def test_train_disk_dataset_splits_issue_601(monkeypatch, tmp_path, options):
                 }
             },
         }
+        options[f"{subset_name}_set"]["preload_disk_dataset"] = preload
     train_model(options)
 
 

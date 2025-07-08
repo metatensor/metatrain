@@ -85,9 +85,6 @@
                   "type": "string"
                 }
               ]
-            },
-            "preload": {
-              "type": "boolean"
             }
           },
           "additionalProperties": false
@@ -310,6 +307,10 @@
         }
       },
       "additionalProperties": false
+    },
+    "preload_disk_dataset": {
+      "type": "boolean",
+      "default": false
     }
   },
   "additionalProperties": false

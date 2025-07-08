@@ -31,7 +31,7 @@ def get_dataset(
     if options["systems"]["read_from"].endswith(".zip"):  # disk dataset
         dataset = DiskDataset(
             options["systems"]["read_from"],
-            options["systems"]["preload"],
+            options["preload_disk_dataset"],
         )
         target_info_dictionary = dataset.get_target_info(options["targets"])
         if "extra_data" in options:

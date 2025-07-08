@@ -86,7 +86,6 @@ CONF_SYSTEMS = OmegaConf.create(
         "read_from": "${..read_from}",
         "reader": None,
         "length_unit": None,
-        "preload": None,
     }
 )
 

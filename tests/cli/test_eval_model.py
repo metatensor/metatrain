@@ -179,7 +179,8 @@ def test_eval_no_targets(monkeypatch, tmp_path, model, options):
 
 
 @pytest.mark.parametrize("suffix", [".zip", ".mts"])
-def test_eval_disk_dataset(monkeypatch, tmp_path, caplog, suffix):
+@pytest.mark.parametrize("preload", [True, False])
+def test_eval_disk_dataset(monkeypatch, tmp_path, caplog, suffix, preload):
     """Test that eval via python API runs without an error raise."""
     monkeypatch.chdir(tmp_path)
     caplog.set_level(logging.INFO)

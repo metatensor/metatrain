@@ -235,3 +235,51 @@ section to your ``options.yaml`` file:
    While the ``extra_data`` section can always be present, it will typically be ignored
    unless using specific loss functions. If the loss function you picked does not
    support the extra data, it will be ignored.
+
+
+Disk Datasets
+-------------
+
+For large datasets, it is often impractical to load all data into memory. In such cases,
+you can use the ``DiskDataset`` class to handle datasets stored on disk. This class
+allows you to work with datasets that are too large to fit into memory by loading only
+the necessary parts of the dataset when needed. For an example of how to generate a disk
+dataset, refer to the programmatic examples.
+
+Training data can then be specified in the ``options.yaml`` file as follows:
+
+.. code-block:: yaml
+
+    training_set:
+        systems:
+            read_from: disk_dataset.zip
+            length_unit: angstrom
+        targets:
+            mtt::polarization:
+                read_from: disk_dataset.zip
+
+Optionally, pre-loading of the dataset into memory can be controlled with the
+``preload_disk_dataset`` option. If set to ``true``, the dataset will be loaded into
+memory when the ``DiskDataset`` object is first constructed, prior to running the
+training loop. If unspecified or set to false (the default behaviour), data will be
+loaded directly from disk whenever requested (i.e. upon calls to the dataloader during
+batching).
+
+While the former can speed up training, the latter is the desired choice for large
+datasets that do not fit into memory. For electronic structure data that may already be
+stored as per-system TensorMaps on disk, it is usually best to use a ``DiskDataset`` and
+control the preloading behaviour with the ``preload_disk_dataset`` option depending on
+the size of dataset and available memory.
+
+.. code-block:: yaml
+
+    training_set:
+        preload_disk_dataset: true
+        systems:
+            read_from: disk_dataset.zip
+            length_unit: angstrom
+        targets:
+            mtt::electron_density_basis:
+                read_from: disk_dataset.zip
+            mtt::hamiltonian:
+                read_from: disk_dataset.zip

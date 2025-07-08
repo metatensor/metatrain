@@ -425,7 +425,7 @@ class DiskDataset(torch.utils.data.Dataset):
     :param path: Path to the zip file containing the dataset.
     """
 
-    def __init__(self, path: Union[str, Path], in_memory: Optional[bool] = None):
+    def __init__(self, path: Union[str, Path], preload_disk_dataset: bool = False):
         self.zip_file = zipfile.ZipFile(path, "r")
         self._field_names = ["system"]
         # check that we have at least one sample:
@@ -442,9 +442,7 @@ class DiskDataset(torch.utils.data.Dataset):
         self._len = len([f for f in self.zip_file.namelist() if f.endswith(".mta")])
         self._preloaded = False
         self._data = {}
-        if in_memory is None:
-            in_memory = False
-        if in_memory:  # pre-load into memory
+        if preload_disk_dataset:  # pre-load into memory
             for index in range(self._len):
                 self._data[index] = self.__getitem__(index)
             self._preloaded = True
