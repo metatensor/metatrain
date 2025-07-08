@@ -188,11 +188,13 @@ class Trainer(TrainerInterface):
                     sampler=train_sampler,
                     shuffle=(
                         # the sampler takes care of this (if present)
-                        train_sampler is None
+                        train_sampler
+                        is None
                     ),
                     drop_last=(
                         # the sampler takes care of this (if present)
-                        train_sampler is None
+                        train_sampler
+                        is None
                     ),
                     collate_fn=collate_fn,
                 )
@@ -388,10 +390,6 @@ class Trainer(TrainerInterface):
             val_loss = 0.0
             for batch in val_dataloader:
                 systems, targets, extra_data = batch
-                # systems = [system.to(device=device) for system in systems]
-                # targets = {
-                #     key: value.to(device=device) for key, value in targets.items()
-                # }
                 systems, targets, extra_data = batch_to(
                     systems, targets, extra_data, device=device
                 )
