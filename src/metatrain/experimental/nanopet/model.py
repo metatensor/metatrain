@@ -192,6 +192,11 @@ class NanoPET(ModelInterface):
             l_max=self.hypers["max_angular"],
         )
 
+        self.node_edge_embedder = torch.nn.Embedding(
+            num_embeddings=2,
+            embedding_dim=self.hypers["d_pet"],
+        )
+
     def supported_outputs(self) -> Dict[str, ModelOutput]:
         return self.outputs
 
@@ -360,10 +365,21 @@ class NanoPET(ModelInterface):
             spherical_features, nef_indices, nef_mask, fill_value=0.0
         )
 
+        # Embed centers vs neighbors
+        # TODO: change to minimalistic (center type only) embedding
+        node_features = torch.sum(spherical_features, dim=1, keepdim=True) / 3.0  # [n_nodes, 1, hidden_size, (max_angular + 1) ** 2]
+
+        node_features = node_features * self.node_edge_embedder.weight[0].reshape(1, 1, -1, 1)
+        spherical_features = spherical_features * self.node_edge_embedder.weight[1].reshape(1, 1, -1, 1)
+        spherical_features = torch.concatenate(
+            [node_features, spherical_features], dim=1
+        )
+
         # Convert to Hartmut
         features = self.spherical_to_hartmut(spherical_features)  # [n_nodes, n_edges, hidden_size, l_max + 1, l_max + 1]
 
         # Transformer
+        radial_mask = torch.concatenate([torch.ones_like(radial_mask[:, :1]), radial_mask], dim=1)  # add a radial mask for the node features
         features = self.transformer(features, radial_mask)
 
         # GNN
@@ -377,6 +393,8 @@ class NanoPET(ModelInterface):
             for contraction, transformer in zip(
                 self.gnn_contractions, self.gnn_transformers
             ):
+                old_features = features
+                node_features, features = torch.split(old_features, [1, old_features.shape[1]-1], dim=1)
                 new_features = nef_array_to_edges(
                     features, centers, nef_to_edges_neighbor
                 )
@@ -390,8 +408,11 @@ class NanoPET(ModelInterface):
                 new_features = new_features.permute(0, 3, 1, 2)  # [n_edges, d_pet, l_max + 1, l_max + 1]
                 
                 new_features = edge_array_to_nef(new_features, nef_indices)
+
+                new_features = torch.concatenate([node_features, new_features], dim=1)
+                
                 new_features = transformer(new_features, radial_mask)
-                features = (features + new_features) * 0.5**0.5
+                features = (old_features + new_features) * 0.5**0.5
 
         edge_features = features * radial_mask[:, :, None, None, None]
         node_features = torch.sum(edge_features, dim=1)
