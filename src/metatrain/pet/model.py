@@ -1,6 +1,7 @@
 import warnings
+from functools import partial
 from math import prod
-from typing import Any, Dict, List, Literal, Optional
+from typing import Any, Callable, Dict, List, Literal, Optional
 
 import metatensor.torch
 import torch
@@ -323,10 +324,10 @@ class PET(ModelInterface):
         # of each of the GNN layers, for both the nodes and the edges. At the end of
         # this stage, we have the last layer features for each output, for both nodes
         # and edges.
-        node_last_layer_features_dict: Dict[str, List[torch.Tensor]] = self._apply_head(
+        node_last_layer_features_dict = self._compute_last_layer_features(
             self.node_heads, node_features_list
         )
-        edge_last_layer_features_dict: Dict[str, List[torch.Tensor]] = self._apply_head(
+        edge_last_layer_features_dict = self._compute_last_layer_features(
             self.edge_heads, edge_features_list
         )
 
@@ -352,61 +353,31 @@ class PET(ModelInterface):
         node_atomic_predictions_dict: Dict[str, List[List[torch.Tensor]]] = {}
         edge_atomic_predictions_dict: Dict[str, List[List[torch.Tensor]]] = {}
 
+        # Below, we compute node and edge atomic predictions. For readability,
+        # the core implementation is moved to `_compute_atomic_predictions` function.
+
         # Computing node atomic predictions. Since we have last layer features
         # for each GNN layer, and each last layer can have multiple blocks,
         # we apply each last layer block to each of the last layer features.
-
-        for output_name, node_last_layers in self.node_last_layers.items():
-            if output_name in outputs:
-                node_atomic_predictions_dict[output_name] = torch.jit.annotate(
-                    List[List[torch.Tensor]], []
-                )
-                for i, node_last_layer in enumerate(node_last_layers):
-                    node_last_layer_features = node_last_layer_features_dict[
-                        output_name
-                    ][i]
-                    node_atomic_predictions_by_block: List[torch.Tensor] = []
-                    for node_last_layer_by_block in node_last_layer.values():
-                        node_atomic_predictions_by_block.append(
-                            node_last_layer_by_block(node_last_layer_features)
-                        )
-                    node_atomic_predictions_dict[output_name].append(
-                        node_atomic_predictions_by_block
-                    )
+        node_atomic_predictions_dict = self._compute_atomic_predictions(
+            last_layers_dict=self.node_last_layers,
+            features_dict=node_last_layer_features_dict,
+            outputs=outputs,
+            process_block=self._node_block,
+        )
 
         # Computing edge atomic predictions. Following the same logic as above,
         # we (1) iterate over the last layer features and last layer blocks, and (2)
         # sum the edge features with cutoff factors to get their per-node contribution.
-
-        for output_name, edge_last_layers in self.edge_last_layers.items():
-            if output_name in outputs:
-                edge_atomic_predictions_dict[output_name] = torch.jit.annotate(
-                    List[List[torch.Tensor]], []
-                )
-                for i, edge_last_layer in enumerate(edge_last_layers):
-                    edge_last_layer_features = edge_last_layer_features_dict[
-                        output_name
-                    ][i]
-                    edge_atomic_predictions_by_block: List[torch.Tensor] = []
-                    for edge_last_layer_by_block in edge_last_layer.values():
-                        edge_atomic_predictions = edge_last_layer_by_block(
-                            edge_last_layer_features
-                        )
-                        expanded_padding_mask = padding_mask[..., None].repeat(
-                            1, 1, edge_atomic_predictions.shape[2]
-                        )
-                        edge_atomic_predictions = torch.where(
-                            ~expanded_padding_mask, 0.0, edge_atomic_predictions
-                        )
-                        edge_atomic_predictions = (
-                            edge_atomic_predictions * cutoff_factors[:, :, None]
-                        )
-                        edge_atomic_predictions_by_block.append(
-                            edge_atomic_predictions.sum(dim=1)
-                        )
-                    edge_atomic_predictions_dict[output_name].append(
-                        edge_atomic_predictions_by_block
-                    )
+        edge_block = partial(
+            self._edge_block, padding_mask=padding_mask, cutoff_factors=cutoff_factors
+        )
+        edge_atomic_predictions_dict = self._compute_atomic_predictions(
+            last_layers_dict=self.edge_last_layers,
+            features_dict=edge_last_layer_features_dict,
+            outputs=outputs,
+            process_block=edge_block,
+        )
 
         # Finally, we sum all the node and edge atomic predictions from each GNN
         # layer to a single atomic predictions tensor.
@@ -925,7 +896,7 @@ class PET(ModelInterface):
                 else sum_over_atoms(last_layer_feature_tmap)
             )
 
-    def _apply_head(
+    def _compute_last_layer_features(
         self,
         input_heads: Dict[str, torch.nn.ModuleList],
         features_list: List[torch.Tensor],
@@ -939,3 +910,47 @@ class PET(ModelInterface):
                     edge_head(features_list[i])
                 )
         return last_layer_features_dict
+
+    def _compute_atomic_predictions(
+        self,
+        last_layers_dict: Dict[str, List[Dict[str, Callable]]],
+        features_dict: Dict[str, List[torch.Tensor]],
+        outputs: List[str],
+        process_block: Callable[[Callable, torch.Tensor], torch.Tensor],
+    ) -> Dict[str, List[List[torch.Tensor]]]:
+        out_dict: Dict[str, List[List[torch.Tensor]]] = {}
+        for output_name, layers in last_layers_dict.items():
+            if output_name not in outputs:
+                continue
+            out_dict[output_name] = torch.jit.annotate(List[List[torch.Tensor]], [])
+            for layer_idx, layer_blocks in enumerate(layers):
+                features = features_dict[output_name][layer_idx]
+                by_block: List[torch.Tensor] = []
+                for block in layer_blocks.values():
+                    by_block.append(process_block(block, features))
+                out_dict[output_name].append(by_block)
+        return out_dict
+
+    # node X for _compute_atomic_predictions above: just call the layer on the features
+    def _node_block(
+        self, node_last_layer_by_block: Callable, node_last_layer_features: torch.Tensor
+    ) -> torch.Tensor:
+        return node_last_layer_by_block(node_last_layer_features)
+
+    # edge X for _compute_atomic_predictions above: apply mask + cutoff + sum
+    def _edge_block(
+        self,
+        edge_last_layer_by_block: Callable,
+        edge_last_layer_features: torch.Tensor,
+        padding_mask: torch.BoolTensor,
+        cutoff_factors: torch.Tensor,
+    ) -> torch.Tensor:
+        edge_atomic_predictions = edge_last_layer_by_block(edge_last_layer_features)
+        expanded_padding_mask = padding_mask[..., None].repeat(
+            1, 1, edge_atomic_predictions.shape[2]
+        )
+        edge_atomic_predictions = torch.where(
+            ~expanded_padding_mask, 0.0, edge_atomic_predictions
+        )
+        edge_atomic_predictions = edge_atomic_predictions * cutoff_factors[:, :, None]
+        return edge_atomic_predictions.sum(dim=1)
