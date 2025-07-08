@@ -4,11 +4,9 @@ from torch import nn
 
 from .utilities import DummyModule
 
+
 class TokenEncoder(nn.Module):
-    def __init__(self, 
-                 d_model: int, 
-                 n_atomic_species: int, 
-                 is_first: bool):
+    def __init__(self, d_model: int, n_atomic_species: int, is_first: bool):
         super().__init__()
 
         # Initialize the edge embedder to transform edge vectors and distances
@@ -34,15 +32,16 @@ class TokenEncoder(nn.Module):
             self.neighbor_embedder = nn.Embedding(n_atomic_species + 1, d_model)
         self.node_embedder = nn.Embedding(n_atomic_species + 1, d_model)
 
-    def forward(self,
-                element_indices_nodes: torch.Tensor,
-                element_indices_neighbors: torch.Tensor,
-                edge_vectors: torch.Tensor,
-                edge_distances: torch.Tensor,
-                input_messages: torch.Tensor):
-        
+    def forward(
+        self,
+        element_indices_nodes: torch.Tensor,
+        element_indices_neighbors: torch.Tensor,
+        edge_vectors: torch.Tensor,
+        edge_distances: torch.Tensor,
+        input_messages: torch.Tensor,
+    ):
         # We concatenate the edge vectors and distances to form a feature vector
-        # of size 4, which is then transformed into a feature representation of size 
+        # of size 4, which is then transformed into a feature representation of size
         # d_model using the edge embedder.
         node_elements_embedding = self.node_embedder(element_indices_nodes)
         edge_embedding = torch.cat([edge_vectors, edge_distances[:, :, None]], dim=2)
@@ -65,18 +64,19 @@ class TokenEncoder(nn.Module):
         tokens = torch.cat([node_elements_embedding[:, None, :], tokens], dim=1)
 
         return tokens
-    
+
+
 class AttentionBlock(nn.Module):
     def __init__(self, d_model, num_heads, epsilon=1e-15):
         super().__init__()
 
-        # initialize input and output linear layers for the attention block, necessary 
+        # initialize input and output linear layers for the attention block, necessary
         # to build queries, keys and values.
         self.input_linear = nn.Linear(d_model, 3 * d_model)
         self.output_linear = nn.Linear(d_model, d_model)
-    
-        # The weights of the linear layers are initialized using Xavier uniform 
-        # initialization while all the biases of the input and output are initialized 
+
+        # The weights of the linear layers are initialized using Xavier uniform
+        # initialization while all the biases of the input and output are initialized
         # to zero.
         nn.init.xavier_uniform_(self.input_linear.weight)
         nn.init.constant_(self.input_linear.bias, 0.0)
@@ -126,11 +126,11 @@ class TransformerLayer(torch.nn.Module):
         transformer_type="PostLN",
     ):
         super().__init__()
-        
+
         if transformer_type not in ["PostLN", "PreLN"]:
             raise ValueError("unknown transformer type")
         self.transformer_type = transformer_type
-        
+
         self.attention = AttentionBlock(d_model, n_heads)
         self.dropout = nn.Dropout(dropout)
         self.norm_attention = nn.LayerNorm(d_model)
@@ -149,7 +149,6 @@ class TransformerLayer(torch.nn.Module):
         cutoff_factors: torch.Tensor,
         use_manual_attention: bool,
     ) -> torch.Tensor:
-        
         if self.transformer_type == "PostLN":
             # Compute attention output and apply dropout
             attention_out = self.attention(tokens, cutoff_factors, use_manual_attention)
@@ -159,16 +158,16 @@ class TransformerLayer(torch.nn.Module):
             # Feedforward MLP with residual connection and second LayerNorm
             mlp_out = self.mlp(tokens)
             tokens = self.norm_mlp(tokens + mlp_out)
-        
+
         if self.transformer_type == "PreLN":
             attention_out = self.norm_attention(tokens)
-            attention_out = self.attention(attention_out, 
-                                           cutoff_factors, 
-                                           use_manual_attention)
+            attention_out = self.attention(
+                attention_out, cutoff_factors, use_manual_attention
+            )
             attention_out = self.dropout(attention_out)
             tokens = tokens + attention_out
             tokens = tokens + self.mlp(self.norm_mlp(tokens))
-        
+
         return tokens
 
 
@@ -257,7 +256,6 @@ class CartesianTransformer(torch.nn.Module):
         cutoff_factors: torch.Tensor,
         use_manual_attention: bool,
     ):
-
         tokens = self.token_encoder(
             element_indices_nodes,
             element_indices_neighbors,
@@ -267,8 +265,7 @@ class CartesianTransformer(torch.nn.Module):
         )
 
         cutoff_factors = build_cutoff_mask(
-            cutoff_factors=cutoff_factors,
-            padding_mask=padding_mask
+            cutoff_factors=cutoff_factors, padding_mask=padding_mask
         )
 
         initial_num_tokens = edge_vectors.shape[1]
@@ -309,10 +306,7 @@ def manual_attention(q, k, v, attn_mask):
     return attention_output
 
 
-def build_cutoff_mask(
-        cutoff_factors: torch.Tensor,
-        padding_mask: torch.Tensor
-):
+def build_cutoff_mask(cutoff_factors: torch.Tensor, padding_mask: torch.Tensor):
     padding_mask_with_central_token = torch.ones(
         padding_mask.shape[0], dtype=torch.bool, device=padding_mask.device
     )
@@ -320,9 +314,7 @@ def build_cutoff_mask(
         [padding_mask_with_central_token[:, None], padding_mask], dim=1
     )
 
-    cutoff_subfactors = torch.ones(
-        padding_mask.shape[0], device=padding_mask.device
-    )
+    cutoff_subfactors = torch.ones(padding_mask.shape[0], device=padding_mask.device)
     cutoff_factors = torch.cat([cutoff_subfactors[:, None], cutoff_factors], dim=1)
     cutoff_factors[~total_padding_mask] = 0.0
 

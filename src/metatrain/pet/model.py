@@ -27,7 +27,8 @@ from metatrain.utils.sum_over_atoms import sum_over_atoms
 from .modules.finetuning import apply_finetuning_strategy
 from .modules.structures import remap_neighborlists, systems_to_batch
 from .modules.transformer import CartesianTransformer
-from .modules.utilities import cutoff_func, DummyModule
+from .modules.utilities import DummyModule, cutoff_func  # noqa: F401
+
 
 class PET(ModelInterface):
     """
@@ -63,7 +64,7 @@ class PET(ModelInterface):
             len(self.atomic_types) + 1, self.hypers["d_pet"]
         )
 
-        # Core GNN layers of the PET model are initialized here. 
+        # Core GNN layers of the PET model are initialized here.
         gnn_layers = []
         for layer_index in range(self.hypers["num_gnn_layers"]):
             transformer_layer = CartesianTransformer(
@@ -99,7 +100,7 @@ class PET(ModelInterface):
         self.target_names: List[str] = []
 
         # We initialize the heads and last layers for each target, that will be attached
-        # to the each of the GNN layers defined above. The actual architecture of the 
+        # to the each of the GNN layers defined above. The actual architecture of the
         # heads and last layers is defined in `_add_output`.
         for target_name, target_info in dataset_info.targets.items():
             self.target_names.append(target_name)
@@ -108,7 +109,7 @@ class PET(ModelInterface):
         # Mapping the atomic species of the database to progressively increasing indices
         self._init_species_index_map()
 
-        # Long range module initialization: check if the long range features are request 
+        # Long range module initialization: check if the long range features are request
         # and initialize them
         self._init_long_range_featurizer()
 
@@ -260,9 +261,7 @@ class PET(ModelInterface):
         node_features_list: List[torch.Tensor] = []
         edge_features_list: List[torch.Tensor] = []
 
-        input_messages = self.embedding(
-                element_indices_neighbors
-            )
+        input_messages = self.embedding(element_indices_neighbors)
         for gnn_layer in self.gnn_layers:
             output_node_embeddings, output_edge_embeddings = gnn_layer(
                 input_messages,
@@ -310,42 +309,28 @@ class PET(ModelInterface):
         # Construct the feature TensorMap if requested.
         if "features" in outputs:
             self._build_feature_tmap(
-                node_features_list, 
-                edge_features_list, 
-                cutoff_factors, 
-                sample_labels, 
-                outputs, 
-                return_dict
+                node_features_list,
+                edge_features_list,
+                cutoff_factors,
+                sample_labels,
+                outputs,
+                return_dict,
             )
 
         # We compute the heads and the last layer features for each requested output,
-        # for both node and edge features from each GNN layer. 
-        # This is done by applying the modules initialized in _add_output to the output 
-        # of each of the GNN layers, for both the nodes and the edges. At the end of 
+        # for both node and edge features from each GNN layer.
+        # This is done by applying the modules initialized in _add_output to the output
+        # of each of the GNN layers, for both the nodes and the edges. At the end of
         # this stage, we have the last layer features for each output, for both nodes
         # and edges.
-        node_last_layer_features_dict: Dict[str, List[torch.Tensor]] = {}
-        edge_last_layer_features_dict: Dict[str, List[torch.Tensor]] = {}
+        node_last_layer_features_dict: Dict[str, List[torch.Tensor]] = self._apply_head(
+            self.node_heads, node_features_list
+        )
+        edge_last_layer_features_dict: Dict[str, List[torch.Tensor]] = self._apply_head(
+            self.edge_heads, edge_features_list
+        )
 
-        # Calculating node last layer features
-        for output_name, node_heads in self.node_heads.items():
-            if output_name not in node_last_layer_features_dict:
-                node_last_layer_features_dict[output_name] = []
-            for i, node_head in enumerate(node_heads):
-                node_last_layer_features_dict[output_name].append(
-                    node_head(node_features_list[i])
-                )
-
-        # Calculating edge last layer features
-        for output_name, edge_heads in self.edge_heads.items():
-            if output_name not in edge_last_layer_features_dict:
-                edge_last_layer_features_dict[output_name] = []
-            for i, edge_head in enumerate(edge_heads):
-                edge_last_layer_features_dict[output_name].append(
-                    edge_head(edge_features_list[i])
-                )
-        
-        # Having the last layer features we can build a corresponding TensorMap, 
+        # Having the last layer features we can build a corresponding TensorMap,
         # if requested.
         self._build_last_layer_feature_tmap(
             node_last_layer_features_dict,
@@ -425,7 +410,7 @@ class PET(ModelInterface):
 
         # Finally, we sum all the node and edge atomic predictions from each GNN
         # layer to a single atomic predictions tensor.
-        
+
         for output_name in self.target_names:
             if output_name in outputs:
                 atomic_predictions_by_block = {
@@ -835,8 +820,8 @@ class PET(ModelInterface):
         cutoff_factors: torch.Tensor,
         sample_labels: Labels,
         outputs: Dict[str, ModelOutput],
-        return_dict: Dict[str, TensorMap]
-    ): 
+        return_dict: Dict[str, TensorMap],
+    ):
         """
         If `features` requested in the model outputs, we concatenate
         the node and edge representations from all layers to provide the intermediate
@@ -935,5 +920,22 @@ class PET(ModelInterface):
             )
             opts = outputs[output_name]
             return_dict[output_name] = (
-                last_layer_feature_tmap if opts.per_atom else sum_over_atoms(last_layer_feature_tmap)
+                last_layer_feature_tmap
+                if opts.per_atom
+                else sum_over_atoms(last_layer_feature_tmap)
             )
+
+    def _apply_head(
+        self,
+        input_heads: Dict[str, torch.nn.ModuleList],
+        features_list: List[torch.Tensor],
+    ) -> Dict[str, List[torch.Tensor]]:
+        last_layer_features_dict: Dict[str, List[torch.Tensor]] = {}
+        for output_name, heads in input_heads.items():
+            if output_name not in last_layer_features_dict:
+                last_layer_features_dict[output_name] = []
+            for i, edge_head in enumerate(heads):
+                last_layer_features_dict[output_name].append(
+                    edge_head(features_list[i])
+                )
+        return last_layer_features_dict
