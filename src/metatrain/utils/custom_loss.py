@@ -1,4 +1,5 @@
-from abc import ABC, ABCMeta, abstractmethod
+from abc import ABC, abstractmethod
+from enum import Enum
 from typing import Any, Dict, Optional, Type
 
 import metatensor.torch as mts
@@ -9,60 +10,30 @@ from torch.nn.modules.loss import _Loss
 from metatrain.utils.data import TargetInfo
 
 
-class LossRegistry(ABCMeta):
-    """
-    Metaclass to auto-register :py:class:`LossInterface` subclasses.
-
-    Maintains a mapping from ``registry_name`` to the subclass type.
-    """
-
-    _registry: Dict[str, Type["LossInterface"]] = {}
-
-    def __new__(mcs, name, bases, attrs):
-        cls = super().__new__(mcs, name, bases, attrs)
-        # Skip the abstract base itself
-        if name != "LossInterface" and issubclass(cls, LossInterface):
-            # Use explicit registry_name if given, else snake_case from class name
-            key = getattr(cls, "registry_name", None)
-            if key is None:
-                key = "".join(
-                    f"_{c.lower()}" if c.isupper() else c for c in name
-                ).lstrip("_")
-            # only register the very first class under each key
-            mcs._registry.setdefault(key, cls)
-        return cls
-
-    @classmethod
-    def get(cls, key: str) -> Type["LossInterface"]:
-        """
-        Retrieve a registered LossBase subclass by its registry_name.
-
-        :param key: The registry key for the loss.
-        :return: The corresponding LossBase subclass.
-        :raises KeyError: If the key is not found in the registry.
-        """
-        if key not in cls._registry:
-            raise KeyError(
-                f"Unknown loss '{key}'. Available: {list(cls._registry.keys())}"
-            )
-        return cls._registry[key]
-
-
-class LossInterface(ABC, metaclass=LossRegistry):
+class LossInterface(ABC):
     """
     Abstract base for all loss functions.
 
     Subclasses must implement compute(predictions, targets) -> torch.Tensor.
     """
 
-    registry_name: str = "base"
-    weight: float = 0.0
-    reduction: str = "mean"
+    weight: float
+    reduction: str
     loss_kwargs: Dict[str, Any]
-    target: str = ""
+    target: str
+    gradient: Optional[str]
 
-    def __init__(self, *args: Any, **kwargs: Any) -> None:
-        # no-op, just so subclasses can define any signature
+    def __init__(
+        self,
+        name: str,
+        gradient: Optional[str] = None,
+        weight: float = 0.0,
+        reduction: str = "mean",
+    ) -> None:
+        self.target = name
+        self.gradient = gradient
+        self.weight = weight
+        self.reduction = reduction
         self.loss_kwargs = {}
         super().__init__()
 
@@ -103,7 +74,7 @@ class LossInterface(ABC, metaclass=LossRegistry):
         return cls(**cfg)
 
 
-# --- scheduler interface and implementations ----------------------------------------
+# --- scheduler interface and implementations ------------------------------------------
 
 
 class WeightScheduler(ABC):
@@ -200,12 +171,15 @@ class ScheduledLoss(LossInterface):
         scheduler: WeightScheduler,
     ):
         # Delegate attributes
+        super().__init__(
+            base_loss.target,
+            base_loss.gradient,
+            base_loss.weight,
+            base_loss.reduction,
+        )
         self.base = base_loss
         self.scheduler = scheduler
-        self.target = base_loss.target
-        self.reduction = base_loss.reduction
         self.loss_kwargs = getattr(base_loss, "loss_kwargs", {})
-        self.scheduler = scheduler
 
     def compute(
         self,
@@ -240,8 +214,6 @@ class TensorMapPointwiseLoss(LossInterface):
     Extracts values or gradients, flattens them, and applies ``loss_fn``.
     """
 
-    registry_name = "pointwise"
-
     def __init__(
         self,
         name: str,
@@ -252,10 +224,7 @@ class TensorMapPointwiseLoss(LossInterface):
         loss_cls: Type[_Loss],
         **loss_kwargs,
     ):
-        self.target = name
-        self.gradient = gradient
-        self.weight = weight
-        self.reduction = reduction
+        super().__init__(name, gradient, weight, reduction)
         self.loss_kwargs = loss_kwargs
         params = {"reduction": reduction, **loss_kwargs}
         self.loss_fn = loss_cls(**params)
@@ -274,7 +243,6 @@ class TensorMapPointwiseLoss(LossInterface):
         :param extra_data: Additional data for loss computation [ignored].
         :return: Scalar loss tensor.
         """
-
         del extra_data  # Unused, but kept for compatibility
         pred_parts = []
         targ_parts = []
@@ -302,33 +270,13 @@ class TensorMapPointwiseLoss(LossInterface):
         return self.loss_fn(all_pred, all_targ)
 
 
-class TensorMapMaskedPointwiseLoss(LossInterface):
+class TensorMapMaskedPointwiseLoss(TensorMapPointwiseLoss):
     """
     Pointwise loss on :py:class:`TensorMap` entries using a :py:mod:`torch.nn` loss
     function.
 
     Extracts values or gradients, flattens them, and applies ``loss_fn``.
     """
-
-    registry_name = "masked_pointwise"
-
-    def __init__(
-        self,
-        name: str,
-        gradient: Optional[str] = None,
-        weight: float = 1.0,
-        reduction: str = "mean",
-        *,
-        loss_cls: Type[_Loss],
-        **loss_kwargs,
-    ):
-        self.target = name
-        self.gradient = gradient
-        self.weight = weight
-        self.reduction = reduction
-        self.loss_kwargs = loss_kwargs
-        params = {"reduction": reduction, **loss_kwargs}
-        self.loss_fn = loss_cls(**params)
 
     def compute(
         self,
@@ -386,8 +334,6 @@ class TensorMapMaskedPointwiseLoss(LossInterface):
 
 
 class TensorMapMSELoss(TensorMapPointwiseLoss):
-    registry_name = "mse"
-
     def __init__(
         self,
         name: str,
@@ -395,12 +341,16 @@ class TensorMapMSELoss(TensorMapPointwiseLoss):
         weight: float = 1.0,
         reduction: str = "mean",
     ):
-        super().__init__(name, gradient, weight, reduction, loss_cls=torch.nn.MSELoss)
+        super().__init__(
+            name,
+            gradient,
+            weight,
+            reduction,
+            loss_cls=torch.nn.MSELoss,
+        )
 
 
 class TensorMapMAELoss(TensorMapPointwiseLoss):
-    registry_name = "mae"
-
     def __init__(
         self,
         name: str,
@@ -408,12 +358,16 @@ class TensorMapMAELoss(TensorMapPointwiseLoss):
         weight: float = 1.0,
         reduction: str = "mean",
     ):
-        super().__init__(name, gradient, weight, reduction, loss_cls=torch.nn.L1Loss)
+        super().__init__(
+            name,
+            gradient,
+            weight,
+            reduction,
+            loss_cls=torch.nn.L1Loss,
+        )
 
 
 class TensorMapHuberLoss(TensorMapPointwiseLoss):
-    registry_name = "huber"
-
     def __init__(
         self,
         name: str,
@@ -433,8 +387,6 @@ class TensorMapHuberLoss(TensorMapPointwiseLoss):
 
 
 class TensorMapMaskedMSELoss(TensorMapMaskedPointwiseLoss):
-    registry_name = "masked_mse"
-
     def __init__(
         self,
         name: str,
@@ -442,12 +394,16 @@ class TensorMapMaskedMSELoss(TensorMapMaskedPointwiseLoss):
         weight: float = 1.0,
         reduction: str = "mean",
     ):
-        super().__init__(name, gradient, weight, reduction, loss_cls=torch.nn.MSELoss)
+        super().__init__(
+            name,
+            gradient,
+            weight,
+            reduction,
+            loss_cls=torch.nn.MSELoss,
+        )
 
 
 class TensorMapMaskedMAELoss(TensorMapMaskedPointwiseLoss):
-    registry_name = "masked_mae"
-
     def __init__(
         self,
         name: str,
@@ -455,12 +411,16 @@ class TensorMapMaskedMAELoss(TensorMapMaskedPointwiseLoss):
         weight: float = 1.0,
         reduction: str = "mean",
     ):
-        super().__init__(name, gradient, weight, reduction, loss_cls=torch.nn.L1Loss)
+        super().__init__(
+            name,
+            gradient,
+            weight,
+            reduction,
+            loss_cls=torch.nn.L1Loss,
+        )
 
 
 class TensorMapMaskedHuberLoss(TensorMapMaskedPointwiseLoss):
-    registry_name = "masked_huber"
-
     def __init__(
         self,
         name: str,
@@ -488,13 +448,12 @@ class LossAggregator(LossInterface):
     metadata.
     """
 
-    registry_name = "aggregate"
-
     def __init__(
         self,
         targets: Dict[str, TargetInfo],
         config: Dict[str, Dict[str, Any]],
     ):
+        super().__init__(name="", gradient=None, weight=0.0, reduction="mean")
         # Scheduled losses and metadata stored by term key
         self.losses: Dict[str, ScheduledLoss] = {}
         self.metadata: Dict[str, Dict[str, Any]] = {}
@@ -503,18 +462,23 @@ class LossAggregator(LossInterface):
             cfg = config.get(name, {})
 
             # Main loss
-            MainCls = LossRegistry.get(cfg.get("type", "mse"))
-            base_loss = MainCls(
+            base_loss = create_loss(
+                cfg.get("type", "mse"),
                 name=name,
                 gradient=None,
                 weight=cfg.get("weight", 1.0),
                 reduction=cfg.get("reduction", "mean"),
+                **{
+                    k: v
+                    for k, v in cfg.items()
+                    if k not in ("type", "weight", "reduction", "sliding_factor")
+                },
             )
             ema = EMAScheduler(cfg.get("sliding_factor", None))
             sched_loss = ScheduledLoss(base_loss, ema)
             self.losses[name] = sched_loss
             self.metadata[name] = {
-                "type": base_loss.registry_name,
+                "type": cfg.get("type", "mse"),
                 "weight": base_loss.weight,
                 "reduction": base_loss.reduction,
                 "sliding_factor": cfg.get("sliding_factor", None),
@@ -526,18 +490,23 @@ class LossAggregator(LossInterface):
             for grad_name in tm_info.layout[0].gradients_list():
                 key = f"{name}_grad_{grad_name}"
                 gcfg = grad_cfgs.get(grad_name, {})
-                GradCls = LossRegistry.get(gcfg.get("type", cfg.get("type", "mse")))
-                grad_loss = GradCls(
+                grad_loss = create_loss(
+                    gcfg.get("type", cfg.get("type", "mse")),
                     name=name,
                     gradient=grad_name,
                     weight=gcfg.get("weight", 1.0),
                     reduction=gcfg.get("reduction", cfg.get("reduction", "mean")),
+                    **{
+                        k: v
+                        for k, v in gcfg.items()
+                        if k not in ("type", "weight", "reduction", "sliding_factor")
+                    },
                 )
                 ema_grad = EMAScheduler(cfg.get("sliding_factor", None))
                 sched_grad = ScheduledLoss(grad_loss, ema_grad)
                 self.losses[key] = sched_grad
                 self.metadata[name]["gradients"][grad_name] = {
-                    "type": grad_loss.registry_name,
+                    "type": gcfg.get("type", cfg.get("type", "mse")),
                     "weight": grad_loss.weight,
                     "reduction": grad_loss.reduction,
                     "sliding_factor": cfg.get("sliding_factor", None),
@@ -560,3 +529,67 @@ class LossAggregator(LossInterface):
                 continue
             total = total + term.compute(predictions, targets, extra_data)
         return total
+
+
+# ----- enum and factory ---------------------------------------------------------------
+
+
+class LossType(Enum):
+    """
+    Enum to represent available loss types.
+    """
+
+    MSE = ("mse", TensorMapMSELoss)
+    MAE = ("mae", TensorMapMAELoss)
+    HUBER = ("huber", TensorMapHuberLoss)
+    MASKED_MSE = ("masked_mse", TensorMapMaskedMSELoss)
+    MASKED_MAE = ("masked_mae", TensorMapMaskedMAELoss)
+    MASKED_HUBER = ("masked_huber", TensorMapMaskedHuberLoss)
+    POINTWISE = ("pointwise", TensorMapPointwiseLoss)
+    MASKED_POINTWISE = ("masked_pointwise", TensorMapMaskedPointwiseLoss)
+
+    def __init__(self, key: str, cls: Type[LossInterface]):
+        self._key = key
+        self._cls = cls
+
+    @property
+    def key(self) -> str:
+        return self._key
+
+    @property
+    def cls(self) -> Type[LossInterface]:
+        return self._cls
+
+    @classmethod
+    def from_key(cls, key: str) -> "LossType":
+        for lt in cls:
+            if lt.key == key:
+                return lt
+        valid = ", ".join(lt.key for lt in cls)
+        raise ValueError(f"Unknown loss '{key}'. Valid types: {valid}")
+
+
+def create_loss(
+    loss_type: str,
+    *,
+    name: str,
+    gradient: Optional[str] = None,
+    weight: float = 1.0,
+    reduction: str = "mean",
+    **extra_kwargs: Any,
+) -> LossInterface:
+    """
+    Factory to instantiate a concrete ``LossInterface`` given its string key.
+    """
+    lt = LossType.from_key(loss_type)
+    try:
+        return lt.cls(
+            name=name,
+            gradient=gradient,
+            weight=weight,
+            reduction=reduction,
+            **extra_kwargs,
+        )
+    except TypeError as e:
+        # catch wrong arguments to the loss constructor
+        raise TypeError(f"Error constructing loss '{loss_type}': {e}") from e
