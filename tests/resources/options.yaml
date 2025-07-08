@@ -4,11 +4,11 @@ base_precision: 32
 architecture:
   name: experimental.nanopet
   model:
-    d_pet: 64
+    d_pet: 128
   training:
-    learning_rate: 1e-3
+    learning_rate: 1e-4
     batch_size: 5
-    num_epochs: 1000
+    num_epochs: 2000
     per_structure_targets: ["energy"]
     log_mae: true
     log_interval: 1
