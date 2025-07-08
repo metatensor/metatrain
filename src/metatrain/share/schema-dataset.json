@@ -85,6 +85,9 @@
                   "type": "string"
                 }
               ]
+            },
+            "preload": {
+              "type": "boolean"
             }
           },
           "additionalProperties": false
