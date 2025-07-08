@@ -357,7 +357,7 @@ class NanoPET(ModelInterface):
 
         # Convert edge features to NEF format
         spherical_features = edge_array_to_nef(
-            spherical_features, nef_indices
+            spherical_features, nef_indices, nef_mask, fill_value=0.0
         )
 
         # Convert to Hartmut
