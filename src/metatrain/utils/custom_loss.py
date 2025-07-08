@@ -80,7 +80,9 @@ class LossInterface(ABC, metaclass=LossRegistry):
         """
         ...
 
-    def __call__(self, predictions: Any, targets: Any) -> torch.Tensor:
+    def __call__(
+        self, predictions: Any, targets: Any, extra_data: Optional[Any] = None
+    ) -> torch.Tensor:
         """
         Alias to compute(), so loss instances are callable.
 
@@ -88,7 +90,7 @@ class LossInterface(ABC, metaclass=LossRegistry):
         :param targets: Ground-truth data.
         :return: Scalar loss tensor.
         """
-        return self.compute(predictions, targets)
+        return self.compute(predictions, targets, extra_data)
 
     @classmethod
     def from_config(cls, cfg: Dict[str, Any]) -> "LossInterface":
@@ -300,6 +302,89 @@ class TensorMapPointwiseLoss(LossInterface):
         return self.loss_fn(all_pred, all_targ)
 
 
+class TensorMapMaskedPointwiseLoss(LossInterface):
+    """
+    Pointwise loss on :py:class:`TensorMap` entries using a :py:mod:`torch.nn` loss
+    function.
+
+    Extracts values or gradients, flattens them, and applies ``loss_fn``.
+    """
+
+    registry_name = "masked_pointwise"
+
+    def __init__(
+        self,
+        name: str,
+        gradient: Optional[str] = None,
+        weight: float = 1.0,
+        reduction: str = "mean",
+        *,
+        loss_cls: Type[_Loss],
+        **loss_kwargs,
+    ):
+        self.target = name
+        self.gradient = gradient
+        self.weight = weight
+        self.reduction = reduction
+        self.loss_kwargs = loss_kwargs
+        params = {"reduction": reduction, **loss_kwargs}
+        self.loss_fn = loss_cls(**params)
+
+    def compute(
+        self,
+        predictions: Dict[str, TensorMap],
+        targets: Dict[str, TensorMap],
+        extra_data: Optional[Any] = None,
+    ) -> torch.Tensor:
+        """
+        Gather and flatten target and prediction blocks, then compute loss.
+
+        :param predictions: Mapping from target names to TensorMaps.
+        :param targets: Mapping from target names to TensorMaps.
+        :param extra_data: Additional data for loss computation. Assumes that, for the
+            target ``name`` used in the constructor, there is a corresponding data field
+            ``name + "_mask"`` that contains the tensor to be used for masking. It
+            should have the same metadata as the target and prediction tensors.
+        :return: Scalar loss tensor.
+        """
+
+        pred_parts = []
+        targ_parts = []
+
+        def grab(block, grad):
+            # if grad is  None, take values; else take that gradient
+            if grad is not None:
+                return block.gradient(grad).values.reshape(-1)
+            else:
+                return block.values.reshape(-1)
+
+        pred_tensor = predictions[self.target]
+        targ_tensor = targets[self.target]
+        if extra_data is None or self.target + "_mask" not in extra_data:
+            raise ValueError(
+                f"Expected extra_data to contain data field "
+                f"'{self.target}_mask' for masking the loss."
+            )
+        mask_tensor = extra_data[self.target + "_mask"]
+
+        for key in pred_tensor.keys:
+            pred_block = pred_tensor.block(key)
+            targ_block = targ_tensor.block(key)
+            mask_block = mask_tensor.block(key)
+            grabbed_mask = grab(mask_block, self.gradient)
+            assert grabbed_mask.dtype == torch.bool, (
+                f"Expected mask tensor to have boolean dtype, got {grabbed_mask.dtype}"
+            )
+            pred_parts.append(grab(pred_block, self.gradient)[grabbed_mask])
+            targ_parts.append(grab(targ_block, self.gradient)[grabbed_mask])
+
+        # concatenate all parts into a single tensor
+        all_pred = torch.cat(pred_parts)
+        all_targ = torch.cat(targ_parts)
+
+        return self.loss_fn(all_pred, all_targ)
+
+
 class TensorMapMSELoss(TensorMapPointwiseLoss):
     registry_name = "mse"
 
@@ -328,6 +413,53 @@ class TensorMapMAELoss(TensorMapPointwiseLoss):
 
 class TensorMapHuberLoss(TensorMapPointwiseLoss):
     registry_name = "huber"
+
+    def __init__(
+        self,
+        name: str,
+        gradient: Optional[str] = None,
+        weight: float = 1.0,
+        reduction: str = "mean",
+        delta: float = 1.0,
+    ):
+        super().__init__(
+            name,
+            gradient,
+            weight,
+            reduction,
+            loss_cls=torch.nn.HuberLoss,
+            delta=delta,
+        )
+
+
+class TensorMapMaskedMSELoss(TensorMapMaskedPointwiseLoss):
+    registry_name = "masked_mse"
+
+    def __init__(
+        self,
+        name: str,
+        gradient: Optional[str] = None,
+        weight: float = 1.0,
+        reduction: str = "mean",
+    ):
+        super().__init__(name, gradient, weight, reduction, loss_cls=torch.nn.MSELoss)
+
+
+class TensorMapMaskedMAELoss(TensorMapMaskedPointwiseLoss):
+    registry_name = "masked_mae"
+
+    def __init__(
+        self,
+        name: str,
+        gradient: Optional[str] = None,
+        weight: float = 1.0,
+        reduction: str = "mean",
+    ):
+        super().__init__(name, gradient, weight, reduction, loss_cls=torch.nn.L1Loss)
+
+
+class TensorMapMaskedHuberLoss(TensorMapMaskedPointwiseLoss):
+    registry_name = "masked_huber"
 
     def __init__(
         self,

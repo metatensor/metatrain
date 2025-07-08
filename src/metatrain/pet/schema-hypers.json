@@ -180,53 +180,8 @@
         },
         "loss": {
           "type": "object",
-          "properties": {
-            "weights": {
-              "type": "object",
-              "patternProperties": {
-                ".*": {
-                  "type": "number"
-                }
-              },
-              "additionalProperties": false
-            },
-            "reduction": {
-              "type": "string",
-              "enum": ["sum", "mean", "none"]
-            },
-            "type": {
-              "oneOf": [
-                {
-                  "type": "string",
-                  "enum": ["mse", "mae"]
-                },
-                {
-                  "type": "object",
-                  "properties": {
-                    "huber": {
-                      "type": "object",
-                      "properties": {
-                        "deltas": {
-                          "type": "object",
-                          "patternProperties": {
-                            ".*": {
-                              "type": "number"
-                            }
-                          },
-                          "additionalProperties": false
-                        }
-                      },
-                      "required": ["deltas"],
-                      "additionalProperties": false
-                    }
-                  },
-                  "additionalProperties": false
-                }
-              ]
-            },
-            "sliding_factor": {
-              "type": ["number", "null"]
-            }
+          "patternProperties": {
+            "^.+$": { "$ref": "#/definitions/lossTerm" }
           },
           "additionalProperties": false
         }
@@ -242,5 +197,35 @@
       "uniqueItems": true
     }
   },
-  "additionalProperties": false
+  "additionalProperties": false,
+  "definitions": {
+    "lossTerm": {
+      "type": "object",
+      "properties": {
+        "type": {
+          "type": "string"
+        },
+        "weight": {
+          "type": "number",
+          "minimum": 0.0
+        },
+        "reduction": {
+          "type": "string",
+          "enum": ["none", "mean", "sum"]
+        },
+        "sliding_factor": {
+          "type": "number",
+          "minimum": 0.0
+        },
+        "gradients": {
+          "type": "object",
+          "patternProperties": {
+            "^.+$": { "$ref": "#/definitions/lossTerm" }
+          },
+          "additionalProperties": false
+        }
+      },
+      "additionalProperties": false
+    }
+  }
 }

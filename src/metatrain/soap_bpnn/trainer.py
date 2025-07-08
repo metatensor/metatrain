@@ -239,7 +239,7 @@ class Trainer(TrainerInterface):
             logging.info(f"{name}:")
             main = {k: v for k, v in info.items() if k != "gradients"}
             logging.info(main)
-            if "gradients" not in info:
+            if "gradients" not in info or len(info["gradients"]) == 0:
                 continue
             logging.info("With gradients:")
             for grad, ginfo in info["gradients"].items():
