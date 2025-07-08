@@ -403,7 +403,7 @@ class OldCompositionModel(torch.nn.Module):
         device = systems[0].positions.device
 
         # move weights (TensorMaps can't be treated as buffers for now)
-        self._move_weights_to_device_and_dtype(device, dtype)
+        self.weights_to(device, dtype)
 
         for output_name in outputs:
             if output_name not in self.weights:
@@ -526,9 +526,7 @@ class OldCompositionModel(torch.nn.Module):
             metatensor.torch.save_buffer(fake_weights),
         )
 
-    def _move_weights_to_device_and_dtype(
-        self, device: torch.device, dtype: torch.dtype
-    ):
+    def weights_to(self, device: torch.device, dtype: torch.dtype):
         if len(self.weights) != 0:
             if self.weights[list(self.weights.keys())[0]].device != device:
                 self.weights = {k: v.to(device) for k, v in self.weights.items()}
