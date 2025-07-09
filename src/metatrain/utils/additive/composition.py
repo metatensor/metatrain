@@ -195,6 +195,11 @@ class CompositionModel(torch.nn.Module):
         :raises ValueError: If no weights have been computed or if `outputs` keys
             contain unsupported keys.
         """
+        dtype = systems[0].positions.dtype
+        device = systems[0].positions.device
+
+        self.weights_to(device, dtype)
+
         for output_name in outputs.keys():
             if output_name not in self.outputs:
                 raise ValueError(
@@ -255,6 +260,8 @@ class CompositionModel(torch.nn.Module):
                 self.model.weights = {
                     k: v.to(dtype) for k, v in self.model.weights.items()
                 }
+
+        self.model._sync_device(device, dtype)
 
     @staticmethod
     def is_valid_target(target_name: str, target_info: TargetInfo) -> bool:
