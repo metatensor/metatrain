@@ -195,6 +195,11 @@ class CompositionModel(torch.nn.Module):
         :raises ValueError: If no weights have been computed or if `outputs` keys
             contain unsupported keys.
         """
+        dtype = systems[0].positions.dtype
+        device = systems[0].positions.device
+
+        self.weights_to(device, dtype)
+
         for output_name in outputs.keys():
             if output_name not in self.outputs:
                 raise ValueError(
