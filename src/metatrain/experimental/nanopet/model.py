@@ -81,37 +81,18 @@ class NanoPET(ModelInterface):
 
         self.encoder = Encoder(len(self.atomic_types), self.hypers["d_pet"], self.hypers["max_angular"], self.hypers["max_radial"], self.cutoff)
 
-        self.transformer = Transformer(
-            self.hypers["d_pet"],
-            4 * self.hypers["d_pet"],
-            self.hypers["num_heads"],
-            self.hypers["num_attention_layers"],
-            0.0,  # MLP dropout rate
-            0.0,  # attention dropout rate
+        self.num_mp_layers = self.hypers["num_gnn_layers"]
+        self.first_contraction = torch.nn.Linear(
+            self.hypers["d_pet"], self.hypers["d_pet"], bias=False
         )
-        # empirically, the model seems to perform better without dropout
-
-        self.num_mp_layers = self.hypers["num_gnn_layers"] - 1
         gnn_contractions = []
-        gnn_transformers = []
         for _ in range(self.num_mp_layers):
             gnn_contractions.append(
                 torch.nn.Linear(
-                    2 * self.hypers["d_pet"], self.hypers["d_pet"], bias=False
-                )
-            )
-            gnn_transformers.append(
-                Transformer(
-                    self.hypers["d_pet"],
-                    4 * self.hypers["d_pet"],
-                    self.hypers["num_heads"],
-                    self.hypers["num_attention_layers"],
-                    0.0,  # MLP dropout rate
-                    0.0,  # attention dropout rate
+                    self.hypers["d_pet"], self.hypers["d_pet"], bias=False
                 )
             )
         self.gnn_contractions = torch.nn.ModuleList(gnn_contractions)
-        self.gnn_transformers = torch.nn.ModuleList(gnn_transformers)
 
         self.last_layer_feature_size = self.hypers["d_pet"]
 
@@ -324,30 +305,10 @@ class NanoPET(ModelInterface):
 
         edge_vectors = positions[neighbors] - positions[centers] + cell_contributions
 
-        bincount = torch.bincount(centers)
-        if bincount.numel() == 0:  # no edges
-            max_edges_per_node = 0
-        else:
-            max_edges_per_node = int(torch.max(bincount))
-
-        # Convert to NEF (Node-Edge-Feature) format:
-        nef_indices, nef_to_edges_neighbor, nef_mask = get_nef_indices(
-            centers, len(positions), max_edges_per_node
-        )
-
-        # Get radial mask
-        r = torch.sqrt(torch.sum(edge_vectors**2, dim=-1))
-        radial_mask = get_radial_mask(r, self.cutoff, self.cutoff - self.cutoff_width)
-
         # Element indices
         element_indices_nodes = self.species_to_species_index[species]
         element_indices_centers = element_indices_nodes[centers]
         element_indices_neighbors = element_indices_nodes[neighbors]
-
-        # Send to NEF:
-        radial_mask = edge_array_to_nef(
-            radial_mask, nef_indices, nef_mask, fill_value=0.0
-        )
 
         features = {
             "cartesian": edge_vectors,
@@ -357,71 +318,26 @@ class NanoPET(ModelInterface):
 
         # Encode edges
         spherical_features = self.encoder(features)  # [n_nodes, n_edges, hidden_size, (max_angular + 1) ** 2]
-        spherical_features = spherical_features * 300.0 # scale the features (needed to train decently)
-        # print(spherical_features.std())
+        spherical_features = spherical_features * 1.0 # scale the features (needed to train decently)
 
-        # Convert edge features to NEF format
-        spherical_features = edge_array_to_nef(
-            spherical_features, nef_indices, nef_mask, fill_value=0.0
+        print(spherical_features.std())
+
+        node_features = torch.zeros(len(element_indices_nodes), spherical_features.shape[1], spherical_features.shape[2], device=spherical_features.device, dtype=spherical_features.dtype).index_add_(
+            0, centers, spherical_features
         )
 
-        # Embed centers vs neighbors
-        # node_features = torch.sum(spherical_features, dim=1, keepdim=True) / 3.0  # [n_nodes, 1, hidden_size, (max_angular + 1) ** 2]
-        # node_features = node_features * self.node_edge_embedder.weight[0].reshape(1, 1, -1, 1)
-        # spherical_features = spherical_features * self.node_edge_embedder.weight[1].reshape(1, 1, -1, 1)
+        node_features = self.spherical_to_hartmut(node_features)
 
-        node_features = self.node_embedder(element_indices_nodes).unsqueeze(1)  # [n_nodes, 1, hidden_size]
-        node_features = torch.concatenate(
-            [
-                node_features.unsqueeze(-1),
-                torch.zeros(node_features.shape + (spherical_features.shape[-1]-1,), device=device, dtype=spherical_features.dtype)
-            ],
-            dim=-1
-        )  # [n_nodes, 1, hidden_size, (max_angular + 1) ** 2]
-        
-        spherical_features = torch.concatenate([node_features, spherical_features], dim=1)
+        node_features = node_features.permute(0, 2, 3, 1)
+        node_features = self.first_contraction(node_features)
+        node_features = node_features.permute(0, 3, 1, 2)
 
-        # Convert to Hartmut
-        features = self.spherical_to_hartmut(spherical_features)  # [n_nodes, n_edges, hidden_size, l_max + 1, l_max + 1]
-
-        # Transformer
-        radial_mask = torch.concatenate([torch.ones_like(radial_mask[:, :1]), radial_mask], dim=1)  # add a radial mask for the node features
-        features = self.transformer(features, radial_mask)
-
-        # GNN
-        if self.num_mp_layers > 0:
-            corresponding_edges = get_corresponding_edges(
-                torch.concatenate(
-                    [centers.unsqueeze(-1), neighbors.unsqueeze(-1), cell_shifts],
-                    dim=-1,
-                )
-            )
-            for contraction, transformer in zip(
-                self.gnn_contractions, self.gnn_transformers
-            ):
-                old_features = features
-                node_features, features = torch.split(old_features, [1, old_features.shape[1]-1], dim=1)
-                new_features = nef_array_to_edges(
-                    features, centers, nef_to_edges_neighbor
-                )
-                corresponding_new_features = new_features[corresponding_edges]
-                new_features = torch.concatenate(
-                    [new_features, corresponding_new_features], dim=-3
-                )
-
-                new_features = new_features.permute(0, 2, 3, 1)  # [n_edges, l_max + 1, l_max + 1, 2*d_pet]
-                new_features = contraction(new_features)
-                new_features = new_features.permute(0, 3, 1, 2)  # [n_edges, d_pet, l_max + 1, l_max + 1]
-                
-                new_features = edge_array_to_nef(new_features, nef_indices)
-
-                new_features = torch.concatenate([node_features, new_features], dim=1)
-                
-                new_features = transformer(new_features, radial_mask)
-                features = (old_features + new_features) * 0.5**0.5
-
-        edge_features = features * radial_mask[:, :, None, None, None]
-        node_features = torch.sum(edge_features, dim=1)
+        for contraction in self.gnn_contractions:
+            # node_features = node_features / torch.sum(torch.diagonal(1 + torch.matrix_exp(-node_features.contiguous()), dim1=-2, dim2=-1), dim=-1).unsqueeze(-1).unsqueeze(-2)
+            node_features = node_features @ torch.linalg.inv(torch.eye(node_features.shape[-1], device=node_features.device, dtype=node_features.dtype) + torch.matrix_exp(-node_features.contiguous()))
+            node_features = node_features.permute(0, 2, 3, 1)
+            node_features = contraction(node_features)
+            node_features = node_features.permute(0, 3, 1, 2)
 
         # Back from Hartmut to spherical
         node_features = self.spherical_to_hartmut.back_to_spherical(node_features)
@@ -429,11 +345,8 @@ class NanoPET(ModelInterface):
         # Select L = 0 features
         node_features = node_features[..., 0]
 
-        # if self.long_range:
-        #     long_range_node_features = self.long_range_featurizer(
-        #         systems, node_features, r
-        #     )
-        #     node_features = (node_features + long_range_node_features) * 0.5**0.5
+        center_embedding = self.node_embedder(element_indices_nodes)
+        node_features = node_features * center_embedding
 
         return_dict: Dict[str, TensorMap] = {}
 

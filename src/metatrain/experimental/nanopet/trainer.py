@@ -345,7 +345,7 @@ class Trainer(TrainerInterface):
 
                 train_loss_batch = loss_fn(predictions, targets)
                 train_loss_batch.backward()
-                norm = torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
+                # norm = torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
                 # print(
                 #     f"Epoch {epoch}, batch loss: {train_loss_batch.item()}, "
                 #     f"gradient norm: {norm}"
