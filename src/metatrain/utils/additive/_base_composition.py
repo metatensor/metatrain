@@ -37,7 +37,7 @@ class BaseCompositionModel(torch.nn.Module):
     XTX: Dict[str, TensorMap]
     XTY: Dict[str, TensorMap]
 
-    def __init__(self, atomic_types: List[int], layouts: Dict[str, TensorMap]) -> None:
+    def __init__(self, atomic_types, layouts: Dict[str, TensorMap]) -> None:
         """
         Initializes the composition model with the given atomic types and layouts.
 
@@ -120,18 +120,10 @@ class BaseCompositionModel(torch.nn.Module):
                         len(self.atomic_types),
                         dtype=torch.float64,
                     ),
-                    samples=Labels(
-                        ["center_type"],
-                        torch.tensor(self.atomic_types, dtype=torch.int32).reshape(
-                            -1, 1
-                        ),
-                    ),
+                    samples=Labels(["center_type"], self.atomic_types.reshape(-1, 1)),
                     components=[],
                     properties=Labels(
-                        ["center_type"],
-                        torch.tensor(self.atomic_types, dtype=torch.int32).reshape(
-                            -1, 1
-                        ),
+                        ["center_type"], self.atomic_types.reshape(-1, 1)
                     ),
                 )
                 for _ in layout
@@ -147,12 +139,7 @@ class BaseCompositionModel(torch.nn.Module):
                         len(block.properties),
                         dtype=torch.float64,
                     ),
-                    samples=Labels(
-                        ["center_type"],
-                        torch.tensor(self.atomic_types, dtype=torch.int32).reshape(
-                            -1, 1
-                        ),
-                    ),
+                    samples=Labels(["center_type"], self.atomic_types.reshape(-1, 1)),
                     components=block.components,
                     properties=block.properties,
                 )
@@ -169,12 +156,7 @@ class BaseCompositionModel(torch.nn.Module):
                         len(block.properties),
                         dtype=torch.float64,
                     ),
-                    samples=Labels(
-                        ["center_type"],
-                        torch.tensor(self.atomic_types, dtype=torch.int32).reshape(
-                            -1, 1
-                        ),
-                    ),
+                    samples=Labels(["center_type"], self.atomic_types.reshape(-1, 1)),
                     components=block.components,
                     properties=block.properties,
                 )
@@ -197,9 +179,8 @@ class BaseCompositionModel(torch.nn.Module):
         self._sync_device(device, dtype)
 
         # check that the systems contain no unexpected atom types
-        reference_atomic_types = torch.tensor(self.atomic_types, dtype=torch.int32)
         for system in systems:
-            if not torch.all(torch.isin(system.types, reference_atomic_types)):
+            if not torch.all(torch.isin(system.types, self.atomic_types)):
                 raise ValueError(
                     "system contains unexpected atom types. "
                     f"Expected atomic types: {self.atomic_types}, "
@@ -328,6 +309,10 @@ class BaseCompositionModel(torch.nn.Module):
         dtype = systems[0].positions.dtype
         self._sync_device(device, dtype)
 
+        system_indices, sample_labels_per_atom = _get_system_indices_and_labels(
+            systems, device
+        )
+
         predictions: Dict[str, TensorMap] = {}
         for output_name, model_output in outputs.items():
             if output_name not in self.target_names:
@@ -342,20 +327,7 @@ class BaseCompositionModel(torch.nn.Module):
                 # Compute X
                 if self.sample_kinds[output_name] == "per_structure":
                     if model_output.per_atom:
-                        sample_values = []
-                        for A, system in enumerate(systems):
-                            for i in torch.arange(len(system), dtype=torch.int32):
-                                sample_values.append(
-                                    torch.tensor(
-                                        [int(A), int(i)],
-                                        dtype=torch.int32,
-                                        device=device,
-                                    )
-                                )
-                        sample_labels = Labels(
-                            ["system", "atom"],
-                            torch.vstack(sample_values),
-                        )
+                        sample_labels = sample_labels_per_atom
                         X = self._compute_X_per_atom(
                             systems, self._get_sliced_atomic_types(key)
                         )
@@ -372,18 +344,7 @@ class BaseCompositionModel(torch.nn.Module):
                 # TODO: add support for per_pair. As compositions are only fitted for
                 # on-site blocks this extension is simple, reusing the per_atom code.
                 elif self.sample_kinds[output_name] == "per_atom":
-                    sample_values = []
-                    for A, system in enumerate(systems):
-                        for i in torch.arange(len(system), dtype=torch.int32):
-                            sample_values.append(
-                                torch.tensor(
-                                    [int(A), int(i)], dtype=torch.int32, device=device
-                                )
-                            )
-                    sample_labels = Labels(
-                        ["system", "atom"],
-                        torch.vstack(sample_values),
-                    )
+                    sample_labels = sample_labels_per_atom
                     X = self._compute_X_per_atom(
                         systems, self._get_sliced_atomic_types(key)
                     )
@@ -427,20 +388,26 @@ class BaseCompositionModel(torch.nn.Module):
 
         return predictions
 
-    def _get_sliced_atomic_types(self, key: LabelsEntry) -> List[int]:
+    def _get_sliced_atomic_types(self, key: LabelsEntry) -> torch.Tensor:
         """
         Gets the slice of atomic types needed for the block indexed by the input ``key``
         """
         center_types = self.atomic_types
+        dtype = torch.int32
+        device = self.atomic_types.device
 
         if "center_type" in key.names:
-            center_types = [key["center_type"]]
+            center_types = torch.tensor(
+                [key["center_type"]], dtype=dtype, device=device
+            )
 
         if "first_atom_type" in key.names and "second_atom_type" in key.names:
             assert (
                 key["first_atom_type"] == key["second_atom_type"] and key["s2_pi"] == 0
             )
-            center_types = [key["first_atom_type"]]
+            center_types = torch.tensor(
+                [key["first_atom_type"]], dtype=dtype, device=device
+            )
 
         return center_types
 
@@ -449,65 +416,71 @@ class BaseCompositionModel(torch.nn.Module):
         Computes the one-hot encoding of the atomic types for the atoms in the
         provided systems.
 
-        Returns a tensor of shape (n_systems, n_atomic_types), where each row
+        Returns a tensor of shape ``(n_systems, n_atomic_types)``, where each row
         corresponds to a system and each column corresponds to an atomic type. The
         value is the number of atoms of that type in the system.
         """
-
         dtype = systems[0].positions.dtype
         device = systems[0].positions.device
 
-        X = []
-        for system in systems:
-            X_system = torch.tensor(
+        X = torch.empty(
+            (len(systems), len(self.atomic_types)),
+            dtype=dtype,
+            device=device,
+        )
+        for i, system in enumerate(systems):
+            counts = torch.stack(
                 [
-                    int(torch.sum(system.types == atom_type))
+                    torch.sum(system.types == atom_type)
                     for atom_type in self.atomic_types
-                ],
-                dtype=dtype,
-                device=device,
-            )
-            X.append(X_system)
+                ]
+            ).to(dtype=dtype, device=device)
+            X[i] = counts
 
-        return torch.vstack(X)
+        return X
 
     def _compute_X_per_atom(
-        self, systems: List[System], center_types: List[int]
+        self, systems: List[System], center_types: torch.Tensor
     ) -> torch.Tensor:
         """
         Computes the one-hot encoding of the atomic types for the atoms in the provided
         systems, but only for the specified center types.
 
-        Returns a tensor of shape (n_atoms, n_atomic_types), where each row corresponds
-        to an atom in the systems and each column corresponds to an atomic type. The
-        value is 1 if the atom's type matches the atomic type, and 0 otherwise.
+        Returns a tensor of shape ``(n_atoms, n_atomic_types)``, where each row
+        corresponds to an atom in the systems and each column corresponds to an atomic
+        type. The value is 1 if the atom's type matches the atomic type, and 0
+        otherwise.
         """
-
-        dtype = systems[0].positions.dtype
         device = systems[0].positions.device
+        dtype = systems[0].positions.dtype
 
-        # Create a Labels of the samples
-        sample_values = []
-        for A, system in enumerate(systems):
-            for i in torch.arange(len(system), dtype=torch.int32):
-                sample_values.append(
-                    torch.tensor(
-                        [int(A), int(i), int(system.types[i])],
-                        dtype=torch.int32,
-                        device=device,
-                    )
-                )
-        sample_labels = Labels(
-            ["system", "atom", "center_type"],
-            torch.vstack(sample_values),
-        )
+        system_ids = []
+        atom_ids = []
+        types = []
 
-        # Create a Labels object of the possible center types
-        center_types_labels = Labels(
-            ["center_type"],
-            torch.tensor(center_types, device=device, dtype=torch.int32).reshape(-1, 1),
-        )
+        for sys_id, system in enumerate(systems):
+            n_atoms = system.types.shape[0]
+            system_ids.append(
+                torch.full((n_atoms,), sys_id, dtype=torch.int32, device=device)
+            )
+            atom_ids.append(torch.arange(n_atoms, dtype=torch.int32, device=device))
+            types.append(
+                system.types.to(torch.int32)
+            )  # Ensure type matches Labels requirement
 
+        # Concatenate all atom metadata
+        system_ids = torch.cat(system_ids)
+        atom_ids = torch.cat(atom_ids)
+        types = torch.cat(types)
+
+        # Build sample_labels: (n_atoms, 3) → [system, atom, center_type]
+        sample_values = torch.stack([system_ids, atom_ids, types], dim=1)
+        sample_labels = Labels(["system", "atom", "center_type"], sample_values)
+
+        # Build center_types_labels: (n_center_types, 1)
+        center_types_labels = Labels(["center_type"], center_types.reshape(-1, 1))
+
+        # Perform one-hot encoding
         return mts.one_hot(sample_labels, center_types_labels).to(
             dtype=dtype, device=device
         )
@@ -579,3 +552,37 @@ def _solve_linear_system(
         ),
         XTY_vals.reshape(XTY_vals.shape[0], -1),
     ).reshape(shape)
+
+
+def _get_system_indices_and_labels(systems: List[System], device: torch.device):
+    system_indices = torch.concatenate(
+        [
+            torch.full(
+                (len(system),),
+                i_system,
+                device=device,
+            )
+            for i_system, system in enumerate(systems)
+        ],
+    )
+
+    sample_values = torch.stack(
+        [
+            system_indices,
+            torch.concatenate(
+                [
+                    torch.arange(
+                        len(system),
+                        device=device,
+                    )
+                    for system in systems
+                ],
+            ),
+        ],
+        dim=1,
+    )
+    sample_labels = Labels(
+        names=["system", "atom"],
+        values=sample_values,
+    )
+    return system_indices, sample_labels
