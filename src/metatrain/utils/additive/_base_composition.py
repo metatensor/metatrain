@@ -33,6 +33,9 @@ class BaseCompositionModel(torch.nn.Module):
     target_names: List[str]
     weights: Dict[str, TensorMap]
     sample_kinds: Dict[str, str]
+    type_to_index: torch.Tensor
+    XTX: Dict[str, TensorMap]
+    XTY: Dict[str, TensorMap]
 
     def __init__(self, atomic_types: List[int], layouts: Dict[str, TensorMap]) -> None:
         """
@@ -45,12 +48,13 @@ class BaseCompositionModel(torch.nn.Module):
             target.
         """
         super().__init__()
-        self.atomic_types: List[int] = atomic_types
-        self.target_names: List[str] = []
-        self.sample_kinds: Dict[str, str] = {}
-        self.XTX: Dict[str, TensorMap] = {}
-        self.XTY: Dict[str, TensorMap] = {}
-        self.weights: Dict[str, TensorMap] = {}
+
+        self.atomic_types = torch.as_tensor(atomic_types, dtype=torch.int32)
+        self.target_names = []
+        self.sample_kinds = {}
+        self.XTX = {}
+        self.XTY = {}
+        self.weights = {}
         self.is_fitted: Dict[str, bool] = {}
 
         # Add targets based on provided layouts
@@ -187,6 +191,11 @@ class BaseCompositionModel(torch.nn.Module):
         Takes a batch of systems and targets, and for each target accumulates the
         necessary quantities (XTX and XTY).
         """
+
+        device = systems[0].positions.device
+        dtype = systems[0].positions.dtype
+        self._sync_device(device, dtype)
+
         # check that the systems contain no unexpected atom types
         reference_atomic_types = torch.tensor(self.atomic_types, dtype=torch.int32)
         for system in systems:
@@ -219,6 +228,7 @@ class BaseCompositionModel(torch.nn.Module):
                         f"unknown sample kind: {self.sample_kinds[target_name]}"
                         f" for target {target_name}"
                     )
+                X = X.to(device=device, dtype=dtype)
 
                 # Compute "XTX", i.e. X.T @ X
                 # TODO: store XTX by sample kind instead, saving memory
@@ -313,6 +323,11 @@ class BaseCompositionModel(torch.nn.Module):
         :raises ValueError: If no weights have been computed or if `outputs` keys
             contain unsupported keys.
         """
+
+        device = systems[0].positions.device
+        dtype = systems[0].positions.dtype
+        self._sync_device(device, dtype)
+
         predictions: Dict[str, TensorMap] = {}
         for output_name, model_output in outputs.items():
             if output_name not in self.target_names:
@@ -331,7 +346,11 @@ class BaseCompositionModel(torch.nn.Module):
                         for A, system in enumerate(systems):
                             for i in torch.arange(len(system), dtype=torch.int32):
                                 sample_values.append(
-                                    torch.tensor([int(A), int(i)], dtype=torch.int32)
+                                    torch.tensor(
+                                        [int(A), int(i)],
+                                        dtype=torch.int32,
+                                        device=device,
+                                    )
                                 )
                         sample_labels = Labels(
                             ["system", "atom"],
@@ -344,9 +363,9 @@ class BaseCompositionModel(torch.nn.Module):
                     else:
                         sample_labels = Labels(
                             ["system"],
-                            torch.arange(len(systems), dtype=torch.int32).reshape(
-                                -1, 1
-                            ),
+                            torch.arange(
+                                len(systems), dtype=torch.int32, device=device
+                            ).reshape(-1, 1),
                         )
                         X = self._compute_X_per_structure(systems)
 
@@ -357,7 +376,9 @@ class BaseCompositionModel(torch.nn.Module):
                     for A, system in enumerate(systems):
                         for i in torch.arange(len(system), dtype=torch.int32):
                             sample_values.append(
-                                torch.tensor([int(A), int(i)], dtype=torch.int32)
+                                torch.tensor(
+                                    [int(A), int(i)], dtype=torch.int32, device=device
+                                )
                             )
                     sample_labels = Labels(
                         ["system", "atom"],
@@ -432,6 +453,10 @@ class BaseCompositionModel(torch.nn.Module):
         corresponds to a system and each column corresponds to an atomic type. The
         value is the number of atoms of that type in the system.
         """
+
+        dtype = systems[0].positions.dtype
+        device = systems[0].positions.device
+
         X = []
         for system in systems:
             X_system = torch.tensor(
@@ -439,7 +464,8 @@ class BaseCompositionModel(torch.nn.Module):
                     int(torch.sum(system.types == atom_type))
                     for atom_type in self.atomic_types
                 ],
-                dtype=torch.float64,
+                dtype=dtype,
+                device=device,
             )
             X.append(X_system)
 
@@ -456,13 +482,19 @@ class BaseCompositionModel(torch.nn.Module):
         to an atom in the systems and each column corresponds to an atomic type. The
         value is 1 if the atom's type matches the atomic type, and 0 otherwise.
         """
+
+        dtype = systems[0].positions.dtype
+        device = systems[0].positions.device
+
         # Create a Labels of the samples
         sample_values = []
         for A, system in enumerate(systems):
             for i in torch.arange(len(system), dtype=torch.int32):
                 sample_values.append(
                     torch.tensor(
-                        [int(A), int(i), int(system.types[i])], dtype=torch.int32
+                        [int(A), int(i), int(system.types[i])],
+                        dtype=torch.int32,
+                        device=device,
                     )
                 )
         sample_labels = Labels(
@@ -473,10 +505,29 @@ class BaseCompositionModel(torch.nn.Module):
         # Create a Labels object of the possible center types
         center_types_labels = Labels(
             ["center_type"],
-            torch.tensor(center_types, dtype=torch.int32).reshape(-1, 1),
+            torch.tensor(center_types, device=device, dtype=torch.int32).reshape(-1, 1),
         )
 
-        return mts.one_hot(sample_labels, center_types_labels).to(torch.float64)
+        return mts.one_hot(sample_labels, center_types_labels).to(
+            dtype=dtype, device=device
+        )
+
+    def _sync_device(self, device: torch.device, dtype: torch.dtype):
+        # manually move the TensorMap dicts:
+
+        self.atomic_types = self.atomic_types.to(device=device, dtype=dtype)
+        self.XTX = {
+            target_name: tm.to(device=device, dtype=dtype)
+            for target_name, tm in self.XTX.items()
+        }
+        self.XTY = {
+            target_name: tm.to(device=device, dtype=dtype)
+            for target_name, tm in self.XTY.items()
+        }
+        self.weights = {
+            target_name: tm.to(device=device, dtype=dtype)
+            for target_name, tm in self.weights.items()
+        }
 
 
 def _include_key(key: LabelsEntry) -> bool:
