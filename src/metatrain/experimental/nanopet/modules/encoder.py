@@ -23,15 +23,14 @@ class Encoder(torch.nn.Module):
     ):
         super().__init__()
 
-        self.center_encoder = torch.nn.Embedding(
-            num_embeddings=n_species, embedding_dim=hidden_size
-        )
         self.neighbor_encoder = torch.nn.Embedding(
             num_embeddings=n_species, embedding_dim=hidden_size
         )
         self.spherical_harmonics = SphericalHarmonics(l_max=max_angular)
         self.radial_mlp = torch.nn.Sequential(
             torch.nn.Linear(in_features=max_radial, out_features=4*hidden_size, bias=False),
+            torch.nn.SiLU(),
+            torch.nn.Linear(in_features=4*hidden_size, out_features=4*hidden_size, bias=False),
             torch.nn.SiLU(),
             torch.nn.Linear(in_features=4*hidden_size, out_features=4*hidden_size, bias=False),
             torch.nn.SiLU(),
@@ -46,9 +45,6 @@ class Encoder(torch.nn.Module):
         self,
         features: Dict[str, torch.Tensor],
     ):
-        # Encode centers
-        center_features = self.center_encoder(features["center"])  # [n_edges, hidden_size]
-
         # Encode neighbors
         neighbor_features = self.neighbor_encoder(features["neighbor"])  # [n_edges, hidden_size]
 
@@ -64,5 +60,5 @@ class Encoder(torch.nn.Module):
         radial_features = torch.sin(scaled_distances) / scaled_distances  # [n_edges, max_radial]
         radial_features = self.radial_mlp(radial_features)  # [n_edges, hidden_size]
 
-        features = center_features.unsqueeze(2) * neighbor_features.unsqueeze(2) * radial_features.unsqueeze(2) * spherical_harmonics.unsqueeze(1)  # [n_edges, hidden_size, (max_angular + 1) ** 2]
+        features = neighbor_features.unsqueeze(2) * radial_features.unsqueeze(2) * spherical_harmonics.unsqueeze(1)  # [n_edges, hidden_size, (max_angular + 1) ** 2]
         return features

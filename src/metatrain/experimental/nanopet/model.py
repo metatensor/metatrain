@@ -192,8 +192,8 @@ class NanoPET(ModelInterface):
             l_max=self.hypers["max_angular"],
         )
 
-        self.node_edge_embedder = torch.nn.Embedding(
-            num_embeddings=2,
+        self.node_embedder = torch.nn.Embedding(
+            num_embeddings=len(self.atomic_types),
             embedding_dim=self.hypers["d_pet"],
         )
 
@@ -366,14 +366,20 @@ class NanoPET(ModelInterface):
         )
 
         # Embed centers vs neighbors
-        # TODO: change to minimalistic (center type only) embedding
-        node_features = torch.sum(spherical_features, dim=1, keepdim=True) / 3.0  # [n_nodes, 1, hidden_size, (max_angular + 1) ** 2]
+        # node_features = torch.sum(spherical_features, dim=1, keepdim=True) / 3.0  # [n_nodes, 1, hidden_size, (max_angular + 1) ** 2]
+        # node_features = node_features * self.node_edge_embedder.weight[0].reshape(1, 1, -1, 1)
+        # spherical_features = spherical_features * self.node_edge_embedder.weight[1].reshape(1, 1, -1, 1)
 
-        node_features = node_features * self.node_edge_embedder.weight[0].reshape(1, 1, -1, 1)
-        spherical_features = spherical_features * self.node_edge_embedder.weight[1].reshape(1, 1, -1, 1)
-        spherical_features = torch.concatenate(
-            [node_features, spherical_features], dim=1
-        )
+        node_features = self.node_embedder(element_indices_nodes).unsqueeze(1)  # [n_nodes, 1, hidden_size]
+        node_features = torch.concatenate(
+            [
+                node_features.unsqueeze(-1),
+                torch.zeros(node_features.shape + (spherical_features.shape[-1]-1,), device=device, dtype=spherical_features.dtype)
+            ],
+            dim=-1
+        )  # [n_nodes, 1, hidden_size, (max_angular + 1) ** 2]
+        
+        spherical_features = torch.concatenate([node_features, spherical_features], dim=1)
 
         # Convert to Hartmut
         features = self.spherical_to_hartmut(spherical_features)  # [n_nodes, n_edges, hidden_size, l_max + 1, l_max + 1]

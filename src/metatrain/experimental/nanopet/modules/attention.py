@@ -56,7 +56,7 @@ class AttentionBlock(torch.nn.Module):
         # Attention
         queries_times_keys = torch.einsum("nhelab, nhflbc -> nhefac", q, k)  # contract between feature dimension l and at the same time Hartmut dimension b
         exponential = torch.matrix_exp(queries_times_keys.contiguous() / (k.size(3) ** 0.5))
-        attention_weights = exponential * radial_mask[:, None, None, :, None, None] / (torch.sum(torch.diagonal(torch.sum(exponential, dim=-3, keepdim=True), dim1=-2, dim2=-1), dim=-1).unsqueeze(-1).unsqueeze(-2) + 1e-6)  # two sums, one to sum over matrices, one to get the trace
+        attention_weights = exponential * radial_mask[:, None, None, :, None, None] / (torch.sum(torch.diagonal(torch.sum(exponential, dim=-3, keepdim=True), dim1=-2, dim2=-1), dim=-1).unsqueeze(-1).unsqueeze(-2) + 1e-8)  # two sums, one to sum over matrices, one to get the trace
 
         # Attention output
         attention_output = torch.einsum("nhefab, nhflbc -> nhelac", attention_weights, v)  # contract between edge dimension f and at the same time Hartmut dimension b

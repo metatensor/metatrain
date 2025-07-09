@@ -1,5 +1,6 @@
 seed: 42
 base_precision: 32
+device: cuda
 
 architecture:
   name: experimental.nanopet
