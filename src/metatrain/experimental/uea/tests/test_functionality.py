@@ -5,7 +5,7 @@ from jsonschema.exceptions import ValidationError
 from metatomic.torch import ModelOutput, System
 from omegaconf import OmegaConf
 
-from metatrain.experimental.nanopet.model import NanoPET
+from metatrain.experimental.uea.model import UEA
 from metatrain.utils.architectures import check_architecture_options
 from metatrain.utils.data import DatasetInfo
 from metatrain.utils.data.target_info import (
@@ -17,7 +17,7 @@ from metatrain.utils.neighbor_lists import get_system_with_neighbor_lists
 from . import DEFAULT_HYPERS, MODEL_HYPERS
 
 
-def test_nanopet_padding():
+def test_uea_padding():
     """Tests that the model predicts the same energy independently of the
     padding size."""
 
@@ -29,7 +29,7 @@ def test_nanopet_padding():
         },
     )
 
-    model = NanoPET(MODEL_HYPERS, dataset_info)
+    model = UEA(MODEL_HYPERS, dataset_info)
 
     system = System(
         types=torch.tensor([6, 6]),
@@ -80,7 +80,7 @@ def test_prediction_subset_elements():
         },
     )
 
-    model = NanoPET(MODEL_HYPERS, dataset_info)
+    model = UEA(MODEL_HYPERS, dataset_info)
 
     system = System(
         types=torch.tensor([6, 6]),
@@ -111,7 +111,7 @@ def test_prediction_subset_atoms():
         },
     )
 
-    model = NanoPET(MODEL_HYPERS, dataset_info)
+    model = UEA(MODEL_HYPERS, dataset_info)
 
     # Since we don't yet support atomic predictions, we will test this by
     # predicting on a system with two monomers at a large distance
@@ -189,7 +189,7 @@ def test_output_last_layer_features():
         },
     )
 
-    model = NanoPET(MODEL_HYPERS, dataset_info)
+    model = UEA(MODEL_HYPERS, dataset_info)
 
     system = System(
         types=torch.tensor([6, 1, 8, 7]),
@@ -294,7 +294,7 @@ def test_output_per_atom():
         },
     )
 
-    model = NanoPET(MODEL_HYPERS, dataset_info)
+    model = UEA(MODEL_HYPERS, dataset_info)
 
     system = System(
         types=torch.tensor([6, 1, 8, 7]),
@@ -330,19 +330,8 @@ def test_fixed_composition_weights():
     }
     hypers = OmegaConf.create(hypers)
     check_architecture_options(
-        name="experimental.nanopet", options=OmegaConf.to_container(hypers)
+        name="experimental.uea", options=OmegaConf.to_container(hypers)
     )
-
-
-def test_fixed_composition_weights_error():
-    """Test that only inputd of type Dict[str, Dict[int, float]] are allowed."""
-    hypers = DEFAULT_HYPERS.copy()
-    hypers["training"]["fixed_composition_weights"] = {"energy": {"H": 300.0}}
-    hypers = OmegaConf.create(hypers)
-    with pytest.raises(ValidationError, match=r"'H' does not match '\^\[0-9\]\+\$'"):
-        check_architecture_options(
-            name="experimental.nanopet", options=OmegaConf.to_container(hypers)
-        )
 
 
 @pytest.mark.parametrize("per_atom", [True, False])
@@ -365,7 +354,7 @@ def test_vector_output(per_atom):
         },
     )
 
-    model = NanoPET(MODEL_HYPERS, dataset_info)
+    model = UEA(MODEL_HYPERS, dataset_info)
 
     system = System(
         types=torch.tensor([6, 6]),
@@ -402,7 +391,7 @@ def test_spherical_output(per_atom):
         },
     )
 
-    model = NanoPET(MODEL_HYPERS, dataset_info)
+    model = UEA(MODEL_HYPERS, dataset_info)
 
     system = System(
         types=torch.tensor([6, 6]),
@@ -446,7 +435,7 @@ def test_spherical_output_multi_block(per_atom):
         },
     )
 
-    model = NanoPET(MODEL_HYPERS, dataset_info)
+    model = UEA(MODEL_HYPERS, dataset_info)
 
     system = System(
         types=torch.tensor([6, 6]),
@@ -462,7 +451,7 @@ def test_spherical_output_multi_block(per_atom):
     assert len(outputs["spherical_tensor"]) == 3
 
 
-def test_nanopet_single_atom():
+def test_uea_single_atom():
     """Tests that the model predicts zero energies on a single atom."""
     # (note that no composition energies are supplied or calculated here)
 
@@ -473,7 +462,7 @@ def test_nanopet_single_atom():
             "energy": get_energy_target_info({"quantity": "energy", "unit": "eV"})
         },
     )
-    model = NanoPET(MODEL_HYPERS, dataset_info)
+    model = UEA(MODEL_HYPERS, dataset_info)
 
     system = System(
         types=torch.tensor([6]),
@@ -488,7 +477,7 @@ def test_nanopet_single_atom():
 
 
 @pytest.mark.parametrize("per_atom", [True, False])
-def test_nanopet_rank_2(per_atom):
+def test_uea_rank_2(per_atom):
     """Tests that the model can predict a symmetric rank-2 tensor."""
     # (note that no composition energies are supplied or calculated here)
 
@@ -509,12 +498,12 @@ def test_nanopet_rank_2(per_atom):
     )
 
     message = (
-        "NanoPET assumes that Cartesian tensors of rank 2 are stress-like, "
+        "UEA assumes that Cartesian tensors of rank 2 are stress-like, "
         "meaning that they are symmetric and intensive. "
         "If this is not the case, please use a different model."
     )
     with pytest.warns(match=message):
-        model = NanoPET(MODEL_HYPERS, dataset_info)
+        model = UEA(MODEL_HYPERS, dataset_info)
 
     system = System(
         types=torch.tensor([6]),

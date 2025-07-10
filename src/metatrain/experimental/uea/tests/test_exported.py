@@ -2,7 +2,7 @@ import pytest
 import torch
 from metatomic.torch import ModelEvaluationOptions, ModelMetadata, System
 
-from metatrain.experimental.nanopet import NanoPET
+from metatrain.experimental.uea import UEA
 from metatrain.utils.data import DatasetInfo
 from metatrain.utils.data.target_info import get_energy_target_info
 from metatrain.utils.neighbor_lists import (
@@ -27,7 +27,7 @@ def test_to(device, dtype):
             "energy": get_energy_target_info({"quantity": "energy", "unit": "eV"})
         },
     )
-    model = NanoPET(MODEL_HYPERS, dataset_info).to(dtype=dtype)
+    model = UEA(MODEL_HYPERS, dataset_info).to(dtype=dtype)
 
     exported = model.export(metadata=ModelMetadata(name="test"))
 

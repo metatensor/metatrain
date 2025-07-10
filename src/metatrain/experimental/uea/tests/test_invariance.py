@@ -4,7 +4,7 @@ import ase.io
 import torch
 from metatomic.torch import systems_to_torch
 
-from metatrain.experimental.nanopet import NanoPET
+from metatrain.experimental.uea import UEA
 from metatrain.utils.data import DatasetInfo
 from metatrain.utils.data.target_info import (
     get_energy_target_info,
@@ -23,7 +23,7 @@ def test_rotational_invariance():
         atomic_types=[1, 6, 7, 8],
         targets={"energy": get_energy_target_info({"unit": "eV"})},
     )
-    model = NanoPET(MODEL_HYPERS, dataset_info)
+    model = UEA(MODEL_HYPERS, dataset_info)
 
     system = ase.io.read(DATASET_PATH)
     original_system = copy.deepcopy(system)

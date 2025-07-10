@@ -3,7 +3,7 @@ import copy
 import torch
 from metatomic.torch import System
 
-from metatrain.experimental.nanopet import NanoPET
+from metatrain.experimental.uea import UEA
 from metatrain.utils.data import DatasetInfo
 from metatrain.utils.data.target_info import get_energy_target_info
 from metatrain.utils.neighbor_lists import get_system_with_neighbor_lists
@@ -21,7 +21,7 @@ def test_torchscript():
             "energy": get_energy_target_info({"quantity": "energy", "unit": "eV"})
         },
     )
-    model = NanoPET(MODEL_HYPERS, dataset_info)
+    model = UEA(MODEL_HYPERS, dataset_info)
 
     system = System(
         types=torch.tensor([6, 1, 8, 7]),
@@ -50,7 +50,7 @@ def test_torchscript_save_load(tmpdir):
             "energy": get_energy_target_info({"quantity": "energy", "unit": "eV"})
         },
     )
-    model = NanoPET(MODEL_HYPERS, dataset_info)
+    model = UEA(MODEL_HYPERS, dataset_info)
 
     with tmpdir.as_cwd():
         torch.jit.save(torch.jit.script(model), "model.pt")
@@ -72,7 +72,7 @@ def test_torchscript_integers():
             "energy": get_energy_target_info({"quantity": "energy", "unit": "eV"})
         },
     )
-    model = NanoPET(new_hypers, dataset_info)
+    model = UEA(new_hypers, dataset_info)
 
     system = System(
         types=torch.tensor([6, 1, 8, 7]),

@@ -4,7 +4,7 @@ import metatensor
 import torch
 from omegaconf import OmegaConf
 
-from metatrain.experimental.nanopet import NanoPET, Trainer
+from metatrain.experimental.uea import UEA, Trainer
 from metatrain.utils.data import Dataset, DatasetInfo
 from metatrain.utils.data.readers import read_systems, read_targets
 from metatrain.utils.data.target_info import get_energy_target_info
@@ -32,7 +32,7 @@ def test_continue(monkeypatch, tmp_path):
     dataset_info = DatasetInfo(
         length_unit="Angstrom", atomic_types=[1, 6, 7, 8], targets=target_info_dict
     )
-    model = NanoPET(MODEL_HYPERS, dataset_info)
+    model = UEA(MODEL_HYPERS, dataset_info)
 
     conf = {
         "mtt::U0": {
@@ -71,7 +71,7 @@ def test_continue(monkeypatch, tmp_path):
     trainer.save_checkpoint(model, "tmp.ckpt")
 
     model_after = model_from_checkpoint("tmp.ckpt", context="restart")
-    assert isinstance(model_after, NanoPET)
+    assert isinstance(model_after, UEA)
     model_after.restart(dataset_info)
 
     hypers["training"]["num_epochs"] = 0
