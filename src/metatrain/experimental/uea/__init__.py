@@ -1,8 +1,8 @@
-from .model import NanoPET
+from .model import UEA
 from .trainer import Trainer
 
 
-__model__ = NanoPET
+__model__ = UEA
 __trainer__ = Trainer
 
 __authors__ = [

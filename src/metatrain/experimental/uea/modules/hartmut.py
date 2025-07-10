@@ -17,18 +17,13 @@ class SphericalToHartmut(torch.nn.Module):
         # self.padded_l_max = padded_l_max
 
         cg_tensors = [
-            cg_calculator._cgs[(l_max // 2, l_max // 2, L)]
-            for L in range(l_max + 1)
+            cg_calculator._cgs[(l_max // 2, l_max // 2, L)] for L in range(l_max + 1)
         ]
-        U = torch.concatenate(
-            [cg_tensor for cg_tensor in cg_tensors], dim=2
-        ).reshape((l_max + 1) ** 2, (l_max + 1) ** 2)
-        assert torch.allclose(
-            U @ U.T, torch.eye((l_max + 1) ** 2, dtype=U.dtype)
+        U = torch.concatenate([cg_tensor for cg_tensor in cg_tensors], dim=2).reshape(
+            (l_max + 1) ** 2, (l_max + 1) ** 2
         )
-        assert torch.allclose(
-            U.T @ U, torch.eye((l_max + 1) ** 2, dtype=U.dtype)
-        )
+        assert torch.allclose(U @ U.T, torch.eye((l_max + 1) ** 2, dtype=U.dtype))
+        assert torch.allclose(U.T @ U, torch.eye((l_max + 1) ** 2, dtype=U.dtype))
         self.U = U
 
     def forward(self, spherical_features: torch.Tensor) -> torch.Tensor:
@@ -50,8 +45,11 @@ class SphericalToHartmut(torch.nn.Module):
         if self.U.dtype != hartmut_features.dtype:
             self.U = self.U.to(hartmut_features.dtype)
 
-        spherical_features = hartmut_features.reshape(
-            hartmut_features.shape[:-2] + ((self.l_max + 1) * (self.l_max + 1),)
-        ) @ self.U
+        spherical_features = (
+            hartmut_features.reshape(
+                hartmut_features.shape[:-2] + ((self.l_max + 1) * (self.l_max + 1),)
+            )
+            @ self.U
+        )
 
         return spherical_features

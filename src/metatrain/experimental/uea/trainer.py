@@ -9,7 +9,6 @@ from torch.utils.data import DataLoader, DistributedSampler
 
 from metatrain.utils.abc import TrainerInterface
 from metatrain.utils.additive import remove_additive
-from metatrain.utils.augmentation import RotationalAugmenter
 from metatrain.utils.data import (
     CollateFn,
     CombinedDataLoader,
@@ -34,7 +33,7 @@ from metatrain.utils.per_atom import average_by_num_atoms
 from metatrain.utils.scaler import remove_scale
 from metatrain.utils.transfer import batch_to
 
-from .model import NanoPET
+from .model import UEA
 
 
 class Trainer(TrainerInterface):
@@ -49,14 +48,14 @@ class Trainer(TrainerInterface):
 
     def train(
         self,
-        model: NanoPET,
+        model: UEA,
         dtype: torch.dtype,
         devices: List[torch.device],
         train_datasets: List[Union[Dataset, torch.utils.data.Subset]],
         val_datasets: List[Union[Dataset, torch.utils.data.Subset]],
         checkpoint_dir: str,
     ):
-        assert dtype in NanoPET.__supported_dtypes__
+        assert dtype in UEA.__supported_dtypes__
 
         is_distributed = self.hypers["distributed"]
 
@@ -72,7 +71,7 @@ class Trainer(TrainerInterface):
             if len(devices) > 1:
                 raise ValueError(
                     "Requested distributed training with the `multi-gpu` device. "
-                    " If you want to run distributed training with NanoPET, please "
+                    " If you want to run distributed training with UEA, please "
                     "set `device` to cuda."
                 )
             # the calculation of the device number works both when GPUs on different
@@ -116,7 +115,7 @@ class Trainer(TrainerInterface):
 
         # Move the model to the device and dtype:
         model.to(device=device, dtype=dtype)
-        # The additive models of nanoPET are always in float64 (to avoid
+        # The additive models of UEA are always in float64 (to avoid
         # numerical errors in the composition weights, which can be very large).
         for additive_model in model.additive_models:
             additive_model.to(dtype=torch.float64)
@@ -221,9 +220,6 @@ class Trainer(TrainerInterface):
 
         # Extract all the possible outputs and their gradients:
         train_targets = (model.module if is_distributed else model).dataset_info.targets
-        extra_data_info = (
-            model.module if is_distributed else model
-        ).dataset_info.extra_data
         outputs_list = []
         for target_name, target_info in train_targets.items():
             outputs_list.append(target_name)
@@ -280,10 +276,6 @@ class Trainer(TrainerInterface):
         # Log the initial learning rate:
         old_lr = optimizer.param_groups[0]["lr"]
         logging.info(f"Initial learning rate: {old_lr}")
-
-        rotational_augmenter = RotationalAugmenter(
-            train_targets, extra_data_info_dict=extra_data_info
-        )
 
         start_epoch = 0 if self.epoch is None else self.epoch + 1
 
@@ -518,7 +510,7 @@ class Trainer(TrainerInterface):
 
     def save_checkpoint(self, model, path: Union[str, Path]):
         checkpoint = {
-            "architecture_name": "experimental.nanopet",
+            "architecture_name": "experimental.uea",
             "metadata": model.__default_metadata__,
             "model_data": {
                 "model_hypers": model.hypers,

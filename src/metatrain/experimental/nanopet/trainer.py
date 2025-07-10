@@ -34,7 +34,7 @@ from metatrain.utils.per_atom import average_by_num_atoms
 from metatrain.utils.scaler import remove_scale
 from metatrain.utils.transfer import batch_to
 
-from .model import UEA
+from .model import NanoPET
 
 
 class Trainer(TrainerInterface):
@@ -49,14 +49,14 @@ class Trainer(TrainerInterface):
 
     def train(
         self,
-        model: UEA,
+        model: NanoPET,
         dtype: torch.dtype,
         devices: List[torch.device],
         train_datasets: List[Union[Dataset, torch.utils.data.Subset]],
         val_datasets: List[Union[Dataset, torch.utils.data.Subset]],
         checkpoint_dir: str,
     ):
-        assert dtype in UEA.__supported_dtypes__
+        assert dtype in NanoPET.__supported_dtypes__
 
         is_distributed = self.hypers["distributed"]
 
@@ -72,7 +72,7 @@ class Trainer(TrainerInterface):
             if len(devices) > 1:
                 raise ValueError(
                     "Requested distributed training with the `multi-gpu` device. "
-                    " If you want to run distributed training with UEA, please "
+                    " If you want to run distributed training with NanoPET, please "
                     "set `device` to cuda."
                 )
             # the calculation of the device number works both when GPUs on different
@@ -514,7 +514,7 @@ class Trainer(TrainerInterface):
 
     def save_checkpoint(self, model, path: Union[str, Path]):
         checkpoint = {
-            "architecture_name": "experimental.uea",
+            "architecture_name": "experimental.nanopet",
             "metadata": model.__default_metadata__,
             "model_data": {
                 "model_hypers": model.hypers,

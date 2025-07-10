@@ -15,23 +15,22 @@ from metatomic.torch import (
 )
 
 from metatrain.utils.abc import ModelInterface
-from metatrain.utils.additive import ZBL, OldCompositionModel
+from metatrain.utils.additive import OldCompositionModel
 from metatrain.utils.data import DatasetInfo, TargetInfo
 from metatrain.utils.dtype import dtype_to_str
-from metatrain.utils.long_range import DummyLongRangeFeaturizer, LongRangeFeaturizer
 from metatrain.utils.metadata import merge_metadata
 from metatrain.utils.scaler import Scaler
 from metatrain.utils.sum_over_atoms import sum_over_atoms
 
 from .modules.encoder import Encoder
-from .modules.structures import concatenate_structures
 from .modules.hartmut import SphericalToHartmut
+from .modules.structures import concatenate_structures
 
 
 class UEA(ModelInterface):
     """
     UEA stands for universal equivariant approximator.
-    
+
     It is an architecture that is guaranteed to behave as a universal approximator for
     equivariant functions, with a finite number of layers. This is achieved by
     building a multi-layer perceptron in the Hartmut representation of irreducible
@@ -41,7 +40,9 @@ class UEA(ModelInterface):
     __supported_devices__ = ["cuda", "cpu"]
     __supported_dtypes__ = [torch.float64, torch.float32]
     __default_metadata__ = ModelMetadata(
-        references={"architecture": ["https://pubs.acs.org/doi/10.1021/acs.jpclett.4c02376"]}
+        references={
+            "architecture": ["https://pubs.acs.org/doi/10.1021/acs.jpclett.4c02376"]
+        }
     )
 
     component_labels: Dict[str, List[List[Labels]]]
@@ -68,11 +69,11 @@ class UEA(ModelInterface):
             self.hypers["num_features"],
             self.hypers["max_angular"],
             8,
-            self.cutoff
+            self.cutoff,
         )
         # 8 above is the number of radial basis functions, which is hardcoded,
         # since it does not matter almost at all for model performance
-        
+
         self.num_layers = self.hypers["num_layers"]
         self.first_linear_layer = torch.nn.Linear(
             self.hypers["num_features"], self.hypers["num_features"], bias=False
@@ -282,12 +283,18 @@ class UEA(ModelInterface):
         }
 
         # Encode edges
-        spherical_features = self.encoder(features)  # [n_nodes, n_edges, hidden_size, (max_angular + 1) ** 2]
+        spherical_features = self.encoder(
+            features
+        )  # [n_nodes, n_edges, hidden_size, (max_angular + 1) ** 2]
 
         # Build a "spherical expansion" by summing over the edges
-        node_features = torch.zeros(len(element_indices_nodes), spherical_features.shape[1], spherical_features.shape[2], device=spherical_features.device, dtype=spherical_features.dtype).index_add_(
-            0, centers, spherical_features
-        )
+        node_features = torch.zeros(
+            len(element_indices_nodes),
+            spherical_features.shape[1],
+            spherical_features.shape[2],
+            device=spherical_features.device,
+            dtype=spherical_features.dtype,
+        ).index_add_(0, centers, spherical_features)
 
         node_features = self.spherical_to_hartmut(node_features)
 
@@ -296,14 +303,21 @@ class UEA(ModelInterface):
         node_features = self.first_linear_layer(node_features)
         node_features = node_features.permute(0, 3, 1, 2)
         for linear_layer in self.linear_layer:
-            node_features = node_features @ torch.linalg.inv(torch.eye(node_features.shape[-1], device=node_features.device, dtype=node_features.dtype) + torch.matrix_exp(-node_features.contiguous()))
+            node_features = node_features @ torch.linalg.inv(
+                torch.eye(
+                    node_features.shape[-1],
+                    device=node_features.device,
+                    dtype=node_features.dtype,
+                )
+                + torch.matrix_exp(-node_features.contiguous())
+            )
             node_features = node_features.permute(0, 2, 3, 1)
             node_features = linear_layer(node_features)
             node_features = node_features.permute(0, 3, 1, 2)
 
         # Back from Hartmut to spherical
         node_features = self.spherical_to_hartmut.back_to_spherical(node_features)
-        
+
         # Select L = 0 features
         node_features = node_features[..., 0]
 
@@ -517,16 +531,12 @@ class UEA(ModelInterface):
 
         # Additionally, the composition model contains some `TensorMap`s that cannot
         # be registered correctly with Pytorch. This funciton moves them:
-        self.additive_models[0]._move_weights_to_device_and_dtype(
-            torch.device("cpu"), torch.float64
-        )
+        self.additive_models[0].weights_to(torch.device("cpu"), torch.float64)
 
-        interaction_ranges = [self.hypers["num_gnn_layers"] * self.hypers["cutoff"]]
+        interaction_ranges = [self.hypers["cutoff"]]
         for additive_model in self.additive_models:
             if hasattr(additive_model, "cutoff_radius"):
                 interaction_ranges.append(additive_model.cutoff_radius)
-            if self.long_range:
-                interaction_ranges.append(torch.inf)
         interaction_range = max(interaction_ranges)
 
         capabilities = ModelCapabilities(
@@ -583,11 +593,15 @@ class UEA(ModelInterface):
         ):
             self.heads[target_name] = torch.nn.Sequential(
                 torch.nn.Linear(
-                    self.hypers["num_features"], 4 * self.hypers["num_features"], bias=False
+                    self.hypers["num_features"],
+                    4 * self.hypers["num_features"],
+                    bias=False,
                 ),
                 torch.nn.SiLU(),
                 torch.nn.Linear(
-                    4 * self.hypers["num_features"], self.hypers["num_features"], bias=False
+                    4 * self.hypers["num_features"],
+                    self.hypers["num_features"],
+                    bias=False,
                 ),
                 torch.nn.SiLU(),
             )

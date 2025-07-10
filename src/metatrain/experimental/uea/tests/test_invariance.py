@@ -1,23 +1,15 @@
 import copy
 
 import ase.io
-import numpy as np
-import pytest
 import torch
-from metatomic.torch import System, systems_to_torch
+from metatomic.torch import systems_to_torch
 
 from metatrain.experimental.nanopet import NanoPET
 from metatrain.utils.data import DatasetInfo
 from metatrain.utils.data.target_info import (
     get_energy_target_info,
-    get_generic_target_info,
 )
 from metatrain.utils.neighbor_lists import get_system_with_neighbor_lists
-from metatrain.utils.testing.equivariance import (
-    get_random_rotation,
-    rotate_spherical_tensor,
-    rotate_system,
-)
 
 from . import DATASET_PATH, MODEL_HYPERS
 
