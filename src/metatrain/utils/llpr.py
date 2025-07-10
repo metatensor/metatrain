@@ -587,11 +587,15 @@ class LLPRUncertaintyModel(torch.nn.Module):
                 "Trying to save a LLPR checkpoint, but model has not been "
                 "calibrated yet."
             )
+
+        # FIXME: this is very hacky, there should be a way to get the architecture
+        # name from a model instance
         wrapped_architecture_name = self.model.__module__.replace(
             "metatrain.", ""
         ).replace(".model", "")
+
         checkpoint = {
-            "architecture_name": "llpr_wrapper",
+            "architecture_name": "llpr",
             "wrapped_architecture_name": wrapped_architecture_name,
             "wrapped_model_data": {  # necessary to re-instantiate the wrapped model
                 "model_hypers": self.model.hypers,
@@ -609,6 +613,7 @@ class LLPRUncertaintyModel(torch.nn.Module):
         dtype = next(state_dict_iter).dtype
 
         wrapped_model_data = checkpoint["wrapped_model_data"]
+        # FIXME: LLPR should use `model_from_checkpoint` like everyone else
         wrapped_model_class = import_architecture(
             checkpoint["wrapped_architecture_name"]
         ).__model__

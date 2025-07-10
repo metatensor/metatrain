@@ -29,7 +29,7 @@ def test_find_all_architectures():
     assert "soap_bpnn" in all_arches
     assert "experimental.nanopet" in all_arches
     assert "deprecated.pet" in all_arches
-    assert "llpr_wrapper" in all_arches
+    assert "llpr" in all_arches
 
 
 def test_get_architecture_path():
@@ -39,7 +39,7 @@ def test_get_architecture_path():
 @pytest.mark.parametrize("name", find_all_architectures())
 def test_get_default_hypers(name):
     """Test that architecture hypers for all arches can be loaded."""
-    if name == "llpr_wrapper":
+    if name == "llpr":
         # Skip this architecture as it is not a valid architecture but a wrapper
         return
     default_hypers = get_default_hypers(name)
@@ -110,7 +110,7 @@ def test_get_architecture_name_err_no_such_arch():
 @pytest.mark.parametrize("name", find_all_architectures())
 def test_check_valid_default_architecture_options(name):
     """Test that all default hypers are according to the provided schema."""
-    if name == "llpr_wrapper":
+    if name == "llpr":
         # Skip this architecture as it is not a valid architecture but a wrapper
         return
     options = get_default_hypers(name)
