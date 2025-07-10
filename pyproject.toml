@@ -80,6 +80,7 @@ gap = [
 ]
 uea = [
     "wigners",
+    "sphericart[torch]",
 ]
 
 [tool.check-manifest]
