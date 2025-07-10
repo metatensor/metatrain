@@ -53,14 +53,11 @@ class BaseCompositionModel(torch.nn.Module):
         self.weights: Dict[str, TensorMap] = {}
         self.is_fitted: Dict[str, bool] = {}
 
-        # Initialize dummy buffer for dtype and device tracking
-        self.register_buffer("dummy_buffer", torch.randn(1))
-
         # Add targets based on provided layouts
         for target_name, layout in layouts.items():
-            self._add_output(target_name, layout)
+            self.add_output(target_name, layout)
 
-    def _add_output(self, target_name: str, layout: TensorMap) -> None:
+    def add_output(self, target_name: str, layout: TensorMap) -> None:
         """
         Adds a new target to the composition model.
 
@@ -180,14 +177,6 @@ class BaseCompositionModel(torch.nn.Module):
                 for block in layout
             ],
         )
-        self.register_buffer(
-            target_name + "_composition_buffer",
-            mts.save_buffer(
-                mts.make_contiguous(
-                    self.weights[target_name].to("cpu", torch.float64)
-                ).to(self.dummy_buffer.device)
-            ),
-        )
 
     def accumulate(
         self,
@@ -304,16 +293,6 @@ class BaseCompositionModel(torch.nn.Module):
                 blocks,
             )
             self.is_fitted[target_name] = True
-
-            # save a dummy buffer
-            self.register_buffer(
-                target_name + "_composition_buffer",
-                mts.save_buffer(
-                    mts.make_contiguous(
-                        self.weights[target_name].to("cpu", torch.float64)
-                    )
-                ).to(self.dummy_buffer.device),
-            )
 
     def forward(
         self,

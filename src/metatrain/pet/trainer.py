@@ -396,10 +396,9 @@ class Trainer(TrainerInterface):
             val_loss = 0.0
             for batch in val_dataloader:
                 systems, targets, extra_data = batch
-                systems = [system.to(device=device) for system in systems]
-                targets = {
-                    key: value.to(device=device) for key, value in targets.items()
-                }
+                systems, targets, extra_data = batch_to(
+                    systems, targets, extra_data, device=device
+                )
                 for additive_model in (
                     model.module if is_distributed else model
                 ).additive_models:
@@ -409,12 +408,9 @@ class Trainer(TrainerInterface):
                 targets = remove_scale(
                     targets, (model.module if is_distributed else model).scaler
                 )
-                systems = [system.to(dtype=dtype) for system in systems]
-                targets = {key: value.to(dtype=dtype) for key, value in targets.items()}
-                extra_data = {
-                    key: value.to(device=device, dtype=dtype)
-                    for key, value in extra_data.items()
-                }
+                systems, targets, extra_data = batch_to(
+                    systems, targets, extra_data, dtype=dtype
+                )
                 predictions = evaluate_model(
                     model,
                     systems,
