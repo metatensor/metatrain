@@ -211,9 +211,7 @@ class PET(ModelInterface):
 
         return self
 
-    def requested_neighbor_lists(
-        self,
-    ) -> List[NeighborListOptions]:
+    def requested_neighbor_lists(self) -> List[NeighborListOptions]:
         return [self.requested_nl]
 
     def forward(

@@ -39,12 +39,6 @@ class CompositionModel(torch.nn.Module):
         self.dataset_info = dataset_info
         self.atomic_types = sorted(dataset_info.atomic_types)
 
-        self.register_buffer(
-            "type_to_index", torch.empty(max(self.atomic_types) + 1, dtype=torch.long)
-        )
-        for i, atomic_type in enumerate(self.atomic_types):
-            self.type_to_index[atomic_type] = i
-
         for target_name, target_info in dataset_info.targets.items():
             if not self.is_valid_target(target_name, target_info):
                 raise ValueError(
