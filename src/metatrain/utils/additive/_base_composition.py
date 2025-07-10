@@ -61,6 +61,13 @@ class BaseCompositionModel(torch.nn.Module):
         self.weights = {}
         self.is_fitted: Dict[str, bool] = {}
 
+        # go from an atomic type to its position in `self.atomic_types`
+        self.register_buffer(
+            "type_to_index", torch.empty(max(self.atomic_types) + 1, dtype=torch.long)
+        )
+        for i, atomic_type in enumerate(self.atomic_types):
+            self.type_to_index[atomic_type] = i
+
         # Add targets based on provided layouts
         for target_name, layout in layouts.items():
             self.add_output(target_name, layout)
@@ -425,23 +432,14 @@ class BaseCompositionModel(torch.nn.Module):
         value is the number of atoms of that type in the system.
         """
         dtype = systems[0].positions.dtype
-        device = systems[0].positions.device
 
-        X = torch.empty(
-            (len(systems), len(self.atomic_types)),
-            dtype=dtype,
-            device=device,
-        )
-        for i, system in enumerate(systems):
-            counts = torch.stack(
-                [
-                    torch.sum(system.types == atom_type)
-                    for atom_type in self.atomic_types
-                ]
-            ).to(dtype=dtype, device=device)
-            X[i] = counts
-
-        return X
+        counts = []
+        for system in systems:
+            bincount = torch.bincount(
+                self.type_to_index[system.types], minlength=len(self.atomic_types)
+            )
+            counts.append(bincount.to(dtype=dtype))
+        return torch.vstack(counts)
 
     def _compute_X_per_atom(
         self, systems: List[System], center_types: torch.Tensor
