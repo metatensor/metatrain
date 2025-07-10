@@ -318,9 +318,6 @@ class NanoPET(ModelInterface):
 
         # Encode edges
         spherical_features = self.encoder(features)  # [n_nodes, n_edges, hidden_size, (max_angular + 1) ** 2]
-        spherical_features = spherical_features * 1.0 # scale the features (needed to train decently)
-
-        print(spherical_features.std())
 
         node_features = torch.zeros(len(element_indices_nodes), spherical_features.shape[1], spherical_features.shape[2], device=spherical_features.device, dtype=spherical_features.dtype).index_add_(
             0, centers, spherical_features
