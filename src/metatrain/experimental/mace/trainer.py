@@ -11,10 +11,10 @@ from metatrain.utils.abc import TrainerInterface
 from metatrain.utils.additive import remove_additive
 from metatrain.utils.augmentation import RotationalAugmenter
 from metatrain.utils.data import (
+    CollateFn,
     CombinedDataLoader,
     Dataset,
     _is_disk_dataset,
-    collate_fn,
 )
 from metatrain.utils.distributed.distributed_data_parallel import (
     DistributedDataParallel,
@@ -32,10 +32,7 @@ from metatrain.utils.neighbor_lists import (
 )
 from metatrain.utils.per_atom import average_by_num_atoms
 from metatrain.utils.scaler import remove_scale
-from metatrain.utils.transfer import (
-    systems_and_targets_to_device,
-    systems_and_targets_to_dtype,
-)
+from metatrain.utils.transfer import batch_to
 
 from .model import MetaMACE
 
@@ -75,7 +72,7 @@ class Trainer(TrainerInterface):
             if len(devices) > 1:
                 raise ValueError(
                     "Requested distributed training with the `multi-gpu` device. "
-                    " If you want to run distributed training with MACE, please "
+                    " If you want to run distributed training with NanoPET, please "
                     "set `device` to cuda."
                 )
             # the calculation of the device number works both when GPUs on different
@@ -119,7 +116,6 @@ class Trainer(TrainerInterface):
 
         # Move the model to the device and dtype:
         model.to(device=device, dtype=dtype)
-
         # The additive models of the SOAP-BPNN are always in float64 (to avoid
         # numerical errors in the composition weights, which can be very large).
         for additive_model in model.additive_models:
@@ -137,7 +133,6 @@ class Trainer(TrainerInterface):
             model.scaler.train_model(
                 train_datasets, model.additive_models, treat_as_additive=True
             )
-        
 
         if is_distributed:
             model = DistributedDataParallel(model, device_ids=[device])
@@ -169,9 +164,21 @@ class Trainer(TrainerInterface):
             train_samplers = [None] * len(train_datasets)
             val_samplers = [None] * len(val_datasets)
 
+        # Create a collate function:
+        targets_keys = list(
+            (model.module if is_distributed else model).dataset_info.targets.keys()
+        )
+        collate_fn = CollateFn(target_keys=targets_keys)
         # Create dataloader for the training datasets:
         train_dataloaders = []
         for train_dataset, train_sampler in zip(train_datasets, train_samplers):
+            if len(train_dataset) < self.hypers["batch_size"]:
+                raise ValueError(
+                    f"A training dataset has fewer samples "
+                    f"({len(train_dataset)}) than the batch size "
+                    f"({self.hypers['batch_size']}). "
+                    "Please reduce the batch size."
+                )
             train_dataloaders.append(
                 DataLoader(
                     dataset=train_dataset,
@@ -193,6 +200,13 @@ class Trainer(TrainerInterface):
         # Create dataloader for the validation datasets:
         val_dataloaders = []
         for val_dataset, val_sampler in zip(val_datasets, val_samplers):
+            if len(val_dataset) < self.hypers["batch_size"]:
+                raise ValueError(
+                    f"A validation dataset has fewer samples "
+                    f"({len(val_dataset)}) than the batch size "
+                    f"({self.hypers['batch_size']}). "
+                    "Please reduce the batch size."
+                )
             val_dataloaders.append(
                 DataLoader(
                     dataset=val_dataset,
@@ -207,6 +221,9 @@ class Trainer(TrainerInterface):
 
         # Extract all the possible outputs and their gradients:
         train_targets = (model.module if is_distributed else model).dataset_info.targets
+        extra_data_info = (
+            model.module if is_distributed else model
+        ).dataset_info.extra_data
         outputs_list = []
         for target_name, target_info in train_targets.items():
             outputs_list.append(target_name)
@@ -264,7 +281,9 @@ class Trainer(TrainerInterface):
         old_lr = optimizer.param_groups[0]["lr"]
         logging.info(f"Initial learning rate: {old_lr}")
 
-        rotational_augmenter = RotationalAugmenter(train_targets)
+        rotational_augmenter = RotationalAugmenter(
+            train_targets, extra_data_info_dict=extra_data_info
+        )
 
         start_epoch = 0 if self.epoch is None else self.epoch + 1
 
@@ -290,14 +309,15 @@ class Trainer(TrainerInterface):
             for batch in train_dataloader:
                 optimizer.zero_grad()
 
-                systems, targets = batch
-                systems, targets = rotational_augmenter.apply_random_augmentations(
-                    systems, targets
+                systems, targets, extra_data = batch
+                systems, targets, extra_data = (
+                    rotational_augmenter.apply_random_augmentations(
+                        systems, targets, extra_data=extra_data
+                    )
                 )
-                systems, targets = systems_and_targets_to_device(
-                    systems, targets, device
+                systems, targets, extra_data = batch_to(
+                    systems, targets, extra_data, device=device
                 )
-
                 for additive_model in (
                     model.module if is_distributed else model
                 ).additive_models:
@@ -307,8 +327,9 @@ class Trainer(TrainerInterface):
                 targets = remove_scale(
                     targets, (model.module if is_distributed else model).scaler
                 )
-                
-                systems, targets = systems_and_targets_to_dtype(systems, targets, dtype)
+                systems, targets, extra_data = batch_to(
+                    systems, targets, extra_data, dtype=dtype
+                )
                 predictions = evaluate_model(
                     model,
                     systems,
@@ -321,7 +342,7 @@ class Trainer(TrainerInterface):
                     predictions, systems, per_structure_targets
                 )
                 targets = average_by_num_atoms(targets, systems, per_structure_targets)
-                
+
                 train_loss_batch = loss_fn(predictions, targets)
                 train_loss_batch.backward()
                 torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
@@ -351,7 +372,7 @@ class Trainer(TrainerInterface):
 
             val_loss = 0.0
             for batch in val_dataloader:
-                systems, targets = batch
+                systems, targets, extra_data = batch
                 systems = [system.to(device=device) for system in systems]
                 targets = {
                     key: value.to(device=device) for key, value in targets.items()
@@ -367,6 +388,10 @@ class Trainer(TrainerInterface):
                 )
                 systems = [system.to(dtype=dtype) for system in systems]
                 targets = {key: value.to(dtype=dtype) for key, value in targets.items()}
+                extra_data = {
+                    key: value.to(device=device, dtype=dtype)
+                    for key, value in extra_data.items()
+                }
                 predictions = evaluate_model(
                     model,
                     systems,

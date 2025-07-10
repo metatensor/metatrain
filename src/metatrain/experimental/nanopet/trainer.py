@@ -555,6 +555,4 @@ class Trainer(TrainerInterface):
         trainer.epoch = epoch
         trainer.best_metric = best_metric
         trainer.best_model_state_dict = best_model_state_dict
-        trainer.best_optimizer_state_dict = best_optimizer_state_dict
-
-        return trainer
+        trainer.best_optimizer_state_dict = best_optimizer_state_dict      return trainer
