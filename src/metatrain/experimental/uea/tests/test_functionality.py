@@ -1,7 +1,6 @@
 import metatensor.torch
 import pytest
 import torch
-from jsonschema.exceptions import ValidationError
 from metatomic.torch import ModelOutput, System
 from omegaconf import OmegaConf
 
