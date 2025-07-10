@@ -34,7 +34,7 @@ from metatrain.utils.per_atom import average_by_num_atoms
 from metatrain.utils.scaler import remove_scale
 from metatrain.utils.transfer import batch_to
 
-from .model import UEA
+from .model import NanoPET
 
 
 class Trainer(TrainerInterface):
@@ -49,14 +49,14 @@ class Trainer(TrainerInterface):
 
     def train(
         self,
-        model: UEA,
+        model: NanoPET,
         dtype: torch.dtype,
         devices: List[torch.device],
         train_datasets: List[Union[Dataset, torch.utils.data.Subset]],
         val_datasets: List[Union[Dataset, torch.utils.data.Subset]],
         checkpoint_dir: str,
     ):
-        assert dtype in UEA.__supported_dtypes__
+        assert dtype in NanoPET.__supported_dtypes__
 
         is_distributed = self.hypers["distributed"]
 
@@ -72,7 +72,7 @@ class Trainer(TrainerInterface):
             if len(devices) > 1:
                 raise ValueError(
                     "Requested distributed training with the `multi-gpu` device. "
-                    " If you want to run distributed training with UEA, please "
+                    " If you want to run distributed training with NanoPET, please "
                     "set `device` to cuda."
                 )
             # the calculation of the device number works both when GPUs on different
@@ -116,7 +116,7 @@ class Trainer(TrainerInterface):
 
         # Move the model to the device and dtype:
         model.to(device=device, dtype=dtype)
-        # The additive models of the SOAP-BPNN are always in float64 (to avoid
+        # The additive models of nanoPET are always in float64 (to avoid
         # numerical errors in the composition weights, which can be very large).
         for additive_model in model.additive_models:
             additive_model.to(dtype=torch.float64)
@@ -310,11 +310,11 @@ class Trainer(TrainerInterface):
                 optimizer.zero_grad()
 
                 systems, targets, extra_data = batch
-                systems, targets, extra_data = (
-                    rotational_augmenter.apply_random_augmentations(
-                        systems, targets, extra_data=extra_data
-                    )
-                )
+                # systems, targets, extra_data = (
+                #     rotational_augmenter.apply_random_augmentations(
+                #         systems, targets, extra_data=extra_data
+                #     )
+                # )
                 systems, targets, extra_data = batch_to(
                     systems, targets, extra_data, device=device
                 )
@@ -345,7 +345,11 @@ class Trainer(TrainerInterface):
 
                 train_loss_batch = loss_fn(predictions, targets)
                 train_loss_batch.backward()
-                torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
+                # norm = torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
+                # print(
+                #     f"Epoch {epoch}, batch loss: {train_loss_batch.item()}, "
+                #     f"gradient norm: {norm}"
+                # )
                 optimizer.step()
 
                 if is_distributed:
@@ -514,7 +518,7 @@ class Trainer(TrainerInterface):
 
     def save_checkpoint(self, model, path: Union[str, Path]):
         checkpoint = {
-            "architecture_name": "experimental.uea",
+            "architecture_name": "experimental.nanopet",
             "metadata": model.__default_metadata__,
             "model_data": {
                 "model_hypers": model.hypers,

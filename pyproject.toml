@@ -78,6 +78,9 @@ gap = [
     "skmatter",
     "scipy",
 ]
+uea = [
+    "wigners",
+]
 
 [tool.check-manifest]
 ignore = ["src/metatrain/_version.py"]

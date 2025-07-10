@@ -1,0 +1,30 @@
+architecture:
+  name: experimental.uea
+
+  model:
+    cutoff: 5.0
+    num_features: 128
+    num_layers: 2
+    max_angular: 2
+    heads: {}
+
+  training:
+    distributed: False
+    distributed_port: 39591
+    batch_size: 16
+    num_epochs: 1000
+    learning_rate: 1e-3
+    scheduler_patience: 100
+    scheduler_factor: 0.7
+    log_interval: 10
+    checkpoint_interval: 100
+    scale_targets: true
+    fixed_composition_weights: {}
+    per_structure_targets: []
+    log_mae: False
+    log_separate_blocks: false
+    best_model_metric: rmse_prod
+    loss:
+      type: mse
+      weights: {}
+      reduction: mean
