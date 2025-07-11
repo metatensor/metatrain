@@ -169,6 +169,7 @@ def concatenate_structures(
 
 
 class SoapBpnn(ModelInterface):
+    __checkpoint_version__ = 1
     __supported_devices__ = ["cuda", "cpu"]
     __supported_dtypes__ = [torch.float64, torch.float32]
     __default_metadata__ = ModelMetadata(
@@ -185,12 +186,10 @@ class SoapBpnn(ModelInterface):
 
     component_labels: Dict[str, List[List[Labels]]]  # torchscript needs this
 
-    def __init__(self, model_hypers: Dict, dataset_info: DatasetInfo) -> None:
-        super().__init__()
-        self.hypers = model_hypers
-        self.dataset_info = dataset_info
-        self.atomic_types = dataset_info.atomic_types
+    def __init__(self, hypers: Dict, dataset_info: DatasetInfo) -> None:
+        super().__init__(hypers, dataset_info)
 
+        self.atomic_types = dataset_info.atomic_types
         self.requested_nl = NeighborListOptions(
             cutoff=self.hypers["soap"]["cutoff"]["radius"],
             full_list=True,
@@ -275,7 +274,7 @@ class SoapBpnn(ModelInterface):
         # additive models: these are handled by the trainer at training
         # time, and they are added to the output at evaluation time
         composition_model = OldCompositionModel(
-            model_hypers={},
+            hypers={},
             dataset_info=DatasetInfo(
                 length_unit=dataset_info.length_unit,
                 atomic_types=self.atomic_types,
@@ -305,7 +304,7 @@ class SoapBpnn(ModelInterface):
         self.additive_models = torch.nn.ModuleList(additive_models)
 
         # scaler: this is also handled by the trainer at training time
-        self.scaler = Scaler(model_hypers={}, dataset_info=dataset_info)
+        self.scaler = Scaler(hypers={}, dataset_info=dataset_info)
 
     def supported_outputs(self) -> Dict[str, ModelOutput]:
         return self.outputs
@@ -657,11 +656,16 @@ class SoapBpnn(ModelInterface):
             model_state_dict = checkpoint["model_state_dict"]
         elif context == "finetune" or context == "export":
             model_state_dict = checkpoint["best_model_state_dict"]
+            if model_state_dict is None:
+                model_state_dict = checkpoint["model_state_dict"]
         else:
             raise ValueError("Unknown context tag for checkpoint loading!")
 
         # Create the model
-        model = cls(**model_data)
+        model = cls(
+            hypers=model_data["model_hypers"],
+            dataset_info=model_data["dataset_info"],
+        )
         dtype = next(iter(model_state_dict.values())).dtype
         model.to(dtype).load_state_dict(model_state_dict)
         model.additive_models[0].sync_tensor_maps()
@@ -836,6 +840,10 @@ class SoapBpnn(ModelInterface):
             unit=target.unit,
             per_atom=True,
         )
+
+    @staticmethod
+    def upgrade_checkpoint(checkpoint: Dict) -> Dict:
+        raise NotImplementedError("checkpoint upgrade is not implemented for SoapBPNN")
 
 
 def _remove_center_type_from_properties(tensor_map: TensorMap) -> TensorMap:

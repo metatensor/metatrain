@@ -20,8 +20,10 @@ from .model import torch_tensor_map_to_core
 
 
 class Trainer(TrainerInterface):
-    def __init__(self, train_hypers):
-        self.hypers = train_hypers
+    __checkpoint_version__ = 1
+
+    def __init__(self, hypers):
+        super().__init__(hypers)
 
     def train(
         self,
@@ -148,7 +150,11 @@ class Trainer(TrainerInterface):
     def load_checkpoint(
         cls,
         checkpoint: Dict[str, Any],
-        hypers_train: Dict[str, Any],
+        hypers: Dict[str, Any],
         context: Literal["restart", "finetune"],
     ) -> "GAP":
         raise ValueError("GAP does not allow restarting training")
+
+    @staticmethod
+    def upgrade_checkpoint(checkpoint: Dict) -> Dict:
+        raise NotImplementedError("checkpoint upgrade is not implemented for GAP")

@@ -25,14 +25,16 @@ from .utils import load_raw_pet_model, systems_to_batch_dict
 
 
 class PET(ModelInterface):
+    __checkpoint_version__ = 1
     __supported_devices__ = ["cuda", "cpu"]
     __supported_dtypes__ = [torch.float32]
     __default_metadata__ = ModelMetadata(
         references={"architecture": ["https://arxiv.org/abs/2305.19302v3"]}
     )
 
-    def __init__(self, model_hypers: Dict, dataset_info: DatasetInfo) -> None:
-        super().__init__()
+    def __init__(self, hypers: Dict, dataset_info: DatasetInfo) -> None:
+        super().__init__(hypers, dataset_info)
+
         if len(dataset_info.targets) != 1:
             raise ValueError("PET only supports a single target")
         self.target_name = next(iter(dataset_info.targets.keys()))
@@ -52,15 +54,15 @@ class PET(ModelInterface):
                 "but a per-atom output was provided"
             )
 
-        model_hypers["D_OUTPUT"] = 1
-        model_hypers["TARGET_TYPE"] = "atomic"
-        model_hypers["TARGET_AGGREGATION"] = "sum"
+        hypers["D_OUTPUT"] = 1
+        hypers["TARGET_TYPE"] = "atomic"
+        hypers["TARGET_AGGREGATION"] = "sum"
         for key in ["R_CUT", "CUTOFF_DELTA", "RESIDUAL_FACTOR"]:
-            model_hypers[key] = float(model_hypers[key])
-        self.hypers = model_hypers
+            hypers[key] = float(hypers[key])
+
         self.cutoff = float(self.hypers["R_CUT"])
         self.atomic_types: List[int] = dataset_info.atomic_types
-        self.dataset_info = dataset_info
+
         self.pet = None
         self.is_lora_applied = False
         self.checkpoint_path: Optional[str] = None
@@ -250,9 +252,10 @@ class PET(ModelInterface):
         context: Literal["restart", "finetune", "export"],
     ) -> "PET":
         hypers = checkpoint["hypers"]
-        model_hypers = hypers["ARCHITECTURAL_HYPERS"]
-        dataset_info = checkpoint["dataset_info"]
-        model = cls(model_hypers=model_hypers, dataset_info=dataset_info)
+        model = cls(
+            hypers=hypers["ARCHITECTURAL_HYPERS"],
+            dataset_info=checkpoint["dataset_info"],
+        )
         state_dict = checkpoint["model_state_dict"]
         dtype = next(iter(state_dict.values())).dtype
         lora_state_dict = checkpoint["lora_state_dict"]
@@ -306,7 +309,7 @@ class PET(ModelInterface):
             atomic_types=self.atomic_types,
             interaction_range=interaction_range,
             length_unit=self.dataset_info.length_unit,
-            supported_devices=["cpu", "cuda"],  # and not __supported_devices__
+            supported_devices=["cpu", "cuda"],
             dtype=dtype_to_str(dtype),
         )
 
@@ -316,3 +319,10 @@ class PET(ModelInterface):
         metadata = merge_metadata(self.__default_metadata__, metadata)
 
         return AtomisticModel(self.eval(), metadata, capabilities)
+
+    @staticmethod
+    def upgrade_checkpoint(checkpoint: Dict) -> Dict:
+        raise NotImplementedError(
+            "checkpoint upgrade is not implemented for the deprecated "
+            "PET implementation"
+        )
