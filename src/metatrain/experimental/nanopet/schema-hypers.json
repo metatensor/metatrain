@@ -1,210 +1,210 @@
 {
-  "$schema": "http://json-schema.org/draft-07/schema#",
-  "type": "object",
-  "properties": {
-    "name": {
-      "type": "string",
-      "enum": [
-        "experimental.nanopet"
-      ]
-    },
-    "model": {
-      "type": "object",
-      "properties": {
-        "cutoff": {
-          "type": "number"
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "type": "object",
+    "properties": {
+        "name": {
+            "type": "string",
+            "enum": [
+                "experimental.nanopet"
+            ]
         },
-        "cutoff_width": {
-          "type": "number"
-        },
-        "d_pet": {
-          "type": "integer"
-        },
-        "num_heads": {
-          "type": "integer"
-        },
-        "num_attention_layers": {
-          "type": "integer"
-        },
-        "num_gnn_layers": {
-          "type": "integer"
-        },
-        "heads": {
-          "type": "object",
-          "patternProperties": {
-            ".*": {
-              "type": "string",
-              "enum": [
-                "linear",
-                "mlp"
-              ]
-            }
-          },
-          "additionalProperties": false
-        },
-        "zbl": {
-          "type": "boolean"
-        },
-        "long_range": {
-          "type": "object",
-          "properties": {
-            "enable": {
-              "type": "boolean"
-            },
-            "use_ewald": {
-              "type": "boolean"
-            },
-            "smearing": {
-              "type": "number"
-            },
-            "kspace_resolution": {
-              "type": "number"
-            },
-            "interpolation_nodes": {
-              "type": "integer"
-            }
-          }
-        }
-      },
-      "additionalProperties": false
-    },
-    "training": {
-      "type": "object",
-      "properties": {
-        "distributed": {
-          "type": "boolean"
-        },
-        "distributed_port": {
-          "type": "integer"
-        },
-        "batch_size": {
-          "type": "integer"
-        },
-        "num_epochs": {
-          "type": "integer"
-        },
-        "learning_rate": {
-          "type": "number"
-        },
-        "scheduler_patience": {
-          "type": "integer"
-        },
-        "scheduler_factor": {
-          "type": "number"
-        },
-        "log_interval": {
-          "type": "integer"
-        },
-        "checkpoint_interval": {
-          "type": "integer"
-        },
-        "scale_targets": {
-          "type": "boolean"
-        },
-        "fixed_composition_weights": {
-          "type": "object",
-          "patternProperties": {
-            "^.*$": {
-              "type": "object",
-              "propertyNames": {
-                "pattern": "^[0-9]+$"
-              },
-              "additionalProperties": {
-                "type": "number"
-              }
-            }
-          },
-          "additionalProperties": false
-        },
-        "per_structure_targets": {
-          "type": "array",
-          "items": {
-            "type": "string"
-          }
-        },
-        "log_mae": {
-          "type": "boolean"
-        },
-        "log_separate_blocks": {
-          "type": "boolean"
-        },
-        "best_model_metric": {
-          "type": "string",
-          "enum": [
-            "rmse_prod",
-            "mae_prod",
-            "loss"
-          ]
-        },
-        "loss": {
-          "type": "object",
-          "properties": {
-            "weights": {
-              "type": "object",
-              "patternProperties": {
-                ".*": {
-                  "type": "number"
-                }
-              },
-              "additionalProperties": false
-            },
-            "reduction": {
-              "type": "string",
-              "enum": [
-                "sum",
-                "mean",
-                "none"
-              ]
-            },
-            "type": {
-              "oneOf": [
-                {
-                  "type": "string",
-                  "enum": [
-                    "mse",
-                    "mae"
-                  ]
+        "model": {
+            "type": "object",
+            "properties": {
+                "cutoff": {
+                    "type": "number"
                 },
-                {
-                  "type": "object",
-                  "properties": {
-                    "huber": {
-                      "type": "object",
-                      "properties": {
-                        "deltas": {
-                          "type": "object",
-                          "patternProperties": {
-                            ".*": {
-                              "type": "number"
-                            }
-                          },
-                          "additionalProperties": false
+                "cutoff_width": {
+                    "type": "number"
+                },
+                "d_pet": {
+                    "type": "integer"
+                },
+                "num_heads": {
+                    "type": "integer"
+                },
+                "num_attention_layers": {
+                    "type": "integer"
+                },
+                "num_gnn_layers": {
+                    "type": "integer"
+                },
+                "heads": {
+                    "type": "object",
+                    "patternProperties": {
+                        ".*": {
+                            "type": "string",
+                            "enum": [
+                                "linear",
+                                "mlp"
+                            ]
                         }
-                      },
-                      "required": [
-                        "deltas"
-                      ],
-                      "additionalProperties": false
+                    },
+                    "additionalProperties": false
+                },
+                "zbl": {
+                    "type": "boolean"
+                },
+                "long_range": {
+                    "type": "object",
+                    "properties": {
+                        "enable": {
+                            "type": "boolean"
+                        },
+                        "use_ewald": {
+                            "type": "boolean"
+                        },
+                        "smearing": {
+                            "type": "number"
+                        },
+                        "kspace_resolution": {
+                            "type": "number"
+                        },
+                        "interpolation_nodes": {
+                            "type": "integer"
+                        }
                     }
-                  },
-                  "additionalProperties": false
                 }
-              ]
-            }
-          },
-          "additionalProperties": false
+            },
+            "additionalProperties": false
+        },
+        "training": {
+            "type": "object",
+            "properties": {
+                "distributed": {
+                    "type": "boolean"
+                },
+                "distributed_port": {
+                    "type": "integer"
+                },
+                "batch_size": {
+                    "type": "integer"
+                },
+                "num_epochs": {
+                    "type": "integer"
+                },
+                "learning_rate": {
+                    "type": "number"
+                },
+                "scheduler_patience": {
+                    "type": "integer"
+                },
+                "scheduler_factor": {
+                    "type": "number"
+                },
+                "log_interval": {
+                    "type": "integer"
+                },
+                "checkpoint_interval": {
+                    "type": "integer"
+                },
+                "scale_targets": {
+                    "type": "boolean"
+                },
+                "fixed_composition_weights": {
+                    "type": "object",
+                    "patternProperties": {
+                        "^.*$": {
+                            "type": "object",
+                            "propertyNames": {
+                                "pattern": "^[0-9]+$"
+                            },
+                            "additionalProperties": {
+                                "type": "number"
+                            }
+                        }
+                    },
+                    "additionalProperties": false
+                },
+                "per_structure_targets": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "log_mae": {
+                    "type": "boolean"
+                },
+                "log_separate_blocks": {
+                    "type": "boolean"
+                },
+                "best_model_metric": {
+                    "type": "string",
+                    "enum": [
+                        "rmse_prod",
+                        "mae_prod",
+                        "loss"
+                    ]
+                },
+                "loss": {
+                    "type": "object",
+                    "properties": {
+                        "weights": {
+                            "type": "object",
+                            "patternProperties": {
+                                ".*": {
+                                    "type": "number"
+                                }
+                            },
+                            "additionalProperties": false
+                        },
+                        "reduction": {
+                            "type": "string",
+                            "enum": [
+                                "sum",
+                                "mean",
+                                "none"
+                            ]
+                        },
+                        "type": {
+                            "oneOf": [
+                                {
+                                    "type": "string",
+                                    "enum": [
+                                        "mse",
+                                        "mae"
+                                    ]
+                                },
+                                {
+                                    "type": "object",
+                                    "properties": {
+                                        "huber": {
+                                            "type": "object",
+                                            "properties": {
+                                                "deltas": {
+                                                    "type": "object",
+                                                    "patternProperties": {
+                                                        ".*": {
+                                                            "type": "number"
+                                                        }
+                                                    },
+                                                    "additionalProperties": false
+                                                }
+                                            },
+                                            "required": [
+                                                "deltas"
+                                            ],
+                                            "additionalProperties": false
+                                        }
+                                    },
+                                    "additionalProperties": false
+                                }
+                            ]
+                        }
+                    },
+                    "additionalProperties": false
+                }
+            },
+            "additionalProperties": false
+        },
+        "atomic_types": {
+            "type": "array",
+            "items": {
+                "type": "integer",
+                "minimum": 1
+            },
+            "uniqueItems": true
         }
-      },
-      "additionalProperties": false
     },
-    "atomic_types": {
-      "type": "array",
-      "items": {
-        "type": "integer",
-        "minimum": 1
-      },
-      "uniqueItems": true
-    }
-  },
-  "additionalProperties": false
+    "additionalProperties": false
 }

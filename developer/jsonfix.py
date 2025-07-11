@@ -66,7 +66,7 @@ def check_and_format_file(path: Path, check_only: bool = False) -> tuple[bool, b
     except (json.JSONDecodeError, UnicodeDecodeError):
         return False, False
 
-    formatted = json.dumps(data, indent=2, ensure_ascii=False) + "\n"
+    formatted = json.dumps(data, indent=4, ensure_ascii=False) + "\n"
 
     if original != formatted:
         if not check_only:
