@@ -1,4 +1,4 @@
-name: Merge queue tests
+name: Merge tests
 
 # This file defines tests that will run once per PR, before merging it. We use it to run
 # expensive tests before merging code while not running them on every single commit.
@@ -6,7 +6,7 @@ on:
   merge_group:
 
 jobs:
-  merge-queue-tests:
+  tests:
     name: ${{ matrix.test-name }}
     strategy:
       matrix:
