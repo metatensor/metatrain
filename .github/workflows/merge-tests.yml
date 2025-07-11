@@ -6,7 +6,7 @@ on:
   merge_group:
 
 jobs:
-  merge-queue-tests:
+  tests:
     name: ${{ matrix.test-name }}
     strategy:
       matrix:
