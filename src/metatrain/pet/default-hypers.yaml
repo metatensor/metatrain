@@ -1,6 +1,5 @@
 architecture:
   name: pet
-
   model:
     cutoff: 4.5
     cutoff_width: 0.2
@@ -17,7 +16,6 @@ architecture:
       smearing: 1.4
       kspace_resolution: 1.33
       interpolation_nodes: 5
-
   training:
     distributed: false
     distributed_port: 39591

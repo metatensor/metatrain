@@ -24,7 +24,11 @@
     },
     "base_precision": {
       "type": "integer",
-      "enum": [16, 32, 64]
+      "enum": [
+        16,
+        32,
+        64
+      ]
     },
     "seed": {
       "type": "integer",
@@ -40,26 +44,44 @@
       },
       "allOf": [
         {
-          "if": { "required": ["entity"] },
+          "if": {
+            "required": [
+              "entity"
+            ]
+          },
           "then": {
             "properties": {
-              "entity": { "type": "string" }
+              "entity": {
+                "type": "string"
+              }
             }
           }
         },
         {
-          "if": { "required": ["project"] },
+          "if": {
+            "required": [
+              "project"
+            ]
+          },
           "then": {
             "properties": {
-              "project": { "type": "string" }
+              "project": {
+                "type": "string"
+              }
             }
           }
         },
         {
-          "if": { "required": ["name"] },
+          "if": {
+            "required": [
+              "name"
+            ]
+          },
           "then": {
             "properties": {
-              "name": { "type": "string" }
+              "name": {
+                "type": "string"
+              }
             }
           }
         }
@@ -72,7 +94,9 @@
           "type": "string"
         }
       },
-      "required": ["name"],
+      "required": [
+        "name"
+      ],
       "additionalProperties": true
     },
     "training_set": {
@@ -125,6 +149,11 @@
       ]
     }
   },
-  "required": ["architecture", "training_set", "test_set", "validation_set"],
+  "required": [
+    "architecture",
+    "training_set",
+    "test_set",
+    "validation_set"
+  ],
   "additionalProperties": false
 }
