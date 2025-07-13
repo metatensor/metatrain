@@ -112,7 +112,7 @@ def get_edge_sample_labels(
 def get_permutation_symmetrization_arrays(
     systems: List[System],
     edge_sample_labels_2_center: Labels,
-) -> List[torch.Tensor]:
+):
     assert edge_sample_labels_2_center.names == [
         "system",
         "first_atom",
@@ -123,38 +123,34 @@ def get_permutation_symmetrization_arrays(
     ]
 
     # Get the atom types
-    atom_types = []
-    for sample in edge_sample_labels_2_center.values:
-        system_idx = sample[0]
-        first_atom_idx = sample[1]
-        second_atom_idx = sample[2]
-        atom_types.append(
-            [
-                systems[system_idx].types[first_atom_idx],
-                systems[system_idx].types[second_atom_idx],
-            ]
-        )
-    atom_types = torch.tensor(
-        atom_types, dtype=torch.int32, device=edge_sample_labels_2_center.device
+    atom_types = torch.vstack(
+        [
+            systems[sample[0]].types[sample[1:3]]
+            for sample in edge_sample_labels_2_center.values
+        ]
     )
 
     # build the masks for same and different atom types
-    samples_mask_2_center_same_types = atom_types[:, 0] == atom_types[:, 1]
-    samples_mask_2_center_diff_types = atom_types[:, 0] != atom_types[:, 1]
+    samples_mask_2_center_same_types: torch.Tensor = (
+        atom_types[:, 0] == atom_types[:, 1]
+    )
+    samples_mask_2_center_diff_types: torch.Tensor = (
+        atom_types[:, 0] != atom_types[:, 1]
+    )
 
     # build the samples labels for atom pairs with the same and different atom types
-    edge_sample_labels_2_center_same_types = Labels(
+    edge_sample_labels_2_center_same_types: Labels = Labels(
         edge_sample_labels_2_center.names,
         edge_sample_labels_2_center.values[samples_mask_2_center_same_types],
     )
-    edge_sample_labels_2_center_diff_types = Labels(
+    edge_sample_labels_2_center_diff_types: Labels = Labels(
         edge_sample_labels_2_center.names,
         edge_sample_labels_2_center.values[samples_mask_2_center_diff_types],
     )
 
     # create permuted sample labels by swapping the atom indices and inverting the sign
     # of the cell shifts
-    edge_sample_values_2_center_same_types_perm = (
+    edge_sample_values_2_center_same_types_perm: torch.Tensor = (
         edge_sample_labels_2_center_same_types.permute(
             [0, 2, 1, 3, 4, 5]
         ).values.clone()
@@ -166,17 +162,19 @@ def get_permutation_symmetrization_arrays(
     )
 
     # find the map from the original edge samples to the permuted samples
-    permuted_samples_map_same_types = edge_sample_labels_2_center_same_types.select(
-        edge_sample_labels_2_center_same_types_perm
+    permuted_samples_map_same_types: torch.Tensor = (
+        edge_sample_labels_2_center_same_types.select(
+            edge_sample_labels_2_center_same_types_perm
+        )
     )
 
-    return [
+    return (
         samples_mask_2_center_same_types,
         samples_mask_2_center_diff_types,
         permuted_samples_map_same_types,
         edge_sample_labels_2_center_same_types,
         edge_sample_labels_2_center_diff_types,
-    ]
+    )
 
 
 def get_sample_labels_block(

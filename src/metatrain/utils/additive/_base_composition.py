@@ -560,7 +560,12 @@ def _include_key(key: LabelsEntry) -> bool:
         ["_"],  # scalar
         ["o3_lambda", "o3_sigma"],  # spherical
         ["o3_lambda", "o3_sigma", "n_centers"],  # spherical per-atom
-        ["o3_lambda", "o3_sigma", "n_centers", "s2_pi"],  # spherical per-pair, symmetrized
+        [
+            "o3_lambda",
+            "o3_sigma",
+            "n_centers",
+            "s2_pi",
+        ],  # spherical per-pair, symmetrized
     ]
     include_key = False
 

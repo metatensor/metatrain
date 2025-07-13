@@ -314,6 +314,19 @@ class PET(ModelInterface):
         # need some samples masks for edges with different and same atom types, and a
         # map to permute the samples of the same atom types
 
+        (
+            samples_mask_2_center_same_types,
+            samples_mask_2_center_diff_types,
+            permuted_samples_map_same_types,
+            edge_sample_labels_2_center_same_types,
+            edge_sample_labels_2_center_diff_types,
+        ) = (
+            torch.empty(0, dtype=torch.bool, device=device),
+            torch.empty(0, dtype=torch.bool, device=device),
+            torch.empty(0, dtype=torch.int64, device=device),
+            Labels("_", torch.empty(0).reshape(-1, 1)),
+            Labels("_", torch.empty(0).reshape(-1, 1)),
+        )
         if any(["s2_pi" in keys.names for keys in self.key_labels.values()]):
             (
                 samples_mask_2_center_same_types,
@@ -323,14 +336,6 @@ class PET(ModelInterface):
                 edge_sample_labels_2_center_diff_types,
             ) = get_permutation_symmetrization_arrays(
                 systems, edge_sample_labels_2_center
-            )
-        else:
-            (
-                edge_sample_labels_2_center_same_types,
-                edge_sample_labels_2_center_diff_types,
-            ) = (
-                Labels("_", torch.empty(0).reshape(-1, 1)),
-                Labels("_", torch.empty(0).reshape(-1, 1)),
             )
 
         # the scaled_dot_product_attention function from torch cannot do
@@ -578,7 +583,12 @@ class PET(ModelInterface):
                                 assert extract_key_value(key, "n_centers") == 2
                                 node_atomic_predictions_by_block.append(
                                     torch.empty(
-                                        (0, prod(self.output_shapes[output_name][key])),
+                                        (
+                                            0,
+                                            manual_prod(
+                                                self.output_shapes[output_name][key]
+                                            ),
+                                        ),
                                         dtype=node_last_layer_features.dtype,
                                         device=node_last_layer_features.device,
                                     ),
@@ -1095,3 +1105,11 @@ class PET(ModelInterface):
             )
 
         return torch.nn.Identity()
+
+
+def manual_prod(shape: List[int]) -> int:
+    # prod from standard library not supported in torchscript
+    result = 1
+    for dim in shape:
+        result *= dim
+    return result
