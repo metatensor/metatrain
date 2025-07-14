@@ -72,7 +72,7 @@ def test_load_model_checkpoint_wrong_version(monkeypatch, tmp_path):
         "while the current version is 1; and trying to upgrade the checkpoint failed."
     )
     with pytest.raises(RuntimeError, match=message):
-        model_from_checkpoint(file)
+        model_from_checkpoint(file, context="restart")
 
 
 def test_load_trainer_checkpoint_wrong_version(monkeypatch, tmp_path):
@@ -90,7 +90,7 @@ def test_load_trainer_checkpoint_wrong_version(monkeypatch, tmp_path):
         "while the current version is 1; and trying to upgrade the checkpoint failed."
     )
     with pytest.raises(RuntimeError, match=message):
-        trainer_from_checkpoint(file, "restart", hypers={})
+        trainer_from_checkpoint(file, context="restart", hypers={})
 
 
 @pytest.mark.parametrize(

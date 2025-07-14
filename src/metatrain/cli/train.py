@@ -494,7 +494,7 @@ def train_model(
     try:
         if training_context == "restart" and restart_from is not None:
             logging.info(f"Restarting training from '{restart_from}'")
-            model = model_from_checkpoint(path=restart_from, context=training_context)
+            model = model_from_checkpoint(path=restart_from, context="restart")
             model = model.restart(dataset_info)
             trainer = trainer_from_checkpoint(
                 path=restart_from,
@@ -503,7 +503,7 @@ def train_model(
             )
         elif training_context == "finetune" and restart_from is not None:
             logging.info(f"Starting finetuning from '{restart_from}'")
-            model = model_from_checkpoint(path=restart_from, context=training_context)
+            model = model_from_checkpoint(path=restart_from, context="finetune")
             model = model.restart(dataset_info)
             trainer = Trainer(hypers["training"])
         else:
