@@ -13,6 +13,7 @@ from metatomic.torch import (
     register_autograd_neighbors,
 )
 
+from . import torch_jit_script_unless_coverage
 from .data import TargetInfo
 from .output_gradient import compute_gradient
 
@@ -259,8 +260,8 @@ def _get_model_outputs(
         )
 
 
-@torch.jit.script
-def _prepare_system(  # pragma: no cover
+@torch_jit_script_unless_coverage
+def _prepare_system(
     system: System, positions_grad: bool, strain_grad: bool, check_consistency: bool
 ):
     """
