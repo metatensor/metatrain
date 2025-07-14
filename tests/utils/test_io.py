@@ -63,11 +63,11 @@ def test_load_model_checkpoint_wrong_version(monkeypatch, tmp_path):
     model = torch.load(path, weights_only=False, map_location="cpu")
     model["model_ckpt_version"] = 5000000
 
-    file = "model-64-bit-version5000000.ckpt"
+    file = "model-version-5000000.ckpt"
     torch.save(model, file)
 
     message = (
-        "Unable to load the model checkpoint from 'model-64-bit-version5000000.ckpt' "
+        "Unable to load the model checkpoint from 'model-version-5000000.ckpt' "
         "for the 'soap_bpnn' architecture: the checkpoint is using version 5000000, "
         "while the current version is 1; and trying to upgrade the checkpoint failed."
     )
@@ -81,11 +81,11 @@ def test_load_trainer_checkpoint_wrong_version(monkeypatch, tmp_path):
     model = torch.load(path, weights_only=False, map_location="cpu")
     model["trainer_ckpt_version"] = 5000000
 
-    file = "model-64-bit-version5000000.ckpt"
+    file = "model-version-5000000.ckpt"
     torch.save(model, file)
 
     message = (
-        "Unable to load the trainer checkpoint from 'model-64-bit-version5000000.ckpt' "
+        "Unable to load the trainer checkpoint from 'model-version-5000000.ckpt' "
         "for the 'soap_bpnn' architecture: the checkpoint is using version 5000000, "
         "while the current version is 1; and trying to upgrade the checkpoint failed."
     )
