@@ -1,6 +1,6 @@
 from typing import Dict, List, Union
 
-import metatensor.torch
+import metatensor.torch as mts
 import numpy as np
 import torch
 from metatensor.torch import TensorMap
@@ -188,7 +188,7 @@ class Scaler(torch.nn.Module):
                 scale = float(
                     self.scales[self.output_name_to_output_index[target_key]].item()
                 )
-                scaled_target = metatensor.torch.multiply(target, scale)
+                scaled_target = mts.multiply(target, scale)
                 scaled_outputs[target_key] = scaled_target
             else:
                 scaled_outputs[target_key] = target
@@ -246,8 +246,6 @@ def remove_scale(
         scale = float(
             scaler.scales[scaler.output_name_to_output_index[target_key]].item()
         )
-        scaled_targets[target_key] = metatensor.torch.multiply(
-            targets[target_key], 1.0 / scale
-        )
+        scaled_targets[target_key] = mts.multiply(targets[target_key], 1.0 / scale)
 
     return scaled_targets

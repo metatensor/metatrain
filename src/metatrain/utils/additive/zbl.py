@@ -1,7 +1,7 @@
 import logging
 from typing import Dict, List, Optional
 
-import metatensor.torch
+import metatensor.torch as mts
 import torch
 from ase.data import covalent_radii
 from metatensor.torch import Labels, TensorBlock, TensorMap
@@ -198,7 +198,7 @@ class ZBL(torch.nn.Module):
 
             # apply selected_atoms to the composition if needed
             if selected_atoms is not None:
-                targets_out[target_key] = metatensor.torch.slice(
+                targets_out[target_key] = mts.slice(
                     targets_out[target_key], "samples", selected_atoms
                 )
 
