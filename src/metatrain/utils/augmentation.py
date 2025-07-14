@@ -8,6 +8,7 @@ from metatensor.torch import TensorBlock, TensorMap
 from metatomic.torch import System, register_autograd_neighbors
 from scipy.spatial.transform import Rotation
 
+from . import torch_jit_script_unless_coverage
 from .data import TargetInfo
 
 
@@ -212,8 +213,8 @@ def _apply_wigner_D_matrices(
     )
 
 
-@torch.jit.script  # script for speed
-def _apply_random_augmentations(  # pragma: no cover
+@torch_jit_script_unless_coverage  # script for speed
+def _apply_random_augmentations(
     systems: List[System],
     targets: Dict[str, TensorMap],
     transformations: List[torch.Tensor],

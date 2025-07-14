@@ -4,9 +4,11 @@ import torch
 from metatensor.torch import TensorMap
 from metatomic.torch import System
 
+from . import torch_jit_script_unless_coverage
 
-@torch.jit.script
-def batch_to(  # pragma: no cover
+
+@torch_jit_script_unless_coverage
+def batch_to(
     systems: List[System],
     targets: Dict[str, TensorMap],
     extra_data: Optional[Dict[str, TensorMap]] = None,
