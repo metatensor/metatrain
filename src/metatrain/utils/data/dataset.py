@@ -100,7 +100,7 @@ class DatasetInfo:
         if self.length_unit != other.length_unit:
             raise ValueError(
                 "Can't update DatasetInfo with a different `length_unit`: "
-                f"({self.length_unit} != {other.length_unit})"
+                f"('{self.length_unit}' != '{other.length_unit}')"
             )
 
         self.atomic_types = self.atomic_types + other.atomic_types
@@ -134,6 +134,16 @@ class DatasetInfo:
         new = self.copy()
         new.update(other)
         return new
+
+    def __setstate__(self, state):
+        """
+        Custom ``__setstate__`` to allow loading old checkpoints where ``extra_data`` is
+        missing.
+        """
+        self.length_unit = state["length_unit"]
+        self._atomic_types = state["_atomic_types"]
+        self.targets = state["targets"]
+        self.extra_data = state.get("extra_data", {})
 
 
 def get_stats(dataset: Union[Dataset, Subset], dataset_info: DatasetInfo) -> str:
