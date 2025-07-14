@@ -18,8 +18,8 @@ class CompositionModel(torch.nn.Module):
     A simple model that calculates the per-species contributions to targets
     based on the stoichiometry in a system.
 
-    :param model_hypers: A dictionary of model hyperparameters. The paramater is ignored
-        and is only present to be consistent with the general model API.
+    :param hypers: A dictionary of model hyperparameters. This parameter is ignored and
+        is only present to be consistent with the general model API.
     :param dataset_info: An object containing information about the dataset, including
         target quantities and atomic types.
     """
@@ -27,16 +27,12 @@ class CompositionModel(torch.nn.Module):
     # Needed for torchscript compatibility
     outputs: Dict[str, ModelOutput]
 
-    def __init__(
-        self,
-        model_hypers: Dict,
-        dataset_info: DatasetInfo,
-    ) -> None:
+    def __init__(self, hypers: Dict, dataset_info: DatasetInfo):
         super().__init__()
 
-        # `model_hypers` should be an empty dictionary
+        # `hypers` should be an empty dictionary
         validate(
-            instance=model_hypers,
+            instance=hypers,
             schema={"type": "object", "additionalProperties": False},
         )
 

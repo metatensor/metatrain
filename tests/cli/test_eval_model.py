@@ -123,7 +123,7 @@ def test_eval_export(monkeypatch, tmp_path, options):
         atomic_types={1, 6, 7, 8},
         targets={"energy": get_energy_target_info({"unit": "eV"})},
     )
-    model = __model__(model_hypers=MODEL_HYPERS, dataset_info=dataset_info)
+    model = __model__(hypers=MODEL_HYPERS, dataset_info=dataset_info)
 
     shutil.copy(RESOURCES_PATH / "qm9_reduced_100.xyz", "qm9_reduced_100.xyz")
 
