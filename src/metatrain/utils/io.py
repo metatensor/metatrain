@@ -164,7 +164,8 @@ def load_model(
 
 
 def model_from_checkpoint(
-    path: Union[str, Path], context=Literal["restart", "finetune", "export"]
+    path: Union[str, Path],
+    context: Literal["restart", "finetune", "export"],
 ) -> torch.nn.Module:
     """
     Load the checkpoint at the given ``path``, and create the corresponding model
