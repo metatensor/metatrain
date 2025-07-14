@@ -2,7 +2,7 @@ from typing import Any, Dict, List, Literal, Optional, Tuple, Union
 
 import featomic
 import featomic.torch
-import metatensor.torch
+import metatensor.torch as mts
 import numpy as np
 import scipy
 import torch
@@ -125,11 +125,11 @@ class GAP(ModelInterface):
 
         dummy_weights = TorchTensorMap(
             TorchLabels(["_"], torch.tensor([[0]])),
-            [metatensor.torch.block_from_array(torch.empty(1, 1))],
+            [mts.block_from_array(torch.empty(1, 1))],
         )
         dummy_X_pseudo = TorchTensorMap(
             TorchLabels(["_"], torch.tensor([[0]])),
-            [metatensor.torch.block_from_array(torch.empty(1, 1))],
+            [mts.block_from_array(torch.empty(1, 1))],
         )
         self._subset_of_regressors_torch = TorchSubsetofRegressors(
             dummy_weights,
@@ -268,7 +268,7 @@ class GAP(ModelInterface):
                     selected_atoms,
                 )
                 for name in additive_contributions:
-                    return_dict[name] = metatensor.torch.add(
+                    return_dict[name] = mts.add(
                         return_dict[name],
                         additive_contributions[name],
                     )
@@ -421,7 +421,7 @@ class AggregateKernel(torch.nn.Module):
         self, kernel: TensorMap, are_pseudo_points: Tuple[bool, bool] = (False, False)
     ) -> TensorMap:
         if not are_pseudo_points[0]:
-            kernel = metatensor.sum_over_samples(kernel, self._aggregate_names)
+            kernel = mts.sum_over_samples(kernel, self._aggregate_names)
         if not are_pseudo_points[1]:
             raise NotImplementedError(
                 "properties dimension cannot be aggregated for the moment"
@@ -453,7 +453,7 @@ class AggregatePolynomial(AggregateKernel):
         self._degree = degree
 
     def compute_kernel(self, tensor1: TensorMap, tensor2: TensorMap):
-        return metatensor.pow(metatensor.dot(tensor1, tensor2), self._degree)
+        return mts.pow(mts.dot(tensor1, tensor2), self._degree)
 
 
 class TorchAggregateKernel(torch.nn.Module):
@@ -479,7 +479,7 @@ class TorchAggregateKernel(torch.nn.Module):
         are_pseudo_points: Tuple[bool, bool] = (False, False),
     ) -> TorchTensorMap:
         if not are_pseudo_points[0]:
-            kernel = metatensor.torch.sum_over_samples(kernel, self._aggregate_names)
+            kernel = mts.sum_over_samples(kernel, self._aggregate_names)
         if not are_pseudo_points[1]:
             raise NotImplementedError(
                 "properties dimension cannot be aggregated for the moment"
@@ -513,9 +513,7 @@ class TorchAggregatePolynomial(TorchAggregateKernel):
         self._degree = degree
 
     def compute_kernel(self, tensor1: TorchTensorMap, tensor2: TorchTensorMap):
-        return metatensor.torch.pow(
-            metatensor.torch.dot(tensor1, tensor2), self._degree
-        )
+        return mts.pow(mts.dot(tensor1, tensor2), self._degree)
 
 
 class _FPS:
@@ -609,13 +607,11 @@ class _FPS:
             block_support = self.support.block(key)
 
             if self._selection_type == "feature":
-                new_block = metatensor.slice_block(
+                new_block = mts.slice_block(
                     block, "properties", block_support.properties
                 )
             elif self._selection_type == "sample":
-                new_block = metatensor.slice_block(
-                    block, "samples", block_support.samples
-                )
+                new_block = mts.slice_block(block, "samples", block_support.samples)
             blocks.append(new_block)
 
         X_reduced = TensorMap(X.keys, blocks)
@@ -832,16 +828,14 @@ class SubsetOfRegressors:
             k_nm_block = k_nm.block(key)
             k_mm_block = k_mm.block(key)
             X_block = X.block(key)
-            structures = metatensor.operations._dispatch.unique(
-                k_nm_block.samples["system"]
-            )
+            structures = torch.unique(k_nm_block.samples["system"])
             n_atoms_per_structure = []
             for structure in structures:
                 n_atoms = np.sum(X_block.samples["system"] == structure)
                 n_atoms_per_structure.append(float(n_atoms))
 
             n_atoms_per_structure = np.array(n_atoms_per_structure)
-            normalization = metatensor.operations._dispatch.sqrt(n_atoms_per_structure)
+            normalization = np.sqrt(n_atoms_per_structure)
 
             if not (np.allclose(alpha_energy, 0.0)):
                 normalization /= alpha_energy
@@ -903,7 +897,7 @@ class SubsetOfRegressors:
             k_tm = T
         else:
             k_tm = self._kernel(T, self._X_pseudo, are_pseudo_points=(False, True))
-        return metatensor.dot(k_tm, self._weights)
+        return mts.dot(k_tm, self._weights)
 
     def export_torch_script_model(self):
         return TorchSubsetofRegressors(
@@ -940,4 +934,4 @@ class TorchSubsetofRegressors(torch.nn.Module):
         self._X_pseudo = self._X_pseudo.to(T.device)
 
         k_tm = self._kernel(T, self._X_pseudo, are_pseudo_points=(False, True))
-        return metatensor.torch.dot(k_tm, self._weights)
+        return mts.dot(k_tm, self._weights)

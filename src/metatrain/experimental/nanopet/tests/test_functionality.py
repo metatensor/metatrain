@@ -1,4 +1,4 @@
-import metatensor.torch
+import metatensor.torch as mts
 import pytest
 import torch
 from jsonschema.exceptions import ValidationError
@@ -152,7 +152,7 @@ def test_prediction_subset_atoms():
         system_far_away_dimer, model.requested_neighbor_lists()
     )
 
-    selection_labels = metatensor.torch.Labels(
+    selection_labels = mts.Labels(
         names=["system", "atom"],
         values=torch.tensor([[0, 0], [0, 2], [0, 3]]),
     )
@@ -168,13 +168,9 @@ def test_prediction_subset_atoms():
         selected_atoms=selection_labels,
     )
 
-    assert not metatensor.torch.allclose(
-        energy_monomer["energy"], energy_dimer["energy"]
-    )
+    assert not mts.allclose(energy_monomer["energy"], energy_dimer["energy"])
 
-    assert metatensor.torch.allclose(
-        energy_monomer["energy"], energy_monomer_in_dimer["energy"]
-    )
+    assert mts.allclose(energy_monomer["energy"], energy_monomer_in_dimer["energy"])
 
     torch.set_default_dtype(default_dtype_before)
 
