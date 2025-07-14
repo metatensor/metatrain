@@ -4,7 +4,6 @@ from typing import Any, Dict, List, Literal, Union
 
 import metatensor.torch as mts
 import torch
-from metatensor.torch import TensorMap
 
 from metatrain.utils.abc import TrainerInterface
 from metatrain.utils.additive import remove_additive
@@ -15,7 +14,6 @@ from metatrain.utils.neighbor_lists import (
 )
 
 from . import GAP
-from .model import torch_tensor_map_to_core
 
 
 class Trainer(TrainerInterface):
@@ -107,10 +105,6 @@ class Trainer(TrainerInterface):
         train_tensor = train_tensor.keys_to_properties(
             ["neighbor_1_type", "neighbor_2_type"]
         )
-        # change backend
-        train_tensor = TensorMap(train_y.keys, train_tensor.blocks())
-        train_tensor = torch_tensor_map_to_core(train_tensor)
-        train_y = torch_tensor_map_to_core(train_y)
 
         logging.info("Selecting sparse points")
         lens = len(train_tensor[0].values)
