@@ -1,4 +1,4 @@
-import metatensor.torch
+import metatensor.torch as mts
 import torch
 from metatensor.torch import Labels, TensorMap
 from metatomic.torch import System
@@ -15,7 +15,7 @@ def test_batch_to_dtype():
     )
     targets = TensorMap(
         keys=Labels.single(),
-        blocks=[metatensor.torch.block_from_array(torch.tensor([[1.0]]))],
+        blocks=[mts.block_from_array(torch.tensor([[1.0]]))],
     )
 
     systems = [system]
@@ -41,7 +41,7 @@ def test_batch_to_device():
     )
     targets = TensorMap(
         keys=Labels.single(),
-        blocks=[metatensor.torch.block_from_array(torch.tensor([[1.0]]))],
+        blocks=[mts.block_from_array(torch.tensor([[1.0]]))],
     )
 
     systems = [system]

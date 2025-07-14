@@ -2,8 +2,7 @@ import logging
 from pathlib import Path
 from typing import Any, Dict, List, Literal, Union
 
-import metatensor
-import metatensor.torch
+import metatensor.torch as mts
 import torch
 from metatensor.torch import TensorMap
 
@@ -65,7 +64,7 @@ class Trainer(TrainerInterface):
                 "equivariant learning which is not supported yet."
             )
         train_dataset = train_datasets[0]
-        train_y = metatensor.torch.join(
+        train_y = mts.join(
             [sample[output_name] for sample in train_dataset],
             axis="samples",
             remove_tensor_name=True,
@@ -121,7 +120,7 @@ class Trainer(TrainerInterface):
                 f"should be smaller than the number of environments ({lens})"
             )
         sparse_points = model._sampler.fit_transform(train_tensor)
-        sparse_points = metatensor.operations.remove_gradients(sparse_points)
+        sparse_points = mts.remove_gradients(sparse_points)
         alpha_energy = self.hypers["regularizer"]
         if self.hypers["regularizer_forces"] is None:
             alpha_forces = alpha_energy

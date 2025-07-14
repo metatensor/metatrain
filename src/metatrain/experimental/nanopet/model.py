@@ -2,7 +2,7 @@ import warnings
 from math import prod
 from typing import Any, Dict, List, Literal, Optional
 
-import metatensor.torch
+import metatensor.torch as mts
 import torch
 from metatensor.torch import Labels, TensorBlock, TensorMap
 from metatomic.torch import (
@@ -517,7 +517,7 @@ class NanoPET(ModelInterface):
 
         if selected_atoms is not None:
             for output_name, tmap in atomic_properties_tmap_dict.items():
-                atomic_properties_tmap_dict[output_name] = metatensor.torch.slice(
+                atomic_properties_tmap_dict[output_name] = mts.slice(
                     tmap, axis="samples", selection=selected_atoms
                 )
 
@@ -541,7 +541,7 @@ class NanoPET(ModelInterface):
                     selected_atoms,
                 )
                 for name in additive_contributions:
-                    return_dict[name] = metatensor.torch.add(
+                    return_dict[name] = mts.add(
                         return_dict[name],
                         additive_contributions[name],
                     )
