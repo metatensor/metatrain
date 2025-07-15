@@ -332,7 +332,8 @@ def test_old_composition_model_predict():
     assert output["mtt::U0"].block().values.shape == (1, 1)
 
 
-def test_composition_model_predict():
+@pytest.mark.parametrize("device", ("cpu", "cuda"))
+def test_composition_model_predict(device):
     """Test the prediction of composition energies."""
 
     dataset_path = RESOURCES_PATH / "qm9_reduced_100.xyz"
@@ -370,53 +371,59 @@ def test_composition_model_predict():
 
     composition_model.train_model(dataloader, additive_models=[])
 
+    systems_to_predict = [system.to(device=device) for system in systems[:5]]
+
     # per_atom = False
     output = composition_model(
-        systems[:5],
+        systems_to_predict,
         {"mtt::U0": ModelOutput(quantity="energy", unit="", per_atom=False)},
     )
     assert "mtt::U0" in output
     assert output["mtt::U0"].block().samples.names == ["system"]
     assert output["mtt::U0"].block().values.shape == (5, 1)
+    assert output["mtt::U0"].block().values.device.type == device
 
     # per_atom = True
     output = composition_model(
-        systems[:5],
+        systems_to_predict,
         {"mtt::U0": ModelOutput(quantity="energy", unit="", per_atom=True)},
     )
     assert "mtt::U0" in output
     assert output["mtt::U0"].block().samples.names == ["system", "atom"]
     assert output["mtt::U0"].block().values.shape != (5, 1)
+    assert output["mtt::U0"].block().values.device.type == device
 
     # with selected_atoms
     selected_atoms = metatensor.torch.Labels(
         names=["system", "atom"],
         values=torch.tensor([[0, 0]]),
-    )
+    ).to(device=device)
 
     output = composition_model(
-        systems[:5],
+        systems_to_predict,
         {"mtt::U0": ModelOutput(quantity="energy", unit="", per_atom=True)},
         selected_atoms=selected_atoms,
     )
     assert "mtt::U0" in output
     assert output["mtt::U0"].block().samples.names == ["system", "atom"]
     assert output["mtt::U0"].block().values.shape == (1, 1)
+    assert output["mtt::U0"].block().values.device.type == device
 
     # with selected_atoms
     selected_atoms = metatensor.torch.Labels(
         names=["system"],
         values=torch.tensor([[0]]),
-    )
+    ).to(device=device)
 
     output = composition_model(
-        systems[:5],
+        systems_to_predict,
         {"mtt::U0": ModelOutput(quantity="energy", unit="", per_atom=False)},
         selected_atoms=selected_atoms,
     )
     assert "mtt::U0" in output
     assert output["mtt::U0"].block().samples.names == ["system"]
     assert output["mtt::U0"].block().values.shape == (1, 1)
+    assert output["mtt::U0"].block().values.device.type == device
 
 
 def test_old_composition_model_torchscript(tmpdir):

@@ -255,7 +255,7 @@ class CompositionModel(torch.nn.Module):
                     k: v.to(dtype) for k, v in self.model.weights.items()
                 }
 
-        self.model._sync_device(device, dtype)
+        self.model._sync_device_dtype(device, dtype)
 
     @staticmethod
     def is_valid_target(target_name: str, target_info: TargetInfo) -> bool:
