@@ -34,6 +34,8 @@ class BaseCompositionModel(torch.nn.Module):
     weights: Dict[str, TensorMap]
     sample_kinds: Dict[str, str]
     type_to_index: torch.Tensor
+    XTX: Dict[str, TensorMap]
+    XTY: Dict[str, TensorMap]
 
     def __init__(self, atomic_types, layouts: Dict[str, TensorMap]) -> None:
         """
