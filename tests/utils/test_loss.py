@@ -26,7 +26,7 @@ RESOURCES_PATH = Path(__file__).parents[1] / "resources"
 def tensor_map_with_grad_1():
     block = TensorBlock(
         values=torch.tensor([[1.0], [2.0], [3.0]]),
-        samples=Labels.range("samples", 3),
+        samples=Labels.range("sample", 3),
         components=[],
         properties=Labels("energy", torch.tensor([[0]])),
     )
@@ -47,7 +47,7 @@ def tensor_map_with_grad_1():
 def tensor_map_with_grad_2():
     block = TensorBlock(
         values=torch.tensor([[1.0], [1.0], [3.0]]),
-        samples=Labels.range("samples", 3),
+        samples=Labels.range("sample", 3),
         components=[],
         properties=Labels("energy", torch.tensor([[0]])),
     )
@@ -68,7 +68,7 @@ def tensor_map_with_grad_2():
 def tensor_map_with_grad_3():
     block = TensorBlock(
         values=torch.tensor([[0.0], [1.0], [3.0]]),
-        samples=Labels.range("samples", 3),
+        samples=Labels.range("sample", 3),
         components=[],
         properties=Labels("energy", torch.tensor([[0]])),
     )
@@ -89,7 +89,7 @@ def tensor_map_with_grad_3():
 def tensor_map_with_grad_4():
     block = TensorBlock(
         values=torch.tensor([[0.0], [1.0], [3.0]]),
-        samples=Labels.range("samples", 3),
+        samples=Labels.range("sample", 3),
         components=[],
         properties=Labels("energy", torch.tensor([[0]])),
     )
@@ -232,3 +232,65 @@ def test_pointwise_gradient_loss(
     loss = LossCls(name=key, gradient="gradient")
     val = loss({key: tm3}, {key: tm4}).item()
     assert val == pytest.approx(expected)
+
+
+def test_create_loss_invalid_kwargs():
+    # Passing `foo` into an MSELoss constructor will cause
+    # a TypeError inside create_loss, which should be caught
+    # and re-raised with our custom message.
+    with pytest.raises(TypeError) as exc:
+        create_loss("mse", name="dummy", foo=123)
+    msg = str(exc.value)
+    assert "Error constructing loss 'mse'" in msg
+    assert (
+        "foo" in msg
+    )  # original constructor error should mention the unexpected 'foo'
+
+
+def test_masked_pointwise_gradient_branch(
+    tensor_map_with_grad_3, tensor_map_with_grad_4
+):
+    tm3 = tensor_map_with_grad_3
+    tm4 = tensor_map_with_grad_4
+    key = tm3.keys.names[0]
+
+    # Build a mask that selects all entries
+    mask_vals = torch.tensor([[True], [True], [True]], dtype=torch.bool)
+    mask_block = TensorBlock(
+        values=mask_vals,
+        samples=tm3.block(0).samples,
+        components=tm3.block(0).components,
+        properties=tm3.block(0).properties,
+    )
+
+    # Add a gradient-block to the mask, so grab(mask_block, "gradient") works
+    grad_block_for_mask = TensorBlock(
+        values=mask_vals,
+        samples=tm3.block(0).samples,
+        components=tm3.block(0).components,
+        properties=tm3.block(0).properties,
+    )
+    mask_block.add_gradient("gradient", grad_block_for_mask)
+
+    mask_map = TensorMap(keys=tm3.keys, blocks=[mask_block])
+    extra = {f"{key}_mask": mask_map}
+
+    # Create the masked-pointwise loss on the 'gradient' channel
+    loss = TensorMapMaskedMSELoss(name=key, gradient="gradient")
+
+    # The gradient values in tm3: [1, 0, 3]; in tm4: [1, 0, 2]
+    # Only one difference of 1 -> MSE mean = 1/3
+    result = loss({key: tm3}, {key: tm4}, extra).item()
+    assert result == pytest.approx(1 / 3)
+
+
+def test_ema_initialize_gradient_branch(tensor_map_with_grad_1):
+    tm = tensor_map_with_grad_1
+    key = tm.keys.names[0]
+
+    # gradient block values [1,2,3], zero baseline -> MSE = (1+4+9)/3
+    loss = TensorMapMSELoss(name=key, gradient="gradient")
+    sched = EMAScheduler(sliding_factor=0.5)
+    init_w = sched.initialize(loss, {key: tm})
+
+    assert init_w == pytest.approx((1 + 4 + 9) / 3)
