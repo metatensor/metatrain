@@ -94,10 +94,7 @@ def inject_lora_layers(
                 linear = getattr(module, attr)
                 if isinstance(linear, nn.Linear):
                     lora_linear = LoRALinear(linear, rank=rank, alpha=alpha)
-                    if device is not None:
-                        lora_linear.to(device)
-                    if dtype is not None:
-                        lora_linear.to(dtype)
+                    lora_linear = lora_linear.to(dtype=dtype, device=device)
                     setattr(module, attr, lora_linear)
     return model
 
