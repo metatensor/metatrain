@@ -1,6 +1,5 @@
 architecture:
   name: gap
-
   model:
     soap:
       cutoff:
@@ -27,7 +26,6 @@ architecture:
       degree: 2
       num_sparse_points: 500
     zbl: false
-
   training:
     regularizer: 0.001
     regularizer_forces: null

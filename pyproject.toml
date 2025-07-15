@@ -144,3 +144,9 @@ filterwarnings = [
     # OldCompositionModel deprecation warning
     "ignore:`OldCompositionModel` composition model is deprecated. Please use `CompositionModel` instead."
 ]
+
+[tool.yamlfix]
+line_length = 88
+explicit_start = false
+section_whitelines = 1
+none_representation = "null"

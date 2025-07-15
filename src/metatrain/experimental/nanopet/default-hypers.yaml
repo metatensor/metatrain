@@ -1,6 +1,5 @@
 architecture:
   name: experimental.nanopet
-
   model:
     cutoff: 5.0
     cutoff_width: 0.5
@@ -9,16 +8,15 @@ architecture:
     num_attention_layers: 2
     num_gnn_layers: 2
     heads: {}
-    zbl: False
+    zbl: false
     long_range:
       enable: false
       use_ewald: false
       smearing: 1.4
       kspace_resolution: 1.33
       interpolation_nodes: 5
-
   training:
-    distributed: False
+    distributed: false
     distributed_port: 39591
     batch_size: 16
     num_epochs: 10000
@@ -30,6 +28,6 @@ architecture:
     scale_targets: true
     fixed_composition_weights: {}
     per_structure_targets: []
-    log_mae: False
+    log_mae: false
     log_separate_blocks: false
     best_model_metric: rmse_prod

@@ -1,6 +1,5 @@
 architecture:
   name: soap_bpnn
-
   model:
     soap:
       max_angular: 6
@@ -21,9 +20,8 @@ architecture:
       smearing: 1.4
       kspace_resolution: 1.33
       interpolation_nodes: 5
-
   training:
-    distributed: False
+    distributed: false
     distributed_port: 39591
     batch_size: 8
     num_epochs: 100
@@ -36,6 +34,6 @@ architecture:
     scale_targets: true
     fixed_composition_weights: {}
     per_structure_targets: []
-    log_mae: False
+    log_mae: false
     log_separate_blocks: false
     best_model_metric: rmse_prod

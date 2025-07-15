@@ -4,7 +4,9 @@
   "properties": {
     "name": {
       "type": "string",
-      "enum": ["pet"]
+      "enum": [
+        "pet"
+      ]
     },
     "model": {
       "type": "object",
@@ -81,7 +83,10 @@
           "type": "number"
         },
         "weight_decay": {
-          "type": ["number", "null"]
+          "type": [
+            "number",
+            "null"
+          ]
         },
         "scheduler_patience": {
           "type": "integer"
@@ -124,7 +129,11 @@
         },
         "best_model_metric": {
           "type": "string",
-          "enum": ["rmse_prod", "mae_prod", "loss"]
+          "enum": [
+            "rmse_prod",
+            "mae_prod",
+            "loss"
+          ]
         },
         "finetune": {
           "type": "object",
@@ -135,7 +144,11 @@
             },
             "method": {
               "type": "string",
-              "enum": ["full", "lora", "heads"]
+              "enum": [
+                "full",
+                "lora",
+                "heads"
+              ]
             },
             "config": {
               "type": "object",
@@ -149,7 +162,10 @@
                       "type": "integer"
                     }
                   },
-                  "required": ["alpha", "rank"],
+                  "required": [
+                    "alpha",
+                    "rank"
+                  ],
                   "additionalProperties": false
                 },
                 {
@@ -167,7 +183,10 @@
                       }
                     }
                   },
-                  "required": ["head_modules", "last_layer_modules"],
+                  "required": [
+                    "head_modules",
+                    "last_layer_modules"
+                  ],
                   "additionalProperties": false
                 }
               ]

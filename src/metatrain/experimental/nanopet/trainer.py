@@ -37,8 +37,11 @@ from .model import NanoPET
 
 
 class Trainer(TrainerInterface):
-    def __init__(self, train_hypers):
-        self.hypers = train_hypers
+    __checkpoint_version__ = 1
+
+    def __init__(self, hypers):
+        super().__init__(hypers)
+
         self.optimizer_state_dict = None
         self.scheduler_state_dict = None
         self.epoch = None
@@ -508,6 +511,8 @@ class Trainer(TrainerInterface):
     def save_checkpoint(self, model, path: Union[str, Path]):
         checkpoint = {
             "architecture_name": "experimental.nanopet",
+            "model_ckpt_version": model.__checkpoint_version__,
+            "trainer_ckpt_version": self.__checkpoint_version__,
             "metadata": model.__default_metadata__,
             "model_data": {
                 "model_hypers": model.hypers,
@@ -531,7 +536,7 @@ class Trainer(TrainerInterface):
     def load_checkpoint(
         cls,
         checkpoint: Dict[str, Any],
-        train_hypers: Dict[str, Any],
+        hypers: Dict[str, Any],
         context: Literal["restart", "finetune"],  # not used at the moment
     ) -> "Trainer":
         epoch = checkpoint["epoch"]
@@ -542,7 +547,7 @@ class Trainer(TrainerInterface):
         best_optimizer_state_dict = checkpoint["best_optimizer_state_dict"]
 
         # Create the trainer
-        trainer = cls(train_hypers)
+        trainer = cls(hypers)
         trainer.optimizer_state_dict = optimizer_state_dict
         trainer.scheduler_state_dict = scheduler_state_dict
         trainer.epoch = epoch
@@ -551,3 +556,7 @@ class Trainer(TrainerInterface):
         trainer.best_optimizer_state_dict = best_optimizer_state_dict
 
         return trainer
+
+    @staticmethod
+    def upgrade_checkpoint(checkpoint: Dict) -> Dict:
+        raise NotImplementedError("checkpoint upgrade is not implemented for NanoPET")

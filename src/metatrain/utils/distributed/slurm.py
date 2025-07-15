@@ -1,3 +1,4 @@
+import logging
 import os
 
 import hostlist
@@ -39,3 +40,11 @@ class DistributedEnvironment:
         os.environ["WORLD_SIZE"] = os.environ["SLURM_NTASKS"]
         os.environ["RANK"] = os.environ["SLURM_PROCID"]
         os.environ["LOCAL_RANK"] = os.environ["SLURM_LOCALID"]
+
+        logging.info(
+            f"Distributed environment set up with "
+            f"MASTER_ADDR={os.environ['MASTER_ADDR']}, "
+            f"MASTER_PORT={os.environ['MASTER_PORT']}, "
+            f"WORLD_SIZE={os.environ['WORLD_SIZE']}, "
+            f"RANK={os.environ['RANK']}, LOCAL_RANK={os.environ['LOCAL_RANK']}"
+        )

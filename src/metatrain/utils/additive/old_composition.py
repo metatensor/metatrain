@@ -27,7 +27,7 @@ class OldCompositionModel(torch.nn.Module):
     weights: Dict[str, TensorMap]
     outputs: Dict[str, ModelOutput]
 
-    def __init__(self, model_hypers: Dict, dataset_info: DatasetInfo):
+    def __init__(self, hypers: Dict, dataset_info: DatasetInfo):
         warnings.warn(
             "`OldCompositionModel` composition model is deprecated."
             " Please use `CompositionModel` instead.",
@@ -37,7 +37,7 @@ class OldCompositionModel(torch.nn.Module):
 
         # `model_hypers` should be an empty dictionary
         validate(
-            instance=model_hypers,
+            instance=hypers,
             schema={"type": "object", "additionalProperties": False},
         )
 

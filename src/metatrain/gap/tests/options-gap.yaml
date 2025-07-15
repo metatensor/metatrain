@@ -1,6 +1,5 @@
 architecture:
   name: gap
-
   model:
     soap:
       cutoff:
@@ -22,33 +21,32 @@ architecture:
         max_angular: 6
         radial:
           type: Gto
-          max_radial: 7 # now exclusive
+          max_radial: 7  # now exclusive
     krr:
       degree: 2
       num_sparse_points: 900
     zbl: false
-
   training:
     regularizer: 0.00005
     regularizer_forces: 0.001
 
 training_set:
-  systems: "ethanol_reduced_100.xyz" # file where the positions are stored
+  systems: ethanol_reduced_100.xyz  # file where the positions are stored
   targets:
     energy:
-      key: "energy" # name of the target value
-      unit: "eV" # unit of the target value
+      key: energy  # name of the target value
+      unit: eV  # unit of the target value
 
 test_set:
-  systems: "ethanol_reduced_100.xyz" # file where the positions are stored
+  systems: ethanol_reduced_100.xyz  # file where the positions are stored
   targets:
     energy:
-      key: "energy" # name of the target value
-      unit: "eV" # unit of the target value
+      key: energy  # name of the target value
+      unit: eV  # unit of the target value
 
 validation_set:
-  systems: "ethanol_reduced_100.xyz" # file where the positions are stored
+  systems: ethanol_reduced_100.xyz  # file where the positions are stored
   targets:
     energy:
-      key: "energy" # name of the target value
-      unit: "eV" # unit of the target value
+      key: energy  # name of the target value
+      unit: eV  # unit of the target value
