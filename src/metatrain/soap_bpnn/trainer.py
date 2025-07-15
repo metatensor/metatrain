@@ -9,7 +9,6 @@ from torch.utils.data import DataLoader, DistributedSampler
 
 from metatrain.utils.abc import TrainerInterface
 from metatrain.utils.additive import remove_additive
-from metatrain.utils.custom_loss import LossAggregator
 from metatrain.utils.data import (
     CollateFn,
     CombinedDataLoader,
@@ -23,6 +22,7 @@ from metatrain.utils.distributed.slurm import DistributedEnvironment
 from metatrain.utils.evaluate_model import evaluate_model
 from metatrain.utils.io import check_file_extension
 from metatrain.utils.logging import ROOT_LOGGER, MetricLogger
+from metatrain.utils.loss import LossAggregator
 from metatrain.utils.metrics import MAEAccumulator, RMSEAccumulator, get_selected_metric
 from metatrain.utils.neighbor_lists import (
     get_requested_neighbor_lists,

@@ -4,7 +4,7 @@ import pytest
 import torch
 from metatensor.torch import Labels, TensorBlock, TensorMap
 
-from metatrain.utils.loss import TensorMapDictLoss, TensorMapLoss
+from metatrain.utils.old_loss import TensorMapDictLoss, TensorMapLoss
 
 
 RESOURCES_PATH = Path(__file__).parents[1] / "resources"

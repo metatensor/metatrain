@@ -6,7 +6,7 @@ import pytest
 import torch
 from metatensor.torch import Labels, TensorBlock, TensorMap
 
-from metatrain.utils.custom_loss import (
+from metatrain.utils.loss import (
     EMAScheduler,
     LossType,
     TensorMapHuberLoss,
