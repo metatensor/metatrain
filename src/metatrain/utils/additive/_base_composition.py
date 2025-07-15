@@ -183,7 +183,7 @@ class BaseCompositionModel(torch.nn.Module):
 
         device = systems[0].positions.device
         dtype = systems[0].positions.dtype
-        self._sync_device(device, dtype)
+        self._sync_device_dtype(device, dtype)
 
         # check that the systems contain no unexpected atom types
         for system in systems:
@@ -314,7 +314,7 @@ class BaseCompositionModel(torch.nn.Module):
 
         device = systems[0].positions.device
         dtype = systems[0].positions.dtype
-        self._sync_device(device, dtype)
+        self._sync_device_dtype(device, dtype)
 
         system_indices, sample_labels_per_atom = _get_system_indices_and_labels(
             systems, device
@@ -345,7 +345,7 @@ class BaseCompositionModel(torch.nn.Module):
                             torch.arange(
                                 len(systems), dtype=torch.int32, device=device
                             ).reshape(-1, 1),
-                        )
+                        ).to(device=device)
                         X = self._compute_X_per_structure(systems)
 
                 # TODO: add support for per_pair. As compositions are only fitted for
@@ -369,7 +369,7 @@ class BaseCompositionModel(torch.nn.Module):
                     sample_labels = Labels(
                         sample_labels.names,
                         sample_labels.values[sample_indices],
-                    )
+                    ).to(device=device)
                     X = X[sample_indices]
 
                 # Compute X.T @ W
@@ -483,10 +483,11 @@ class BaseCompositionModel(torch.nn.Module):
             dtype=dtype, device=device
         )
 
-    def _sync_device(self, device: torch.device, dtype: torch.dtype):
+    def _sync_device_dtype(self, device: torch.device, dtype: torch.dtype):
         # manually move the TensorMap dicts:
 
-        self.atomic_types = self.atomic_types.to(device=device, dtype=dtype)
+        self.atomic_types = self.atomic_types.to(device=device)
+        self.type_to_index = self.type_to_index.to(device=device)
         self.XTX = {
             target_name: tm.to(device=device, dtype=dtype)
             for target_name, tm in self.XTX.items()
