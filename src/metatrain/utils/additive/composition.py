@@ -255,6 +255,8 @@ class CompositionModel(torch.nn.Module):
                     k: v.to(dtype) for k, v in self.model.weights.items()
                 }
 
+        self.model._sync_device(device, dtype)
+
     @staticmethod
     def is_valid_target(target_name: str, target_info: TargetInfo) -> bool:
         """Finds if a ``TargetInfo`` object is compatible with a composition model.

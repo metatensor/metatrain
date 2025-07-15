@@ -45,7 +45,11 @@ class BaseCompositionModel(torch.nn.Module):
             target.
         """
         super().__init__()
-        self.atomic_types = torch.as_tensor(atomic_types, dtype=torch.int32)
+
+        self.register_buffer(
+            "atomic_types",
+            torch.as_tensor(atomic_types, dtype=torch.int32),
+        )
         self.target_names: List[str] = []
         self.sample_kinds: Dict[str, str] = {}
         self.XTX: Dict[str, TensorMap] = {}
@@ -176,6 +180,11 @@ class BaseCompositionModel(torch.nn.Module):
         Takes a batch of systems and targets, and for each target accumulates the
         necessary quantities (XTX and XTY).
         """
+
+        device = systems[0].positions.device
+        dtype = systems[0].positions.dtype
+        self._sync_device(device, dtype)
+
         # check that the systems contain no unexpected atom types
         for system in systems:
             if not torch.all(torch.isin(system.types, self.atomic_types)):
@@ -207,6 +216,7 @@ class BaseCompositionModel(torch.nn.Module):
                         f"unknown sample kind: {self.sample_kinds[target_name]}"
                         f" for target {target_name}"
                     )
+                X = X.to(device=device, dtype=dtype)
 
                 # Compute "XTX", i.e. X.T @ X
                 # TODO: store XTX by sample kind instead, saving memory
@@ -303,6 +313,8 @@ class BaseCompositionModel(torch.nn.Module):
         """
 
         device = systems[0].positions.device
+        dtype = systems[0].positions.dtype
+        self._sync_device(device, dtype)
 
         system_indices, sample_labels_per_atom = _get_system_indices_and_labels(
             systems, device
@@ -470,6 +482,23 @@ class BaseCompositionModel(torch.nn.Module):
         return mts.one_hot(sample_labels, center_types_labels).to(
             dtype=dtype, device=device
         )
+
+    def _sync_device(self, device: torch.device, dtype: torch.dtype):
+        # manually move the TensorMap dicts:
+
+        self.atomic_types = self.atomic_types.to(device=device, dtype=dtype)
+        self.XTX = {
+            target_name: tm.to(device=device, dtype=dtype)
+            for target_name, tm in self.XTX.items()
+        }
+        self.XTY = {
+            target_name: tm.to(device=device, dtype=dtype)
+            for target_name, tm in self.XTY.items()
+        }
+        self.weights = {
+            target_name: tm.to(device=device, dtype=dtype)
+            for target_name, tm in self.weights.items()
+        }
 
 
 def _include_key(key: LabelsEntry) -> bool:
