@@ -1,10 +1,22 @@
+# tests/test_losses.py
+
 from pathlib import Path
 
 import pytest
 import torch
 from metatensor.torch import Labels, TensorBlock, TensorMap
 
-from metatrain.utils.loss import TensorMapDictLoss, TensorMapLoss
+from metatrain.utils.custom_loss import (
+    EMAScheduler,
+    LossType,
+    TensorMapHuberLoss,
+    TensorMapMAELoss,
+    TensorMapMaskedHuberLoss,
+    TensorMapMaskedMAELoss,
+    TensorMapMaskedMSELoss,
+    TensorMapMSELoss,
+    create_loss,
+)
 
 
 RESOURCES_PATH = Path(__file__).parents[1] / "resources"
@@ -94,296 +106,129 @@ def tensor_map_with_grad_4():
     return tensor_map
 
 
-@pytest.mark.parametrize("type", ["mse", {"huber": {"deltas": {"values": 3.0}}}])
-def test_tmap_loss_no_gradients(type):
-    """Test that the loss is computed correctly when there are no gradients."""
-    loss = TensorMapLoss(type=type, reduction="sum")
-
-    tensor_map_1 = TensorMap(
-        keys=Labels.single(),
-        blocks=[
-            TensorBlock(
-                values=torch.tensor([[1.0], [2.0], [3.0]]),
-                samples=Labels.range("samples", 3),
-                components=[],
-                properties=Labels("energy", torch.tensor([[0]])),
-            )
-        ],
-    )
-    tensor_map_2 = TensorMap(
-        keys=Labels.single(),
-        blocks=[
-            TensorBlock(
-                values=torch.tensor([[0.0], [2.0], [3.0]]),
-                samples=Labels.range("samples", 3),
-                components=[],
-                properties=Labels("energy", torch.tensor([[0]])),
-            )
-        ],
-    )
-
-    loss_value = loss(tensor_map_1, tensor_map_1)
-    torch.testing.assert_close(loss_value, torch.tensor(0.0))
-
-    # Expected result: 1.0
-    loss_value = loss(tensor_map_1, tensor_map_2)
-    # Huber loss is scaled by 0.5 due to torch implementation
-    torch.testing.assert_close(
-        loss_value, (1.0 if type == "mse" else 0.5) * torch.tensor(1.0)
-    )
-
-
+# Pointwise losses must return zero when predictions == targets
 @pytest.mark.parametrize(
-    "type", ["mse", {"huber": {"deltas": {"values": 3.0, "gradient": 3.0}}}]
+    "LossCls",
+    [
+        TensorMapMSELoss,
+        TensorMapMAELoss,
+        TensorMapHuberLoss,
+    ],
 )
-def test_tmap_loss_with_gradients(tensor_map_with_grad_1, tensor_map_with_grad_2, type):
-    """Test that the loss is computed correctly when there are gradients."""
-    loss = TensorMapLoss(type=type, gradient_weights={"gradient": 0.5}, reduction="sum")
+def test_pointwise_zero_loss(tensor_map_with_grad_1, LossCls):
+    tm = tensor_map_with_grad_1
+    key = tm.keys.names[0]
+    loss = LossCls(name=key)
+    pred = {key: tm}
+    targ = {key: tm}
+    assert loss(pred, targ).item() == pytest.approx(0.0)
 
-    loss_value = loss(tensor_map_with_grad_1, tensor_map_with_grad_1)
-    torch.testing.assert_close(loss_value, torch.tensor(0.0))
 
-    # Expected result: 1.0 + 0.5 * 4.0
-    loss_value = loss(tensor_map_with_grad_1, tensor_map_with_grad_2)
-    torch.testing.assert_close(
-        loss_value,
-        # Huber loss is scaled by 0.5 due to torch implementation
-        (1.0 if type == "mse" else 0.5) * torch.tensor(1.0 + 0.5 * 4.0),
+# Masked losses must error if no mask is supplied
+@pytest.mark.parametrize(
+    "MaskedCls",
+    [
+        TensorMapMaskedMSELoss,
+        TensorMapMaskedMAELoss,
+        TensorMapMaskedHuberLoss,
+    ],
+)
+def test_masked_loss_error_on_missing_mask(tensor_map_with_grad_1, MaskedCls):
+    tm = tensor_map_with_grad_1
+    key = tm.keys.names[0]
+    loss = MaskedCls(name=key)
+    with pytest.raises(ValueError):
+        loss({key: tm}, {key: tm})
+
+
+# Functional test for masked MSE: only unmasked element contributes
+def test_masked_mse_behavior(tensor_map_with_grad_1, tensor_map_with_grad_2):
+    tm1 = tensor_map_with_grad_1
+    tm2 = tensor_map_with_grad_2
+    key = tm1.keys.names[0]
+
+    # Construct a mask TensorMap: only index 1 is True
+    mask_vals = torch.tensor([[False], [True], [False]], dtype=torch.bool)
+    mask_block = TensorBlock(
+        values=mask_vals,
+        samples=tm1.block(0).samples,
+        components=tm1.block(0).components,
+        properties=tm1.block(0).properties,
     )
+    mask_map = TensorMap(keys=tm1.keys, blocks=[mask_block])
+    extra_data = {f"{key}_mask": mask_map}
+
+    loss = TensorMapMaskedMSELoss(name=key)
+    # Only element 1 contributes: (1-2)^2 = 1
+    result = loss({key: tm2}, {key: tm1}, extra_data)
+    assert result.item() == pytest.approx(1.0)
 
 
-def test_tmap_dict_loss(
-    tensor_map_with_grad_1,
-    tensor_map_with_grad_2,
-    tensor_map_with_grad_3,
-    tensor_map_with_grad_4,
+# EMA scheduler: test both no-sliding and sliding-factor cases
+@pytest.mark.parametrize(
+    "sf, expected_init, expected_update",
+    [
+        (0.0, 1.0, 1.0),
+        (0.5, 2 / 3, (2 / 3) * 0.5),
+    ],
+)
+def test_ema_scheduler(
+    tensor_map_with_grad_1, tensor_map_with_grad_2, sf, expected_init, expected_update
 ):
-    """Test that the dict loss is computed correctly."""
+    tm1 = tensor_map_with_grad_1
+    tm2 = tensor_map_with_grad_2
+    key = tm1.keys.names[0]
+    loss = TensorMapMSELoss(name=key)
+    sched = EMAScheduler(sliding_factor=sf)
 
-    loss_rmse = TensorMapDictLoss(
-        weights={
-            "output_1": 0.6,
-            "output_2": 1.0,
-            "output_1_gradient_gradients": 0.5,
-            "output_2_gradient_gradients": 0.5,
-        },
-        reduction="sum",
-    )
-    loss_huber = TensorMapDictLoss(
-        weights={
-            "output_1": 0.6,
-            "output_2": 1.0,
-            "output_1_gradient_gradients": 0.5,
-            "output_2_gradient_gradients": 0.5,
-        },
-        type={
-            "huber": {
-                "deltas": {
-                    "output_1": 0.1,
-                    "output_2": 0.1,
-                    "output_1_gradient_gradients": 0.1,
-                    "output_2_gradient_gradients": 0.1,
-                }
-            }
-        },
-        reduction="sum",
-    )
+    init_w = sched.initialize(loss, {key: tm1})
+    assert init_w == pytest.approx(expected_init)
 
-    output_dict = {
-        "output_1": tensor_map_with_grad_1,
-        "output_2": tensor_map_with_grad_2,
+    new_w = sched.update(loss, {key: tm2}, {key: tm2})
+    assert new_w == pytest.approx(expected_update)
+
+
+# Factory and enum resolution
+def test_loss_type_and_factory():
+    mapping = {
+        "mse": TensorMapMSELoss,
+        "mae": TensorMapMAELoss,
+        "huber": TensorMapHuberLoss,
+        "masked_mse": TensorMapMaskedMSELoss,
+        "masked_mae": TensorMapMaskedMAELoss,
+        "masked_huber": TensorMapMaskedHuberLoss,
     }
+    for key, cls in mapping.items():
+        # LossType.from_key should return enum with .key
+        lt = LossType.from_key(key)
+        assert lt.key == key
+        # Factory should produce correct class
+        loss = create_loss(key, name="dummy")
+        assert isinstance(loss, cls)
 
-    target_dict = {
-        "output_1": tensor_map_with_grad_3,
-        "output_2": tensor_map_with_grad_4,
-    }
-
-    expected_result = (
-        0.6
-        * (
-            tensor_map_with_grad_1.block().values
-            - tensor_map_with_grad_3.block().values
-        )
-        .pow(2)
-        .sum()
-        + 0.5
-        * (
-            tensor_map_with_grad_1.block().gradient("gradient").values
-            - tensor_map_with_grad_3.block().gradient("gradient").values
-        )
-        .pow(2)
-        .sum()
-        + 1.0
-        * (
-            tensor_map_with_grad_2.block().values
-            - tensor_map_with_grad_4.block().values
-        )
-        .pow(2)
-        .sum()
-        + 0.5
-        * (
-            tensor_map_with_grad_2.block().gradient("gradient").values
-            - tensor_map_with_grad_4.block().gradient("gradient").values
-        )
-        .pow(2)
-        .sum()
-    )
-
-    loss_value = loss_rmse(output_dict, target_dict)
-    torch.testing.assert_close(loss_value, expected_result)
-
-    # Huber loss should be lower than RMSE
-    # (scaled by 0.5 due to torch implementation of Huber)
-    assert loss_huber(output_dict, target_dict) < 0.5 * loss_rmse(
-        output_dict, target_dict
-    )
+    # Invalid keys raise ValueError
+    with pytest.raises(ValueError):
+        LossType.from_key("invalid_key")
+    with pytest.raises(ValueError):
+        create_loss("invalid_key", name="dummy")
 
 
-def test_tmap_dict_loss_subset(tensor_map_with_grad_1, tensor_map_with_grad_3):
-    """Test that the dict loss is computed correctly when only a subset
-    of the possible targets is present both in outputs and targets."""
-
-    loss = TensorMapDictLoss(
-        weights={
-            "output_1": 1.0,
-            "output_2": 1.0,
-            "output_1_gradient_gradients": 0.5,
-            "output_2_gradient_gradients": 0.5,
-        },
-        reduction="sum",
-    )
-
-    output_dict = {
-        "output_1": tensor_map_with_grad_1,
-    }
-
-    target_dict = {
-        "output_1": tensor_map_with_grad_3,
-    }
-
-    expected_result = (
-        1.0
-        * (
-            tensor_map_with_grad_1.block().values
-            - tensor_map_with_grad_3.block().values
-        )
-        .pow(2)
-        .sum()
-        + 0.5
-        * (
-            tensor_map_with_grad_1.block().gradient("gradient").values
-            - tensor_map_with_grad_3.block().gradient("gradient").values
-        )
-        .pow(2)
-        .sum()
-    )
-
-    loss_value = loss(output_dict, target_dict)
-    torch.testing.assert_close(loss_value, expected_result)
-
-
-def test_tmap_loss_mae():
-    """Test that the MAE loss is computed correctly."""
-    loss = TensorMapLoss(type="mae", reduction="mean")
-
-    tensor_map_1 = TensorMap(
-        keys=Labels.single(),
-        blocks=[
-            TensorBlock(
-                values=torch.tensor([[2.0], [2.0], [3.0]]),
-                samples=Labels.range("samples", 3),
-                components=[],
-                properties=Labels("energy", torch.tensor([[0]])),
-            )
-        ],
-    )
-    tensor_map_2 = TensorMap(
-        keys=Labels.single(),
-        blocks=[
-            TensorBlock(
-                values=torch.tensor([[0.0], [3.0], [3.0]]),
-                samples=Labels.range("samples", 3),
-                components=[],
-                properties=Labels("energy", torch.tensor([[0]])),
-            )
-        ],
-    )
-
-    loss_value = loss(tensor_map_1, tensor_map_1)
-    torch.testing.assert_close(loss_value, torch.tensor(0.0))
-
-    # Expected result: 1.0
-    loss_value = loss(tensor_map_1, tensor_map_2)
-    torch.testing.assert_close(loss_value, torch.tensor(1.0))
-
-
-def test_tmap_loss_huber():
-    """Test that the Huber loss is computed correctly."""
-    loss_mse = TensorMapLoss(type="mse", reduction="mean")
-    loss_huber = TensorMapLoss(
-        type={"huber": {"deltas": {"values": 3.0}}}, reduction="mean"
-    )
-
-    tensor_map_1 = TensorMap(
-        keys=Labels.single(),
-        blocks=[
-            TensorBlock(
-                values=torch.tensor([[2.0], [2.0], [3.0]]),
-                samples=Labels.range("samples", 3),
-                components=[],
-                properties=Labels("energy", torch.tensor([[0]])),
-            )
-        ],
-    )
-    tensor_map_2 = TensorMap(
-        keys=Labels.single(),
-        blocks=[
-            TensorBlock(
-                values=torch.tensor([[0.0], [3.0], [3.0]]),
-                samples=Labels.range("samples", 3),
-                components=[],
-                properties=Labels("energy", torch.tensor([[0]])),
-            )
-        ],
-    )
-
-    loss_value = loss_huber(tensor_map_1, tensor_map_1)
-    torch.testing.assert_close(loss_value, torch.tensor(0.0))
-
-    # No outliers, should be equal to MSE (scaled by 0.5 due to torch implementation)
-    loss_value_huber = loss_huber(tensor_map_1, tensor_map_2)
-    loss_value_mse = loss_mse(tensor_map_1, tensor_map_2)
-    torch.testing.assert_close(loss_value_huber, 0.5 * loss_value_mse)
-
-    tensor_map_with_outlier = TensorMap(
-        keys=Labels.single(),
-        blocks=[
-            TensorBlock(
-                values=torch.tensor([[0.0], [100.0], [3.0]]),
-                samples=Labels.range("samples", 3),
-                components=[],
-                properties=Labels("energy", torch.tensor([[0]])),
-            )
-        ],
-    )
-
-    loss_value_huber = loss_huber(tensor_map_1, tensor_map_with_outlier)
-    loss_value_mse = loss_mse(tensor_map_1, tensor_map_with_outlier)
-    # Huber loss is lower due to the outlier
-    assert loss_value_huber < 0.5 * loss_value_mse
-
-
-def test_tmap_loss_with_sliding_weights(tensor_map_with_grad_1, tensor_map_with_grad_2):
-    """Test that the loss behaves as expected with sliding weights."""
-    loss = TensorMapLoss(
-        type="mse", gradient_weights={"gradient": 1.0}, sliding_factor=0.7
-    )
-
-    for _ in range(5):
-        loss(tensor_map_with_grad_1, tensor_map_with_grad_2)
-
-    # in the two TensorMaps above, the loss on the gradients is larger than the loss on
-    # the values, therefore we should expect a larger sliding weight for the gradients
-
-    assert loss.sliding_weights["gradient"] > loss.sliding_weights["values"]
+# Point-wise gradient-only
+@pytest.mark.parametrize(
+    "LossCls, expected",
+    [
+        (TensorMapMSELoss, 1 / 3),  # MSEGradient: one error squared -> 1/3
+        (TensorMapMAELoss, 1 / 3),  # MAEGradient: one abs error -> 1/3
+        (TensorMapHuberLoss, 1 / 6),  # HuberGradient: 0.5*1^2 /3 = 1/6
+    ],
+)
+def test_pointwise_gradient_loss(
+    tensor_map_with_grad_3, tensor_map_with_grad_4, LossCls, expected
+):
+    tm3 = tensor_map_with_grad_3
+    tm4 = tensor_map_with_grad_4
+    key = tm3.keys.names[0]
+    # instantiate with gradient extraction
+    loss = LossCls(name=key, gradient="gradient")
+    val = loss({key: tm3}, {key: tm4}).item()
+    assert val == pytest.approx(expected)

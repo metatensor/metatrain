@@ -200,7 +200,9 @@
         "loss": {
           "type": "object",
           "patternProperties": {
-            "^.+$": { "$ref": "#/definitions/lossTerm" }
+            "^.+$": {
+              "$ref": "#/definitions/lossTerm"
+            }
           },
           "additionalProperties": false
         }
@@ -230,7 +232,11 @@
         },
         "reduction": {
           "type": "string",
-          "enum": ["none", "mean", "sum"]
+          "enum": [
+            "none",
+            "mean",
+            "sum"
+          ]
         },
         "sliding_factor": {
           "type": "number",
@@ -239,7 +245,9 @@
         "gradients": {
           "type": "object",
           "patternProperties": {
-            "^.+$": { "$ref": "#/definitions/lossTerm" }
+            "^.+$": {
+              "$ref": "#/definitions/lossTerm"
+            }
           },
           "additionalProperties": false
         }
