@@ -336,6 +336,9 @@ def test_old_composition_model_predict():
 def test_composition_model_predict(device):
     """Test the prediction of composition energies."""
 
+    if device == "cuda" and not torch.cuda.is_available():
+        pytest.skip("CUDA is not available")
+
     dataset_path = RESOURCES_PATH / "qm9_reduced_100.xyz"
     systems = read_systems(dataset_path)
 
