@@ -1,6 +1,6 @@
 from typing import Any, Dict, List, Literal, Optional
 
-import metatensor.torch
+import metatensor.torch as mts
 import torch
 from metatensor.torch import Labels, TensorBlock, TensorMap
 from metatomic.torch import (
@@ -219,7 +219,7 @@ class PET(ModelInterface):
                 values=predictions,
             )
             if selected_atoms is not None:
-                block = metatensor.torch.slice_block(block, "samples", selected_atoms)
+                block = mts.slice_block(block, "samples", selected_atoms)
             output_tmap = TensorMap(keys=empty_labels, blocks=[block])
             if not outputs[output_name].per_atom:
                 output_tmap = sum_over_atoms(output_tmap)
@@ -238,7 +238,7 @@ class PET(ModelInterface):
                     selected_atoms,
                 )
                 for output_name in additive_contributions:
-                    output_quantities[output_name] = metatensor.torch.add(
+                    output_quantities[output_name] = mts.add(
                         output_quantities[output_name],
                         additive_contributions[output_name],
                     )

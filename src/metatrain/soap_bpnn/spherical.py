@@ -3,7 +3,7 @@
 import copy
 from typing import Dict, Optional
 
-import metatensor.torch
+import metatensor.torch as mts
 import numpy as np
 import sphericart.torch
 import torch
@@ -92,7 +92,7 @@ class VectorBasis(torch.nn.Module):
             atom_index_in_structure,
         )
         if selected_atoms is not None:
-            spherical_expansion = metatensor.torch.slice(
+            spherical_expansion = mts.slice(
                 spherical_expansion, "samples", selected_atoms
             )
 
@@ -104,7 +104,7 @@ class VectorBasis(torch.nn.Module):
         )
 
         # drop all L=0 blocks
-        spherical_expansion = metatensor.torch.drop_blocks(
+        spherical_expansion = mts.drop_blocks(
             spherical_expansion,
             keys=Labels(
                 ["o3_lambda", "o3_sigma"], torch.tensor([[0, 1]], device=device)
@@ -358,11 +358,9 @@ class TensorBasis(torch.nn.Module):
                 atom_index_in_structure,
             )
             if selected_atoms is not None:
-                lambda_basis = metatensor.torch.slice(
-                    lambda_basis, "samples", selected_atoms
-                )
+                lambda_basis = mts.slice(lambda_basis, "samples", selected_atoms)
             lambda_basis = lambda_basis.keys_to_properties(self.neighbor_species_labels)
-            lambda_basis = metatensor.torch.drop_blocks(
+            lambda_basis = mts.drop_blocks(
                 lambda_basis,
                 keys=Labels(
                     ["o3_lambda", "o3_sigma"],

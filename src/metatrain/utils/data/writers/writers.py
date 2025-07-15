@@ -2,7 +2,7 @@ from abc import ABC, abstractmethod
 from pathlib import Path
 from typing import Dict, List, Optional, Union
 
-import metatensor.torch
+import metatensor.torch as mts
 import torch
 from metatensor.torch import Labels, TensorBlock, TensorMap
 from metatomic.torch import ModelCapabilities, System
@@ -46,7 +46,7 @@ def _split_tensormaps(
         for i in range(len(systems))
     ]
     batch_predictions_split = {
-        key: metatensor.torch.split(tensormap, "samples", split_selection)
+        key: mts.split(tensormap, "samples", split_selection)
         for key, tensormap in batch_predictions.items()
     }
 

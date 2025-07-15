@@ -1,7 +1,7 @@
 from pathlib import Path
 from typing import Dict, List, Optional, Union
 
-import metatensor.torch
+import metatensor.torch as mts
 import numpy as np
 import torch
 from metatensor.torch import Labels, TensorBlock, TensorMap
@@ -241,7 +241,7 @@ class LLPRUncertaintyModel(torch.nn.Module):
                 ],
             )
 
-            return_dict[uncertainty_name] = metatensor.torch.multiply(
+            return_dict[uncertainty_name] = mts.multiply(
                 uncertainty, float(self._get_multiplier(uncertainty_name).item())
             )
 
