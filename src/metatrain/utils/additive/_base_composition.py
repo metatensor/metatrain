@@ -49,12 +49,16 @@ class BaseCompositionModel(torch.nn.Module):
         """
         super().__init__()
 
-        self.atomic_types = torch.as_tensor(atomic_types, dtype=torch.int32)
-        self.target_names: List[str] = []
-        self.sample_kinds: Dict[str, str] = {}
-        self.XTX: Dict[str, TensorMap] = {}
-        self.XTY: Dict[str, TensorMap] = {}
-        self.weights: Dict[str, TensorMap] = {}
+        self.atomic_types: torch.Tensor  # mypy does not understand register_buffer
+        self.register_buffer(
+            "atomic_types",
+            torch.as_tensor(atomic_types, dtype=torch.int32),
+        )
+        self.target_names = []
+        self.sample_kinds = {}
+        self.XTX = {}
+        self.XTY = {}
+        self.weights = {}
         self.is_fitted: Dict[str, bool] = {}
 
         # go from an atomic type to its position in `self.atomic_types`
