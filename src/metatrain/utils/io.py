@@ -164,7 +164,8 @@ def load_model(
 
 
 def model_from_checkpoint(
-    path: Union[str, Path], context=Literal["restart", "finetune", "export"]
+    path: Union[str, Path],
+    context: Literal["restart", "finetune", "export"],
 ) -> torch.nn.Module:
     """
     Load the checkpoint at the given ``path``, and create the corresponding model
@@ -182,13 +183,39 @@ def model_from_checkpoint(
         )
     architecture = import_architecture(architecture_name)
 
+    model_ckpt_version = checkpoint.get("model_ckpt_version")
+    ckpt_before_versionning = model_ckpt_version is None
+    if ckpt_before_versionning:
+        # assume version 1 and try our best
+        model_ckpt_version = 1
+        checkpoint["model_ckpt_version"] = model_ckpt_version
+
+    if model_ckpt_version != architecture.__model__.__checkpoint_version__:
+        try:
+            if ckpt_before_versionning:
+                warnings.warn(
+                    "trying to upgrade an old model checkpoint with unknown "
+                    "version, this might fail and require manual modifications",
+                    stacklevel=1,
+                )
+
+            checkpoint = architecture.__model__.upgrade_checkpoint(checkpoint)
+        except Exception as e:
+            raise RuntimeError(
+                f"Unable to load the model checkpoint from '{path}' for "
+                f"the '{architecture_name}' architecture: the checkpoint is using "
+                f"version {model_ckpt_version}, while the current version is "
+                f"{architecture.__model__.__checkpoint_version__}; and trying to "
+                "upgrade the checkpoint failed."
+            ) from e
+
     try:
         return architecture.__model__.load_checkpoint(checkpoint, context=context)
-    except Exception as err:
+    except Exception as e:
         raise ValueError(
-            f"path '{path}' is not a valid checkpoint for the {architecture_name} "
-            "architecture"
-        ) from err
+            f"the file at '{path}' does not contain a valid checkpoint for "
+            f"the '{architecture_name}' architecture"
+        ) from e
 
 
 def trainer_from_checkpoint(
@@ -212,9 +239,35 @@ def trainer_from_checkpoint(
         )
     architecture = import_architecture(architecture_name)
 
+    trainer_ckpt_version = checkpoint.get("trainer_ckpt_version")
+    ckpt_before_versionning = trainer_ckpt_version is None
+    if ckpt_before_versionning:
+        # assume version 1 and try our best
+        trainer_ckpt_version = 1
+        checkpoint["trainer_ckpt_version"] = trainer_ckpt_version
+
+    if trainer_ckpt_version != architecture.__trainer__.__checkpoint_version__:
+        try:
+            if ckpt_before_versionning:
+                warnings.warn(
+                    "trying to upgrade an old trainer checkpoint with unknown "
+                    "version, this might fail and require manual modifications",
+                    stacklevel=1,
+                )
+
+            checkpoint = architecture.__trainer__.upgrade_checkpoint(checkpoint)
+        except Exception as e:
+            raise RuntimeError(
+                f"Unable to load the trainer checkpoint from '{path}' for "
+                f"the '{architecture_name}' architecture: the checkpoint is using "
+                f"version {trainer_ckpt_version}, while the current version is "
+                f"{architecture.__trainer__.__checkpoint_version__}; and trying to "
+                "upgrade the checkpoint failed."
+            ) from e
+
     try:
         return architecture.__trainer__.load_checkpoint(
-            checkpoint, context=context, train_hypers=hypers
+            checkpoint, context=context, hypers=hypers
         )
     except Exception as err:
         raise ValueError(

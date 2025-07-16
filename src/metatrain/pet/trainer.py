@@ -50,8 +50,11 @@ def get_scheduler(optimizer, train_hypers):
 
 
 class Trainer(TrainerInterface):
-    def __init__(self, train_hypers):
-        self.hypers = train_hypers
+    __checkpoint_version__ = 1
+
+    def __init__(self, hypers):
+        super().__init__(hypers)
+
         self.optimizer_state_dict = None
         self.scheduler_state_dict = None
         self.epoch = None
@@ -388,10 +391,6 @@ class Trainer(TrainerInterface):
             val_loss = 0.0
             for batch in val_dataloader:
                 systems, targets, extra_data = batch
-                # systems = [system.to(device=device) for system in systems]
-                # targets = {
-                #     key: value.to(device=device) for key, value in targets.items()
-                # }
                 systems, targets, extra_data = batch_to(
                     systems, targets, extra_data, device=device
                 )
@@ -528,6 +527,8 @@ class Trainer(TrainerInterface):
     def save_checkpoint(self, model, path: Union[str, Path]):
         checkpoint = {
             "architecture_name": "pet",
+            "model_ckpt_version": model.__checkpoint_version__,
+            "trainer_ckpt_version": self.__checkpoint_version__,
             "metadata": model.__default_metadata__,
             "model_data": {
                 "model_hypers": model.hypers,
@@ -551,7 +552,7 @@ class Trainer(TrainerInterface):
     def load_checkpoint(
         cls,
         checkpoint: Dict[str, Any],
-        train_hypers: Dict[str, Any],
+        hypers: Dict[str, Any],
         context: Literal["restart", "finetune"],
     ) -> "Trainer":
         epoch = checkpoint["epoch"]
@@ -562,7 +563,7 @@ class Trainer(TrainerInterface):
         best_optimizer_state_dict = checkpoint["best_optimizer_state_dict"]
 
         # Create the trainer
-        trainer = cls(train_hypers)
+        trainer = cls(hypers)
         trainer.optimizer_state_dict = optimizer_state_dict
         trainer.scheduler_state_dict = scheduler_state_dict
         trainer.epoch = epoch
@@ -571,3 +572,7 @@ class Trainer(TrainerInterface):
         trainer.best_optimizer_state_dict = best_optimizer_state_dict
 
         return trainer
+
+    @staticmethod
+    def upgrade_checkpoint(checkpoint: Dict) -> Dict:
+        raise NotImplementedError("checkpoint upgrade is not implemented for PET")

@@ -117,12 +117,12 @@ def _check_tensor_map_metadata(tensor_map: TensorMap, layout: TensorMap):
         for name in block_from_layout.gradients_list():
             gradient_block = block.gradient(name)
             gradient_block_from_layout = block_from_layout.gradient(name)
-            if gradient_block.labels.names != gradient_block_from_layout.labels.names:
+            if gradient_block.samples.names != gradient_block_from_layout.samples.names:
                 raise ValueError(
                     f"Unexpected samples in metatensor targets "
                     f"for `{name}` gradient block: "
-                    f"expected: {gradient_block_from_layout.labels.names} "
-                    f"actual: {gradient_block.labels.names}"
+                    f"expected: {gradient_block_from_layout.samples.names} "
+                    f"actual: {gradient_block.samples.names}"
                 )
             if gradient_block.components != gradient_block_from_layout.components:
                 raise ValueError(

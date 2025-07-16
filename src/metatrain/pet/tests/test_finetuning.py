@@ -1,5 +1,6 @@
 import shutil
 
+import pytest
 import torch
 from omegaconf import OmegaConf
 
@@ -39,6 +40,35 @@ def test_lora_finetuning_functionality():
     num_trainable_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
     num_params = sum(p.numel() for p in model.parameters())
     assert num_trainable_params < num_params
+
+
+@pytest.mark.parametrize("device", ["cpu", "cuda"])
+def test_lora_finetuning_device(device):
+    if device == "cuda" and not torch.cuda.is_available():
+        pytest.skip("CUDA is not available")
+
+    target_info_dict = {}
+    target_info_dict["energy"] = get_energy_target_info(
+        {"quantity": "energy", "unit": "eV"}
+    )
+    dataset_info = DatasetInfo(
+        length_unit="Angstrom", atomic_types=[1, 6, 7, 8], targets=target_info_dict
+    )
+
+    model = PET(MODEL_HYPERS, dataset_info)
+
+    finetuning_strategy = {
+        "method": "lora",
+        "config": {
+            "target_modules": ["input_linear", "output_linear"],
+            "rank": 4,
+            "alpha": 8,
+        },
+    }
+
+    model = apply_finetuning_strategy(model, finetuning_strategy)
+    for param in model.parameters():
+        assert param.device.type == device, f"Parameter {param.name} is not on {device}"
 
 
 def test_heads_finetuning_functionality():

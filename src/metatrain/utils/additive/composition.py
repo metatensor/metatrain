@@ -18,8 +18,8 @@ class CompositionModel(torch.nn.Module):
     A simple model that calculates the per-species contributions to targets
     based on the stoichiometry in a system.
 
-    :param model_hypers: A dictionary of model hyperparameters. The paramater is ignored
-        and is only present to be consistent with the general model API.
+    :param hypers: A dictionary of model hyperparameters. This parameter is ignored and
+        is only present to be consistent with the general model API.
     :param dataset_info: An object containing information about the dataset, including
         target quantities and atomic types.
     """
@@ -27,16 +27,12 @@ class CompositionModel(torch.nn.Module):
     # Needed for torchscript compatibility
     outputs: Dict[str, ModelOutput]
 
-    def __init__(
-        self,
-        model_hypers: Dict,
-        dataset_info: DatasetInfo,
-    ) -> None:
+    def __init__(self, hypers: Dict, dataset_info: DatasetInfo):
         super().__init__()
 
-        # `model_hypers` should be an empty dictionary
+        # `hypers` should be an empty dictionary
         validate(
-            instance=model_hypers,
+            instance=hypers,
             schema={"type": "object", "additionalProperties": False},
         )
 
@@ -70,7 +66,6 @@ class CompositionModel(torch.nn.Module):
                 for target_name, target_info in self.target_infos.items()
             },
         )
-        self.weights: Dict[str, TensorMap] = {}
         self.outputs: Dict[str, ModelOutput] = {}
 
         # keeps track of dtype and device of the composition model
@@ -131,16 +126,13 @@ class CompositionModel(torch.nn.Module):
         # fit
         self.model.fit(fixed_weights)
 
-        # copy the weights from the base_model composition model to this one
-        self.weights.update(self.model.weights)
-
         # update the buffer weights now they are fitted
-        for target_name in self.weights.keys():
+        for target_name in self.model.weights.keys():
             self.register_buffer(
                 target_name + "_composition_buffer",
                 mts.save_buffer(
                     mts.make_contiguous(
-                        self.weights[target_name].to("cpu", torch.float64)
+                        self.model.weights[target_name].to("cpu", torch.float64)
                     )
                 ).to(self.dummy_buffer.device),
             )
@@ -181,7 +173,7 @@ class CompositionModel(torch.nn.Module):
 
         # register new outputs
         for target_name, target_info in self.target_infos.items():
-            self.model._add_output(target_name, target_info.layout)
+            self.model.add_output(target_name, target_info.layout)
             self._add_output(target_name, target_info)
 
         return self
@@ -227,28 +219,7 @@ class CompositionModel(torch.nn.Module):
             unit=target_info.unit,
             per_atom=True,
         )
-        self.weights[target_name] = TensorMap(
-            target_info.layout.keys,
-            blocks=[
-                TensorBlock(
-                    values=torch.zeros(
-                        len(self.atomic_types),
-                        *[len(c) for c in block.components],
-                        len(block.properties),
-                        dtype=torch.float64,
-                    ),
-                    samples=Labels(
-                        ["center_type"],
-                        torch.tensor(self.atomic_types, dtype=torch.int32).reshape(
-                            -1, 1
-                        ),
-                    ),
-                    components=block.components,
-                    properties=block.properties,
-                )
-                for block in target_info.layout
-            ],
-        )
+
         fake_weights = TensorMap(
             keys=self.dataset_info.targets[target_name].layout.keys,
             blocks=[
@@ -274,14 +245,7 @@ class CompositionModel(torch.nn.Module):
             mts.save_buffer(mts.make_contiguous(fake_weights)),
         )
 
-    def _move_weights_to_device_and_dtype(
-        self, device: torch.device, dtype: torch.dtype
-    ):
-        if len(self.weights) != 0:
-            if self.weights[list(self.weights.keys())[0]].device != device:
-                self.weights = {k: v.to(device) for k, v in self.weights.items()}
-            if self.weights[list(self.weights.keys())[0]].dtype != dtype:
-                self.weights = {k: v.to(dtype) for k, v in self.weights.items()}
+    def weights_to(self, device: torch.device, dtype: torch.dtype):
         if len(self.model.weights) != 0:
             if self.model.weights[list(self.model.weights.keys())[0]].device != device:
                 self.model.weights = {
@@ -320,9 +284,6 @@ class CompositionModel(torch.nn.Module):
         # Reload the weights of the (old) targets, which are not stored in the model
         # state_dict, from the buffers
         for k in self.dataset_info.targets:
-            self.weights[k] = mts.load_buffer(
+            self.model.weights[k] = mts.load_buffer(
                 self.__getattr__(k + "_composition_buffer")
             )
-            # The weights also need to be copied to the underlying base composition
-            # model
-            self.model.weights[k] = self.weights[k]

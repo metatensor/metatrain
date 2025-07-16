@@ -2,16 +2,19 @@ import os
 from pathlib import Path
 
 import pytest
+import torch
 from metatomic.torch import AtomisticModel
 
 from metatrain.soap_bpnn.model import SoapBpnn
-from metatrain.utils.io import check_file_extension, is_exported_file, load_model
+from metatrain.utils.io import (
+    check_file_extension,
+    is_exported_file,
+    load_model,
+    model_from_checkpoint,
+    trainer_from_checkpoint,
+)
 
 from . import RESOURCES_PATH
-
-
-def is_None(*args, **kwargs) -> None:
-    return None
 
 
 @pytest.mark.parametrize("filename", ["example.txt", Path("example.txt")])
@@ -52,6 +55,42 @@ def test_load_model_checkpoint(path):
     # TODO: test that weights are the expected if loading with `context == 'export'`.
     # One can use `list(model.bpnn[0].parameters())[0][0]` to get some weights. But,
     # currently weights of the `"export"` and the `"restart"` context are the same...
+
+
+def test_load_model_checkpoint_wrong_version(monkeypatch, tmp_path):
+    monkeypatch.chdir(tmp_path)
+    path = RESOURCES_PATH / "model-64-bit.ckpt"
+    model = torch.load(path, weights_only=False, map_location="cpu")
+    model["model_ckpt_version"] = 5000000
+
+    file = "model-version-5000000.ckpt"
+    torch.save(model, file)
+
+    message = (
+        "Unable to load the model checkpoint from 'model-version-5000000.ckpt' "
+        "for the 'soap_bpnn' architecture: the checkpoint is using version 5000000, "
+        "while the current version is 1; and trying to upgrade the checkpoint failed."
+    )
+    with pytest.raises(RuntimeError, match=message):
+        model_from_checkpoint(file, context="restart")
+
+
+def test_load_trainer_checkpoint_wrong_version(monkeypatch, tmp_path):
+    monkeypatch.chdir(tmp_path)
+    path = RESOURCES_PATH / "model-64-bit.ckpt"
+    model = torch.load(path, weights_only=False, map_location="cpu")
+    model["trainer_ckpt_version"] = 5000000
+
+    file = "model-version-5000000.ckpt"
+    torch.save(model, file)
+
+    message = (
+        "Unable to load the trainer checkpoint from 'model-version-5000000.ckpt' "
+        "for the 'soap_bpnn' architecture: the checkpoint is using version 5000000, "
+        "while the current version is 1; and trying to upgrade the checkpoint failed."
+    )
+    with pytest.raises(RuntimeError, match=message):
+        trainer_from_checkpoint(file, context="restart", hypers={})
 
 
 @pytest.mark.parametrize(

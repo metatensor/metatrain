@@ -89,7 +89,7 @@ def test_old_composition_model_train():
     dataset = Dataset.from_dict({"system": systems, "energy": energies})
 
     composition_model = OldCompositionModel(
-        model_hypers={},
+        hypers={},
         dataset_info=DatasetInfo(
             length_unit="angstrom",
             atomic_types=[1, 8],
@@ -216,7 +216,7 @@ def test_composition_model_train():
     dataloader = DataLoader(dataset, batch_size=1, collate_fn=collate_fn)
 
     composition_model = CompositionModel(
-        model_hypers={},
+        hypers={},
         dataset_info=DatasetInfo(
             length_unit="angstrom",
             atomic_types=[1, 8],
@@ -279,7 +279,7 @@ def test_old_composition_model_predict():
     dataset = Dataset.from_dict({"system": systems, "mtt::U0": targets["mtt::U0"]})
 
     composition_model = OldCompositionModel(
-        model_hypers={},
+        hypers={},
         dataset_info=DatasetInfo(
             length_unit="angstrom",
             atomic_types=[1, 6, 7, 8],
@@ -360,7 +360,7 @@ def test_composition_model_predict():
     dataloader = DataLoader(dataset, batch_size=1, collate_fn=collate_fn)
 
     composition_model = CompositionModel(
-        model_hypers={},
+        hypers={},
         dataset_info=DatasetInfo(
             length_unit="angstrom",
             atomic_types=[1, 6, 7, 8],
@@ -429,7 +429,7 @@ def test_old_composition_model_torchscript(tmpdir):
     )
 
     composition_model = OldCompositionModel(
-        model_hypers={},
+        hypers={},
         dataset_info=DatasetInfo(
             length_unit="angstrom",
             atomic_types=[1, 8],
@@ -460,7 +460,7 @@ def test_composition_model_torchscript(tmpdir):
     )
 
     composition_model = CompositionModel(
-        model_hypers={},
+        hypers={},
         dataset_info=DatasetInfo(
             length_unit="angstrom",
             atomic_types=[1, 8],
@@ -507,7 +507,7 @@ def test_old_remove_additive():
     dataset = Dataset.from_dict({"system": systems, "mtt::U0": targets["mtt::U0"]})
 
     composition_model = OldCompositionModel(
-        model_hypers={},
+        hypers={},
         dataset_info=DatasetInfo(
             length_unit="angstrom",
             atomic_types=[1, 6, 7, 8],
@@ -556,7 +556,7 @@ def test_remove_additive():
     dataloader = DataLoader(dataset, batch_size=1, collate_fn=collate_fn)
 
     composition_model = CompositionModel(
-        model_hypers={},
+        hypers={},
         dataset_info=DatasetInfo(
             length_unit="angstrom",
             atomic_types=[1, 6, 7, 8],
@@ -639,7 +639,7 @@ def test_old_composition_model_missing_types(caplog):
     dataset = Dataset.from_dict({"system": systems, "energy": energies})
 
     composition_model = OldCompositionModel(
-        model_hypers={},
+        hypers={},
         dataset_info=DatasetInfo(
             length_unit="angstrom",
             atomic_types=[1],
@@ -653,7 +653,7 @@ def test_old_composition_model_missing_types(caplog):
         composition_model.train_model(dataset, [])
 
     composition_model = OldCompositionModel(
-        model_hypers={},
+        hypers={},
         dataset_info=DatasetInfo(
             length_unit="angstrom",
             atomic_types=[1, 8, 100],
@@ -730,7 +730,7 @@ def test_composition_model_missing_types(caplog):
     dataloader = DataLoader(dataset, batch_size=1, collate_fn=collate_fn)
 
     composition_model = CompositionModel(
-        model_hypers={},
+        hypers={},
         dataset_info=DatasetInfo(
             length_unit="angstrom",
             atomic_types=[1],
@@ -750,7 +750,7 @@ def test_old_composition_model_wrong_target():
     """
     with pytest.raises(ValueError, match="does not support target quantity force"):
         OldCompositionModel(
-            model_hypers={},
+            hypers={},
             dataset_info=DatasetInfo(
                 length_unit="angstrom",
                 atomic_types=[1],
@@ -775,7 +775,7 @@ def test_composition_model_wrong_target():
     """
     with pytest.raises(ValueError, match="does not support target quantity force"):
         CompositionModel(
-            model_hypers={},
+            hypers={},
             dataset_info=DatasetInfo(
                 length_unit="angstrom",
                 atomic_types=[1],
@@ -820,7 +820,7 @@ def test_zbl():
     _, target_info = read_targets(OmegaConf.create(conf))
 
     zbl = ZBL(
-        model_hypers={},
+        hypers={},
         dataset_info=DatasetInfo(
             length_unit="angstrom",
             atomic_types=[1, 6, 7, 8],
@@ -948,7 +948,7 @@ def test_old_composition_model_train_per_atom(where_is_center_type):
     dataset = Dataset.from_dict({"system": systems, "energy": energies})
 
     composition_model = OldCompositionModel(
-        model_hypers={},
+        hypers={},
         dataset_info=DatasetInfo(
             length_unit="angstrom",
             atomic_types=[1, 8],
@@ -1071,7 +1071,7 @@ def test_composition_model_train_per_atom(where_is_center_type):
     dataloader = DataLoader(dataset, batch_size=1, collate_fn=collate_fn)
 
     composition_model = CompositionModel(
-        model_hypers={},
+        hypers={},
         dataset_info=DatasetInfo(
             length_unit="angstrom",
             atomic_types=[1, 8],
@@ -1179,7 +1179,7 @@ def test_old_composition_many_subtargets():
     dataset = Dataset.from_dict({"system": systems, "energy": energies})
 
     composition_model = OldCompositionModel(
-        model_hypers={},
+        hypers={},
         dataset_info=DatasetInfo(
             length_unit="angstrom",
             atomic_types=[1, 8],
@@ -1291,7 +1291,7 @@ def test_composition_many_subtargets():
     dataloader = DataLoader(dataset, batch_size=1, collate_fn=collate_fn)
 
     composition_model = CompositionModel(
-        model_hypers={},
+        hypers={},
         dataset_info=DatasetInfo(
             length_unit="angstrom",
             atomic_types=[1, 8],
@@ -1418,7 +1418,7 @@ def test_old_composition_spherical():
     dataset = Dataset.from_dict({"system": systems, "energy": energies})
 
     composition_model = OldCompositionModel(
-        model_hypers={},
+        hypers={},
         dataset_info=DatasetInfo(
             length_unit="angstrom",
             atomic_types=[1, 8],
@@ -1562,7 +1562,7 @@ def test_composition_spherical():
     dataloader = DataLoader(dataset, batch_size=1, collate_fn=collate_fn)
 
     composition_model = CompositionModel(
-        model_hypers={},
+        hypers={},
         dataset_info=DatasetInfo(
             length_unit="angstrom",
             atomic_types=[1, 8],

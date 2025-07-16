@@ -52,6 +52,7 @@ class NanoPET(ModelInterface):
     and the third to the features.
     """
 
+    __checkpoint_version__ = 1
     __supported_devices__ = ["cuda", "cpu"]
     __supported_dtypes__ = [torch.float64, torch.float32]
     __default_metadata__ = ModelMetadata(
@@ -60,12 +61,9 @@ class NanoPET(ModelInterface):
 
     component_labels: Dict[str, List[List[Labels]]]
 
-    def __init__(self, model_hypers: Dict, dataset_info: DatasetInfo) -> None:
-        super().__init__()
-        # checks on targets inside the RotationalAugmenter class in the trainer
+    def __init__(self, hypers: Dict, dataset_info: DatasetInfo) -> None:
+        super().__init__(hypers, dataset_info)
 
-        self.hypers = model_hypers
-        self.dataset_info = dataset_info
         self.new_outputs = list(dataset_info.targets.keys())
         self.atomic_types = dataset_info.atomic_types
 
@@ -153,7 +151,7 @@ class NanoPET(ModelInterface):
         # additive models: these are handled by the trainer at training
         # time, and they are added to the output at evaluation time
         composition_model = OldCompositionModel(
-            model_hypers={},
+            hypers={},
             dataset_info=DatasetInfo(
                 length_unit=dataset_info.length_unit,
                 atomic_types=self.atomic_types,
@@ -183,7 +181,7 @@ class NanoPET(ModelInterface):
         self.additive_models = torch.nn.ModuleList(additive_models)
 
         # scaler: this is also handled by the trainer at training time
-        self.scaler = Scaler(model_hypers={}, dataset_info=dataset_info)
+        self.scaler = Scaler(hypers={}, dataset_info=dataset_info)
 
         self.single_label = Labels.single()
 
@@ -571,7 +569,10 @@ class NanoPET(ModelInterface):
             raise ValueError("Unknown context tag for checkpoint loading!")
 
         # Create the model
-        model = cls(**model_data)
+        model = cls(
+            hypers=model_data["model_hypers"],
+            dataset_info=model_data["dataset_info"],
+        )
         state_dict_iter = iter(model_state_dict.values())
         next(state_dict_iter)  # skip `species_to_species_index` buffer (int)
         dtype = next(state_dict_iter).dtype
@@ -597,9 +598,7 @@ class NanoPET(ModelInterface):
 
         # Additionally, the composition model contains some `TensorMap`s that cannot
         # be registered correctly with Pytorch. This funciton moves them:
-        self.additive_models[0]._move_weights_to_device_and_dtype(
-            torch.device("cpu"), torch.float64
-        )
+        self.additive_models[0].weights_to(torch.device("cpu"), torch.float64)
 
         interaction_ranges = [self.hypers["num_gnn_layers"] * self.hypers["cutoff"]]
         for additive_model in self.additive_models:
@@ -702,6 +701,10 @@ class NanoPET(ModelInterface):
         self.property_labels[target_name] = [
             block.properties for block in target_info.layout.blocks()
         ]
+
+    @staticmethod
+    def upgrade_checkpoint(checkpoint: Dict) -> Dict:
+        raise NotImplementedError("checkpoint upgrade is not implemented for NanoPET")
 
 
 def manual_prod(shape: List[int]) -> int:

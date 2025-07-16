@@ -27,7 +27,7 @@ class OldCompositionModel(torch.nn.Module):
     weights: Dict[str, TensorMap]
     outputs: Dict[str, ModelOutput]
 
-    def __init__(self, model_hypers: Dict, dataset_info: DatasetInfo):
+    def __init__(self, hypers: Dict, dataset_info: DatasetInfo):
         warnings.warn(
             "`OldCompositionModel` composition model is deprecated."
             " Please use `CompositionModel` instead.",
@@ -37,7 +37,7 @@ class OldCompositionModel(torch.nn.Module):
 
         # `model_hypers` should be an empty dictionary
         validate(
-            instance=model_hypers,
+            instance=hypers,
             schema={"type": "object", "additionalProperties": False},
         )
 
@@ -403,7 +403,7 @@ class OldCompositionModel(torch.nn.Module):
         device = systems[0].positions.device
 
         # move weights (TensorMaps can't be treated as buffers for now)
-        self._move_weights_to_device_and_dtype(device, dtype)
+        self.weights_to(device, dtype)
 
         for output_name in outputs:
             if output_name not in self.weights:
@@ -526,9 +526,7 @@ class OldCompositionModel(torch.nn.Module):
             metatensor.torch.save_buffer(fake_weights),
         )
 
-    def _move_weights_to_device_and_dtype(
-        self, device: torch.device, dtype: torch.dtype
-    ):
+    def weights_to(self, device: torch.device, dtype: torch.dtype):
         if len(self.weights) != 0:
             if self.weights[list(self.weights.keys())[0]].device != device:
                 self.weights = {k: v.to(device) for k, v in self.weights.items()}

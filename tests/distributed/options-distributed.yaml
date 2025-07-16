@@ -4,7 +4,7 @@ device: cuda
 architecture:
   name: soap_bpnn
   training:
-    distributed: True
+    distributed: true
     batch_size: 25
     num_epochs: 100
 
@@ -16,7 +16,7 @@ training_set:
     energy:
       key: energy
       unit: eV
-      forces: on
+      forces: true
 
 test_set: 0.0
 validation_set: 0.5

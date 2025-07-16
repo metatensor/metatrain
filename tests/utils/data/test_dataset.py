@@ -280,7 +280,7 @@ def test_dataset_info_update_non_matching_length_unit(layout_scalar):
 
     match = (
         r"Can't update DatasetInfo with a different `length_unit`: "
-        r"\(angstrom != nanometer\)"
+        r"\('angstrom' != 'nanometer'\)"
     )
 
     with pytest.raises(ValueError, match=match):

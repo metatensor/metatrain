@@ -4,7 +4,9 @@
   "properties": {
     "name": {
       "type": "string",
-      "enum": ["soap_bpnn"]
+      "enum": [
+        "soap_bpnn"
+      ]
     },
     "model": {
       "type": "object",
@@ -53,7 +55,10 @@
           "patternProperties": {
             ".*": {
               "type": "string",
-              "enum": ["linear", "mlp"]
+              "enum": [
+                "linear",
+                "mlp"
+              ]
             }
           },
           "additionalProperties": false
@@ -152,13 +157,65 @@
         },
         "best_model_metric": {
           "type": "string",
-          "enum": ["rmse_prod", "mae_prod", "loss"]
+          "enum": [
+            "rmse_prod",
+            "mae_prod",
+            "loss"
+          ]
         },
 
         "loss": {
           "type": "object",
-          "patternProperties": {
-            "^.+$": { "$ref": "#/definitions/lossTerm" }
+          "properties": {
+            "weights": {
+              "type": "object",
+              "patternProperties": {
+                ".*": {
+                  "type": "number"
+                }
+              },
+              "additionalProperties": false
+            },
+            "reduction": {
+              "type": "string",
+              "enum": [
+                "sum",
+                "mean",
+                "none"
+              ]
+            },
+            "type": {
+              "oneOf": [
+                {
+                  "type": "string",
+                  "enum": [
+                    "mse",
+                    "mae"
+                  ]
+                },
+                {
+                  "type": "object",
+                  "properties": {
+                    "huber": {
+                      "type": "object",
+                      "properties": {
+                        "deltas": {
+                          "type": "object",
+                          "patternProperties": {
+                            ".*": {
+                              "type": "number"
+                            }
+                          },
+                          "additionalProperties": false
+                        }
+                      },
+                      "additionalProperties": false
+                    }
+                  },
+                  "additionalProperties": false
+                }
+              ]
+            }
           },
           "additionalProperties": false
         }
@@ -167,7 +224,10 @@
     },
     "atomic_types": {
       "type": "array",
-      "items": { "type": "integer", "minimum": 1 },
+      "items": {
+        "type": "integer",
+        "minimum": 1
+      },
       "uniqueItems": true
     }
   },

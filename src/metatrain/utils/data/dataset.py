@@ -100,7 +100,7 @@ class DatasetInfo:
         if self.length_unit != other.length_unit:
             raise ValueError(
                 "Can't update DatasetInfo with a different `length_unit`: "
-                f"({self.length_unit} != {other.length_unit})"
+                f"('{self.length_unit}' != '{other.length_unit}')"
             )
 
         self.atomic_types = self.atomic_types + other.atomic_types
@@ -135,6 +135,16 @@ class DatasetInfo:
         new.update(other)
         return new
 
+    def __setstate__(self, state):
+        """
+        Custom ``__setstate__`` to allow loading old checkpoints where ``extra_data`` is
+        missing.
+        """
+        self.length_unit = state["length_unit"]
+        self._atomic_types = state["_atomic_types"]
+        self.targets = state["targets"]
+        self.extra_data = state.get("extra_data", {})
+
 
 def get_stats(dataset: Union[Dataset, Subset], dataset_info: DatasetInfo) -> str:
     """Returns the statistics of a dataset or subset as a string."""
@@ -163,7 +173,8 @@ def get_stats(dataset: Union[Dataset, Subset], dataset_info: DatasetInfo) -> str
             if "_gradients" not in key:  # not a gradient
                 tensors = [block.values for block in sample[key].blocks()]
             else:
-                original_key = key.split("_")[0]
+                # The name is <basename>_<gradname>_gradients
+                original_key = "_".join(key.split("_")[:-2])
                 gradient_name = key.replace(f"{original_key}_", "").replace(
                     "_gradients", ""
                 )
