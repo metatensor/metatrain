@@ -11,6 +11,7 @@ test_job:
   timeout: 2h
   script:
     - export CUDA_HOME="/usr/local/cuda"
+    - apt-get update && apt-get install -y libfftw3-dev
     - python3 -m pip install --upgrade pip
     - python3 -m pip install tox
     - tox
