@@ -56,12 +56,10 @@ def get_system_indices_and_node_sample_labels(
     return system_indices, node_sample_labels
 
 
-def get_edge_sample_labels(
-    systems: List[System],
+def get_edge_sample_labels_1_center(
     node_sample_labels: Labels,
-    nl_options: NeighborListOptions,
     device: torch.device,
-) -> List[Labels]:
+) -> Labels:
     """
     Builds the edge samples labels for the input ``systems``, based on the pre-computed
     neighbor list. Returns the labels for both the ``n_centers=1`` and ``n_centers=2``
@@ -84,13 +82,34 @@ def get_edge_sample_labels(
                 node_sample_labels.values[:, 1].unsqueeze(1),  # i == j
                 torch.zeros(  # cell shifts are 0
                     (node_sample_labels.values.shape[0], 3),
-                    dtype=node_sample_labels.values.dtype,
-                    device=node_sample_labels.values.device,
+                    dtype=torch.int32,
+                    device=device,
                 ),
             ]
         ),
     )
+    return edge_sample_labels_1_center
 
+
+def get_edge_sample_labels_2_center(
+    systems: List[System],
+    node_sample_labels: Labels,
+    nl_options: NeighborListOptions,
+    device: torch.device,
+) -> Labels:
+    """
+    Builds the edge samples labels for the input ``systems``, based on the pre-computed
+    neighbor list. Returns the labels for both the ``n_centers=1`` and ``n_centers=2``
+    blocks.
+    """
+    sample_names = [
+        "system",
+        "first_atom",
+        "second_atom",
+        "cell_shift_a",
+        "cell_shift_b",
+        "cell_shift_c",
+    ]
     edge_sample_values_2_center = []
     for system_idx, system in enumerate(systems):
         neighbor_list = system.get_neighbor_list(nl_options)
@@ -98,15 +117,22 @@ def get_edge_sample_labels(
 
         edge_sample_values_2_center.append(
             torch.hstack(
-                [torch.full((nl_values.shape[0], 1), system_idx), nl_values],
+                [
+                    torch.full(
+                        (nl_values.shape[0], 1),
+                        system_idx,
+                        dtype=torch.int32,
+                        device=device,
+                    ),
+                    nl_values
+                ],
             )
         )
     edge_sample_labels_2_center = Labels(
         sample_names,
         torch.vstack(edge_sample_values_2_center),
-    )
-
-    return [edge_sample_labels_1_center, edge_sample_labels_2_center]
+    ).to(device=device)
+    return edge_sample_labels_2_center
 
 
 def get_permutation_symmetrization_arrays(

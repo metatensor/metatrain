@@ -39,12 +39,6 @@ class CompositionModel(torch.nn.Module):
         self.dataset_info = dataset_info
         self.atomic_types = sorted(dataset_info.atomic_types)
 
-        self.register_buffer(
-            "type_to_index", torch.empty(max(self.atomic_types) + 1, dtype=torch.long)
-        )
-        for i, atomic_type in enumerate(self.atomic_types):
-            self.type_to_index[atomic_type] = i
-
         for target_name, target_info in dataset_info.targets.items():
             if not self.is_valid_target(target_name, target_info):
                 raise ValueError(
@@ -195,6 +189,11 @@ class CompositionModel(torch.nn.Module):
         :raises ValueError: If no weights have been computed or if `outputs` keys
             contain unsupported keys.
         """
+        dtype = systems[0].positions.dtype
+        device = systems[0].positions.device
+
+        self.weights_to(device, dtype)
+
         for output_name in outputs.keys():
             if output_name not in self.outputs:
                 raise ValueError(
@@ -255,6 +254,8 @@ class CompositionModel(torch.nn.Module):
                 self.model.weights = {
                     k: v.to(dtype) for k, v in self.model.weights.items()
                 }
+
+        self.model._sync_device_dtype(device, dtype)
 
     @staticmethod
     def is_valid_target(target_name: str, target_info: TargetInfo) -> bool:

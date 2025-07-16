@@ -19,7 +19,8 @@ from metatrain.utils.abc import ModelInterface
 from metatrain.utils.additive import ZBL, CompositionModel
 from metatrain.utils.basis import (
     extract_key_value,
-    get_edge_sample_labels,
+    get_edge_sample_labels_1_center,
+    get_edge_sample_labels_2_center,
     get_permutation_symmetrization_arrays,
     get_sample_labels_block,
     get_system_indices_and_node_sample_labels,
@@ -31,6 +32,7 @@ from metatrain.utils.metadata import merge_metadata
 from metatrain.utils.scaler import Scaler
 from metatrain.utils.sum_over_atoms import sum_over_atoms
 
+from . import checkpoints
 from .modules.finetuning import apply_finetuning_strategy
 from .modules.structures import remap_neighborlists, systems_to_batch
 from .modules.transformer import CartesianTransformer
@@ -46,7 +48,7 @@ class PET(ModelInterface):
 
     """
 
-    __checkpoint_version__ = 1
+    __checkpoint_version__ = 2
     __supported_devices__ = ["cuda", "cpu"]
     __supported_dtypes__ = [torch.float32, torch.float64]
     __default_metadata__ = ModelMetadata(
@@ -219,9 +221,7 @@ class PET(ModelInterface):
 
         return self
 
-    def requested_neighbor_lists(
-        self,
-    ) -> List[NeighborListOptions]:
+    def requested_neighbor_lists(self) -> List[NeighborListOptions]:
         return [self.requested_nl]
 
     def forward(
@@ -263,18 +263,11 @@ class PET(ModelInterface):
             systems, device
         )
         if any([kind == "per_pair" for kind in self.sample_kinds.values()]):
-            (
-                edge_sample_labels_1_center,
-                edge_sample_labels_2_center,
-            ) = get_edge_sample_labels(systems, node_sample_labels, nl_options, device)
+            edge_sample_labels_1_center = get_edge_sample_labels_1_center(node_sample_labels, device)
+            edge_sample_labels_2_center = get_edge_sample_labels_2_center(systems, node_sample_labels, nl_options, device)
         else:
-            (
-                edge_sample_labels_1_center,
-                edge_sample_labels_2_center,
-            ) = (
-                Labels("_", torch.empty(0).reshape(-1, 1)),
-                Labels("_", torch.empty(0).reshape(-1, 1)),
-            )
+            edge_sample_labels_1_center = Labels("_", torch.empty(0).reshape(-1, 1))
+            edge_sample_labels_2_center = Labels("_", torch.empty(0).reshape(-1, 1))
 
         # We convert a list of systems to a batch required for the PET model.
         # The batch consists of the following tensors: f
@@ -1109,7 +1102,12 @@ class PET(ModelInterface):
 
     @staticmethod
     def upgrade_checkpoint(checkpoint: Dict) -> Dict:
-        raise NotImplementedError("checkpoint upgrade is not implemented for PET")
+        if checkpoint["model_ckpt_version"] == 1:
+            checkpoints.update_v1_v2(checkpoint["model_state_dict"])
+            checkpoints.update_v1_v2(checkpoint["best_model_state_dict"])
+            checkpoint["model_ckpt_version"] = 2
+
+        return checkpoint
 
 
 def manual_prod(shape: List[int]) -> int:
