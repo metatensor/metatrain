@@ -93,7 +93,7 @@ def get_edge_sample_labels_1_center(
 
 def get_edge_sample_labels_2_center(
     systems: List[System],
-    node_sample_labels: Labels,
+    node_sample_labels: Labels,  # TODO: remove this argument
     nl_options: NeighborListOptions,
     device: torch.device,
 ) -> Labels:
