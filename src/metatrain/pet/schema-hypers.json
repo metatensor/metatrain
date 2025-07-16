@@ -198,65 +198,9 @@
           "type": "number"
         },
         "loss": {
-          "type": "object",
-          "properties": {
-            "weights": {
-              "type": "object",
-              "patternProperties": {
-                ".*": {
-                  "type": "number"
-                }
-              },
-              "additionalProperties": false
-            },
-            "reduction": {
-              "type": "string",
-              "enum": [
-                "sum",
-                "mean",
-                "none"
-              ]
-            },
-            "type": {
-              "oneOf": [
-                {
-                  "type": "string",
-                  "enum": [
-                    "mse",
-                    "mae"
-                  ]
-                },
-                {
-                  "type": "object",
-                  "properties": {
-                    "huber": {
-                      "type": "object",
-                      "properties": {
-                        "deltas": {
-                          "type": "object",
-                          "patternProperties": {
-                            ".*": {
-                              "type": "number"
-                            }
-                          },
-                          "additionalProperties": false
-                        }
-                      },
-                      "required": [
-                        "deltas"
-                      ],
-                      "additionalProperties": false
-                    }
-                  },
-                  "additionalProperties": false
-                }
-              ]
-            },
-            "sliding_factor": {
-              "type": [
-                "number",
-                "null"
-              ]
+          "patternProperties": {
+            "^.+$": {
+              "$ref": "#/definitions/lossTerm"
             }
           },
           "additionalProperties": false
