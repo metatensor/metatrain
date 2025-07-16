@@ -10,6 +10,7 @@ from torch.utils.data import DataLoader, DistributedSampler
 from metatrain.utils.abc import TrainerInterface
 from metatrain.utils.additive import remove_additive
 from metatrain.utils.augmentation import RotationalAugmenter
+from metatrain.utils.custom_loss import LossAggregator
 from metatrain.utils.data import (
     CollateFn,
     CombinedDataLoader,
@@ -21,10 +22,8 @@ from metatrain.utils.distributed.distributed_data_parallel import (
 )
 from metatrain.utils.distributed.slurm import DistributedEnvironment
 from metatrain.utils.evaluate_model import evaluate_model
-from metatrain.utils.external_naming import to_external_name
 from metatrain.utils.io import check_file_extension
 from metatrain.utils.logging import ROOT_LOGGER, MetricLogger
-from metatrain.utils.loss import TensorMapDictLoss
 from metatrain.utils.metrics import MAEAccumulator, RMSEAccumulator, get_selected_metric
 from metatrain.utils.neighbor_lists import (
     get_requested_neighbor_lists,
@@ -137,8 +136,8 @@ class Trainer(TrainerInterface):
 
         # Move the model to the device and dtype:
         model.to(device=device, dtype=dtype)
-        # The additive models of the SOAP-BPNN are always in float64 (to avoid
-        # numerical errors in the composition weights, which can be very large).
+        # The additive models of PET are always in float64 (to avoid numerical errors in
+        # the composition weights, which can be very large).
         for additive_model in model.additive_models:
             additive_model.to(dtype=torch.float64)
 
@@ -251,29 +250,22 @@ class Trainer(TrainerInterface):
             for gradient_name in target_info.gradients:
                 outputs_list.append(f"{target_name}_{gradient_name}_gradients")
 
-        # Create a loss weight dict:
-        loss_weights_dict = {}
-        for output_name in outputs_list:
-            loss_weights_dict[output_name] = (
-                self.hypers["loss"]["weights"][
-                    to_external_name(output_name, train_targets)
-                ]
-                if to_external_name(output_name, train_targets)
-                in self.hypers["loss"]["weights"]
-                else 1.0
-            )
-        loss_weights_dict_external = {
-            to_external_name(key, train_targets): value
-            for key, value in loss_weights_dict.items()
-        }
-        loss_hypers = copy.deepcopy(self.hypers["loss"])
-        loss_hypers["weights"] = loss_weights_dict
-        logging.info(f"Training with loss weights: {loss_weights_dict_external}")
-
         # Create a loss function:
-        loss_fn = TensorMapDictLoss(
-            **loss_hypers,
+        loss_hypers = copy.deepcopy(self.hypers.get("loss", {}))
+        loss_fn = LossAggregator(
+            targets=train_targets,
+            config=loss_hypers,
         )
+        logging.info("Using the following loss functions:")
+        for name, info in loss_fn.metadata.items():
+            logging.info(f"{name}:")
+            main = {k: v for k, v in info.items() if k != "gradients"}
+            logging.info(main)
+            if "gradients" not in info or len(info["gradients"]) == 0:
+                continue
+            logging.info("With gradients:")
+            for grad, ginfo in info["gradients"].items():
+                logging.info(f"\t{name}::{grad}: {ginfo}")
 
         if self.hypers["weight_decay"] is not None:
             optimizer = torch.optim.AdamW(
@@ -367,7 +359,7 @@ class Trainer(TrainerInterface):
                     predictions, systems, per_structure_targets
                 )
                 targets = average_by_num_atoms(targets, systems, per_structure_targets)
-                train_loss_batch = loss_fn(predictions, targets)
+                train_loss_batch = loss_fn(predictions, targets, extra_data)
                 train_loss_batch.backward()
                 torch.nn.utils.clip_grad_norm_(
                     model.parameters(), self.hypers["grad_clip_norm"]
@@ -426,8 +418,7 @@ class Trainer(TrainerInterface):
                     predictions, systems, per_structure_targets
                 )
                 targets = average_by_num_atoms(targets, systems, per_structure_targets)
-
-                val_loss_batch = loss_fn(predictions, targets)
+                val_loss_batch = loss_fn(predictions, targets, extra_data)
 
                 if is_distributed:
                     # sum the loss over all processes

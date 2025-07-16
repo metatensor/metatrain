@@ -98,10 +98,12 @@ class TensorMapLoss:
                     "TensorMapLoss requires the two TensorMaps to have the same "
                     "components."
                 )
-            if len(block_1.samples) != len(block_2.samples):
+            if not torch.all(
+                block_1.samples.values[:, 1:] == block_2.samples.values[:, 1:]
+            ):
                 raise ValueError(
                     "TensorMapLoss requires the two TensorMaps "
-                    "to have the same number of samples."
+                    "to have the same samples."
                 )
             for gradient_name in block_2.gradients_list():
                 if len(block_1.gradient(gradient_name).samples) != len(
@@ -154,9 +156,14 @@ class TensorMapLoss:
                 if self.sliding_weights is None
                 else self.sliding_weights.get("values", 1.0)
             )
-            loss += (
-                self.weight * self.losses["values"](values_1, values_2) / sliding_weight
-            )
+            if values_1.shape[0] == 0:
+                assert values_1.shape[0] == 0
+            else:
+                loss += (
+                    self.weight
+                    * self.losses["values"](values_1, values_2)
+                    / sliding_weight
+                )
             for gradient_name in block_2.gradients_list():
                 gradient_weight = self.gradient_weights[gradient_name]
                 values_1 = block_1.gradient(gradient_name).values
@@ -167,11 +174,14 @@ class TensorMapLoss:
                     if self.sliding_weights is None
                     else self.sliding_weights.get(gradient_name, 1.0)
                 )
-                loss += (
-                    gradient_weight
-                    * self.losses[gradient_name](values_1, values_2)
-                    / sliding_weigths_value
-                )
+                if values_1.shape[0] == 0:
+                    assert values_1.shape[0] == 0
+                else:
+                    loss += (
+                        gradient_weight
+                        * self.losses[gradient_name](values_1, values_2)
+                        / sliding_weigths_value
+                    )
         if self.sliding_factor is not None:
             self.sliding_weights = get_sliding_weights(
                 self.losses,

@@ -183,6 +183,12 @@
                                   },
                                   "o3_sigma": {
                                     "type": "number"
+                                  },
+                                  "n_centers": {
+                                    "type": "integer"
+                                  },
+                                  "s2_pi": {
+                                    "type": "number"
                                   }
                                 },
                                 "required": [
@@ -314,6 +320,12 @@
                                     "type": "integer"
                                   },
                                   "o3_sigma": {
+                                    "type": "number"
+                                  },
+                                  "n_centers": {
+                                    "type": "integer"
+                                  },
+                                  "s2_pi": {
                                     "type": "number"
                                   }
                                 },
