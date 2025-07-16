@@ -646,6 +646,16 @@ class LLPRUncertaintyModel(torch.nn.Module):
         model.inv_covariance_computed = True
         model.is_calibrated = True
 
+        # Loading the metadata from the checkpoint. By default, we don't
+        # know the origin of this metadata to choose between the wrapper
+        # metadata and the wrapped model metadata. Therefore, during
+        # `load_checkpoint`, just put the loaded metadata in the wrapper
+        # `__default_metadata__` dict.
+
+        metadata = checkpoint.get("metadata", None)
+        if metadata is not None:
+            model.__default_metadata__ = metadata
+
         return model
 
     def export(self, metadata: Optional[ModelMetadata] = None) -> AtomisticModel:
@@ -667,12 +677,18 @@ class LLPRUncertaintyModel(torch.nn.Module):
             pass
 
         if metadata is None:
-            metadata = self.__default_metadata__
+            # In the case of the default export with no metadata, we merge the
+            # LLPR wrapper default metadata with the wrapped model default metadata
+            metadata = merge_metadata(
+                self.__default_metadata__, self.model.export().metadata()
+            )
         else:
+            # Otherwise, we merge the LLPR wrapper metadata with the provided
+            # metadata. Note that if the wrapped model was loaded from a checkpoint
+            # its metadata will be stored in the wrapper `__default_metadata__` dict.
+            # Therefore, we only need to merge the `self.__default_metadata__` with
+            # the provided metadata during export.
             metadata = merge_metadata(self.__default_metadata__, metadata)
-
-        # also add the metadata of the wrapped model
-        metadata = merge_metadata(metadata, self.model.export().metadata())
 
         return AtomisticModel(self.eval(), metadata, self.capabilities)
 
