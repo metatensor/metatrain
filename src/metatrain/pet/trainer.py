@@ -170,9 +170,7 @@ class Trainer(TrainerInterface):
             val_samplers = [None] * len(val_datasets)
 
         # Create a collate function:
-        targets_keys = list(
-            (model.module if is_distributed else model).dataset_info.targets.keys()
-        )
+        targets_keys = list(model.dataset_info.targets.keys())
         collate_fn = CollateFn(target_keys=targets_keys)
 
         # Create dataloader for the training datasets:
