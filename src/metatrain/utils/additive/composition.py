@@ -9,6 +9,7 @@ from metatomic.torch import ModelOutput, System
 
 from ..data import DatasetInfo, TargetInfo
 from ..jsonschema import validate
+from ..transfer import batch_to
 from ._base_composition import BaseCompositionModel
 from .remove import remove_additive
 
@@ -92,9 +93,11 @@ class CompositionModel(torch.nn.Module):
         if fixed_weights is None:
             fixed_weights = {}
 
+        device = self.dummy_buffer.device
         # accumulate
         for batch in dataloader:
             systems, targets, _ = batch
+            systems, targets, _ = batch_to(systems, targets, device=device)
             # only accumulate the targets that do not use fixed weights
             targets = {
                 target_name: targets[target_name]
@@ -128,7 +131,7 @@ class CompositionModel(torch.nn.Module):
                     mts.make_contiguous(
                         self.model.weights[target_name].to("cpu", torch.float64)
                     )
-                ).to(self.dummy_buffer.device),
+                ).to(device),
             )
 
     def restart(self, dataset_info: DatasetInfo) -> "CompositionModel":
