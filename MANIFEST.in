@@ -9,6 +9,7 @@ prune examples
 prune tests
 prune .github
 prune .tox
+prune ci
 
 exclude .codecov.yml
 exclude .gitignore
@@ -18,5 +19,3 @@ exclude CONTRIBUTING.rst
 exclude tox.ini
 
 global-exclude *.py[cod] __pycache__/* *.so *.dylib
-
-recursive-include ci
