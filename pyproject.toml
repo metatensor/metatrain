@@ -123,9 +123,9 @@ filterwarnings = [
     # Sphericart double backward warning
     "ignore:Second derivatives of the spherical harmonics with respect to the Cartesian coordinates were not requested at class creation.",
     # OldCompositionModel deprecation warning
-    "ignore:`OldCompositionModel` composition model is deprecated. Please use `CompositionModel` instead."
-    "ignore:No libgomp shared library found in 'sphericart_torch.libs'."
-]# ignore" a bunch of internal warnings with Python 3.13 and PyTorch
+    "ignore:`OldCompositionModel` composition model is deprecated. Please use `CompositionModel` instead.",
+    "ignore:No libgomp shared library found in 'sphericart_torch.libs'.",
+] # ignore" a bunch of internal warnings with Python 3.13 and PyTorch
 
 [tool.yamlfix]
 line_length = 88
