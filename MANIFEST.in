@@ -19,4 +19,4 @@ exclude tox.ini
 
 global-exclude *.py[cod] __pycache__/* *.so *.dylib
 
-recursive-include ci *.yml *Containerfile
+recursive-exclude ci
