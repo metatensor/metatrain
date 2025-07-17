@@ -4,7 +4,8 @@ RUN apt update && \
 	apt install -y libfftw3-dev && \
 	apt clean
 
-RUN python3 -m pip install --upgrade pip && \
-	python3 -m pip install tox pytest pytest-cov pytest-xdist
+RUN which python && python -V && \
+  	python -m pip install --upgrade pip && \
+	python -m pip install tox pytest pytest-cov pytest-xdist
 
 ENV CUDA_HOME="/usr/local/cuda"
