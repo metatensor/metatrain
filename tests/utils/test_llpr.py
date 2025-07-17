@@ -135,3 +135,42 @@ def test_llpr(tmpdir):
     torch.testing.assert_close(
         analytical_uncertainty, ensemble_uncertainty, rtol=5e-3, atol=0.0
     )
+
+
+def test_llpr_metadata(tmpdir):
+    checkpoint = torch.load(
+        str(RESOURCES_PATH / "model-64-bit.ckpt"),
+        weights_only=False,
+        map_location="cpu",
+    )
+    metadata = ModelMetadata(
+        name="test",
+        description="test",
+        references={"architecture": ["TEST: https://arxiv.org/abs/1234.56789v1"]},
+    )
+    checkpoint["metadata"] = metadata
+    checkpoint_path = str(tmpdir / "model-64-bit-with-metadata.ckpt")
+    torch.save(checkpoint, checkpoint_path)
+
+    model_with_metadata = load_model(checkpoint_path)
+    model_without_metadata = load_model(str(RESOURCES_PATH / "model-64-bit.ckpt"))
+    llpr_model_with_metadata = LLPRUncertaintyModel(model_with_metadata)
+    llpr_model_without_metadata = LLPRUncertaintyModel(model_without_metadata)
+
+    metadata_1 = llpr_model_with_metadata.export().metadata()
+    metadata_2 = llpr_model_without_metadata.export().metadata()
+
+    exported_references_1 = metadata_1.references
+    exported_references_2 = metadata_2.references
+
+    assert metadata_1.name == "test"
+    assert metadata_1.description == "test"
+    assert any(["TEST" in ref for ref in exported_references_1["architecture"]])
+    assert any(["LLPR" in ref for ref in exported_references_1["architecture"]])
+    assert any(["LPR" in ref for ref in exported_references_1["architecture"]])
+
+    assert metadata_2.name == ""
+    assert metadata_2.description == ""
+    assert all(["TEST" not in ref for ref in exported_references_2["architecture"]])
+    assert any(["LLPR" in ref for ref in exported_references_2["architecture"]])
+    assert any(["LPR" in ref for ref in exported_references_2["architecture"]])
