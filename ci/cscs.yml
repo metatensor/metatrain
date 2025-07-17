@@ -10,7 +10,7 @@ variables:
 
 build_job:
   stage: build
-  extends: .container-builder-daint-gh200
+  extends: .container-builder-cscs-gh200
   variables:
     DOCKERFILE: ci/containers/Containerfile
 
