@@ -1,0 +1,5 @@
+FROM docker://nvcr.io/nvidia/pytorch:24.12-py3
+
+RUN apt update && \
+	apt install -y libfftw3-dev && \
+	apt clean
