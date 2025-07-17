@@ -16,6 +16,7 @@ exclude .readthedocs.yml
 exclude CODEOWNERS
 exclude CONTRIBUTING.rst
 exclude tox.ini
-exclude ci
 
 global-exclude *.py[cod] __pycache__/* *.so *.dylib
+
+recursive-include ci *.yml
