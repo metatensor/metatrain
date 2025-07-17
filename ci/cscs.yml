@@ -20,8 +20,7 @@ test_job:
   image: $PERSIST_IMAGE_NAME
   timeout: 2h
   script:
-#    - VIRTUALENV_SYSTEM_SITE_PACKAGES=true tox
-    - tox
+    - VIRTUALENV_SYSTEM_SITE_PACKAGES=true tox
   variables:
     SLURM_JOB_NUM_NODES: 1
     SLURM_PARTITION: normal
