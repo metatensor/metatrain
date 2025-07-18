@@ -434,9 +434,11 @@ class DiskDataset(torch.utils.data.Dataset):
     class.
 
     :param path: Path to the zip file containing the dataset.
+    :param fields: List of fields to read from the dataset.
+        If None, all fields will be read.
     """
 
-    def __init__(self, path: Union[str, Path]):
+    def __init__(self, path: Union[str, Path], fields: Optional[List[str]] = None):
         self.zip_file = zipfile.ZipFile(path, "r")
         self._field_names = ["system"]
         # check that we have at least one sample:
@@ -449,7 +451,23 @@ class DiskDataset(torch.utils.data.Dataset):
         for file_name in self.zip_file.namelist():
             if file_name.startswith("0/") and file_name.endswith(".mts"):
                 self._field_names.append(file_name[2:-4])
-        self._sample_class = namedtuple("Sample", self._field_names)
+
+        # Determine which fields are going to be read
+        if fields is None:
+            self._fields_to_read = self._field_names
+        else:
+            # Check that the requested fields are present in the dataset
+            fields = ["system", *fields]
+            missing_fields = set(fields) - set(self._field_names)
+            if missing_fields:
+                raise ValueError(
+                    f"Fields {list(missing_fields)} were requested but "
+                    "are not present in this disk dataset. "
+                    f"Available fields: {self._field_names[1:]}"
+                )
+            self._fields_to_read = fields
+
+        self._sample_class = namedtuple("Sample", self._fields_to_read)
         self._len = len([f for f in self.zip_file.namelist() if f.endswith(".mta")])
 
     def __len__(self):
@@ -457,7 +475,7 @@ class DiskDataset(torch.utils.data.Dataset):
 
     def __getitem__(self, index):
         system_and_targets = []
-        for field_name in self._field_names:
+        for field_name in self._fields_to_read:
             if field_name == "system":
                 with self.zip_file.open(f"{index}/system.mta", "r") as file:
                     system = load_system(file)
