@@ -83,6 +83,8 @@ def create_batch(
             forces_weight=None,  # [,]
             stress_weight=None,  # [,]
             virials_weight=None,  # [,]
+            dipole_weight=None,
+            charges_weight=None,
             forces=None,  # [n_nodes, 3]
             energy=None,  # [, ]
             stress=None,  # [1,3,3]
