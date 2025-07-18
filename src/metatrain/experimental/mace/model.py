@@ -28,7 +28,6 @@ from e3nn import o3
 
 from .utils.structures import create_batch
 
-
 class MetaMACE(ModelInterface):
     """Interface of MACE for metatrain."""
 
@@ -180,6 +179,11 @@ class MetaMACE(ModelInterface):
             n_types=len(self.atomic_types),
         )
 
+        # Change coordinates to YZX
+        data.positions = data.positions[:, [1, 2, 0]]
+        # Change coordinates from YZX to XYZ
+        #data.positions = data.positions[:, [2, 0, 1]]
+
         mace_output = self.mace_model(data, training=self.training)
 
         device = systems[0].device
@@ -270,19 +274,41 @@ class MetaMACE(ModelInterface):
         for output_name in outputs.keys():
             node_target = self.heads[output_name](node_features)
 
+            blocks = []
+            pointer = 0
+            for i in range(len(self.component_labels[output_name])):
+
+                components = self.component_labels[output_name][i]
+                properties = self.property_labels[output_name][i]
+
+                n_components = len(components[0]) if len(components) > 0 else 1
+                n_properties = len(properties)
+
+                end = pointer + n_components * n_properties
+
+                values = node_target[:, pointer:end].reshape(
+                    -1, n_properties, n_components,
+                ).transpose(1, 2)
+
+                blocks.append(
+                    TensorBlock(
+                        values=values,
+                        samples=atom_sample_labels,
+                        components=components,
+                        properties=properties,
+                    )
+                )
+                pointer = end
+
             atom_target = TensorMap(
                 keys=self.key_labels[output_name],
-                blocks=[
-                    TensorBlock(
-                        values=node_target.reshape(*node_target.shape, 1),
-                        samples=atom_sample_labels,
-                        components=self.component_labels[output_name][0],
-                        properties=self.property_labels[output_name][0],
-                    )
-                ]
+                blocks=blocks
             )
 
-            return_dict[output_name] = sum_over_atoms(atom_target)
+            if outputs[output_name].per_atom:
+                return_dict[output_name] = atom_target
+            else:
+                return_dict[output_name] = sum_over_atoms(atom_target)
 
             # last_layer_feature_tmap = TensorMap(
             #     keys=self.single_label,

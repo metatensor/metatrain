@@ -4,7 +4,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Literal, Union
 
 import torch
-import torch.distributed
+from torch.optim.lr_scheduler import LambdaLR
 from torch.utils.data import DataLoader, DistributedSampler
 
 from metatrain.utils.abc import TrainerInterface
@@ -35,6 +35,19 @@ from metatrain.utils.scaler import remove_scale
 from metatrain.utils.transfer import batch_to
 
 from .model import MetaMACE
+from metatrain.pet.modules.finetuning import apply_finetuning_strategy
+
+
+def get_scheduler(optimizer, train_hypers):
+    def func_lr_scheduler(epoch):
+        if epoch < train_hypers["num_epochs_warmup"]:
+            return epoch / train_hypers["num_epochs_warmup"]
+        delta = epoch - train_hypers["num_epochs_warmup"]
+        num_blocks = delta // train_hypers["scheduler_patience"]
+        return 0.5 ** (num_blocks)
+
+    scheduler = LambdaLR(optimizer, func_lr_scheduler)
+    return scheduler
 
 
 class Trainer(TrainerInterface):
@@ -59,6 +72,7 @@ class Trainer(TrainerInterface):
         assert dtype in MetaMACE.__supported_dtypes__
 
         is_distributed = self.hypers["distributed"]
+        is_finetune = "finetune" in self.hypers
 
         if is_distributed:
             distr_env = DistributedEnvironment(self.hypers["distributed_port"])
@@ -72,7 +86,7 @@ class Trainer(TrainerInterface):
             if len(devices) > 1:
                 raise ValueError(
                     "Requested distributed training with the `multi-gpu` device. "
-                    " If you want to run distributed training with NanoPET, please "
+                    " If you want to run distributed training with SOAP-BPNN, please "
                     "set `device` to cuda."
                 )
             # the calculation of the device number works both when GPUs on different
@@ -114,28 +128,16 @@ class Trainer(TrainerInterface):
                     # and doesn't require to reassign the system to the dataset:
                     get_system_with_neighbor_lists(system, requested_neighbor_lists)
 
+        # Apply fine-tuning strategy if provided
+        if is_finetune:
+            model = apply_finetuning_strategy(model, self.hypers["finetune"])
+
         # Move the model to the device and dtype:
         model.to(device=device, dtype=dtype)
         # The additive models of the SOAP-BPNN are always in float64 (to avoid
         # numerical errors in the composition weights, which can be very large).
         for additive_model in model.additive_models:
             additive_model.to(dtype=torch.float64)
-
-        logging.info("Calculating composition weights")
-        model.additive_models[0].train_model(  # this is the composition model
-            train_datasets,
-            model.additive_models[1:],
-            self.hypers["fixed_composition_weights"],
-        )
-
-        if self.hypers["scale_targets"]:
-            logging.info("Calculating scaling weights")
-            model.scaler.train_model(
-                train_datasets, model.additive_models, treat_as_additive=True
-            )
-
-        if is_distributed:
-            model = DistributedDataParallel(model, device_ids=[device])
 
         logging.info("Setting up data loaders")
 
@@ -169,6 +171,7 @@ class Trainer(TrainerInterface):
             (model.module if is_distributed else model).dataset_info.targets.keys()
         )
         collate_fn = CollateFn(target_keys=targets_keys)
+
         # Create dataloader for the training datasets:
         train_dataloaders = []
         for train_dataset, train_sampler in zip(train_datasets, train_samplers):
@@ -219,7 +222,22 @@ class Trainer(TrainerInterface):
             )
         val_dataloader = CombinedDataLoader(val_dataloaders, shuffle=False)
 
-        # Extract all the possible outputs and their gradients:
+        logging.info("Calculating composition weights")
+        model.additive_models[0].train_model(  # this is the composition model
+            train_dataloader,
+            model.additive_models[1:],
+            self.hypers["fixed_composition_weights"],
+        )
+
+        if self.hypers["scale_targets"]:
+            logging.info("Calculating scaling weights")
+            model.scaler.train_model(
+                train_datasets, model.additive_models, treat_as_additive=True
+            )
+
+        if is_distributed:
+            model = DistributedDataParallel(model, device_ids=[device])
+
         train_targets = (model.module if is_distributed else model).dataset_info.targets
         extra_data_info = (
             model.module if is_distributed else model
@@ -229,6 +247,7 @@ class Trainer(TrainerInterface):
             outputs_list.append(target_name)
             for gradient_name in target_info.gradients:
                 outputs_list.append(f"{target_name}_{gradient_name}_gradients")
+
         # Create a loss weight dict:
         loss_weights_dict = {}
         for output_name in outputs_list:
@@ -253,32 +272,35 @@ class Trainer(TrainerInterface):
             **loss_hypers,
         )
 
-        # Create an optimizer:
-        optimizer = torch.optim.Adam(
-            model.parameters(), lr=self.hypers["learning_rate"]
-        )
-        if self.optimizer_state_dict is not None:
+        if self.hypers["weight_decay"] is not None:
+            optimizer = torch.optim.AdamW(
+                model.parameters(),
+                lr=self.hypers["learning_rate"],
+                weight_decay=self.hypers["weight_decay"],
+            )
+        else:
+            optimizer = torch.optim.Adam(
+                model.parameters(), lr=self.hypers["learning_rate"]
+            )
+
+        if self.optimizer_state_dict is not None and not is_finetune:
             # try to load the optimizer state dict, but this is only possible
             # if there are no new targets in the model (new parameters)
             if not (model.module if is_distributed else model).has_new_targets:
                 optimizer.load_state_dict(self.optimizer_state_dict)
 
-        # Create a scheduler:
-        lr_scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
-            optimizer,
-            factor=self.hypers["scheduler_factor"],
-            patience=self.hypers["scheduler_patience"],
-        )
-        if self.scheduler_state_dict is not None:
+        lr_scheduler = get_scheduler(optimizer, self.hypers)
+
+        if self.scheduler_state_dict is not None and not is_finetune:
             # same as the optimizer, try to load the scheduler state dict
             if not (model.module if is_distributed else model).has_new_targets:
                 lr_scheduler.load_state_dict(self.scheduler_state_dict)
 
-        # per-atom targets:
         per_structure_targets = self.hypers["per_structure_targets"]
 
         # Log the initial learning rate:
         old_lr = optimizer.param_groups[0]["lr"]
+        logging.info(f"Base learning rate: {self.hypers['learning_rate']}")
         logging.info(f"Initial learning rate: {old_lr}")
 
         rotational_augmenter = RotationalAugmenter(
@@ -292,11 +314,11 @@ class Trainer(TrainerInterface):
             self.best_metric = float("inf")
         logging.info("Starting training")
         epoch = start_epoch
+
         for epoch in range(start_epoch, start_epoch + self.hypers["num_epochs"]):
             if is_distributed:
                 for train_sampler in train_samplers:
                     train_sampler.set_epoch(epoch)
-
             train_rmse_calculator = RMSEAccumulator(self.hypers["log_separate_blocks"])
             val_rmse_calculator = RMSEAccumulator(self.hypers["log_separate_blocks"])
             if self.hypers["log_mae"]:
@@ -342,20 +364,21 @@ class Trainer(TrainerInterface):
                     predictions, systems, per_structure_targets
                 )
                 targets = average_by_num_atoms(targets, systems, per_structure_targets)
-
                 train_loss_batch = loss_fn(predictions, targets)
                 train_loss_batch.backward()
-                torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
+                torch.nn.utils.clip_grad_norm_(
+                    model.parameters(), self.hypers["grad_clip_norm"]
+                )
                 optimizer.step()
 
                 if is_distributed:
                     # sum the loss over all processes
                     torch.distributed.all_reduce(train_loss_batch)
                 train_loss += train_loss_batch.item()
+
                 train_rmse_calculator.update(predictions, targets)
                 if self.hypers["log_mae"]:
                     train_mae_calculator.update(predictions, targets)
-
             finalized_train_info = train_rmse_calculator.finalize(
                 not_per_atom=["positions_gradients"] + per_structure_targets,
                 is_distributed=is_distributed,
@@ -373,10 +396,9 @@ class Trainer(TrainerInterface):
             val_loss = 0.0
             for batch in val_dataloader:
                 systems, targets, extra_data = batch
-                systems = [system.to(device=device) for system in systems]
-                targets = {
-                    key: value.to(device=device) for key, value in targets.items()
-                }
+                systems, targets, extra_data = batch_to(
+                    systems, targets, extra_data, device=device
+                )
                 for additive_model in (
                     model.module if is_distributed else model
                 ).additive_models:
@@ -386,12 +408,9 @@ class Trainer(TrainerInterface):
                 targets = remove_scale(
                     targets, (model.module if is_distributed else model).scaler
                 )
-                systems = [system.to(dtype=dtype) for system in systems]
-                targets = {key: value.to(dtype=dtype) for key, value in targets.items()}
-                extra_data = {
-                    key: value.to(device=device, dtype=dtype)
-                    for key, value in extra_data.items()
-                }
+                systems, targets, extra_data = batch_to(
+                    systems, targets, extra_data, dtype=dtype
+                )
                 predictions = evaluate_model(
                     model,
                     systems,
@@ -440,6 +459,7 @@ class Trainer(TrainerInterface):
                 scaler_scales = (
                     model.module if is_distributed else model
                 ).scaler.get_scales_dict()
+
                 metric_logger = MetricLogger(
                     log_obj=ROOT_LOGGER,
                     dataset_info=(
@@ -463,27 +483,25 @@ class Trainer(TrainerInterface):
                     rank=rank,
                 )
 
-            lr_scheduler.step(val_loss)
+            lr_scheduler.step()
             new_lr = lr_scheduler.get_last_lr()[0]
             if new_lr != old_lr:
                 if new_lr < 1e-7:
                     logging.info("Learning rate is too small, stopping training")
                     break
                 else:
-                    logging.info(f"Changing learning rate from {old_lr} to {new_lr}")
+                    if epoch >= self.hypers["num_epochs_warmup"]:
+                        logging.info(
+                            f"Changing learning rate from {old_lr} to {new_lr}"
+                        )
+                    elif epoch == self.hypers["num_epochs_warmup"] - 1:
+                        logging.info(
+                            "Finished warm-up. "
+                            f"Now training with learning rate {new_lr}"
+                        )
+                    else:  # epoch < self.hypers["num_epochs_warmup"] - 1:
+                        pass  # we don't clutter the log at every warm-up step
                     old_lr = new_lr
-                    # load best model and optimizer state dict, re-initialize scheduler
-                    (model.module if is_distributed else model).load_state_dict(
-                        self.best_model_state_dict
-                    )
-                    optimizer.load_state_dict(self.best_optimizer_state_dict)
-                    for param_group in optimizer.param_groups:
-                        param_group["lr"] = new_lr
-                    lr_scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
-                        optimizer,
-                        factor=self.hypers["scheduler_factor"],
-                        patience=self.hypers["scheduler_patience"],
-                    )
 
             val_metric = get_selected_metric(
                 finalized_val_info, self.hypers["best_model_metric"]
@@ -539,7 +557,7 @@ class Trainer(TrainerInterface):
         cls,
         checkpoint: Dict[str, Any],
         train_hypers: Dict[str, Any],
-        context: Literal["restart", "finetune"],  # not used at the moment
+        context: Literal["restart", "finetune"],
     ) -> "Trainer":
         epoch = checkpoint["epoch"]
         optimizer_state_dict = checkpoint["optimizer_state_dict"]
