@@ -96,7 +96,6 @@ class CompositionModel(torch.nn.Module):
         device = self.dummy_buffer.device
         # accumulate
         for batch in dataloader:
-            print(batch.__class__, list(batch))
             systems, targets, _ = batch
             systems, targets, _ = batch_to(systems, targets, device=device)
             # only accumulate the targets that do not use fixed weights
