@@ -152,10 +152,11 @@ def test_llpr_metadata(tmpdir):
         references={"architecture": ["TEST: https://arxiv.org/abs/1234.56789v1"]},
     )
     checkpoint["metadata"] = metadata
-    checkpoint_path = str(tmpdir / "model-64-bit-with-metadata.ckpt")
-    torch.save(checkpoint, checkpoint_path)
+    with tmpdir.as_cwd():
+        torch.save(checkpoint, "model_with_metadata.ckpt")
 
-    model_with_metadata = load_model(checkpoint_path)
+    with tmpdir.as_cwd():
+        model_with_metadata = load_model("model_with_metadata.ckpt")
     model_without_metadata = load_model(str(RESOURCES_PATH / "model-64-bit.ckpt"))
     llpr_model_with_metadata = LLPRUncertaintyModel(model_with_metadata)
     llpr_model_without_metadata = LLPRUncertaintyModel(model_without_metadata)
@@ -168,14 +169,13 @@ def test_llpr_metadata(tmpdir):
     llpr_model_with_metadata.is_calibrated = True
     llpr_model_without_metadata.is_calibrated = True
 
-    llpr_model_with_metadata.save_checkpoint("llpr_model_with_metadata.ckpt")
-    llpr_model_without_metadata.save_checkpoint("llpr_model_without_metadata.ckpt")
-
-    subprocess.run("mtt export llpr_model_with_metadata.ckpt", shell=True)
-    subprocess.run("mtt export llpr_model_without_metadata.ckpt", shell=True)
-
-    metadata_1 = load_atomistic_model("llpr_model_with_metadata.pt").metadata()
-    metadata_2 = load_atomistic_model("llpr_model_without_metadata.pt").metadata()
+    with tmpdir.as_cwd():
+        llpr_model_with_metadata.save_checkpoint("llpr_model_with_metadata.ckpt")
+        llpr_model_without_metadata.save_checkpoint("llpr_model_without_metadata.ckpt")
+        subprocess.run("mtt export llpr_model_with_metadata.ckpt", shell=True)
+        subprocess.run("mtt export llpr_model_without_metadata.ckpt", shell=True)
+        metadata_1 = load_atomistic_model("llpr_model_with_metadata.pt").metadata()
+        metadata_2 = load_atomistic_model("llpr_model_without_metadata.pt").metadata()
 
     exported_references_1 = metadata_1.references
     exported_references_2 = metadata_2.references
