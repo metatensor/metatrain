@@ -49,11 +49,7 @@ class BaseCompositionModel(torch.nn.Module):
         """
         super().__init__()
 
-        self.atomic_types: torch.Tensor  # mypy does not understand register_buffer
-        self.register_buffer(
-            "atomic_types",
-            torch.as_tensor(atomic_types, dtype=torch.int32),
-        )
+        self.atomic_types = torch.as_tensor(atomic_types, dtype=torch.int32)
         self.target_names = []
         self.sample_kinds = {}
         self.XTX = {}
