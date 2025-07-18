@@ -51,8 +51,12 @@ def get_scheduler(optimizer, train_hypers):
 
 
 class Trainer(TrainerInterface):
+
+    __checkpoint_version__ = 1
+    
     def __init__(self, train_hypers):
-        self.hypers = train_hypers
+        super().__init__(train_hypers)
+
         self.optimizer_state_dict = None
         self.scheduler_state_dict = None
         self.epoch = None
@@ -576,3 +580,7 @@ class Trainer(TrainerInterface):
         trainer.best_optimizer_state_dict = best_optimizer_state_dict
 
         return trainer
+    
+    @staticmethod
+    def upgrade_checkpoint(checkpoint: Dict) -> Dict:
+        raise NotImplementedError("checkpoint upgrade is not implemented for MetaMACE")
