@@ -303,7 +303,7 @@ class UEA(ModelInterface):
         node_features = self.first_linear_layer(node_features)
         node_features = node_features.permute(0, 3, 1, 2)
         for linear_layer in self.linear_layer:
-            node_features = node_features @ torch.linalg.inv(
+            node_features = node_features @ torch.linalg.pinv(
                 torch.eye(
                     node_features.shape[-1],
                     device=node_features.device,
