@@ -9,6 +9,7 @@ from metatomic.torch import ModelOutput, System
 
 from ..data import DatasetInfo, TargetInfo
 from ..jsonschema import validate
+from ..transfer import batch_to
 from ._base_composition import BaseCompositionModel
 from .remove import remove_additive
 
@@ -38,12 +39,6 @@ class CompositionModel(torch.nn.Module):
 
         self.dataset_info = dataset_info
         self.atomic_types = sorted(dataset_info.atomic_types)
-
-        self.register_buffer(
-            "type_to_index", torch.empty(max(self.atomic_types) + 1, dtype=torch.long)
-        )
-        for i, atomic_type in enumerate(self.atomic_types):
-            self.type_to_index[atomic_type] = i
 
         for target_name, target_info in dataset_info.targets.items():
             if not self.is_valid_target(target_name, target_info):
@@ -98,9 +93,11 @@ class CompositionModel(torch.nn.Module):
         if fixed_weights is None:
             fixed_weights = {}
 
+        device = self.dummy_buffer.device
         # accumulate
         for batch in dataloader:
             systems, targets, _ = batch
+            systems, targets, _ = batch_to(systems, targets, device=device)
             # only accumulate the targets that do not use fixed weights
             targets = {
                 target_name: targets[target_name]
@@ -134,7 +131,7 @@ class CompositionModel(torch.nn.Module):
                     mts.make_contiguous(
                         self.model.weights[target_name].to("cpu", torch.float64)
                     )
-                ).to(self.dummy_buffer.device),
+                ).to(device),
             )
 
     def restart(self, dataset_info: DatasetInfo) -> "CompositionModel":
@@ -195,6 +192,11 @@ class CompositionModel(torch.nn.Module):
         :raises ValueError: If no weights have been computed or if `outputs` keys
             contain unsupported keys.
         """
+        dtype = systems[0].positions.dtype
+        device = systems[0].positions.device
+
+        self.weights_to(device, dtype)
+
         for output_name in outputs.keys():
             if output_name not in self.outputs:
                 raise ValueError(
@@ -255,6 +257,8 @@ class CompositionModel(torch.nn.Module):
                 self.model.weights = {
                     k: v.to(dtype) for k, v in self.model.weights.items()
                 }
+
+        self.model._sync_device_dtype(device, dtype)
 
     @staticmethod
     def is_valid_target(target_name: str, target_info: TargetInfo) -> bool:
