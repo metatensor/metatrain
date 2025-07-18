@@ -40,6 +40,11 @@ capabilities of the architectures in metatrain.
      - Yes
      - Yes
      - Only with ``rank=1`` (vectors) and ``rank=2`` (2D tensors)
+   * - UEA
+     - Energy, forces, stress/virial
+     - Yes
+     - No
+     - No
 
 
 Preparing generic targets for reading by metatrain
