@@ -31,6 +31,7 @@ from .utils.structures import create_batch
 class MetaMACE(ModelInterface):
     """Interface of MACE for metatrain."""
 
+    __checkpoint_version__ = 1
     __supported_devices__ = ["cuda", "cpu"]
     __supported_dtypes__ = [torch.float64, torch.float32]
     __default_metadata__ = ModelMetadata(
@@ -40,10 +41,9 @@ class MetaMACE(ModelInterface):
     component_labels: Dict[str, List[List[Labels]]]
 
     def __init__(self, model_hypers: Dict, dataset_info: DatasetInfo) -> None:
-        super().__init__()
+        super().__init__(model_hypers, dataset_info)
         # checks on targets inside the RotationalAugmenter class in the trainer
 
-        self.hypers = model_hypers
         self.dataset_info = dataset_info
         self.new_outputs = list(dataset_info.targets.keys())
         self.atomic_types = dataset_info.atomic_types
@@ -90,7 +90,7 @@ class MetaMACE(ModelInterface):
             self._add_output(target_name, target_info)
 
         composition_model = CompositionModel(
-            model_hypers={},
+            hypers={},
             dataset_info=DatasetInfo(
                 length_unit=dataset_info.length_unit,
                 atomic_types=self.atomic_types,
@@ -119,7 +119,7 @@ class MetaMACE(ModelInterface):
         #     )
         self.additive_models = torch.nn.ModuleList(additive_models)
 
-        self.scaler = Scaler(model_hypers={}, dataset_info=dataset_info)
+        self.scaler = Scaler(hypers={}, dataset_info=dataset_info)
 
     def supported_outputs(self) -> Dict[str, ModelOutput]:
         return self.outputs
@@ -576,6 +576,10 @@ class MetaMACE(ModelInterface):
         self.property_labels[target_name] = [
             block.properties for block in target_info.layout.blocks()
         ]
+    
+    @staticmethod
+    def upgrade_checkpoint(checkpoint: Dict) -> Dict:
+        raise NotImplementedError("checkpoint upgrade is not implemented for MetaMACE")
 
 
 def manual_prod(shape: List[int]) -> int:
