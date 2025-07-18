@@ -1,9 +1,12 @@
+import subprocess
+
 import torch
 from metatomic.torch import (
     AtomisticModel,
     ModelEvaluationOptions,
     ModelMetadata,
     ModelOutput,
+    load_atomistic_model,
 )
 
 from metatrain.utils.data import CollateFn, Dataset, read_systems, read_targets
@@ -157,8 +160,22 @@ def test_llpr_metadata(tmpdir):
     llpr_model_with_metadata = LLPRUncertaintyModel(model_with_metadata)
     llpr_model_without_metadata = LLPRUncertaintyModel(model_without_metadata)
 
-    metadata_1 = llpr_model_with_metadata.export().metadata()
-    metadata_2 = llpr_model_without_metadata.export().metadata()
+    # hack these fields so we can save the models
+    llpr_model_with_metadata.covariance_computed = True
+    llpr_model_without_metadata.covariance_computed = True
+    llpr_model_with_metadata.inv_covariance_computed = True
+    llpr_model_without_metadata.inv_covariance_computed = True
+    llpr_model_with_metadata.is_calibrated = True
+    llpr_model_without_metadata.is_calibrated = True
+
+    llpr_model_with_metadata.save_checkpoint("llpr_model_with_metadata.ckpt")
+    llpr_model_without_metadata.save_checkpoint("llpr_model_without_metadata.ckpt")
+
+    subprocess.run("mtt export llpr_model_with_metadata.ckpt", shell=True)
+    subprocess.run("mtt export llpr_model_without_metadata.ckpt", shell=True)
+
+    metadata_1 = load_atomistic_model("llpr_model_with_metadata.pt").metadata()
+    metadata_2 = load_atomistic_model("llpr_model_without_metadata.pt").metadata()
 
     exported_references_1 = metadata_1.references
     exported_references_2 = metadata_2.references
