@@ -306,8 +306,6 @@ class SoapBpnn(ModelInterface):
         # scaler: this is also handled by the trainer at training time
         self.scaler = Scaler(hypers={}, dataset_info=dataset_info)
 
-        self.metadata = self.__default_metadata__
-
     def supported_outputs(self) -> Dict[str, ModelOutput]:
         return self.outputs
 
@@ -675,7 +673,7 @@ class SoapBpnn(ModelInterface):
         # Loading the metadata from the checkpoint
         metadata = checkpoint.get("metadata", None)
         if metadata is not None:
-            model.metadata = merge_metadata(model.metadata, metadata)
+            model.__default_metadata__ = metadata
 
         return model
 
@@ -711,9 +709,9 @@ class SoapBpnn(ModelInterface):
         )
 
         if metadata is None:
-            metadata = self.metadata
+            metadata = self.__default_metadata__
         else:
-            metadata = merge_metadata(self.metadata, metadata)
+            metadata = merge_metadata(self.__default_metadata__, metadata)
 
         return AtomisticModel(self.eval(), metadata, capabilities)
 

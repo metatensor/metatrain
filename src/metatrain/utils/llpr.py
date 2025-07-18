@@ -634,11 +634,6 @@ class LLPRUncertaintyModel(torch.nn.Module):
         model = cls(wrapped_model, ensemble_weight_sizes)
         model.to(dtype).load_state_dict(model_state_dict)
 
-        # Loading the metadata from the checkpoint
-        metadata = checkpoint.get("metadata", None)
-        if metadata is not None:
-            model.metadata = merge_metadata(model.metadata, metadata)
-
         # TODO: remove this thing... unfortunately, for now, this NEEDS to be in the
         # top-level module
         try:

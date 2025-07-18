@@ -164,8 +164,6 @@ class GAP(ModelInterface):
             )
         self.additive_models = torch.nn.ModuleList(additive_models)
 
-        self.metadata = self.__default_metadata__
-
     def supported_outputs(self) -> Dict[str, ModelOutput]:
         return self.outputs
 
@@ -304,9 +302,9 @@ class GAP(ModelInterface):
         )
 
         if metadata is None:
-            metadata = self.metadata
+            metadata = self.__default_metadata__
         else:
-            metadata = merge_metadata(self.metadata, metadata)
+            metadata = merge_metadata(self.__default_metadata__, metadata)
 
         return AtomisticModel(self.eval(), metadata, capabilities)
 
