@@ -201,7 +201,7 @@ class MetricLogger:
             for key, value in metrics_dict.items():
                 value *= scales[key]
                 target_name = key.split(" ", 1)[0]
-                if key == "loss":
+                if key in ["loss", "learning rate"]:
                     # losses will be printed in scientific notation
                     continue
                 unit = self._get_units(target_name)
@@ -247,7 +247,7 @@ class MetricLogger:
             for key in _sort_metric_names(metrics_dict.keys()):
                 value = metrics_dict[key] * self.scales[key]
 
-                if key == "loss":
+                if key in ["loss", "learning rate"]:
                     is_loss = True
 
                     # avoiding double spaces: only include non-empty strings (`if p`),
