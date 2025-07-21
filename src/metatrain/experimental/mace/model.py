@@ -522,7 +522,7 @@ class MetaMACE(ModelInterface):
 
         hidden_irreps = o3.Irreps(self.hypers["hidden_irreps"])
         n_scalars = hidden_irreps.count((0, 1)) 
-        mace_out_irreps = o3.Irreps([(n_scalars, (0, 1))]) + hidden_irreps * (self.hypers["num_interactions"] - 1)
+        mace_out_irreps = hidden_irreps * (self.hypers["num_interactions"] - 1) + o3.Irreps([(n_scalars, (0, 1))])
 
         
         self.heads[target_name] = o3.Linear(
