@@ -47,7 +47,9 @@ class MetaMACE(ModelInterface):
         self.dataset_info = dataset_info
         self.new_outputs = list(dataset_info.targets.keys())
         self.atomic_types = dataset_info.atomic_types
-        self.atomic_types_to_species_index = torch.zeros(max(dataset_info.atomic_types) + 1, dtype=torch.int64)
+        self.register_buffer(
+            "atomic_types_to_species_index", torch.zeros(max(dataset_info.atomic_types) + 1, dtype=torch.int64)
+        )
         for i, atomic_type in enumerate(dataset_info.atomic_types):
             self.atomic_types_to_species_index[atomic_type] = i
 
@@ -85,7 +87,7 @@ class MetaMACE(ModelInterface):
         self.key_labels: Dict[str, Labels] = {}
         self.component_labels: Dict[str, List[List[Labels]]] = {}
         self.property_labels: Dict[str, List[Labels]] = {}
-        self.heads: Dict[str, torch.nn.Module] = {}
+        self.heads: Dict[str, torch.nn.Module] = torch.nn.ModuleDict()
         for target_name, target_info in dataset_info.targets.items():
             self._add_output(target_name, target_info)
 
@@ -120,6 +122,8 @@ class MetaMACE(ModelInterface):
         self.additive_models = torch.nn.ModuleList(additive_models)
 
         self.scaler = Scaler(hypers={}, dataset_info=dataset_info)
+
+        self.single_label = Labels.single()
 
     def supported_outputs(self) -> Dict[str, ModelOutput]:
         return self.outputs
@@ -171,6 +175,26 @@ class MetaMACE(ModelInterface):
         outputs: Dict[str, ModelOutput],
         selected_atoms: Optional[Labels] = None,
     ) -> Dict[str, TensorMap]:
+        
+        device = systems[0].device
+        
+        if self.single_label.values.device != device:
+            self.single_label = self.single_label.to(device)
+            self.key_labels = {
+                output_name: label.to(device)
+                for output_name, label in self.key_labels.items()
+            }
+            self.component_labels = {
+                output_name: [
+                    [labels.to(device) for labels in components_block]
+                    for components_block in components_tmap
+                ]
+                for output_name, components_tmap in self.component_labels.items()
+            }
+            self.property_labels = {
+                output_name: [labels.to(device) for labels in properties_tmap]
+                for output_name, properties_tmap in self.property_labels.items()
+            }
 
         data = create_batch(
             systems=systems,
@@ -185,8 +209,6 @@ class MetaMACE(ModelInterface):
         #data.positions = data.positions[:, [2, 0, 1]]
 
         mace_output = self.mace_model(data, training=self.training)
-
-        device = systems[0].device
 
         sample_labels = Labels(
             names=["system"],
