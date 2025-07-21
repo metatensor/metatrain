@@ -148,6 +148,22 @@ def get_permutation_symmetrization_arrays(
         "cell_shift_c",
     ]
 
+    # If we have no offsite terms, return empty arrays
+    if len(edge_sample_labels_2_center.values) == 0:
+        return (
+            torch.tensor([], dtype=torch.bool, device=edge_sample_labels_2_center.values.device),
+            torch.tensor([], dtype=torch.bool, device=edge_sample_labels_2_center.values.device),
+            torch.tensor([], dtype=torch.int32, device=edge_sample_labels_2_center.values.device),
+            Labels(
+                edge_sample_labels_2_center.names,
+                torch.tensor([], dtype=torch.int32, device=edge_sample_labels_2_center.values).reshape(0, 6),
+            ),
+            Labels(
+                edge_sample_labels_2_center.names,
+                torch.tensor([], dtype=torch.int32, device=edge_sample_labels_2_center.values).reshape(0, 6),
+            ),
+        )
+
     # Get the atom types
     atom_types = torch.vstack(
         [
