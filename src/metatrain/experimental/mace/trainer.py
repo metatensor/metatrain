@@ -336,11 +336,11 @@ class Trainer(TrainerInterface):
                 optimizer.zero_grad()
 
                 systems, targets, extra_data = batch
-                systems, targets, extra_data = (
-                    rotational_augmenter.apply_random_augmentations(
-                        systems, targets, extra_data=extra_data
-                    )
-                )
+                # systems, targets, extra_data = (
+                #     rotational_augmenter.apply_random_augmentations(
+                #         systems, targets, extra_data=extra_data
+                #     )
+                # )
                 systems, targets, extra_data = batch_to(
                     systems, targets, extra_data, device=device
                 )
