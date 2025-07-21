@@ -1,5 +1,5 @@
 from pathlib import Path
-from typing import Dict, List, Optional, Union
+from typing import Any, Dict, List, Literal, Optional, Union
 
 import metatensor.torch
 import numpy as np
@@ -14,9 +14,8 @@ from metatomic.torch import (
 )
 from torch.utils.data import DataLoader
 
-from metatrain.utils.architectures import import_architecture
 from metatrain.utils.data.target_info import is_auxiliary_output
-from metatrain.utils.io import check_file_extension
+from metatrain.utils.io import check_file_extension, model_from_checkpoint
 from metatrain.utils.metadata import merge_metadata
 
 
@@ -608,21 +607,12 @@ class LLPRUncertaintyModel(torch.nn.Module):
         torch.save(checkpoint, check_file_extension(path, ".ckpt"))
 
     @classmethod
-    def load_checkpoint(cls, checkpoint: Dict, **_) -> "LLPRUncertaintyModel":
-        model_state_dict = checkpoint["state_dict"]
-        state_dict_iter = iter(model_state_dict.values())
-        next(state_dict_iter)  # skip some integer buffer for some architectures
-        dtype = next(state_dict_iter).dtype
-
-        wrapped_model_data = checkpoint["wrapped_model_data"]
-        # FIXME: LLPR should use `model_from_checkpoint` like everyone else
-        wrapped_model_class = import_architecture(
-            checkpoint["wrapped_architecture_name"]
-        ).__model__
-        wrapped_model = wrapped_model_class(
-            hypers=wrapped_model_data["model_hypers"],
-            dataset_info=wrapped_model_data["dataset_info"],
-        ).to(dtype)
+    def load_checkpoint(
+        cls,
+        checkpoint: Dict[str, Any],
+        context: Literal["restart", "finetune", "export"],
+    ) -> "LLPRUncertaintyModel":
+        model = model_from_checkpoint(checkpoint["wrapped_model_checkpoint"], context)
 
         # Find the size of the ensemble weights, if any:
         ensemble_weight_sizes = {}
@@ -631,22 +621,16 @@ class LLPRUncertaintyModel(torch.nn.Module):
                 ensemble_weight_sizes[name] = list(tensor.shape)
 
         # Create the model
-        model = cls(wrapped_model, ensemble_weight_sizes)
-        model.to(dtype).load_state_dict(model_state_dict)
-
-        # TODO: remove this thing... unfortunately, for now, this NEEDS to be in the
-        # top-level module
-        try:
-            model.model.additive_models[0].sync_tensor_maps()
-        except Exception:
-            pass
+        wrapped_model = cls(model, ensemble_weight_sizes)
+        dtype = next(model.parameters()).dtype
+        wrapped_model.to(dtype).load_state_dict(checkpoint["state_dict"], strict=False)
 
         # If we load a LLPR checkpoint, these will already be ready:
-        model.covariance_computed = True
-        model.inv_covariance_computed = True
-        model.is_calibrated = True
+        wrapped_model.covariance_computed = True
+        wrapped_model.inv_covariance_computed = True
+        wrapped_model.is_calibrated = True
 
-        return model
+        return wrapped_model
 
     def export(self, metadata: Optional[ModelMetadata] = None) -> AtomisticModel:
         dtype = next(self.parameters()).dtype

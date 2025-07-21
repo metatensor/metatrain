@@ -494,16 +494,22 @@ def train_model(
     try:
         if training_context == "restart" and restart_from is not None:
             logging.info(f"Restarting training from '{restart_from}'")
-            model = model_from_checkpoint(path=restart_from, context="restart")
+            checkpoint = torch.load(
+                restart_from, weights_only=False, map_location="cpu"
+            )
+            model = model_from_checkpoint(checkpoint, context="restart")
             model = model.restart(dataset_info)
             trainer = trainer_from_checkpoint(
-                path=restart_from,
+                checkpoint=checkpoint,
                 hypers=hypers["training"],
                 context=training_context,  # type: ignore
             )
         elif training_context == "finetune" and restart_from is not None:
             logging.info(f"Starting finetuning from '{restart_from}'")
-            model = model_from_checkpoint(path=restart_from, context="finetune")
+            checkpoint = torch.load(
+                restart_from, weights_only=False, map_location="cpu"
+            )
+            model = model_from_checkpoint(checkpoint, context="finetune")
             model = model.restart(dataset_info)
             trainer = Trainer(hypers["training"])
         else:
