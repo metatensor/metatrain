@@ -61,10 +61,36 @@ def default_random_seed() -> int:
     return RANDOM_SEED
 
 
+def default_loss_type() -> str:
+    """Return the default loss type for the training set."""
+    return "mse"
+
+
+def default_loss_reduction() -> str:
+    """Return the default loss reduction for the training set."""
+    return "mean"
+
+
+def default_loss_sliding_factor():
+    """Return the default sliding factor for the training set."""
+    return None
+
+
+def default_loss_weight() -> float:
+    """Return the default loss weight for the training set."""
+    return 1.0
+
+
 # Register custom resolvers
 OmegaConf.register_new_resolver("default_device", default_device)
 OmegaConf.register_new_resolver("default_precision", default_precision)
 OmegaConf.register_new_resolver("default_random_seed", default_random_seed)
+OmegaConf.register_new_resolver("default_loss_type", default_loss_type)
+OmegaConf.register_new_resolver("default_loss_reduction", default_loss_reduction)
+OmegaConf.register_new_resolver(
+    "default_loss_sliding_factor", default_loss_sliding_factor
+)
+OmegaConf.register_new_resolver("default_loss_weight", default_loss_weight)
 
 
 def _resolve_single_str(config: str) -> DictConfig:
@@ -121,6 +147,15 @@ CONF_GRADIENT = OmegaConf.create(
         "read_from": "${..read_from}",
         "reader": None,
         "key": None,
+    }
+)
+
+CONF_LOSS = OmegaConf.create(
+    {
+        "type": "${default_loss_type:}",
+        "weight": "${default_loss_weight:}",
+        "reduction": "${default_loss_reduction:}",
+        "sliding_factor": "${default_loss_sliding_factor:}",
     }
 )
 
@@ -363,7 +398,7 @@ def expand_dataset_config(conf: Union[str, DictConfig, ListConfig]) -> ListConfi
     return conf
 
 
-def expand_loss_config(conf: DictConfig) -> ListConfig:
+def expand_loss_config(conf: DictConfig) -> DictConfig:
     """Expand the loss configuration to a list of configurations.
 
     :param conf: The loss configuration to expand.
@@ -373,24 +408,20 @@ def expand_loss_config(conf: DictConfig) -> ListConfig:
 
     if not isinstance(training_confs, ListConfig):
         training_confs = OmegaConf.create([training_confs])
-    default_loss_dict = {}
-    for training_conf in training_confs:
-        print(training_conf)
-        for target_name in training_conf["targets"].keys():
-            default_loss_dict[target_name] = {
-                "type": "mse",
-                "weight": 1.0,
-                "reduction": "mean",
-                "sliding_factor": None,
-            }
+    # Initialize default loss dictionary
+    conf_loss = CONF_LOSS.copy()
+    OmegaConf.resolve(conf_loss)
+    default_loss_dict = {
+        target_name: conf_loss.copy()
+        for training_conf in training_confs
+        for target_name in training_conf["targets"].keys()
+    }
+
     train_hypers = conf["architecture"]["training"]
     if "loss" not in train_hypers:
         train_hypers["loss"] = OmegaConf.create(default_loss_dict)
     else:
-        train_hypers["loss"] = OmegaConf.merge(
-            default_loss_dict,
-            train_hypers["loss"],
-        )
+        train_hypers["loss"] = OmegaConf.merge(default_loss_dict, train_hypers["loss"])
     conf["architecture"]["training"] = train_hypers
     return conf
 
