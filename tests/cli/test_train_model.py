@@ -136,6 +136,17 @@ def test_train(capfd, monkeypatch, tmp_path, output):
     assert "Model defined for atomic types" in stdout_log
     assert "Starting training from scratch" in stdout_log
 
+    output_dir = Path(restart_glob[0]).parent.absolute().resolve()
+    cur_dir = Path.cwd().absolute().resolve()
+
+    assert f"Restart options: {output_dir / 'options_restart.yaml'}" in stdout_log
+    assert f"Intermediate checkpoints (if available): {output_dir}" in stdout_log
+    assert (
+        f"Final checkpoint: {cur_dir / Path(output).with_suffix('.ckpt')}" in stdout_log
+    )
+    assert f"Exported model: {cur_dir / output}" in stdout_log
+    assert f"Extensions path: {cur_dir / 'extensions'}" in stdout_log
+
     # Open the CSV log file and check if the logging is correct
     csv_glob = glob.glob("outputs/*/*/train.csv")
     assert len(csv_glob) == 1
