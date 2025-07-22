@@ -363,6 +363,38 @@ def expand_dataset_config(conf: Union[str, DictConfig, ListConfig]) -> ListConfi
     return conf
 
 
+def expand_loss_config(conf: Union[str, DictConfig, ListConfig]) -> ListConfig:
+    """Expand the loss configuration to a list of configurations.
+
+    :param conf: The loss configuration to expand.
+    :returns: A list of expanded loss configurations.
+    """
+    training_confs = conf["training_set"]
+
+    if not isinstance(training_confs, ListConfig):
+        training_confs = OmegaConf.create([training_confs])
+    default_loss_dict = {}
+    for training_conf in training_confs:
+        print(training_conf)
+        for target_name in training_conf["targets"].keys():
+            default_loss_dict[target_name] = {
+                "type": "mse",
+                "weight": 1.0,
+                "reduction": "mean",
+                "sliding_factor": None,
+            }
+    train_hypers = conf["architecture"]["training"]
+    if "loss" not in train_hypers:
+        train_hypers["loss"] = OmegaConf.create(default_loss_dict)
+    else:
+        train_hypers["loss"] = OmegaConf.merge(
+            default_loss_dict,
+            train_hypers["loss"],
+        )
+    conf["architecture"]["training"] = train_hypers
+    return conf
+
+
 def check_units(
     actual_options: Union[DictConfig, ListConfig],
     desired_options: Union[DictConfig, ListConfig],

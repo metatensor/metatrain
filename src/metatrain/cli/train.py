@@ -39,7 +39,12 @@ from ..utils.io import (
 )
 from ..utils.jsonschema import validate
 from ..utils.logging import ROOT_LOGGER, WandbHandler
-from ..utils.omegaconf import BASE_OPTIONS, check_units, expand_dataset_config
+from ..utils.omegaconf import (
+    BASE_OPTIONS,
+    check_units,
+    expand_dataset_config,
+    expand_loss_config,
+)
 from .eval import _eval_targets
 from .export import _has_extensions
 from .formatter import CustomHelpFormatter
@@ -221,6 +226,7 @@ def train_model(
         {"architecture": get_default_hypers(architecture_name)},
         options,
     )
+    options = expand_loss_config(options)
     hypers = OmegaConf.to_container(options["architecture"])
 
     ###########################
