@@ -13,6 +13,7 @@ build_job:
   extends: .container-builder-cscs-gh200
   variables:
     DOCKERFILE: ci/containers/nvidia-pytorch.Containerfile
+    GIT_STRATEGY: fetch
 
 test_job:
   stage: test
@@ -28,3 +29,4 @@ test_job:
     SLURM_NTASKS: 1
     SLURM_TIMELIMIT: '00:45:00'
     GIT_STRATEGY: fetch
+    USE_NCCL: 'cuda12'
