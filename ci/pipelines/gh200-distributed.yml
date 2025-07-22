@@ -11,10 +11,8 @@ test_job:
   timeout: 1h
   script:
     - export CUDA_HOME="/usr/local/cuda"
-    - python3 -m pip install --upgrade pip
-    - python3 -m venv --system-site-packages venv
+    - bash ci/scripts/install-mtt.sh
     - source venv/bin/activate
-    - python3 -m pip install -e .
     - cd tests/distributed/
     - mtt train options-distributed.yaml
   variables:
