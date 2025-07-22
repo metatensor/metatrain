@@ -142,7 +142,8 @@ filterwarnings = [
     # Sphericart double backward warning
     "ignore:Second derivatives of the spherical harmonics with respect to the Cartesian coordinates were not requested at class creation.",
     # OldCompositionModel deprecation warning
-    "ignore:`OldCompositionModel` composition model is deprecated. Please use `CompositionModel` instead."
+    "ignore:`OldCompositionModel` composition model is deprecated. Please use `CompositionModel` instead.",
+    "ignore:No libgomp shared library found in 'sphericart_torch.libs'.",
 ]
 
 [tool.yamlfix]
