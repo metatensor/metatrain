@@ -93,7 +93,6 @@ def get_edge_sample_labels_1_center(
 
 def get_edge_sample_labels_2_center(
     systems: List[System],
-    node_sample_labels: Labels,  # TODO: remove this argument
     nl_options: NeighborListOptions,
     device: torch.device,
 ) -> Labels:
@@ -124,7 +123,7 @@ def get_edge_sample_labels_2_center(
                         dtype=torch.int32,
                         device=device,
                     ),
-                    nl_values
+                    nl_values,
                 ],
             )
         )
@@ -150,17 +149,18 @@ def get_permutation_symmetrization_arrays(
 
     # If we have no offsite terms, return empty arrays
     if len(edge_sample_labels_2_center.values) == 0:
+        device = edge_sample_labels_2_center.values.device
         return (
-            torch.tensor([], dtype=torch.bool, device=edge_sample_labels_2_center.values.device),
-            torch.tensor([], dtype=torch.bool, device=edge_sample_labels_2_center.values.device),
-            torch.tensor([], dtype=torch.int32, device=edge_sample_labels_2_center.values.device),
+            torch.tensor([], dtype=torch.bool, device=device),
+            torch.tensor([], dtype=torch.bool, device=device),
+            torch.tensor([], dtype=torch.int32, device=device),
             Labels(
                 edge_sample_labels_2_center.names,
-                torch.tensor([], dtype=torch.int32, device=edge_sample_labels_2_center.values).reshape(0, 6),
+                torch.tensor([], dtype=torch.int32, device=device).reshape(0, 6),
             ),
             Labels(
                 edge_sample_labels_2_center.names,
-                torch.tensor([], dtype=torch.int32, device=edge_sample_labels_2_center.values).reshape(0, 6),
+                torch.tensor([], dtype=torch.int32, device=device).reshape(0, 6),
             ),
         )
 

@@ -263,8 +263,12 @@ class PET(ModelInterface):
             systems, device
         )
         if any([kind == "per_pair" for kind in self.sample_kinds.values()]):
-            edge_sample_labels_1_center = get_edge_sample_labels_1_center(node_sample_labels, device)
-            edge_sample_labels_2_center = get_edge_sample_labels_2_center(systems, node_sample_labels, nl_options, device)
+            edge_sample_labels_1_center = get_edge_sample_labels_1_center(
+                node_sample_labels, device
+            )
+            edge_sample_labels_2_center = get_edge_sample_labels_2_center(
+                systems, nl_options, device
+            )
         else:
             edge_sample_labels_1_center = Labels("_", torch.empty(0).reshape(-1, 1))
             edge_sample_labels_2_center = Labels("_", torch.empty(0).reshape(-1, 1))
@@ -1109,10 +1113,10 @@ class PET(ModelInterface):
 
         return checkpoint
 
+
 def manual_prod(shape: List[int]) -> int:
     # prod from standard library not supported in torchscript
     result = 1
     for dim in shape:
         result *= dim
     return result
-

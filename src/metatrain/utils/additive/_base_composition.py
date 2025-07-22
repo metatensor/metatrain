@@ -343,15 +343,17 @@ class BaseCompositionModel(torch.nn.Module):
         )
         if any(
             [
-                sample_kind == "per_structure" and not model_output.per_atom 
-                for sample_kind, model_output in zip(self.sample_kinds.values(), outputs.values())
+                sample_kind == "per_structure" and not model_output.per_atom
+                for sample_kind, model_output in zip(
+                    self.sample_kinds.values(), outputs.values()
+                )
             ]
         ):
             sample_labels_per_structure = Labels(
                 ["system"],
-                torch.arange(
-                    len(systems), dtype=torch.int32, device=device
-                ).reshape(-1, 1),
+                torch.arange(len(systems), dtype=torch.int32, device=device).reshape(
+                    -1, 1
+                ),
             ).to(device=device)
         else:
             sample_labels_per_structure = Labels(
@@ -363,9 +365,9 @@ class BaseCompositionModel(torch.nn.Module):
                 sample_labels_per_atom, device
             ).to(device=device)
         else:
-            sample_labels_per_pair = Labels(
-                ["_"], torch.empty(0).reshape(-1, 1)
-            ).to(device=device)
+            sample_labels_per_pair = Labels(["_"], torch.empty(0).reshape(-1, 1)).to(
+                device=device
+            )
 
         # Build the predictions for each output
         predictions: Dict[str, TensorMap] = {}
