@@ -51,11 +51,7 @@ class BaseCompositionModel(torch.nn.Module):
         """
         super().__init__()
 
-        self.atomic_types: torch.Tensor  # mypy does not understand register_buffer
-        self.register_buffer(
-            "atomic_types",
-            torch.as_tensor(atomic_types, dtype=torch.int32),
-        )
+        self.atomic_types = torch.as_tensor(atomic_types, dtype=torch.int32)
         self.target_names = []
         self.sample_kinds = {}
         self.XTX = {}
@@ -371,6 +367,7 @@ class BaseCompositionModel(torch.nn.Module):
                 ["_"], torch.empty(0).reshape(-1, 1)
             ).to(device=device)
 
+        # Build the predictions for each output
         predictions: Dict[str, TensorMap] = {}
         for output_name, model_output in outputs.items():
             if output_name not in self.target_names:
@@ -666,5 +663,5 @@ def _get_system_indices_and_labels(systems: List[System], device: torch.device):
     sample_labels = Labels(
         names=["system", "atom"],
         values=sample_values,
-    ).to(device=device)
+    )
     return system_indices, sample_labels
