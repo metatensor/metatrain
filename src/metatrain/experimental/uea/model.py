@@ -86,7 +86,6 @@ class UEA(ModelInterface):
                 )
             )
         self.linear_layer = torch.nn.ModuleList(linear_layer)
-
         self.last_layer_feature_size = self.hypers["num_features"]
 
         self.outputs = {
@@ -303,36 +302,19 @@ class UEA(ModelInterface):
         node_features = self.first_linear_layer(node_features)
         node_features = node_features.permute(0, 3, 1, 2)
         
-        red_factor = 10
+        # TODO: the red_factor has to be an hyperparameter if we keep it
+        red_factor = 16
         node_features_red = node_features / (2 ** red_factor)
         for linear_layer in self.linear_layer:
             # The exponential is applied only to the last two dimensions and 
             # automatically broadcasted to all the others
-            exp_dp = torch.matrix_exp(node_features_red.contiguous().double())
             exp_neg = torch.matrix_exp(-node_features_red.contiguous().double())
             I = torch.eye(
                     node_features.shape[-1],
                     device=node_features.device,
-                    dtype=exp_dp.dtype,
+                    dtype=exp_neg.dtype,
                 )
-            tanh = torch.matmul(exp_dp - exp_neg, torch.linalg.pinv(exp_dp + exp_neg))
-            for _ in range(red_factor-1):
-                U2 = torch.matmul(tanh, tanh)
-                tanh = 2 * torch.matmul(tanh, torch.linalg.pinv(I + U2))
-            
-            sigm = tanh / 2 + 0.5
-            # # print("node_features shape:", node_features.shape)
-            # # print((torch.abs(torch.linalg.det(node_features))> 1e-9).sum()) 
-            # print(node_features[0,0])
-            # sigm = (torch.linalg.pinv(
-            #     (1 + 1e-4) * torch.eye(
-            #         node_features.shape[-1],
-            #         device=node_features.device,
-            #         dtype=exp_dp.dtype,
-            #     )
-            #     + exp_dp
-            # )).to(node_features.dtype)
-            
+            sigm = torch.linalg.pinv(I + exp_neg)
             node_features = node_features @ sigm.to(node_features.dtype)
             if torch.isnan(node_features).any():
                 raise RuntimeError("NaNs detected in node_features after pinv+exp")
