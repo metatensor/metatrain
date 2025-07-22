@@ -13,15 +13,19 @@ build_job:
   extends: .container-builder-cscs-gh200
   variables:
     DOCKERFILE: ci/containers/nvidia-pytorch.Containerfile
-    GIT_STRATEGY: fetch
 
 test_job:
   stage: test
-  extends: .container-runner-daint-gh200
+  extends: .baremetal-runner-daint-gh200
   image: $PERSIST_IMAGE_NAME
   timeout: 1h
-  script:
+  before_script:
+    - python3 -m venv --system-site-packages ./mtt-venv
+    - source mtt-venv/bin/activate
+    - which python
+    - python -m pip install -e .
     - cd tests/distributed
+  script:
     - mtt train options-distributed.yaml
   variables:
     SLURM_JOB_NUM_NODES: 1
