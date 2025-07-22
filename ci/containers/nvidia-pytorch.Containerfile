@@ -5,10 +5,6 @@ RUN apt update && \
 	apt install -y libfftw3-dev && \
 	apt clean
 
-
-RUN python3 -m pip install --upgrade pip setuptools && \ 
-    python3 -m venv --system-site-packages ./mtt-venv
-
-RUN source mtt-venv/bin/activate && which python &&  ls -l . && python -m pip install -e .
+RUN python3 -m pip install --upgrade pip setuptools
 
 ENV CUDA_HOME="/usr/local/cuda"
