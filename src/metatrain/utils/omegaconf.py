@@ -363,7 +363,7 @@ def expand_dataset_config(conf: Union[str, DictConfig, ListConfig]) -> ListConfi
     return conf
 
 
-def expand_loss_config(conf: Union[str, DictConfig, ListConfig]) -> ListConfig:
+def expand_loss_config(conf: DictConfig) -> ListConfig:
     """Expand the loss configuration to a list of configurations.
 
     :param conf: The loss configuration to expand.
