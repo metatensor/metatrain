@@ -8,7 +8,8 @@ RUN apt update && \
 
 RUN python3 -m pip install --upgrade pip setuptools && \ 
     python3 -m venv --system-site-packages mtt-venv && \
-    source mtt-venv/bin/activate && \
-    python3 -m pip install -e .
+    source mtt-venv/bin/activate
+
+RUN which python &&  ls -l . && python -m pip install -e .
 
 ENV CUDA_HOME="/usr/local/cuda"
