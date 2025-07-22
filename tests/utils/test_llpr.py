@@ -24,6 +24,9 @@ torch.manual_seed(42)
 
 
 def test_llpr(tmpdir):
+    """
+    Tests functionality of the LLPRUncertaintyModel.
+    """
     model = load_model(str(RESOURCES_PATH / "model-64-bit.ckpt"))
     llpr_model = LLPRUncertaintyModel(model)
 
@@ -140,7 +143,11 @@ def test_llpr(tmpdir):
     )
 
 
-def test_llpr_metadata(tmpdir):
+def test_llpr_metadata_preservation_on_export(tmpdir):
+    """
+    Tests that the metadata of the wrapped model is preserved
+    during save-load-export operations.
+    """
     checkpoint = torch.load(
         str(RESOURCES_PATH / "model-64-bit.ckpt"),
         weights_only=False,
