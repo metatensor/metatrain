@@ -594,10 +594,10 @@ class LLPRUncertaintyModel(torch.nn.Module):
         wrapped_architecture_name = self.model.__module__.replace(
             "metatrain.", ""
         ).replace(".model", "")
-
         # also add the metadata of the wrapped model to this checkpoint
         metadata = merge_metadata(
-            self.__default_metadata__, self.model.export().metadata()
+            self.__default_metadata__,
+            self.model.export().metadata(),
         )
 
         checkpoint = {
@@ -650,7 +650,7 @@ class LLPRUncertaintyModel(torch.nn.Module):
         # Loading the metadata from the checkpoint
         metadata = checkpoint.get("metadata", None)
         if metadata is not None:
-            model.__default_metadata__ = metadata
+            model.model.metadata = merge_metadata(model.model.metadata, metadata)
 
         # If we load a LLPR checkpoint, these will already be ready:
         model.covariance_computed = True
@@ -683,7 +683,7 @@ class LLPRUncertaintyModel(torch.nn.Module):
             metadata = merge_metadata(self.__default_metadata__, metadata)
 
         # also add the metadata of the wrapped model
-        metadata = merge_metadata(self.model.export().metadata(), metadata)
+        metadata = merge_metadata(metadata, self.model.export().metadata())
 
         return AtomisticModel(self.eval(), metadata, self.capabilities)
 
