@@ -16,7 +16,7 @@ build_job:
 
 test_job:
   stage: test
-  extends: .baremetal-runner-daint-gh200
+  extends: .container-runner-daint-gh200
   image: $PERSIST_IMAGE_NAME
   timeout: 1h
   before_script:
