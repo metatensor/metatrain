@@ -8,7 +8,7 @@ test_job:
   stage: test
   extends: .container-runner-daint-gh200
   image: nvcr.io/nvidia/pytorch:24.12-py3
-  timeout: 2h
+  timeout: 1h
   script:
     - export CUDA_HOME="/usr/local/cuda"
     - python3 -m pip install --upgrade pip

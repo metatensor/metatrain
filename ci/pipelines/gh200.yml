@@ -18,7 +18,7 @@ test_job:
   stage: test
   extends: .container-runner-daint-gh200
   image: $PERSIST_IMAGE_NAME
-  timeout: 2h
+  timeout: 1h
   script:
     - tox -r
   variables:
