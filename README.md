@@ -15,7 +15,7 @@
 models of various architectures. It features a common `yaml` option inputs to configure
 training and evaluation. Trained models are exported as standalone files that can be
 used directly in various molecular dynamics (MD) engines (e.g. `LAMMPS`, `i-PI`, `ASE`
-...) using the [metatensor](https://docs.metatensor.org) atomistic interface.
+...) using the [metatomic](https://docs.metatensor.org/metatomic) interface.
 
 The idea behind `metatrain` is to have a general hub that provides a homogeneous
 environment and user interface, transforming every ML architecture into an end-to-end
