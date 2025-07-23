@@ -8,7 +8,7 @@ RUN apt update && \
 ENV PIP_EXTRA_INDEX_URL=https://download.pytorch.org/whl/cu128
 
 RUN python3 -m venv --system-site-packages /mtt-venv && \
-    source /mtt-venv/bin/activate && \
+    . /mtt-venv/bin/activate && \
     python -m pip install /mtt-repo[soap-bpnn]
 
 ENV CUDA_HOME="/usr/local/cuda"

@@ -22,7 +22,7 @@ test_job:
   image: $PERSIST_IMAGE_NAME
   timeout: 1h
   script:
-    - source /mtt-venv/bin/activate
+    - . /mtt-venv/bin/activate
     - cd /mtt-repo/tests/distributed
     - mtt train options-distributed.yaml
   variables:
