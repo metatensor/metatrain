@@ -548,7 +548,7 @@ class LossAggregator(LossInterface):
         self.metadata: Dict[str, Dict[str, Any]] = {}
 
         for target_name, target_info in targets.items():
-            target_config = config.get(target_name, {})
+            target_config = config[target_name]
 
             # Create main loss and its scheduler
             base_loss = create_loss(
@@ -560,7 +560,14 @@ class LossAggregator(LossInterface):
                 **{
                     pname: pval
                     for pname, pval in target_config.items()
-                    if pname not in ("type", "weight", "reduction", "sliding_factor")
+                    if pname
+                    not in (
+                        "type",
+                        "weight",
+                        "reduction",
+                        "sliding_factor",
+                        "gradients",
+                    )
                 },
             )
             ema_scheduler = EMAScheduler(target_config["sliding_factor"])
@@ -575,21 +582,18 @@ class LossAggregator(LossInterface):
             }
 
             # Create gradient-based losses
-            gradient_config = target_config.get("gradients", {})
+            gradient_config = target_config["gradients"]
             for gradient_name in target_info.layout[0].gradients_list():
                 gradient_key = f"{target_name}_grad_{gradient_name}"
-                gradient_specific_config = gradient_config.get(gradient_name, {})
+
+                gradient_specific_config = gradient_config[gradient_name]
 
                 grad_loss = create_loss(
-                    gradient_specific_config.get(
-                        "type", target_config.get("type", "mse")
-                    ),
+                    gradient_specific_config["type"],
                     name=target_name,
                     gradient=gradient_name,
-                    weight=gradient_specific_config.get("weight", 1.0),
-                    reduction=gradient_specific_config.get(
-                        "reduction", target_config.get("reduction", "mean")
-                    ),
+                    weight=gradient_specific_config["weight"],
+                    reduction=gradient_specific_config["reduction"],
                     **{
                         pname: pval
                         for pname, pval in gradient_specific_config.items()
@@ -597,18 +601,14 @@ class LossAggregator(LossInterface):
                         not in ("type", "weight", "reduction", "sliding_factor")
                     },
                 )
-                ema_scheduler_for_grad = EMAScheduler(
-                    target_config.get("sliding_factor", None)
-                )
+                ema_scheduler_for_grad = EMAScheduler(target_config["sliding_factor"])
                 scheduled_grad_loss = ScheduledLoss(grad_loss, ema_scheduler_for_grad)
                 self.scheduled_losses[gradient_key] = scheduled_grad_loss
                 self.metadata[target_name]["gradients"][gradient_name] = {
-                    "type": gradient_specific_config.get(
-                        "type", target_config.get("type", "mse")
-                    ),
+                    "type": gradient_specific_config["type"],
                     "weight": grad_loss.weight,
                     "reduction": grad_loss.reduction,
-                    "sliding_factor": target_config.get("sliding_factor", None),
+                    "sliding_factor": target_config["sliding_factor"],
                 }
 
     def compute(

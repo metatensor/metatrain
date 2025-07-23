@@ -226,8 +226,6 @@ def train_model(
         {"architecture": get_default_hypers(architecture_name)},
         options,
     )
-    options = expand_loss_config(options)
-    hypers = OmegaConf.to_container(options["architecture"])
 
     ###########################
     # PROCESS BASE PARAMETERS #
@@ -407,6 +405,10 @@ def train_model(
             dataset, _, _ = get_dataset(test_options)
             test_datasets.append(dataset)
             test_indices.append(None)
+
+    # Expand loss options and finalize the hypers
+    options = expand_loss_config(options)
+    hypers = OmegaConf.to_container(options["architecture"])
 
     ############################################
     # SAVE TRAIN, VALIDATION, TEST INDICES #####

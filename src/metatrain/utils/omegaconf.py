@@ -404,23 +404,91 @@ def expand_loss_config(conf: DictConfig) -> DictConfig:
     :param conf: The loss configuration to expand.
     :returns: A list of expanded loss configurations.
     """
+
+    def _migrate_gradient_key(loss_dict: dict, old_key: str, grad_key: str):
+        """
+        If `old_key` exists in `loss_dict`, move it under
+        loss_dict['energy']['gradients'][grad_key], creating
+        the necessary nested dicts along the way.
+        """
+        if old_key in loss_dict:
+            if "energy" not in loss_dict:
+                loss_dict["energy"] = {}
+            if "gradients" not in loss_dict["energy"]:
+                loss_dict["energy"]["gradients"] = {}
+            loss_dict["energy"]["gradients"][grad_key] = loss_dict[old_key]
+            del loss_dict[old_key]
+
+    def _process_energy(
+        loss_dict: dict,
+        opts: dict,
+        template: dict,
+    ) -> tuple[bool, bool]:
+        """
+        Ensure `loss_dict["energy"]` exists, reset its gradients,
+        and add 'positions' / 'strain' entries if requested by opts.
+        Returns (added_forces, added_strain).
+        """
+        if "energy" not in loss_dict:
+            loss_dict["energy"] = template.copy()
+        # start with an empty gradients dict each time
+        loss_dict["energy"]["gradients"] = {}
+
+        added_forces = False
+        added_strain = False
+
+        if opts.get("forces", False):
+            loss_dict["energy"]["gradients"]["positions"] = template.copy()
+            added_forces = True
+
+        if opts.get("stress", False) or opts.get("virial", False):
+            loss_dict["energy"]["gradients"]["strain"] = template.copy()
+            added_strain = True
+
+        return added_forces, added_strain
+
     training_confs = conf["training_set"]
 
     if not isinstance(training_confs, ListConfig):
         training_confs = OmegaConf.create([training_confs])
-    # Initialize default loss dictionary
+
+    # initialize
+    default_loss_dict: dict = {}
     conf_loss = CONF_LOSS.copy()
     OmegaConf.resolve(conf_loss)
-    default_loss_dict = {
-        target_name: conf_loss.copy()
-        for training_conf in training_confs
-        for target_name in training_conf["targets"].keys()
-    }
+    train_on_forces = False
+    train_on_stress_or_virial = False
+
+    # build default_loss_dict
+    for tc in training_confs:
+        for target_name, opts in tc["targets"].items():
+            if target_name == "energy":
+                f, s = _process_energy(default_loss_dict, opts, conf_loss)
+                train_on_forces |= f
+                train_on_stress_or_virial |= s
+            else:
+                default_loss_dict[target_name] = conf_loss.copy()
 
     train_hypers = conf["architecture"]["training"]
     if "loss" not in train_hypers:
         train_hypers["loss"] = OmegaConf.create(default_loss_dict)
     else:
+        # Adapt the loss configuration to the internal structure
+        if train_on_forces:
+            _migrate_gradient_key(train_hypers["loss"], "forces", "positions")
+        else:
+            if "forces" in train_hypers["loss"]:
+                del train_hypers["loss"]["forces"]
+
+        if train_on_stress_or_virial:
+            for legacy in ["stress", "virial"]:
+                _migrate_gradient_key(train_hypers["loss"], legacy, "strain")
+        else:
+            if "stress" in train_hypers["loss"]:
+                del train_hypers["loss"]["stress"]
+            if "virial" in train_hypers["loss"]:
+                del train_hypers["loss"]["virial"]
+
         train_hypers["loss"] = OmegaConf.merge(default_loss_dict, train_hypers["loss"])
     conf["architecture"]["training"] = train_hypers
     return conf
