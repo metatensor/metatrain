@@ -3,7 +3,6 @@ include:
 
 stages:
   - build
-  - install
   - test
 
 variables:
@@ -16,30 +15,13 @@ build_job:
   variables:
     DOCKERFILE: ci/containers/Containerfile
 
-install_job:
-  stage: install
-  extends: .container-runner-lightweight-gh200
-  image: $PERSIST_IMAGE_NAME
-  timeout: 30m
-  script:
-    - python3 -m venv ./mtt-venv
-    - source ./mtt-venv/bin/activate
-    - which python
-    - python -m pip install -e .
-  variables:
-    SLURM_JOB_NUM_NODES: 1
-    SLURM_PARTITION: normal
-    SLURM_NTASKS: 1
-    SLURM_CPUS_PER_TASK: 4
-    SLURM_TIMELIMIT: '00:10:00'
-
 test_job:
   stage: test
   extends: .container-runner-daint-gh200
   image: $PERSIST_IMAGE_NAME
   timeout: 1h
   script:
-    - source ./mtt-venv/bin/activate
+    - source /mtt-venv/bin/activate
     - cd tests/distributed
     - mtt train options-distributed.yaml
   variables:
