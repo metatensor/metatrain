@@ -21,17 +21,19 @@ test_job:
   timeout: 1h
   before_script:
     - python3 -m venv --system-site-packages ./mtt-venv
-    - source mtt-venv/bin/activate
+    - source ./mtt-venv/bin/activate
     - which python
     - python -m pip install -e .
-    - cd tests/distributed
   script:
-    - source mtt-venv/bin/activate
+    - source ./mtt-venv/bin/activate
+    - cd tests/distributed
     - mtt train options-distributed.yaml
   variables:
     SLURM_JOB_NUM_NODES: 1
     SLURM_PARTITION: normal
-    SLURM_NTASKS: 1
+    SLURM_NTASKS: 4
+    SLURM_GPUS_PER_TASK: 1
+    SLURM_CPUS_PER_TASK: 16
     SLURM_TIMELIMIT: '00:45:00'
     GIT_STRATEGY: fetch
     USE_NCCL: 'cuda12'
