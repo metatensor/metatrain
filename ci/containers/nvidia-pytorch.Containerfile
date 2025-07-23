@@ -7,9 +7,11 @@ RUN apt update && \
 
 RUN python3 -m pip install --upgrade pip setuptools
 
+COPY . /mtt-repo/
+
 RUN python3 -m venv /mtt-venv && \
     source /mtt-venv/bin/activate && \
     which python && \
-    python -m pip install /sourcecode/
+    python -m pip install /mtt-repo
 
 ENV CUDA_HOME="/usr/local/cuda"
