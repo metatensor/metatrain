@@ -123,9 +123,7 @@ def load_model(
 ) -> Any:
     """Load checkpoints and exported models from an URL or a local file for inference.
 
-    Remote models are downloaded to a local cache directory, with hashed filenames to
-    avoid common name collisions. The cache directory path is logged during the loading
-    process.
+    Remote models from Hugging Face are downloaded to a local cache directory.
 
     If an exported model should be loaded and requires compiled extensions, their
     location should be passed using the ``extensions_directory`` parameter.
