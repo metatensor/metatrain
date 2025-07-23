@@ -167,6 +167,8 @@ class PET(ModelInterface):
 
         self.single_label = Labels.single()
 
+        self.finetune_config: Dict[str, Any] = {}
+
     def supported_outputs(self) -> Dict[str, ModelOutput]:
         return self.outputs
 
@@ -693,7 +695,7 @@ class PET(ModelInterface):
         else:
             raise ValueError("Unknown context tag for checkpoint loading!")
 
-        finetune_config = checkpoint["train_hypers"].get("finetune", {})
+        finetune_config = model_state_dict.pop("finetune_config", {})
 
         # Create the model
         model = cls(
@@ -896,4 +898,19 @@ class PET(ModelInterface):
             checkpoints.update_v1_v2(checkpoint["best_model_state_dict"])
             checkpoint["model_ckpt_version"] = 2
 
+        return checkpoint
+
+    def _get_checkpoint(self) -> Dict:
+        model_state_dict = self.state_dict()
+        model_state_dict["finetune_config"] = self.finetune_config
+        checkpoint = {
+            "architecture_name": "pet",
+            "model_ckpt_version": self.__checkpoint_version__,
+            "metadata": self.metadata,
+            "model_data": {
+                "model_hypers": self.hypers,
+                "dataset_info": self.dataset_info,
+            },
+            "model_state_dict": model_state_dict,
+        }
         return checkpoint
