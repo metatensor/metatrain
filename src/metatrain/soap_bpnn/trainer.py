@@ -507,6 +507,7 @@ class Trainer(TrainerInterface):
         checkpoint.update(
             {
                 "train_hypers": self.hypers,
+                "trainer_ckpt_version": self.__checkpoint_version__,
                 "epoch": self.epoch,
                 "optimizer_state_dict": self.optimizer_state_dict,
                 "scheduler_state_dict": self.scheduler_state_dict,
