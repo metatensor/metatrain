@@ -14,6 +14,7 @@ build_job:
   extends: .container-builder-cscs-gh200
   variables:
     DOCKERFILE: ci/containers/nvidia-pytorch.Containerfile
+    GIT_STRATEGY: clone
 
 test_job:
   stage: test
@@ -31,5 +32,4 @@ test_job:
     SLURM_GPUS_PER_TASK: 1
     SLURM_CPUS_PER_TASK: 16
     SLURM_TIMELIMIT: '00:45:00'
-    GIT_STRATEGY: fetch
     USE_NCCL: 'cuda12'
