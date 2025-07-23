@@ -55,7 +55,7 @@ def test_lora_finetuning_device(device):
         length_unit="Angstrom", atomic_types=[1, 6, 7, 8], targets=target_info_dict
     )
 
-    model = PET(MODEL_HYPERS, dataset_info)
+    model = PET(MODEL_HYPERS, dataset_info).to(device)
 
     finetuning_strategy = {
         "method": "lora",

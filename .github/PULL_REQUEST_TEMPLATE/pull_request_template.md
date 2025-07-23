@@ -7,6 +7,7 @@
  - [ ] Tests updated (for new features and bugfixes)?
  - [ ] Documentation updated (for new features)?
  - [ ] Issue referenced (for PRs that solve an issue)?
+ - [ ] GPU tests passed (maintainer comment: "cscs-ci run")?
 
 # Reviewer checklist
 

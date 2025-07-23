@@ -60,6 +60,7 @@ def test_pick_devices_mps(desired_device, monkeypatch):
 def test_no_matching_device(monkeypatch):
     monkeypatch.setattr(torch.backends.mps, "is_built", is_false)
     monkeypatch.setattr(torch.backends.mps, "is_available", is_false)
+    monkeypatch.setattr(torch.cuda, "is_available", is_false)
 
     match = (
         "No matching device found! The architecture requires cuda, mps; but your "
@@ -128,6 +129,7 @@ def test_pick_devices_no_cuda(monkeypatch):
 def test_pick_devices_gpu_mps_map(monkeypatch):
     monkeypatch.setattr(torch.backends.mps, "is_built", is_true)
     monkeypatch.setattr(torch.backends.mps, "is_available", is_true)
+    monkeypatch.setattr(torch.cuda, "is_available", is_false)
 
     picked_devices = pick_devices(["mps", "cpu"], "gpu")
     assert picked_devices == [torch.device("mps")]
