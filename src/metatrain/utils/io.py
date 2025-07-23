@@ -6,9 +6,19 @@ from urllib.parse import unquote, urlparse
 from urllib.request import urlretrieve
 
 import torch
+from huggingface_hub import hf_hub_download
 from metatomic.torch import check_atomistic_model, load_atomistic_model
 
 from .architectures import find_all_architectures, import_architecture
+
+
+hf_pattern = re.compile(
+    r"(?P<endpoint>https://[^/]+)/"
+    r"(?P<repo_id>[^/]+/[^/]+)/"
+    r"resolve/"
+    r"(?P<revision>[^/]+)/"
+    r"(?P<filename>.+)"
+)
 
 
 def check_file_extension(
@@ -71,23 +81,8 @@ def _hf_hub_download_url(
 
     Function is in inverse of `hf_hub_url`
     """
-    try:
-        from huggingface_hub import hf_hub_download
-    except ImportError:
-        raise ImportError(
-            "To download a private model please install the `huggingface_hub` package "
-            "with pip (`pip install huggingface_hub`)."
-        )
 
-    pattern = re.compile(
-        r"(?P<endpoint>https://[^/]+)/"
-        r"(?P<repo_id>[^/]+/[^/]+)/"
-        r"resolve/"
-        r"(?P<revision>[^/]+)/"
-        r"(?P<filename>.+)"
-    )
-
-    match = pattern.match(url)
+    match = hf_pattern.match(url)
 
     if not match:
         raise ValueError(f"URL '{url}' has an invalid format for the Hugging Face Hub.")
@@ -108,7 +103,6 @@ def _hf_hub_download_url(
         repo_id=repo_id,
         filename=filename,
         subfolder=subfolder,
-        repo_type=None,
         cache_dir=cache_dir,
         revision=revision,
         token=hf_token,
