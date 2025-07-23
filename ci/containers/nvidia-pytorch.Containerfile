@@ -12,6 +12,6 @@ COPY . /mtt-repo/
 RUN python3 -m venv /mtt-venv && \
     source /mtt-venv/bin/activate && \
     which python && \
-    python -m pip install /mtt-repo[soap-bnn]
+    python -m pip install /mtt-repo[soap-bpnn]
 
 ENV CUDA_HOME="/usr/local/cuda"
