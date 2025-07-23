@@ -296,15 +296,17 @@ class LLPRUncertaintyModel(torch.nn.Module):
                 # special case for energy_ensemble
                 ll_features_name = "mtt::aux::energy_last_layer_features"
             ll_features = return_dict[ll_features_name]
+            print(ll_features.block().values.shape)
             # get the ensemble weights (getattr not supported by torchscript)
             ensemble_weights = torch.tensor(0.0)
             for buffer_name, buffer in self.named_buffers():
                 if buffer_name == name + "_weights":
                     ensemble_weights = buffer
+            print(ensemble_weights.shape)        
             # the ensemble weights should always be found (checks are performed
             # in the generate_ensemble method and in the metatensor wrapper)
             ensemble_values = torch.einsum(
-                "ij, jk -> ik",
+                "ij, jkl -> ikl",     ## DOS specific
                 ll_features.block().values,
                 ensemble_weights,
             )
@@ -324,9 +326,9 @@ class LLPRUncertaintyModel(torch.nn.Module):
             ensemble_values = (
                 ensemble_values
                 - ensemble_values.mean(dim=1, keepdim=True)
-                + return_dict[original_name].block().values
+                + return_dict[original_name].block().values.unsqueeze(-1)  ## DOS specific
             )
-
+ 
             property_name = "energy" if name == "energy_ensemble" else "ensemble_member"
             ensemble = TensorMap(
                 keys=Labels(
@@ -337,14 +339,15 @@ class LLPRUncertaintyModel(torch.nn.Module):
                 ),
                 blocks=[
                     TensorBlock(
-                        values=ensemble_values,
+                        values=ensemble_values.reshape(ensemble_values.shape[0], -1),
                         samples=ll_features.block().samples,
                         components=ll_features.block().components,
                         properties=Labels(
-                            names=[property_name],
-                            values=torch.arange(
-                                ensemble_values.shape[1], device=ensemble_values.device
-                            ).unsqueeze(1),
+                            names=['energy_channel', 'ensemble_member'],   # DOS specific
+                            values=torch.cartesian_prod(
+                                torch.arange(ensemble_values.shape[1], device=ensemble_values.device),    # DOS specific
+                                torch.arange(ensemble_values.shape[2], device=ensemble_values.device),    # DOS specific
+                            )
                         ),
                     )
                 ],
@@ -741,7 +744,7 @@ class LLPRUncertaintyModel(torch.nn.Module):
 
         :param weight_tensors: A dictionary with the weights for the ensemble.
             The keys should be the names of the weights in the model and the
-            values should be 1D PyTorch tensors.
+            values should be PyTorch tensors of (num_targets, num_weights)
         :param n_members: The number of members in the ensemble.
         """
         # note: we could also allow n_members to be different for each output
@@ -754,8 +757,9 @@ class LLPRUncertaintyModel(torch.nn.Module):
         for key in weight_tensors:
             if key not in self.capabilities.outputs.keys():
                 raise ValueError(f"Output '{key}' not supported by model")
-            if len(weight_tensors[key].shape) != 1:
-                raise ValueError("All weights must be 1D tensors")
+            print(weight_tensors[key].shape)
+            if len(weight_tensors[key].shape) != 2:   # DOS specific
+                raise ValueError("All weights must be 2D tensors")  # DOS specific
 
         # sampling; each member is sampled from a multivariate normal distribution
         # with mean given by the input weights and covariance given by the inverse
@@ -765,16 +769,25 @@ class LLPRUncertaintyModel(torch.nn.Module):
             device = self.inv_covariances[uncertainty_name].device
             dtype = self.inv_covariances[uncertainty_name].dtype
             rng = np.random.default_rng()
-            ensemble_weights = rng.multivariate_normal(
-                weights.clone().detach().cpu().numpy(),
-                self.inv_covariances[uncertainty_name].clone().detach().cpu().numpy()
-                * self.uncertainty_multipliers[uncertainty_name],
-                size=n_members,
-                method="svd",
-            ).T
-            ensemble_weights = torch.tensor(
-                ensemble_weights, device=device, dtype=dtype
-            )
+
+            # loop through pred channels
+            ensemble_weights = []
+            for ii in range(weights.shape[0]):   # DOS specific
+                print("ens. generation for energy channel -- #", ii)
+                cur_ensemble_weights = rng.multivariate_normal(
+                    weights[ii].clone().detach().cpu().numpy(),  #  DOS specific
+                    self.inv_covariances[uncertainty_name].clone().detach().cpu().numpy()
+                    * self.uncertainty_multipliers[uncertainty_name][ii].detach().cpu().numpy(),   # DOS specific
+                    size=n_members,
+                    method="svd",
+                ).T
+                cur_ensemble_weights = torch.tensor(
+                    cur_ensemble_weights, device=device, dtype=dtype
+                )
+                ensemble_weights.append(cur_ensemble_weights)    # DOS specific
+            ensemble_weights = torch.stack(ensemble_weights,axis=1)   # DOS specifc
+
+
             ensemble_weights_name = (
                 "mtt::aux::" + name.replace("mtt::", "") + "_ensemble_weights"
             )
