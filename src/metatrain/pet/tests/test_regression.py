@@ -1,5 +1,6 @@
 import os
 import random
+from copy import deepcopy
 
 import numpy as np
 import torch
@@ -68,6 +69,13 @@ def test_regression_init():
 
 def test_regression_energies_forces_train():
     """Regression test for the model when trained for 2 epoch on a small dataset"""
+
+    torch.use_deterministic_algorithms(True)
+    torch.set_num_threads(1)
+    os.environ["OMP_NUM_THREADS"] = "1"
+    os.environ["MKL_NUM_THREADS"] = "1"
+    torch.backends.cudnn.benchmark = False
+
     random.seed(0)
     np.random.seed(0)
     torch.manual_seed(0)
@@ -97,17 +105,22 @@ def test_regression_energies_forces_train():
     targets, target_info_dict = read_targets(OmegaConf.create(conf))
     targets = {"energy": targets["energy"]}
     dataset = Dataset.from_dict({"system": systems, "energy": targets["energy"]})
-    hypers = DEFAULT_HYPERS.copy()
+    hypers = deepcopy(DEFAULT_HYPERS)
     hypers["training"]["num_epochs"] = 2
     hypers["training"]["scheduler_patience"] = 1
     hypers["training"]["fixed_composition_weights"] = {}
-    loss_conf = OmegaConf.create({"energy": CONF_LOSS.copy()})
+    loss_conf = {"energy": deepcopy(CONF_LOSS)}
+    loss_conf["energy"]["gradients"] = {"positions": deepcopy(CONF_LOSS)}
+    loss_conf = OmegaConf.create(loss_conf)
     OmegaConf.resolve(loss_conf)
     hypers["training"]["loss"] = loss_conf
 
     dataset_info = DatasetInfo(
         length_unit="Angstrom", atomic_types=[6], targets=target_info_dict
     )
+    print("MODEL HYPERS:", MODEL_HYPERS)
+    print("DATASET INFO:", dataset_info)
+    print("CONTENT:", os.listdir("."))
     model = PET(MODEL_HYPERS, dataset_info)
     trainer = Trainer(hypers["training"])
     trainer.train(
@@ -142,10 +155,12 @@ def test_regression_energies_forces_train():
         [0.208536088467, -0.117365449667, -0.278660595417]
     )
 
-    # # if you need to change the hardcoded values:
-    # torch.set_printoptions(precision=12)
-    # print(output["energy"].block().values)
-    # print(output["energy"].block().gradient("positions").values.squeeze(-1)[0])
+    # if you need to change the hardcoded values:
+    torch.set_printoptions(precision=12)
+    print(output["energy"].block().values)
+    print(output["energy"].block().gradient("positions").values.squeeze(-1)[0])
+
+    raise
 
     torch.testing.assert_close(output["energy"].block().values, expected_output)
     torch.testing.assert_close(
