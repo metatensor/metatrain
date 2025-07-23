@@ -40,7 +40,7 @@ class PET(ModelInterface):
 
     """
 
-    __checkpoint_version__ = 2
+    __checkpoint_version__ = 3
     __supported_devices__ = ["cuda", "cpu"]
     __supported_dtypes__ = [torch.float32, torch.float64]
     __default_metadata__ = ModelMetadata(
@@ -899,6 +899,10 @@ class PET(ModelInterface):
             checkpoints.update_v1_v2(checkpoint["model_state_dict"])
             checkpoints.update_v1_v2(checkpoint["best_model_state_dict"])
             checkpoint["model_ckpt_version"] = 2
+        if checkpoint["model_ckpt_version"] == 2:
+            checkpoints.update_v2_v3(checkpoint["model_state_dict"])
+            checkpoints.update_v2_v3(checkpoint["best_model_state_dict"])
+            checkpoint["model_ckpt_version"] = 3
 
         return checkpoint
 

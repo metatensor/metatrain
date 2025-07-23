@@ -10,3 +10,8 @@ def update_v1_v2(state_dict):
         state_dict["additive_models.0.model.type_to_index"] = state_dict.pop(
             "additive_models.0.type_to_index"
         )
+
+
+def update_v2_v3(state_dict):
+    if state_dict is not None and "finetune_config" not in state_dict:
+        state_dict["finetune_config"] = {}
