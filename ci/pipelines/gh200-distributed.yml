@@ -7,6 +7,7 @@ stages:
   - test
 
 variables:
+  # Image needs to be public to use the lightweight runner
   PERSIST_IMAGE_NAME: $CSCS_REGISTRY_PATH/public/metatrain-distributed:$CI_COMMIT_SHORT_SHA
 
 build_job:
