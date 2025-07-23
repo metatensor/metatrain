@@ -692,6 +692,8 @@ class PET(ModelInterface):
             model_state_dict = checkpoint["model_state_dict"]
         elif context == "finetune" or context == "export":
             model_state_dict = checkpoint["best_model_state_dict"]
+            if model_state_dict is None:
+                model_state_dict = checkpoint["model_state_dict"]
         else:
             raise ValueError("Unknown context tag for checkpoint loading!")
 
@@ -906,11 +908,12 @@ class PET(ModelInterface):
         checkpoint = {
             "architecture_name": "pet",
             "model_ckpt_version": self.__checkpoint_version__,
-            "metadata": self.metadata,
+            "metadata": self.__default_metadata__,
             "model_data": {
                 "model_hypers": self.hypers,
                 "dataset_info": self.dataset_info,
             },
             "model_state_dict": model_state_dict,
+            "best_model_state_dict": None,
         }
         return checkpoint

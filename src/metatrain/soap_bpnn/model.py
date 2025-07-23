@@ -841,6 +841,20 @@ class SoapBpnn(ModelInterface):
     def upgrade_checkpoint(checkpoint: Dict) -> Dict:
         raise NotImplementedError("checkpoint upgrade is not implemented for SoapBPNN")
 
+    def _get_checkpoint(self) -> Dict:
+        checkpoint = {
+            "architecture_name": "soap_bpnn",
+            "model_ckpt_version": self.__checkpoint_version__,
+            "metadata": self.__default_metadata__,
+            "model_data": {
+                "model_hypers": self.hypers,
+                "dataset_info": self.dataset_info,
+            },
+            "model_state_dict": self.state_dict(),
+            "best_model_state_dict": None,
+        }
+        return checkpoint
+
 
 def _remove_center_type_from_properties(tensor_map: TensorMap) -> TensorMap:
     new_blocks: List[TensorBlock] = []

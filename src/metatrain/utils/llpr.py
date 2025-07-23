@@ -588,21 +588,16 @@ class LLPRUncertaintyModel(torch.nn.Module):
                 "calibrated yet."
             )
 
-        # FIXME: this is very hacky, there should be a way to get the architecture
-        # name from a model instance
-        wrapped_architecture_name = self.model.__module__.replace(
-            "metatrain.", ""
-        ).replace(".model", "")
+        wrapped_model_checkpoint = self.model._get_checkpoint()
+        state_dict = {
+            k: v for k, v in self.state_dict().items() if not k.startswith("model.")
+        }
 
         checkpoint = {
             "architecture_name": "llpr",
             "model_ckpt_version": self.__checkpoint_version__,
-            "wrapped_architecture_name": wrapped_architecture_name,
-            "wrapped_model_data": {  # necessary to re-instantiate the wrapped model
-                "model_hypers": self.model.hypers,
-                "dataset_info": self.model.dataset_info,
-            },
-            "state_dict": self.state_dict(),
+            "wrapped_model_checkpoint": wrapped_model_checkpoint,
+            "state_dict": state_dict,
         }
         torch.save(checkpoint, check_file_extension(path, ".ckpt"))
 

@@ -1,3 +1,4 @@
+import pytest
 import torch
 from metatomic.torch import (
     AtomisticModel,
@@ -7,7 +8,7 @@ from metatomic.torch import (
 )
 
 from metatrain.utils.data import CollateFn, Dataset, read_systems, read_targets
-from metatrain.utils.io import load_model
+from metatrain.utils.io import load_model, model_from_checkpoint
 from metatrain.utils.llpr import LLPRUncertaintyModel
 from metatrain.utils.neighbor_lists import (
     get_requested_neighbor_lists,
@@ -135,3 +136,36 @@ def test_llpr(tmpdir):
     torch.testing.assert_close(
         analytical_uncertainty, ensemble_uncertainty, rtol=5e-3, atol=0.0
     )
+
+
+@pytest.mark.parametrize("context", ["finetune", "restart", "export"])
+def test_llpr_loads_wrapped_model(tmpdir, context):
+    model = load_model(str(RESOURCES_PATH / "model-64-bit.ckpt"))
+    llpr_model = LLPRUncertaintyModel(model)
+    llpr_model.covariance_computed = True
+    llpr_model.inv_covariance_computed = True
+    llpr_model.is_calibrated = True
+
+    with tmpdir.as_cwd():
+        llpr_model.save_checkpoint("llpr_model.ckpt")
+        checkpoint = torch.load(
+            "llpr_model.ckpt", weights_only=False, map_location="cpu"
+        )
+        model_from_checkpoint(checkpoint["wrapped_model_checkpoint"], context)
+
+
+@pytest.mark.parametrize("context", ["finetune", "restart", "export"])
+def test_llpr_save_and_load(tmpdir, context):
+    model = load_model(str(RESOURCES_PATH / "model-64-bit.ckpt"))
+    llpr_model = LLPRUncertaintyModel(model)
+
+    llpr_model.covariance_computed = True
+    llpr_model.inv_covariance_computed = True
+    llpr_model.is_calibrated = True
+
+    with tmpdir.as_cwd():
+        llpr_model.save_checkpoint("llpr_model.ckpt")
+        checkpoint = torch.load(
+            "llpr_model.ckpt", weights_only=False, map_location="cpu"
+        )
+        llpr_model.load_checkpoint(checkpoint, context="finetune")
