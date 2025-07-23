@@ -156,6 +156,7 @@ CONF_LOSS = OmegaConf.create(
         "weight": "${default_loss_weight:}",
         "reduction": "${default_loss_reduction:}",
         "sliding_factor": "${default_loss_sliding_factor:}",
+        "gradients": {},
     }
 )
 

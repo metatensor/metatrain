@@ -598,7 +598,13 @@ class LossAggregator(LossInterface):
                         pname: pval
                         for pname, pval in gradient_specific_config.items()
                         if pname
-                        not in ("type", "weight", "reduction", "sliding_factor")
+                        not in (
+                            "type",
+                            "weight",
+                            "reduction",
+                            "sliding_factor",
+                            "gradients",
+                        )
                     },
                 )
                 ema_scheduler_for_grad = EMAScheduler(target_config["sliding_factor"])
