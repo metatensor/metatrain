@@ -613,24 +613,34 @@ class LLPRUncertaintyModel(torch.nn.Module):
         context: Literal["restart", "finetune", "export"],
     ) -> "LLPRUncertaintyModel":
         model = model_from_checkpoint(checkpoint["wrapped_model_checkpoint"], context)
+        if context == "finetune":
+            return model
+        elif context == "restart":
+            raise NotImplementedError(
+                "Restarting from the LLPR checkpoint is not supported. "
+                "Please consider finetuning the model, or just export it "
+                "in the TorchScript format for final usage."
+            )
+        elif context == "export":
+            # Find the size of the ensemble weights, if any:
+            ensemble_weight_sizes = {}
+            for name, tensor in checkpoint["state_dict"].items():
+                if name.endswith("_ensemble_weights"):
+                    ensemble_weight_sizes[name] = list(tensor.shape)
 
-        # Find the size of the ensemble weights, if any:
-        ensemble_weight_sizes = {}
-        for name, tensor in checkpoint["state_dict"].items():
-            if name.endswith("_ensemble_weights"):
-                ensemble_weight_sizes[name] = list(tensor.shape)
+            # Create the model
+            wrapped_model = cls(model, ensemble_weight_sizes)
+            dtype = next(model.parameters()).dtype
+            wrapped_model.to(dtype).load_state_dict(
+                checkpoint["state_dict"], strict=False
+            )
 
-        # Create the model
-        wrapped_model = cls(model, ensemble_weight_sizes)
-        dtype = next(model.parameters()).dtype
-        wrapped_model.to(dtype).load_state_dict(checkpoint["state_dict"], strict=False)
+            # If we load a LLPR checkpoint, these will already be ready:
+            wrapped_model.covariance_computed = True
+            wrapped_model.inv_covariance_computed = True
+            wrapped_model.is_calibrated = True
 
-        # If we load a LLPR checkpoint, these will already be ready:
-        wrapped_model.covariance_computed = True
-        wrapped_model.inv_covariance_computed = True
-        wrapped_model.is_calibrated = True
-
-        return wrapped_model
+            return wrapped_model
 
     def export(self, metadata: Optional[ModelMetadata] = None) -> AtomisticModel:
         dtype = next(self.parameters()).dtype
