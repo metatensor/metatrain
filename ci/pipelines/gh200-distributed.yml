@@ -17,7 +17,7 @@ build_job:
 
 install_job:
   stage: install
-  extends: .container-runner-daint-gh200
+  extends: .container-runner-lightweight-gh200
   image: $PERSIST_IMAGE_NAME
   timeout: 30m
   script:
@@ -29,7 +29,7 @@ install_job:
     SLURM_JOB_NUM_NODES: 1
     SLURM_PARTITION: normal
     SLURM_NTASKS: 1
-    SLURM_CPUS_PER_TASK: 64
+    SLURM_CPUS_PER_TASK: 4
     SLURM_TIMELIMIT: '00:10:00'
 
 test_job:
