@@ -12,7 +12,7 @@ build_job:
   stage: build
   extends: .container-builder-cscs-gh200
   variables:
-    DOCKERFILE: ci/containers/nvidia-pytorch.Containerfile
+    DOCKERFILE: ci/containers/Containerfile
 
 test_job:
   stage: test
@@ -26,6 +26,7 @@ test_job:
     - python -m pip install -e .
     - cd tests/distributed
   script:
+    - source mtt-venv/bin/activate
     - mtt train options-distributed.yaml
   variables:
     SLURM_JOB_NUM_NODES: 1
