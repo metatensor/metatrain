@@ -70,12 +70,6 @@ def test_regression_init():
 def test_regression_energies_forces_train():
     """Regression test for the model when trained for 2 epoch on a small dataset"""
 
-    torch.use_deterministic_algorithms(True)
-    torch.set_num_threads(1)
-    os.environ["OMP_NUM_THREADS"] = "1"
-    os.environ["MKL_NUM_THREADS"] = "1"
-    torch.backends.cudnn.benchmark = False
-
     random.seed(0)
     np.random.seed(0)
     torch.manual_seed(0)
