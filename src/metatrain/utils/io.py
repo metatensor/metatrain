@@ -184,15 +184,15 @@ def model_from_checkpoint(
     architecture = import_architecture(architecture_name)
 
     model_ckpt_version = checkpoint.get("model_ckpt_version")
-    ckpt_before_versionning = model_ckpt_version is None
-    if ckpt_before_versionning:
+    ckpt_before_versioning = model_ckpt_version is None
+    if ckpt_before_versioning:
         # assume version 1 and try our best
         model_ckpt_version = 1
         checkpoint["model_ckpt_version"] = model_ckpt_version
 
     if model_ckpt_version != architecture.__model__.__checkpoint_version__:
         try:
-            if ckpt_before_versionning:
+            if ckpt_before_versioning:
                 warnings.warn(
                     "trying to upgrade an old model checkpoint with unknown "
                     "version, this might fail and require manual modifications",
@@ -240,15 +240,16 @@ def trainer_from_checkpoint(
     architecture = import_architecture(architecture_name)
 
     trainer_ckpt_version = checkpoint.get("trainer_ckpt_version")
-    ckpt_before_versionning = trainer_ckpt_version is None
-    if ckpt_before_versionning:
+
+    ckpt_before_versioning = trainer_ckpt_version is None
+    if ckpt_before_versioning:
         # assume version 1 and try our best
         trainer_ckpt_version = 1
         checkpoint["trainer_ckpt_version"] = trainer_ckpt_version
 
     if trainer_ckpt_version != architecture.__trainer__.__checkpoint_version__:
         try:
-            if ckpt_before_versionning:
+            if ckpt_before_versioning:
                 warnings.warn(
                     "trying to upgrade an old trainer checkpoint with unknown "
                     "version, this might fail and require manual modifications",

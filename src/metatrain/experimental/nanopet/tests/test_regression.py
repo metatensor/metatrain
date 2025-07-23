@@ -1,3 +1,4 @@
+import os
 import random
 
 import numpy as np
@@ -10,6 +11,7 @@ from metatrain.utils.data import Dataset, DatasetInfo
 from metatrain.utils.data.readers import read_systems, read_targets
 from metatrain.utils.data.target_info import get_energy_target_info
 from metatrain.utils.neighbor_lists import get_system_with_neighbor_lists
+from metatrain.utils.omegaconf import CONF_LOSS
 
 from . import DATASET_PATH, DEFAULT_HYPERS, MODEL_HYPERS
 
@@ -19,6 +21,10 @@ def test_regression_init():
     random.seed(0)
     np.random.seed(0)
     torch.manual_seed(0)
+    os.environ["PYTHONHASHSEED"] = str(0)
+    if torch.cuda.is_available():
+        torch.cuda.manual_seed(0)
+        torch.cuda.manual_seed_all(0)
 
     targets = {}
     targets["mtt::U0"] = get_energy_target_info({"quantity": "energy", "unit": "eV"})
@@ -61,6 +67,10 @@ def test_regression_train():
     random.seed(0)
     np.random.seed(0)
     torch.manual_seed(0)
+    os.environ["PYTHONHASHSEED"] = str(0)
+    if torch.cuda.is_available():
+        torch.cuda.manual_seed(0)
+        torch.cuda.manual_seed_all(0)
 
     systems = read_systems(DATASET_PATH)
 
@@ -84,6 +94,9 @@ def test_regression_train():
 
     hypers = DEFAULT_HYPERS.copy()
     hypers["training"]["num_epochs"] = 2
+    loss_conf = OmegaConf.create({"mtt::U0": CONF_LOSS.copy()})
+    OmegaConf.resolve(loss_conf)
+    hypers["training"]["loss"] = loss_conf
 
     dataset_info = DatasetInfo(
         length_unit="Angstrom", atomic_types=[1, 6, 7, 8], targets=target_info_dict

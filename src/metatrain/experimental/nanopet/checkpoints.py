@@ -1,9 +1,3 @@
-def model_update_v1_v2(state_dict):
-    state_dict["additive_models.0.model.type_to_index"] = state_dict.pop(
-        "additive_models.0.type_to_index"
-    )
-
-
 def trainer_update_v1_v2(checkpoint):
     old_loss_hypers = checkpoint["train_hypers"]["loss"].copy()
     dataset_info = checkpoint["model_data"]["dataset_info"]

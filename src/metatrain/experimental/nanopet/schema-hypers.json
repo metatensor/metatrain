@@ -178,7 +178,10 @@
           ]
         },
         "sliding_factor": {
-          "type": "number",
+          "type": [
+            "number",
+            "null"
+          ],
           "minimum": 0.0
         },
         "gradients": {

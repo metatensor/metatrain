@@ -34,11 +34,12 @@ from metatrain.utils.transfer import (
     batch_to,
 )
 
+from . import checkpoints
 from .model import SoapBpnn
 
 
 class Trainer(TrainerInterface):
-    __checkpoint_version__ = 1
+    __checkpoint_version__ = 2
 
     def __init__(self, hypers):
         super().__init__(hypers)
@@ -546,4 +547,9 @@ class Trainer(TrainerInterface):
 
     @staticmethod
     def upgrade_checkpoint(checkpoint: Dict) -> Dict:
-        raise NotImplementedError("checkpoint upgrade is not implemented for SoapBPNN")
+        if checkpoint["trainer_ckpt_version"] == 1:
+            checkpoints.trainer_update_v1_v2(checkpoint)
+            checkpoint["trainer_ckpt_version"] = 2
+        else:
+            assert checkpoint["trainer_ckpt_version"] == 2
+        return checkpoint

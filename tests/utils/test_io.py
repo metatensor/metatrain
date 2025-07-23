@@ -87,8 +87,9 @@ def test_load_trainer_checkpoint_wrong_version(monkeypatch, tmp_path):
     message = (
         "Unable to load the trainer checkpoint from 'model-version-5000000.ckpt' "
         "for the 'soap_bpnn' architecture: the checkpoint is using version 5000000, "
-        "while the current version is 1; and trying to upgrade the checkpoint failed."
+        "while the current version is 2; and trying to upgrade the checkpoint failed."
     )
+
     with pytest.raises(RuntimeError, match=message):
         trainer_from_checkpoint(file, context="restart", hypers={})
 

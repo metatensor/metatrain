@@ -353,6 +353,7 @@ def test_fixed_composition_weights():
         }
     }
     hypers = OmegaConf.create(hypers)
+
     check_architecture_options(name="pet", options=OmegaConf.to_container(hypers))
 
 
