@@ -706,6 +706,20 @@ class NanoPET(ModelInterface):
     def upgrade_checkpoint(checkpoint: Dict) -> Dict:
         raise NotImplementedError("checkpoint upgrade is not implemented for NanoPET")
 
+    def _get_checkpoint(self) -> Dict:
+        checkpoint = {
+            "architecture_name": "experimental.nanopet",
+            "model_ckpt_version": self.__checkpoint_version__,
+            "metadata": self.__default_metadata__,
+            "model_data": {
+                "model_hypers": self.hypers,
+                "dataset_info": self.dataset_info,
+            },
+            "model_state_dict": self.state_dict(),
+            "best_model_state_dict": None,
+        }
+        return checkpoint
+
 
 def manual_prod(shape: List[int]) -> int:
     # prod from standard library not supported in torchscript
