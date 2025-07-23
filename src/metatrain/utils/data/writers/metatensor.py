@@ -1,7 +1,7 @@
 from pathlib import Path
 from typing import Dict, List, Optional, Union
 
-import metatensor.torch
+import metatensor.torch as mts
 import torch
 from metatensor.torch import Labels, TensorBlock, TensorMap
 from metatomic.torch import ModelCapabilities, System
@@ -41,7 +41,7 @@ class MetatensorWriter(Writer):
         # write out .mts files (writes one file per target)
         filename_base = Path(self.filename).stem
         for prediction_name, prediction_tmap in predictions.items():
-            metatensor.torch.save(
+            mts.save(
                 filename_base + "_" + prediction_name + ".mts",
                 prediction_tmap.to("cpu").to(torch.float64),
             )
@@ -95,7 +95,7 @@ def _concatenate_tensormaps(
         system_counter += n_systems
 
     return {
-        target: metatensor.torch.join(
+        target: mts.join(
             [pred[target] for pred in tensormaps_shifted_systems],
             axis="samples",
             remove_tensor_name=True,

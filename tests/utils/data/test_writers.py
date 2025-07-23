@@ -1,6 +1,6 @@
 from typing import Dict, List, Tuple
 
-import metatensor.torch
+import metatensor.torch as mts
 import pytest
 import torch
 from metatensor.torch import Labels, TensorBlock, TensorMap
@@ -239,7 +239,7 @@ def test_write_predictions(filename, fileformat, cell, monkeypatch, tmp_path):
                 assert frame.info["stress"].shape == (3, 3)
 
     elif filename.endswith(".mts"):
-        tensormap = metatensor.torch.load(filename.split(".")[0] + "_energy.mts")
+        tensormap = mts.load(filename.split(".")[0] + "_energy.mts")
         assert tensormap.block().values.shape == (2, 1)
         assert tensormap.block().gradient("positions").values.shape == (4, 3, 1)
         if cell is not None:
