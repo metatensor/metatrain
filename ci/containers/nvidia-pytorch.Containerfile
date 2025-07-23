@@ -9,7 +9,7 @@ RUN python3 -m pip install --upgrade pip setuptools
 
 COPY . /mtt-repo/
 
-RUN python3 -m venv /mtt-venv && \
+RUN python3 -m venv --system-site-packages /mtt-venv && \
     source /mtt-venv/bin/activate && \
     which python && \
     python -m pip install /mtt-repo[soap-bpnn]
