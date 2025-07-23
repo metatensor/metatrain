@@ -7,6 +7,8 @@ RUN apt update && \
 
 ENV PIP_EXTRA_INDEX_URL=https://download.pytorch.org/whl/cu128
 
+COPY . /mtt-repo/
+
 RUN python3 -m venv --system-site-packages /mtt-venv && \
     . /mtt-venv/bin/activate && \
     python -m pip install /mtt-repo[soap-bpnn]
