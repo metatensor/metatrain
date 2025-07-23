@@ -12,11 +12,11 @@ build base:
   stage: build_base
   extends: .container-builder-cscs-gh200
   before_script:
-    - TAG_DOCKERFILE=`echo $DOCKERFILE | sha256sum | head -c 8`
+    - TAG_DOCKERFILE=`sha256sum $DOCKERFILE | head -c 8`
     - TAG=${TAG_DOCKERFILE}
     - export PERSIST_IMAGE_NAME=$CSCS_REGISTRY_PATH/base/mtt-base:$TAG
-    - echo "INFO: Building image $PERSIST_IMAGE_NAME"
     - echo "BASE_IMAGE=$PERSIST_IMAGE_NAME" > build.env
+    - 'echo "INFO: Bulidning imgage $PERSIST_IMAGE_NAME"'
   artifacts:
     reports:
       dotenv: build.env
