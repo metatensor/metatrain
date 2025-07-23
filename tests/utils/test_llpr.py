@@ -6,8 +6,16 @@ from metatomic.torch import (
     ModelMetadata,
     ModelOutput,
 )
+from omegaconf import OmegaConf
 
-from metatrain.utils.data import CollateFn, Dataset, read_systems, read_targets
+from metatrain.utils.architectures import get_default_hypers, import_architecture
+from metatrain.utils.data import (
+    CollateFn,
+    Dataset,
+    DatasetInfo,
+    read_systems,
+    read_targets,
+)
 from metatrain.utils.io import load_model, model_from_checkpoint
 from metatrain.utils.llpr import LLPRUncertaintyModel
 from metatrain.utils.neighbor_lists import (
@@ -140,6 +148,10 @@ def test_llpr(tmpdir):
 
 @pytest.mark.parametrize("context", ["finetune", "restart", "export"])
 def test_llpr_loads_wrapped_model(tmpdir, context):
+    """
+    Test that the wrapped model can be loaded from the LLPR checkpoint
+    with the given context.
+    """
     model = load_model(str(RESOURCES_PATH / "model-64-bit.ckpt"))
     llpr_model = LLPRUncertaintyModel(model)
     llpr_model.covariance_computed = True
@@ -155,7 +167,10 @@ def test_llpr_loads_wrapped_model(tmpdir, context):
 
 
 @pytest.mark.parametrize("context", ["finetune", "restart", "export"])
-def test_llpr_save_and_load(tmpdir, context):
+def test_llpr_save_and_load_checkpoint(tmpdir, context):
+    """
+    Test that the LLPR wrapper can be saved and loaded with the given context.
+    """
     model = load_model(str(RESOURCES_PATH / "model-64-bit.ckpt"))
     llpr_model = LLPRUncertaintyModel(model)
 
@@ -168,4 +183,78 @@ def test_llpr_save_and_load(tmpdir, context):
         checkpoint = torch.load(
             "llpr_model.ckpt", weights_only=False, map_location="cpu"
         )
-        llpr_model.load_checkpoint(checkpoint, context="finetune")
+        if context == "finetune" or context == "export":
+            llpr_model.load_checkpoint(checkpoint, context=context)
+        elif context == "restart":
+            with pytest.raises(NotImplementedError):
+                llpr_model.load_checkpoint(checkpoint, context=context)
+
+
+def test_llpr_finetuning(tmpdir):
+    model = load_model(str(RESOURCES_PATH / "model-pet.ckpt"))
+    llpr_model = LLPRUncertaintyModel(model)
+
+    llpr_model.covariance_computed = True
+    llpr_model.inv_covariance_computed = True
+    llpr_model.is_calibrated = True
+
+    with tmpdir.as_cwd():
+        llpr_model.save_checkpoint("llpr_model.ckpt")
+        checkpoint = torch.load(
+            "llpr_model.ckpt", weights_only=False, map_location="cpu"
+        )
+        model = llpr_model.load_checkpoint(checkpoint, context="finetune").to(
+            torch.float64
+        )
+
+    architecture = import_architecture("pet")
+    Trainer = architecture.__trainer__
+
+    DATASET_PATH = RESOURCES_PATH / "carbon_reduced_100.xyz"
+    systems = read_systems(DATASET_PATH)
+
+    conf = {
+        "energy": {
+            "quantity": "energy",
+            "read_from": DATASET_PATH,
+            "reader": "ase",
+            "key": "energy",
+            "unit": "eV",
+            "type": "scalar",
+            "per_atom": False,
+            "num_subtargets": 1,
+            "forces": {"read_from": DATASET_PATH, "key": "force"},
+            "stress": False,
+            "virial": False,
+        }
+    }
+
+    targets, target_info_dict = read_targets(OmegaConf.create(conf))
+    dataset = Dataset.from_dict({"system": systems, "energy": targets["energy"]})
+    dataset_info = DatasetInfo(
+        length_unit="angstrom", atomic_types=[6], targets=target_info_dict
+    )
+    model = model.restart(dataset_info)
+
+    hypers = get_default_hypers("pet")
+    hypers["training"]["num_epochs"] = 2
+    hypers["training"]["scheduler_patience"] = 1
+    hypers["training"]["fixed_composition_weights"] = {}
+
+    hypers["training"]["finetune"] = {
+        "method": "lora",
+        "config": {
+            "rank": 4,
+            "alpha": 0.1,
+        },
+    }
+
+    trainer = Trainer(hypers["training"])
+    trainer.train(
+        model=model,
+        dtype=torch.float32,
+        devices=[torch.device("cpu")],
+        train_datasets=[dataset],
+        val_datasets=[dataset],
+        checkpoint_dir=".",
+    )
