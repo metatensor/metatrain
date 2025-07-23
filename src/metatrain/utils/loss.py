@@ -30,6 +30,12 @@ class LossInterface(ABC):
         weight: float = 0.0,
         reduction: str = "mean",
     ) -> None:
+        """
+        :param name: key in the predictions/targets dict to select the TensorMap.
+        :param gradient: optional name of a gradient field to extract.
+        :param weight: multiplicative weight (used by ScheduledLoss).
+        :param reduction: reduction mode for torch losses ("mean", "sum", etc.).
+        """
         self.target = name
         self.gradient = gradient
         self.weight = weight
@@ -39,37 +45,39 @@ class LossInterface(ABC):
 
     @abstractmethod
     def compute(
-        self, predictions: Any, targets: Any, extra_data: Optional[Any] = None
+        self,
+        predictions: Dict[str, TensorMap],
+        targets: Dict[str, TensorMap],
+        extra_data: Optional[Any] = None,
     ) -> torch.Tensor:
         """
-        Compute the loss given predictions and targets.
+        Compute the loss.
 
-        :param predictions: Model outputs.
-        :param targets: Ground-truth data.
-        :param extra_data: Optional additional data for loss computation.
-        :return: Scalar loss tensor.
+        :param predictions: mapping from target names to :py:class:`TensorMap`.
+        :param targets: mapping from target names to :py:class:`TensorMap`.
+        :param extra_data: optional additional data (e.g., masks).
+        :return: scalar torch.Tensor representing the loss.
         """
         ...
 
     def __call__(
-        self, predictions: Any, targets: Any, extra_data: Optional[Any] = None
+        self,
+        predictions: Dict[str, TensorMap],
+        targets: Dict[str, TensorMap],
+        extra_data: Optional[Any] = None,
     ) -> torch.Tensor:
         """
-        Alias to compute(), so loss instances are callable.
-
-        :param predictions: Model outputs.
-        :param targets: Ground-truth data.
-        :return: Scalar loss tensor.
+        Alias to compute() for direct invocation.
         """
         return self.compute(predictions, targets, extra_data)
 
     @classmethod
     def from_config(cls, cfg: Dict[str, Any]) -> "LossInterface":
         """
-        Instantiate a LossBase subclass from a config dict.
+        Instantiate a loss from a config dict.
 
-        :param cfg: Keyword arguments for the loss constructor.
-        :return: An instance of the loss subclass.
+        :param cfg: keyword args matching the loss constructor.
+        :return: instance of a LossInterface subclass.
         """
         return cls(**cfg)
 
@@ -88,7 +96,13 @@ class WeightScheduler(ABC):
     def initialize(
         self, loss_fn: LossInterface, targets: Dict[str, TensorMap]
     ) -> float:
-        """Compute and return the initial weight."""
+        """
+        Compute and return the initial weight.
+
+        :param loss_fn: the base loss to initialize.
+        :param targets: mapping of target names to :py:class:`TensorMap`.
+        :return: initial weight as a float.
+        """
 
     @abstractmethod
     def update(
@@ -97,7 +111,14 @@ class WeightScheduler(ABC):
         predictions: Dict[str, TensorMap],
         targets: Dict[str, TensorMap],
     ) -> float:
-        """Update and return the new weight after a batch."""
+        """
+        Update and return the new weight after a batch.
+
+        :param loss_fn: the base loss.
+        :param predictions: mapping of target names to :py:class:`TensorMap`.
+        :param targets: mapping of target names to :py:class:`TensorMap`.
+        :return: updated weight as a float.
+        """
 
 
 class EMAScheduler(WeightScheduler):
@@ -105,27 +126,35 @@ class EMAScheduler(WeightScheduler):
     Exponential moving average scheduler for loss weights.
     """
 
-    EPS = 1e-6
-    initialized: bool = False
+    EPSILON = 1e-6
 
     def __init__(self, sliding_factor: Optional[float]) -> None:
-        self.sf: float = float(sliding_factor or 0.0)
-        self.weight: float = 1.0
-        self.initialized: bool = False
+        """
+        :param sliding_factor: factor in [0,1] for EMA (0 disables scheduling).
+        """
+        self.sliding_factor = float(sliding_factor or 0.0)
+        self.current_weight = 1.0
+        self.initialized = False
 
     def initialize(
         self, loss_fn: LossInterface, targets: Dict[str, TensorMap]
     ) -> float:
-        if self.sf <= 0.0:
-            self.weight = 1.0
+        # If scheduling disabled, keep weight = 1.0
+        if self.sliding_factor <= 0.0:
+            self.current_weight = 1.0
         else:
-            name = loss_fn.target
-            grad = getattr(loss_fn, "gradient", None)
-            tm = targets[name]
-            if grad is None:
-                mean_tm = mts.mean_over_samples(tm, tm.sample_names)
-                baseline = TensorMap(
-                    keys=tm.keys,
+            # Compute a baseline loss against a constant mean or zero-gradient map
+            target_name = loss_fn.target
+            gradient_name = getattr(loss_fn, "gradient", None)
+            tensor_map_for_target = targets[target_name]
+
+            if gradient_name is None:
+                # Create a baseline TensorMap with all values = mean over samples
+                mean_tensor_map = mts.mean_over_samples(
+                    tensor_map_for_target, tensor_map_for_target.sample_names
+                )
+                baseline_tensor_map = TensorMap(
+                    keys=tensor_map_for_target.keys,
                     blocks=[
                         mts.TensorBlock(
                             samples=block.samples,
@@ -133,16 +162,22 @@ class EMAScheduler(WeightScheduler):
                             properties=block.properties,
                             values=torch.ones_like(block.values) * mean_block.values,
                         )
-                        for block, mean_block in zip(tm, mean_tm)
+                        for block, mean_block in zip(
+                            tensor_map_for_target, mean_tensor_map
+                        )
                     ],
                 )
             else:
-                baseline = mts.zeros_like(tm)
+                # Zero baseline for gradient-based losses
+                baseline_tensor_map = mts.zeros_like(tensor_map_for_target)
 
-            val = loss_fn.compute({name: tm}, {name: baseline})
-            self.weight = float(val.clamp_min(self.EPS))
+            initial_loss_value = loss_fn.compute(
+                {target_name: tensor_map_for_target}, {target_name: baseline_tensor_map}
+            )
+            self.current_weight = float(initial_loss_value.clamp_min(self.EPSILON))
+
         self.initialized = True
-        return self.weight
+        return self.current_weight
 
     def update(
         self,
@@ -150,35 +185,40 @@ class EMAScheduler(WeightScheduler):
         predictions: Dict[str, TensorMap],
         targets: Dict[str, TensorMap],
     ) -> float:
-        if self.sf <= 0.0:
-            return self.weight
-        err = loss_fn.compute(predictions, targets).detach().item()
-        new_weight = self.sf * self.weight + (1.0 - self.sf) * err
-        self.weight = max(new_weight, self.EPS)
-        return self.weight
+        # If scheduling disabled, return fixed weight
+        if self.sliding_factor <= 0.0:
+            return self.current_weight
+
+        # Compute the instantaneous error
+        instantaneous_error = loss_fn.compute(predictions, targets).detach().item()
+        # EMA update
+        new_weight = (
+            self.sliding_factor * self.current_weight
+            + (1.0 - self.sliding_factor) * instantaneous_error
+        )
+        self.current_weight = max(new_weight, self.EPSILON)
+        return self.current_weight
 
 
 class ScheduledLoss(LossInterface):
     """
     Wrap a base :py:class:`LossInterface` with a :py:class:`WeightScheduler`.
-
     After each compute, the scheduler updates the loss weight.
     """
 
-    def __init__(
-        self,
-        base_loss: LossInterface,
-        scheduler: WeightScheduler,
-    ):
-        # Delegate attributes
+    def __init__(self, base_loss: LossInterface, weight_scheduler: WeightScheduler):
+        """
+        :param base_loss: underlying LossInterface to wrap.
+        :param weight_scheduler: scheduler that controls the multiplier.
+        """
         super().__init__(
             base_loss.target,
             base_loss.gradient,
             base_loss.weight,
             base_loss.reduction,
         )
-        self.base = base_loss
-        self.scheduler = scheduler
+        self.base_loss = base_loss
+        self.scheduler = weight_scheduler
         self.loss_kwargs = getattr(base_loss, "loss_kwargs", {})
 
     def compute(
@@ -187,47 +227,114 @@ class ScheduledLoss(LossInterface):
         targets: Dict[str, TensorMap],
         extra_data: Optional[Any] = None,
     ) -> torch.Tensor:
-        # Initialize the base loss weight on the first call
+        # Initialize scheduler on first call
         if not self.scheduler.initialized:
-            self.sliding_weight = self.scheduler.initialize(self.base, targets)
+            self.normalization_factor = self.scheduler.initialize(
+                self.base_loss, targets
+            )
 
         # compute the raw loss using the base loss function
-        raw_loss = self.base.compute(predictions, targets, extra_data)
+        raw_loss_value = self.base_loss.compute(predictions, targets, extra_data)
 
         # scale by the fixed weight and divide by the sliding weight
-        weighted_loss = raw_loss * (self.base.weight / self.sliding_weight)
+        weighted_loss_value = raw_loss_value * (
+            self.base_loss.weight / self.normalization_factor
+        )
 
         # update the sliding weight
-        self.sliding_weight = self.scheduler.update(self.base, predictions, targets)
+        self.normalization_factor = self.scheduler.update(
+            self.base_loss, predictions, targets
+        )
 
-        return weighted_loss
+        return weighted_loss_value
 
 
 # --- specific losses ------------------------------------------------------------------
 
 
-class TensorMapPointwiseLoss(LossInterface):
+class BaseTensorMapLoss(LossInterface):
     """
-    Pointwise loss on :py:class:`TensorMap` entries using a :py:mod:`torch.nn` loss
-    function.
+    Backbone for pointwise losses on :py:class:`TensorMap` entries.
 
-    Extracts values or gradients, flattens them, and applies ``loss_fn``.
+    Provides a compute_flattened() helper that extracts values or gradients,
+    flattens them, applies an optional mask, and computes the torch loss.
     """
 
     def __init__(
         self,
         name: str,
-        gradient: Optional[str] = None,
-        weight: float = 1.0,
-        reduction: str = "mean",
+        gradient: Optional[str],
+        weight: float,
+        reduction: str,
         *,
-        loss_cls: Type[_Loss],
-        **loss_kwargs,
+        loss_fn: _Loss,
     ):
+        """
+        :param name: key in the predictions/targets dict.
+        :param gradient: optional gradient field name.
+        :param weight: dummy here; real weighting in ScheduledLoss.
+        :param reduction: reduction mode for torch loss.
+        :param loss_fn: pre-instantiated torch.nn loss (e.g. MSELoss).
+        """
         super().__init__(name, gradient, weight, reduction)
-        self.loss_kwargs = loss_kwargs
-        params = {"reduction": reduction, **loss_kwargs}
-        self.loss_fn = loss_cls(**params)
+        self.torch_loss = loss_fn
+
+    def compute_flattened(
+        self,
+        tensor_map_predictions_for_target: TensorMap,
+        tensor_map_targets_for_target: TensorMap,
+        tensor_map_mask_for_target: Optional[TensorMap] = None,
+    ) -> torch.Tensor:
+        """
+        Flatten prediction and target blocks (and optional mask), then
+        apply the torch loss.
+
+        :param tensor_map_predictions_for_target: predicted :py:class:`TensorMap`.
+        :param tensor_map_targets_for_target: target :py:class:`TensorMap`.
+        :param tensor_map_mask_for_target: optional mask :py:class:`TensorMap`.
+        :return: scalar torch.Tensor of the computed loss.
+        """
+        list_of_prediction_segments = []
+        list_of_target_segments = []
+
+        def extract_flattened_values_from_block(
+            tensor_block: mts.TensorBlock,
+        ) -> torch.Tensor:
+            """
+            Extract values or gradients from a block, flatten to 1D.
+            """
+            if self.gradient is not None:
+                values = tensor_block.gradient(self.gradient).values
+            else:
+                values = tensor_block.values
+            return values.reshape(-1)
+
+        # Loop over each key in the TensorMap
+        for single_key in tensor_map_predictions_for_target.keys:
+            block_for_prediction = tensor_map_predictions_for_target.block(single_key)
+            block_for_target = tensor_map_targets_for_target.block(single_key)
+
+            flattened_prediction = extract_flattened_values_from_block(
+                block_for_prediction
+            )
+            flattened_target = extract_flattened_values_from_block(block_for_target)
+
+            if tensor_map_mask_for_target is not None:
+                # Apply boolean mask if provided
+                block_for_mask = tensor_map_mask_for_target.block(single_key)
+                flattened_mask = extract_flattened_values_from_block(
+                    block_for_mask
+                ).bool()
+                flattened_prediction = flattened_prediction[flattened_mask]
+                flattened_target = flattened_target[flattened_mask]
+
+            list_of_prediction_segments.append(flattened_prediction)
+            list_of_target_segments.append(flattened_target)
+
+        # Concatenate all segments and apply the torch loss
+        all_predictions_flattened = torch.cat(list_of_prediction_segments)
+        all_targets_flattened = torch.cat(list_of_target_segments)
+        return self.torch_loss(all_predictions_flattened, all_targets_flattened)
 
     def compute(
         self,
@@ -236,53 +343,30 @@ class TensorMapPointwiseLoss(LossInterface):
         extra_data: Optional[Any] = None,
     ) -> torch.Tensor:
         """
-        Gather and flatten target and prediction blocks, then compute loss.
+        Compute the unmasked pointwise loss.
 
-        :param predictions: Mapping from target names to TensorMaps.
-        :param targets: Mapping from target names to TensorMaps.
-        :param extra_data: Additional data for loss computation [ignored].
-        :return: Scalar loss tensor.
+        :param predictions: mapping of names to :py:class:`TensorMap`.
+        :param targets: mapping of names to :py:class:`TensorMap`.
+        :param extra_data: ignored for unmasked losses.
+        :return: scalar torch.Tensor loss.
         """
-        del extra_data  # Unused, but kept for compatibility
-        pred_parts = []
-        targ_parts = []
-
-        def grab(block, grad):
-            # if grad is  None, take values; else take that gradient
-            if grad is not None:
-                return block.gradient(grad).values.reshape(-1)
-            else:
-                return block.values.reshape(-1)
-
-        pred_tensor = predictions[self.target]
-        targ_tensor = targets[self.target]
-
-        for key in pred_tensor.keys:
-            pred_block = pred_tensor.block(key)
-            targ_block = targ_tensor.block(key)
-            pred_parts.append(grab(pred_block, self.gradient))
-            targ_parts.append(grab(targ_block, self.gradient))
-
-        # concatenate all parts into a single tensor
-        all_pred = torch.cat(pred_parts)
-        all_targ = torch.cat(targ_parts)
-
-        return self.loss_fn(all_pred, all_targ)
+        tensor_map_pred = predictions[self.target]
+        tensor_map_targ = targets[self.target]
+        return self.compute_flattened(tensor_map_pred, tensor_map_targ)
 
 
-class TensorMapMaskedPointwiseLoss(TensorMapPointwiseLoss):
+class MaskedTensorMapLoss(BaseTensorMapLoss):
     """
-    Pointwise loss on :py:class:`TensorMap` entries using a :py:mod:`torch.nn` loss
-    function.
+    Pointwise masked loss on :py:class:`TensorMap` entries.
 
-    Extracts values or gradients, flattens them, and applies ``loss_fn``.
+    Inherits flattening and torch-loss logic from BaseTensorMapLoss.
     """
 
     def compute(
         self,
         predictions: Dict[str, TensorMap],
         targets: Dict[str, TensorMap],
-        extra_data: Optional[Any] = None,
+        extra_data: Optional[Dict[str, TensorMap]] = None,
     ) -> torch.Tensor:
         """
         Gather and flatten target and prediction blocks, then compute loss.
@@ -295,45 +379,27 @@ class TensorMapMaskedPointwiseLoss(TensorMapPointwiseLoss):
             should have the same metadata as the target and prediction tensors.
         :return: Scalar loss tensor.
         """
-
-        pred_parts = []
-        targ_parts = []
-
-        def grab(block, grad):
-            # if grad is  None, take values; else take that gradient
-            if grad is not None:
-                return block.gradient(grad).values.reshape(-1)
-            else:
-                return block.values.reshape(-1)
-
-        pred_tensor = predictions[self.target]
-        targ_tensor = targets[self.target]
-        if extra_data is None or self.target + "_mask" not in extra_data:
+        mask_key = f"{self.target}_mask"
+        if extra_data is None or mask_key not in extra_data:
             raise ValueError(
-                f"Expected extra_data to contain data field "
-                f"'{self.target}_mask' for masking the loss."
+                f"Expected extra_data to contain TensorMap under '{mask_key}'"
             )
-        mask_tensor = extra_data[self.target + "_mask"]
-
-        for key in pred_tensor.keys:
-            pred_block = pred_tensor.block(key)
-            targ_block = targ_tensor.block(key)
-            mask_block = mask_tensor.block(key)
-            grabbed_mask = grab(mask_block, self.gradient)
-            assert grabbed_mask.dtype == torch.bool, (
-                f"Expected mask tensor to have boolean dtype, got {grabbed_mask.dtype}"
-            )
-            pred_parts.append(grab(pred_block, self.gradient)[grabbed_mask])
-            targ_parts.append(grab(targ_block, self.gradient)[grabbed_mask])
-
-        # concatenate all parts into a single tensor
-        all_pred = torch.cat(pred_parts)
-        all_targ = torch.cat(targ_parts)
-
-        return self.loss_fn(all_pred, all_targ)
+        tensor_map_pred = predictions[self.target]
+        tensor_map_targ = targets[self.target]
+        tensor_map_mask = extra_data[mask_key]
+        return self.compute_flattened(tensor_map_pred, tensor_map_targ, tensor_map_mask)
 
 
-class TensorMapMSELoss(TensorMapPointwiseLoss):
+# ------------------------------------------------------------------------
+# Simple explicit subclasses for common pointwise losses
+# ------------------------------------------------------------------------
+
+
+class TensorMapMSELoss(BaseTensorMapLoss):
+    """
+    Unmasked mean-squared error on :py:class:`TensorMap` entries.
+    """
+
     def __init__(
         self,
         name: str,
@@ -346,11 +412,15 @@ class TensorMapMSELoss(TensorMapPointwiseLoss):
             gradient,
             weight,
             reduction,
-            loss_cls=torch.nn.MSELoss,
+            loss_fn=torch.nn.MSELoss(reduction=reduction),
         )
 
 
-class TensorMapMAELoss(TensorMapPointwiseLoss):
+class TensorMapMAELoss(BaseTensorMapLoss):
+    """
+    Unmasked mean-absolute error on :py:class:`TensorMap` entries.
+    """
+
     def __init__(
         self,
         name: str,
@@ -363,11 +433,17 @@ class TensorMapMAELoss(TensorMapPointwiseLoss):
             gradient,
             weight,
             reduction,
-            loss_cls=torch.nn.L1Loss,
+            loss_fn=torch.nn.L1Loss(reduction=reduction),
         )
 
 
-class TensorMapHuberLoss(TensorMapPointwiseLoss):
+class TensorMapHuberLoss(BaseTensorMapLoss):
+    """
+    Unmasked Huber loss on :py:class:`TensorMap` entries.
+
+    :param delta: threshold parameter for HuberLoss.
+    """
+
     def __init__(
         self,
         name: str,
@@ -381,12 +457,15 @@ class TensorMapHuberLoss(TensorMapPointwiseLoss):
             gradient,
             weight,
             reduction,
-            loss_cls=torch.nn.HuberLoss,
-            delta=delta,
+            loss_fn=torch.nn.HuberLoss(reduction=reduction, delta=delta),
         )
 
 
-class TensorMapMaskedMSELoss(TensorMapMaskedPointwiseLoss):
+class TensorMapMaskedMSELoss(MaskedTensorMapLoss):
+    """
+    Masked mean-squared error on :py:class:`TensorMap` entries.
+    """
+
     def __init__(
         self,
         name: str,
@@ -399,11 +478,15 @@ class TensorMapMaskedMSELoss(TensorMapMaskedPointwiseLoss):
             gradient,
             weight,
             reduction,
-            loss_cls=torch.nn.MSELoss,
+            loss_fn=torch.nn.MSELoss(reduction=reduction),
         )
 
 
-class TensorMapMaskedMAELoss(TensorMapMaskedPointwiseLoss):
+class TensorMapMaskedMAELoss(MaskedTensorMapLoss):
+    """
+    Masked mean-absolute error on :py:class:`TensorMap` entries.
+    """
+
     def __init__(
         self,
         name: str,
@@ -416,11 +499,17 @@ class TensorMapMaskedMAELoss(TensorMapMaskedPointwiseLoss):
             gradient,
             weight,
             reduction,
-            loss_cls=torch.nn.L1Loss,
+            loss_fn=torch.nn.L1Loss(reduction=reduction),
         )
 
 
-class TensorMapMaskedHuberLoss(TensorMapMaskedPointwiseLoss):
+class TensorMapMaskedHuberLoss(MaskedTensorMapLoss):
+    """
+    Masked Huber loss on :py:class:`TensorMap` entries.
+
+    :param delta: threshold parameter for HuberLoss.
+    """
+
     def __init__(
         self,
         name: str,
@@ -434,8 +523,7 @@ class TensorMapMaskedHuberLoss(TensorMapMaskedPointwiseLoss):
             gradient,
             weight,
             reduction,
-            loss_cls=torch.nn.HuberLoss,
-            delta=delta,
+            loss_fn=torch.nn.HuberLoss(reduction=reduction, delta=delta),
         )
 
 
@@ -449,67 +537,78 @@ class LossAggregator(LossInterface):
     """
 
     def __init__(
-        self,
-        targets: Dict[str, TargetInfo],
-        config: Dict[str, Dict[str, Any]],
+        self, targets: Dict[str, TargetInfo], config: Dict[str, Dict[str, Any]]
     ):
+        """
+        :param targets: mapping from target names to :py:class:`TargetInfo`.
+        :param config: per-target configuration dict.
+        """
         super().__init__(name="", gradient=None, weight=0.0, reduction="mean")
-        # Scheduled losses and metadata stored by term key
-        self.losses: Dict[str, ScheduledLoss] = {}
+        self.scheduled_losses: Dict[str, ScheduledLoss] = {}
         self.metadata: Dict[str, Dict[str, Any]] = {}
 
-        for name, tm_info in targets.items():
-            cfg = config.get(name, {})
+        for target_name, target_info in targets.items():
+            target_config = config.get(target_name, {})
 
-            # Main loss
+            # Create main loss and its scheduler
             base_loss = create_loss(
-                cfg.get("type", "mse"),
-                name=name,
+                target_config["type"],
+                name=target_name,
                 gradient=None,
-                weight=cfg.get("weight", 1.0),
-                reduction=cfg.get("reduction", "mean"),
+                weight=target_config["weight"],
+                reduction=target_config["reduction"],
                 **{
-                    k: v
-                    for k, v in cfg.items()
-                    if k not in ("type", "weight", "reduction", "sliding_factor")
+                    pname: pval
+                    for pname, pval in target_config.items()
+                    if pname not in ("type", "weight", "reduction", "sliding_factor")
                 },
             )
-            ema = EMAScheduler(cfg.get("sliding_factor", None))
-            sched_loss = ScheduledLoss(base_loss, ema)
-            self.losses[name] = sched_loss
-            self.metadata[name] = {
-                "type": cfg.get("type", "mse"),
+            ema_scheduler = EMAScheduler(target_config["sliding_factor"])
+            scheduled_main_loss = ScheduledLoss(base_loss, ema_scheduler)
+            self.scheduled_losses[target_name] = scheduled_main_loss
+            self.metadata[target_name] = {
+                "type": target_config["type"],
                 "weight": base_loss.weight,
                 "reduction": base_loss.reduction,
-                "sliding_factor": cfg.get("sliding_factor", None),
+                "sliding_factor": target_config["sliding_factor"],
                 "gradients": {},
             }
 
-            # Gradient losses
-            grad_cfgs = cfg.get("gradients", {})
-            for grad_name in tm_info.layout[0].gradients_list():
-                key = f"{name}_grad_{grad_name}"
-                gcfg = grad_cfgs.get(grad_name, {})
+            # Create gradient-based losses
+            gradient_config = target_config.get("gradients", {})
+            for gradient_name in target_info.layout[0].gradients_list():
+                gradient_key = f"{target_name}_grad_{gradient_name}"
+                gradient_specific_config = gradient_config.get(gradient_name, {})
+
                 grad_loss = create_loss(
-                    gcfg.get("type", cfg.get("type", "mse")),
-                    name=name,
-                    gradient=grad_name,
-                    weight=gcfg.get("weight", 1.0),
-                    reduction=gcfg.get("reduction", cfg.get("reduction", "mean")),
+                    gradient_specific_config.get(
+                        "type", target_config.get("type", "mse")
+                    ),
+                    name=target_name,
+                    gradient=gradient_name,
+                    weight=gradient_specific_config.get("weight", 1.0),
+                    reduction=gradient_specific_config.get(
+                        "reduction", target_config.get("reduction", "mean")
+                    ),
                     **{
-                        k: v
-                        for k, v in gcfg.items()
-                        if k not in ("type", "weight", "reduction", "sliding_factor")
+                        pname: pval
+                        for pname, pval in gradient_specific_config.items()
+                        if pname
+                        not in ("type", "weight", "reduction", "sliding_factor")
                     },
                 )
-                ema_grad = EMAScheduler(cfg.get("sliding_factor", None))
-                sched_grad = ScheduledLoss(grad_loss, ema_grad)
-                self.losses[key] = sched_grad
-                self.metadata[name]["gradients"][grad_name] = {
-                    "type": gcfg.get("type", cfg.get("type", "mse")),
+                ema_scheduler_for_grad = EMAScheduler(
+                    target_config.get("sliding_factor", None)
+                )
+                scheduled_grad_loss = ScheduledLoss(grad_loss, ema_scheduler_for_grad)
+                self.scheduled_losses[gradient_key] = scheduled_grad_loss
+                self.metadata[target_name]["gradients"][gradient_name] = {
+                    "type": gradient_specific_config.get(
+                        "type", target_config.get("type", "mse")
+                    ),
                     "weight": grad_loss.weight,
                     "reduction": grad_loss.reduction,
-                    "sliding_factor": cfg.get("sliding_factor", None),
+                    "sliding_factor": target_config.get("sliding_factor", None),
                 }
 
     def compute(
@@ -518,25 +617,30 @@ class LossAggregator(LossInterface):
         targets: Dict[str, TensorMap],
         extra_data: Optional[Any] = None,
     ) -> torch.Tensor:
-        example = next(iter(predictions.values()))
-        total = torch.zeros(
-            (),
-            dtype=example.block(0).values.dtype,
-            device=example.block(0).values.device,
+        """
+        Sum over all scheduled losses present in the predictions.
+        """
+        # Initialize a zero tensor matching the dtype and device of the first block
+        first_tensor_map = next(iter(predictions.values()))
+        first_block = first_tensor_map.block(first_tensor_map.keys[0])
+        total_loss = torch.zeros(
+            (), dtype=first_block.values.dtype, device=first_block.values.device
         )
-        for term in self.losses.values():
-            if term.target not in predictions:
+
+        # Sum each scheduled term that has a matching prediction
+        for scheduled_term in self.scheduled_losses.values():
+            if scheduled_term.target not in predictions:
                 continue
-            total = total + term.compute(predictions, targets, extra_data)
-        return total
+            total_loss = total_loss + scheduled_term.compute(
+                predictions, targets, extra_data
+            )
 
-
-# ----- enum and factory ---------------------------------------------------------------
+        return total_loss
 
 
 class LossType(Enum):
     """
-    Enum to represent available loss types.
+    Enumeration of available loss types and their implementing classes.
     """
 
     MSE = ("mse", TensorMapMSELoss)
@@ -545,8 +649,8 @@ class LossType(Enum):
     MASKED_MSE = ("masked_mse", TensorMapMaskedMSELoss)
     MASKED_MAE = ("masked_mae", TensorMapMaskedMAELoss)
     MASKED_HUBER = ("masked_huber", TensorMapMaskedHuberLoss)
-    POINTWISE = ("pointwise", TensorMapPointwiseLoss)
-    MASKED_POINTWISE = ("masked_pointwise", TensorMapMaskedPointwiseLoss)
+    POINTWISE = ("pointwise", BaseTensorMapLoss)
+    MASKED_POINTWISE = ("masked_pointwise", MaskedTensorMapLoss)
 
     def __init__(self, key: str, cls: Type[LossInterface]):
         self._key = key
@@ -554,19 +658,26 @@ class LossType(Enum):
 
     @property
     def key(self) -> str:
+        """String key for this loss type."""
         return self._key
 
     @property
     def cls(self) -> Type[LossInterface]:
+        """Class implementing this loss type."""
         return self._cls
 
     @classmethod
     def from_key(cls, key: str) -> "LossType":
-        for lt in cls:
-            if lt.key == key:
-                return lt
-        valid = ", ".join(lt.key for lt in cls)
-        raise ValueError(f"Unknown loss '{key}'. Valid types: {valid}")
+        """
+        Look up a LossType by its string key.
+
+        :raises ValueError: if the key is not valid.
+        """
+        for loss_type in cls:
+            if loss_type.key == key:
+                return loss_type
+        valid_keys = ", ".join(loss_type.key for loss_type in cls)
+        raise ValueError(f"Unknown loss '{key}'. Valid types: {valid_keys}")
 
 
 def create_loss(
@@ -579,11 +690,19 @@ def create_loss(
     **extra_kwargs: Any,
 ) -> LossInterface:
     """
-    Factory to instantiate a concrete ``LossInterface`` given its string key.
+    Factory to instantiate a concrete :py:class:`LossInterface` given its string key.
+
+    :param loss_type: string key matching one of the members of :py:class:`LossType`.
+    :param name: target name for the loss.
+    :param gradient: gradient name, if present.
+    :param weight: weight for the loss contribution.
+    :param reduction: reduction mode for the torch loss.
+    :param extra_kwargs: additional hyperparameters specific to the loss type.
+    :return: instance of the selected loss.
     """
-    lt = LossType.from_key(loss_type)
+    loss_type_entry = LossType.from_key(loss_type)
     try:
-        return lt.cls(
+        return loss_type_entry.cls(
             name=name,
             gradient=gradient,
             weight=weight,
@@ -591,5 +710,4 @@ def create_loss(
             **extra_kwargs,
         )
     except TypeError as e:
-        # catch wrong arguments to the loss constructor
         raise TypeError(f"Error constructing loss '{loss_type}': {e}") from e
