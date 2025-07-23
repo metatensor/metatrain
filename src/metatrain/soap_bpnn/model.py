@@ -1,6 +1,6 @@
 from typing import Any, Dict, List, Literal, Optional
 
-import metatensor.torch
+import metatensor.torch as mts
 import torch
 from metatensor.torch import Labels, TensorBlock, TensorMap
 from metatensor.torch.learn.nn import Linear as LinearMap
@@ -442,9 +442,7 @@ class SoapBpnn(ModelInterface):
             sample_values[:, 1],
         )
         if selected_atoms is not None:
-            soap_features = metatensor.torch.slice(
-                soap_features, "samples", selected_atoms
-            )
+            soap_features = mts.slice(soap_features, "samples", selected_atoms)
 
         device = soap_features.block(0).values.device
 
@@ -460,9 +458,7 @@ class SoapBpnn(ModelInterface):
             # first, send center_type to the samples dimension and make sure the
             # ordering is the same as in the systems
             merged_features = (
-                metatensor.torch.sort(
-                    features.keys_to_samples("center_type"), axes="samples"
-                )
+                mts.sort(features.keys_to_samples("center_type"), axes="samples")
                 .block()
                 .values
             )
@@ -474,7 +470,7 @@ class SoapBpnn(ModelInterface):
             )
 
             # also sort the original features to avoid problems
-            features = metatensor.torch.sort(features, axes="samples")
+            features = mts.sort(features, axes="samples")
 
             # split the long-range features back to center types
             center_types = torch.concatenate([system.types for system in systems])
@@ -498,7 +494,7 @@ class SoapBpnn(ModelInterface):
             )
 
             # combine short- and long-range features
-            features = metatensor.torch.add(features, long_range_features)
+            features = mts.add(features, long_range_features)
 
         # output the hidden features, if requested:
         if "features" in outputs:
@@ -633,7 +629,7 @@ class SoapBpnn(ModelInterface):
                     selected_atoms,
                 )
                 for name in additive_contributions:
-                    return_dict[name] = metatensor.torch.add(
+                    return_dict[name] = mts.add(
                         return_dict[name],
                         additive_contributions[name],
                     )

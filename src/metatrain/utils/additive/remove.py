@@ -1,7 +1,7 @@
 import warnings
 from typing import Dict, List
 
-import metatensor.torch
+import metatensor.torch as mts
 import torch
 from metatensor.torch import TensorMap
 from metatensor.torch.operations._add import _add_block_block
@@ -57,7 +57,7 @@ def remove_additive(
         blocks = []
         for block_key, old_block in additive_contribution[target_key].items():
             device = targets[target_key].block(block_key).values.device
-            block = metatensor.torch.TensorBlock(
+            block = mts.TensorBlock(
                 values=old_block.values.detach().to(device=device),
                 samples=targets[target_key].block(block_key).samples,
                 components=[c.to(device=device) for c in old_block.components],
@@ -71,7 +71,7 @@ def remove_additive(
                 )
                 block.add_gradient(
                     gradient_name,
-                    metatensor.torch.TensorBlock(
+                    mts.TensorBlock(
                         values=gradient.values.detach(),
                         samples=targets[target_key]
                         .block(block_key)
