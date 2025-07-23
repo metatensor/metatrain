@@ -54,8 +54,8 @@ hyperparameters to tune are (in decreasing order of importance):
 - ``layernorm``: Whether to use layer normalization before the neural network. Setting
   this hyperparameter to ``false`` will lead to slower convergence of training, but
   might lead to better generalization outside of the training set distribution.
-- ``loss``: This section describes the loss function to be used. There can be one 
-  subsection per target name, which in turn has at least three subsections. 
+- ``loss``: This section describes the loss function to be used. There can be one
+  subsection per target name, which in turn has at least three subsections.
 
   1. ``type``. This controls the type of loss to be used. The default value is ``mse``,
      and other standard options are ``mae`` and ``huber``. There are also "masked"

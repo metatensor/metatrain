@@ -58,8 +58,8 @@ hyperparameters to tune are (in decreasing order of importance):
 - ``num_attention_layers``: The number of attention layers in each layer of the graph
   neural network. Depending on the dataset, increasing this hyperparameter might lead to
   better accuracy, at the cost of increased training and evaluation time.
-- ``loss``: This section describes the loss function to be used. There can be one 
-  subsection per target name, which in turn has at least three subsections. 
+- ``loss``: This section describes the loss function to be used. There can be one
+  subsection per target name, which in turn has at least three subsections.
 
   1. ``type``. This controls the type of loss to be used. The default value is ``mse``,
      and other standard options are ``mae`` and ``huber``. There are also "masked"
