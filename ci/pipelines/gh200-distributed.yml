@@ -13,7 +13,7 @@ build_job:
   stage: build
   extends: .container-builder-cscs-gh200
   variables:
-    DOCKERFILE: ci/containers/Containerfile
+    DOCKERFILE: ci/containers/nvidia-pytorch.Containerfile
 
 test_job:
   stage: test
