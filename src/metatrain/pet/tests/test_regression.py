@@ -118,9 +118,6 @@ def test_regression_energies_forces_train():
     dataset_info = DatasetInfo(
         length_unit="Angstrom", atomic_types=[6], targets=target_info_dict
     )
-    print("MODEL HYPERS:", MODEL_HYPERS)
-    print("DATASET INFO:", dataset_info)
-    print("CONTENT:", os.listdir("."))
     model = PET(MODEL_HYPERS, dataset_info)
     trainer = Trainer(hypers["training"])
     trainer.train(
@@ -155,12 +152,10 @@ def test_regression_energies_forces_train():
         [0.208536088467, -0.117365449667, -0.278660595417]
     )
 
-    # if you need to change the hardcoded values:
-    torch.set_printoptions(precision=12)
-    print(output["energy"].block().values)
-    print(output["energy"].block().gradient("positions").values.squeeze(-1)[0])
-
-    raise
+    # # if you need to change the hardcoded values:
+    # torch.set_printoptions(precision=12)
+    # print(output["energy"].block().values)
+    # print(output["energy"].block().gradient("positions").values.squeeze(-1)[0])
 
     torch.testing.assert_close(output["energy"].block().values, expected_output)
     torch.testing.assert_close(
