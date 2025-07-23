@@ -1,0 +1,29 @@
+include:
+  - remote: 'https://gitlab.com/cscs-ci/recipes/-/raw/master/templates/v2/.ci-ext.yml'
+
+stages:
+  - build
+  - test
+
+variables:
+  PERSIST_IMAGE_NAME: $CSCS_REGISTRY_PATH/metatrain:$CI_COMMIT_SHORT_SHA
+
+build_job:
+  stage: build
+  extends: .container-builder-cscs-gh200
+  variables:
+    DOCKERFILE: ci/containers/Containerfile
+
+test_job:
+  stage: test
+  extends: .container-runner-daint-gh200
+  image: $PERSIST_IMAGE_NAME
+  timeout: 2h
+  script:
+    - tox -r
+  variables:
+    SLURM_JOB_NUM_NODES: 1
+    SLURM_PARTITION: normal
+    SLURM_NTASKS: 1
+    SLURM_TIMELIMIT: '00:45:00'
+    GIT_STRATEGY: fetch
