@@ -7,7 +7,7 @@ stages:
   - test
 
 # Build base image from Containerfile.base
-# The base image is re-built whenever the dockerfile changes
+# The base image is re-built whenever Containerfile.base changes
 build base:
   stage: build_base
   extends: .container-builder-cscs-gh200
@@ -16,7 +16,7 @@ build base:
     - TAG=${TAG_DOCKERFILE}
     - export PERSIST_IMAGE_NAME=$CSCS_REGISTRY_PATH/base/mtt-base:$TAG
     - echo "BASE_IMAGE=$PERSIST_IMAGE_NAME" > build.env
-    - 'echo "INFO: Bulidning imgage $PERSIST_IMAGE_NAME"'
+    - 'echo "INFO: Bulidning image $PERSIST_IMAGE_NAME"'
   artifacts:
     reports:
       dotenv: build.env
@@ -27,6 +27,8 @@ build base:
 build mtt:
   stage: build
   extends: .container-builder-cscs-gh200
+  before_script:
+    - 'echo "INFO: Building image $PERSIST_IMAGE_NAME"'
   variables:
     GIT_STRATEGY: clone
     PERSIST_IMAGE_NAME: $CSCS_REGISTRY_PATH/base/mtt:$CI_COMMIT_SHORT_SHA
@@ -45,7 +47,7 @@ test tox:
     SLURM_JOB_NUM_NODES: 1
     SLURM_PARTITION: normal
     SLURM_NTASKS: 1
-    SLURM_TIMELIMIT: '00:45:00'
+    SLURM_TIMELIMIT: '00:40:00'
     GIT_STRATEGY: fetch
 
 # Run distributed training (single node, multiple GPUs)
@@ -64,5 +66,5 @@ test distributed:
     SLURM_NTASKS: 4
     SLURM_GPUS_PER_TASK: 1
     SLURM_CPUS_PER_TASK: 16
-    SLURM_TIMELIMIT: '00:15:00'
+    SLURM_TIMELIMIT: '00:10:00'
     USE_NCCL: 'cuda12'
