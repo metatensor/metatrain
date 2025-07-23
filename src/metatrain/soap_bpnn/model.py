@@ -187,7 +187,7 @@ class SoapBpnn(ModelInterface):
     component_labels: Dict[str, List[List[Labels]]]  # torchscript needs this
 
     def __init__(self, hypers: Dict, dataset_info: DatasetInfo) -> None:
-        super().__init__(hypers, dataset_info)
+        super().__init__(hypers, dataset_info, self.__default_metadata__)
 
         self.atomic_types = dataset_info.atomic_types
         self.requested_nl = NeighborListOptions(
@@ -305,7 +305,6 @@ class SoapBpnn(ModelInterface):
 
         # scaler: this is also handled by the trainer at training time
         self.scaler = Scaler(hypers={}, dataset_info=dataset_info)
-        self.metadata = self.__default_metadata__
 
     def supported_outputs(self) -> Dict[str, ModelOutput]:
         return self.outputs
@@ -668,9 +667,9 @@ class SoapBpnn(ModelInterface):
         model.additive_models[0].sync_tensor_maps()
 
         # Loading the metadata from the checkpoint
-        metadata = checkpoint.get("metadata", None)
-        if metadata is not None:
-            model.metadata = merge_metadata(model.metadata, metadata)
+        model.metadata = merge_metadata(
+            model.metadata, checkpoint.get("metadata", None)
+        )
 
         return model
 
@@ -705,10 +704,7 @@ class SoapBpnn(ModelInterface):
             dtype=dtype_to_str(dtype),
         )
 
-        if metadata is None:
-            metadata = self.metadata
-        else:
-            metadata = merge_metadata(self.metadata, metadata)
+        metadata = merge_metadata(self.metadata, metadata)
 
         return AtomisticModel(self.eval(), metadata, capabilities)
 

@@ -39,7 +39,7 @@ class GAP(ModelInterface):
     )
 
     def __init__(self, hypers: Dict, dataset_info: DatasetInfo) -> None:
-        super().__init__(hypers, dataset_info)
+        super().__init__(hypers, dataset_info, self.__default_metadata__)
 
         if len(dataset_info.targets) > 1:
             raise NotImplementedError("GAP only supports a single output")
@@ -160,7 +160,6 @@ class GAP(ModelInterface):
                 )
             )
         self.additive_models = torch.nn.ModuleList(additive_models)
-        self.metadata = self.__default_metadata__
 
     def supported_outputs(self) -> Dict[str, ModelOutput]:
         return self.outputs
@@ -299,10 +298,7 @@ class GAP(ModelInterface):
             self._subset_of_regressors.export_torch_script_model()
         )
 
-        if metadata is None:
-            metadata = self.metadata
-        else:
-            metadata = merge_metadata(self.metadata, metadata)
+        metadata = merge_metadata(self.metadata, metadata)
 
         return AtomisticModel(self.eval(), metadata, capabilities)
 
