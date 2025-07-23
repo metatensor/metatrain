@@ -1,0 +1,8 @@
+ARG BASE_IMAGE
+FROM $BASE_IMAGE
+
+COPY . /mtt-repo/
+
+RUN python3 -m venv --system-site-packages /mtt-venv && \
+	. /mtt-venv/bin/activate && \
+	python -m pip install /mtt-repo[soap-bpnn]
