@@ -18,8 +18,7 @@
   - [ ] checking that the checkpoints are properly versionned (see the existing
     `test_checkpoint.py` in other architectures)
 - [ ] Add maintainers as codeowners in [CODEOWNERS](CODEOWNERS)
-- [ ] Trigger a final GPU test by commenting "cscs-ci run" in the PR. Only do this after
-  all other checks are approved and the PR is ready to merge.
+- [ ] Trigger a GPU test by asking a maintainer to comment "cscs-ci run".
 
 # Reviewer checklist
 

@@ -147,9 +147,8 @@ request.
    - Ensure that all Continuous Integration (CI) checks pass successfully.
    - Be open to feedback and make necessary changes to your code and try to respond to
      comments and questions in a timely and friendly manner.
-   - **Before your PR can be merged, you have to trigger a manual GPU check
-     by commenting "cscs-ci run" in the PR. This is needed to ensure that the
-     GPU tests are run on the latest code.**
+   - Before your PR can be merged, you have to trigger a manual GPU check. Ask a
+     maintainer to comment "cscs-ci run" in the PR.
 
 3. **Follow Up**
 
