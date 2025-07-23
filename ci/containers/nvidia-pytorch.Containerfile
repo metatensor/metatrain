@@ -5,7 +5,7 @@ RUN apt update && \
     apt install -y libfftw3-dev && \
     apt clean
 
-RUN python3 -m pip install --upgrade pip setuptools
+RUN python3 -m pip install --upgrade pip setuptools packaging
 
 COPY . /mtt-repo/
 
