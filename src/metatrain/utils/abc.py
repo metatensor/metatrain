@@ -22,7 +22,9 @@ class ModelInterface(torch.nn.Module, metaclass=ABCMeta):
     and implement the corresponding methods.
     """
 
-    def __init__(self, hypers: Dict, dataset_info: DatasetInfo) -> None:
+    def __init__(
+        self, hypers: Dict, dataset_info: DatasetInfo, metadata: ModelMetadata
+    ) -> None:
         """"""
         super().__init__()
 
@@ -44,6 +46,9 @@ class ModelInterface(torch.nn.Module, metaclass=ABCMeta):
 
         self.dataset_info = dataset_info
         """The dataset info passed at initialization"""
+
+        self.metadata = metadata
+        """The metadata passed at initialization"""
 
     @abstractmethod
     def forward(

@@ -536,7 +536,7 @@ class Trainer(TrainerInterface):
             "architecture_name": "pet",
             "model_ckpt_version": model.__checkpoint_version__,
             "trainer_ckpt_version": self.__checkpoint_version__,
-            "metadata": model.__default_metadata__,
+            "metadata": model.metadata,
             "model_data": {
                 "model_hypers": model.hypers,
                 "dataset_info": model.dataset_info,
