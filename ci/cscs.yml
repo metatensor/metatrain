@@ -58,7 +58,7 @@ test distributed:
   timeout: 1h
   script:
     - . /mtt-venv/bin/activate
-    - cd /mtt-repo/tests/distributed
+    - cd /metatrain/tests/distributed
     - mtt train options-distributed.yaml
   variables:
     SLURM_JOB_NUM_NODES: 1

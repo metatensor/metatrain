@@ -1,8 +1,10 @@
 ARG BASE_IMAGE
 FROM $BASE_IMAGE
 
-COPY . /mtt-repo/
+# Copy metatrain repository within the container
+# The repo is cloned by CI (GIT_STRATEGY: clone)
+COPY . /metatrain/
 
 RUN python3 -m venv /mtt-venv && \
 	. /mtt-venv/bin/activate && \
-	python -m pip install /mtt-repo[soap-bpnn]
+	python -m pip install /metatrain[soap-bpnn]
