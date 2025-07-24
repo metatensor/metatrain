@@ -907,7 +907,7 @@ class PET(ModelInterface):
         checkpoint = {
             "architecture_name": "pet",
             "model_ckpt_version": self.__checkpoint_version__,
-            "metadata": self.__default_metadata__,
+            "metadata": self.metadata,
             "model_data": {
                 "model_hypers": self.hypers,
                 "dataset_info": self.dataset_info,

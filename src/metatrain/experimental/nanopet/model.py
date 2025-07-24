@@ -707,7 +707,7 @@ class NanoPET(ModelInterface):
         checkpoint = {
             "architecture_name": "experimental.nanopet",
             "model_ckpt_version": self.__checkpoint_version__,
-            "metadata": self.__default_metadata__,
+            "metadata": self.metadata,
             "model_data": {
                 "model_hypers": self.hypers,
                 "dataset_info": self.dataset_info,
