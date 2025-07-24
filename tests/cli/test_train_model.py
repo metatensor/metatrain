@@ -4,6 +4,7 @@ import os
 import re
 import shutil
 import subprocess
+import time
 from pathlib import Path
 
 import ase.io
@@ -631,14 +632,20 @@ def test_continue_auto(options, caplog, monkeypatch, tmp_path):
         Path("outputs/2021-09-02/00-00-00"),
         Path("outputs/2021-09-02/00-10-00"),
     ]
+
+    # Add delays between to ensure different timestamps
     for fake_checkpoint_dir in fake_checkpoints_dirs:
+        time.sleep(0.1)
         fake_checkpoint_dir.mkdir(parents=True, exist_ok=True)
 
     for i in range(1, 4):
+        time.sleep(0.1)
         shutil.copy(MODEL_PATH_64_BIT, true_checkpoint_dir / f"model_{i}.ckpt")
         for fake_checkpoint_dir in fake_checkpoints_dirs:
+            time.sleep(0.1)
             shutil.copy(MODEL_PATH_64_BIT, fake_checkpoint_dir / f"model_{i}.ckpt")
 
+    # Take the most recent checkpoint which is "2021-09-02/00-10-05"
     restart_from = _process_restart_from("auto")
     train_model(options, restart_from=restart_from)
 
