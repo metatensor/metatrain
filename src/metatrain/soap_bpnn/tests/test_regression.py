@@ -1,4 +1,3 @@
-import os
 import random
 
 import numpy as np
@@ -24,10 +23,6 @@ def test_regression_init():
     random.seed(0)
     np.random.seed(0)
     torch.manual_seed(0)
-    os.environ["PYTHONHASHSEED"] = str(0)
-    if torch.cuda.is_available():
-        torch.cuda.manual_seed(0)
-        torch.cuda.manual_seed_all(0)
 
     targets = {}
     targets["mtt::U0"] = get_energy_target_info({"unit": "eV"})
@@ -73,10 +68,6 @@ def test_regression_train():
     random.seed(0)
     np.random.seed(0)
     torch.manual_seed(0)
-    os.environ["PYTHONHASHSEED"] = str(0)
-    if torch.cuda.is_available():
-        torch.cuda.manual_seed(0)
-        torch.cuda.manual_seed_all(0)
 
     systems = read_systems(DATASET_PATH)
 

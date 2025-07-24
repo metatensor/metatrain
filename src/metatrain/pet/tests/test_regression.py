@@ -1,6 +1,4 @@
-import os
 import random
-from copy import deepcopy
 
 import numpy as np
 import torch
@@ -26,10 +24,6 @@ def test_regression_init():
     random.seed(0)
     np.random.seed(0)
     torch.manual_seed(0)
-    os.environ["PYTHONHASHSEED"] = str(0)
-    if torch.cuda.is_available():
-        torch.cuda.manual_seed(0)
-        torch.cuda.manual_seed_all(0)
 
     targets = {}
     targets["mtt::U0"] = get_energy_target_info({"quantity": "energy", "unit": "eV"})
@@ -73,10 +67,6 @@ def test_regression_energies_forces_train():
     random.seed(0)
     np.random.seed(0)
     torch.manual_seed(0)
-    os.environ["PYTHONHASHSEED"] = str(0)
-    if torch.cuda.is_available():
-        torch.cuda.manual_seed(0)
-        torch.cuda.manual_seed_all(0)
 
     systems = read_systems(DATASET_WITH_FORCES_PATH)
 
@@ -99,12 +89,12 @@ def test_regression_energies_forces_train():
     targets, target_info_dict = read_targets(OmegaConf.create(conf))
     targets = {"energy": targets["energy"]}
     dataset = Dataset.from_dict({"system": systems, "energy": targets["energy"]})
-    hypers = deepcopy(DEFAULT_HYPERS)
+    hypers = DEFAULT_HYPERS.copy()
     hypers["training"]["num_epochs"] = 2
     hypers["training"]["scheduler_patience"] = 1
     hypers["training"]["fixed_composition_weights"] = {}
-    loss_conf = {"energy": deepcopy(CONF_LOSS)}
-    loss_conf["energy"]["gradients"] = {"positions": deepcopy(CONF_LOSS)}
+    loss_conf = {"energy": CONF_LOSS.copy()}
+    loss_conf["energy"]["gradients"] = {"positions": CONF_LOSS.copy()}
     loss_conf = OmegaConf.create(loss_conf)
     OmegaConf.resolve(loss_conf)
     hypers["training"]["loss"] = loss_conf

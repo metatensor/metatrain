@@ -234,7 +234,7 @@ class Trainer(TrainerInterface):
                 outputs_list.append(f"{target_name}_{gradient_name}_gradients")
 
         # Create a loss function:
-        loss_hypers = copy.deepcopy(self.hypers.get("loss", {}))
+        loss_hypers = self.hypers["loss"]
         loss_fn = LossAggregator(
             targets=train_targets,
             config=loss_hypers,
