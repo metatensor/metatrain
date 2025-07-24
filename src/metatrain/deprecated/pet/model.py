@@ -326,3 +326,8 @@ class PET(ModelInterface):
             "checkpoint upgrade is not implemented for the deprecated "
             "PET implementation"
         )
+
+    def get_checkpoint(self) -> Dict[str, Any]:
+        raise NotImplementedError(
+            "get_checkpoint is not implemented for the deprecated PET implementation"
+        )
