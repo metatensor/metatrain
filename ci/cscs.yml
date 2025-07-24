@@ -16,7 +16,7 @@ build base:
     - TAG=${TAG_DOCKERFILE}
     - export PERSIST_IMAGE_NAME=$CSCS_REGISTRY_PATH/base/mtt-base:$TAG
     - echo "BASE_IMAGE=$PERSIST_IMAGE_NAME" > build.env
-    - 'echo "INFO: Bulidning image $PERSIST_IMAGE_NAME"'
+    - 'echo "INFO: Building image $PERSIST_IMAGE_NAME"'
   artifacts:
     reports:
       dotenv: build.env
