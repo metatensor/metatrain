@@ -107,6 +107,6 @@ def test_model_interface():
     for attr in EXPECTED_ATTRS:
         message = f"missing '{attr}' class attribute for 'utils.test_abc.MyModel'"
         with pytest.raises(TypeError, match=message):
-            _ = MyModel({}, DatasetInfo("", [], {}))
+            _ = MyModel({}, DatasetInfo("", [], {}), ModelMetadata())
 
         setattr(MyModel, attr, None)

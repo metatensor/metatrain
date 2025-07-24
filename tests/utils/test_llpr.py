@@ -1,3 +1,5 @@
+import subprocess
+
 import pytest
 import torch
 from metatomic.torch import (
@@ -5,6 +7,7 @@ from metatomic.torch import (
     ModelEvaluationOptions,
     ModelMetadata,
     ModelOutput,
+    load_atomistic_model,
 )
 from omegaconf import OmegaConf
 
@@ -30,6 +33,9 @@ torch.manual_seed(42)
 
 
 def test_llpr(tmpdir):
+    """
+    Tests functionality of the LLPRUncertaintyModel.
+    """
     model = load_model(str(RESOURCES_PATH / "model-64-bit.ckpt"))
     llpr_model = LLPRUncertaintyModel(model)
 
@@ -144,6 +150,63 @@ def test_llpr(tmpdir):
     torch.testing.assert_close(
         analytical_uncertainty, ensemble_uncertainty, rtol=5e-3, atol=0.0
     )
+
+
+def test_llpr_metadata_preservation_on_export(tmpdir):
+    """
+    Tests that the metadata of the wrapped model is preserved
+    during save-load-export operations.
+    """
+    checkpoint = torch.load(
+        str(RESOURCES_PATH / "model-64-bit.ckpt"),
+        weights_only=False,
+        map_location="cpu",
+    )
+    metadata = ModelMetadata(
+        name="test",
+        description="test",
+        references={"architecture": ["TEST: https://arxiv.org/abs/1234.56789v1"]},
+    )
+    checkpoint["metadata"] = metadata
+    with tmpdir.as_cwd():
+        torch.save(checkpoint, "model_with_metadata.ckpt")
+
+    with tmpdir.as_cwd():
+        model_with_metadata = load_model("model_with_metadata.ckpt")
+    model_without_metadata = load_model(str(RESOURCES_PATH / "model-64-bit.ckpt"))
+    llpr_model_with_metadata = LLPRUncertaintyModel(model_with_metadata)
+    llpr_model_without_metadata = LLPRUncertaintyModel(model_without_metadata)
+
+    # hack these fields so we can save the models
+    llpr_model_with_metadata.covariance_computed = True
+    llpr_model_without_metadata.covariance_computed = True
+    llpr_model_with_metadata.inv_covariance_computed = True
+    llpr_model_without_metadata.inv_covariance_computed = True
+    llpr_model_with_metadata.is_calibrated = True
+    llpr_model_without_metadata.is_calibrated = True
+
+    with tmpdir.as_cwd():
+        llpr_model_with_metadata.save_checkpoint("llpr_model_with_metadata.ckpt")
+        llpr_model_without_metadata.save_checkpoint("llpr_model_without_metadata.ckpt")
+        subprocess.run("mtt export llpr_model_with_metadata.ckpt", shell=True)
+        subprocess.run("mtt export llpr_model_without_metadata.ckpt", shell=True)
+        metadata_1 = load_atomistic_model("llpr_model_with_metadata.pt").metadata()
+        metadata_2 = load_atomistic_model("llpr_model_without_metadata.pt").metadata()
+
+    exported_references_1 = metadata_1.references
+    exported_references_2 = metadata_2.references
+
+    assert metadata_1.name == "test"
+    assert metadata_1.description == "test"
+    assert any(["TEST" in ref for ref in exported_references_1["architecture"]])
+    assert any(["LLPR" in ref for ref in exported_references_1["architecture"]])
+    assert any(["LPR" in ref for ref in exported_references_1["architecture"]])
+
+    assert metadata_2.name == ""
+    assert metadata_2.description == ""
+    assert all(["TEST" not in ref for ref in exported_references_2["architecture"]])
+    assert any(["LLPR" in ref for ref in exported_references_2["architecture"]])
+    assert any(["LPR" in ref for ref in exported_references_2["architecture"]])
 
 
 @pytest.mark.parametrize("context", ["finetune", "restart", "export"])

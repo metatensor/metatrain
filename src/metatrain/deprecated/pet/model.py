@@ -33,7 +33,7 @@ class PET(ModelInterface):
     )
 
     def __init__(self, hypers: Dict, dataset_info: DatasetInfo) -> None:
-        super().__init__(hypers, dataset_info)
+        super().__init__(hypers, dataset_info, self.__default_metadata__)
 
         if len(dataset_info.targets) != 1:
             raise ValueError("PET only supports a single target")
