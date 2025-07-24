@@ -711,9 +711,7 @@ class PET(ModelInterface):
         model.additive_models[0].sync_tensor_maps()
 
         # Loading the metadata from the checkpoint
-        model.metadata = merge_metadata(
-            model.metadata, checkpoint.get("metadata", None)
-        )
+        model.metadata = merge_metadata(model.metadata, checkpoint.get("metadata"))
 
         return model
 

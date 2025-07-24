@@ -649,7 +649,7 @@ class LLPRUncertaintyModel(torch.nn.Module):
 
         # Loading the metadata from the checkpoint
         model.model.metadata = merge_metadata(
-            model.model.metadata, checkpoint.get("metadata", None)
+            model.model.metadata, checkpoint.get("metadata")
         )
 
         # If we load a LLPR checkpoint, these will already be ready:
