@@ -502,6 +502,9 @@ class Trainer(TrainerInterface):
         self.optimizer_state_dict = optimizer.state_dict()
         self.scheduler_state_dict = lr_scheduler.state_dict()
 
+        if is_distributed:
+            torch.distributed.destroy_process_group()
+
     def save_checkpoint(self, model, path: Union[str, Path]):
         checkpoint = {
             "architecture_name": "soap_bpnn",

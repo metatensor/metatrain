@@ -6,7 +6,7 @@ requires-python = ">=3.9"
 readme = "README.md"
 license = "BSD-3-Clause"
 description = "Training and evaluating machine learning models for atomistic systems."
-authors = [{name = "metatrain developers"}]
+authors = [{ name = "metatrain developers" }]
 
 # Strict version pinning to avoid regression test failing on new versions
 dependencies = [
@@ -52,18 +52,11 @@ mtt = "metatrain.__main__:main"
 ### ======================================================================== ###
 
 [build-system]
-requires = [
-    "setuptools >= 77",
-    "setuptools_scm>=8",
-    "wheel",
-]
+requires = ["setuptools >= 77", "setuptools_scm>=8", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project.optional-dependencies]
-soap-bpnn = [
-    "torch-spex>=0.1,<0.2",
-    "wigners",
-]
+soap-bpnn = ["torch-spex>=0.1,<0.2", "wigners"]
 deprecated-pet = [
     "pet-neighbors-convert",
     "torch_geometric",
@@ -74,11 +67,7 @@ deprecated-pet = [
 ]
 pet = []
 nanopet = []
-gap = [
-    "featomic-torch >=0.7,<0.8",
-    "skmatter",
-    "scipy",
-]
+gap = ["featomic-torch >=0.7,<0.8", "skmatter", "scipy"]
 
 [tool.check-manifest]
 ignore = ["src/metatrain/_version.py"]
@@ -92,20 +81,15 @@ version_file = "src/metatrain/_version.py"
 [tool.coverage.report]
 skip_covered = true
 show_missing = true
-exclude_lines = [
-    "if __name__ == .__main__.:",
-]
+exclude_lines = ["if __name__ == .__main__.:"]
 omit = [
     "*/site-packages/*",
     "*/metatrain/experimental/*",
-    "*/metatrain/utils/testing/*"
+    "*/metatrain/utils/testing/*",
 ]
 
 [tool.coverage.paths]
-source = [
-    "src/metatrain",
-    ".tox/*/lib/python*/site-packages/metatrain"
-]
+source = ["src/metatrain", ".tox/*/lib/python*/site-packages/metatrain"]
 
 [tool.ruff]
 exclude = ["docs/src/examples/**", "src/metatrain/_version.py"]
@@ -124,9 +108,7 @@ known-third-party = ["torch"]
 docstring-code-format = true
 
 [tool.mypy]
-exclude = [
-    "docs/src/examples"
-]
+exclude = ["docs/src/examples"]
 follow_imports = 'skip'
 ignore_missing_imports = true
 
