@@ -58,37 +58,9 @@ hyperparameters to tune are (in decreasing order of importance):
 - ``num_attention_layers``: The number of attention layers in each layer of the graph
   neural network. Depending on the dataset, increasing this hyperparameter might lead to
   better accuracy, at the cost of increased training and evaluation time.
-- ``loss``: This section describes the loss function to be used. There can be one
-  subsection per target name, which in turn has at least three subsections.
-
-  1. ``type``. This controls the type of loss to be used. The default value is ``mse``,
-     and other standard options are ``mae`` and ``huber``. There are also "masked"
-     versions of these losses, which are useful when the targets are not available for
-     all samples in the dataset. The masked losses are named ``mse_masked``, and so on.
-
-  2. ``weight``. This controls the weighting of different contributions to the loss
-     (e.g., energy, forces, virial, etc.). The default values of 1.0 for all targets
-     work well for most datasets, but they might need to be adjusted.
-
-  3. ``reduction``. This controls how the loss is reduced over batches. The default
-     value is ``mean``, and the other allowed option is ``sum``.
-
-  Some losses, like ``huber``, require additional parameters to be specified. ``huber``
-  requires the ``delta`` parameter. An example of a loss configuration for energy and
-  forces is as follows:
-
-  .. code-block:: yaml
-
-    loss:
-      energy:
-        type: mse
-        weight: 1.0
-        reduction: mean
-      forces:
-        type: mae
-        weight: 1.0
-        reduction: mean
-
+- ``loss``: This section describes the loss function to be used. See the
+  :doc:`dedicated documentation page <../advanced-concepts/loss-functions>` for more
+  details.
 - ``long_range``: In some systems and datasets, enabling long-range Coulomb interactions
   might be beneficial for the accuracy of the model and/or its physical correctness.
   See below for a breakdown of the long-range section of the model hyperparameters.
