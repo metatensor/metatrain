@@ -1,4 +1,5 @@
 import csv
+import json
 import logging
 import re
 import sys
@@ -188,6 +189,7 @@ def test_wandb_handler_emit_data(monkeypatch, tmp_path):
 
     # First write
     handler.emit_data(keys, values, units)
+    handler.close()
 
 
 def test_wandb_handler_handler_emit_does_nothing(monkeypatch, tmp_path):
@@ -207,26 +209,63 @@ def test_wandb_handler_handler_emit_does_nothing(monkeypatch, tmp_path):
     )
 
     handler.emit(record)
+    handler.close()
 
 
-def test_custom_logger_logs_to_wandb(monkeypatch, tmp_path):
+class MockWandbRun:
+    """Mock class for wandb.Run to simulate logging behavior."""
+
+    def __init__(self, log_file):
+        self.log_file = log_file
+        self.logs = []
+
+    def log(self, data, step=None, commit=True):
+        entry = {"step": step, "commit": commit, "data": data}
+        self.logs.append(entry)
+        # Also write to file for inspection
+        with open(self.log_file, "a") as f:
+            f.write(json.dumps(entry) + "\n")
+
+    def finish(self):
+        pass  # for compatibility
+
+
+@pytest.mark.parametrize("prefix", ["training", "test", "validation"])
+def test_custom_logger_logs_to_wandb(monkeypatch, tmp_path, prefix):
     monkeypatch.chdir(tmp_path)
 
     logger = CustomLogger("test_logger")
 
-    run = wandb.init(mode="offline")
-    handler = WandbHandler(run=run)
+    log_file = tmp_path / "wandb_log.jsonl"
+    mock_run = MockWandbRun(log_file)
+    handler = WandbHandler(run=mock_run)
 
     logger.addHandler(handler)
 
-    keys = ["Epoch", "Energy"]
+    keys = ["Epoch", f"{prefix} energy"]
     values = ["1", "-10.5"]
     units = ["", "kcal/mol"]
 
     logger.data(keys, values, units)
     logger.data(keys, values, units)
 
-    # TODO check that data is written to wandb
+    for handler in logger.handlers:
+        handler.close()
+
+    # Read logged entries
+    with open(log_file) as f:
+        lines = f.readlines()
+
+    assert len(lines) == 2
+    for line in lines:
+        entry = json.loads(line)
+        assert entry["step"] == 1
+        assert entry["commit"] is True
+
+        # Check cleaned key format
+        expected_key = f"{prefix}/energy [kcal per mol]"
+        assert expected_key in entry["data"]
+        assert entry["data"][expected_key] == -10.5
 
 
 @pytest.mark.parametrize("handler_cls", [WandbHandler, CSVFileHandler])

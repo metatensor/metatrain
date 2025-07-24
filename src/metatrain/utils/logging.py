@@ -76,6 +76,15 @@ class WandbHandler(logging.Handler):
         super().__init__()
         self.run = run
 
+    def _clean_key(self, key: str) -> str:
+        for prefix in ["training", "test", "validation"]:
+            if key.startswith(prefix + " "):
+                return key.replace(prefix + " ", prefix + "/", 1)
+        return key
+
+    def _clean_unit(self, unit: str) -> str:
+        return unit.replace("/", " per ") if unit else unit
+
     def emit(self, record: logging.LogRecord):
         """Override default behavior to ignore standard log records."""
         pass
@@ -91,11 +100,19 @@ class WandbHandler(logging.Handler):
 
         data = {}
         for key, value, unit in zip(keys, values, units):
-            name = f"{key} [{unit}]" if unit else key
+            # Cleanup to prevent from grouping metrics by text before the last "/".
+            clean_key = self._clean_key(key)
+            clean_unit = self._clean_unit(unit)
+
+            name = f"{clean_key} [{clean_unit}]" if clean_unit else clean_key
             data[name] = float(value)
 
         epoch = int(data.pop("Epoch"))
         self.run.log(data, step=epoch, commit=True)
+
+    def close(self):
+        super().close()
+        self.run.finish()
 
 
 class CustomLogger(logging.Logger):

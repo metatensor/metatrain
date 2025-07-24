@@ -155,10 +155,10 @@ def _process_restart_from(restart_from: str) -> Optional[str]:
 
 def train_model(
     options: Union[DictConfig, Dict],
-    output: str = "model.pt",
-    extensions: str = "extensions/",
+    output: Union[str, Path] = "model.pt",
+    extensions: Union[str, Path] = "extensions/",
     checkpoint_dir: Union[str, Path] = ".",
-    restart_from: Optional[str] = None,
+    restart_from: Optional[Union[str, Path]] = None,
 ) -> None:
     """Train an atomistic machine learning model using provided ``options``.
 
@@ -174,6 +174,11 @@ def train_model(
         like the fully expanded training options for a later restart.
     :param restart_from: File to continue training from.
     """
+
+    output = Path(check_file_extension(filename=output, extension=".pt"))
+    extensions = Path(extensions)
+    checkpoint_dir = Path(checkpoint_dir)
+
     ###########################
     # VALIDATE BASE OPTIONS ###
     ###########################
@@ -464,9 +469,13 @@ def train_model(
     ###########################
 
     if is_main_process():
+        logging.info(
+            "Restart options: "
+            f"{checkpoint_dir.absolute().resolve() / 'options_restart.yaml'}"
+        )
         OmegaConf.save(
             config=options,
-            f=Path(checkpoint_dir) / "options_restart.yaml",
+            f=checkpoint_dir / "options_restart.yaml",
             resolve=True,
         )
 
@@ -532,6 +541,10 @@ def train_model(
     ###########################
 
     logging.info("Calling trainer")
+    logging.info(
+        "Intermediate checkpoints (if available): "
+        f"{checkpoint_dir.absolute().resolve()}"
+    )
     try:
         trainer.train(
             model=model,
@@ -551,59 +564,49 @@ def train_model(
     # SAVE FINAL MODEL ########
     ###########################
 
-    output_checked = check_file_extension(filename=output, extension=".pt")
-    logging.info(
-        "Training finished, saving final checkpoint "
-        f"to `{str(Path(output_checked).stem)}.ckpt`"
-    )
+    logging.info("Training finished!")
+
+    checkpoint_output = output.with_suffix(".ckpt")
     try:
-        trainer.save_checkpoint(model, f"{Path(output_checked).stem}.ckpt")
+        trainer.save_checkpoint(model, checkpoint_output)
     except Exception as e:
         raise ArchitectureError(e)
+    if checkpoint_output.exists():
+        logging.info(f"Final checkpoint: {checkpoint_output.absolute().resolve()}")
 
     mts_atomistic_model = model.export()
-    if _has_extensions():
-        extensions_path = str(Path(extensions).absolute().resolve())
-    else:
-        extensions_path = None
-
-    if extensions_path is not None:
-        logging.info(
-            f"Exporting model to `{output_checked}` and extensions to "
-            f"`{extensions_path}`"
-        )
-    else:
-        logging.info(f"Exporting model to `{output_checked}`")
-    # get device from the model. This device could be different from devices[0]
-    # defined above in the case of multi-GPU and/or distributed training
+    # Final device could be different from devices[0] defined above in the case of
+    # multi-GPU and/or distributed training
     final_device = next(
         itertools.chain(
             mts_atomistic_model.parameters(),
             mts_atomistic_model.buffers(),
         )
     ).device
-    mts_atomistic_model.save(str(output_checked), collect_extensions=extensions_path)
-    # the model is first saved and then reloaded 1) for good practice and 2) because
-    # AtomisticModel only torchscripts (makes faster) during save()
 
-    # Copy the exported model and the checkpoint also to the checkpoint directory
-    checkpoint_path = Path(checkpoint_dir)
-    if checkpoint_path != Path("."):
-        shutil.copy(output_checked, Path(checkpoint_dir) / output_checked)
-        if Path(f"{Path(output_checked).stem}.ckpt").exists():
-            # inside the if because some models don't have a checkpoint (e.g., GAP)
-            shutil.copy(
-                f"{Path(output_checked).stem}.ckpt",
-                Path(checkpoint_dir) / f"{Path(output_checked).stem}.ckpt",
-            )
+    # model is first saved and then reloaded 1) for good practice and 2) because
+    # `AtomisticModel` only torchscripts (makes faster) during `save()`
+    mts_atomistic_model.save(
+        file=output,
+        collect_extensions=extensions if _has_extensions() else None,
+    )
+
+    logging.info(f"Exported model: {output.absolute().resolve()}")
+    if extensions.exists():
+        logging.info(f"Extensions path: {extensions.absolute().resolve()}")
+
+    if checkpoint_dir.absolute().resolve() != Path.cwd():
+        shutil.copy(output, checkpoint_dir / output)
+        if checkpoint_output.exists():
+            shutil.copy(checkpoint_output, checkpoint_dir / checkpoint_output)
 
     ###########################
     # EVALUATE FINAL MODEL ####
     ###########################
 
     mts_atomistic_model = load_model(
-        path=output_checked,
-        extensions_directory=extensions_path,
+        path=output,
+        extensions_directory=extensions if _has_extensions() else None,
     )
     mts_atomistic_model = mts_atomistic_model.to(final_device)
 
