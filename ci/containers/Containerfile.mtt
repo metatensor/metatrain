@@ -3,6 +3,6 @@ FROM $BASE_IMAGE
 
 COPY . /mtt-repo/
 
-RUN python3 -m venv --system-site-packages /mtt-venv && \
+RUN python3 -m venv /mtt-venv && \
 	. /mtt-venv/bin/activate && \
 	python -m pip install /mtt-repo[soap-bpnn]
