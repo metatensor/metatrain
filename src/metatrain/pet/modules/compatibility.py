@@ -1,6 +1,6 @@
 from typing import Dict
 
-import metatensor.torch
+import metatensor.torch as mts
 import torch
 from metatensor.torch import Labels, TensorBlock, TensorMap
 
@@ -68,7 +68,7 @@ def convert_model_state_dict_from_legacy_pet(
     )
 
     new_model_state_dict["additive_models.0.energy_composition_buffer"] = (
-        metatensor.torch.save_buffer(weights)
+        mts.save_buffer(weights)
     )
 
     species_to_species_index = torch.full(

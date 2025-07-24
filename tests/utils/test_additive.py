@@ -1,7 +1,7 @@
 import logging
 from pathlib import Path
 
-import metatensor.torch
+import metatensor.torch as mts
 import pytest
 import torch
 from metatensor.torch import Labels, TensorBlock, TensorMap
@@ -308,7 +308,7 @@ def test_old_composition_model_predict():
     assert output["mtt::U0"].block().values.shape != (5, 1)
 
     # with selected_atoms
-    selected_atoms = metatensor.torch.Labels(
+    selected_atoms = mts.Labels(
         names=["system", "atom"],
         values=torch.tensor([[0, 0]]),
     )
@@ -397,7 +397,7 @@ def test_composition_model_predict(device):
     assert output["mtt::U0"].block().values.device.type == device
 
     # with selected_atoms
-    selected_atoms = metatensor.torch.Labels(
+    selected_atoms = mts.Labels(
         names=["system", "atom"],
         values=torch.tensor([[0, 0]]),
     ).to(device=device)
@@ -413,7 +413,7 @@ def test_composition_model_predict(device):
     assert output["mtt::U0"].block().values.device.type == device
 
     # with selected_atoms
-    selected_atoms = metatensor.torch.Labels(
+    selected_atoms = mts.Labels(
         names=["system"],
         values=torch.tensor([[0]]),
     ).to(device=device)
@@ -527,7 +527,7 @@ def test_old_remove_additive():
     composition_model.train_model(dataset, [])
 
     # concatenate all targets
-    targets["mtt::U0"] = metatensor.torch.join(targets["mtt::U0"], axis="samples")
+    targets["mtt::U0"] = mts.join(targets["mtt::U0"], axis="samples")
 
     std_before = targets["mtt::U0"].block().values.std().item()
     remove_additive(systems, targets, composition_model, target_info)
@@ -576,7 +576,7 @@ def test_remove_additive():
     composition_model.train_model(dataloader, additive_models=[])
 
     # concatenate all targets
-    targets["mtt::U0"] = metatensor.torch.join(targets["mtt::U0"], axis="samples")
+    targets["mtt::U0"] = mts.join(targets["mtt::U0"], axis="samples")
 
     std_before = targets["mtt::U0"].block().values.std().item()
     remove_additive(systems, targets, composition_model, target_info)
@@ -851,7 +851,7 @@ def test_zbl():
     assert output["mtt::U0"].block().values.shape != (5, 1)
 
     # with selected_atoms
-    selected_atoms = metatensor.torch.Labels(
+    selected_atoms = mts.Labels(
         names=["system", "atom"],
         values=torch.tensor([[0, 0]]),
     )
@@ -947,12 +947,8 @@ def test_old_composition_model_train_per_atom(where_is_center_type):
         tensor_map_1 = tensor_map_1.keys_to_samples("center_type")
         tensor_map_2 = tensor_map_2.keys_to_samples("center_type")
     if where_is_center_type == "nowhere":
-        tensor_map_1 = metatensor.torch.remove_dimension(
-            tensor_map_1, "samples", "center_type"
-        )
-        tensor_map_2 = metatensor.torch.remove_dimension(
-            tensor_map_2, "samples", "center_type"
-        )
+        tensor_map_1 = mts.remove_dimension(tensor_map_1, "samples", "center_type")
+        tensor_map_2 = mts.remove_dimension(tensor_map_2, "samples", "center_type")
 
     energies = [tensor_map_1, tensor_map_2]
     dataset = Dataset.from_dict({"system": systems, "energy": energies})
@@ -1068,12 +1064,8 @@ def test_composition_model_train_per_atom(where_is_center_type):
         tensor_map_1 = tensor_map_1.keys_to_samples("center_type")
         tensor_map_2 = tensor_map_2.keys_to_samples("center_type")
     if where_is_center_type == "nowhere":
-        tensor_map_1 = metatensor.torch.remove_dimension(
-            tensor_map_1, "samples", "center_type"
-        )
-        tensor_map_2 = metatensor.torch.remove_dimension(
-            tensor_map_2, "samples", "center_type"
-        )
+        tensor_map_1 = mts.remove_dimension(tensor_map_1, "samples", "center_type")
+        tensor_map_2 = mts.remove_dimension(tensor_map_2, "samples", "center_type")
 
     energies = [tensor_map_1, tensor_map_2]
     dataset = Dataset.from_dict({"system": systems, "energy": energies})

@@ -1,4 +1,4 @@
-import metatensor.torch
+import metatensor.torch as mts
 import numpy as np
 import pytest
 import torch
@@ -136,13 +136,11 @@ def test_read_energy(tmpdir, energy_tensor_map):
     }
 
     with tmpdir.as_cwd():
-        metatensor.torch.save("energy.mts", energy_tensor_map)
+        mts.save("energy.mts", energy_tensor_map)
         tensor_maps, _ = read_energy(OmegaConf.create(conf))
 
-    tensor_map = metatensor.torch.join(
-        tensor_maps, axis="samples", remove_tensor_name=True
-    )
-    assert metatensor.torch.equal(tensor_map, energy_tensor_map)
+    tensor_map = mts.join(tensor_maps, axis="samples", remove_tensor_name=True)
+    assert mts.equal(tensor_map, energy_tensor_map)
 
 
 def test_read_generic_scalar(tmpdir, scalar_tensor_map):
@@ -158,13 +156,11 @@ def test_read_generic_scalar(tmpdir, scalar_tensor_map):
     }
 
     with tmpdir.as_cwd():
-        metatensor.torch.save("generic.mts", scalar_tensor_map)
+        mts.save("generic.mts", scalar_tensor_map)
         tensor_maps, _ = read_generic(OmegaConf.create(conf))
 
-    tensor_map = metatensor.torch.join(
-        tensor_maps, axis="samples", remove_tensor_name=True
-    )
-    assert metatensor.torch.equal(tensor_map, scalar_tensor_map)
+    tensor_map = mts.join(tensor_maps, axis="samples", remove_tensor_name=True)
+    assert mts.equal(tensor_map, scalar_tensor_map)
 
 
 def test_read_generic_spherical(tmpdir, spherical_tensor_map):
@@ -187,13 +183,11 @@ def test_read_generic_spherical(tmpdir, spherical_tensor_map):
     }
 
     with tmpdir.as_cwd():
-        metatensor.torch.save("generic.mts", spherical_tensor_map)
+        mts.save("generic.mts", spherical_tensor_map)
         tensor_maps, _ = read_generic(OmegaConf.create(conf))
 
-    tensor_map = metatensor.torch.join(
-        tensor_maps, axis="samples", remove_tensor_name=True
-    )
-    assert metatensor.torch.equal(tensor_map, spherical_tensor_map)
+    tensor_map = mts.join(tensor_maps, axis="samples", remove_tensor_name=True)
+    assert mts.equal(tensor_map, spherical_tensor_map)
 
 
 def test_read_generic_cartesian(tmpdir, cartesian_tensor_map):
@@ -213,19 +207,17 @@ def test_read_generic_cartesian(tmpdir, cartesian_tensor_map):
     }
 
     with tmpdir.as_cwd():
-        metatensor.torch.save("generic.mts", cartesian_tensor_map)
+        mts.save("generic.mts", cartesian_tensor_map)
         tensor_maps, _ = read_generic(OmegaConf.create(conf))
 
-    tensor_map = metatensor.torch.join(
-        tensor_maps, axis="samples", remove_tensor_name=True
-    )
+    tensor_map = mts.join(tensor_maps, axis="samples", remove_tensor_name=True)
 
-    assert metatensor.torch.equal(tensor_map, cartesian_tensor_map)
+    assert mts.equal(tensor_map, cartesian_tensor_map)
 
 
 def test_read_errors(tmpdir, energy_tensor_map, scalar_tensor_map):
     with tmpdir.as_cwd():
-        metatensor.torch.save("energy.mts", energy_tensor_map)
+        mts.save("energy.mts", energy_tensor_map)
 
     conf = {
         "quantity": "energy",
@@ -255,7 +247,7 @@ def test_read_errors(tmpdir, energy_tensor_map, scalar_tensor_map):
             read_energy(OmegaConf.create(conf))
         conf["forces"] = False
 
-        metatensor.torch.save("scalar.mts", scalar_tensor_map)
+        mts.save("scalar.mts", scalar_tensor_map)
 
         conf["read_from"] = "scalar.mts"
         with pytest.raises(ValueError, match="Unexpected samples"):

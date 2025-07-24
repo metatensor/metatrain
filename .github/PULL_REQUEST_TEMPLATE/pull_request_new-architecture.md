@@ -18,6 +18,7 @@
   - [ ] checking that the checkpoints are properly versionned (see the existing
     `test_checkpoint.py` in other architectures)
 - [ ] Add maintainers as codeowners in [CODEOWNERS](CODEOWNERS)
+- [ ] Trigger a GPU test by asking a maintainer to comment "cscs-ci run".
 
 # Reviewer checklist
 

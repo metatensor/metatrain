@@ -1,4 +1,4 @@
-import metatensor.torch
+import metatensor.torch as mts
 import torch
 from metatensor.torch import Labels, TensorBlock, TensorMap
 
@@ -35,9 +35,9 @@ def test_sum_over_atoms():
     # Call the sum_over_atoms function
     summed_tensor_map = sum_over_atoms(tensor_map)
 
-    summed_tensor_map_ref = metatensor.torch.sum_over_samples(
+    summed_tensor_map_ref = mts.sum_over_samples(
         tensor_map,
         sample_names=["atom"],
     )
 
-    assert metatensor.torch.allclose(summed_tensor_map, summed_tensor_map_ref)
+    assert mts.allclose(summed_tensor_map, summed_tensor_map_ref)

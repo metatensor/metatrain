@@ -2,7 +2,7 @@ import warnings
 from math import prod
 from typing import Any, Dict, List, Literal, Optional
 
-import metatensor.torch
+import metatensor.torch as mts
 import torch
 from metatensor.torch import Labels, TensorBlock, TensorMap
 from metatensor.torch.operations._add import _add_block_block
@@ -621,7 +621,7 @@ class PET(ModelInterface):
 
         if selected_atoms is not None:
             for output_name, tmap in atomic_predictions_tmap_dict.items():
-                atomic_predictions_tmap_dict[output_name] = metatensor.torch.slice(
+                atomic_predictions_tmap_dict[output_name] = mts.slice(
                     tmap, axis="samples", selection=selected_atoms
                 )
 
