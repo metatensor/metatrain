@@ -708,7 +708,7 @@ class NanoPET(ModelInterface):
     def upgrade_checkpoint(checkpoint: Dict) -> Dict:
         raise NotImplementedError("checkpoint upgrade is not implemented for NanoPET")
 
-    def _get_checkpoint(self) -> Dict:
+    def get_checkpoint(self) -> Dict:
         checkpoint = {
             "architecture_name": "experimental.nanopet",
             "model_ckpt_version": self.__checkpoint_version__,

@@ -906,7 +906,7 @@ class PET(ModelInterface):
 
         return checkpoint
 
-    def _get_checkpoint(self) -> Dict:
+    def get_checkpoint(self) -> Dict:
         model_state_dict = self.state_dict()
         model_state_dict["finetune_config"] = self.finetune_config
         checkpoint = {

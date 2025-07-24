@@ -532,7 +532,7 @@ class Trainer(TrainerInterface):
         self.scheduler_state_dict = lr_scheduler.state_dict()
 
     def save_checkpoint(self, model, path: Union[str, Path]):
-        checkpoint = model._get_checkpoint()
+        checkpoint = model.get_checkpoint()
         if self.best_model_state_dict is not None:
             self.best_model_state_dict["finetune_config"] = model.finetune_config
         checkpoint.update(

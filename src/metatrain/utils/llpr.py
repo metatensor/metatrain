@@ -588,7 +588,7 @@ class LLPRUncertaintyModel(torch.nn.Module):
                 "calibrated yet."
             )
 
-        wrapped_model_checkpoint = self.model._get_checkpoint()
+        wrapped_model_checkpoint = self.model.get_checkpoint()
         state_dict = {
             k: v for k, v in self.state_dict().items() if not k.startswith("model.")
         }

@@ -841,7 +841,7 @@ class SoapBpnn(ModelInterface):
     def upgrade_checkpoint(checkpoint: Dict) -> Dict:
         raise NotImplementedError("checkpoint upgrade is not implemented for SoapBPNN")
 
-    def _get_checkpoint(self) -> Dict:
+    def get_checkpoint(self) -> Dict:
         checkpoint = {
             "architecture_name": "soap_bpnn",
             "model_ckpt_version": self.__checkpoint_version__,

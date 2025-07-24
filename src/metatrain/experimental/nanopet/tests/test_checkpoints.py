@@ -79,9 +79,9 @@ test_loading_old_checkpoints = make_checkpoint_load_tests(DEFAULT_HYPERS)
 
 
 @pytest.mark.parametrize("context", ["finetune", "restart", "export"])
-def test_get_checkpoint(context):
+def testget_checkpoint(context):
     """
-    Test that the checkpoint created by the model._get_checkpoint()
+    Test that the checkpoint created by the model.get_checkpoint()
     function can be loaded back with the given context.
     """
     dataset_info = DatasetInfo(
@@ -90,5 +90,5 @@ def test_get_checkpoint(context):
         targets={"energy": get_energy_target_info({"unit": "eV"})},
     )
     model = NanoPET(MODEL_HYPERS, dataset_info)
-    checkpoint = model._get_checkpoint()
+    checkpoint = model.get_checkpoint()
     NanoPET.load_checkpoint(checkpoint, context)

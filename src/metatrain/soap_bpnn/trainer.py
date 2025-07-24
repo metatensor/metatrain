@@ -503,7 +503,7 @@ class Trainer(TrainerInterface):
         self.scheduler_state_dict = lr_scheduler.state_dict()
 
     def save_checkpoint(self, model, path: Union[str, Path]):
-        checkpoint = model._get_checkpoint()
+        checkpoint = model.get_checkpoint()
         checkpoint.update(
             {
                 "train_hypers": self.hypers,

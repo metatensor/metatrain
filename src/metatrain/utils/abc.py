@@ -126,6 +126,12 @@ class ModelInterface(torch.nn.Module, metaclass=ABCMeta):
         Upgrade the checkpoint to the current version of the model.
         """
 
+    @abstractmethod
+    def get_checkpoint(self) -> Dict[str, Any]:
+        """
+        Get the checkpoint of the model.
+        """
+
 
 class TrainerInterface(metaclass=ABCMeta):
     """
