@@ -6,10 +6,19 @@ from urllib.parse import unquote, urlparse
 from urllib.request import urlretrieve
 
 import torch
+from huggingface_hub import hf_hub_download
 from metatomic.torch import check_atomistic_model, load_atomistic_model
 
-from ..utils.architectures import find_all_architectures
-from .architectures import import_architecture
+from .architectures import find_all_architectures, import_architecture
+
+
+hf_pattern = re.compile(
+    r"(?P<endpoint>https://[^/]+)/"
+    r"(?P<repo_id>[^/]+/[^/]+)/"
+    r"resolve/"
+    r"(?P<revision>[^/]+)/"
+    r"(?P<filename>.+)"
+)
 
 
 def check_file_extension(
@@ -63,28 +72,17 @@ def is_exported_file(path: str) -> bool:
         return False
 
 
-def _hf_hub_download_url(url: str, hf_token: Optional[str] = None) -> str:
+def _hf_hub_download_url(
+    url: str,
+    hf_token: Optional[str] = None,
+    cache_dir: Optional[Union[str, Path]] = None,
+) -> str:
     """Wrapper around `hf_hub_download` allowing passing the URL directly.
 
     Function is in inverse of `hf_hub_url`
     """
-    try:
-        from huggingface_hub import hf_hub_download
-    except ImportError:
-        raise ImportError(
-            "To download a private model please install the `huggingface_hub` package "
-            "with pip (`pip install huggingface_hub`)."
-        )
 
-    pattern = re.compile(
-        r"(?P<endpoint>https://[^/]+)/"
-        r"(?P<repo_id>[^/]+/[^/]+)/"
-        r"resolve/"
-        r"(?P<revision>[^/]+)/"
-        r"(?P<filename>.+)"
-    )
-
-    match = pattern.match(url)
+    match = hf_pattern.match(url)
 
     if not match:
         raise ValueError(f"URL '{url}' has an invalid format for the Hugging Face Hub.")
@@ -105,10 +103,10 @@ def _hf_hub_download_url(url: str, hf_token: Optional[str] = None) -> str:
         repo_id=repo_id,
         filename=filename,
         subfolder=subfolder,
-        repo_type=None,
+        cache_dir=cache_dir,
         revision=revision,
-        endpoint=endpoint,
         token=hf_token,
+        endpoint=endpoint,
     )
 
 
@@ -119,6 +117,8 @@ def load_model(
 ) -> Any:
     """Load checkpoints and exported models from an URL or a local file for inference.
 
+    Remote models from Hugging Face are downloaded to a local cache directory.
+
     If an exported model should be loaded and requires compiled extensions, their
     location should be passed using the ``extensions_directory`` parameter.
 
@@ -127,8 +127,8 @@ def load_model(
 
     .. note::
 
-        This function is intended to load models for inference in Python. For continue
-        training or finetuning use metatrain's command line interfaace
+        This function is intended to load models only for **inference** in Python. To
+        continue training or to finetune use metatrain's command line interface.
 
     :param path: local or remote path to a model. For supported URL schemes see
         :py:class:`urllib.request`
@@ -137,9 +137,6 @@ def load_model(
     :param hf_token: HuggingFace API token to download (private) models from HuggingFace
 
     :raises ValueError: if ``path`` is a YAML option file and no model
-    :raises ValueError: if no ``archietcture_name`` is found in the checkpoint
-    :raises ValueError: if the ``architecture_name`` is not found in the available
-        architectures
     """
 
     if Path(path).suffix in [".yaml", ".yml"]:
@@ -148,14 +145,15 @@ def load_model(
         )
 
     path = str(path)
+    url = urlparse(path)
 
-    # Download remote model
-    # TODO(@PicoCentauri): Introduce caching for remote models
-    if urlparse(path).scheme:
-        if hf_token is None:
-            path, _ = urlretrieve(path)
+    if url.scheme:
+        if url.netloc == "huggingface.co":
+            path = _hf_hub_download_url(url=url.geturl(), hf_token=hf_token)
         else:
-            path = _hf_hub_download_url(path, hf_token=hf_token)
+            # Avoid caching generic URLs due to lack of a model hash for proper cache
+            # invalidation
+            path, _ = urlretrieve(url=url.geturl())
 
     if is_exported_file(path):
         return load_atomistic_model(path, extensions_directory=extensions_directory)
