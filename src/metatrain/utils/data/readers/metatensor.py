@@ -72,7 +72,7 @@ def read_generic(target: DictConfig) -> Tuple[List[TensorMap], TargetInfo]:
     # actual properties of the tensor maps
     target_info.layout = _empty_tensor_map_like(tensor_map)
 
-    system_ids = metatensor.torch.unique_metadata(tensor_map, "samples", "system")
+    system_ids = mts.unique_metadata(tensor_map, "samples", "system")
     selections = [
         Labels(
             names=["system"],
