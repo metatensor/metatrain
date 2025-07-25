@@ -179,6 +179,9 @@ class GAP(ModelInterface):
     def upgrade_checkpoint(checkpoint: Dict) -> Dict:
         raise NotImplementedError("checkpoint upgrade is not implemented for GAP")
 
+    def get_checkpoint(self) -> Dict[str, Any]:
+        raise NotImplementedError("GAP does not support checkpointing")
+
     def forward(
         self,
         systems: List[System],

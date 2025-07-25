@@ -506,24 +506,19 @@ class Trainer(TrainerInterface):
             torch.distributed.destroy_process_group()
 
     def save_checkpoint(self, model, path: Union[str, Path]):
-        checkpoint = {
-            "architecture_name": "soap_bpnn",
-            "model_ckpt_version": model.__checkpoint_version__,
-            "trainer_ckpt_version": self.__checkpoint_version__,
-            "metadata": model.metadata,
-            "model_data": {
-                "model_hypers": model.hypers,
-                "dataset_info": model.dataset_info,
-            },
-            "model_state_dict": model.state_dict(),
-            "train_hypers": self.hypers,
-            "epoch": self.epoch,
-            "optimizer_state_dict": self.optimizer_state_dict,
-            "scheduler_state_dict": self.scheduler_state_dict,
-            "best_metric": self.best_metric,
-            "best_model_state_dict": self.best_model_state_dict,
-            "best_optimizer_state_dict": self.best_optimizer_state_dict,
-        }
+        checkpoint = model.get_checkpoint()
+        checkpoint.update(
+            {
+                "train_hypers": self.hypers,
+                "trainer_ckpt_version": self.__checkpoint_version__,
+                "epoch": self.epoch,
+                "optimizer_state_dict": self.optimizer_state_dict,
+                "scheduler_state_dict": self.scheduler_state_dict,
+                "best_metric": self.best_metric,
+                "best_model_state_dict": self.best_model_state_dict,
+                "best_optimizer_state_dict": self.best_optimizer_state_dict,
+            }
+        )
         torch.save(
             checkpoint,
             check_file_extension(path, ".ckpt"),

@@ -1,5 +1,6 @@
 import subprocess
 
+import pytest
 import torch
 from metatomic.torch import (
     AtomisticModel,
@@ -8,9 +9,17 @@ from metatomic.torch import (
     ModelOutput,
     load_atomistic_model,
 )
+from omegaconf import OmegaConf
 
-from metatrain.utils.data import CollateFn, Dataset, read_systems, read_targets
-from metatrain.utils.io import load_model
+from metatrain.utils.architectures import get_default_hypers, import_architecture
+from metatrain.utils.data import (
+    CollateFn,
+    Dataset,
+    DatasetInfo,
+    read_systems,
+    read_targets,
+)
+from metatrain.utils.io import load_model, model_from_checkpoint
 from metatrain.utils.llpr import LLPRUncertaintyModel
 from metatrain.utils.neighbor_lists import (
     get_requested_neighbor_lists,
@@ -168,14 +177,6 @@ def test_llpr_metadata_preservation_on_export(tmpdir):
     llpr_model_with_metadata = LLPRUncertaintyModel(model_with_metadata)
     llpr_model_without_metadata = LLPRUncertaintyModel(model_without_metadata)
 
-    # hack these fields so we can save the models
-    llpr_model_with_metadata.covariance_computed = True
-    llpr_model_without_metadata.covariance_computed = True
-    llpr_model_with_metadata.inv_covariance_computed = True
-    llpr_model_without_metadata.inv_covariance_computed = True
-    llpr_model_with_metadata.is_calibrated = True
-    llpr_model_without_metadata.is_calibrated = True
-
     with tmpdir.as_cwd():
         llpr_model_with_metadata.save_checkpoint("llpr_model_with_metadata.ckpt")
         llpr_model_without_metadata.save_checkpoint("llpr_model_without_metadata.ckpt")
@@ -198,3 +199,110 @@ def test_llpr_metadata_preservation_on_export(tmpdir):
     assert all(["TEST" not in ref for ref in exported_references_2["architecture"]])
     assert any(["LLPR" in ref for ref in exported_references_2["architecture"]])
     assert any(["LPR" in ref for ref in exported_references_2["architecture"]])
+
+
+@pytest.mark.parametrize("context", ["finetune", "restart", "export"])
+def test_llpr_loads_wrapped_model(tmpdir, context):
+    """
+    Test that the wrapped model can be loaded from the LLPR checkpoint
+    in all possible contexts.
+    """
+    model = load_model(str(RESOURCES_PATH / "model-64-bit.ckpt"))
+    llpr_model = LLPRUncertaintyModel(model)
+
+    with tmpdir.as_cwd():
+        llpr_model.save_checkpoint("llpr_model.ckpt")
+        checkpoint = torch.load(
+            "llpr_model.ckpt", weights_only=False, map_location="cpu"
+        )
+        model_from_checkpoint(checkpoint["wrapped_model_checkpoint"], context)
+
+
+@pytest.mark.parametrize("context", ["finetune", "restart", "export"])
+def test_llpr_save_and_load_checkpoint(tmpdir, context):
+    """
+    Test that the LLPR wrapper can be saved and loaded in all possible contexts.
+    """
+    model = load_model(str(RESOURCES_PATH / "model-64-bit.ckpt"))
+    llpr_model = LLPRUncertaintyModel(model)
+
+    with tmpdir.as_cwd():
+        llpr_model.save_checkpoint("llpr_model.ckpt")
+        checkpoint = torch.load(
+            "llpr_model.ckpt", weights_only=False, map_location="cpu"
+        )
+        if context == "finetune" or context == "export":
+            llpr_model.load_checkpoint(checkpoint, context=context)
+        elif context == "restart":
+            with pytest.raises(NotImplementedError):
+                llpr_model.load_checkpoint(checkpoint, context=context)
+
+
+def test_llpr_finetuning(tmpdir):
+    """
+    Test that the wrapped model can be finetuned
+    if started from a LLPR checkpoint.
+    """
+    model = load_model(str(RESOURCES_PATH / "model-pet.ckpt"))
+    llpr_model = LLPRUncertaintyModel(model)
+
+    with tmpdir.as_cwd():
+        llpr_model.save_checkpoint("llpr_model.ckpt")
+        checkpoint = torch.load(
+            "llpr_model.ckpt", weights_only=False, map_location="cpu"
+        )
+        model = llpr_model.load_checkpoint(checkpoint, context="finetune").to(
+            torch.float64
+        )
+
+    architecture = import_architecture("pet")
+    Trainer = architecture.__trainer__
+
+    DATASET_PATH = RESOURCES_PATH / "carbon_reduced_100.xyz"
+    systems = read_systems(DATASET_PATH)
+
+    conf = {
+        "energy": {
+            "quantity": "energy",
+            "read_from": DATASET_PATH,
+            "reader": "ase",
+            "key": "energy",
+            "unit": "eV",
+            "type": "scalar",
+            "per_atom": False,
+            "num_subtargets": 1,
+            "forces": {"read_from": DATASET_PATH, "key": "force"},
+            "stress": False,
+            "virial": False,
+        }
+    }
+
+    targets, target_info_dict = read_targets(OmegaConf.create(conf))
+    dataset = Dataset.from_dict({"system": systems, "energy": targets["energy"]})
+    dataset_info = DatasetInfo(
+        length_unit="angstrom", atomic_types=[6], targets=target_info_dict
+    )
+    model = model.restart(dataset_info)
+
+    hypers = get_default_hypers("pet")
+    hypers["training"]["num_epochs"] = 2
+    hypers["training"]["scheduler_patience"] = 1
+    hypers["training"]["fixed_composition_weights"] = {}
+
+    hypers["training"]["finetune"] = {
+        "method": "lora",
+        "config": {
+            "rank": 4,
+            "alpha": 0.1,
+        },
+    }
+
+    trainer = Trainer(hypers["training"])
+    trainer.train(
+        model=model,
+        dtype=torch.float32,
+        devices=[torch.device("cpu")],
+        train_datasets=[dataset],
+        val_datasets=[dataset],
+        checkpoint_dir=".",
+    )

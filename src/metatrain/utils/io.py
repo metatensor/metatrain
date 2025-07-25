@@ -158,11 +158,12 @@ def load_model(
     if is_exported_file(path):
         return load_atomistic_model(path, extensions_directory=extensions_directory)
     else:  # model is a checkpoint
-        return model_from_checkpoint(path, context="export")
+        checkpoint = torch.load(path, weights_only=False, map_location="cpu")
+        return model_from_checkpoint(checkpoint, context="export")
 
 
 def model_from_checkpoint(
-    path: Union[str, Path],
+    checkpoint: Dict[str, Any],
     context: Literal["restart", "finetune", "export"],
 ) -> torch.nn.Module:
     """
@@ -170,8 +171,6 @@ def model_from_checkpoint(
     instance. The model architecture is determined from information stored inside the
     checkpoint.
     """
-    checkpoint = torch.load(path, weights_only=False, map_location="cpu")
-
     architecture_name = checkpoint["architecture_name"]
     if architecture_name not in find_all_architectures():
         raise ValueError(
@@ -200,24 +199,18 @@ def model_from_checkpoint(
             checkpoint = architecture.__model__.upgrade_checkpoint(checkpoint)
         except Exception as e:
             raise RuntimeError(
-                f"Unable to load the model checkpoint from '{path}' for "
+                f"Unable to load the model checkpoint for "
                 f"the '{architecture_name}' architecture: the checkpoint is using "
                 f"version {model_ckpt_version}, while the current version is "
                 f"{architecture.__model__.__checkpoint_version__}; and trying to "
                 "upgrade the checkpoint failed."
             ) from e
 
-    try:
-        return architecture.__model__.load_checkpoint(checkpoint, context=context)
-    except Exception as e:
-        raise ValueError(
-            f"the file at '{path}' does not contain a valid checkpoint for "
-            f"the '{architecture_name}' architecture"
-        ) from e
+    return architecture.__model__.load_checkpoint(checkpoint, context=context)
 
 
 def trainer_from_checkpoint(
-    path: Union[str, Path],
+    checkpoint: Dict[str, Any],
     context: Literal["restart", "finetune", "export"],
     hypers: Dict[str, Any],
 ) -> Any:
@@ -226,8 +219,6 @@ def trainer_from_checkpoint(
     instance. The architecture is determined from information stored inside the
     checkpoint.
     """
-    checkpoint = torch.load(path, weights_only=False, map_location="cpu")
-
     architecture_name = checkpoint["architecture_name"]
     if architecture_name not in find_all_architectures():
         raise ValueError(
@@ -256,19 +247,13 @@ def trainer_from_checkpoint(
             checkpoint = architecture.__trainer__.upgrade_checkpoint(checkpoint)
         except Exception as e:
             raise RuntimeError(
-                f"Unable to load the trainer checkpoint from '{path}' for "
+                f"Unable to load the trainer checkpoint for "
                 f"the '{architecture_name}' architecture: the checkpoint is using "
                 f"version {trainer_ckpt_version}, while the current version is "
                 f"{architecture.__trainer__.__checkpoint_version__}; and trying to "
                 "upgrade the checkpoint failed."
             ) from e
 
-    try:
-        return architecture.__trainer__.load_checkpoint(
-            checkpoint, context=context, hypers=hypers
-        )
-    except Exception as err:
-        raise ValueError(
-            f"path '{path}' is not a valid checkpoint for the {architecture_name} "
-            "trainer state"
-        ) from err
+    return architecture.__trainer__.load_checkpoint(
+        checkpoint, context=context, hypers=hypers
+    )
