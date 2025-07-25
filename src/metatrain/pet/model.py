@@ -17,6 +17,14 @@ from metatomic.torch import (
 
 from metatrain.utils.abc import ModelInterface
 from metatrain.utils.additive import ZBL, CompositionModel
+from metatrain.utils.basis import (
+    extract_key_value,
+    get_edge_sample_labels_1_center,
+    get_edge_sample_labels_2_center,
+    get_permutation_symmetrization_arrays,
+    get_sample_labels_block,
+    get_system_indices_and_node_sample_labels,
+)
 from metatrain.utils.data import DatasetInfo, TargetInfo
 from metatrain.utils.dtype import dtype_to_str
 from metatrain.utils.long_range import DummyLongRangeFeaturizer, LongRangeFeaturizer
@@ -96,6 +104,7 @@ class PET(ModelInterface):
         self.property_labels: Dict[str, List[Labels]] = {}
         self.component_labels: Dict[str, List[List[Labels]]] = {}
         self.target_names: List[str] = []
+        self.sample_kinds: Dict[str, str] = {}
         for target_name, target_info in dataset_info.targets.items():
             self.target_names.append(target_name)
             self._add_output(target_name, target_info)
@@ -252,12 +261,25 @@ class PET(ModelInterface):
                 for output_name, properties_tmap in self.property_labels.items()
             }
 
-        system_indices, sample_labels = self._get_system_indices_and_labels(
+        system_indices, node_sample_labels = get_system_indices_and_node_sample_labels(
             systems, device
         )
+        if (
+            any([kind == "per_pair" for kind in self.sample_kinds.values()])
+            or "edge_features" in outputs
+        ):
+            edge_sample_labels_1_center = get_edge_sample_labels_1_center(
+                node_sample_labels, device
+            )
+            edge_sample_labels_2_center = get_edge_sample_labels_2_center(
+                systems, nl_options, device
+            )
+        else:
+            edge_sample_labels_1_center = Labels("_", torch.empty(0).reshape(-1, 1))
+            edge_sample_labels_2_center = Labels("_", torch.empty(0).reshape(-1, 1))
 
         # We convert a list of systems to a batch required for the PET model.
-        # The batch consists of the following tensors:
+        # The batch consists of the following tensors: f
         # - `element_indices_nodes` [n_atoms]: The atomic species of the central atoms
         # - `element_indices_neighbors` [n_atoms]: The atomic species of the neighboring
         #   atoms
@@ -289,6 +311,34 @@ class PET(ModelInterface):
             self.species_to_species_index,
             selected_atoms,
         )
+
+        # if we are predicting per-pair outputs that are permutationally symmetrized, we
+        # need some samples masks for edges with different and same atom types, and a
+        # map to permute the samples of the same atom types
+
+        (
+            samples_mask_2_center_same_types,
+            samples_mask_2_center_diff_types,
+            permuted_samples_map_same_types,
+            edge_sample_labels_2_center_same_types,
+            edge_sample_labels_2_center_diff_types,
+        ) = (
+            torch.empty(0, dtype=torch.bool, device=device),
+            torch.empty(0, dtype=torch.bool, device=device),
+            torch.empty(0, dtype=torch.int64, device=device),
+            Labels("_", torch.empty(0).reshape(-1, 1)),
+            Labels("_", torch.empty(0).reshape(-1, 1)),
+        )
+        if any(["s2_pi" in keys.names for keys in self.key_labels.values()]):
+            (
+                samples_mask_2_center_same_types,
+                samples_mask_2_center_diff_types,
+                permuted_samples_map_same_types,
+                edge_sample_labels_2_center_same_types,
+                edge_sample_labels_2_center_diff_types,
+            ) = get_permutation_symmetrization_arrays(
+                systems, edge_sample_labels_2_center
+            )
 
         # the scaled_dot_product_attention function from torch cannot do
         # double backward, so we will use manual attention if needed
@@ -369,7 +419,7 @@ class PET(ModelInterface):
                 blocks=[
                     TensorBlock(
                         values=features,
-                        samples=sample_labels,
+                        samples=node_sample_labels,
                         components=[],
                         properties=Labels(
                             names=["properties"],
@@ -385,6 +435,36 @@ class PET(ModelInterface):
                 return_dict["features"] = feature_tmap
             else:
                 return_dict["features"] = sum_over_atoms(feature_tmap)
+
+        if "edge_features" in outputs:
+
+            edge_features = torch.cat(edge_features_list, dim=2)
+            edge_features = edge_features * cutoff_factors[:, :, None]
+
+            edge_features = edge_features.reshape(
+                -1, edge_features.shape[-1]
+            )
+            edge_features = edge_features[padding_mask.reshape(-1)]
+
+            feature_tmap = TensorMap(
+                keys=self.single_label,
+                blocks=[
+                    TensorBlock(
+                        values=edge_features,
+                        samples=edge_sample_labels_2_center,
+                        components=[],
+                        properties=Labels(
+                            names=["properties"],
+                            values=torch.arange(
+                                edge_features.shape[-1], device=edge_features.device
+                            ).reshape(-1, 1),
+                        ),
+                    )
+                ],
+            )
+            assert outputs["edge_features"].per_atom
+            return_dict["edge_features"] = feature_tmap
+
 
         # Stage 3. We compute last layer features for each requested output,
         # for both node and edge features from each GNN layer. To do this, apply the
@@ -432,51 +512,111 @@ class PET(ModelInterface):
                 last_layer_features_dict[output_name].append(node_last_layer_features)
                 last_layer_features_dict[output_name].append(edge_last_layer_features)
 
+        last_layer_edge_features_dict: Dict[str, List[torch.Tensor]] = {}
+        for output_name in self.target_names:
+            if output_name not in last_layer_edge_features_dict:
+                last_layer_edge_features_dict[output_name] = []
+            for i in range(len(edge_last_layer_features_dict[output_name])):
+                edge_last_layer_features = edge_last_layer_features_dict[output_name][i]
+                edge_last_layer_features = (
+                    edge_last_layer_features * cutoff_factors[:, :, None]
+                )
+                edge_last_layer_features = edge_last_layer_features.reshape(
+                    -1, edge_last_layer_features.shape[-1]
+                )
+                edge_last_layer_features = edge_last_layer_features[
+                    padding_mask.reshape(-1)
+                ]
+                last_layer_edge_features_dict[output_name].append(edge_last_layer_features)
+
         for output_name in outputs.keys():
-            if not (
+            if (
                 output_name.startswith("mtt::aux::")
                 and output_name.endswith("_last_layer_features")
             ):
-                continue
-            base_name = output_name.replace("mtt::aux::", "").replace(
-                "_last_layer_features", ""
-            )
-            # the corresponding output could be base_name or mtt::base_name
-            if (
-                f"mtt::{base_name}" not in last_layer_features_dict
-                and base_name not in last_layer_features_dict
-            ):
-                raise ValueError(
-                    f"Features {output_name} can only be requested "
-                    f"if the corresponding output {base_name} is also requested."
+                
+                base_name = output_name.replace("mtt::aux::", "").replace(
+                    "_last_layer_features", ""
                 )
-            if f"mtt::{base_name}" in last_layer_features_dict:
-                base_name = f"mtt::{base_name}"
-            last_layer_features_values = torch.cat(
-                last_layer_features_dict[base_name], dim=1
-            )
-            last_layer_feature_tmap = TensorMap(
-                keys=self.single_label,
-                blocks=[
-                    TensorBlock(
-                        values=last_layer_features_values,
-                        samples=sample_labels,
-                        components=[],
-                        properties=Labels(
-                            names=["properties"],
-                            values=torch.arange(
-                                last_layer_features_values.shape[-1],
-                                device=last_layer_features_values.device,
-                            ).reshape(-1, 1),
-                        ),
+                # the corresponding output could be base_name or mtt::base_name
+                if (
+                    f"mtt::{base_name}" not in last_layer_features_dict
+                    and base_name not in last_layer_features_dict
+                ):
+                    raise ValueError(
+                        f"Features {output_name} can only be requested "
+                        f"if the corresponding output {base_name} is also requested."
                     )
-                ],
-            )
-            last_layer_features_options = outputs[output_name]
-            if last_layer_features_options.per_atom:
-                return_dict[output_name] = last_layer_feature_tmap
-            else:
-                return_dict[output_name] = sum_over_atoms(last_layer_feature_tmap)
+                if f"mtt::{base_name}" in last_layer_features_dict:
+                    base_name = f"mtt::{base_name}"
+                last_layer_features_values = torch.cat(
+                    last_layer_features_dict[base_name], dim=1
+                )
+                last_layer_feature_tmap = TensorMap(
+                    keys=self.single_label,
+                    blocks=[
+                        TensorBlock(
+                            values=last_layer_features_values,
+                            samples=node_sample_labels,
+                            components=[],
+                            properties=Labels(
+                                names=["properties"],
+                                values=torch.arange(
+                                    last_layer_features_values.shape[-1],
+                                    device=last_layer_features_values.device,
+                                ).reshape(-1, 1),
+                            ),
+                        )
+                    ],
+                )
+                last_layer_features_options = outputs[output_name]
+                if last_layer_features_options.per_atom:
+                    return_dict[output_name] = last_layer_feature_tmap
+                else:
+                    return_dict[output_name] = sum_over_atoms(last_layer_feature_tmap)
+
+            if (
+                output_name.startswith("mtt::aux::")
+                and output_name.endswith("_last_layer_edge_features")
+            ):
+
+                base_name = output_name.replace("mtt::aux::", "").replace(
+                    "_last_layer_edge_features", ""
+                )
+                # the corresponding output could be base_name or mtt::base_name
+                if (
+                    f"mtt::{base_name}" not in last_layer_edge_features_dict
+                    and base_name not in last_layer_edge_features_dict
+                ):
+                    raise ValueError(
+                        f"Features {output_name} can only be requested "
+                        f"if the corresponding output {base_name} is also requested."
+                    )
+                if f"mtt::{base_name}" in last_layer_edge_features_dict:
+                    base_name = f"mtt::{base_name}"
+                last_layer_edge_features_values = torch.cat(
+                    last_layer_edge_features_dict[base_name], dim=1
+                )
+                last_layer_edge_feature_tmap = TensorMap(
+                    keys=self.single_label,
+                    blocks=[
+                        TensorBlock(
+                            values=last_layer_edge_features_values,
+                            samples=edge_sample_labels_2_center,
+                            components=[],
+                            properties=Labels(
+                                names=["properties"],
+                                values=torch.arange(
+                                    last_layer_edge_features_values.shape[-1],
+                                    device=last_layer_edge_features_values.device,
+                                ).reshape(-1, 1),
+                            ),
+                        )
+                    ],
+                )
+                last_layer_edge_features_options = outputs[output_name]
+                assert last_layer_edge_features_options.per_atom
+                return_dict[output_name] = last_layer_edge_feature_tmap
 
         # Stage 4. We compute the per-atom predictions by applying the
         # linear layers to both node and edge last layer features. To do this,
@@ -503,10 +643,49 @@ class PET(ModelInterface):
                         output_name
                     ][i]
                     node_atomic_predictions_by_block: List[torch.Tensor] = []
-                    for node_last_layer_by_block in node_last_layer.values():
-                        node_atomic_predictions_by_block.append(
-                            node_last_layer_by_block(node_last_layer_features)
-                        )
+                    for key, node_last_layer_by_block in node_last_layer.items():
+                        # depending on the block key, the edge predictions are handled
+                        # in different ways:
+                        #
+                        # 1) if the block key does not contain an "n_centers" dimension,
+                        #    the last layer node features are transformed into
+                        #    predictions by means of the node last (linear) layer
+                        #
+                        # 2) if the block key contains an "n_centers" dimension and it
+                        #    is equal to 1, the node features are treated the same as in
+                        #    1).
+                        #
+                        # 3) if the "n_centers" dimension is present and is equal to 2
+                        #    this block is a per-pair target. Node predictions are not
+                        #    computed for these blocks, so a zero-sample tensor with the
+                        #    correct feature size is stored.
+
+                        if "n_centers" not in key:  # 1)
+                            node_atomic_predictions_by_block.append(
+                                node_last_layer_by_block(node_last_layer_features)
+                            )
+
+                        else:
+                            if extract_key_value(key, "n_centers") == 1:  # 2)
+                                node_atomic_predictions_by_block.append(
+                                    node_last_layer_by_block(node_last_layer_features)
+                                )
+
+                            else:  # 3)
+                                assert extract_key_value(key, "n_centers") == 2
+                                node_atomic_predictions_by_block.append(
+                                    torch.empty(
+                                        (
+                                            0,
+                                            manual_prod(
+                                                self.output_shapes[output_name][key]
+                                            ),
+                                        ),
+                                        dtype=node_last_layer_features.dtype,
+                                        device=node_last_layer_features.device,
+                                    ),
+                                )
+
                     node_atomic_predictions_dict[output_name].append(
                         node_atomic_predictions_by_block
                     )
@@ -521,11 +700,18 @@ class PET(ModelInterface):
                     List[List[torch.Tensor]], []
                 )
                 for i, edge_last_layer in enumerate(edge_last_layers):
-                    edge_last_layer_features = edge_last_layer_features_dict[
-                        output_name
-                    ][i]
                     edge_atomic_predictions_by_block: List[torch.Tensor] = []
-                    for edge_last_layer_by_block in edge_last_layer.values():
+
+                    for key, edge_last_layer_by_block in edge_last_layer.items():
+                        # for each GNN layer, the edge last layer features are
+                        # transformed into block predictions by means of the
+                        # corresponding edge last (linear) layer. Then, predictions for
+                        # edges not in the neighbor list are masked out and the cutoff
+                        # function is applied.
+
+                        edge_last_layer_features = edge_last_layer_features_dict[
+                            output_name
+                        ][i]
                         edge_atomic_predictions = edge_last_layer_by_block(
                             edge_last_layer_features
                         )
@@ -538,15 +724,96 @@ class PET(ModelInterface):
                         edge_atomic_predictions = (
                             edge_atomic_predictions * cutoff_factors[:, :, None]
                         )
-                        edge_atomic_predictions_by_block.append(
-                            edge_atomic_predictions.sum(dim=1)
-                        )
+
+                        # depending on the block key, these edge predictions are then
+                        # handled in different ways.
+                        #
+                        # 1) if the block key does not contain an "n_centers" dimension,
+                        #    the edge predictions are summed over the neighbors and
+                        #    added (later) to the node predictions.
+                        #
+                        # 2) if the block key contains an "n_centers" dimension and it
+                        #    is equal to 1, the edge predictions are treated as in 1).
+                        #
+                        # 3) if the "n_centers" dimension is present and is equal to 2
+                        #    this block is a per-pair target. The edge predictions are
+                        #    reshaped to contain both the central and neighbor atoms
+                        #    along the samples axis. The padding mask is used to slice
+                        #    out the samples not in the actual neighbor list. Then, the
+                        #    permutation-symmetrization protocol is applied as follows,
+                        #    depending on the value of the "s2_pi" key dimension. If
+                        #    "s2_pi" is 0, the samples are sliced to atom pairs of
+                        #    different atomic types. If "s2_pi" is +1 or -1, the samples
+                        #    are sliced to atom pairs of the same atomic type, and
+                        #    symmetrization is performed by taking the plus or minus
+                        #    combination (respectively) of the samples.
+
+                        if "n_centers" not in key:  # 1)
+                            edge_atomic_predictions = edge_atomic_predictions.sum(dim=1)
+
+                        else:
+                            if extract_key_value(key, "n_centers") == 1:  # 2)
+                                edge_atomic_predictions = edge_atomic_predictions.sum(
+                                    dim=1
+                                )
+
+                            else:  # 3)
+                                assert extract_key_value(key, "n_centers") == 2
+
+                                # reshape the edge predictions to have both central
+                                # atoms and neighbors in the samples axis and slice out
+                                # the samples not in the actual neighbor list
+
+                                edge_atomic_predictions = (
+                                    edge_atomic_predictions.reshape(
+                                        -1, edge_atomic_predictions.shape[-1]
+                                    )
+                                )
+                                edge_atomic_predictions = edge_atomic_predictions[
+                                    padding_mask.reshape(-1)
+                                ]
+
+                                if "s2_pi" in key:
+                                    # if s2_pi == 0, slice the edge predictions to atom
+                                    # pairs of different atomic types. No symmetrization
+                                    # is required.
+
+                                    if extract_key_value(key, "s2_pi") == 0:
+                                        edge_atomic_predictions = (
+                                            edge_atomic_predictions[
+                                                samples_mask_2_center_diff_types
+                                            ]
+                                        )
+
+                                    # otherwise if s2_pi = +/- 1, slice to atom pairs of
+                                    # different types and permutation-symmetrize
+                                    # depending on the value of s2_pi.
+
+                                    else:  # same atom type
+                                        s2_pi = extract_key_value(key, "s2_pi")
+                                        assert s2_pi in [1, -1]
+                                        edge_atomic_predictions = (
+                                            edge_atomic_predictions[
+                                                samples_mask_2_center_same_types
+                                            ]
+                                        )
+                                        edge_atomic_predictions = (
+                                            edge_atomic_predictions
+                                            + (
+                                                s2_pi
+                                                * edge_atomic_predictions[
+                                                    permuted_samples_map_same_types
+                                                ]
+                                            )
+                                        ) / 2.0  # TODO: do we want this factor of 2?
+
+                        edge_atomic_predictions_by_block.append(edge_atomic_predictions)
                     edge_atomic_predictions_dict[output_name].append(
                         edge_atomic_predictions_by_block
                     )
 
-        # Finally, we sum all the node and edge atomic predictions from each GNN
-        # layer to a single atomic predictions tensor.
+        # Finally, we sum all the node and edge atomic predictions from each GNN layer
+        # to a single atomic predictions tensor.
 
         for output_name in self.target_names:
             if output_name in outputs:
@@ -569,9 +836,46 @@ class PET(ModelInterface):
                     for j, key in enumerate(atomic_predictions_by_block):
                         node_atomic_predictions = node_atomic_prediction_block[j]
                         edge_atomic_predictions = edge_atomic_prediction_block[j]
-                        atomic_predictions_by_block[key] = atomic_predictions_by_block[
-                            key
-                        ] + (node_atomic_predictions + edge_atomic_predictions)
+
+                        # depending on the key, the node and edge predictions are
+                        # handled differently:
+                        #
+                        # 1) if the block key does not contain an "n_centers" dimension,
+                        #    the node and edge predictions are the same shape and are
+                        #    summed together and accumulated across GNN layers.
+                        #
+                        # 2) if the block key contains an "n_centers" dimension and it
+                        #    is equal to 1, the node and edge predictions are treated
+                        #    the same as in 1).
+                        #
+                        # 3) if the "n_centers" dimension is present and is equal to 2
+                        #    this block is a per-pair target. The node predictions are
+                        #    empty are not used, and only the edge predictions are
+                        #    accumulated across GNN layers.
+
+                        if "n_centers" not in key:  # 1)
+                            atomic_predictions_by_block[key] = (
+                                atomic_predictions_by_block[key]
+                                + (node_atomic_predictions + edge_atomic_predictions)
+                            )
+
+                        else:
+                            if extract_key_value(key, "n_centers") == 1:  # 2)
+                                atomic_predictions_by_block[key] = (
+                                    atomic_predictions_by_block[key]
+                                    + (
+                                        node_atomic_predictions
+                                        + edge_atomic_predictions
+                                    )
+                                )
+
+                            else:  # 3)
+                                assert extract_key_value(key, "n_centers") == 2
+                                assert node_atomic_predictions.shape[0] == 0
+                                atomic_predictions_by_block[key] = (
+                                    atomic_predictions_by_block[key]
+                                    + edge_atomic_predictions
+                                )
 
                 all_components = self.component_labels[output_name]
                 if len(all_components[0]) == 2 and all(
@@ -602,7 +906,15 @@ class PET(ModelInterface):
                 blocks = [
                     TensorBlock(
                         values=atomic_predictions_by_block[key].reshape([-1] + shape),
-                        samples=sample_labels,
+                        samples=get_sample_labels_block(
+                            key,
+                            self.sample_kinds[output_name],
+                            node_sample_labels,
+                            edge_sample_labels_1_center,
+                            edge_sample_labels_2_center,
+                            edge_sample_labels_2_center_same_types,
+                            edge_sample_labels_2_center_diff_types,
+                        ),
                         components=components,
                         properties=properties,
                     )
@@ -784,6 +1096,21 @@ class PET(ModelInterface):
             unit=target_info.unit,
             per_atom=True,
         )
+        # store the sample kind
+        if target_info.layout.sample_names == ["system"]:
+            self.sample_kinds[target_name] = "per_structure"
+        elif target_info.layout.sample_names == ["system", "atom"]:
+            self.sample_kinds[target_name] = "per_atom"
+        else:
+            assert target_info.layout.sample_names == [
+                "system",
+                "first_atom",
+                "second_atom",
+                "cell_shift_a",
+                "cell_shift_b",
+                "cell_shift_c",
+            ]
+            self.sample_kinds[target_name] = "per_pair"
 
         self.node_heads[target_name] = torch.nn.ModuleList(
             [
@@ -813,11 +1140,7 @@ class PET(ModelInterface):
             [
                 torch.nn.ModuleDict(
                     {
-                        key: torch.nn.Linear(
-                            self.hypers["d_head"],
-                            prod(shape),
-                            bias=True,
-                        )
+                        key: self._init_node_last_layer_by_key(key, shape)
                         for key, shape in self.output_shapes[target_name].items()
                     }
                 )
@@ -853,40 +1176,25 @@ class PET(ModelInterface):
             block.properties for block in target_info.layout.blocks()
         ]
 
-    def _get_system_indices_and_labels(
-        self, systems: List[System], device: torch.device
-    ):
-        system_indices = torch.concatenate(
-            [
-                torch.full(
-                    (len(system),),
-                    i_system,
-                    device=device,
-                )
-                for i_system, system in enumerate(systems)
-            ],
-        )
+    def _init_node_last_layer_by_key(
+        self,
+        key,
+        shape,
+    ) -> torch.nn.Module:
+        if "n_centers" not in key:
+            return torch.nn.Linear(
+                self.hypers["d_head"],
+                prod(shape),
+                bias=True,
+            )
+        elif "n_centers" in key and extract_key_value(key, "n_centers") == 1:
+            return torch.nn.Linear(
+                self.hypers["d_head"],
+                prod(shape),
+                bias=True,
+            )
 
-        sample_values = torch.stack(
-            [
-                system_indices,
-                torch.concatenate(
-                    [
-                        torch.arange(
-                            len(system),
-                            device=device,
-                        )
-                        for system in systems
-                    ],
-                ),
-            ],
-            dim=1,
-        )
-        sample_labels = Labels(
-            names=["system", "atom"],
-            values=sample_values,
-        )
-        return system_indices, sample_labels
+        return torch.nn.Identity()
 
     @staticmethod
     def upgrade_checkpoint(checkpoint: Dict) -> Dict:
@@ -916,3 +1224,10 @@ class PET(ModelInterface):
             "best_model_state_dict": None,
         }
         return checkpoint
+
+def manual_prod(shape: List[int]) -> int:
+    # prod from standard library not supported in torchscript
+    result = 1
+    for dim in shape:
+        result *= dim
+    return result
