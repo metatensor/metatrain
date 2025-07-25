@@ -13,5 +13,9 @@ def update_v1_v2(state_dict):
 
 
 def update_v2_v3(state_dict):
-    if state_dict is not None and "finetune_config" not in state_dict:
-        state_dict["finetune_config"] = {}
+    if state_dict is not None:
+        if "train_hypers" in state_dict:
+            finetune_config = state_dict["train_hypers"].get("finetune", {})
+        else:
+            finetune_config = {}
+        state_dict["finetune_config"] = finetune_config
