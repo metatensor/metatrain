@@ -592,6 +592,9 @@ class LLPRUncertaintyModel(torch.nn.Module):
         state_dict = {
             k: v for k, v in self.state_dict().items() if not k.startswith("model.")
         }
+        state_dict["covariance_computed"] = self.covariance_computed
+        state_dict["inv_covariance_computed"] = self.inv_covariance_computed
+        state_dict["is_calibrated"] = self.is_calibrated
 
         checkpoint = {
             "architecture_name": "llpr",
@@ -626,15 +629,16 @@ class LLPRUncertaintyModel(torch.nn.Module):
             # Create the model
             wrapped_model = cls(model, ensemble_weight_sizes)
             dtype = next(model.parameters()).dtype
+            wrapped_model.covariance_computed = checkpoint["state_dict"].pop(
+                "covariance_computed"
+            )
+            wrapped_model.inv_covariance_computed = checkpoint["state_dict"].pop(
+                "inv_covariance_computed"
+            )
+            wrapped_model.is_calibrated = checkpoint["state_dict"].pop("is_calibrated")
             wrapped_model.to(dtype).load_state_dict(
                 checkpoint["state_dict"], strict=False
             )
-
-            # If we load a LLPR checkpoint, these will already be ready:
-            wrapped_model.covariance_computed = True
-            wrapped_model.inv_covariance_computed = True
-            wrapped_model.is_calibrated = True
-
             return wrapped_model
 
     def export(self, metadata: Optional[ModelMetadata] = None) -> AtomisticModel:
