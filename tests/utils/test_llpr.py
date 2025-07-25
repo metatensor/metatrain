@@ -205,7 +205,7 @@ def test_llpr_metadata_preservation_on_export(tmpdir):
 def test_llpr_loads_wrapped_model(tmpdir, context):
     """
     Test that the wrapped model can be loaded from the LLPR checkpoint
-    with the given context.
+    in all possible contexts.
     """
     model = load_model(str(RESOURCES_PATH / "model-64-bit.ckpt"))
     llpr_model = LLPRUncertaintyModel(model)
@@ -221,7 +221,7 @@ def test_llpr_loads_wrapped_model(tmpdir, context):
 @pytest.mark.parametrize("context", ["finetune", "restart", "export"])
 def test_llpr_save_and_load_checkpoint(tmpdir, context):
     """
-    Test that the LLPR wrapper can be saved and loaded with the given context.
+    Test that the LLPR wrapper can be saved and loaded in all possible contexts.
     """
     model = load_model(str(RESOURCES_PATH / "model-64-bit.ckpt"))
     llpr_model = LLPRUncertaintyModel(model)
@@ -239,6 +239,10 @@ def test_llpr_save_and_load_checkpoint(tmpdir, context):
 
 
 def test_llpr_finetuning(tmpdir):
+    """
+    Test that the wrapped model can be finetuned
+    if started from a LLPR checkpoint.
+    """
     model = load_model(str(RESOURCES_PATH / "model-pet.ckpt"))
     llpr_model = LLPRUncertaintyModel(model)
 
