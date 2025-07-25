@@ -134,7 +134,8 @@ class ModelInterface(torch.nn.Module, metaclass=ABCMeta):
     @abstractmethod
     def get_checkpoint(self) -> Dict[str, Any]:
         """
-        Get the checkpoint of the model.
+        Get the checkpoint of the model. This should contain all the information
+        needed by `load_checkpoint` to recreate the same model instance.
         """
 
 
