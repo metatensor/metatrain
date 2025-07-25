@@ -206,13 +206,7 @@ def model_from_checkpoint(
                 "upgrade the checkpoint failed."
             ) from e
 
-    try:
-        return architecture.__model__.load_checkpoint(checkpoint, context=context)
-    except Exception as e:
-        raise ValueError(
-            f"the checkpoint does not contain a valid checkpoint for "
-            f"the '{architecture_name}' architecture"
-        ) from e
+    return architecture.__model__.load_checkpoint(checkpoint, context=context)
 
 
 def trainer_from_checkpoint(
@@ -260,12 +254,6 @@ def trainer_from_checkpoint(
                 "upgrade the checkpoint failed."
             ) from e
 
-    try:
-        return architecture.__trainer__.load_checkpoint(
-            checkpoint, context=context, hypers=hypers
-        )
-    except Exception as err:
-        raise ValueError(
-            f"the checkpoint is not a valid checkpoint for the {architecture_name} "
-            "trainer state"
-        ) from err
+    return architecture.__trainer__.load_checkpoint(
+        checkpoint, context=context, hypers=hypers
+    )
