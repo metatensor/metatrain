@@ -262,7 +262,10 @@ class PET(ModelInterface):
         system_indices, node_sample_labels = get_system_indices_and_node_sample_labels(
             systems, device
         )
-        if any([kind == "per_pair" for kind in self.sample_kinds.values()]):
+        if (
+            any([kind == "per_pair" for kind in self.sample_kinds.values()])
+            or "edge_features" in outputs
+        ):
             edge_sample_labels_1_center = get_edge_sample_labels_1_center(
                 node_sample_labels, device
             )
@@ -431,6 +434,36 @@ class PET(ModelInterface):
             else:
                 return_dict["features"] = sum_over_atoms(feature_tmap)
 
+        if "edge_features" in outputs:
+
+            edge_features = torch.cat(edge_features_list, dim=2)
+            edge_features = edge_features * cutoff_factors[:, :, None]
+
+            edge_features = edge_features.reshape(
+                -1, edge_features.shape[-1]
+            )
+            edge_features = edge_features[padding_mask.reshape(-1)]
+
+            feature_tmap = TensorMap(
+                keys=self.single_label,
+                blocks=[
+                    TensorBlock(
+                        values=edge_features,
+                        samples=edge_sample_labels_2_center,
+                        components=[],
+                        properties=Labels(
+                            names=["properties"],
+                            values=torch.arange(
+                                edge_features.shape[-1], device=edge_features.device
+                            ).reshape(-1, 1),
+                        ),
+                    )
+                ],
+            )
+            assert outputs["edge_features"].per_atom
+            return_dict["edge_features"] = feature_tmap
+
+
         # Stage 3. We compute last layer features for each requested output,
         # for both node and edge features from each GNN layer. To do this, apply the
         # corresponding heads to both node and edge features, and save the results
@@ -477,51 +510,111 @@ class PET(ModelInterface):
                 last_layer_features_dict[output_name].append(node_last_layer_features)
                 last_layer_features_dict[output_name].append(edge_last_layer_features)
 
+        last_layer_edge_features_dict: Dict[str, List[torch.Tensor]] = {}
+        for output_name in self.target_names:
+            if output_name not in last_layer_edge_features_dict:
+                last_layer_edge_features_dict[output_name] = []
+            for i in range(len(edge_last_layer_features_dict[output_name])):
+                edge_last_layer_features = edge_last_layer_features_dict[output_name][i]
+                edge_last_layer_features = (
+                    edge_last_layer_features * cutoff_factors[:, :, None]
+                )
+                edge_last_layer_features = edge_last_layer_features.reshape(
+                    -1, edge_last_layer_features.shape[-1]
+                )
+                edge_last_layer_features = edge_last_layer_features[
+                    padding_mask.reshape(-1)
+                ]
+                last_layer_edge_features_dict[output_name].append(edge_last_layer_features)
+
         for output_name in outputs.keys():
-            if not (
+            if (
                 output_name.startswith("mtt::aux::")
                 and output_name.endswith("_last_layer_features")
             ):
-                continue
-            base_name = output_name.replace("mtt::aux::", "").replace(
-                "_last_layer_features", ""
-            )
-            # the corresponding output could be base_name or mtt::base_name
-            if (
-                f"mtt::{base_name}" not in last_layer_features_dict
-                and base_name not in last_layer_features_dict
-            ):
-                raise ValueError(
-                    f"Features {output_name} can only be requested "
-                    f"if the corresponding output {base_name} is also requested."
+                
+                base_name = output_name.replace("mtt::aux::", "").replace(
+                    "_last_layer_features", ""
                 )
-            if f"mtt::{base_name}" in last_layer_features_dict:
-                base_name = f"mtt::{base_name}"
-            last_layer_features_values = torch.cat(
-                last_layer_features_dict[base_name], dim=1
-            )
-            last_layer_feature_tmap = TensorMap(
-                keys=self.single_label,
-                blocks=[
-                    TensorBlock(
-                        values=last_layer_features_values,
-                        samples=node_sample_labels,
-                        components=[],
-                        properties=Labels(
-                            names=["properties"],
-                            values=torch.arange(
-                                last_layer_features_values.shape[-1],
-                                device=last_layer_features_values.device,
-                            ).reshape(-1, 1),
-                        ),
+                # the corresponding output could be base_name or mtt::base_name
+                if (
+                    f"mtt::{base_name}" not in last_layer_features_dict
+                    and base_name not in last_layer_features_dict
+                ):
+                    raise ValueError(
+                        f"Features {output_name} can only be requested "
+                        f"if the corresponding output {base_name} is also requested."
                     )
-                ],
-            )
-            last_layer_features_options = outputs[output_name]
-            if last_layer_features_options.per_atom:
-                return_dict[output_name] = last_layer_feature_tmap
-            else:
-                return_dict[output_name] = sum_over_atoms(last_layer_feature_tmap)
+                if f"mtt::{base_name}" in last_layer_features_dict:
+                    base_name = f"mtt::{base_name}"
+                last_layer_features_values = torch.cat(
+                    last_layer_features_dict[base_name], dim=1
+                )
+                last_layer_feature_tmap = TensorMap(
+                    keys=self.single_label,
+                    blocks=[
+                        TensorBlock(
+                            values=last_layer_features_values,
+                            samples=node_sample_labels,
+                            components=[],
+                            properties=Labels(
+                                names=["properties"],
+                                values=torch.arange(
+                                    last_layer_features_values.shape[-1],
+                                    device=last_layer_features_values.device,
+                                ).reshape(-1, 1),
+                            ),
+                        )
+                    ],
+                )
+                last_layer_features_options = outputs[output_name]
+                if last_layer_features_options.per_atom:
+                    return_dict[output_name] = last_layer_feature_tmap
+                else:
+                    return_dict[output_name] = sum_over_atoms(last_layer_feature_tmap)
+
+            if (
+                output_name.startswith("mtt::aux::")
+                and output_name.endswith("_last_layer_edge_features")
+            ):
+
+                base_name = output_name.replace("mtt::aux::", "").replace(
+                    "_last_layer_edge_features", ""
+                )
+                # the corresponding output could be base_name or mtt::base_name
+                if (
+                    f"mtt::{base_name}" not in last_layer_edge_features_dict
+                    and base_name not in last_layer_edge_features_dict
+                ):
+                    raise ValueError(
+                        f"Features {output_name} can only be requested "
+                        f"if the corresponding output {base_name} is also requested."
+                    )
+                if f"mtt::{base_name}" in last_layer_edge_features_dict:
+                    base_name = f"mtt::{base_name}"
+                last_layer_edge_features_values = torch.cat(
+                    last_layer_edge_features_dict[base_name], dim=1
+                )
+                last_layer_edge_feature_tmap = TensorMap(
+                    keys=self.single_label,
+                    blocks=[
+                        TensorBlock(
+                            values=last_layer_edge_features_values,
+                            samples=edge_sample_labels_2_center,
+                            components=[],
+                            properties=Labels(
+                                names=["properties"],
+                                values=torch.arange(
+                                    last_layer_edge_features_values.shape[-1],
+                                    device=last_layer_edge_features_values.device,
+                                ).reshape(-1, 1),
+                            ),
+                        )
+                    ],
+                )
+                last_layer_edge_features_options = outputs[output_name]
+                assert last_layer_edge_features_options.per_atom
+                return_dict[output_name] = last_layer_edge_feature_tmap
 
         # Stage 4. We compute the per-atom predictions by applying the
         # linear layers to both node and edge last layer features. To do this,
