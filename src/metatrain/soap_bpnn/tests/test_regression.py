@@ -13,6 +13,7 @@ from metatrain.utils.neighbor_lists import (
     get_requested_neighbor_lists,
     get_system_with_neighbor_lists,
 )
+from metatrain.utils.omegaconf import CONF_LOSS
 
 from . import DATASET_PATH, DEFAULT_HYPERS, MODEL_HYPERS
 
@@ -90,6 +91,9 @@ def test_regression_train():
 
     hypers = DEFAULT_HYPERS.copy()
     hypers["training"]["num_epochs"] = 2
+    loss_conf = OmegaConf.create({"mtt::U0": CONF_LOSS.copy()})
+    OmegaConf.resolve(loss_conf)
+    hypers["training"]["loss"] = loss_conf
 
     dataset_info = DatasetInfo(
         length_unit="Angstrom", atomic_types=[1, 6, 7, 8], targets=target_info_dict
