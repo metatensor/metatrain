@@ -205,11 +205,6 @@ class TargetInfo:
                         "target should have key dimension 'o3_lambda' that "
                         f"is non-negative. Found '{o3_lambda}' instead."
                     )
-                if n_centers == 2:
-                    assert s2_pi is not None, (
-                        "The layout ``TensorMap`` of a spherical tensor "
-                        "target with two centers should have key dimension 's2_pi'."
-                    )
                 if s2_pi is not None:
                     if s2_pi not in [-1, 0, +1]:
                         raise ValueError(
