@@ -572,22 +572,6 @@ class LLPRUncertaintyModel(torch.nn.Module):
         )
 
     def save_checkpoint(self, path: Union[str, Path]):
-        if not self.covariance_computed:
-            raise ValueError(
-                "Trying to save a LLPR checkpoint, but covariance has not been "
-                "computed yet."
-            )
-        if not self.inv_covariance_computed:
-            raise ValueError(
-                "Trying to save a LLPR checkpoint, but inverse covariance has not "
-                "been computed yet."
-            )
-        if not self.is_calibrated:
-            raise ValueError(
-                "Trying to save a LLPR checkpoint, but model has not been "
-                "calibrated yet."
-            )
-
         wrapped_model_checkpoint = self.model.get_checkpoint()
         state_dict = {
             k: v for k, v in self.state_dict().items() if not k.startswith("model.")

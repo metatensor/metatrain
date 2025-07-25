@@ -177,14 +177,6 @@ def test_llpr_metadata_preservation_on_export(tmpdir):
     llpr_model_with_metadata = LLPRUncertaintyModel(model_with_metadata)
     llpr_model_without_metadata = LLPRUncertaintyModel(model_without_metadata)
 
-    # hack these fields so we can save the models
-    llpr_model_with_metadata.covariance_computed = True
-    llpr_model_without_metadata.covariance_computed = True
-    llpr_model_with_metadata.inv_covariance_computed = True
-    llpr_model_without_metadata.inv_covariance_computed = True
-    llpr_model_with_metadata.is_calibrated = True
-    llpr_model_without_metadata.is_calibrated = True
-
     with tmpdir.as_cwd():
         llpr_model_with_metadata.save_checkpoint("llpr_model_with_metadata.ckpt")
         llpr_model_without_metadata.save_checkpoint("llpr_model_without_metadata.ckpt")
@@ -217,9 +209,6 @@ def test_llpr_loads_wrapped_model(tmpdir, context):
     """
     model = load_model(str(RESOURCES_PATH / "model-64-bit.ckpt"))
     llpr_model = LLPRUncertaintyModel(model)
-    llpr_model.covariance_computed = True
-    llpr_model.inv_covariance_computed = True
-    llpr_model.is_calibrated = True
 
     with tmpdir.as_cwd():
         llpr_model.save_checkpoint("llpr_model.ckpt")
@@ -237,10 +226,6 @@ def test_llpr_save_and_load_checkpoint(tmpdir, context):
     model = load_model(str(RESOURCES_PATH / "model-64-bit.ckpt"))
     llpr_model = LLPRUncertaintyModel(model)
 
-    llpr_model.covariance_computed = True
-    llpr_model.inv_covariance_computed = True
-    llpr_model.is_calibrated = True
-
     with tmpdir.as_cwd():
         llpr_model.save_checkpoint("llpr_model.ckpt")
         checkpoint = torch.load(
@@ -256,10 +241,6 @@ def test_llpr_save_and_load_checkpoint(tmpdir, context):
 def test_llpr_finetuning(tmpdir):
     model = load_model(str(RESOURCES_PATH / "model-pet.ckpt"))
     llpr_model = LLPRUncertaintyModel(model)
-
-    llpr_model.covariance_computed = True
-    llpr_model.inv_covariance_computed = True
-    llpr_model.is_calibrated = True
 
     with tmpdir.as_cwd():
         llpr_model.save_checkpoint("llpr_model.ckpt")
