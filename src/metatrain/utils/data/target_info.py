@@ -4,7 +4,6 @@ import torch
 from metatensor.torch import Labels, TensorBlock, TensorMap, equal_metadata
 from omegaconf import DictConfig
 
-
 class TargetInfo:
     """A class that contains information about a target.
 

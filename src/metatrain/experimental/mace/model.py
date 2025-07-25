@@ -28,6 +28,17 @@ from e3nn import o3
 
 from .utils.structures import create_batch
 
+@torch.jit.interface
+class LinearInterface(torch.nn.Module):
+
+    def forward(self, features, weight: Optional[torch.Tensor] = None, bias: Optional[torch.Tensor] = None) -> torch.Tensor:
+        pass
+
+from typing import TypedDict
+
+class Target(TypedDict):
+    is_cartesian: bool
+
 class MetaMACE(ModelInterface):
     """Interface of MACE for metatrain."""
 
@@ -88,6 +99,7 @@ class MetaMACE(ModelInterface):
         self.component_labels: Dict[str, List[List[Labels]]] = {}
         self.property_labels: Dict[str, List[Labels]] = {}
         self.heads: Dict[str, torch.nn.Module] = torch.nn.ModuleDict()
+        self.target_infos: Dict[str, TargetInfo] = {}
         for target_name, target_info in dataset_info.targets.items():
             self._add_output(target_name, target_info)
 
@@ -176,6 +188,11 @@ class MetaMACE(ModelInterface):
         selected_atoms: Optional[Labels] = None,
     ) -> Dict[str, TensorMap]:
         
+        if selected_atoms is not None:
+            raise NotImplementedError(
+                "selected_atoms is not supported in MetaMACE for now. "
+            )
+        
         device = systems[0].device
         
         if self.single_label.values.device != device:
@@ -204,9 +221,7 @@ class MetaMACE(ModelInterface):
         )
 
         # Change coordinates to YZX
-        data.positions = data.positions[:, [1, 2, 0]]
-        # Change coordinates from YZX to XYZ
-        #data.positions = data.positions[:, [2, 0, 1]]
+        data["positions"] = data["positions"][:, [1, 2, 0]]
 
         mace_output = self.mace_model(data, training=self.training)
 
@@ -292,18 +307,22 @@ class MetaMACE(ModelInterface):
         )
 
         node_features = mace_output["node_feats"]
+        assert node_features is not None, "Node features should not be None"
         # # output the last-layer features for the outputs, if requested:
         for output_name in outputs.keys():
-            node_target = self.heads[output_name](node_features)
+            head: LinearInterface = self.heads[output_name]
+            node_target = head.forward(node_features, weight=None, bias=None)
+            is_cartesian = self.target_infos[output_name]["is_cartesian"]
 
-            blocks = []
+            blocks: list[TensorBlock] = []
             pointer = 0
             for i in range(len(self.component_labels[output_name])):
 
                 components = self.component_labels[output_name][i]
                 properties = self.property_labels[output_name][i]
 
-                n_components = len(components[0]) if len(components) > 0 else 1
+                has_components = len(components) > 0
+                n_components = len(components[0]) if has_components else 1
                 n_properties = len(properties)
 
                 end = pointer + n_components * n_properties
@@ -311,6 +330,14 @@ class MetaMACE(ModelInterface):
                 values = node_target[:, pointer:end].reshape(
                     -1, n_properties, n_components,
                 ).transpose(1, 2)
+
+                if is_cartesian and n_components == 3:
+                    # Go back from YZX to XYZ
+                    values = values[:, [2, 0, 1], :]
+
+                if not has_components:
+                    # Remove the components dimension if there are no components
+                    values = values.squeeze(1)
 
                 blocks.append(
                     TensorBlock(
@@ -507,18 +534,9 @@ class MetaMACE(ModelInterface):
     def _add_output(self, target_name: str, target_info: TargetInfo) -> None:
         # warn that, for Cartesian tensors, we assume that they are symmetric
         if target_info.is_cartesian:
-            if len(target_info.layout.block().components) == 2:
-                warnings.warn(
-                    "NanoPET assumes that Cartesian tensors of rank 2 are "
-                    "stress-like, meaning that they are symmetric and intensive. "
-                    "If this is not the case, please use a different model.",
-                    UserWarning,
-                    stacklevel=2,
-                )
-            # error out for rank > 2
-            if len(target_info.layout.block().components) > 2:
+            if len(target_info.layout.block().components) > 1:
                 raise ValueError(
-                    "NanoPET does not support Cartesian tensors with rank > 2."
+                    "MetaMACE does not support Cartesian tensors with rank > 1."
                 )
 
         # one output shape for each tensor block, grouped by target (i.e. tensormap)
@@ -526,12 +544,19 @@ class MetaMACE(ModelInterface):
         irreps = []
         for key, block in target_info.layout.items():
             dict_key = target_name
-            for n, k in zip(key.names, key.values):
-                dict_key += f"_{n}_{int(k)}"
-                if n == "o3_lambda":
-                    l = int(k)
-                    multiplicity = len(block.properties.values)
-                    irreps.append((multiplicity, (l, (-1)**l))) 
+            multiplicity = len(block.properties.values)
+
+            if target_info.is_scalar:
+                dict_key += f"_{key.names[0]}_{int(key.values[0])}"
+                irreps.append((multiplicity, (0, 1)))
+            elif target_info.is_spherical:
+                l = int(key["o3_lambda"])
+                dict_key += f"_o3_lambda_{l}"
+                irreps.append((multiplicity, (l, (-1)**l)))                  
+            elif target_info.is_cartesian:
+                l = 1
+                irreps.append((multiplicity, (l, (-1)**l)))
+            
             self.output_shapes[target_name][dict_key] = [
                 len(comp.values) for comp in block.components
             ] + [len(block.properties.values)]
@@ -546,50 +571,17 @@ class MetaMACE(ModelInterface):
         n_scalars = hidden_irreps.count((0, 1)) 
         mace_out_irreps = hidden_irreps * (self.hypers["num_interactions"] - 1) + o3.Irreps([(n_scalars, (0, 1))])
 
-        
         self.heads[target_name] = o3.Linear(
             irreps_in=mace_out_irreps,
             irreps_out=o3.Irreps(irreps)
         )
 
         self.heads[target_name].to(torch.float64)
-        # if (
-        #     target_name not in self.head_types  # default to MLP
-        #     or self.head_types[target_name] == "mlp"
-        # ):
-        #     self.heads[target_name] = torch.nn.Sequential(
-        #         torch.nn.Linear(
-        #             self.hypers["d_pet"], 4 * self.hypers["d_pet"], bias=False
-        #         ),
-        #         torch.nn.SiLU(),
-        #         torch.nn.Linear(
-        #             4 * self.hypers["d_pet"], self.hypers["d_pet"], bias=False
-        #         ),
-        #         torch.nn.SiLU(),
-        #     )
-        # elif self.head_types[target_name] == "linear":
-        #     self.heads[target_name] = torch.nn.Sequential()
-        # else:
-        #     raise ValueError(
-        #         f"Unsupported head type {self.head_types[target_name]} "
-        #         f"for target {target_name}"
-        #     )
 
         ll_features_name = (
             f"mtt::aux::{target_name.replace('mtt::', '')}_last_layer_features"
         )
         self.outputs[ll_features_name] = ModelOutput(per_atom=True)
-
-        # self.last_layers[target_name] = torch.nn.ModuleDict(
-        #     {
-        #         key: torch.nn.Linear(
-        #             self.hypers["d_pet"],
-        #             prod(shape),
-        #             bias=False,
-        #         )
-        #         for key, shape in self.output_shapes[target_name].items()
-        #     }
-        # )
 
         self.key_labels[target_name] = target_info.layout.keys
         self.component_labels[target_name] = [
@@ -598,6 +590,7 @@ class MetaMACE(ModelInterface):
         self.property_labels[target_name] = [
             block.properties for block in target_info.layout.blocks()
         ]
+        self.target_infos[target_name] = target_info #Target(is_cartesian=target_info.is_cartesian)
     
     @staticmethod
     def upgrade_checkpoint(checkpoint: Dict) -> Dict:
