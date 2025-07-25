@@ -55,7 +55,7 @@ def test_lora_finetuning_device(device):
         length_unit="Angstrom", atomic_types=[1, 6, 7, 8], targets=target_info_dict
     )
 
-    model = PET(MODEL_HYPERS, dataset_info)
+    model = PET(MODEL_HYPERS, dataset_info).to(device)
 
     finetuning_strategy = {
         "method": "lora",
@@ -156,7 +156,8 @@ def test_finetuning_restart(monkeypatch, tmp_path):
     trainer.save_checkpoint(model, "tmp.ckpt")
 
     # Finetuning
-    model_finetune = model_from_checkpoint("tmp.ckpt", context="finetune")
+    checkpoint = torch.load("tmp.ckpt", weights_only=False, map_location="cpu")
+    model_finetune = model_from_checkpoint(checkpoint, context="finetune")
     assert isinstance(model_finetune, PET)
     model_finetune.restart(dataset_info)
 
@@ -188,7 +189,8 @@ def test_finetuning_restart(monkeypatch, tmp_path):
     assert any(["lora_" in name for name, _ in model_finetune.named_parameters()])
 
     # Finetuning restart
-    model_finetune_restart = model_from_checkpoint("finetuned.ckpt", context="restart")
+    checkpoint = torch.load("finetuned.ckpt", weights_only=False, map_location="cpu")
+    model_finetune_restart = model_from_checkpoint(checkpoint, context="restart")
     assert isinstance(model_finetune_restart, PET)
     model_finetune_restart.restart(dataset_info)
 

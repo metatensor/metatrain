@@ -1,6 +1,6 @@
 from typing import Any, Dict, List, Literal, Optional
 
-import metatensor.torch
+import metatensor.torch as mts
 import torch
 from metatensor.torch import Labels, TensorBlock, TensorMap
 from metatensor.torch.learn.nn import Linear as LinearMap
@@ -187,7 +187,7 @@ class SoapBpnn(ModelInterface):
     component_labels: Dict[str, List[List[Labels]]]  # torchscript needs this
 
     def __init__(self, hypers: Dict, dataset_info: DatasetInfo) -> None:
-        super().__init__(hypers, dataset_info)
+        super().__init__(hypers, dataset_info, self.__default_metadata__)
 
         self.atomic_types = dataset_info.atomic_types
         self.requested_nl = NeighborListOptions(
@@ -441,9 +441,7 @@ class SoapBpnn(ModelInterface):
             sample_values[:, 1],
         )
         if selected_atoms is not None:
-            soap_features = metatensor.torch.slice(
-                soap_features, "samples", selected_atoms
-            )
+            soap_features = mts.slice(soap_features, "samples", selected_atoms)
 
         device = soap_features.block(0).values.device
 
@@ -459,9 +457,7 @@ class SoapBpnn(ModelInterface):
             # first, send center_type to the samples dimension and make sure the
             # ordering is the same as in the systems
             merged_features = (
-                metatensor.torch.sort(
-                    features.keys_to_samples("center_type"), axes="samples"
-                )
+                mts.sort(features.keys_to_samples("center_type"), axes="samples")
                 .block()
                 .values
             )
@@ -473,7 +469,7 @@ class SoapBpnn(ModelInterface):
             )
 
             # also sort the original features to avoid problems
-            features = metatensor.torch.sort(features, axes="samples")
+            features = mts.sort(features, axes="samples")
 
             # split the long-range features back to center types
             center_types = torch.concatenate([system.types for system in systems])
@@ -497,7 +493,7 @@ class SoapBpnn(ModelInterface):
             )
 
             # combine short- and long-range features
-            features = metatensor.torch.add(features, long_range_features)
+            features = mts.add(features, long_range_features)
 
         # output the hidden features, if requested:
         if "features" in outputs:
@@ -632,7 +628,7 @@ class SoapBpnn(ModelInterface):
                     selected_atoms,
                 )
                 for name in additive_contributions:
-                    return_dict[name] = metatensor.torch.add(
+                    return_dict[name] = mts.add(
                         return_dict[name],
                         additive_contributions[name],
                     )
@@ -671,9 +667,7 @@ class SoapBpnn(ModelInterface):
         model.additive_models[0].sync_tensor_maps()
 
         # Loading the metadata from the checkpoint
-        metadata = checkpoint.get("metadata", None)
-        if metadata is not None:
-            model.__default_metadata__ = metadata
+        model.metadata = merge_metadata(model.metadata, checkpoint.get("metadata"))
 
         return model
 
@@ -708,10 +702,7 @@ class SoapBpnn(ModelInterface):
             dtype=dtype_to_str(dtype),
         )
 
-        if metadata is None:
-            metadata = self.__default_metadata__
-        else:
-            metadata = merge_metadata(self.__default_metadata__, metadata)
+        metadata = merge_metadata(self.metadata, metadata)
 
         return AtomisticModel(self.eval(), metadata, capabilities)
 
@@ -844,6 +835,20 @@ class SoapBpnn(ModelInterface):
     @staticmethod
     def upgrade_checkpoint(checkpoint: Dict) -> Dict:
         raise NotImplementedError("checkpoint upgrade is not implemented for SoapBPNN")
+
+    def get_checkpoint(self) -> Dict:
+        checkpoint = {
+            "architecture_name": "soap_bpnn",
+            "model_ckpt_version": self.__checkpoint_version__,
+            "metadata": self.metadata,
+            "model_data": {
+                "model_hypers": self.hypers,
+                "dataset_info": self.dataset_info,
+            },
+            "model_state_dict": self.state_dict(),
+            "best_model_state_dict": None,
+        }
+        return checkpoint
 
 
 def _remove_center_type_from_properties(tensor_map: TensorMap) -> TensorMap:

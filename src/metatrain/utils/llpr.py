@@ -1,7 +1,7 @@
 from pathlib import Path
-from typing import Dict, List, Optional, Union
+from typing import Any, Dict, List, Literal, Optional, Union
 
-import metatensor.torch
+import metatensor.torch as mts
 import numpy as np
 import torch
 from metatensor.torch import Labels, TensorBlock, TensorMap
@@ -14,9 +14,8 @@ from metatomic.torch import (
 )
 from torch.utils.data import DataLoader
 
-from metatrain.utils.architectures import import_architecture
 from metatrain.utils.data.target_info import is_auxiliary_output
-from metatrain.utils.io import check_file_extension
+from metatrain.utils.io import check_file_extension, model_from_checkpoint
 from metatrain.utils.metadata import merge_metadata
 
 
@@ -241,7 +240,7 @@ class LLPRUncertaintyModel(torch.nn.Module):
                 ],
             )
 
-            return_dict[uncertainty_name] = metatensor.torch.multiply(
+            return_dict[uncertainty_name] = mts.multiply(
                 uncertainty, float(self._get_multiplier(uncertainty_name).item())
             )
 
@@ -573,80 +572,59 @@ class LLPRUncertaintyModel(torch.nn.Module):
         )
 
     def save_checkpoint(self, path: Union[str, Path]):
-        if not self.covariance_computed:
-            raise ValueError(
-                "Trying to save a LLPR checkpoint, but covariance has not been "
-                "computed yet."
-            )
-        if not self.inv_covariance_computed:
-            raise ValueError(
-                "Trying to save a LLPR checkpoint, but inverse covariance has not "
-                "been computed yet."
-            )
-        if not self.is_calibrated:
-            raise ValueError(
-                "Trying to save a LLPR checkpoint, but model has not been "
-                "calibrated yet."
-            )
-
-        # FIXME: this is very hacky, there should be a way to get the architecture
-        # name from a model instance
-        wrapped_architecture_name = self.model.__module__.replace(
-            "metatrain.", ""
-        ).replace(".model", "")
+        wrapped_model_checkpoint = self.model.get_checkpoint()
+        state_dict = {
+            k: v for k, v in self.state_dict().items() if not k.startswith("model.")
+        }
 
         checkpoint = {
             "architecture_name": "llpr",
             "model_ckpt_version": self.__checkpoint_version__,
-            "wrapped_architecture_name": wrapped_architecture_name,
-            "wrapped_model_data": {  # necessary to re-instantiate the wrapped model
-                "model_hypers": self.model.hypers,
-                "dataset_info": self.model.dataset_info,
+            "wrapped_model_checkpoint": wrapped_model_checkpoint,
+            "llpr_flags": {
+                "covariance_computed": self.covariance_computed,
+                "inv_covariance_computed": self.inv_covariance_computed,
+                "is_calibrated": self.is_calibrated,
             },
-            "state_dict": self.state_dict(),
+            "state_dict": state_dict,
         }
         torch.save(checkpoint, check_file_extension(path, ".ckpt"))
 
     @classmethod
-    def load_checkpoint(cls, checkpoint: Dict, **_) -> "LLPRUncertaintyModel":
-        model_state_dict = checkpoint["state_dict"]
-        state_dict_iter = iter(model_state_dict.values())
-        next(state_dict_iter)  # skip some integer buffer for some architectures
-        dtype = next(state_dict_iter).dtype
+    def load_checkpoint(
+        cls,
+        checkpoint: Dict[str, Any],
+        context: Literal["restart", "finetune", "export"],
+    ) -> "LLPRUncertaintyModel":
+        model = model_from_checkpoint(checkpoint["wrapped_model_checkpoint"], context)
+        if context == "finetune":
+            return model
+        elif context == "restart":
+            raise NotImplementedError(
+                "Restarting from the LLPR checkpoint is not supported. "
+                "Please consider finetuning the model, or just export it "
+                "in the TorchScript format for final usage."
+            )
+        elif context == "export":
+            # Find the size of the ensemble weights, if any:
+            ensemble_weight_sizes = {}
+            for name, tensor in checkpoint["state_dict"].items():
+                if name.endswith("_ensemble_weights"):
+                    ensemble_weight_sizes[name] = list(tensor.shape)
 
-        wrapped_model_data = checkpoint["wrapped_model_data"]
-        # FIXME: LLPR should use `model_from_checkpoint` like everyone else
-        wrapped_model_class = import_architecture(
-            checkpoint["wrapped_architecture_name"]
-        ).__model__
-        wrapped_model = wrapped_model_class(
-            hypers=wrapped_model_data["model_hypers"],
-            dataset_info=wrapped_model_data["dataset_info"],
-        ).to(dtype)
-
-        # Find the size of the ensemble weights, if any:
-        ensemble_weight_sizes = {}
-        for name, tensor in checkpoint["state_dict"].items():
-            if name.endswith("_ensemble_weights"):
-                ensemble_weight_sizes[name] = list(tensor.shape)
-
-        # Create the model
-        model = cls(wrapped_model, ensemble_weight_sizes)
-        model.to(dtype).load_state_dict(model_state_dict)
-
-        # TODO: remove this thing... unfortunately, for now, this NEEDS to be in the
-        # top-level module
-        try:
-            model.model.additive_models[0].sync_tensor_maps()
-        except Exception:
-            pass
-
-        # If we load a LLPR checkpoint, these will already be ready:
-        model.covariance_computed = True
-        model.inv_covariance_computed = True
-        model.is_calibrated = True
-
-        return model
+            # Create the model
+            wrapped_model = cls(model, ensemble_weight_sizes)
+            dtype = next(model.parameters()).dtype
+            llpr_flags = checkpoint["llpr_flags"]
+            wrapped_model.covariance_computed = llpr_flags["covariance_computed"]
+            wrapped_model.inv_covariance_computed = llpr_flags[
+                "inv_covariance_computed"
+            ]
+            wrapped_model.is_calibrated = llpr_flags["is_calibrated"]
+            wrapped_model.to(dtype).load_state_dict(
+                checkpoint["state_dict"], strict=False
+            )
+            return wrapped_model
 
     def export(self, metadata: Optional[ModelMetadata] = None) -> AtomisticModel:
         dtype = next(self.parameters()).dtype
@@ -666,13 +644,10 @@ class LLPRUncertaintyModel(torch.nn.Module):
             # no weights to move
             pass
 
-        if metadata is None:
-            metadata = self.__default_metadata__
-        else:
-            metadata = merge_metadata(self.__default_metadata__, metadata)
-
-        # also add the metadata of the wrapped model
-        metadata = merge_metadata(metadata, self.model.export().metadata())
+        metadata = merge_metadata(
+            merge_metadata(self.__default_metadata__, metadata),
+            self.model.export().metadata(),
+        )
 
         return AtomisticModel(self.eval(), metadata, self.capabilities)
 

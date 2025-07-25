@@ -2,14 +2,11 @@ from typing import Any, Dict, List, Literal, Optional, Tuple, Union
 
 import featomic
 import featomic.torch
-import metatensor.torch
+import metatensor.torch as mts
 import numpy as np
 import scipy
 import torch
-from metatensor import Labels, TensorBlock, TensorMap
-from metatensor.torch import Labels as TorchLabels
-from metatensor.torch import TensorBlock as TorchTensorBlock
-from metatensor.torch import TensorMap as TorchTensorMap
+from metatensor.torch import Labels, TensorBlock, TensorMap
 from metatomic.torch import (
     AtomisticModel,
     ModelCapabilities,
@@ -42,7 +39,7 @@ class GAP(ModelInterface):
     )
 
     def __init__(self, hypers: Dict, dataset_info: DatasetInfo) -> None:
-        super().__init__(hypers, dataset_info)
+        super().__init__(hypers, dataset_info, self.__default_metadata__)
 
         if len(dataset_info.targets) > 1:
             raise NotImplementedError("GAP only supports a single output")
@@ -121,15 +118,15 @@ class GAP(ModelInterface):
         self._sampler = _FPS(n_to_select=self.hypers["krr"]["num_sparse_points"])
 
         # set it do dummy keys, these are properly set during training
-        self._keys = TorchLabels.empty("_")
+        self._keys = Labels.empty("_")
 
-        dummy_weights = TorchTensorMap(
-            TorchLabels(["_"], torch.tensor([[0]])),
-            [metatensor.torch.block_from_array(torch.empty(1, 1))],
+        dummy_weights = TensorMap(
+            Labels(["_"], torch.tensor([[0]])),
+            [mts.block_from_array(torch.empty(1, 1))],
         )
-        dummy_X_pseudo = TorchTensorMap(
-            TorchLabels(["_"], torch.tensor([[0]])),
-            [metatensor.torch.block_from_array(torch.empty(1, 1))],
+        dummy_X_pseudo = TensorMap(
+            Labels(["_"], torch.tensor([[0]])),
+            [mts.block_from_array(torch.empty(1, 1))],
         )
         self._subset_of_regressors_torch = TorchSubsetofRegressors(
             dummy_weights,
@@ -138,7 +135,7 @@ class GAP(ModelInterface):
                 "aggregate_names": ["atom", "center_type"],
             },
         )
-        self._species_labels: TorchLabels = TorchLabels.empty("_")
+        self._species_labels: Labels = Labels.empty("_")
 
         # additive models: these are handled by the trainer at training
         # time, and they are added to the output at evaluation time
@@ -182,12 +179,15 @@ class GAP(ModelInterface):
     def upgrade_checkpoint(checkpoint: Dict) -> Dict:
         raise NotImplementedError("checkpoint upgrade is not implemented for GAP")
 
+    def get_checkpoint(self) -> Dict[str, Any]:
+        raise NotImplementedError("GAP does not support checkpointing")
+
     def forward(
         self,
         systems: List[System],
         outputs: Dict[str, ModelOutput],
-        selected_atoms: Optional[TorchLabels] = None,
-    ) -> Dict[str, TorchTensorMap]:
+        selected_atoms: Optional[Labels] = None,
+    ) -> Dict[str, TensorMap]:
         soap_features = self._soap_torch_calculator(
             systems, selected_samples=selected_atoms
         )
@@ -195,18 +195,18 @@ class GAP(ModelInterface):
         self._keys = self._keys.to(systems[0].device)
         self._species_labels = self._species_labels.to(systems[0].device)
 
-        new_blocks: List[TorchTensorBlock] = []
+        new_blocks: List[TensorBlock] = []
         # HACK: to add a block of zeros if there are missing species
         # which were present at training time
         # (with samples "system", "atom" = 0, 0)
         # given the values are all zeros, it does not introduce an error
-        dummyblock: TorchTensorBlock = TorchTensorBlock(
+        dummyblock = TensorBlock(
             values=torch.zeros(
                 (1, len(soap_features[0].properties)),
                 dtype=systems[0].positions.dtype,
                 device=systems[0].device,
             ),
-            samples=TorchLabels(
+            samples=Labels(
                 ["system", "atom"],
                 torch.tensor([[0, 0]], dtype=torch.int, device=systems[0].device),
             ),
@@ -215,7 +215,7 @@ class GAP(ModelInterface):
         )
         if len(soap_features[0].gradients_list()) > 0:
             for idx, grad in enumerate(soap_features[0].gradients_list()):
-                dummyblock_grad: TorchTensorBlock = TorchTensorBlock(
+                dummyblock_grad = TensorBlock(
                     values=torch.zeros(
                         (
                             1,
@@ -225,7 +225,7 @@ class GAP(ModelInterface):
                         dtype=systems[0].positions.dtype,
                         device=systems[0].device,
                     ),
-                    samples=TorchLabels(
+                    samples=Labels(
                         ["sample", "system", "atom"],
                         torch.tensor(
                             [[0, 0, 0]], dtype=torch.int, device=systems[0].device
@@ -242,7 +242,7 @@ class GAP(ModelInterface):
                 new_blocks.append(soap_features.block(key))
             else:
                 new_blocks.append(dummyblock)
-        soap_features = TorchTensorMap(keys=self._species_labels, blocks=new_blocks)
+        soap_features = TensorMap(keys=self._species_labels, blocks=new_blocks)
         soap_features = soap_features.keys_to_samples("center_type")
         # here, we move to properties to use metatensor operations to aggregate
         # later on. Perhaps we could retain the sparsity all the way to the kernels
@@ -250,7 +250,7 @@ class GAP(ModelInterface):
         soap_features = soap_features.keys_to_properties(
             ["neighbor_1_type", "neighbor_2_type"]
         )
-        soap_features = TorchTensorMap(self._keys, soap_features.blocks())
+        soap_features = TensorMap(self._keys, soap_features.blocks())
         output_key = list(outputs.keys())[0]
         energies = self._subset_of_regressors_torch(soap_features)
         return_dict = {output_key: energies}
@@ -268,7 +268,7 @@ class GAP(ModelInterface):
                     selected_atoms,
                 )
                 for name in additive_contributions:
-                    return_dict[name] = metatensor.torch.add(
+                    return_dict[name] = mts.add(
                         return_dict[name],
                         additive_contributions[name],
                     )
@@ -301,10 +301,7 @@ class GAP(ModelInterface):
             self._subset_of_regressors.export_torch_script_model()
         )
 
-        if metadata is None:
-            metadata = self.__default_metadata__
-        else:
-            metadata = merge_metadata(self.__default_metadata__, metadata)
+        metadata = merge_metadata(self.metadata, metadata)
 
         return AtomisticModel(self.eval(), metadata, capabilities)
 
@@ -421,7 +418,7 @@ class AggregateKernel(torch.nn.Module):
         self, kernel: TensorMap, are_pseudo_points: Tuple[bool, bool] = (False, False)
     ) -> TensorMap:
         if not are_pseudo_points[0]:
-            kernel = metatensor.sum_over_samples(kernel, self._aggregate_names)
+            kernel = mts.sum_over_samples(kernel, self._aggregate_names)
         if not are_pseudo_points[1]:
             raise NotImplementedError(
                 "properties dimension cannot be aggregated for the moment"
@@ -453,7 +450,7 @@ class AggregatePolynomial(AggregateKernel):
         self._degree = degree
 
     def compute_kernel(self, tensor1: TensorMap, tensor2: TensorMap):
-        return metatensor.pow(metatensor.dot(tensor1, tensor2), self._degree)
+        return mts.pow(mts.dot(tensor1, tensor2), self._degree)
 
 
 class TorchAggregateKernel(torch.nn.Module):
@@ -475,11 +472,11 @@ class TorchAggregateKernel(torch.nn.Module):
 
     def aggregate_kernel(
         self,
-        kernel: TorchTensorMap,
+        kernel: TensorMap,
         are_pseudo_points: Tuple[bool, bool] = (False, False),
-    ) -> TorchTensorMap:
+    ) -> TensorMap:
         if not are_pseudo_points[0]:
-            kernel = metatensor.torch.sum_over_samples(kernel, self._aggregate_names)
+            kernel = mts.sum_over_samples(kernel, self._aggregate_names)
         if not are_pseudo_points[1]:
             raise NotImplementedError(
                 "properties dimension cannot be aggregated for the moment"
@@ -488,17 +485,15 @@ class TorchAggregateKernel(torch.nn.Module):
 
     def forward(
         self,
-        tensor1: TorchTensorMap,
-        tensor2: TorchTensorMap,
+        tensor1: TensorMap,
+        tensor2: TensorMap,
         are_pseudo_points: Tuple[bool, bool] = (False, False),
-    ) -> TorchTensorMap:
+    ) -> TensorMap:
         return self.aggregate_kernel(
             self.compute_kernel(tensor1, tensor2), are_pseudo_points
         )
 
-    def compute_kernel(
-        self, tensor1: TorchTensorMap, tensor2: TorchTensorMap
-    ) -> TorchTensorMap:
+    def compute_kernel(self, tensor1: TensorMap, tensor2: TensorMap) -> TensorMap:
         raise NotImplementedError("compute_kernel needs to be implemented.")
 
 
@@ -512,10 +507,8 @@ class TorchAggregatePolynomial(TorchAggregateKernel):
         super().__init__(aggregate_names, structurewise_aggregate)
         self._degree = degree
 
-    def compute_kernel(self, tensor1: TorchTensorMap, tensor2: TorchTensorMap):
-        return metatensor.torch.pow(
-            metatensor.torch.dot(tensor1, tensor2), self._degree
-        )
+    def compute_kernel(self, tensor1: TensorMap, tensor2: TensorMap):
+        return mts.pow(mts.dot(tensor1, tensor2), self._degree)
 
 
 class _FPS:
@@ -548,10 +541,6 @@ class _FPS:
         :param X:
             Training vectors.
         """
-        if isinstance(X, torch.ScriptObject):
-            X = torch_tensor_map_to_core(X)
-            assert isinstance(X[0].values, np.ndarray)
-
         if len(X.component_names) != 0:
             raise ValueError("Only blocks with no components are supported.")
 
@@ -580,7 +569,9 @@ class _FPS:
 
             blocks.append(
                 TensorBlock(
-                    values=np.zeros([len(samples), len(properties)], dtype=np.int32),
+                    values=torch.zeros(
+                        [len(samples), len(properties)], dtype=torch.int32
+                    ),
                     samples=samples,
                     components=[],
                     properties=properties,
@@ -598,30 +589,19 @@ class _FPS:
         :returns:
             The selected subset of the input.
         """
-        if isinstance(X, torch.ScriptObject):
-            use_mts_torch = True
-            X = torch_tensor_map_to_core(X)
-        else:
-            use_mts_torch = False
-
         blocks = []
         for key, block in X.items():
             block_support = self.support.block(key)
 
             if self._selection_type == "feature":
-                new_block = metatensor.slice_block(
+                new_block = mts.slice_block(
                     block, "properties", block_support.properties
                 )
             elif self._selection_type == "sample":
-                new_block = metatensor.slice_block(
-                    block, "samples", block_support.samples
-                )
+                new_block = mts.slice_block(block, "samples", block_support.samples)
             blocks.append(new_block)
 
-        X_reduced = TensorMap(X.keys, blocks)
-        if use_mts_torch:
-            X_reduced = core_tensor_map_to_torch(X_reduced)
-        return X_reduced
+        return TensorMap(X.keys, blocks)
 
     def fit_transform(self, X: TensorMap) -> TensorMap:
         """Fit to data, then transform it.
@@ -630,112 +610,6 @@ class _FPS:
             Training vectors.
         """
         return self.fit(X).transform(X)
-
-
-def torch_tensor_map_to_core(torch_tensor: TorchTensorMap):
-    torch_blocks = []
-    for _, torch_block in torch_tensor.items():
-        torch_blocks.append(torch_tensor_block_to_core(torch_block))
-    torch_keys = torch_labels_to_core(torch_tensor.keys)
-    return TensorMap(torch_keys, torch_blocks)
-
-
-def torch_tensor_block_to_core(torch_block: TorchTensorBlock):
-    """Transforms a tensor block from metatensor-torch to metatensor-torch
-    :param torch_block:
-        tensor block from metatensor-torch
-    :returns torch_block:
-        tensor block from metatensor-torch
-    """
-    block = TensorBlock(
-        values=torch_block.values.detach().cpu().numpy(),
-        samples=torch_labels_to_core(torch_block.samples),
-        components=[
-            torch_labels_to_core(component) for component in torch_block.components
-        ],
-        properties=torch_labels_to_core(torch_block.properties),
-    )
-    for parameter, gradient in torch_block.gradients():
-        block.add_gradient(
-            parameter=parameter,
-            gradient=TensorBlock(
-                values=gradient.values.detach().cpu().numpy(),
-                samples=torch_labels_to_core(gradient.samples),
-                components=[
-                    torch_labels_to_core(component) for component in gradient.components
-                ],
-                properties=torch_labels_to_core(gradient.properties),
-            ),
-        )
-    return block
-
-
-def torch_labels_to_core(torch_labels: TorchLabels):
-    """Transforms labels from metatensor-torch to metatensor-torch
-    :param torch_block:
-        tensor block from metatensor-torch
-    :returns torch_block:
-        labels from metatensor-torch
-    """
-    return Labels(torch_labels.names, torch_labels.values.detach().cpu().numpy())
-
-
-###
-
-
-def core_tensor_map_to_torch(core_tensor: TensorMap):
-    """Transforms a tensor map from metatensor-core to metatensor-torch
-    :param core_tensor:
-        tensor map from metatensor-core
-    :returns torch_tensor:
-        tensor map from metatensor-torch
-    """
-
-    torch_blocks = []
-    for _, core_block in core_tensor.items():
-        torch_blocks.append(core_tensor_block_to_torch(core_block))
-    torch_keys = core_labels_to_torch(core_tensor.keys)
-    return TorchTensorMap(torch_keys, torch_blocks)
-
-
-def core_tensor_block_to_torch(core_block: TensorBlock):
-    """Transforms a tensor block from metatensor-core to metatensor-torch
-    :param core_block:
-        tensor block from metatensor-core
-    :returns torch_block:
-        tensor block from metatensor-torch
-    """
-    block = TorchTensorBlock(
-        values=torch.tensor(core_block.values),
-        samples=core_labels_to_torch(core_block.samples),
-        components=[
-            core_labels_to_torch(component) for component in core_block.components
-        ],
-        properties=core_labels_to_torch(core_block.properties),
-    )
-    for parameter, gradient in core_block.gradients():
-        block.add_gradient(
-            parameter=parameter,
-            gradient=TorchTensorBlock(
-                values=torch.tensor(gradient.values),
-                samples=core_labels_to_torch(gradient.samples),
-                components=[
-                    core_labels_to_torch(component) for component in gradient.components
-                ],
-                properties=core_labels_to_torch(gradient.properties),
-            ),
-        )
-    return block
-
-
-def core_labels_to_torch(core_labels: Labels):
-    """Transforms labels from metatensor-core to metatensor-torch
-    :param core_block:
-        tensor block from metatensor-core
-    :returns torch_block:
-        labels from metatensor-torch
-    """
-    return TorchLabels(core_labels.names, torch.tensor(core_labels.values))
 
 
 class SubsetOfRegressors:
@@ -813,10 +687,6 @@ class SubsetOfRegressors:
             if not isinstance(alpha_forces, float):
                 raise ValueError("alpha must either be a float")
 
-        X = X.to(arrays="numpy")
-        X_pseudo = X_pseudo.to(arrays="numpy")
-        y = y.to(arrays="numpy")
-
         if self._kernel is None:
             # _set_kernel only returns None if kernel type is precomputed
             k_nm = X
@@ -832,16 +702,14 @@ class SubsetOfRegressors:
             k_nm_block = k_nm.block(key)
             k_mm_block = k_mm.block(key)
             X_block = X.block(key)
-            structures = metatensor.operations._dispatch.unique(
-                k_nm_block.samples["system"]
-            )
+            structures = torch.unique(k_nm_block.samples["system"])
             n_atoms_per_structure = []
             for structure in structures:
-                n_atoms = np.sum(X_block.samples["system"] == structure)
+                n_atoms = torch.sum(X_block.samples["system"] == structure)
                 n_atoms_per_structure.append(float(n_atoms))
 
-            n_atoms_per_structure = np.array(n_atoms_per_structure)
-            normalization = metatensor.operations._dispatch.sqrt(n_atoms_per_structure)
+            n_atoms_per_structure = torch.tensor(n_atoms_per_structure)
+            normalization = torch.sqrt(n_atoms_per_structure)
 
             if not (np.allclose(alpha_energy, 0.0)):
                 normalization /= alpha_energy
@@ -877,7 +745,7 @@ class SubsetOfRegressors:
             self._solver.fit(k_nm_reg, y_reg)
 
             weight_block = TensorBlock(
-                values=self._solver.weights.T,
+                values=torch.as_tensor(self._solver.weights.T),
                 samples=y_block.properties,
                 components=k_nm_block.components,
                 properties=k_nm_block.properties,
@@ -903,12 +771,12 @@ class SubsetOfRegressors:
             k_tm = T
         else:
             k_tm = self._kernel(T, self._X_pseudo, are_pseudo_points=(False, True))
-        return metatensor.dot(k_tm, self._weights)
+        return mts.dot(k_tm, self._weights)
 
     def export_torch_script_model(self):
         return TorchSubsetofRegressors(
-            core_tensor_map_to_torch(self._weights),
-            core_tensor_map_to_torch(self._X_pseudo),
+            self._weights,
+            self._X_pseudo,
             self._kernel_kwargs,
         )
 
@@ -916,8 +784,8 @@ class SubsetOfRegressors:
 class TorchSubsetofRegressors(torch.nn.Module):
     def __init__(
         self,
-        weights: TorchTensorMap,
-        X_pseudo: TorchTensorMap,
+        weights: TensorMap,
+        X_pseudo: TensorMap,
         kernel_kwargs: Optional[dict] = None,
     ):
         super().__init__()
@@ -929,7 +797,7 @@ class TorchSubsetofRegressors(torch.nn.Module):
         # Set the kernel
         self._kernel = TorchAggregatePolynomial(**kernel_kwargs)
 
-    def forward(self, T: TorchTensorMap) -> TorchTensorMap:
+    def forward(self, T: TensorMap) -> TensorMap:
         """
         :param T:
             features
@@ -940,4 +808,4 @@ class TorchSubsetofRegressors(torch.nn.Module):
         self._X_pseudo = self._X_pseudo.to(T.device)
 
         k_tm = self._kernel(T, self._X_pseudo, are_pseudo_points=(False, True))
-        return metatensor.torch.dot(k_tm, self._weights)
+        return mts.dot(k_tm, self._weights)

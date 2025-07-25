@@ -6,7 +6,7 @@ pytest.importorskip("pet_neighbors_convert")
 from urllib.parse import urlparse
 from urllib.request import urlretrieve
 
-import metatensor.torch
+import metatensor.torch as mts
 import torch
 from metatomic.torch import ModelOutput
 
@@ -765,8 +765,10 @@ def test_last_layer_features_compatibility():
 
     pet_last_layer_features = pet_predictions["mtt::aux::energy_last_layer_features"]
 
-    assert metatensor.torch.allclose(
-        nativepet_last_layer_features, pet_last_layer_features, atol=1e-6
+    assert mts.allclose(
+        nativepet_last_layer_features,
+        pet_last_layer_features,
+        atol=1e-6,
     )
 
 
@@ -787,7 +789,10 @@ def test_pet_mad_model_compatibility(monkeypatch, tmp_path):
         "nativepet_checkpoint.ckpt",
     )
 
-    nativepet_model = model_from_checkpoint("nativepet_checkpoint.ckpt")
+    checkpoint = torch.load(
+        "nativepet_checkpoint.ckpt", weights_only=False, map_location="cpu"
+    )
+    nativepet_model = model_from_checkpoint(checkpoint)
     assert isinstance(nativepet_model, NativePET)
     nativepet_model = nativepet_model.eval()
 

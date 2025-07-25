@@ -27,6 +27,9 @@ Unreleased
 Added
 #####
 
+- Additional logs to the checkpoints, model and the output dirs at the end of training
+- When downloading checkpoints and models from Hugging Face, the files will be cached
+  locally and re-used.
 - ``extra_data`` is now a valid section in the ``options.yaml`` file, allowing users to
   add custom data to the training set. The data is contained in the dataloader and can
   be used in custom loss functions or models.

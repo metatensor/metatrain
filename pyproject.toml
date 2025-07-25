@@ -11,6 +11,7 @@ authors = [{name = "metatrain developers"}]
 # Strict version pinning to avoid regression test failing on new versions
 dependencies = [
     "ase",
+    "huggingface_hub",
     "metatensor-learn >=0.3.2,<0.4",
     "metatensor-operations >=0.3.3,<0.4",
     "metatensor-torch >=0.7.6,<0.8",
@@ -142,7 +143,10 @@ filterwarnings = [
     # Sphericart double backward warning
     "ignore:Second derivatives of the spherical harmonics with respect to the Cartesian coordinates were not requested at class creation.",
     # OldCompositionModel deprecation warning
-    "ignore:`OldCompositionModel` composition model is deprecated. Please use `CompositionModel` instead."
+    "ignore:`OldCompositionModel` composition model is deprecated. Please use `CompositionModel` instead.",
+    # We don't yet have a linux-aarch64 wheel on PyPI, so libgomp is not copied to 
+    # sphericart_torch.libs' by cibuildwheels
+    "ignore:No libgomp shared library found in 'sphericart_torch.libs'.",
 ]
 
 [tool.yamlfix]

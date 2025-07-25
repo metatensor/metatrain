@@ -2,7 +2,7 @@ import warnings
 from math import prod
 from typing import Any, Dict, List, Literal, Optional
 
-import metatensor.torch
+import metatensor.torch as mts
 import torch
 from metatensor.torch import Labels, TensorBlock, TensorMap
 from metatensor.torch.operations._add import _add_block_block
@@ -48,7 +48,7 @@ class PET(ModelInterface):
 
     """
 
-    __checkpoint_version__ = 2
+    __checkpoint_version__ = 3
     __supported_devices__ = ["cuda", "cpu"]
     __supported_dtypes__ = [torch.float32, torch.float64]
     __default_metadata__ = ModelMetadata(
@@ -57,7 +57,7 @@ class PET(ModelInterface):
     component_labels: Dict[str, List[List[Labels]]]
 
     def __init__(self, hypers: Dict, dataset_info: DatasetInfo) -> None:
-        super().__init__(hypers, dataset_info)
+        super().__init__(hypers, dataset_info, self.__default_metadata__)
 
         self.atomic_types = dataset_info.atomic_types
         self.requested_nl = NeighborListOptions(
@@ -175,6 +175,8 @@ class PET(ModelInterface):
         self.scaler = Scaler(hypers={}, dataset_info=dataset_info)
 
         self.single_label = Labels.single()
+
+        self.finetune_config: Dict[str, Any] = {}
 
     def supported_outputs(self) -> Dict[str, ModelOutput]:
         return self.outputs
@@ -933,7 +935,7 @@ class PET(ModelInterface):
 
         if selected_atoms is not None:
             for output_name, tmap in atomic_predictions_tmap_dict.items():
-                atomic_predictions_tmap_dict[output_name] = metatensor.torch.slice(
+                atomic_predictions_tmap_dict[output_name] = mts.slice(
                     tmap, axis="samples", selection=selected_atoms
                 )
 
@@ -1002,10 +1004,12 @@ class PET(ModelInterface):
             model_state_dict = checkpoint["model_state_dict"]
         elif context == "finetune" or context == "export":
             model_state_dict = checkpoint["best_model_state_dict"]
+            if model_state_dict is None:
+                model_state_dict = checkpoint["model_state_dict"]
         else:
             raise ValueError("Unknown context tag for checkpoint loading!")
 
-        finetune_config = checkpoint["train_hypers"].get("finetune", {})
+        finetune_config = model_state_dict.pop("finetune_config", {})
 
         # Create the model
         model = cls(
@@ -1023,9 +1027,7 @@ class PET(ModelInterface):
         model.additive_models[0].sync_tensor_maps()
 
         # Loading the metadata from the checkpoint
-        metadata = checkpoint.get("metadata", None)
-        if metadata is not None:
-            model.__default_metadata__ = metadata
+        model.metadata = merge_metadata(model.metadata, checkpoint.get("metadata"))
 
         return model
 
@@ -1058,10 +1060,7 @@ class PET(ModelInterface):
             dtype=dtype_to_str(dtype),
         )
 
-        if metadata is None:
-            metadata = self.__default_metadata__
-        else:
-            metadata = merge_metadata(self.__default_metadata__, metadata)
+        metadata = merge_metadata(self.metadata, metadata)
 
         return AtomisticModel(self.eval(), metadata, capabilities)
 
@@ -1203,9 +1202,28 @@ class PET(ModelInterface):
             checkpoints.update_v1_v2(checkpoint["model_state_dict"])
             checkpoints.update_v1_v2(checkpoint["best_model_state_dict"])
             checkpoint["model_ckpt_version"] = 2
+        if checkpoint["model_ckpt_version"] == 2:
+            checkpoints.update_v2_v3(checkpoint["model_state_dict"])
+            checkpoints.update_v2_v3(checkpoint["best_model_state_dict"])
+            checkpoint["model_ckpt_version"] = 3
 
         return checkpoint
 
+    def get_checkpoint(self) -> Dict:
+        model_state_dict = self.state_dict()
+        model_state_dict["finetune_config"] = self.finetune_config
+        checkpoint = {
+            "architecture_name": "pet",
+            "model_ckpt_version": self.__checkpoint_version__,
+            "metadata": self.metadata,
+            "model_data": {
+                "model_hypers": self.hypers,
+                "dataset_info": self.dataset_info,
+            },
+            "model_state_dict": model_state_dict,
+            "best_model_state_dict": None,
+        }
+        return checkpoint
 
 def manual_prod(shape: List[int]) -> int:
     # prod from standard library not supported in torchscript

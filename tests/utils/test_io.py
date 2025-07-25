@@ -67,12 +67,13 @@ def test_load_model_checkpoint_wrong_version(monkeypatch, tmp_path):
     torch.save(model, file)
 
     message = (
-        "Unable to load the model checkpoint from 'model-version-5000000.ckpt' "
+        "Unable to load the model checkpoint "
         "for the 'soap_bpnn' architecture: the checkpoint is using version 5000000, "
         "while the current version is 1; and trying to upgrade the checkpoint failed."
     )
     with pytest.raises(RuntimeError, match=message):
-        model_from_checkpoint(file, context="restart")
+        checkpoint = torch.load(file, weights_only=False, map_location="cpu")
+        model_from_checkpoint(checkpoint, context="restart")
 
 
 def test_load_trainer_checkpoint_wrong_version(monkeypatch, tmp_path):
@@ -85,12 +86,13 @@ def test_load_trainer_checkpoint_wrong_version(monkeypatch, tmp_path):
     torch.save(model, file)
 
     message = (
-        "Unable to load the trainer checkpoint from 'model-version-5000000.ckpt' "
+        "Unable to load the trainer checkpoint "
         "for the 'soap_bpnn' architecture: the checkpoint is using version 5000000, "
         "while the current version is 1; and trying to upgrade the checkpoint failed."
     )
     with pytest.raises(RuntimeError, match=message):
-        trainer_from_checkpoint(file, context="restart", hypers={})
+        checkpoint = torch.load(file, weights_only=False, map_location="cpu")
+        trainer_from_checkpoint(checkpoint, context="restart", hypers={})
 
 
 @pytest.mark.parametrize(

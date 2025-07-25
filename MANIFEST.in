@@ -9,6 +9,7 @@ prune examples
 prune tests
 prune .github
 prune .tox
+prune ci
 
 exclude .codecov.yml
 exclude .gitignore
