@@ -79,10 +79,10 @@ test_loading_old_checkpoints = make_checkpoint_load_tests(DEFAULT_HYPERS)
 
 
 @pytest.mark.parametrize("context", ["finetune", "restart", "export"])
-def testget_checkpoint(context):
+def test_get_checkpoint(context):
     """
     Test that the checkpoint created by the model.get_checkpoint()
-    function can be loaded back with the given context.
+    function can be loaded back in all possible contexts.
     """
     dataset_info = DatasetInfo(
         length_unit="Angstrom",
