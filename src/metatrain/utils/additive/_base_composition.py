@@ -332,35 +332,41 @@ class BaseCompositionModel(torch.nn.Module):
             prediction_blocks: List[TensorBlock] = []
             for key, weight_block in weights.items():
                 # Compute X
-                if self.sample_kinds[output_name] == "per_structure":
-                    if model_output.per_atom:
-                        sample_labels = sample_labels_per_atom
-                        X = self._compute_X_per_atom(
-                            systems, self._get_sliced_atomic_types(key)
-                        )
+                # if self.sample_kinds[output_name] == "per_structure":
+                #     if model_output.per_atom:
+                #         sample_labels = sample_labels_per_atom
+                #         X = self._compute_X_per_atom(
+                #             systems, self._get_sliced_atomic_types(key)
+                #         )
 
-                    else:
-                        sample_labels = Labels(
-                            ["system"],
-                            torch.arange(
-                                len(systems), dtype=torch.int32, device=device
-                            ).reshape(-1, 1),
-                        ).to(device=device)
-                        X = self._compute_X_per_structure(systems)
+                #     else:
+                #         sample_labels = Labels(
+                #             ["system"],
+                #             torch.arange(
+                #                 len(systems), dtype=torch.int32, device=device
+                #             ).reshape(-1, 1),
+                #         ).to(device=device)
+                #         X = self._compute_X_per_structure(systems)
 
-                # TODO: add support for per_pair. As compositions are only fitted for
-                # on-site blocks this extension is simple, reusing the per_atom code.
-                elif self.sample_kinds[output_name] == "per_atom":
-                    sample_labels = sample_labels_per_atom
-                    X = self._compute_X_per_atom(
-                        systems, self._get_sliced_atomic_types(key)
-                    )
+                # # TODO: add support for per_pair. As compositions are only fitted for
+                # # on-site blocks this extension is simple, reusing the per_atom code.
+                # elif self.sample_kinds[output_name] == "per_atom":
+                #     sample_labels = sample_labels_per_atom
+                #     X = self._compute_X_per_atom(
+                #         systems, self._get_sliced_atomic_types(key)
+                #     )
 
-                else:
-                    raise ValueError(
-                        f"unknown sample kind: {self.sample_kinds[output_name]}"
-                        f" for target {output_name}"
-                    )
+                # else:
+                #     raise ValueError(
+                #         f"unknown sample kind: {self.sample_kinds[output_name]}"
+                #         f" for target {output_name}"
+                #     )
+
+
+                sample_labels = sample_labels_per_atom
+                X = self._compute_X_per_atom(
+                    systems, self._get_sliced_atomic_types(key)
+                )
 
                 # If selected_atoms is provided, slice the samples labels and the X
                 # tensor
@@ -391,6 +397,8 @@ class BaseCompositionModel(torch.nn.Module):
                 ),
                 prediction_blocks,
             )
+            if self.sample_kinds[output_name] == "per_structure":
+                prediction = mts.sum_over_samples(prediction, "atom")
             predictions[output_name] = prediction
 
         return predictions
