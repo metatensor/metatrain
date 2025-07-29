@@ -503,16 +503,40 @@ def train_model(
     try:
         if training_context == "restart" and restart_from is not None:
             logging.info(f"Restarting training from '{restart_from}'")
-            model = model_from_checkpoint(path=restart_from, context="restart")
-            model = model.restart(dataset_info)
-            trainer = trainer_from_checkpoint(
-                path=restart_from,
-                hypers=hypers["training"],
-                context=training_context,  # type: ignore
+            checkpoint = torch.load(
+                restart_from, weights_only=False, map_location="cpu"
             )
+            try:
+                model = model_from_checkpoint(checkpoint, context="restart")
+            except Exception as e:
+                raise ValueError(
+                    f"The file {restart_from} does not contain a valid checkpoint for "
+                    f"the '{architecture_name}' architecture"
+                ) from e
+            model = model.restart(dataset_info)
+            try:
+                trainer = trainer_from_checkpoint(
+                    checkpoint=checkpoint,
+                    hypers=hypers["training"],
+                    context=training_context,  # type: ignore
+                )
+            except Exception as e:
+                raise ValueError(
+                    f"The file {restart_from} does not contain a valid checkpoint for "
+                    f"the '{architecture_name}' trainer state"
+                ) from e
         elif training_context == "finetune" and restart_from is not None:
             logging.info(f"Starting finetuning from '{restart_from}'")
-            model = model_from_checkpoint(path=restart_from, context="finetune")
+            checkpoint = torch.load(
+                restart_from, weights_only=False, map_location="cpu"
+            )
+            try:
+                model = model_from_checkpoint(checkpoint, context="finetune")
+            except Exception as e:
+                raise ValueError(
+                    f"The file {restart_from} does not contain a valid checkpoint for "
+                    f"the '{architecture_name}' architecture"
+                ) from e
             model = model.restart(dataset_info)
             trainer = Trainer(hypers["training"])
         else:

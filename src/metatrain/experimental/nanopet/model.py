@@ -565,6 +565,8 @@ class NanoPET(ModelInterface):
             model_state_dict = checkpoint["model_state_dict"]
         elif context == "finetune" or context == "export":
             model_state_dict = checkpoint["best_model_state_dict"]
+            if model_state_dict is None:
+                model_state_dict = checkpoint["model_state_dict"]
         else:
             raise ValueError("Unknown context tag for checkpoint loading!")
 
@@ -700,6 +702,20 @@ class NanoPET(ModelInterface):
     @staticmethod
     def upgrade_checkpoint(checkpoint: Dict) -> Dict:
         raise NotImplementedError("checkpoint upgrade is not implemented for NanoPET")
+
+    def get_checkpoint(self) -> Dict:
+        checkpoint = {
+            "architecture_name": "experimental.nanopet",
+            "model_ckpt_version": self.__checkpoint_version__,
+            "metadata": self.metadata,
+            "model_data": {
+                "model_hypers": self.hypers,
+                "dataset_info": self.dataset_info,
+            },
+            "model_state_dict": self.state_dict(),
+            "best_model_state_dict": None,
+        }
+        return checkpoint
 
 
 def manual_prod(shape: List[int]) -> int:

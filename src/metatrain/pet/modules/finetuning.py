@@ -72,6 +72,8 @@ def apply_finetuning_strategy(model: nn.Module, strategy: Dict[str, Any]) -> nn.
         f"[{num_trainable_params / num_params:.2%} %]"
     )
 
+    model.finetune_config = strategy
+
     return model
 
 

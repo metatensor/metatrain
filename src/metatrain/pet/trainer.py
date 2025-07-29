@@ -201,6 +201,31 @@ class Trainer(TrainerInterface):
             )
         train_dataloader = CombinedDataLoader(train_dataloaders, shuffle=True)
 
+        # Create dataloader for the training datasets, specifically for the Composition
+        # Model:
+        train_dataloaders_composition = []
+        for train_dataset in train_datasets:
+            if len(train_dataset) < self.hypers["batch_size"]:
+                raise ValueError(
+                    f"A training dataset has fewer samples "
+                    f"({len(train_dataset)}) than the batch size "
+                    f"({self.hypers['batch_size']}). "
+                    "Please reduce the batch size."
+                )
+            train_dataloaders_composition.append(
+                DataLoader(
+                    dataset=train_dataset,
+                    batch_size=self.hypers["batch_size"],
+                    sampler=None,
+                    shuffle=False,
+                    drop_last=False,
+                    collate_fn=collate_fn,
+                )
+            )
+        train_dataloader_composition = CombinedDataLoader(
+            train_dataloaders_composition, shuffle=True
+        )
+
         # Create dataloader for the validation datasets:
         val_dataloaders = []
         for val_dataset, val_sampler in zip(val_datasets, val_samplers):
@@ -225,7 +250,7 @@ class Trainer(TrainerInterface):
 
         logging.info("Calculating composition weights")
         model.additive_models[0].train_model(  # this is the composition model
-            train_dataloader,
+            train_dataloader_composition,
             model.additive_models[1:],
             self.hypers["fixed_composition_weights"],
         )
@@ -531,25 +556,25 @@ class Trainer(TrainerInterface):
         self.optimizer_state_dict = optimizer.state_dict()
         self.scheduler_state_dict = lr_scheduler.state_dict()
 
+        if is_distributed:
+            torch.distributed.destroy_process_group()
+
     def save_checkpoint(self, model, path: Union[str, Path]):
-        checkpoint = {
-            "architecture_name": "pet",
-            "model_ckpt_version": model.__checkpoint_version__,
-            "trainer_ckpt_version": self.__checkpoint_version__,
-            "metadata": model.metadata,
-            "model_data": {
-                "model_hypers": model.hypers,
-                "dataset_info": model.dataset_info,
-            },
-            "model_state_dict": model.state_dict(),
-            "train_hypers": self.hypers,
-            "epoch": self.epoch,
-            "optimizer_state_dict": self.optimizer_state_dict,
-            "scheduler_state_dict": self.scheduler_state_dict,
-            "best_metric": self.best_metric,
-            "best_model_state_dict": self.best_model_state_dict,
-            "best_optimizer_state_dict": self.best_optimizer_state_dict,
-        }
+        checkpoint = model.get_checkpoint()
+        if self.best_model_state_dict is not None:
+            self.best_model_state_dict["finetune_config"] = model.finetune_config
+        checkpoint.update(
+            {
+                "trainer_ckpt_version": self.__checkpoint_version__,
+                "train_hypers": self.hypers,
+                "epoch": self.epoch,
+                "optimizer_state_dict": self.optimizer_state_dict,
+                "scheduler_state_dict": self.scheduler_state_dict,
+                "best_metric": self.best_metric,
+                "best_model_state_dict": self.best_model_state_dict,
+                "best_optimizer_state_dict": self.best_optimizer_state_dict,
+            }
+        )
         torch.save(
             checkpoint,
             check_file_extension(path, ".ckpt"),

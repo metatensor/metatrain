@@ -412,12 +412,6 @@ def test_composition_model_predict(device):
     assert output["mtt::U0"].block().values.shape == (1, 1)
     assert output["mtt::U0"].block().values.device.type == device
 
-    # with selected_atoms
-    selected_atoms = mts.Labels(
-        names=["system"],
-        values=torch.tensor([[0]]),
-    ).to(device=device)
-
     output = composition_model(
         systems_to_predict,
         {"mtt::U0": ModelOutput(quantity="energy", unit="", per_atom=False)},
@@ -427,6 +421,85 @@ def test_composition_model_predict(device):
     assert output["mtt::U0"].block().samples.names == ["system"]
     assert output["mtt::U0"].block().values.shape == (1, 1)
     assert output["mtt::U0"].block().values.device.type == device
+
+
+def test_composition_model_predict_consistency():
+    """Test the prediction consistency between the old and new composition model."""
+
+    dataset_path = RESOURCES_PATH / "qm9_reduced_100.xyz"
+    systems = read_systems(dataset_path)
+
+    conf = {
+        "mtt::U0": {
+            "quantity": "energy",
+            "read_from": dataset_path,
+            "file_format": ".xyz",
+            "reader": "ase",
+            "key": "U0",
+            "unit": "eV",
+            "type": "scalar",
+            "per_atom": False,
+            "num_subtargets": 1,
+            "forces": False,
+            "stress": False,
+            "virial": False,
+        }
+    }
+    targets, target_info = read_targets(OmegaConf.create(conf))
+    dataset_info = DatasetInfo(
+        length_unit="angstrom",
+        atomic_types=[1, 6, 7, 8],
+        targets=target_info,
+    )
+    dataset = Dataset.from_dict({"system": systems, "mtt::U0": targets["mtt::U0"]})
+    collate_fn = CollateFn(target_keys=["mtt::U0"])
+    dataloader = DataLoader(dataset, batch_size=1, collate_fn=collate_fn)
+
+    # Init and train the old composition model
+    old_composition_model = OldCompositionModel(
+        hypers={}, dataset_info=dataset_info,
+    )
+    old_composition_model.train_model(dataset, [])
+
+    # Init and train the new composition model
+    new_composition_model = CompositionModel(
+        hypers={}, dataset_info=dataset_info,
+    )
+    new_composition_model.train_model(dataloader, additive_models=[])
+
+    n_structures = 100
+    n_atoms = sum([len(system.positions) for system in systems[:n_structures]])
+
+    for per_atom, selected_atoms, sample_names, shape in [
+        [True, None, ["system", "atom"], (n_atoms, 1)],
+        [False, None, ["system"], (n_structures, 1)],
+        [True, Labels(names=["system", "atom"], values=torch.tensor([[0, 0], [1, 1]])), ["system", "atom"], (2, 1)],
+        [False, Labels(names=["system", "atom"], values=torch.tensor([[0, 0], [1, 1]])), ["system"], (2, 1)],
+    ]:
+
+        output_options = {"mtt::U0": ModelOutput(quantity="energy", unit="", per_atom=per_atom)}
+        old_output = old_composition_model(
+            systems[:n_structures],
+            output_options,
+            selected_atoms=selected_atoms,
+        )
+        assert "mtt::U0" in old_output
+        assert old_output["mtt::U0"].block().samples.names == sample_names
+        assert old_output["mtt::U0"].block().values.shape == shape
+
+        new_output = new_composition_model(
+            systems[:n_structures],
+            output_options,
+            selected_atoms=selected_atoms,
+        )
+        assert "mtt::U0" in new_output
+        assert new_output["mtt::U0"].block().samples.names == sample_names
+        assert new_output["mtt::U0"].block().values.shape == shape
+
+        # Check that the outputs are consistent
+        assert torch.allclose(
+            old_output["mtt::U0"].block().values, new_output["mtt::U0"].block().values
+        )
 
 
 def test_old_composition_model_torchscript(tmpdir):

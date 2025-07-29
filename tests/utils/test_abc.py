@@ -92,6 +92,9 @@ class MyModel(ModelInterface):
     def upgrade_checkpoint(checkpoint: Dict["str", Any]) -> Dict["str", Any]:
         raise NotImplementedError()
 
+    def get_checkpoint(self) -> Dict[str, Any]:
+        raise NotImplementedError()
+
 
 def test_model_interface():
     EXPECTED_ATTRS = [

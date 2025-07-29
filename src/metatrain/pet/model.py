@@ -40,7 +40,7 @@ class PET(ModelInterface):
 
     """
 
-    __checkpoint_version__ = 2
+    __checkpoint_version__ = 3
     __supported_devices__ = ["cuda", "cpu"]
     __supported_dtypes__ = [torch.float32, torch.float64]
     __default_metadata__ = ModelMetadata(
@@ -166,6 +166,8 @@ class PET(ModelInterface):
         self.scaler = Scaler(hypers={}, dataset_info=dataset_info)
 
         self.single_label = Labels.single()
+
+        self.finetune_config: Dict[str, Any] = {}
 
     def supported_outputs(self) -> Dict[str, ModelOutput]:
         return self.outputs
@@ -690,10 +692,12 @@ class PET(ModelInterface):
             model_state_dict = checkpoint["model_state_dict"]
         elif context == "finetune" or context == "export":
             model_state_dict = checkpoint["best_model_state_dict"]
+            if model_state_dict is None:
+                model_state_dict = checkpoint["model_state_dict"]
         else:
             raise ValueError("Unknown context tag for checkpoint loading!")
 
-        finetune_config = checkpoint["train_hypers"].get("finetune", {})
+        finetune_config = model_state_dict.pop("finetune_config", {})
 
         # Create the model
         model = cls(
@@ -890,5 +894,25 @@ class PET(ModelInterface):
             checkpoints.update_v1_v2(checkpoint["model_state_dict"])
             checkpoints.update_v1_v2(checkpoint["best_model_state_dict"])
             checkpoint["model_ckpt_version"] = 2
+        if checkpoint["model_ckpt_version"] == 2:
+            checkpoints.update_v2_v3(checkpoint["model_state_dict"])
+            checkpoints.update_v2_v3(checkpoint["best_model_state_dict"])
+            checkpoint["model_ckpt_version"] = 3
 
+        return checkpoint
+
+    def get_checkpoint(self) -> Dict:
+        model_state_dict = self.state_dict()
+        model_state_dict["finetune_config"] = self.finetune_config
+        checkpoint = {
+            "architecture_name": "pet",
+            "model_ckpt_version": self.__checkpoint_version__,
+            "metadata": self.metadata,
+            "model_data": {
+                "model_hypers": self.hypers,
+                "dataset_info": self.dataset_info,
+            },
+            "model_state_dict": model_state_dict,
+            "best_model_state_dict": None,
+        }
         return checkpoint
