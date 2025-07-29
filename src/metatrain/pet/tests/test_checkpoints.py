@@ -6,6 +6,7 @@ from omegaconf import OmegaConf
 
 from metatrain.pet import PET, Trainer
 from metatrain.utils.data import DatasetInfo, get_atomic_types, get_dataset
+from metatrain.utils.data.target_info import get_energy_target_info
 from metatrain.utils.omegaconf import CONF_LOSS
 from metatrain.utils.testing.checkpoints import (
     checkpoint_did_not_change,
@@ -83,3 +84,19 @@ def model_trainer():
 test_checkpoint_did_not_change = checkpoint_did_not_change
 
 test_loading_old_checkpoints = make_checkpoint_load_tests(DEFAULT_HYPERS)
+
+
+@pytest.mark.parametrize("context", ["finetune", "restart", "export"])
+def test_get_checkpoint(context):
+    """
+    Test that the checkpoint created by the model.get_checkpoint()
+    function can be loaded back in all possible contexts.
+    """
+    dataset_info = DatasetInfo(
+        length_unit="Angstrom",
+        atomic_types=[1, 6, 7, 8],
+        targets={"energy": get_energy_target_info({"unit": "eV"})},
+    )
+    model = PET(MODEL_HYPERS, dataset_info)
+    checkpoint = model.get_checkpoint()
+    PET.load_checkpoint(checkpoint, context)

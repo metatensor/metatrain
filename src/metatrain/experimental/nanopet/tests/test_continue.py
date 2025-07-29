@@ -75,7 +75,8 @@ def test_continue(monkeypatch, tmp_path):
 
     trainer.save_checkpoint(model, "tmp.ckpt")
 
-    model_after = model_from_checkpoint("tmp.ckpt", context="restart")
+    checkpoint = torch.load("tmp.ckpt", weights_only=False, map_location="cpu")
+    model_after = model_from_checkpoint(checkpoint, context="restart")
     assert isinstance(model_after, NanoPET)
     model_after.restart(dataset_info)
 

@@ -39,7 +39,7 @@ class GAP(ModelInterface):
     )
 
     def __init__(self, hypers: Dict, dataset_info: DatasetInfo) -> None:
-        super().__init__(hypers, dataset_info)
+        super().__init__(hypers, dataset_info, self.__default_metadata__)
 
         if len(dataset_info.targets) > 1:
             raise NotImplementedError("GAP only supports a single output")
@@ -179,6 +179,9 @@ class GAP(ModelInterface):
     def upgrade_checkpoint(checkpoint: Dict) -> Dict:
         raise NotImplementedError("checkpoint upgrade is not implemented for GAP")
 
+    def get_checkpoint(self) -> Dict[str, Any]:
+        raise NotImplementedError("GAP does not support checkpointing")
+
     def forward(
         self,
         systems: List[System],
@@ -298,10 +301,7 @@ class GAP(ModelInterface):
             self._subset_of_regressors.export_torch_script_model()
         )
 
-        if metadata is None:
-            metadata = self.__default_metadata__
-        else:
-            metadata = merge_metadata(self.__default_metadata__, metadata)
+        metadata = merge_metadata(self.metadata, metadata)
 
         return AtomisticModel(self.eval(), metadata, capabilities)
 

@@ -22,7 +22,9 @@ class ModelInterface(torch.nn.Module, metaclass=ABCMeta):
     and implement the corresponding methods.
     """
 
-    def __init__(self, hypers: Dict, dataset_info: DatasetInfo) -> None:
+    def __init__(
+        self, hypers: Dict, dataset_info: DatasetInfo, metadata: ModelMetadata
+    ) -> None:
         """"""
         super().__init__()
 
@@ -44,6 +46,9 @@ class ModelInterface(torch.nn.Module, metaclass=ABCMeta):
 
         self.dataset_info = dataset_info
         """The dataset info passed at initialization"""
+
+        self.metadata = metadata
+        """The metadata passed at initialization"""
 
     @abstractmethod
     def forward(
@@ -124,6 +129,13 @@ class ModelInterface(torch.nn.Module, metaclass=ABCMeta):
     def upgrade_checkpoint(checkpoint: Dict["str", Any]) -> Dict["str", Any]:
         """
         Upgrade the checkpoint to the current version of the model.
+        """
+
+    @abstractmethod
+    def get_checkpoint(self) -> Dict[str, Any]:
+        """
+        Get the checkpoint of the model. This should contain all the information
+        needed by `load_checkpoint` to recreate the same model instance.
         """
 
 

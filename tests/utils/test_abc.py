@@ -92,6 +92,9 @@ class MyModel(ModelInterface):
     def upgrade_checkpoint(checkpoint: Dict["str", Any]) -> Dict["str", Any]:
         raise NotImplementedError()
 
+    def get_checkpoint(self) -> Dict[str, Any]:
+        raise NotImplementedError()
+
 
 def test_model_interface():
     EXPECTED_ATTRS = [
@@ -104,6 +107,6 @@ def test_model_interface():
     for attr in EXPECTED_ATTRS:
         message = f"missing '{attr}' class attribute for 'utils.test_abc.MyModel'"
         with pytest.raises(TypeError, match=message):
-            _ = MyModel({}, DatasetInfo("", [], {}))
+            _ = MyModel({}, DatasetInfo("", [], {}), ModelMetadata())
 
         setattr(MyModel, attr, None)
