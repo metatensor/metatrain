@@ -457,13 +457,15 @@ def test_composition_model_predict_consistency():
 
     # Init and train the old composition model
     old_composition_model = OldCompositionModel(
-        hypers={}, dataset_info=dataset_info,
+        hypers={},
+        dataset_info=dataset_info,
     )
     old_composition_model.train_model(dataset, [])
 
     # Init and train the new composition model
     new_composition_model = CompositionModel(
-        hypers={}, dataset_info=dataset_info,
+        hypers={},
+        dataset_info=dataset_info,
     )
     new_composition_model.train_model(dataloader, additive_models=[])
 
@@ -473,11 +475,22 @@ def test_composition_model_predict_consistency():
     for per_atom, selected_atoms, sample_names, shape in [
         [True, None, ["system", "atom"], (n_atoms, 1)],
         [False, None, ["system"], (n_structures, 1)],
-        [True, Labels(names=["system", "atom"], values=torch.tensor([[0, 0], [1, 1]])), ["system", "atom"], (2, 1)],
-        [False, Labels(names=["system", "atom"], values=torch.tensor([[0, 0], [1, 1]])), ["system"], (2, 1)],
+        [
+            True,
+            Labels(names=["system", "atom"], values=torch.tensor([[0, 0], [1, 1]])),
+            ["system", "atom"],
+            (2, 1),
+        ],
+        [
+            False,
+            Labels(names=["system", "atom"], values=torch.tensor([[0, 0], [1, 1]])),
+            ["system"],
+            (2, 1),
+        ],
     ]:
-
-        output_options = {"mtt::U0": ModelOutput(quantity="energy", unit="", per_atom=per_atom)}
+        output_options = {
+            "mtt::U0": ModelOutput(quantity="energy", unit="", per_atom=per_atom)
+        }
         old_output = old_composition_model(
             systems[:n_structures],
             output_options,

@@ -89,7 +89,6 @@ def test_regression_train():
     dataset = Dataset.from_dict({"system": systems, "mtt::U0": targets["mtt::U0"]})
 
     hypers = DEFAULT_HYPERS.copy()
-    hypers["training"]["num_epochs"] = 2
 
     dataset_info = DatasetInfo(
         length_unit="Angstrom", atomic_types=[1, 6, 7, 8], targets=target_info_dict
@@ -121,16 +120,16 @@ def test_regression_train():
 
     expected_output = torch.tensor(
         [
-            [1.643912792206],
-            [1.634970188141],
-            [5.043813705444],
-            [10.300852775574],
-            [2.965628623962],
+            [1.313830733299],
+            [4.282802104950],
+            [5.629219055176],
+            [4.297013282776],
+            [2.226539373398],
         ]
     )
 
     # if you need to change the hardcoded values:
-    # torch.set_printoptions(precision=12)
-    # print(output["mtt::U0"].block().values)
+    torch.set_printoptions(precision=12)
+    print(output["mtt::U0"].block().values)
 
     torch.testing.assert_close(output["mtt::U0"].block().values, expected_output)
