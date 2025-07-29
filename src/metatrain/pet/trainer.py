@@ -201,7 +201,8 @@ class Trainer(TrainerInterface):
             )
         train_dataloader = CombinedDataLoader(train_dataloaders, shuffle=True)
 
-        # Create dataloader for the training datasets, specifically for the Composition Model:
+        # Create dataloader for the training datasets, specifically for the Composition
+        # Model:
         train_dataloaders_composition = []
         for train_dataset in train_datasets:
             if len(train_dataset) < self.hypers["batch_size"]:
@@ -221,7 +222,9 @@ class Trainer(TrainerInterface):
                     collate_fn=collate_fn,
                 )
             )
-        train_dataloaders_composition = CombinedDataLoader(train_dataloaders_composition, shuffle=True)
+        train_dataloader_composition = CombinedDataLoader(
+            train_dataloaders_composition, shuffle=True
+        )
 
         # Create dataloader for the validation datasets:
         val_dataloaders = []
@@ -247,7 +250,7 @@ class Trainer(TrainerInterface):
 
         logging.info("Calculating composition weights")
         model.additive_models[0].train_model(  # this is the composition model
-            train_dataloaders_composition,
+            train_dataloader_composition,
             model.additive_models[1:],
             self.hypers["fixed_composition_weights"],
         )
