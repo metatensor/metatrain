@@ -279,7 +279,7 @@ class BaseCompositionModel(torch.nn.Module):
 
                 blocks.append(
                     TensorBlock(
-                        values=weight_vals,
+                        values=weight_vals.contiguous(),
                         samples=XTY_block.samples.to(device=weight_vals.device),
                         components=XTY_block.components,
                         properties=XTY_block.properties.to(device=weight_vals.device),
@@ -363,7 +363,7 @@ class BaseCompositionModel(torch.nn.Module):
                 ),
                 prediction_blocks,
             )
-            if self.sample_kinds[output_name] == "per_structure":
+            if not outputs[output_name].per_atom:
                 prediction = mts.sum_over_samples(prediction, "atom")
             predictions[output_name] = prediction
 
