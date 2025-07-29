@@ -26,9 +26,9 @@ class LossInterface(ABC):
     def __init__(
         self,
         name: str,
-        gradient: Optional[str] = None,
-        weight: float = 0.0,
-        reduction: str = "mean",
+        gradient: Optional[str],
+        weight: float,
+        reduction: str,
     ) -> None:
         """
         :param name: key in the predictions/targets dict to select the TensorMap.
@@ -403,9 +403,9 @@ class TensorMapMSELoss(BaseTensorMapLoss):
     def __init__(
         self,
         name: str,
-        gradient: Optional[str] = None,
-        weight: float = 1.0,
-        reduction: str = "mean",
+        gradient: Optional[str],
+        weight: float,
+        reduction: str,
     ):
         super().__init__(
             name,
@@ -424,9 +424,9 @@ class TensorMapMAELoss(BaseTensorMapLoss):
     def __init__(
         self,
         name: str,
-        gradient: Optional[str] = None,
-        weight: float = 1.0,
-        reduction: str = "mean",
+        gradient: Optional[str],
+        weight: float,
+        reduction: str,
     ):
         super().__init__(
             name,
@@ -447,10 +447,10 @@ class TensorMapHuberLoss(BaseTensorMapLoss):
     def __init__(
         self,
         name: str,
-        gradient: Optional[str] = None,
-        weight: float = 1.0,
-        reduction: str = "mean",
-        delta: float = 1.0,
+        gradient: Optional[str],
+        weight: float,
+        reduction: str,
+        delta: float,
     ):
         super().__init__(
             name,
@@ -469,9 +469,9 @@ class TensorMapMaskedMSELoss(MaskedTensorMapLoss):
     def __init__(
         self,
         name: str,
-        gradient: Optional[str] = None,
-        weight: float = 1.0,
-        reduction: str = "mean",
+        gradient: Optional[str],
+        weight: float,
+        reduction: str,
     ):
         super().__init__(
             name,
@@ -490,9 +490,9 @@ class TensorMapMaskedMAELoss(MaskedTensorMapLoss):
     def __init__(
         self,
         name: str,
-        gradient: Optional[str] = None,
-        weight: float = 1.0,
-        reduction: str = "mean",
+        gradient: Optional[str],
+        weight: float,
+        reduction: str,
     ):
         super().__init__(
             name,
@@ -513,10 +513,10 @@ class TensorMapMaskedHuberLoss(MaskedTensorMapLoss):
     def __init__(
         self,
         name: str,
-        gradient: Optional[str] = None,
-        weight: float = 1.0,
-        reduction: str = "mean",
-        delta: float = 1.0,
+        gradient: Optional[str],
+        weight: float,
+        reduction: str,
+        delta: float,
     ):
         super().__init__(
             name,
@@ -580,6 +580,15 @@ class LossAggregator(LossInterface):
                 "sliding_factor": target_config["sliding_factor"],
                 "gradients": {},
             }
+            for pname, pval in target_config.items():
+                if pname not in (
+                    "type",
+                    "weight",
+                    "reduction",
+                    "sliding_factor",
+                    "gradients",
+                ):
+                    self.metadata[target_name][pname] = pval
 
             # Create gradient-based losses
             gradient_config = target_config["gradients"]
@@ -616,6 +625,17 @@ class LossAggregator(LossInterface):
                     "reduction": grad_loss.reduction,
                     "sliding_factor": target_config["sliding_factor"],
                 }
+                for pname, pval in gradient_specific_config.items():
+                    if pname not in (
+                        "type",
+                        "weight",
+                        "reduction",
+                        "sliding_factor",
+                        "gradients",
+                    ):
+                        self.metadata[target_name]["gradients"][gradient_name][
+                            pname
+                        ] = pval
 
     def compute(
         self,
@@ -690,9 +710,9 @@ def create_loss(
     loss_type: str,
     *,
     name: str,
-    gradient: Optional[str] = None,
-    weight: float = 1.0,
-    reduction: str = "mean",
+    gradient: Optional[str],
+    weight: float,
+    reduction: str,
     **extra_kwargs: Any,
 ) -> LossInterface:
     """
