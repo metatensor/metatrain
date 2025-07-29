@@ -230,7 +230,7 @@ class TargetInfo:
     def to(
         self, device: Optional[torch.device] = None, dtype: Optional[torch.dtype] = None
     ) -> "TargetInfo":
-        """Move the target info to the given device."""
+        """Return a copy with all tensors moved to the device and dtype."""
         new_layout = self.layout.to(device=device, dtype=dtype)
         return TargetInfo(
             quantity=self.quantity,
