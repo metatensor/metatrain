@@ -247,7 +247,7 @@ class MetricLogger:
             for key in _sort_metric_names(metrics_dict.keys()):
                 value = metrics_dict[key] * self.scales[key]
 
-                if key in ["loss", "learning rate"]:
+                if key in [ "learning rate","loss"]:
                     is_loss = True
 
                     # avoiding double spaces: only include non-empty strings (`if p`),
