@@ -223,7 +223,7 @@ class Trainer(TrainerInterface):
                 )
             )
         train_dataloader_composition = CombinedDataLoader(
-            train_dataloaders_composition, shuffle=True
+            train_dataloaders_composition, shuffle=False
         )
 
         # Create dataloader for the validation datasets:
