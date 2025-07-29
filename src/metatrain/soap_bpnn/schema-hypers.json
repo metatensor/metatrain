@@ -164,7 +164,10 @@
           ]
         },
         "loss": {
-          "type": "object",
+          "type": [
+            "object",
+            "string"
+          ],
           "patternProperties": {
             "^.+$": {
               "$ref": "#/definitions/lossTerm"
@@ -212,7 +215,10 @@
           "minimum": 0.0
         },
         "gradients": {
-          "type": "object",
+          "type": [
+            "object",
+            "string"
+          ],
           "patternProperties": {
             "^.+$": {
               "$ref": "#/definitions/lossTerm"
