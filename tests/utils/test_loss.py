@@ -2,6 +2,7 @@
 
 from pathlib import Path
 
+import metatensor.torch as mts
 import pytest
 import torch
 from metatensor.torch import Labels, TensorBlock, TensorMap
@@ -17,6 +18,7 @@ from metatrain.utils.loss import (
     TensorMapMSELoss,
     create_loss,
 )
+from metatrain.utils.old_loss import TensorMapLoss
 
 
 RESOURCES_PATH = Path(__file__).parents[1] / "resources"
@@ -125,6 +127,20 @@ def test_pointwise_zero_loss(tensor_map_with_grad_1, LossCls):
     pred = {key: tm}
     targ = {key: tm}
     assert loss(pred, targ).item() == pytest.approx(0.0)
+
+
+# Check consistency between old and new loss implementations
+def test_check_old_and_new_loss_consistency(tensor_map_with_grad_2):
+    tensor_1 = mts.remove_gradients(tensor_map_with_grad_2)
+    tensor_2 = mts.random_uniform_like(tensor_1)
+    loss_fn_1 = TensorMapLoss()
+    loss_fn_2 = TensorMapMSELoss(
+        name="",
+        gradient=None,
+        weight=1.0,
+        reduction="mean",
+    )
+    assert loss_fn_1(tensor_1, tensor_2) == loss_fn_2({"": tensor_1}, {"": tensor_2})
 
 
 # Masked losses must error if no mask is supplied
