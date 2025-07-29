@@ -27,6 +27,24 @@ from metatrain.utils.external_naming import to_external_name
 from metatrain.utils.units import get_gradient_units
 
 
+def _set(values: List[int]) -> List[int]:
+    """This function just does `list(set(values))`.
+
+    But set is not torchscript compatible, so we do it manually.
+    """
+    unique_values: List[int] = []
+    for at_type in values:
+        found = False
+        for seen in unique_values:
+            if seen == at_type:
+                found = True
+                break
+        if not found:
+            unique_values.append(at_type)
+
+    return unique_values
+
+
 class DatasetInfo:
     """A class that contains information about datasets.
 
@@ -51,9 +69,11 @@ class DatasetInfo:
         extra_data: Optional[Dict[str, TargetInfo]] = None,
     ):
         self.length_unit = length_unit if length_unit is not None else ""
-        self._atomic_types = set(atomic_types)
+        self._atomic_types = _set(atomic_types)
         self.targets = targets
-        self.extra_data = extra_data if extra_data is not None else {}
+        self.extra_data: Dict[str, TargetInfo] = (
+            extra_data if extra_data is not None else {}
+        )
 
     @property
     def atomic_types(self) -> List[int]:
@@ -62,20 +82,27 @@ class DatasetInfo:
 
     @atomic_types.setter
     def atomic_types(self, value: List[int]):
-        self._atomic_types = set(value)
+        self._atomic_types = _set(value)
+
+    def to(
+        self, device: Optional[torch.device] = None, dtype: Optional[torch.dtype] = None
+    ) -> "DatasetInfo":
+        """Return a copy of this instance with all tensors moved to the specified device."""
+        new = self.copy()
+        for key, target_info in new.targets.items():
+            new.targets[key] = target_info.to(device=device, dtype=dtype)
+        for key, extra_data in new.extra_data.items():
+            new.extra_data[key] = extra_data.to(device=device, dtype=dtype)
+        return new
 
     def __repr__(self):
-        return (
-            f"DatasetInfo(length_unit={self.length_unit!r}, "
-            f"atomic_types={self.atomic_types!r}, targets={self.targets!r})"
+        return "DatasetInfo(length_unit={!r}, atomic_types={!r}, targets={!r})".format(
+            self.length_unit, self.atomic_types, self.targets
         )
 
     def __eq__(self, other):
         if not isinstance(other, DatasetInfo):
-            raise NotImplementedError(
-                "Comparison between a DatasetInfo instance and a "
-                f"{type(other).__name__} instance is not implemented."
-            )
+            return False
         return (
             self.length_unit == other.length_unit
             and self._atomic_types == other._atomic_types
@@ -92,6 +119,7 @@ class DatasetInfo:
             extra_data=self.extra_data.copy(),
         )
 
+    @torch.jit.unused
     def update(self, other: "DatasetInfo") -> None:
         """Update this instance with the union of itself and ``other``.
 
@@ -135,6 +163,7 @@ class DatasetInfo:
         new.update(other)
         return new
 
+    @torch.jit.unused
     def __setstate__(self, state):
         """
         Custom ``__setstate__`` to allow loading old checkpoints where ``extra_data`` is
