@@ -87,7 +87,7 @@ class DatasetInfo:
     def to(
         self, device: Optional[torch.device] = None, dtype: Optional[torch.dtype] = None
     ) -> "DatasetInfo":
-        """Return a copy of this instance with all tensors moved to the specified device."""
+        """Return a copy with all tensors moved to the device and dtype."""
         new = self.copy()
         for key, target_info in new.targets.items():
             new.targets[key] = target_info.to(device=device, dtype=dtype)
