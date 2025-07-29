@@ -118,7 +118,10 @@ def tensor_map_with_grad_4():
 def test_pointwise_zero_loss(tensor_map_with_grad_1, LossCls):
     tm = tensor_map_with_grad_1
     key = tm.keys.names[0]
-    loss = LossCls(name=key)
+    if LossCls == TensorMapHuberLoss:
+        loss = LossCls(name=key, gradient=None, weight=1.0, reduction="mean", delta=1.0)
+    else:
+        loss = LossCls(name=key, gradient=None, weight=1.0, reduction="mean")
     pred = {key: tm}
     targ = {key: tm}
     assert loss(pred, targ).item() == pytest.approx(0.0)
@@ -136,7 +139,12 @@ def test_pointwise_zero_loss(tensor_map_with_grad_1, LossCls):
 def test_masked_loss_error_on_missing_mask(tensor_map_with_grad_1, MaskedCls):
     tm = tensor_map_with_grad_1
     key = tm.keys.names[0]
-    loss = MaskedCls(name=key)
+    if MaskedCls == TensorMapMaskedHuberLoss:
+        loss = MaskedCls(
+            name=key, gradient=None, weight=1.0, reduction="mean", delta=1.0
+        )
+    else:
+        loss = MaskedCls(name=key, gradient=None, weight=1.0, reduction="mean")
     with pytest.raises(ValueError):
         loss({key: tm}, {key: tm})
 
@@ -158,7 +166,7 @@ def test_masked_mse_behavior(tensor_map_with_grad_1, tensor_map_with_grad_2):
     mask_map = TensorMap(keys=tm1.keys, blocks=[mask_block])
     extra_data = {f"{key}_mask": mask_map}
 
-    loss = TensorMapMaskedMSELoss(name=key)
+    loss = TensorMapMaskedMSELoss(name=key, gradient=None, weight=1.0, reduction="mean")
     # Only element 1 contributes: (1-2)^2 = 1
     result = loss({key: tm2}, {key: tm1}, extra_data)
     assert result.item() == pytest.approx(1.0)
@@ -178,7 +186,7 @@ def test_ema_scheduler(
     tm1 = tensor_map_with_grad_1
     tm2 = tensor_map_with_grad_2
     key = tm1.keys.names[0]
-    loss = TensorMapMSELoss(name=key)
+    loss = TensorMapMSELoss(name=key, gradient=None, weight=1.0, reduction="mean")
     sched = EMAScheduler(sliding_factor=sf)
 
     init_w = sched.initialize(loss, {key: tm1})
@@ -203,14 +211,30 @@ def test_loss_type_and_factory():
         lt = LossType.from_key(key)
         assert lt.key == key
         # Factory should produce correct class
-        loss = create_loss(key, name="dummy")
+        extra_kwargs = {}
+        if key == "huber" or key == "masked_huber":
+            extra_kwargs = {"delta": 1.0}
+        loss = create_loss(
+            key,
+            name="dummy",
+            gradient=None,
+            weight=1.0,
+            reduction="mean",
+            **extra_kwargs,
+        )
         assert isinstance(loss, cls)
 
     # Invalid keys raise ValueError
     with pytest.raises(ValueError):
         LossType.from_key("invalid_key")
     with pytest.raises(ValueError):
-        create_loss("invalid_key", name="dummy")
+        create_loss(
+            "invalid_key",
+            name="dummy",
+            gradient=None,
+            weight=1.0,
+            reduction="mean",
+        )
 
 
 # Point-wise gradient-only
@@ -229,7 +253,12 @@ def test_pointwise_gradient_loss(
     tm4 = tensor_map_with_grad_4
     key = tm3.keys.names[0]
     # instantiate with gradient extraction
-    loss = LossCls(name=key, gradient="gradient")
+    if LossCls == TensorMapHuberLoss:
+        loss = LossCls(
+            name=key, gradient="gradient", weight=1.0, reduction="mean", delta=1.0
+        )
+    else:
+        loss = LossCls(name=key, gradient="gradient", weight=1.0, reduction="mean")
     val = loss({key: tm3}, {key: tm4}).item()
     assert val == pytest.approx(expected)
 
@@ -239,7 +268,9 @@ def test_create_loss_invalid_kwargs():
     # a TypeError inside create_loss, which should be caught
     # and re-raised with our custom message.
     with pytest.raises(TypeError) as exc:
-        create_loss("mse", name="dummy", foo=123)
+        create_loss(
+            "mse", name="dummy", gradient=None, weight=1.0, reduction="mean", foo=123
+        )
     msg = str(exc.value)
     assert "Error constructing loss 'mse'" in msg
     assert (
@@ -276,7 +307,9 @@ def test_masked_pointwise_gradient_branch(
     extra = {f"{key}_mask": mask_map}
 
     # Create the masked-pointwise loss on the 'gradient' channel
-    loss = TensorMapMaskedMSELoss(name=key, gradient="gradient")
+    loss = TensorMapMaskedMSELoss(
+        name=key, gradient="gradient", weight=1.0, reduction="mean"
+    )
 
     # The gradient values in tm3: [1, 0, 3]; in tm4: [1, 0, 2]
     # Only one difference of 1 -> MSE mean = 1/3
@@ -289,7 +322,7 @@ def test_ema_initialize_gradient_branch(tensor_map_with_grad_1):
     key = tm.keys.names[0]
 
     # gradient block values [1,2,3], zero baseline -> MSE = (1+4+9)/3
-    loss = TensorMapMSELoss(name=key, gradient="gradient")
+    loss = TensorMapMSELoss(name=key, gradient="gradient", weight=1.0, reduction="mean")
     sched = EMAScheduler(sliding_factor=0.5)
     init_w = sched.initialize(loss, {key: tm})
 
