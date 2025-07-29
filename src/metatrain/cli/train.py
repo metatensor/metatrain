@@ -700,20 +700,17 @@ def _get_batch_size_from_hypers(hypers: Union[Dict, DictConfig]) -> Optional[int
 
 
 def _human_readable(n):
-    """
-    Turn a number into a human-friendly string
-    """
     suffixes = ["", "K", "M", "B", "T"]
-    if n == 0:
-        return "0"
-    # figure out which suffix to use
-    idx = min(int(np.log10(abs(n)) // 3), len(suffixes) - 1)
-    value = n / (1000**idx)
-    # pick formatting: one decimal if <10, otherwise integer with commas
-    if value < 10:
-        s = f"{value:.1f}"
+    idx = 0
+    x = float(n)
+
+    while abs(x) >= 1000 and idx < len(suffixes) - 1:
+        x /= 1000.0
+        idx += 1
+
+    if abs(x) < 100:
+        s = f"{x:.1f}".rstrip("0").rstrip(".")
     else:
-        s = f"{int(value):,d}"
-    # drop any trailing ".0"
-    s = s.rstrip(".0")
+        s = f"{x:.0f}"
+
     return f"{s}{suffixes[idx]}"
