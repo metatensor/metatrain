@@ -52,7 +52,7 @@ class MetaMACE(ModelInterface):
     component_labels: Dict[str, List[List[Labels]]]
 
     def __init__(self, model_hypers: Dict, dataset_info: DatasetInfo) -> None:
-        super().__init__(model_hypers, dataset_info)
+        super().__init__(model_hypers, dataset_info, self.__default_metadata__)
         # checks on targets inside the RotationalAugmenter class in the trainer
 
         self.dataset_info = dataset_info
@@ -94,12 +94,7 @@ class MetaMACE(ModelInterface):
         self.outputs = {
             "features": ModelOutput(unit="", per_atom=True)
         }
-        self.output_shapes: Dict[str, Dict[str, List[int]]] = {}
-        self.key_labels: Dict[str, Labels] = {}
-        self.component_labels: Dict[str, List[List[Labels]]] = {}
-        self.property_labels: Dict[str, List[Labels]] = {}
         self.heads: Dict[str, torch.nn.Module] = torch.nn.ModuleDict()
-        self.target_infos: Dict[str, TargetInfo] = {}
         for target_name, target_info in dataset_info.targets.items():
             self._add_output(target_name, target_info)
 
@@ -197,21 +192,7 @@ class MetaMACE(ModelInterface):
         
         if self.single_label.values.device != device:
             self.single_label = self.single_label.to(device)
-            self.key_labels = {
-                output_name: label.to(device)
-                for output_name, label in self.key_labels.items()
-            }
-            self.component_labels = {
-                output_name: [
-                    [labels.to(device) for labels in components_block]
-                    for components_block in components_tmap
-                ]
-                for output_name, components_tmap in self.component_labels.items()
-            }
-            self.property_labels = {
-                output_name: [labels.to(device) for labels in properties_tmap]
-                for output_name, properties_tmap in self.property_labels.items()
-            }
+            self.dataset_info.to(device=device)
 
         data = create_batch(
             systems=systems,
@@ -224,11 +205,6 @@ class MetaMACE(ModelInterface):
         data["positions"] = data["positions"][:, [1, 2, 0]]
 
         mace_output = self.mace_model(data, training=self.training)
-
-        sample_labels = Labels(
-            names=["system"],
-            values=torch.arange(len(systems), device=device).reshape(-1, 1),
-        )
 
         return_dict: Dict[str, TensorMap] = {}
 
@@ -312,14 +288,14 @@ class MetaMACE(ModelInterface):
         for output_name in outputs.keys():
             head: LinearInterface = self.heads[output_name]
             node_target = head.forward(node_features, weight=None, bias=None)
-            is_cartesian = self.target_infos[output_name]["is_cartesian"]
+            target_info = self.dataset_info.targets[output_name]
 
             blocks: list[TensorBlock] = []
             pointer = 0
-            for i in range(len(self.component_labels[output_name])):
+            for i in range(len(target_info.component_labels)):
 
-                components = self.component_labels[output_name][i]
-                properties = self.property_labels[output_name][i]
+                components = target_info.component_labels[i]
+                properties = target_info.property_labels[i]
 
                 has_components = len(components) > 0
                 n_components = len(components[0]) if has_components else 1
@@ -331,7 +307,7 @@ class MetaMACE(ModelInterface):
                     -1, n_properties, n_components,
                 ).transpose(1, 2)
 
-                if is_cartesian and n_components == 3:
+                if target_info.is_cartesian and n_components == 3:
                     # Go back from YZX to XYZ
                     values = values[:, [2, 0, 1], :]
 
@@ -350,7 +326,7 @@ class MetaMACE(ModelInterface):
                 pointer = end
 
             atom_target = TensorMap(
-                keys=self.key_labels[output_name],
+                keys=target_info.layout.keys,
                 blocks=blocks
             )
 
@@ -393,7 +369,7 @@ class MetaMACE(ModelInterface):
         #             atomic_properties_by_block.append(
         #                 last_layer_by_block(atomic_features)
         #             )
-        #         all_components = self.component_labels[output_name]
+        #         all_components = target_info.component_labels
         #         if len(all_components[0]) == 2 and all(
         #             "xyz" in comp.names[0] for comp in all_components[0]
         #         ):
@@ -426,7 +402,7 @@ class MetaMACE(ModelInterface):
         #             for atomic_property, shape, components, properties in zip(
         #                 atomic_properties_by_block,
         #                 self.output_shapes[output_name].values(),
-        #                 self.component_labels[output_name],
+        #                 target_info.component_labels,
         #                 self.property_labels[output_name],
         #             )
         #         ]
@@ -540,26 +516,18 @@ class MetaMACE(ModelInterface):
                 )
 
         # one output shape for each tensor block, grouped by target (i.e. tensormap)
-        self.output_shapes[target_name] = {}
         irreps = []
         for key, block in target_info.layout.items():
-            dict_key = target_name
             multiplicity = len(block.properties.values)
 
             if target_info.is_scalar:
-                dict_key += f"_{key.names[0]}_{int(key.values[0])}"
                 irreps.append((multiplicity, (0, 1)))
             elif target_info.is_spherical:
                 l = int(key["o3_lambda"])
-                dict_key += f"_o3_lambda_{l}"
                 irreps.append((multiplicity, (l, (-1)**l)))                  
             elif target_info.is_cartesian:
                 l = 1
                 irreps.append((multiplicity, (l, (-1)**l)))
-            
-            self.output_shapes[target_name][dict_key] = [
-                len(comp.values) for comp in block.components
-            ] + [len(block.properties.values)]
 
         self.outputs[target_name] = ModelOutput(
             quantity=target_info.quantity,
@@ -582,19 +550,25 @@ class MetaMACE(ModelInterface):
             f"mtt::aux::{target_name.replace('mtt::', '')}_last_layer_features"
         )
         self.outputs[ll_features_name] = ModelOutput(per_atom=True)
-
-        self.key_labels[target_name] = target_info.layout.keys
-        self.component_labels[target_name] = [
-            block.components for block in target_info.layout.blocks()
-        ]
-        self.property_labels[target_name] = [
-            block.properties for block in target_info.layout.blocks()
-        ]
-        self.target_infos[target_name] = target_info #Target(is_cartesian=target_info.is_cartesian)
     
     @staticmethod
     def upgrade_checkpoint(checkpoint: Dict) -> Dict:
         raise NotImplementedError("checkpoint upgrade is not implemented for MetaMACE")
+
+    def get_checkpoint(self) -> Dict:
+        model_state_dict = self.state_dict()
+        checkpoint = {
+            "architecture_name": "experimental.mace",
+            "model_ckpt_version": self.__checkpoint_version__,
+            "metadata": self.metadata,
+            "model_data": {
+                "model_hypers": self.hypers,
+                "dataset_info": self.dataset_info,
+            },
+            "model_state_dict": model_state_dict,
+            "best_model_state_dict": None,
+        }
+        return checkpoint
 
 
 def manual_prod(shape: List[int]) -> int:
