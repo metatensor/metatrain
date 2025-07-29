@@ -1,7 +1,7 @@
-from typing import List, Union
+from typing import Dict, List, Optional, Union
 
 import torch
-from metatensor.torch import Labels, TensorBlock, TensorMap
+from metatensor.torch import Labels, TensorBlock, TensorMap, equal_metadata
 from omegaconf import DictConfig
 
 
@@ -36,6 +36,9 @@ class TargetInfo:
         self.layout = layout
         self.unit = unit if unit is not None else ""
 
+        self.blocks_shape: Dict[str, List[int]] = {}
+        self._set_blocks_shape()
+
     @property
     def gradients(self) -> List[str]:
         """Sorted and unique list of gradient names."""
@@ -49,18 +52,25 @@ class TargetInfo:
         """Whether the target is per atom."""
         return "atom" in self.layout.block(0).samples.names
 
+    @property
+    def component_labels(self) -> List[List[Labels]]:
+        """The labels of the components of the target."""
+        return [block.components for block in self.layout.blocks()]
+
+    @property
+    def property_labels(self) -> List[Labels]:
+        """The labels of the properties of the target."""
+        return [block.properties for block in self.layout.blocks()]
+
     def __repr__(self):
-        return (
-            f"TargetInfo(quantity={self.quantity!r}, unit={self.unit!r}, "
-            f"layout={self.layout!r})"
+        return "TargetInfo(quantity={!r}, unit={!r}, layout={!r})".format(
+            self.quantity, self.unit, self.layout
         )
 
     def __eq__(self, other):
         if not isinstance(other, TargetInfo):
-            raise NotImplementedError(
-                "Comparison between a TargetInfo instance and a "
-                f"{type(other).__name__} instance is not implemented."
-            )
+            return False
+
         return (
             self.quantity == other.quantity
             and self.unit == other.unit
@@ -188,6 +198,16 @@ class TargetInfo:
                         "Gradients of spherical tensor targets are not supported."
                     )
 
+    def _set_blocks_shape(self) -> None:
+        """Set the attribute storing the shapes of the blocks in layout."""
+        for key, block in self.layout.items():
+            dict_key = self.quantity
+            for n, k in zip(key.names, key.values):
+                dict_key += f"_{n}_{int(k)}"
+            self.blocks_shape[dict_key] = [
+                len(comp.values) for comp in block.components
+            ] + [len(block.properties.values)]
+
     def is_compatible_with(self, other: "TargetInfo") -> bool:
         """Check if two targets are compatible.
 
@@ -200,24 +220,42 @@ class TargetInfo:
         :return: :py:obj:`True` if the two target infos are compatible,
             :py:obj:`False` otherwise.
         """
+
         if self.quantity != other.quantity:
             return False
         if self.unit != other.unit:
             return False
-        if self.layout.keys.names != other.layout.keys.names:
-            return False
-        for key, block in self.layout.items():
-            if key not in other.layout.keys:
-                return False
-            other_block = other.layout[key]
-            if not block.samples == other_block.samples:
-                return False
-            if not block.components == other_block.components:
-                return False
-            if not block.properties == other_block.properties:
-                return False
-            # gradients are not checked on purpose
-        return True
+        return equal_metadata(self.layout, other.layout, check_gradients=False)
+
+    def to(
+        self, device: Optional[torch.device] = None, dtype: Optional[torch.dtype] = None
+    ) -> "TargetInfo":
+        """Move the target info to the given device."""
+        new_layout = self.layout.to(device=device, dtype=dtype)
+        return TargetInfo(
+            quantity=self.quantity,
+            layout=new_layout,
+            unit=self.unit,
+        )
+
+    @torch.jit.unused
+    def __setstate__(self, state):
+        """Set the state of the target info."""
+
+        self.quantity = state["quantity"]
+        self.layout = state["layout"]
+        self.unit = state["unit"]
+        self.is_scalar = state["is_scalar"]
+        self.is_cartesian = state["is_cartesian"]
+        self.is_spherical = state["is_spherical"]
+
+        # For backward compatibility, if blocks_shape is not in the state,
+        # we build it.
+        if "blocks_shape" not in state:
+            self.blocks_shape = {}
+            self._set_blocks_shape()
+        else:
+            self.blocks_shape = state["blocks_shape"]
 
 
 def get_energy_target_info(
