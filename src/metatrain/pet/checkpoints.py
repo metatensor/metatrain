@@ -1,7 +1,7 @@
 from metatrain.utils.checkpoints import trainer_update_v1_v2
 
 
-__all__ = ["trainer_update_v1_v2", "model_update_v1_v2"]
+__all__ = ["trainer_update_v1_v2", "model_update_v1_v2", "model_update_v2_v3"]
 
 
 def model_update_v1_v2(state_dict):
