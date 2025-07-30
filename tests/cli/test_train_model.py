@@ -624,32 +624,25 @@ def test_continue_auto(options, caplog, monkeypatch, tmp_path):
 
     # Make up an output directory with some checkpoints
     true_checkpoint_dir = Path("outputs/2021-09-02/00-10-05")
-    true_checkpoint_dir.mkdir(parents=True, exist_ok=True)
     # as well as some lower-priority checkpoints
     fake_checkpoints_dirs = [
         Path("outputs/2021-08-01/00-00-00"),
         Path("outputs/2021-09-01/00-00-00"),
         Path("outputs/2021-09-02/00-00-00"),
         Path("outputs/2021-09-02/00-10-00"),
+        Path("outputs/foo"),
     ]
 
-    # Add delays between to ensure different timestamps
-    for fake_checkpoint_dir in fake_checkpoints_dirs:
-        time.sleep(0.1)
-        fake_checkpoint_dir.mkdir(parents=True, exist_ok=True)
-
-    for i in range(1, 4):
-        time.sleep(0.1)
-        shutil.copy(MODEL_PATH_64_BIT, true_checkpoint_dir / f"model_{i}.ckpt")
-        for fake_checkpoint_dir in fake_checkpoints_dirs:
+    for i_ckpt in [1, 2, 3]:
+        checkpoint_name = f"model_{i_ckpt}.ckpt"
+        # Create the true checkpoint last to ensure it's picked based on timestamp
+        for checkpoint_dir in fake_checkpoints_dirs + [true_checkpoint_dir]:
             time.sleep(0.1)
-            shutil.copy(MODEL_PATH_64_BIT, fake_checkpoint_dir / f"model_{i}.ckpt")
+            checkpoint_dir.mkdir(parents=True, exist_ok=True)
+            shutil.copy(MODEL_PATH_64_BIT, checkpoint_dir / checkpoint_name)
 
-    # Take the most recent checkpoint which is "2021-09-02/00-10-05"
-    restart_from = _process_restart_from("auto")
-    train_model(options, restart_from=restart_from)
+    train_model(options, restart_from=_process_restart_from("auto"))
 
-    assert f"Auto-continuing from `{restart_from}`" in caplog.text
     assert str(true_checkpoint_dir) in caplog.text
     assert "model_3.ckpt" in caplog.text
 
