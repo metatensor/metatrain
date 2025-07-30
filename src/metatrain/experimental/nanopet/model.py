@@ -59,8 +59,6 @@ class NanoPET(ModelInterface):
         references={"architecture": ["https://arxiv.org/abs/2305.19302v3"]}
     )
 
-    component_labels: Dict[str, List[List[Labels]]]
-
     def __init__(self, hypers: Dict, dataset_info: DatasetInfo) -> None:
         super().__init__(hypers, dataset_info, self.__default_metadata__)
 
