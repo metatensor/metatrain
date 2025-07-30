@@ -124,8 +124,6 @@ class MetaMACE(ModelInterface):
 
         self.scaler = Scaler(hypers={}, dataset_info=dataset_info)
 
-        self.single_label = Labels.single()
-
     def supported_outputs(self) -> Dict[str, ModelOutput]:
         return self.outputs
 
@@ -219,9 +217,8 @@ class MetaMACE(ModelInterface):
         
         device = systems[0].device
         
-        if self.single_label.values.device != device:
-            self.single_label = self.single_label.to(device)
-            self.dataset_info = self.dataset_info.to(device=device)
+        if self.dataset_info.device != device:
+            self.dataset_info = self.dataset_info.to(device)
 
         data = create_batch(
             systems=systems,
@@ -489,6 +486,9 @@ class MetaMACE(ModelInterface):
         # For example, after training, the additive models could still be in
         # float64
         self.to(dtype)
+
+        # Move dataset info to CPU so that it can be saved
+        self.dataset_info = self.dataset_info.to(device="cpu")
 
         interaction_ranges = [self.hypers["num_interactions"] * self.hypers["cutoff"]]
         interaction_range = max(interaction_ranges)
