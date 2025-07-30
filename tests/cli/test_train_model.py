@@ -16,7 +16,7 @@ from metatomic.torch import NeighborListOptions, systems_to_torch
 from omegaconf import OmegaConf
 
 from metatrain import RANDOM_SEED
-from metatrain.cli.train import _process_restart_from, train_model
+from metatrain.cli.train import _human_readable, _process_restart_from, train_model
 from metatrain.utils.data.readers.ase import read
 from metatrain.utils.data.writers import DiskDatasetWriter
 from metatrain.utils.errors import ArchitectureError
@@ -970,3 +970,23 @@ def test_train_wandb_logger(monkeypatch, tmp_path):
 
     assert "'base_precision': 64" in file_log
     assert "'seed': 42" in file_log
+
+
+@pytest.mark.parametrize(
+    "value, expected",
+    [
+        (0, "0"),
+        (999, "999"),
+        (1000, "1K"),
+        (1234, "1.2K"),
+        (1254, "1.3K"),
+        (20454, "20.5K"),
+        (306945, "307K"),
+        (1000000, "1M"),
+        (1500000000, "1.5B"),
+        (1865039582492, "1.9T"),
+        (1835039582492, "1.8T"),
+    ],
+)
+def test_human_readable_parameter_counter(value, expected):
+    assert _human_readable(value) == expected

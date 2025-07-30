@@ -705,7 +705,7 @@ def _human_readable(n):
     x = float(n)
 
     while abs(x) >= 1000 and idx < len(suffixes) - 1:
-        x /= 1000.0
+        x /= 1000
         idx += 1
 
     if abs(x) < 100:
