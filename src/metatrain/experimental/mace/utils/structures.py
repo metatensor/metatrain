@@ -110,6 +110,7 @@ def create_batch(
     neighbor_list_options: NeighborListOptions,
     atomic_types_to_species_index: torch.Tensor,
     n_types: int,  # Mapping from atomic types to species index
+    device: torch.device
 ) -> dict[str, torch.Tensor]:
     unit_shifts = []
     cell_shifts = []
@@ -150,9 +151,9 @@ def create_batch(
         "unit_shifts": torch.vstack(unit_shifts).T,
         "edge_index": torch.hstack(edge_index),
         "shifts": torch.vstack(cell_shifts),
-        "head": torch.tensor([0] * len(systems)),
-        "batch": torch.hstack(batch),
-        "ptr": torch.tensor(system_start_index),
+        "head": torch.tensor([0] * len(systems)).to(device),
+        "batch": torch.hstack(batch).to(device),
+        "ptr": torch.tensor(system_start_index).to(device),
         "node_attrs": torch.nn.functional.one_hot(
             torch.hstack(atom_types), num_classes=n_types
         ).to(torch.float64),
