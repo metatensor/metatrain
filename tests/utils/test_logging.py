@@ -331,6 +331,7 @@ def test_metric_logger(caplog, monkeypatch, tmp_path):
     assert type(logger) is CustomLogger
 
     outputs = {
+        "energy": ModelOutput(unit="eV", explicit_gradients=["positions"]),
         "mtt::foo": ModelOutput(unit="eV"),
         "mtt::bar": ModelOutput(unit="hartree"),
     }
@@ -341,21 +342,41 @@ def test_metric_logger(caplog, monkeypatch, tmp_path):
     )
 
     names = ["train"]
+    train_metrics = [
+        {
+            "loss": 0.1,
+            "baz": 1e-5,
+            "energy RMSE": 1.0,
+            "energy_positions_gradients MAE": 0.5,
+            "mtt::foo RMSE": 1.0,
+            "mtt::bar RMSE": 0.1,
+        }
+    ]
 
-    train_metrics = [{"loss": 0.1, "mtt::foo RMSE": 1.0, "mtt::bar RMSE": 0.1}]
-    eval_metrics = [{"mtt::foo RMSE": 5.0, "mtt::bar RMSE": 10.0}]
+    # single dict to test that metrics will be converted to list
+    eval_metrics = {"mtt::foo RMSE": 5.0, "mtt::bar RMSE": 10.0}
 
     with setup_logging(logger, log_file="logfile.log", level=logging.INFO):
-        trainer_logger = MetricLogger(logger, capabilities, train_metrics, names)
-        trainer_logger.log(train_metrics, epoch=1)
+        trainer_logger = MetricLogger(
+            log_obj=logger,
+            dataset_info=capabilities,
+            initial_metrics=train_metrics,
+            names=names,
+        )
+        trainer_logger.log(metrics=train_metrics, epoch=1)
 
-        eval_logger = MetricLogger(logger, capabilities, eval_metrics)
-        eval_logger.log(eval_metrics)
+        eval_logger = MetricLogger(
+            log_obj=logger, dataset_info=capabilities, initial_metrics=eval_metrics
+        )
+        eval_logger.log(metrics=eval_metrics)
 
     # Test for correctly formatted log messages (only one space between words)
     # During training
     assert "Epoch:    1 | " in caplog.text
     assert "train loss: 1.000e-01 | " in caplog.text
+    assert "train baz: 1.000e-05 | " in caplog.text
+    assert "train energy RMSE: 1000.0 meV | " in caplog.text
+    assert "train energy_positions_gradients MAE: 500.00 meV/A | " in caplog.text
     assert "train mtt::bar RMSE: 0.10000 hartree | " in caplog.text
     assert "train mtt::foo RMSE: 1000.0 meV" in caplog.text  # eV converted to meV
 
@@ -369,11 +390,52 @@ def test_metric_logger(caplog, monkeypatch, tmp_path):
     assert rows[0] == [
         "Epoch",
         "train loss",
+        "train baz",
+        "train energy RMSE",
+        "train energy_positions_gradients MAE",
         "train mtt::bar RMSE",
         "train mtt::foo RMSE",
     ]
-    assert rows[1] == ["", "", "hartree", "meV"]
-    assert rows[2] == ["   1", "1.000e-01", "0.10000", "1000.0"]
+    assert rows[1] == ["", "", "", "meV", "meV/A", "hartree", "meV"]
+    assert rows[2] == [
+        "   1",
+        "1.000e-01",
+        "1.000e-05",
+        "1000.0",
+        "500.00",
+        "0.10000",
+        "1000.0",
+    ]
+
+
+def test_metric_logger_with_scales(caplog, monkeypatch, tmp_path):
+    monkeypatch.chdir(tmp_path)
+    caplog.set_level(logging.INFO)
+    logger = logging.getLogger(__name__)
+
+    assert type(logger) is CustomLogger
+
+    outputs = {"mtt::foo": ModelOutput(unit="eV")}
+    capabilities = ModelCapabilities(
+        length_unit="angstrom",
+        atomic_types=[1, 2, 3],
+        outputs=outputs,
+    )
+
+    names = "train"
+    train_metrics = {"mtt::foo RMSE": 1.0}
+
+    with setup_logging(logger, log_file="logfile.log", level=logging.INFO):
+        trainer_logger = MetricLogger(
+            log_obj=logger,
+            dataset_info=capabilities,
+            initial_metrics=train_metrics,
+            names=names,
+            scales={n: 5.0 for n in train_metrics.keys()},
+        )
+        trainer_logger.log(metrics=train_metrics, epoch=1)
+
+    assert "train mtt::foo RMSE: 5000.0 meV" in caplog.text
 
 
 def get_argv():

@@ -163,6 +163,8 @@ class MetricLogger:
             and units
         :param initial_metrics: initial training metrics
         :param names: names of the metrics (e.g., "train", "validation")
+        :param scales: scales for the metrics. If not provided, all metrics will be
+            scaled by 1.0
         """
         self.log_obj = log_obj
 
@@ -200,13 +202,15 @@ class MetricLogger:
         for name, metrics_dict in zip(names, initial_metrics):
             for key, value in metrics_dict.items():
                 value *= scales[key]
-                target_name = key.split(" ", 1)[0]
-                if key in ["loss", "learning rate"]:
-                    # losses will be printed in scientific notation
-                    continue
-                unit = self._get_units(target_name)
-                value, unit = ev_to_mev(value, unit)
-                self.digits[f"{name}_{key}"] = _get_digits(value)
+                target_name = key.split(maxsplit=1)[0]
+
+                # Check if key is part of the model outputs, only then we can get units
+                if target_name in self.model_outputs or target_name.endswith(
+                    "_gradients"
+                ):
+                    unit = self._get_units(target_name)
+                    value, unit = ev_to_mev(value, unit)
+                    self.digits[f"{name}_{key}"] = _get_digits(value)
 
     def log(
         self,
@@ -242,21 +246,23 @@ class MetricLogger:
         if isinstance(metrics, dict):
             metrics = [metrics]
 
-        is_loss = False
+        is_training = False
         for name, metrics_dict in zip(self.names, metrics):
             for key in _sort_metric_names(metrics_dict.keys()):
                 value = metrics_dict[key] * self.scales[key]
 
-                if key in ["learning rate", "loss"]:
-                    is_loss = True
+                key_split = key.split(maxsplit=1)
+                target_name = key_split[0]
 
-                    # avoiding double spaces: only include non-empty strings (`if p`),
-                    keys.append(" ".join(p for p in [name, key] if p))
-                    values.append(f"{value:.3e}")
-                    units.append("")
+                # Use "loss" key to identify training or evaluation metrics.
+                if key == "loss":
+                    is_training = True
 
-                else:  # special case: not a metric associated with a target
-                    target_name, metric = key.split(" ", 1)
+                # Not a metric associated with a target
+                if target_name in self.model_outputs or target_name.endswith(
+                    "_gradients"
+                ):
+                    metric = key_split[1]
                     external_name = to_external_name(target_name, self.model_outputs)  # type: ignore # noqa: E501
                     keys.append(" ".join(p for p in [name, external_name, metric] if p))
 
@@ -267,8 +273,13 @@ class MetricLogger:
                         f"{value:{self.digits[f'{name}_{key}'][0]}.{self.digits[f'{name}_{key}'][1]}f}"  # noqa: E501
                     )
                     units.append(unit)
+                else:
+                    # avoiding double spaces: only include non-empty strings (`if p`),
+                    keys.append(" ".join(p for p in [name, key] if p))
+                    values.append(f"{value:.3e}")
+                    units.append("")
 
-        if is_loss and isinstance(self.log_obj, CustomLogger):
+        if is_training and isinstance(self.log_obj, CustomLogger):
             self.log_obj.data(keys, values, units)
 
         # add space between value and unit only if the unit is not empty. Avoiding
