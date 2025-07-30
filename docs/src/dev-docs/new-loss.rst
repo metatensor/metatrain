@@ -17,11 +17,30 @@ for the loss computation.
 
 .. code-block:: python
 
-    def NewLoss(LossInterface):
-        def __init__(self, hypers):
-            # Initialize the loss function with hyperparameters
+    from typing import Dict, Optional
+    import torch
+    from metatrain.utils.loss import LossInterface
+    from metatensor.torch import TensorMap
+
+    class NewLoss(LossInterface):
+        def __init__(
+            self,
+            name: str,
+            gradient: Optional[str],
+            weight: float,
+            reduction: str,
+        ) -> None:
             ...
 
-        def compute(self, predictions, targets, extra_data):
-            # Compute and return the loss value
+        def compute(
+            self,
+            predictions: Dict[str, TensorMap],
+            targets: Dict[str, TensorMap],
+            extra_data: Dict[str, TensorMap]
+        ) -> torch.Tensor:
             ...
+
+
+Examples of loss functions already implemented in ``metatrain`` are :py:class:`metatrain.utils.loss.TensorMapMSELoss` and
+:py:class:`metatrain.utils.loss.TensorMapMAELoss`. They both inherit from the :py:class:`metatrain.utils.loss.BaseTensorMapLoss` class,
+which implements pointwise losses for :py:class:`metatensor.torch.TensorMap` objects.

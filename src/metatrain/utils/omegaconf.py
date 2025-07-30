@@ -56,31 +56,6 @@ def default_precision(_root_: BaseContainer) -> int:
         )
 
 
-def default_random_seed() -> int:
-    """Return session seed in the range [0, 2**32)."""
-    return RANDOM_SEED
-
-
-def default_loss_type() -> str:
-    """Return the default loss type for the training set."""
-    return "mse"
-
-
-def default_loss_reduction() -> str:
-    """Return the default loss reduction for the training set."""
-    return "mean"
-
-
-def default_loss_sliding_factor():
-    """Return the default sliding factor for the training set."""
-    return None
-
-
-def default_loss_weight() -> float:
-    """Return the default loss weight for the training set."""
-    return 1.0
-
-
 def default_huber_loss_delta() -> float:
     """Return the default delta for the huber loss."""
     return 1.0
@@ -89,13 +64,11 @@ def default_huber_loss_delta() -> float:
 # Register custom resolvers
 OmegaConf.register_new_resolver("default_device", default_device)
 OmegaConf.register_new_resolver("default_precision", default_precision)
-OmegaConf.register_new_resolver("default_random_seed", default_random_seed)
-OmegaConf.register_new_resolver("default_loss_type", default_loss_type)
-OmegaConf.register_new_resolver("default_loss_reduction", default_loss_reduction)
-OmegaConf.register_new_resolver(
-    "default_loss_sliding_factor", default_loss_sliding_factor
-)
-OmegaConf.register_new_resolver("default_loss_weight", default_loss_weight)
+OmegaConf.register_new_resolver("default_random_seed", lambda: RANDOM_SEED)
+OmegaConf.register_new_resolver("default_loss_type", lambda: "mse")
+OmegaConf.register_new_resolver("default_loss_reduction", lambda: "mean")
+OmegaConf.register_new_resolver("default_loss_sliding_factor", lambda: None)
+OmegaConf.register_new_resolver("default_loss_weight", lambda: 1.0)
 
 
 def _resolve_single_str(config: str) -> DictConfig:
