@@ -1,3 +1,4 @@
+import logging
 import warnings
 from math import prod
 from typing import Any, Dict, List, Literal, Optional
@@ -686,25 +687,23 @@ class PET(ModelInterface):
         checkpoint: Dict[str, Any],
         context: Literal["restart", "finetune", "export"],
     ) -> "PET":
-        model_data = checkpoint["model_data"]
-
         if context == "restart":
+            logging.info(f"Use latest model from epoch {checkpoint['epoch']}")
             model_state_dict = checkpoint["model_state_dict"]
-        elif context == "finetune" or context == "export":
+        elif context in {"finetune", "export"}:
+            logging.info(f"Use best model from epoch {checkpoint['best_epoch']}")
             model_state_dict = checkpoint["best_model_state_dict"]
-            if model_state_dict is None:
-                model_state_dict = checkpoint["model_state_dict"]
         else:
             raise ValueError("Unknown context tag for checkpoint loading!")
 
-        finetune_config = model_state_dict.pop("finetune_config", {})
-
         # Create the model
+        model_data = checkpoint["model_data"]
         model = cls(
             hypers=model_data["model_hypers"],
             dataset_info=model_data["dataset_info"],
         )
 
+        finetune_config = model_state_dict.pop("finetune_config", {})
         if finetune_config:
             # Apply the finetuning strategy
             model = apply_finetuning_strategy(model, finetune_config)
