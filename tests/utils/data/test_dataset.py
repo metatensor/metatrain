@@ -352,11 +352,16 @@ def test_dataset_info_union(layout_scalar, layout_cartesian):
     assert union.atomic_types == [1, 6]
     assert union.targets == other_targets
 
+
 def test_dataset_info_no_targets():
     """Tests the properties of a DatasetInfo that has no targets."""
-    dataset_info = DatasetInfo(length_unit="angstrom", atomic_types=[1, 2, 3], targets={})
-    
+    dataset_info = DatasetInfo(
+        length_unit="angstrom", atomic_types=[1, 2, 3], targets={}
+    )
+
     assert dataset_info.device is None
+    # Setting the device should not fail:
+    dataset_info.to(device="cpu")
 
 
 def test_dataset():

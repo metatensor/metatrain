@@ -151,6 +151,7 @@ def test_is_compatible_with(energy_target_config, spherical_target_config):
         energy_target_info_with_forces.is_compatible_with(spherical_target_config)
     )
 
+
 @pytest.mark.parametrize(
     "target_config",
     [
