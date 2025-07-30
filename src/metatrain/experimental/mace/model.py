@@ -28,12 +28,6 @@ from e3nn import o3
 
 from .utils.structures import create_batch
 
-@torch.jit.interface
-class LinearInterface(torch.nn.Module):
-
-    def forward(self, features, weight: Optional[torch.Tensor] = None, bias: Optional[torch.Tensor] = None) -> torch.Tensor:
-        pass
-
 from typing import TypedDict
 
 class Target(TypedDict):
@@ -48,8 +42,6 @@ class MetaMACE(ModelInterface):
     __default_metadata__ = ModelMetadata(
         # references={"architecture": ["https://arxiv.org/abs/2305.19302v3"]}
     )
-
-    component_labels: Dict[str, List[List[Labels]]]
 
     def __init__(self, model_hypers: Dict, dataset_info: DatasetInfo) -> None:
         super().__init__(model_hypers, dataset_info, self.__default_metadata__)
@@ -175,6 +167,41 @@ class MetaMACE(ModelInterface):
         self.scaler.restart(dataset_info)
 
         return self
+    
+    def _get_system_indices_and_labels(
+        self, systems: List[System], device: torch.device
+    ):
+        system_indices = torch.concatenate(
+            [
+                torch.full(
+                    (len(system),),
+                    i_system,
+                    device=device,
+                )
+                for i_system, system in enumerate(systems)
+            ],
+        )
+
+        sample_values = torch.stack(
+            [
+                system_indices,
+                torch.concatenate(
+                    [
+                        torch.arange(
+                            len(system),
+                            device=device,
+                        )
+                        for system in systems
+                    ],
+                ),
+            ],
+            dim=1,
+        )
+        sample_labels = Labels(
+            names=["system", "atom"],
+            values=sample_values,
+        )
+        return system_indices, sample_labels
 
     def forward(
         self,
@@ -192,13 +219,14 @@ class MetaMACE(ModelInterface):
         
         if self.single_label.values.device != device:
             self.single_label = self.single_label.to(device)
-            self.dataset_info.to(device=device)
+            self.dataset_info = self.dataset_info.to(device=device)
 
         data = create_batch(
             systems=systems,
             neighbor_list_options=self.requested_nl,
             atomic_types_to_species_index=self.atomic_types_to_species_index,
             n_types=len(self.atomic_types),
+            device=device,
         )
 
         # Change coordinates to YZX
@@ -251,42 +279,14 @@ class MetaMACE(ModelInterface):
         # for output_name, head in self.heads.items():
         #     atomic_features_dict[output_name] = head(node_features)
 
-        system_indices = torch.concatenate(
-            [
-                torch.full(
-                    (len(system),),
-                    i_system,
-                    device=device,
-                )
-                for i_system, system in enumerate(systems)
-            ],
-        )
-
-        sample_values = torch.stack(
-            [
-                system_indices,
-                torch.concatenate(
-                    [
-                        torch.arange(
-                            len(system),
-                            device=device,
-                        )
-                        for system in systems
-                    ],
-                ),
-            ],
-            dim=1,
-        )
-        atom_sample_labels = Labels(
-            names=["system", "atom"],
-            values=sample_values,
+        system_indices, sample_labels = self._get_system_indices_and_labels(
+            systems, device
         )
 
         node_features = mace_output["node_feats"]
         assert node_features is not None, "Node features should not be None"
         # # output the last-layer features for the outputs, if requested:
-        for output_name in outputs.keys():
-            head: LinearInterface = self.heads[output_name]
+        for output_name, head in self.heads.items():
             node_target = head.forward(node_features, weight=None, bias=None)
             target_info = self.dataset_info.targets[output_name]
 
@@ -318,7 +318,7 @@ class MetaMACE(ModelInterface):
                 blocks.append(
                     TensorBlock(
                         values=values,
-                        samples=atom_sample_labels,
+                        samples=sample_labels,
                         components=components,
                         properties=properties,
                     )
