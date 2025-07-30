@@ -28,6 +28,37 @@ from metatrain.utils.neighbor_lists import (
 
 RESOURCES_PATH = Path(__file__).parents[1] / "resources"
 
+def test_composition_model_float32_error():
+    systems = [
+        System(
+            positions=torch.tensor([[0.0, 0.0, 0.0]], dtype=torch.float64),
+            types=torch.tensor([8]),
+            cell=torch.eye(3, dtype=torch.float64),
+            pbc=torch.tensor([True, True, True]),
+        ).to(torch.float32),
+    ]
+    energies = [1.0]
+    dataset = Dataset.from_dict({"system": systems, "energy": energies})
+
+    composition_model = CompositionModel(
+        hypers={},
+        dataset_info=DatasetInfo(
+            length_unit="angstrom",
+            atomic_types=[1, 8],
+            targets={"energy": get_energy_target_info({"unit": "eV"})},
+        ),
+    )
+    with pytest.raises(
+        ValueError,
+        match=(
+            "The composition model only supports float64 "
+            "during training. Got dtype: torch.float32."
+        ),
+    ):
+        # This should raise an error because the systems are in float32
+        composition_model.train_model(dataset, [], batch_size=1)
+
+
 
 def test_old_composition_model_train():
     """Test the calculation of composition weights for a per-structure scalar."""
