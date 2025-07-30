@@ -13,9 +13,6 @@ from metatensor.torch import TensorMap, load_buffer
 from metatomic.torch import load_system
 from omegaconf import DictConfig
 
-# We explicitly import device because otherwise torch.jit.script doesn't
-# recognize the torch.device type
-from torch import device as _torch_device
 from torch.utils.data import Subset
 
 from metatrain.utils.data.readers.metatensor import (
@@ -89,7 +86,7 @@ class DatasetInfo:
         self._atomic_types = _set(value)
 
     @property
-    def device(self) -> _torch_device:
+    def device(self) -> Optional[torch.device]:
         """Return the device where the tensors of DatasetInfo are located.
 
         This function only checks the device of the first target
@@ -97,6 +94,8 @@ class DatasetInfo:
         This is guaranteed if the ``to()`` method has been used to move
         the DatasetInfo to a specific device.
         """
+        if len(self.targets) == 0:
+            return None
         first_target = list(self.targets.values())[0]
         return first_target.device
 
