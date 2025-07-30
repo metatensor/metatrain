@@ -142,6 +142,20 @@ class Trainer(TrainerInterface):
         for additive_model in model.additive_models:
             additive_model.to(dtype=torch.float64)
 
+        logging.info("Calculating composition weights")
+        model.additive_models[0].train_model(  # this is the composition model
+            train_datasets,
+            model.additive_models[1:],
+            self.hypers["batch_size"],
+            self.hypers["fixed_composition_weights"],
+        )
+
+        if self.hypers["scale_targets"]:
+            logging.info("Calculating scaling weights")
+            model.scaler.train_model(
+                train_datasets, model.additive_models, treat_as_additive=True
+            )
+
         logging.info("Setting up data loaders")
 
         if is_distributed:
@@ -201,31 +215,6 @@ class Trainer(TrainerInterface):
             )
         train_dataloader = CombinedDataLoader(train_dataloaders, shuffle=True)
 
-        # Create dataloader for the training datasets, specifically for the Composition
-        # Model:
-        train_dataloaders_composition = []
-        for train_dataset in train_datasets:
-            if len(train_dataset) < self.hypers["batch_size"]:
-                raise ValueError(
-                    f"A training dataset has fewer samples "
-                    f"({len(train_dataset)}) than the batch size "
-                    f"({self.hypers['batch_size']}). "
-                    "Please reduce the batch size."
-                )
-            train_dataloaders_composition.append(
-                DataLoader(
-                    dataset=train_dataset,
-                    batch_size=self.hypers["batch_size"],
-                    sampler=None,
-                    shuffle=False,
-                    drop_last=False,
-                    collate_fn=collate_fn,
-                )
-            )
-        train_dataloader_composition = CombinedDataLoader(
-            train_dataloaders_composition, shuffle=True
-        )
-
         # Create dataloader for the validation datasets:
         val_dataloaders = []
         for val_dataset, val_sampler in zip(val_datasets, val_samplers):
@@ -247,19 +236,6 @@ class Trainer(TrainerInterface):
                 )
             )
         val_dataloader = CombinedDataLoader(val_dataloaders, shuffle=False)
-
-        logging.info("Calculating composition weights")
-        model.additive_models[0].train_model(  # this is the composition model
-            train_dataloader_composition,
-            model.additive_models[1:],
-            self.hypers["fixed_composition_weights"],
-        )
-
-        if self.hypers["scale_targets"]:
-            logging.info("Calculating scaling weights")
-            model.scaler.train_model(
-                train_datasets, model.additive_models, treat_as_additive=True
-            )
 
         if is_distributed:
             model = DistributedDataParallel(model, device_ids=[device])

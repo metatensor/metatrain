@@ -185,6 +185,10 @@ class BaseCompositionModel(torch.nn.Module):
         dtype = systems[0].positions.dtype
         self._sync_device_dtype(device, dtype)
 
+        assert dtype == torch.float64, (
+            "Composition model only supports float64 dtype for training."
+        )
+
         # check that the systems contain no unexpected atom types
         for system in systems:
             if not torch.all(torch.isin(system.types, self.atomic_types)):
