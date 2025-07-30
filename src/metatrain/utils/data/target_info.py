@@ -4,6 +4,10 @@ import torch
 from metatensor.torch import Labels, TensorBlock, TensorMap, equal_metadata
 from omegaconf import DictConfig
 
+# We explicitly import device because otherwise torch.jit.script doesn't
+# recognize the torch.device type
+from torch import device as _torch_device
+
 
 class TargetInfo:
     """A class that contains information about a target.
@@ -226,6 +230,11 @@ class TargetInfo:
         if self.unit != other.unit:
             return False
         return equal_metadata(self.layout, other.layout, check_gradients=False)
+
+    @property
+    def device(self) -> _torch_device:
+        """Return the device of the target info's layout."""
+        return self.layout.device
 
     def to(
         self, device: Optional[torch.device] = None, dtype: Optional[torch.dtype] = None

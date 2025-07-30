@@ -238,6 +238,7 @@ class NanoPET(ModelInterface):
 
         if self.single_label.values.device != device:
             self.single_label = self.single_label.to(device)
+        if self.dataset_info.device != device:
             self.dataset_info = self.dataset_info.to(device)
 
         system_indices = torch.concatenate(
@@ -579,6 +580,9 @@ class NanoPET(ModelInterface):
         # For example, after training, the additive models could still be in
         # float64
         self.to(dtype)
+
+        # Move dataset info to CPU so that it can be saved
+        self.dataset_info = self.dataset_info.to(device="cpu")
 
         # Additionally, the composition model contains some `TensorMap`s that cannot
         # be registered correctly with Pytorch. This funciton moves them:
