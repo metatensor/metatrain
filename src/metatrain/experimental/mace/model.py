@@ -43,6 +43,8 @@ class MetaMACE(ModelInterface):
         # references={"architecture": ["https://arxiv.org/abs/2305.19302v3"]}
     )
 
+    dataset_info: DatasetInfo
+
     def __init__(self, model_hypers: Dict, dataset_info: DatasetInfo) -> None:
         super().__init__(model_hypers, dataset_info, self.__default_metadata__)
         # checks on targets inside the RotationalAugmenter class in the trainer
@@ -563,7 +565,7 @@ class MetaMACE(ModelInterface):
             "metadata": self.metadata,
             "model_data": {
                 "model_hypers": self.hypers,
-                "dataset_info": self.dataset_info,
+                "dataset_info": self.dataset_info.to(device="cpu"),
             },
             "model_state_dict": model_state_dict,
             "best_model_state_dict": None,
