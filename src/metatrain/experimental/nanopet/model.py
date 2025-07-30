@@ -676,7 +676,7 @@ class NanoPET(ModelInterface):
             "metadata": self.metadata,
             "model_data": {
                 "model_hypers": self.hypers,
-                "dataset_info": self.dataset_info.to_device("cpu"),
+                "dataset_info": self.dataset_info.to(device="cpu"),
             },
             "model_state_dict": self.state_dict(),
             "best_model_state_dict": None,
