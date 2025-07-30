@@ -38,7 +38,7 @@ from ..utils.io import (
     trainer_from_checkpoint,
 )
 from ..utils.jsonschema import validate
-from ..utils.logging import ROOT_LOGGER, WandbHandler
+from ..utils.logging import ROOT_LOGGER, WandbHandler, human_readable
 from ..utils.omegaconf import BASE_OPTIONS, check_units, expand_dataset_config
 from .eval import _eval_targets
 from .export import _has_extensions
@@ -528,7 +528,7 @@ def train_model(
     n_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
     logging.info(
         (
-            f"The model has {_human_readable(n_params)} parameters "
+            f"The model has {human_readable(n_params)} parameters "
             f"(actual number: {n_params})."
         )
     )
@@ -676,20 +676,3 @@ def _get_batch_size_from_hypers(hypers: Union[Dict, DictConfig]) -> Optional[int
         ):
             return value
     return None
-
-
-def _human_readable(n):
-    suffixes = ["", "K", "M", "B", "T"]
-    idx = 0
-    x = float(n)
-
-    while abs(x) >= 1000 and idx < len(suffixes) - 1:
-        x /= 1000
-        idx += 1
-
-    if abs(x) < 100:
-        s = f"{x:.1f}".rstrip("0").rstrip(".")
-    else:
-        s = f"{x:.0f}"
-
-    return f"{s}{suffixes[idx]}"
