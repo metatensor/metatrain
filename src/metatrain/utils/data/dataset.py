@@ -12,7 +12,6 @@ from metatensor.learn.data._namedtuple import namedtuple
 from metatensor.torch import TensorMap, load_buffer
 from metatomic.torch import load_system
 from omegaconf import DictConfig
-
 from torch.utils.data import Subset
 
 from metatrain.utils.data.readers.metatensor import (
