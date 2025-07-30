@@ -200,6 +200,7 @@ def test_dataset_info(layout_scalar):
     assert dataset_info.targets["energy"].unit == "kcal/mol"
     assert dataset_info.targets["mtt::U0"].quantity == "energy"
     assert dataset_info.targets["mtt::U0"].unit == "kcal/mol"
+    assert dataset_info.device == layout_scalar.device
 
     expected = (
         "DatasetInfo(length_unit='angstrom', atomic_types=[1, 2, 3], "
@@ -350,6 +351,12 @@ def test_dataset_info_union(layout_scalar, layout_cartesian):
     assert union.length_unit == "angstrom"
     assert union.atomic_types == [1, 6]
     assert union.targets == other_targets
+
+def test_dataset_info_no_targets():
+    """Tests the properties of a DatasetInfo that has no targets."""
+    dataset_info = DatasetInfo(length_unit="angstrom", atomic_types=[1, 2, 3], targets={})
+    
+    assert dataset_info.device is None
 
 
 def test_dataset():

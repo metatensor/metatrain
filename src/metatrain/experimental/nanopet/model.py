@@ -238,7 +238,9 @@ class NanoPET(ModelInterface):
 
         if self.single_label.values.device != device:
             self.single_label = self.single_label.to(device)
-        if self.dataset_info.device != device:
+        
+        info_device = self.dataset_info.device
+        if info_device is not None and info_device != device:
             self.dataset_info = self.dataset_info.to(device)
 
         system_indices = torch.concatenate(
