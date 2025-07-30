@@ -143,12 +143,23 @@ class Trainer(TrainerInterface):
             additive_model.to(dtype=torch.float64)
 
         logging.info("Calculating composition weights")
-        model.additive_models[0].train_model(  # this is the composition model
-            train_datasets,
-            model.additive_models[1:],
-            self.hypers["batch_size"],
-            self.hypers["fixed_composition_weights"],
-        )
+
+        if rank == 0:
+            model.additive_models[0].train_model(  # this is the composition model
+                train_datasets,
+                model.additive_models[1:],
+                self.hypers["batch_size"],
+                self.hypers["fixed_composition_weights"],
+            )
+
+        if is_distributed:
+            model.additive_models[0].model._sync_device_dtype(
+                torch.device("cpu"), torch.float64
+            )
+            model.additive_models[0] = broadcast_instance(
+                model.additive_models[0], src=0
+            )
+            model.additive_models[0].model._sync_device_dtype(device, torch.float64)
 
         if self.hypers["scale_targets"]:
             logging.info("Calculating scaling weights")
@@ -584,3 +595,14 @@ class Trainer(TrainerInterface):
     @staticmethod
     def upgrade_checkpoint(checkpoint: Dict) -> Dict:
         raise NotImplementedError("checkpoint upgrade is not implemented for PET")
+
+
+def broadcast_instance(obj, src: int = 0) -> object:
+    """
+    Broadcast a picklable Python object (e.g. a class instance) from rank `src`
+    to all other ranks, returning the (same) object on every rank.
+    """
+    rank = torch.distributed.get_rank()
+    obj_list = [obj] if rank == src else [None]
+    torch.distributed.broadcast_object_list(obj_list, src)
+    return obj_list[0]

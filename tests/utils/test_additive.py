@@ -28,6 +28,7 @@ from metatrain.utils.neighbor_lists import (
 
 RESOURCES_PATH = Path(__file__).parents[1] / "resources"
 
+
 def test_composition_model_float32_error():
     systems = [
         System(
@@ -57,7 +58,6 @@ def test_composition_model_float32_error():
     ):
         # This should raise an error because the systems are in float32
         composition_model.train_model(dataset, [], batch_size=1)
-
 
 
 def test_old_composition_model_train():
