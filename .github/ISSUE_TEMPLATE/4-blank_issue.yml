@@ -1,0 +1,12 @@
+name: 📝 Blank issue
+description: Create a new issue from scratch.
+body:
+  - type: textarea
+    id: description
+    attributes:
+      label: Description of the issue
+      description: |
+        Describe the issue you found. Be as specific as possible.
+      placeholder: Describe the problem clearly.
+    validations:
+      required: true
