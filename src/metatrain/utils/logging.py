@@ -440,23 +440,14 @@ def _sort_metric_names(name_list):
     return sorted_name_list
 
 
-def human_readable(n):
+def human_readable(n: Union[int, float]) -> str:
     """Convert a number to a human-readable format with suffixes.
 
     This function takes a number and formats it into a string with metric
     suffixes (K for thousands, M for millions, B for billions, T for trillions).
 
-    - Numbers less than 1000 are returned as is.
-    - Numbers between 1,000 and 99,999 are formatted with one decimal place and a "K"
-        suffix (e.g., 1234 becomes "1.2K").
-    - Numbers from 100,000 up to 999,999 are formatted as an integer with a "K"
-        suffix (e.g., 123456 becomes "123K").
-    - This pattern continues for millions (M), billions (B), and trillions (T).
-
     :param n: The number to be converted.
-    :type n: int or float
     :return: The human-readable string representation of the number.
-    :rtype: str
 
     """
     suffixes = ["", "K", "M", "B", "T"]
