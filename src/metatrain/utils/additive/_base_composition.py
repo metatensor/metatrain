@@ -11,6 +11,8 @@ import torch
 from metatensor.torch import Labels, LabelsEntry, TensorBlock, TensorMap
 from metatomic.torch import ModelOutput, System
 
+from metatrain.utils.basis import get_edge_sample_labels_1_center
+
 
 class BaseCompositionModel(torch.nn.Module):
     """
@@ -80,17 +82,36 @@ class BaseCompositionModel(torch.nn.Module):
 
         self.target_names.append(target_name)
         self.is_fitted[target_name] = False
-        if layout.sample_names == ["system"]:
+        valid_sample_names = [
+            ["system"],
+            [
+                "system",
+                "atom",
+            ],
+            [
+                "system",
+                "first_atom",
+                "second_atom",
+                "cell_shift_a",
+                "cell_shift_b",
+                "cell_shift_c",
+            ],
+        ]
+
+        if layout.sample_names == valid_sample_names[0]:
             self.sample_kinds[target_name] = "per_structure"
 
-        elif layout.sample_names == ["system", "atom"]:
+        elif layout.sample_names == valid_sample_names[1]:
             self.sample_kinds[target_name] = "per_atom"
+
+        elif layout.sample_names == valid_sample_names[2]:
+            self.sample_kinds[target_name] = "per_pair"
 
         else:
             raise ValueError(
                 "unknown sample kind. TensorMap has sample names"
-                f" {layout.sample_names} but expected either"
-                "['system'], or ['system', 'atom']"
+                f" {layout.sample_names} but expected one of "
+                f"{valid_sample_names}."
             )
 
         # First slice the layout to only include the keys that the composition
@@ -206,7 +227,7 @@ class BaseCompositionModel(torch.nn.Module):
                 if self.sample_kinds[target_name] == "per_structure":
                     X = self._compute_X_per_structure(systems)
 
-                elif self.sample_kinds[target_name] == "per_atom":
+                elif self.sample_kinds[target_name] in ["per_atom", "per_pair"]:
                     X = self._compute_X_per_atom(
                         systems, self._get_sliced_atomic_types(key)
                     )
@@ -279,7 +300,7 @@ class BaseCompositionModel(torch.nn.Module):
 
                 blocks.append(
                     TensorBlock(
-                        values=weight_vals,
+                        values=weight_vals.contiguous(),
                         samples=XTY_block.samples.to(device=weight_vals.device),
                         components=XTY_block.components,
                         properties=XTY_block.properties.to(device=weight_vals.device),
@@ -316,10 +337,39 @@ class BaseCompositionModel(torch.nn.Module):
         dtype = systems[0].positions.dtype
         self._sync_device_dtype(device, dtype)
 
+        # Build the sample labels that are required
         system_indices, sample_labels_per_atom = _get_system_indices_and_labels(
             systems, device
         )
+        if any(
+            [
+                sample_kind == "per_structure" and not model_output.per_atom
+                for sample_kind, model_output in zip(
+                    self.sample_kinds.values(), outputs.values()
+                )
+            ]
+        ):
+            sample_labels_per_structure = Labels(
+                ["system"],
+                torch.arange(len(systems), dtype=torch.int32, device=device).reshape(
+                    -1, 1
+                ),
+            ).to(device=device)
+        else:
+            sample_labels_per_structure = Labels(
+                ["_"], torch.empty(0).reshape(-1, 1)
+            ).to(device=device)
 
+        if any([k == "per_pair" for k in self.sample_kinds.values()]):
+            sample_labels_per_pair = get_edge_sample_labels_1_center(
+                sample_labels_per_atom, device
+            ).to(device=device)
+        else:
+            sample_labels_per_pair = Labels(["_"], torch.empty(0).reshape(-1, 1)).to(
+                device=device
+            )
+
+        # Build the predictions for each output
         predictions: Dict[str, TensorMap] = {}
         for output_name, model_output in outputs.items():
             if output_name not in self.target_names:
@@ -331,7 +381,7 @@ class BaseCompositionModel(torch.nn.Module):
             prediction_key_vals = []
             prediction_blocks: List[TensorBlock] = []
             for key, weight_block in weights.items():
-                # Compute X
+                # Compute X and choose the right sample labels
                 if self.sample_kinds[output_name] == "per_structure":
                     if model_output.per_atom:
                         sample_labels = sample_labels_per_atom
@@ -340,18 +390,17 @@ class BaseCompositionModel(torch.nn.Module):
                         )
 
                     else:
-                        sample_labels = Labels(
-                            ["system"],
-                            torch.arange(
-                                len(systems), dtype=torch.int32, device=device
-                            ).reshape(-1, 1),
-                        ).to(device=device)
+                        sample_labels = sample_labels_per_structure
                         X = self._compute_X_per_structure(systems)
 
-                # TODO: add support for per_pair. As compositions are only fitted for
-                # on-site blocks this extension is simple, reusing the per_atom code.
                 elif self.sample_kinds[output_name] == "per_atom":
                     sample_labels = sample_labels_per_atom
+                    X = self._compute_X_per_atom(
+                        systems, self._get_sliced_atomic_types(key)
+                    )
+
+                elif self.sample_kinds[output_name] == "per_pair":
+                    sample_labels = sample_labels_per_pair
                     X = self._compute_X_per_atom(
                         systems, self._get_sliced_atomic_types(key)
                     )
@@ -508,20 +557,53 @@ def _include_key(key: LabelsEntry) -> bool:
     composition model.
 
     The rules are as follows:
-        - If the key has a single name "_" (indicating a scalar),
-          it is included.
-        - If the key has names "o3_lambda" and "o3_sigma", it is included
-          if values are 0 and 1 respectively (indicating an invariant block of a
+        - If the key has a single name "_" (indicating a scalar), it is included.
+        - If the key has names ["o3_lambda", "o3_sigma"] it is included if values are 0
+          and 1 respectively (indicating an invariant block of a spherical target).
+        - If the key has names ["o3_lambda", "o3_sigma", "n_centers"], it is included if
+          values are 0, 1, 1 respectively (indicating an invariant block of a per-atom
           spherical target).
+        - If the key has names ["o3_lambda", "o3_sigma", "n_center", "s2_pi"], it is
+          included if values are 0, 1, 1, 0 respectively (indicating an on-site
+          invariant block of a per-pair target).
     """
+    valid_key_names = [
+        ["_"],  # scalar
+        ["o3_lambda", "o3_sigma"],  # spherical
+        ["o3_lambda", "o3_sigma", "n_centers"],  # spherical per-atom
+        [
+            "o3_lambda",
+            "o3_sigma",
+            "n_centers",
+            "s2_pi",
+        ],  # spherical per-pair, symmetrized
+    ]
     include_key = False
 
-    if len(key.names) == 1 and key.names[0] == "_":  # scalar
+    if key.names == valid_key_names[0]:
         include_key = True
 
-    if "o3_lambda" in key.names and "o3_sigma" in key.names:
+    elif key.names == valid_key_names[1]:
         if key["o3_lambda"] == 0 and key["o3_sigma"] == 1:
             include_key = True
+
+    elif key.names == valid_key_names[2]:
+        if key["o3_lambda"] == 0 and key["o3_sigma"] == 1 and key["n_centers"] == 1:
+            include_key = True
+
+    elif key.names == valid_key_names[3]:
+        if (
+            key["o3_lambda"] == 0
+            and key["o3_sigma"] == 1
+            and key["s2_pi"] == 0
+            and key["n_centers"] == 1
+        ):
+            include_key = True
+
+    else:
+        raise ValueError(
+            f"key names {key.names} not in valid key names {valid_key_names}"
+        )
 
     return include_key
 
