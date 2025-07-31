@@ -1,4 +1,4 @@
-from typing import List
+from typing import List, Tuple
 
 import torch
 from metatensor.torch import Labels
@@ -95,7 +95,8 @@ def get_edge_sample_labels_2_center(
     systems: List[System],
     nl_options: NeighborListOptions,
     device: torch.device,
-) -> Labels:
+    triu: bool,
+) -> Tuple[Labels, torch.Tensor]:
     """
     Builds the edge samples labels for the input ``systems``, based on the pre-computed
     neighbor list. Returns the labels for both the ``n_centers=1`` and ``n_centers=2``
@@ -127,11 +128,19 @@ def get_edge_sample_labels_2_center(
                 ],
             )
         )
+    edge_sample_values_2_center = torch.vstack(edge_sample_values_2_center)
+
+    # As we only want the upper triangular part, we need to filter the samples based on
+    # the first and second atom indices, but also return the mask as this is needed by
+    # the model.
+    edge_sample_triu_mask = edge_sample_values_2_center[:, 1] <= edge_sample_values_2_center[:, 2]
+    edge_sample_values_2_center = edge_sample_values_2_center[edge_sample_triu_mask]
+
     edge_sample_labels_2_center = Labels(
-        sample_names,
-        torch.vstack(edge_sample_values_2_center),
+        sample_names, edge_sample_values_2_center
     ).to(device=device)
-    return edge_sample_labels_2_center
+
+    return edge_sample_labels_2_center, edge_sample_triu_mask
 
 
 def get_permutation_symmetrization_arrays(

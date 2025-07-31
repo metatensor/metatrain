@@ -271,12 +271,13 @@ class PET(ModelInterface):
             edge_sample_labels_1_center = get_edge_sample_labels_1_center(
                 node_sample_labels, device
             )
-            edge_sample_labels_2_center = get_edge_sample_labels_2_center(
+            edge_sample_labels_2_center, edge_sample_triu_mask = get_edge_sample_labels_2_center(
                 systems, nl_options, device
             )
         else:
             edge_sample_labels_1_center = Labels("_", torch.empty(0).reshape(-1, 1))
             edge_sample_labels_2_center = Labels("_", torch.empty(0).reshape(-1, 1))
+            edge_sample_triu_mask = torch.tensor([], dtype=torch.bool, device=device)
 
         # We convert a list of systems to a batch required for the PET model.
         # The batch consists of the following tensors: f
