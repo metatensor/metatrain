@@ -143,6 +143,11 @@ def evaluate_model(
         else:
             pass
 
+    # When not training, detach all outputs to prevent memory accumulation
+    if not is_training:
+        for key in model_outputs:
+            model_outputs[key] = mts.detach(model_outputs[key])
+
     return model_outputs
 
 
