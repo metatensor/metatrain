@@ -14,7 +14,7 @@ class LossInterface(ABC):
     """
     Abstract base for all loss functions.
 
-    Subclasses must implement compute(predictions, targets) -> torch.Tensor.
+    Subclasses must implement the ``compute`` method.
     """
 
     weight: float
