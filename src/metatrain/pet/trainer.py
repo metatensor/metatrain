@@ -82,6 +82,14 @@ class Trainer(TrainerInterface):
             torch.distributed.init_process_group(backend="nccl")
             world_size = torch.distributed.get_world_size()
             rank = torch.distributed.get_rank()
+
+            # Set up tmp group just for the composition model
+            from datetime import timedelta
+
+            cm_group = torch.distributed.new_group(
+                backend="nccl",
+                timeout=timedelta(days=1),  # very long waiting time
+            )
         else:
             rank = 0
 
@@ -153,6 +161,8 @@ class Trainer(TrainerInterface):
             )
 
         if is_distributed:
+            torch.distributed.barrier(group=cm_group)
+            torch.distributed.destroy_process_group(cm_group)
             model.additive_models[0].model._sync_device_dtype(
                 torch.device("cpu"), torch.float64
             )
