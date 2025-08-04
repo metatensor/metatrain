@@ -272,7 +272,7 @@ class PET(ModelInterface):
                 node_sample_labels, device
             )
             edge_sample_labels_2_center, edge_sample_triu_mask = get_edge_sample_labels_2_center(
-                systems, nl_options, device
+                systems, nl_options, device, triu=True
             )
         else:
             edge_sample_labels_1_center = Labels("_", torch.empty(0).reshape(-1, 1))
@@ -807,6 +807,12 @@ class PET(ModelInterface):
                                                 ]
                                             )
                                         ) / 2.0  # TODO: do we want this factor of 2?
+
+                                # Finally, slice the edge predictions to be traingular
+                                # in atom indices.
+                                edge_atomic_predictions = (
+                                    edge_atomic_predictions[edge_sample_triu_mask]
+                                )
 
                         edge_atomic_predictions_by_block.append(edge_atomic_predictions)
                     edge_atomic_predictions_dict[output_name].append(
