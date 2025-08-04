@@ -133,12 +133,14 @@ def get_edge_sample_labels_2_center(
     # As we only want the upper triangular part, we need to filter the samples based on
     # the first and second atom indices, but also return the mask as this is needed by
     # the model.
-    edge_sample_triu_mask = edge_sample_values_2_center[:, 1] <= edge_sample_values_2_center[:, 2]
+    edge_sample_triu_mask = (
+        edge_sample_values_2_center[:, 1] <= edge_sample_values_2_center[:, 2]
+    )
     edge_sample_values_2_center = edge_sample_values_2_center[edge_sample_triu_mask]
 
-    edge_sample_labels_2_center = Labels(
-        sample_names, edge_sample_values_2_center
-    ).to(device=device)
+    edge_sample_labels_2_center = Labels(sample_names, edge_sample_values_2_center).to(
+        device=device
+    )
 
     return edge_sample_labels_2_center, edge_sample_triu_mask
 

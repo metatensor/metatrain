@@ -271,8 +271,8 @@ class PET(ModelInterface):
             edge_sample_labels_1_center = get_edge_sample_labels_1_center(
                 node_sample_labels, device
             )
-            edge_sample_labels_2_center, edge_sample_triu_mask = get_edge_sample_labels_2_center(
-                systems, nl_options, device, triu=True
+            edge_sample_labels_2_center, edge_sample_triu_mask = (
+                get_edge_sample_labels_2_center(systems, nl_options, device, triu=True)
             )
         else:
             edge_sample_labels_1_center = Labels("_", torch.empty(0).reshape(-1, 1))
@@ -438,13 +438,10 @@ class PET(ModelInterface):
                 return_dict["features"] = sum_over_atoms(feature_tmap)
 
         if "edge_features" in outputs:
-
             edge_features = torch.cat(edge_features_list, dim=2)
             edge_features = edge_features * cutoff_factors[:, :, None]
 
-            edge_features = edge_features.reshape(
-                -1, edge_features.shape[-1]
-            )
+            edge_features = edge_features.reshape(-1, edge_features.shape[-1])
             edge_features = edge_features[padding_mask.reshape(-1)]
 
             feature_tmap = TensorMap(
@@ -465,7 +462,6 @@ class PET(ModelInterface):
             )
             assert outputs["edge_features"].per_atom
             return_dict["edge_features"] = feature_tmap
-
 
         # Stage 3. We compute last layer features for each requested output,
         # for both node and edge features from each GNN layer. To do this, apply the
@@ -528,14 +524,14 @@ class PET(ModelInterface):
                 edge_last_layer_features = edge_last_layer_features[
                     padding_mask.reshape(-1)
                 ]
-                last_layer_edge_features_dict[output_name].append(edge_last_layer_features)
+                last_layer_edge_features_dict[output_name].append(
+                    edge_last_layer_features
+                )
 
         for output_name in outputs.keys():
-            if (
-                output_name.startswith("mtt::aux::")
-                and output_name.endswith("_last_layer_features")
+            if output_name.startswith("mtt::aux::") and output_name.endswith(
+                "_last_layer_features"
             ):
-                
                 base_name = output_name.replace("mtt::aux::", "").replace(
                     "_last_layer_features", ""
                 )
@@ -576,11 +572,9 @@ class PET(ModelInterface):
                 else:
                     return_dict[output_name] = sum_over_atoms(last_layer_feature_tmap)
 
-            if (
-                output_name.startswith("mtt::aux::")
-                and output_name.endswith("_last_layer_edge_features")
+            if output_name.startswith("mtt::aux::") and output_name.endswith(
+                "_last_layer_edge_features"
             ):
-
                 base_name = output_name.replace("mtt::aux::", "").replace(
                     "_last_layer_edge_features", ""
                 )
@@ -810,9 +804,9 @@ class PET(ModelInterface):
 
                                 # Finally, slice the edge predictions to be traingular
                                 # in atom indices.
-                                edge_atomic_predictions = (
-                                    edge_atomic_predictions[edge_sample_triu_mask]
-                                )
+                                edge_atomic_predictions = edge_atomic_predictions[
+                                    edge_sample_triu_mask
+                                ]
 
                         edge_atomic_predictions_by_block.append(edge_atomic_predictions)
                     edge_atomic_predictions_dict[output_name].append(
@@ -1231,6 +1225,7 @@ class PET(ModelInterface):
             "best_model_state_dict": None,
         }
         return checkpoint
+
 
 def manual_prod(shape: List[int]) -> int:
     # prod from standard library not supported in torchscript
