@@ -4,8 +4,8 @@ import json
 import logging
 import os
 import random
+import re
 import shutil
-import time
 from pathlib import Path
 from typing import Dict, Optional, Union
 
@@ -38,7 +38,7 @@ from ..utils.io import (
     trainer_from_checkpoint,
 )
 from ..utils.jsonschema import validate
-from ..utils.logging import ROOT_LOGGER, WandbHandler
+from ..utils.logging import ROOT_LOGGER, WandbHandler, human_readable
 from ..utils.omegaconf import (
     BASE_OPTIONS,
     check_units,
@@ -99,8 +99,8 @@ def _add_train_model_parser(subparser: argparse._SubParsersAction) -> None:
         type=_process_restart_from,
         required=False,
         help=(
-            "Checkpoint file (.ckpt) to continue interrupted training. "
-            "Set to `'auto'` to use latest checkpoint from the outputs directory."
+            "Checkpoint file (.ckpt) to continue interrupted training. Set to `'auto'` "
+            "to take the most recent checkpoint from the outputs directory."
         ),
     )
     parser.add_argument(
@@ -123,39 +123,18 @@ def _prepare_train_model_args(args: argparse.Namespace) -> None:
     args.options = OmegaConf.merge(args.options, override_options)
 
 
-def _process_restart_from(restart_from: str) -> Optional[str]:
-    # covers the case where `restart_from` is `auto`
-    if restart_from == "auto":
-        # try to find the `outputs` directory; if it doesn't exist
-        # then we are not continuing from a previous run
-        if Path("outputs/").exists():
-            # take the latest year-month-day directory
-            dir = sorted(Path("outputs/").iterdir())[-1]
-            # take the latest hour-minute-second directory
-            dir = sorted(dir.iterdir())[-1]
-            # take the latest checkpoint. This cannot be done with
-            # `sorted` because some checkpoint files are named with
-            # the epoch number (e.g. `epoch_10.ckpt` would be before
-            # `epoch_8.ckpt`). We therefore sort by file creation time.
-            new_restart_from = str(
-                sorted(dir.glob("*.ckpt"), key=lambda f: f.stat().st_ctime)[-1]
-            )
-            logging.info(f"Auto-continuing from `{new_restart_from}`")
-        else:
-            new_restart_from = None
-            logging.info(
-                "Auto-continuation did not find any previous runs, "
-                "training from scratch"
-            )
-        # sleep for a few seconds to allow all processes to catch up. This is
-        # necessary because the `outputs` directory is created by the main
-        # process and the other processes might detect it by mistake if they're
-        # still executing this function
-        time.sleep(3)
-    else:
-        new_restart_from = restart_from
+def _process_restart_from(restart_from: str) -> Optional[Union[str, Path]]:
+    if restart_from != "auto":
+        return restart_from
 
-    return new_restart_from
+    pattern = re.compile(r".*\d{4}-\d{2}-\d{2}/\d{2}-\d{2}-\d{2}/*")
+    checkpoints = sorted(
+        (f for f in Path("outputs").glob("*/*/*.ckpt") if pattern.match(str(f))),
+        key=lambda f: f.stat().st_ctime,
+        reverse=True,
+    )
+
+    return checkpoints[0] if checkpoints else None
 
 
 def train_model(
@@ -557,7 +536,7 @@ def train_model(
     n_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
     logging.info(
         (
-            f"The model has {_human_readable(n_params)} parameters "
+            f"The model has {human_readable(n_params)} parameters "
             f"(actual number: {n_params})."
         )
     )
@@ -705,23 +684,3 @@ def _get_batch_size_from_hypers(hypers: Union[Dict, DictConfig]) -> Optional[int
         ):
             return value
     return None
-
-
-def _human_readable(n):
-    """
-    Turn a number into a human-friendly string
-    """
-    suffixes = ["", "K", "M", "B", "T"]
-    if n == 0:
-        return "0"
-    # figure out which suffix to use
-    idx = min(int(np.log10(abs(n)) // 3), len(suffixes) - 1)
-    value = n / (1000**idx)
-    # pick formatting: one decimal if <10, otherwise integer with commas
-    if value < 10:
-        s = f"{value:.1f}"
-    else:
-        s = f"{int(value):,d}"
-    # drop any trailing ".0"
-    s = s.rstrip(".0")
-    return f"{s}{suffixes[idx]}"
