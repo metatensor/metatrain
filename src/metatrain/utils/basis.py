@@ -95,8 +95,7 @@ def get_edge_sample_labels_2_center(
     systems: List[System],
     nl_options: NeighborListOptions,
     device: torch.device,
-    triu: bool,
-) -> Tuple[Labels, torch.Tensor]:
+) -> Tuple[Labels, Labels, torch.Tensor]:
     """
     Builds the edge samples labels for the input ``systems``, based on the pre-computed
     neighbor list. Returns the labels for both the ``n_centers=1`` and ``n_centers=2``
@@ -130,26 +129,33 @@ def get_edge_sample_labels_2_center(
         )
     edge_sample_values_2_center = torch.vstack(edge_sample_values_2_center)
 
+    # Create the labels for the edge samples
+    edge_sample_labels_2_center_full = Labels(
+        sample_names, edge_sample_values_2_center
+    ).to(device=device)
+
     # As we only want the upper triangular part, we need to filter the samples based on
     # the first and second atom indices, but also return the mask as this is needed by
     # the model.
-    edge_sample_triu_mask = (
+    edge_samples_mask_2_center_triu = (
         edge_sample_values_2_center[:, 1] <= edge_sample_values_2_center[:, 2]
     )
-    edge_sample_values_2_center = edge_sample_values_2_center[edge_sample_triu_mask]
+    edge_sample_labels_2_center_triu = Labels(
+        sample_names, edge_sample_values_2_center[edge_samples_mask_2_center_triu]
+    ).to(device=device)
 
-    edge_sample_labels_2_center = Labels(sample_names, edge_sample_values_2_center).to(
-        device=device
+    return (
+        edge_sample_labels_2_center_full,
+        edge_sample_labels_2_center_triu,
+        edge_samples_mask_2_center_triu,
     )
-
-    return edge_sample_labels_2_center, edge_sample_triu_mask
 
 
 def get_permutation_symmetrization_arrays(
     systems: List[System],
-    edge_sample_labels_2_center: Labels,
+    edge_sample_labels_2_center_full: Labels,
 ):
-    assert edge_sample_labels_2_center.names == [
+    assert edge_sample_labels_2_center_full.names == [
         "system",
         "first_atom",
         "second_atom",
@@ -159,18 +165,18 @@ def get_permutation_symmetrization_arrays(
     ]
 
     # If we have no offsite terms, return empty arrays
-    if len(edge_sample_labels_2_center.values) == 0:
-        device = edge_sample_labels_2_center.values.device
+    if len(edge_sample_labels_2_center_full.values) == 0:
+        device = edge_sample_labels_2_center_full.values.device
         return (
             torch.tensor([], dtype=torch.bool, device=device),
             torch.tensor([], dtype=torch.bool, device=device),
             torch.tensor([], dtype=torch.int32, device=device),
             Labels(
-                edge_sample_labels_2_center.names,
+                edge_sample_labels_2_center_full.names,
                 torch.tensor([], dtype=torch.int32, device=device).reshape(0, 6),
             ),
             Labels(
-                edge_sample_labels_2_center.names,
+                edge_sample_labels_2_center_full.names,
                 torch.tensor([], dtype=torch.int32, device=device).reshape(0, 6),
             ),
         )
@@ -179,54 +185,60 @@ def get_permutation_symmetrization_arrays(
     atom_types = torch.vstack(
         [
             systems[sample[0]].types[sample[1:3]]
-            for sample in edge_sample_labels_2_center.values
+            for sample in edge_sample_labels_2_center_full.values
         ]
     )
 
     # build the masks for same and different atom types
-    samples_mask_2_center_same_types: torch.Tensor = (
-        atom_types[:, 0] == atom_types[:, 1]
-    )
-    samples_mask_2_center_diff_types: torch.Tensor = (
+    samples_mask_2_center_diff_types_triu: torch.Tensor = (
         atom_types[:, 0] != atom_types[:, 1]
+    ) & (
+        edge_sample_labels_2_center_full.values[:, 1]
+        <= edge_sample_labels_2_center_full.values[:, 2]
+    )
+    samples_mask_2_center_same_types_triu: torch.Tensor = (
+        atom_types[:, 0] == atom_types[:, 1]
+    ) & (
+        edge_sample_labels_2_center_full.values[:, 1]
+        <= edge_sample_labels_2_center_full.values[:, 2]
     )
 
     # build the samples labels for atom pairs with the same and different atom types
-    edge_sample_labels_2_center_same_types: Labels = Labels(
-        edge_sample_labels_2_center.names,
-        edge_sample_labels_2_center.values[samples_mask_2_center_same_types],
+    edge_sample_labels_2_center_diff_types_triu: Labels = Labels(
+        edge_sample_labels_2_center_full.names,
+        edge_sample_labels_2_center_full.values[samples_mask_2_center_diff_types_triu],
     )
-    edge_sample_labels_2_center_diff_types: Labels = Labels(
-        edge_sample_labels_2_center.names,
-        edge_sample_labels_2_center.values[samples_mask_2_center_diff_types],
+    edge_sample_labels_2_center_same_types_triu: Labels = Labels(
+        edge_sample_labels_2_center_full.names,
+        edge_sample_labels_2_center_full.values[samples_mask_2_center_same_types_triu],
     )
 
     # create permuted sample labels by swapping the atom indices and inverting the sign
     # of the cell shifts
-    edge_sample_values_2_center_same_types_perm: torch.Tensor = (
-        edge_sample_labels_2_center_same_types.permute(
+    edge_sample_values_2_center_same_types_triu_perm: torch.Tensor = (
+        edge_sample_labels_2_center_same_types_triu.permute(
             [0, 2, 1, 3, 4, 5]
         ).values.clone()
     )
-    edge_sample_values_2_center_same_types_perm[:, 3:6] *= -1
-    edge_sample_labels_2_center_same_types_perm = Labels(
-        edge_sample_labels_2_center_same_types.names,
-        edge_sample_values_2_center_same_types_perm,
+    edge_sample_values_2_center_same_types_triu_perm[:, 3:6] *= -1
+    edge_sample_labels_2_center_same_types_triu_perm = Labels(
+        edge_sample_labels_2_center_full.names,
+        edge_sample_values_2_center_same_types_triu_perm,
     )
 
     # find the map from the original edge samples to the permuted samples
-    permuted_samples_map_same_types: torch.Tensor = (
-        edge_sample_labels_2_center_same_types.select(
-            edge_sample_labels_2_center_same_types_perm
+    samples_map_2_center_same_types_triu_perm: torch.Tensor = (
+        edge_sample_labels_2_center_full.select(
+            edge_sample_labels_2_center_same_types_triu_perm
         )
     )
 
     return (
-        samples_mask_2_center_same_types,
-        samples_mask_2_center_diff_types,
-        permuted_samples_map_same_types,
-        edge_sample_labels_2_center_same_types,
-        edge_sample_labels_2_center_diff_types,
+        samples_mask_2_center_diff_types_triu,
+        samples_mask_2_center_same_types_triu,
+        samples_map_2_center_same_types_triu_perm,
+        edge_sample_labels_2_center_diff_types_triu,
+        edge_sample_labels_2_center_same_types_triu,
     )
 
 
@@ -235,9 +247,9 @@ def get_sample_labels_block(
     sample_kind: str,
     node_sample_labels: Labels,
     edge_sample_labels_1_center: Labels,
-    edge_sample_labels_2_center: Labels,
-    edge_sample_labels_2_center_same_types: Labels,
-    edge_sample_labels_2_center_diff_types: Labels,
+    edge_sample_labels_2_center_triu: Labels,
+    edge_sample_labels_2_center_diff_types_triu: Labels,
+    edge_sample_labels_2_center_same_types_triu: Labels,
 ) -> Labels:
     """Returns the correct block samples labels for the given
     output, based on the key"""
@@ -257,10 +269,10 @@ def get_sample_labels_block(
                 s2_pi = extract_key_value(key, "s2_pi")
                 assert s2_pi in [0, 1, -1]
                 if s2_pi == 0:
-                    sample_labels_block = edge_sample_labels_2_center_diff_types
+                    sample_labels_block = edge_sample_labels_2_center_diff_types_triu
                 else:
-                    sample_labels_block = edge_sample_labels_2_center_same_types
+                    sample_labels_block = edge_sample_labels_2_center_same_types_triu
             else:
-                sample_labels_block = edge_sample_labels_2_center
+                sample_labels_block = edge_sample_labels_2_center_triu
 
     return sample_labels_block

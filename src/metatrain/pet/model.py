@@ -271,13 +271,22 @@ class PET(ModelInterface):
             edge_sample_labels_1_center = get_edge_sample_labels_1_center(
                 node_sample_labels, device
             )
-            edge_sample_labels_2_center, edge_sample_triu_mask = (
-                get_edge_sample_labels_2_center(systems, nl_options, device, triu=True)
-            )
+            (
+                edge_sample_labels_2_center_full,
+                edge_sample_labels_2_center_triu,
+                edge_samples_mask_2_center_triu,
+            ) = get_edge_sample_labels_2_center(systems, nl_options, device)
         else:
             edge_sample_labels_1_center = Labels("_", torch.empty(0).reshape(-1, 1))
-            edge_sample_labels_2_center = Labels("_", torch.empty(0).reshape(-1, 1))
-            edge_sample_triu_mask = torch.tensor([], dtype=torch.bool, device=device)
+            edge_sample_labels_2_center_full = Labels(
+                "_", torch.empty(0).reshape(-1, 1)
+            )
+            edge_sample_labels_2_center_triu = Labels(
+                "_", torch.empty(0).reshape(-1, 1)
+            )
+            edge_samples_mask_2_center_triu = torch.tensor(
+                [], dtype=torch.bool, device=device
+            )
 
         # We convert a list of systems to a batch required for the PET model.
         # The batch consists of the following tensors: f
@@ -318,11 +327,11 @@ class PET(ModelInterface):
         # map to permute the samples of the same atom types
 
         (
-            samples_mask_2_center_same_types,
-            samples_mask_2_center_diff_types,
-            permuted_samples_map_same_types,
-            edge_sample_labels_2_center_same_types,
-            edge_sample_labels_2_center_diff_types,
+            samples_mask_2_center_diff_types_triu,
+            samples_mask_2_center_same_types_triu,
+            samples_map_2_center_same_types_triu_perm,
+            edge_sample_labels_2_center_diff_types_triu,
+            edge_sample_labels_2_center_same_types_triu,
         ) = (
             torch.empty(0, dtype=torch.bool, device=device),
             torch.empty(0, dtype=torch.bool, device=device),
@@ -332,13 +341,13 @@ class PET(ModelInterface):
         )
         if any(["s2_pi" in keys.names for keys in self.key_labels.values()]):
             (
-                samples_mask_2_center_same_types,
-                samples_mask_2_center_diff_types,
-                permuted_samples_map_same_types,
-                edge_sample_labels_2_center_same_types,
-                edge_sample_labels_2_center_diff_types,
+                samples_mask_2_center_diff_types_triu,
+                samples_mask_2_center_same_types_triu,
+                samples_map_2_center_same_types_triu_perm,
+                edge_sample_labels_2_center_diff_types_triu,
+                edge_sample_labels_2_center_same_types_triu,
             ) = get_permutation_symmetrization_arrays(
-                systems, edge_sample_labels_2_center
+                systems, edge_sample_labels_2_center_full
             )
 
         # the scaled_dot_product_attention function from torch cannot do
@@ -449,7 +458,7 @@ class PET(ModelInterface):
                 blocks=[
                     TensorBlock(
                         values=edge_features,
-                        samples=edge_sample_labels_2_center,
+                        samples=edge_sample_labels_2_center_full,
                         components=[],
                         properties=Labels(
                             names=["properties"],
@@ -597,7 +606,7 @@ class PET(ModelInterface):
                     blocks=[
                         TensorBlock(
                             values=last_layer_edge_features_values,
-                            samples=edge_sample_labels_2_center,
+                            samples=edge_sample_labels_2_center_full,
                             components=[],
                             properties=Labels(
                                 names=["properties"],
@@ -776,7 +785,7 @@ class PET(ModelInterface):
                                     if extract_key_value(key, "s2_pi") == 0:
                                         edge_atomic_predictions = (
                                             edge_atomic_predictions[
-                                                samples_mask_2_center_diff_types
+                                                samples_mask_2_center_diff_types_triu
                                             ]
                                         )
 
@@ -789,24 +798,20 @@ class PET(ModelInterface):
                                         assert s2_pi in [1, -1]
                                         edge_atomic_predictions = (
                                             edge_atomic_predictions[
-                                                samples_mask_2_center_same_types
+                                                samples_mask_2_center_same_types_triu
                                             ]
-                                        )
-                                        edge_atomic_predictions = (
-                                            edge_atomic_predictions
                                             + (
                                                 s2_pi
                                                 * edge_atomic_predictions[
-                                                    permuted_samples_map_same_types
+                                                    samples_map_2_center_same_types_triu_perm
                                                 ]
                                             )
                                         ) / 2.0  # TODO: do we want this factor of 2?
 
-                                # Finally, slice the edge predictions to be traingular
-                                # in atom indices.
-                                edge_atomic_predictions = edge_atomic_predictions[
-                                    edge_sample_triu_mask
-                                ]
+                                else:
+                                    edge_atomic_predictions = edge_atomic_predictions[
+                                        edge_samples_mask_2_center_triu
+                                    ]
 
                         edge_atomic_predictions_by_block.append(edge_atomic_predictions)
                     edge_atomic_predictions_dict[output_name].append(
@@ -912,9 +917,9 @@ class PET(ModelInterface):
                             self.sample_kinds[output_name],
                             node_sample_labels,
                             edge_sample_labels_1_center,
-                            edge_sample_labels_2_center,
-                            edge_sample_labels_2_center_same_types,
-                            edge_sample_labels_2_center_diff_types,
+                            edge_sample_labels_2_center_triu,
+                            edge_sample_labels_2_center_diff_types_triu,
+                            edge_sample_labels_2_center_same_types_triu,
                         ),
                         components=components,
                         properties=properties,
