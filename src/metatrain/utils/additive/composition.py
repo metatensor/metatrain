@@ -5,7 +5,7 @@ import metatensor.torch as mts
 import torch
 from metatensor.torch import Labels, TensorBlock, TensorMap
 from metatomic.torch import ModelOutput, System
-from torch.utils.data import DataLoader
+from torch.utils.data import DataLoader, DistributedSampler
 
 from metatrain.utils.data import (
     CollateFn,
@@ -79,6 +79,7 @@ class CompositionModel(torch.nn.Module):
         self,
         datasets: List[Union[Dataset, torch.utils.data.Subset]],
         batch_size: int,
+        is_distributed: bool,
     ) -> DataLoader:
         """
         Create a DataLoader for the provided datasets. As the dataloader is only used to
@@ -98,8 +99,24 @@ class CompositionModel(torch.nn.Module):
             )
 
         # Build the dataloaders
+        if is_distributed:
+            world_size = torch.distributed.get_world_size()
+            rank = torch.distributed.get_rank()
+            samplers = [
+                DistributedSampler(
+                    dataset,
+                    num_replicas=world_size,
+                    rank=rank,
+                    shuffle=False,
+                    drop_last=False,
+                )
+                for dataset in datasets
+            ]
+        else:
+            samplers = [None] * len(datasets)
+
         dataloaders = []
-        for dataset in datasets:
+        for dataset, sampler in zip(datasets, samplers):
             if len(dataset) < batch_size:
                 raise ValueError(
                     f"A training dataset has fewer samples "
@@ -111,8 +128,8 @@ class CompositionModel(torch.nn.Module):
                 DataLoader(
                     dataset=dataset,
                     batch_size=batch_size,
-                    sampler=None,
-                    shuffle=False,
+                    sampler=sampler,
+                    shuffle=None if sampler else False,
                     drop_last=False,
                     collate_fn=collate_fn,
                 )
@@ -126,6 +143,7 @@ class CompositionModel(torch.nn.Module):
         additive_models: List[torch.nn.Module],
         batch_size: int,
         fixed_weights: Optional[Dict[str, Dict[int, float]]] = None,
+        is_distributed: bool = False,
     ) -> None:
         """
         Train the composition model on the provided training data in the ``datasets``.
@@ -138,11 +156,6 @@ class CompositionModel(torch.nn.Module):
         from the targets before training. The `fixed_weights` argument can be used to
         specify which targets should be treated as fixed weights during training.
         """
-        # TODO: only perform the training on the main process
-        # import torch.distributed as dist
-        # if dist.get_rank() == 0:
-        #     # ... train model
-        # then synchronize weights across processes
 
         if not isinstance(datasets, list):
             datasets = [datasets]
@@ -151,7 +164,9 @@ class CompositionModel(torch.nn.Module):
             return
 
         # Create dataloader for the training datasets
-        dataloader = self._get_dataloader(datasets, batch_size)
+        dataloader = self._get_dataloader(
+            datasets, batch_size, is_distributed=is_distributed
+        )
 
         if fixed_weights is None:
             fixed_weights = {}
@@ -184,7 +199,19 @@ class CompositionModel(torch.nn.Module):
                 )
             self.model.accumulate(systems, targets)
 
-        # fit
+        if is_distributed:
+            torch.distributed.barrier()
+            # All-reduce the accumulated TensorMaps across all processes
+            for target_name in self.model.XTX.keys():
+                for XTX_block, XTY_block in zip(
+                    self.model.XTX[target_name],
+                    self.model.XTY[target_name],
+                    strict=True,
+                ):
+                    torch.distributed.all_reduce(XTX_block.values)
+                    torch.distributed.all_reduce(XTY_block.values)
+
+        # Fit the model on all ranks
         self.model.fit(fixed_weights)
 
         # update the buffer weights now they are fitted

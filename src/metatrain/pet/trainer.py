@@ -82,14 +82,6 @@ class Trainer(TrainerInterface):
             torch.distributed.init_process_group(backend="nccl")
             world_size = torch.distributed.get_world_size()
             rank = torch.distributed.get_rank()
-
-            # Set up tmp group just for the composition model
-            from datetime import timedelta
-
-            cm_group = torch.distributed.new_group(
-                backend="nccl",
-                timeout=timedelta(days=1),  # very long waiting time
-            )
         else:
             rank = 0
 
@@ -152,24 +144,13 @@ class Trainer(TrainerInterface):
 
         logging.info("Calculating composition weights")
 
-        if rank == 0:
-            model.additive_models[0].train_model(  # this is the composition model
-                train_datasets,
-                model.additive_models[1:],
-                self.hypers["batch_size"],
-                self.hypers["fixed_composition_weights"],
-            )
-
-        if is_distributed:
-            torch.distributed.barrier(group=cm_group)
-            torch.distributed.destroy_process_group(cm_group)
-            model.additive_models[0].model._sync_device_dtype(
-                torch.device("cpu"), torch.float64
-            )
-            model.additive_models[0] = broadcast_instance(
-                model.additive_models[0], src=0
-            )
-            model.additive_models[0].model._sync_device_dtype(device, torch.float64)
+        model.additive_models[0].train_model(  # this is the composition model
+            train_datasets,
+            model.additive_models[1:],
+            self.hypers["batch_size"],
+            self.hypers["fixed_composition_weights"],
+            is_distributed=is_distributed,
+        )
 
         if self.hypers["scale_targets"]:
             logging.info("Calculating scaling weights")
