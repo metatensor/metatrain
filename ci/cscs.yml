@@ -58,7 +58,27 @@ test distributed:
   timeout: 1h
   script:
     - . /mtt-venv/bin/activate
-    - cd /metatrain/tests/distributed
+    - cd /metatrain/tests/distributed/soap-bpnn
+    - mtt train options-distributed.yaml
+    - 'if [ $SLURM_PROCID == 0 ]; then grep "Training on 4 devices" outputs/*/*/train.log || { echo "FAILED: Not training on 4 devices as requested."; exit 1; }; fi'
+  variables:
+    SLURM_JOB_NUM_NODES: 1
+    SLURM_PARTITION: normal
+    SLURM_NTASKS: 4
+    SLURM_GPUS_PER_TASK: 1
+    SLURM_CPUS_PER_TASK: 16
+    SLURM_TIMELIMIT: '00:10:00'
+    USE_NCCL: 'cuda12'
+
+# Run distributed training (single node, multiple GPUs)
+test distributed:
+  stage: test
+  extends: .container-runner-daint-gh200
+  image: $CSCS_REGISTRY_PATH/base/mtt:$CI_COMMIT_SHORT_SHA
+  timeout: 1h
+  script:
+    - . /mtt-venv/bin/activate
+    - cd /metatrain/tests/distributed/pet
     - mtt train options-distributed.yaml
     - 'if [ $SLURM_PROCID == 0 ]; then grep "Training on 4 devices" outputs/*/*/train.log || { echo "FAILED: Not training on 4 devices as requested."; exit 1; }; fi'
   variables:
