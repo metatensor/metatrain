@@ -474,10 +474,7 @@ def expand_loss_config(conf: DictConfig) -> DictConfig:
                                         "delta"
                                     ] = default_huber_loss_delta()
 
-            print("loss_dict:", loss_dict)
-            print("train_hypers['loss']:", train_hypers["loss"])
             train_hypers["loss"] = OmegaConf.merge(loss_dict, train_hypers["loss"])
-            print("train_hypers['loss'] after merge:", train_hypers["loss"])
 
     conf["architecture"]["training"] = train_hypers
     return conf
