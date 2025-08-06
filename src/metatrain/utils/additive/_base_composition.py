@@ -185,10 +185,6 @@ class BaseCompositionModel(torch.nn.Module):
         dtype = systems[0].positions.dtype
         self._sync_device_dtype(device, dtype)
 
-        assert dtype == torch.float64, (
-            "Composition model only supports float64 dtype for training."
-        )
-
         # check that the systems contain no unexpected atom types
         for system in systems:
             if not torch.all(torch.isin(system.types, self.atomic_types)):
@@ -323,7 +319,7 @@ class BaseCompositionModel(torch.nn.Module):
         _, sample_labels_per_atom = _get_system_indices_and_labels(systems, device)
 
         predictions: Dict[str, TensorMap] = {}
-        for output_name in outputs.keys():
+        for output_name in outputs:
             if output_name not in self.target_names:
                 raise ValueError(
                     f"output {output_name} is not supported by this composition model."
