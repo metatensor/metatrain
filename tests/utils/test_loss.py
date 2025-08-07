@@ -7,8 +7,10 @@ import pytest
 import torch
 from metatensor.torch import Labels, TensorBlock, TensorMap
 
+from metatrain.utils.data import TargetInfo
 from metatrain.utils.loss import (
     EMAScheduler,
+    LossAggregator,
     LossType,
     TensorMapHuberLoss,
     TensorMapMAELoss,
@@ -33,7 +35,7 @@ def tensor_map_with_grad_1():
         properties=Labels("energy", torch.tensor([[0]])),
     )
     block.add_gradient(
-        "gradient",
+        "positions",
         TensorBlock(
             values=torch.tensor([[1.0], [2.0], [3.0]]),
             samples=Labels.range("sample", 3),
@@ -54,7 +56,7 @@ def tensor_map_with_grad_2():
         properties=Labels("energy", torch.tensor([[0]])),
     )
     block.add_gradient(
-        "gradient",
+        "positions",
         TensorBlock(
             values=torch.tensor([[1.0], [0.0], [3.0]]),
             samples=Labels.range("sample", 3),
@@ -75,7 +77,7 @@ def tensor_map_with_grad_3():
         properties=Labels("energy", torch.tensor([[0]])),
     )
     block.add_gradient(
-        "gradient",
+        "positions",
         TensorBlock(
             values=torch.tensor([[1.0], [0.0], [3.0]]),
             samples=Labels.range("sample", 3),
@@ -96,9 +98,69 @@ def tensor_map_with_grad_4():
         properties=Labels("energy", torch.tensor([[0]])),
     )
     block.add_gradient(
-        "gradient",
+        "positions",
         TensorBlock(
             values=torch.tensor([[1.0], [0.0], [2.0]]),
+            samples=Labels.range("sample", 3),
+            components=[],
+            properties=Labels("energy", torch.tensor([[0]])),
+        ),
+    )
+    tensor_map = TensorMap(keys=Labels.single(), blocks=[block])
+    return tensor_map
+
+
+@pytest.fixture
+def tensor_map_with_grad_1_with_strain():
+    block = TensorBlock(
+        values=torch.tensor([[0.0], [1.0], [3.0]]),
+        samples=Labels.range("sample", 3),
+        components=[],
+        properties=Labels("energy", torch.tensor([[0]])),
+    )
+    block.add_gradient(
+        "positions",
+        TensorBlock(
+            values=torch.tensor([[1.0], [0.0], [3.0]]),
+            samples=Labels.range("sample", 3),
+            components=[],
+            properties=Labels("energy", torch.tensor([[0]])),
+        ),
+    )
+    block.add_gradient(
+        "strain",
+        TensorBlock(
+            values=torch.tensor([[1.0], [0.0], [3.0]]),
+            samples=Labels.range("sample", 3),
+            components=[],
+            properties=Labels("energy", torch.tensor([[0]])),
+        ),
+    )
+    tensor_map = TensorMap(keys=Labels.single(), blocks=[block])
+    return tensor_map
+
+
+@pytest.fixture
+def tensor_map_with_grad_3_with_strain():
+    block = TensorBlock(
+        values=torch.tensor([[0.0], [1.0], [3.0]]),
+        samples=Labels.range("sample", 3),
+        components=[],
+        properties=Labels("energy", torch.tensor([[0]])),
+    )
+    block.add_gradient(
+        "positions",
+        TensorBlock(
+            values=torch.tensor([[1.0], [0.0], [3.0]]),
+            samples=Labels.range("sample", 3),
+            components=[],
+            properties=Labels("energy", torch.tensor([[0]])),
+        ),
+    )
+    block.add_gradient(
+        "strain",
+        TensorBlock(
+            values=torch.tensor([[1.0], [0.0], [3.0]]),
             samples=Labels.range("sample", 3),
             components=[],
             properties=Labels("energy", torch.tensor([[0]])),
@@ -271,10 +333,10 @@ def test_pointwise_gradient_loss(
     # instantiate with gradient extraction
     if LossCls == TensorMapHuberLoss:
         loss = LossCls(
-            name=key, gradient="gradient", weight=1.0, reduction="mean", delta=1.0
+            name=key, gradient="positions", weight=1.0, reduction="mean", delta=1.0
         )
     else:
-        loss = LossCls(name=key, gradient="gradient", weight=1.0, reduction="mean")
+        loss = LossCls(name=key, gradient="positions", weight=1.0, reduction="mean")
     val = loss({key: tm3}, {key: tm4}).item()
     assert val == pytest.approx(expected)
 
@@ -317,14 +379,14 @@ def test_masked_pointwise_gradient_branch(
         components=tm3.block(0).components,
         properties=tm3.block(0).properties,
     )
-    mask_block.add_gradient("gradient", grad_block_for_mask)
+    mask_block.add_gradient("positions", grad_block_for_mask)
 
     mask_map = TensorMap(keys=tm3.keys, blocks=[mask_block])
     extra = {f"{key}_mask": mask_map}
 
-    # Create the masked-pointwise loss on the 'gradient' channel
+    # Create the masked-pointwise loss on the 'positions' channel
     loss = TensorMapMaskedMSELoss(
-        name=key, gradient="gradient", weight=1.0, reduction="mean"
+        name=key, gradient="positions", weight=1.0, reduction="mean"
     )
 
     # The gradient values in tm3: [1, 0, 3]; in tm4: [1, 0, 2]
@@ -338,8 +400,243 @@ def test_ema_initialize_gradient_branch(tensor_map_with_grad_1):
     key = tm.keys.names[0]
 
     # gradient block values [1,2,3], zero baseline -> MSE = (1+4+9)/3
-    loss = TensorMapMSELoss(name=key, gradient="gradient", weight=1.0, reduction="mean")
+    loss = TensorMapMSELoss(
+        name=key, gradient="positions", weight=1.0, reduction="mean"
+    )
     sched = EMAScheduler(sliding_factor=0.5)
     init_w = sched.initialize(loss, {key: tm})
 
     assert init_w == pytest.approx((1 + 4 + 9) / 3)
+
+
+def test_tmap_loss_subset(tensor_map_with_grad_1, tensor_map_with_grad_3):
+    """Test that the loss is computed correctly when only a subset
+    of the possible targets is present both in outputs and targets."""
+
+    block = TensorBlock(
+        values=torch.empty(0, 1),
+        samples=Labels(
+            names=["system"],
+            values=torch.empty((0, 1), dtype=torch.int32),
+        ),
+        components=[],
+        properties=Labels.range("property", 1),
+    )
+    block.add_gradient(
+        "positions",
+        TensorBlock(
+            values=torch.empty(0, 1),
+            samples=Labels(
+                names=["sample"],
+                values=torch.empty((0, 1), dtype=torch.int32),
+            ),
+            components=[],
+            properties=Labels.range("property", 1),
+        ),
+    )
+    layout = TensorMap(keys=Labels.single(), blocks=[block])
+
+    target_info = TargetInfo(quantity="energy", unit="eV", layout=layout)
+    loss_hypers = {
+        "output_1": {
+            "type": "mse",
+            "weight": 1.0,
+            "reduction": "sum",
+            "sliding_factor": None,
+            "gradients": {
+                "positions": {
+                    "type": "mse",
+                    "weight": 0.5,
+                    "reduction": "sum",
+                    "sliding_factor": None,
+                },
+            },
+        },
+        "output_2": {
+            "type": "mse",
+            "weight": 1.0,
+            "reduction": "sum",
+            "sliding_factor": None,
+            "gradients": {
+                "positions": {
+                    "type": "mse",
+                    "weight": 0.5,
+                    "reduction": "sum",
+                    "sliding_factor": None,
+                },
+            },
+        },
+    }
+
+    loss = LossAggregator(
+        targets={"output_1": target_info, "output_2": target_info},
+        config=loss_hypers,
+    )
+
+    output_dict = {
+        "output_1": tensor_map_with_grad_1,
+    }
+
+    target_dict = {
+        "output_1": tensor_map_with_grad_3,
+    }
+
+    expected_result = (
+        1.0
+        * (
+            tensor_map_with_grad_1.block().values
+            - tensor_map_with_grad_3.block().values
+        )
+        .pow(2)
+        .sum()
+        + 0.5
+        * (
+            tensor_map_with_grad_1.block().gradient("positions").values
+            - tensor_map_with_grad_3.block().gradient("positions").values
+        )
+        .pow(2)
+        .sum()
+    )
+
+    loss_value = loss(output_dict, target_dict)
+    torch.testing.assert_close(loss_value, expected_result)
+
+
+def test_tmap_loss_multiple_datasets_same_target_different_gradients(
+    tensor_map_with_grad_1,
+    tensor_map_with_grad_1_with_strain,
+    tensor_map_with_grad_3_with_strain,
+):
+    """Test that the loss is computed correctly when two datasets have the same target,
+    but different gradients."""
+
+    block = TensorBlock(
+        values=torch.empty(0, 1),
+        samples=Labels(
+            names=["system"],
+            values=torch.empty((0, 1), dtype=torch.int32),
+        ),
+        components=[],
+        properties=Labels.range("property", 1),
+    )
+    block.add_gradient(
+        "positions",
+        TensorBlock(
+            values=torch.empty(0, 1),
+            samples=Labels(
+                names=["sample"],
+                values=torch.empty((0, 1), dtype=torch.int32),
+            ),
+            components=[],
+            properties=Labels.range("property", 1),
+        ),
+    )
+    block.add_gradient(
+        "strain",
+        TensorBlock(
+            values=torch.empty(0, 1),
+            samples=Labels(
+                names=["sample"],
+                values=torch.empty((0, 1), dtype=torch.int32),
+            ),
+            components=[],
+            properties=Labels.range("property", 1),
+        ),
+    )
+    layout = TensorMap(keys=Labels.single(), blocks=[block])
+
+    target_info = TargetInfo(quantity="energy", unit="eV", layout=layout)
+    loss_hypers = {
+        "output": {
+            "type": "mse",
+            "weight": 1.0,
+            "reduction": "sum",
+            "sliding_factor": None,
+            "gradients": {
+                "positions": {
+                    "type": "mse",
+                    "weight": 0.5,
+                    "reduction": "sum",
+                    "sliding_factor": None,
+                },
+                "strain": {
+                    "type": "mse",
+                    "weight": 0.3,
+                    "reduction": "sum",
+                    "sliding_factor": None,
+                },
+            },
+        },
+    }
+
+    loss = LossAggregator(
+        targets={"output": target_info},
+        config=loss_hypers,
+    )
+
+    # Test a case where the target has only one gradient
+    output_dict = {
+        "output": tensor_map_with_grad_3_with_strain,
+    }
+
+    # The target has no `other_gradient`
+    target_dict = {
+        "output": tensor_map_with_grad_1,
+    }
+
+    expected_result = (
+        1.0
+        * (
+            tensor_map_with_grad_1.block().values
+            - tensor_map_with_grad_3_with_strain.block().values
+        )
+        .pow(2)
+        .sum()
+        + 0.5
+        * (
+            tensor_map_with_grad_1.block().gradient("positions").values
+            - tensor_map_with_grad_3_with_strain.block().gradient("positions").values
+        )
+        .pow(2)
+        .sum()
+    )
+
+    loss_value = loss(output_dict, target_dict)
+    torch.testing.assert_close(loss_value, expected_result)
+
+    # Test a case where the target has both gradients
+    output_dict = {
+        "output": tensor_map_with_grad_3_with_strain,
+    }
+
+    # The target has no `other_gradient`
+    target_dict = {
+        "output": tensor_map_with_grad_1_with_strain,
+    }
+
+    expected_result = (
+        1.0
+        * (
+            tensor_map_with_grad_1_with_strain.block().values
+            - tensor_map_with_grad_3_with_strain.block().values
+        )
+        .pow(2)
+        .sum()
+        + 0.5
+        * (
+            tensor_map_with_grad_1_with_strain.block().gradient("positions").values
+            - tensor_map_with_grad_3_with_strain.block().gradient("positions").values
+        )
+        .pow(2)
+        .sum()
+        + 0.3
+        * (
+            tensor_map_with_grad_1_with_strain.block().gradient("strain").values
+            - tensor_map_with_grad_3_with_strain.block().gradient("strain").values
+        )
+        .pow(2)
+        .sum()
+    )
+
+    loss_value = loss(output_dict, target_dict)
+    torch.testing.assert_close(loss_value, expected_result)

@@ -352,6 +352,15 @@ class BaseTensorMapLoss(LossInterface):
         """
         tensor_map_pred = predictions[self.target]
         tensor_map_targ = targets[self.target]
+
+        # Check gradients are present in the target TensorMap
+        if self.gradient is not None:
+            if self.gradient not in tensor_map_targ[0].gradients_list():
+                # Skip loss computation if block gradient is missing in the dataset
+                # Tensor gradients are not tracked
+                return torch.zeros(
+                    (), dtype=torch.float, device=tensor_map_targ[0].values.device
+                )
         return self.compute_flattened(tensor_map_pred, tensor_map_targ)
 
 
