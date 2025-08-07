@@ -337,28 +337,7 @@ class BaseCompositionModel(torch.nn.Module):
         dtype = systems[0].positions.dtype
         self._sync_device_dtype(device, dtype)
 
-        # Build the sample labels that are required
-        system_indices, sample_labels_per_atom = _get_system_indices_and_labels(
-            systems, device
-        )
-        if any(
-            [
-                sample_kind == "per_structure" and not model_output.per_atom
-                for sample_kind, model_output in zip(
-                    self.sample_kinds.values(), outputs.values()
-                )
-            ]
-        ):
-            sample_labels_per_structure = Labels(
-                ["system"],
-                torch.arange(len(systems), dtype=torch.int32, device=device).reshape(
-                    -1, 1
-                ),
-            ).to(device=device)
-        else:
-            sample_labels_per_structure = Labels(
-                ["_"], torch.empty(0).reshape(-1, 1)
-            ).to(device=device)
+        _, sample_labels_per_atom = _get_system_indices_and_labels(systems, device)
 
         if any([k == "per_pair" for k in self.sample_kinds.values()]):
             sample_labels_per_pair = get_edge_sample_labels_1_center(
@@ -371,7 +350,7 @@ class BaseCompositionModel(torch.nn.Module):
 
         # Build the predictions for each output
         predictions: Dict[str, TensorMap] = {}
-        for output_name, model_output in outputs.items():
+        for output_name in outputs:
             if output_name not in self.target_names:
                 raise ValueError(
                     f"output {output_name} is not supported by this composition model."
@@ -381,35 +360,10 @@ class BaseCompositionModel(torch.nn.Module):
             prediction_key_vals = []
             prediction_blocks: List[TensorBlock] = []
             for key, weight_block in weights.items():
-                # Compute X and choose the right sample labels
-                if self.sample_kinds[output_name] == "per_structure":
-                    if model_output.per_atom:
-                        sample_labels = sample_labels_per_atom
-                        X = self._compute_X_per_atom(
-                            systems, self._get_sliced_atomic_types(key)
-                        )
-
-                    else:
-                        sample_labels = sample_labels_per_structure
-                        X = self._compute_X_per_structure(systems)
-
-                elif self.sample_kinds[output_name] == "per_atom":
-                    sample_labels = sample_labels_per_atom
-                    X = self._compute_X_per_atom(
-                        systems, self._get_sliced_atomic_types(key)
-                    )
-
-                elif self.sample_kinds[output_name] == "per_pair":
-                    sample_labels = sample_labels_per_pair
-                    X = self._compute_X_per_atom(
-                        systems, self._get_sliced_atomic_types(key)
-                    )
-
-                else:
-                    raise ValueError(
-                        f"unknown sample kind: {self.sample_kinds[output_name]}"
-                        f" for target {output_name}"
-                    )
+                sample_labels = sample_labels_per_atom
+                X = self._compute_X_per_atom(
+                    systems, self._get_sliced_atomic_types(key)
+                )
 
                 # If selected_atoms is provided, slice the samples labels and the X
                 # tensor
@@ -440,6 +394,8 @@ class BaseCompositionModel(torch.nn.Module):
                 ),
                 prediction_blocks,
             )
+            if not outputs[output_name].per_atom:
+                prediction = mts.sum_over_samples(prediction, "atom")
             predictions[output_name] = prediction
 
         return predictions

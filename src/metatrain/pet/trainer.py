@@ -142,6 +142,22 @@ class Trainer(TrainerInterface):
         for additive_model in model.additive_models:
             additive_model.to(dtype=torch.float64)
 
+        logging.info("Calculating composition weights")
+
+        model.additive_models[0].train_model(  # this is the composition model
+            train_datasets,
+            model.additive_models[1:],
+            self.hypers["batch_size"],
+            self.hypers["fixed_composition_weights"],
+            is_distributed=is_distributed,
+        )
+
+        if self.hypers["scale_targets"]:
+            logging.info("Calculating scaling weights")
+            model.scaler.train_model(
+                train_datasets, model.additive_models, treat_as_additive=True
+            )
+
         logging.info("Setting up data loaders")
 
         if is_distributed:
@@ -222,19 +238,6 @@ class Trainer(TrainerInterface):
                 )
             )
         val_dataloader = CombinedDataLoader(val_dataloaders, shuffle=False)
-
-        logging.info("Calculating composition weights")
-        model.additive_models[0].train_model(  # this is the composition model
-            train_dataloader,
-            model.additive_models[1:],
-            self.hypers["fixed_composition_weights"],
-        )
-
-        if self.hypers["scale_targets"]:
-            logging.info("Calculating scaling weights")
-            model.scaler.train_model(
-                train_datasets, model.additive_models, treat_as_additive=True
-            )
 
         if is_distributed:
             model = DistributedDataParallel(model, device_ids=[device])
@@ -574,9 +577,4 @@ class Trainer(TrainerInterface):
 
     @staticmethod
     def upgrade_checkpoint(checkpoint: Dict) -> Dict:
-        if checkpoint["trainer_ckpt_version"] == 1:
-            checkpoints.trainer_update_v1_v2(checkpoint)
-            checkpoint["trainer_ckpt_version"] = 2
-        else:
-            assert checkpoint["trainer_ckpt_version"] == 2
-        return checkpoint
+        raise NotImplementedError("checkpoint upgrade is not implemented for PET")
