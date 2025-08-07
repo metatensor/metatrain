@@ -3,7 +3,6 @@ import torch
 from omegaconf import DictConfig
 
 from metatrain.utils.data.target_info import (
-    TargetInfo,
     get_energy_target_info,
     get_generic_target_info,
     is_auxiliary_output,
