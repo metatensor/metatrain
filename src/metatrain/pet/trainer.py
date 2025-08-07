@@ -34,6 +34,7 @@ from metatrain.utils.per_atom import average_by_num_atoms
 from metatrain.utils.scaler import remove_scale
 from metatrain.utils.transfer import batch_to
 
+from . import checkpoints
 from .model import PET
 from .modules.finetuning import apply_finetuning_strategy
 
@@ -44,14 +45,14 @@ def get_scheduler(optimizer, train_hypers):
             return epoch / train_hypers["num_epochs_warmup"]
         delta = epoch - train_hypers["num_epochs_warmup"]
         num_blocks = delta // train_hypers["scheduler_patience"]
-        return 0.5 ** (num_blocks)
+        return train_hypers.get("scheduler_factor", 0.5) ** (num_blocks)
 
     scheduler = LambdaLR(optimizer, func_lr_scheduler)
     return scheduler
 
 
 class Trainer(TrainerInterface):
-    __checkpoint_version__ = 1
+    __checkpoint_version__ = 2
 
     def __init__(self, hypers):
         super().__init__(hypers)
@@ -582,4 +583,8 @@ class Trainer(TrainerInterface):
 
     @staticmethod
     def upgrade_checkpoint(checkpoint: Dict) -> Dict:
-        raise NotImplementedError("checkpoint upgrade is not implemented for PET")
+        if checkpoint["trainer_ckpt_version"] == 1:
+            checkpoints.trainer_update_v1_v2(checkpoint)
+            checkpoint["trainer_ckpt_version"] = 2
+
+        return checkpoint
