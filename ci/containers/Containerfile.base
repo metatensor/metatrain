@@ -8,6 +8,5 @@ RUN apt update && \
 ENV PIP_EXTRA_INDEX_URL=https://download.pytorch.org/whl/cu128
 ENV CUDA_HOME="/usr/local/cuda"
 
-RUN python3 -m pip install --break-system-packages tox torch
+RUN python3 -m pip install --break-system-packages tox
 
-ENV Torch_DIR=/usr/local/lib/python3.12/dist-packages/torch/share/cmake/Torch/
