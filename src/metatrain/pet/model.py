@@ -1205,12 +1205,12 @@ class PET(ModelInterface):
     @staticmethod
     def upgrade_checkpoint(checkpoint: Dict) -> Dict:
         if checkpoint["model_ckpt_version"] == 1:
-            checkpoints.update_v1_v2(checkpoint["model_state_dict"])
-            checkpoints.update_v1_v2(checkpoint["best_model_state_dict"])
+            checkpoints.model_update_v1_v2(checkpoint["model_state_dict"])
+            checkpoints.model_update_v1_v2(checkpoint["best_model_state_dict"])
             checkpoint["model_ckpt_version"] = 2
         if checkpoint["model_ckpt_version"] == 2:
-            checkpoints.update_v2_v3(checkpoint["model_state_dict"])
-            checkpoints.update_v2_v3(checkpoint["best_model_state_dict"])
+            checkpoints.model_update_v2_v3(checkpoint["model_state_dict"])
+            checkpoints.model_update_v2_v3(checkpoint["best_model_state_dict"])
             checkpoint["model_ckpt_version"] = 3
 
         return checkpoint

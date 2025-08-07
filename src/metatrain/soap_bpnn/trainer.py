@@ -9,7 +9,6 @@ from torch.utils.data import DataLoader, DistributedSampler
 
 from metatrain.utils.abc import TrainerInterface
 from metatrain.utils.additive import remove_additive
-from metatrain.utils.custom_loss import LossAggregator
 from metatrain.utils.data import (
     CollateFn,
     CombinedDataLoader,
@@ -23,6 +22,7 @@ from metatrain.utils.distributed.slurm import DistributedEnvironment
 from metatrain.utils.evaluate_model import evaluate_model
 from metatrain.utils.io import check_file_extension
 from metatrain.utils.logging import ROOT_LOGGER, MetricLogger
+from metatrain.utils.loss import LossAggregator
 from metatrain.utils.metrics import MAEAccumulator, RMSEAccumulator, get_selected_metric
 from metatrain.utils.neighbor_lists import (
     get_requested_neighbor_lists,
@@ -34,11 +34,12 @@ from metatrain.utils.transfer import (
     batch_to,
 )
 
+from . import checkpoints
 from .model import SoapBpnn
 
 
 class Trainer(TrainerInterface):
-    __checkpoint_version__ = 1
+    __checkpoint_version__ = 2
 
     def __init__(self, hypers):
         super().__init__(hypers)
@@ -232,7 +233,7 @@ class Trainer(TrainerInterface):
                 outputs_list.append(f"{target_name}_{gradient_name}_gradients")
 
         # Create a loss function:
-        loss_hypers = copy.deepcopy(self.hypers.get("loss", {}))
+        loss_hypers = self.hypers["loss"]
         loss_fn = LossAggregator(
             targets=train_targets,
             config=loss_hypers,
@@ -544,4 +545,9 @@ class Trainer(TrainerInterface):
 
     @staticmethod
     def upgrade_checkpoint(checkpoint: Dict) -> Dict:
-        raise NotImplementedError("checkpoint upgrade is not implemented for SoapBPNN")
+        if checkpoint["trainer_ckpt_version"] == 1:
+            checkpoints.trainer_update_v1_v2(checkpoint)
+            checkpoint["trainer_ckpt_version"] = 2
+        else:
+            assert checkpoint["trainer_ckpt_version"] == 2
+        return checkpoint
