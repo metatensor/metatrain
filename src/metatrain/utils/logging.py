@@ -438,3 +438,36 @@ def _sort_metric_names(name_list):
     # add the rest
     sorted_name_list.extend(sorted_remaining_name_list)
     return sorted_name_list
+
+
+def human_readable(n: Union[int, float]) -> str:
+    """Convert a number to a human-readable format with suffixes.
+
+    This function takes a number and formats it into a string with metric
+    suffixes (K for thousands, M for millions, B for billions, T for trillions).
+
+    :param n: The number to be converted.
+    :return: The human-readable string representation of the number.
+
+    """
+    suffixes = ["", "K", "M", "B", "T"]
+    idx = 0
+    x = float(n)
+
+    # repeatedly divide by 1000 to find the right suffix
+    while abs(x) >= 1000 and idx < len(suffixes) - 1:
+        x /= 1000
+        idx += 1
+
+    # one decimal if the reduced value is under 100, else integer
+    if abs(x) < 100:
+        s = f"{x:.1f}".rstrip("0").rstrip(".")
+    else:
+        s = f"{int(round(x))}"
+
+    # handle cases like 999999 so it does not become "1000K"
+    if s == "1000" and idx < len(suffixes) - 1:
+        s = "1"
+        idx += 1
+
+    return f"{s}{suffixes[idx]}"
