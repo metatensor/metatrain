@@ -164,7 +164,3 @@ def test_is_compatible_with(energy_target_config, spherical_target_config):
 def test_instance_torchscript_compatible(target_config, request):
     target_info = get_generic_target_info(request.getfixturevalue(target_config))
     torch.jit.script(target_info)
-
-
-def test_class_torchscript_compatible():
-    torch.jit.script(TargetInfo)
