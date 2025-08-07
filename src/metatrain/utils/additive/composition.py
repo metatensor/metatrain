@@ -16,7 +16,7 @@ from metatrain.utils.data import (
 from ..data import DatasetInfo, TargetInfo
 from ..jsonschema import validate
 from ..transfer import batch_to
-from ._base_composition import BaseCompositionModel
+from ._base_composition import BaseCompositionModel, _include_key
 from .remove import remove_additive
 
 
@@ -313,8 +313,20 @@ class CompositionModel(torch.nn.Module):
             per_atom=True,
         )
 
+        # Create a fake weights buffer for the target, filtering the blocks that will
+        # not be fitted
+        layout = mts.filter_blocks(
+            target_info.layout,
+            Labels(
+                target_info.layout.keys.names,
+                torch.vstack(
+                    [key.values for key in target_info.layout.keys if _include_key(key)]
+                ),
+            ),
+        )
+
         fake_weights = TensorMap(
-            keys=self.dataset_info.targets[target_name].layout.keys,
+            keys=layout.keys,
             blocks=[
                 TensorBlock(
                     values=torch.zeros(
@@ -330,7 +342,7 @@ class CompositionModel(torch.nn.Module):
                     components=b.components,
                     properties=b.properties,
                 )
-                for b in target_info.layout.blocks()
+                for b in layout.blocks()
             ],
         )
         self.register_buffer(

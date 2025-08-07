@@ -33,7 +33,6 @@ from metatrain.utils.per_atom import average_by_num_atoms
 from metatrain.utils.scaler import remove_scale
 from metatrain.utils.transfer import batch_to
 
-from . import checkpoints
 from .model import PET
 from .modules.finetuning import apply_finetuning_strategy
 
