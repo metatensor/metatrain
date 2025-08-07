@@ -91,7 +91,7 @@
         "scheduler_patience": {
           "type": "integer"
         },
-	"scheduler_factor": {
+        "scheduler_factor": {
           "type": "number"
         },
         "log_interval": {

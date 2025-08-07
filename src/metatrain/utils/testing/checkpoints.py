@@ -46,8 +46,9 @@ def checkpoint_did_not_change(monkeypatch, tmp_path, model_trainer):
             f"missing reference checkpoint for model version {model_version} and "
             f"trainer version {trainer_version}, "
             "we created one for you with the current state of the code. "
-            f"Please move it to `checkpoints/v{model_version}_{trainer_version}.ckpt.gz` if you "
-            "have no other changes to do"
+            f"Please move it to "
+            "`checkpoints/v{model_version}_{trainer_version}.ckpt.gz` if you have "
+            "no other changes to do."
         )
 
     else:
