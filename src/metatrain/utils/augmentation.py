@@ -133,6 +133,9 @@ class RotationalAugmenter:
             )
             for tensormap_dict, info_dict in zip(tensormap_dicts, info_dicts):
                 for name in tensormap_dict.keys():
+                    if name.endswith("_mask"):
+                        # skip loss masks
+                        continue
                     tensormap_info = info_dict[name]
                     if tensormap_info.is_spherical:
                         for block in tensormap_info.layout.blocks():
@@ -173,15 +176,34 @@ def _apply_wigner_D_matrices(
     transformations: List[torch.Tensor],
     wigner_D_matrices: Dict[int, List[torch.Tensor]],
 ) -> TensorMap:
+    # For each block, split the samples by system and apply the Wigner D-matrix
+    # transformation to the values.
     new_blocks: List[TensorBlock] = []
     for key, block in target_tmap.items():
         ell, sigma = int(key[0]), int(key[1])
         values = block.values
+
+        if len(block.samples) == 0:  # no samples, nothing to do
+            new_blocks.append(block)
+            continue
+
         if "atom" in block.samples.names:
             split_values = torch.split(
                 values, [len(system.positions) for system in systems]
             )
+
+        elif (
+            "first_atom" in block.samples.names and "second_atom" in block.samples.names
+        ):
+            # TODO: make sure this is correct
+            unique_system_ids, inverse_indices = torch.unique(
+                block.samples.values[:, 0], return_inverse=True
+            )
+            split_values = [
+                values[inverse_indices == i] for i in range(len(unique_system_ids))
+            ]
         else:
+            assert block.samples.names == ["system"]
             split_values = torch.split(values, [1 for _ in systems])
         new_values = []
         ell = (len(block.components[0]) - 1) // 2
@@ -245,6 +267,15 @@ def _apply_random_augmentations(
     # Apply the transformation to the targets and extra data
     new_targets: Dict[str, TensorMap] = {}
     new_extra_data: Dict[str, TensorMap] = {}
+
+    # Do not transform any masks present in extra_data
+    if extra_data is not None:
+        mask_keys: List[str] = []
+        for key in extra_data.keys():
+            if key.endswith("_mask"):
+                mask_keys.append(key)
+        for key in mask_keys:
+            new_extra_data[key] = extra_data.pop(key)
 
     for tensormap_dict, new_dict in zip(
         [targets, extra_data], [new_targets, new_extra_data]

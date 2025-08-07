@@ -1,4 +1,10 @@
-def update_v1_v2(state_dict):
+from metatrain.utils.checkpoints import trainer_update_v1_v2
+
+
+__all__ = ["trainer_update_v1_v2", "model_update_v1_v2", "model_update_v2_v3"]
+
+
+def model_update_v1_v2(state_dict):
     # This if-statement is necessary to handle cases when
     # best_model_state_dict and model_state_dict are the same.
     # In that case, the both are updated within the first call of
@@ -12,7 +18,7 @@ def update_v1_v2(state_dict):
         )
 
 
-def update_v2_v3(state_dict):
+def model_update_v2_v3(state_dict):
     if state_dict is not None:
         if "train_hypers" in state_dict:
             finetune_config = state_dict["train_hypers"].get("finetune", {})
