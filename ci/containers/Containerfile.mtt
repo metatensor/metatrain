@@ -8,6 +8,5 @@ COPY . /metatrain/
 #ENV Torch_DIR=/usr/local/lib/python3.12/dist-packages/torch/share/cmake/Torch/
 RUN python3 -m venv /mtt-venv && \
 	. /mtt-venv/bin/activate && \
-	python -m pip install torch && \
-	ls $(python -c "import torch; print(torch.__path__[0])")/include/c10/cuda/impl/cuda_cmake_macros.h && \
+	python -m pip install torch==2.7.1+cu128 && \
 	python -m pip install /metatrain[soap-bpnn]

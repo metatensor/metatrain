@@ -6,7 +6,7 @@ RUN apt update && \
 	apt clean
 
 #ENV PIP_EXTRA_INDEX_URL=https://download.pytorch.org/whl/cu128
-ENV PIP_INDEX_URL=https://download.pytorch.org/whl/cu128
+ENV PIP_EXTRA_INDEX_URL=https://download.pytorch.org/whl/cu128
 ENV CUDA_HOME="/usr/local/cuda"
 
 RUN python3 -m pip install --break-system-packages tox
