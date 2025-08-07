@@ -160,7 +160,7 @@ def convert_checkpoint_from_legacy_pet(
     """
 
     new_checkpoint: Dict[str, torch.Tensor] = {}
-    new_checkpoint["architecture_name"] = "experimental.pet"
+    new_checkpoint["architecture_name"] = "pet"
     new_checkpoint["epoch"] = 0
     new_checkpoint["optimizer_state_dict"] = None
     new_checkpoint["scheduler_state_dict"] = None
