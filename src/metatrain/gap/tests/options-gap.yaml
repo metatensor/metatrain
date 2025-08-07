@@ -1,11 +1,10 @@
 architecture:
   name: gap
-
   model:
     soap:
       cutoff:
         radius: 5.5
-        smoothing: 
+        smoothing:
           type: ShiftedCosine
           width: 1.0
       density:
@@ -27,28 +26,27 @@ architecture:
       degree: 2
       num_sparse_points: 900
     zbl: false
-
   training:
     regularizer: 0.00005
     regularizer_forces: 0.001
 
 training_set:
-  systems: "ethanol_reduced_100.xyz" # file where the positions are stored
+  systems: ethanol_reduced_100.xyz  # file where the positions are stored
   targets:
     energy:
-      key: "energy" # name of the target value
-      unit: "eV" # unit of the target value
+      key: energy  # name of the target value
+      unit: eV  # unit of the target value
 
 test_set:
-  systems: "ethanol_reduced_100.xyz" # file where the positions are stored
+  systems: ethanol_reduced_100.xyz  # file where the positions are stored
   targets:
     energy:
-      key: "energy" # name of the target value
-      unit: "eV" # unit of the target value
+      key: energy  # name of the target value
+      unit: eV  # unit of the target value
 
 validation_set:
-  systems: "ethanol_reduced_100.xyz" # file where the positions are stored
+  systems: ethanol_reduced_100.xyz  # file where the positions are stored
   targets:
     energy:
-      key: "energy" # name of the target value
-      unit: "eV" # unit of the target value
+      key: energy  # name of the target value
+      unit: eV  # unit of the target value

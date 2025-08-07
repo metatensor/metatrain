@@ -5,14 +5,16 @@ import pickle
 import time
 import warnings
 from pathlib import Path
-from typing import List, Union
+from typing import Any, Dict, List, Literal, Union
 
 import numpy as np
 import torch
 from torch_geometric.nn import DataParallel
 
-from ...utils.data import Dataset, check_datasets
-from ...utils.io import check_file_extension
+from metatrain.utils.abc import TrainerInterface
+from metatrain.utils.data import Dataset, check_datasets
+from metatrain.utils.io import check_file_extension
+
 from . import PET as WrappedPET
 from .modules.analysis import adapt_hypers
 from .modules.data_preparation import (
@@ -42,9 +44,12 @@ from .utils import dataset_to_ase, load_raw_pet_model, update_hypers
 from .utils.fine_tuning import LoRAWrapper
 
 
-class Trainer:
-    def __init__(self, train_hypers):
-        self.hypers = {"FITTING_SCHEME": train_hypers}
+class Trainer(TrainerInterface):
+    __checkpoint_version__ = 1
+
+    def __init__(self, hypers):
+        super().__init__(hypers={"FITTING_SCHEME": hypers})
+
         self.pet_dir = None
         self.pet_trainer_state = None
         self.epoch = None
@@ -748,8 +753,11 @@ Units of the Energy and Forces are the same units given in input"""
             }
         else:
             lora_state_dict = None
+
         last_model_checkpoint = {
             "architecture_name": "deprecated.pet",
+            "model_ckpt_version": model.__checkpoint_version__,
+            "trainer_ckpt_version": self.__checkpoint_version__,
             "trainer_state_dict": trainer_state_dict,
             "model_state_dict": last_model_state_dict,
             "best_model_state_dict": self.best_model_state_dict,
@@ -760,8 +768,11 @@ Units of the Energy and Forces are the same units given in input"""
             "self_contributions": model.pet.self_contributions.numpy(),
             "lora_state_dict": lora_state_dict,
         }
+
         best_model_checkpoint = {
             "architecture_name": "deprecated.pet",
+            "model_ckpt_version": model.__checkpoint_version__,
+            "trainer_ckpt_version": self.__checkpoint_version__,
             "trainer_state_dict": None,
             "model_state_dict": self.best_model_state_dict,
             "best_model_state_dict": None,
@@ -783,11 +794,15 @@ Units of the Energy and Forces are the same units given in input"""
         )
 
     @classmethod
-    def load_checkpoint(cls, path: Union[str, Path], train_hypers) -> "Trainer":
-        # This function loads a metatrain PET checkpoint and returns a Trainer
+    def load_checkpoint(
+        cls,
+        checkpoint: Dict[str, Any],
+        train_hypers: Dict,
+        context: Literal["restart", "finetune"],
+    ) -> "Trainer":
+        # This function takes a metatrain PET checkpoint and returns a Trainer
         # instance with the hypers, while also saving the checkpoint in the
         # class
-        checkpoint = torch.load(path, weights_only=False, map_location="cpu")
         trainer = cls(train_hypers)
         trainer.pet_trainer_state = checkpoint["trainer_state_dict"]
         trainer.epoch = checkpoint["epoch"]
@@ -814,3 +829,10 @@ Units of the Energy and Forces are the same units given in input"""
         trainer.best_metric = best_metric
         trainer.best_model_state_dict = best_model_state_dict
         return trainer
+
+    @staticmethod
+    def upgrade_checkpoint(checkpoint: Dict) -> Dict:
+        raise NotImplementedError(
+            "checkpoint upgrade is not implemented for the deprecated PET "
+            "implementation"
+        )

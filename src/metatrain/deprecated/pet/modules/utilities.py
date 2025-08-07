@@ -379,13 +379,6 @@ def get_scheduler(optim, FITTING_SCHEME):
     return scheduler
 
 
-def load_checkpoint(model, optim, scheduler, checkpoint_path):
-    checkpoint = torch.load(checkpoint_path)
-    model.load_state_dict(checkpoint["model_state_dict"])
-    optim.load_state_dict(checkpoint["optim_state_dict"])
-    scheduler.load_state_dict(checkpoint["scheduler_state_dict"])
-
-
 def get_data_loaders(train_graphs, val_graphs, FITTING_SCHEME):
     def seed_worker(worker_id):
         worker_seed = torch.initial_seed() % 2**32

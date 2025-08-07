@@ -14,9 +14,9 @@ how to save a ``DiskDataset`` for this purpose. Metatrain will then be able to l
 import ase.io
 import torch
 from metatensor.torch import Labels, TensorBlock, TensorMap
-from metatensor.torch.atomistic import NeighborListOptions, systems_to_torch
+from metatomic.torch import NeighborListOptions, systems_to_torch
 
-from metatrain.utils.data import DiskDatasetWriter
+from metatrain.utils.data.writers import DiskDatasetWriter
 from metatrain.utils.neighbor_lists import get_system_with_neighbor_lists
 
 
@@ -48,8 +48,39 @@ for i in range(100):
             )
         ],
     )
-    disk_dataset_writer.write_sample(system, {"energy": energy})
-del disk_dataset_writer  # not necessary if the file ends here, but good in general
+    disk_dataset_writer.write([system], {"energy": energy})
+disk_dataset_writer.finish()
+
+# %%
+#
+# Alternatively, you can also write the whole dataset at once, which can be more
+# efficient.
+
+disk_dataset_writer = DiskDatasetWriter("qm9_reduced_100_all_at_once.zip")
+frames = ase.io.read("qm9_reduced_100.xyz", ":")
+systems = systems_to_torch(frames, dtype=torch.float64)
+systems = [
+    get_system_with_neighbor_lists(
+        system,
+        [NeighborListOptions(cutoff=5.0, full_list=True, strict=True)],
+    )
+    for system in systems
+]
+energy = TensorMap(
+    keys=Labels.single(),
+    blocks=[
+        TensorBlock(
+            values=torch.tensor(
+                [frame.info["U0"] for frame in frames], dtype=torch.float64
+            ).reshape(-1, 1),
+            samples=Labels.range("system", len(frames)),
+            components=[],
+            properties=Labels("energy", torch.tensor([[0]])),
+        )
+    ],
+)
+disk_dataset_writer.write(systems, {"energy": energy})
+disk_dataset_writer.finish()
 
 # %%
 #

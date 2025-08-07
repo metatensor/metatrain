@@ -4,8 +4,8 @@ import json
 import logging
 import os
 import random
+import re
 import shutil
-import time
 from pathlib import Path
 from typing import Dict, Optional, Union
 
@@ -14,6 +14,7 @@ import torch
 from omegaconf import DictConfig, OmegaConf
 
 from .. import PACKAGE_ROOT
+from ..utils.abc import ModelInterface, TrainerInterface
 from ..utils.architectures import (
     check_architecture_options,
     get_default_hypers,
@@ -30,9 +31,14 @@ from ..utils.data.dataset import _save_indices, _train_test_random_split
 from ..utils.devices import pick_devices
 from ..utils.distributed.logging import is_main_process
 from ..utils.errors import ArchitectureError
-from ..utils.io import check_file_extension, load_model
+from ..utils.io import (
+    check_file_extension,
+    load_model,
+    model_from_checkpoint,
+    trainer_from_checkpoint,
+)
 from ..utils.jsonschema import validate
-from ..utils.logging import ROOT_LOGGER, WandbHandler
+from ..utils.logging import ROOT_LOGGER, WandbHandler, human_readable
 from ..utils.omegaconf import BASE_OPTIONS, check_units, expand_dataset_config
 from .eval import _eval_targets
 from .export import _has_extensions
@@ -83,12 +89,14 @@ def _add_train_model_parser(subparser: argparse._SubParsersAction) -> None:
         ),
     )
     parser.add_argument(
-        "-c",
-        "--continue",
-        dest="continue_from",
-        type=_process_continue_from,
+        "--restart",
+        dest="restart_from",
+        type=_process_restart_from,
         required=False,
-        help="Checkpoint file (.ckpt) to continue training from.",
+        help=(
+            "Checkpoint file (.ckpt) to continue interrupted training. Set to `'auto'` "
+            "to take the most recent checkpoint from the outputs directory."
+        ),
     )
     parser.add_argument(
         "-r",
@@ -110,47 +118,26 @@ def _prepare_train_model_args(args: argparse.Namespace) -> None:
     args.options = OmegaConf.merge(args.options, override_options)
 
 
-def _process_continue_from(continue_from: str) -> Optional[str]:
-    # covers the case where `continue_from` is `auto`
-    if continue_from == "auto":
-        # try to find the `outputs` directory; if it doesn't exist
-        # then we are not continuing from a previous run
-        if Path("outputs/").exists():
-            # take the latest year-month-day directory
-            dir = sorted(Path("outputs/").iterdir())[-1]
-            # take the latest hour-minute-second directory
-            dir = sorted(dir.iterdir())[-1]
-            # take the latest checkpoint. This cannot be done with
-            # `sorted` because some checkpoint files are named with
-            # the epoch number (e.g. `epoch_10.ckpt` would be before
-            # `epoch_8.ckpt`). We therefore sort by file creation time.
-            new_continue_from = str(
-                sorted(dir.glob("*.ckpt"), key=lambda f: f.stat().st_ctime)[-1]
-            )
-            logging.info(f"Auto-continuing from `{new_continue_from}`")
-        else:
-            new_continue_from = None
-            logging.info(
-                "Auto-continuation did not find any previous runs, "
-                "training from scratch"
-            )
-        # sleep for a few seconds to allow all processes to catch up. This is
-        # necessary because the `outputs` directory is created by the main
-        # process and the other processes might detect it by mistake if they're
-        # still executing this function
-        time.sleep(3)
-    else:
-        new_continue_from = continue_from
+def _process_restart_from(restart_from: str) -> Optional[Union[str, Path]]:
+    if restart_from != "auto":
+        return restart_from
 
-    return new_continue_from
+    pattern = re.compile(r".*\d{4}-\d{2}-\d{2}/\d{2}-\d{2}-\d{2}/*")
+    checkpoints = sorted(
+        (f for f in Path("outputs").glob("*/*/*.ckpt") if pattern.match(str(f))),
+        key=lambda f: f.stat().st_ctime,
+        reverse=True,
+    )
+
+    return checkpoints[0] if checkpoints else None
 
 
 def train_model(
     options: Union[DictConfig, Dict],
-    output: str = "model.pt",
-    extensions: str = "extensions/",
+    output: Union[str, Path] = "model.pt",
+    extensions: Union[str, Path] = "extensions/",
     checkpoint_dir: Union[str, Path] = ".",
-    continue_from: Optional[str] = None,
+    restart_from: Optional[Union[str, Path]] = None,
 ) -> None:
     """Train an atomistic machine learning model using provided ``options``.
 
@@ -164,8 +151,13 @@ def train_model(
     :param output: Path to save the final model
     :param checkpoint_dir: Path to save checkpoints and other intermediate output files
         like the fully expanded training options for a later restart.
-    :param continue_from: File to continue training from.
+    :param restart_from: File to continue training from.
     """
+
+    output = Path(check_file_extension(filename=output, extension=".pt"))
+    extensions = Path(extensions)
+    checkpoint_dir = Path(checkpoint_dir)
+
     ###########################
     # VALIDATE BASE OPTIONS ###
     ###########################
@@ -191,7 +183,18 @@ def train_model(
     logging.info(f"Running training for {architecture_name!r} architecture")
 
     Model = architecture.__model__
+    if not issubclass(Model, ModelInterface):
+        raise TypeError(
+            f"Model class for {architecture_name} must be a subclass of "
+            " `metatrain.utils.abc.ModelInterface`"
+        )
+
     Trainer = architecture.__trainer__
+    if not issubclass(Trainer, TrainerInterface):
+        raise TypeError(
+            f"Trainer class for {architecture_name} must be a subclass of "
+            " `metatrain.utils.abc.TrainerInterface`"
+        )
 
     ###########################
     # MERGE OPTIONS ###########
@@ -258,9 +261,13 @@ def train_model(
 
     train_datasets = []
     target_info_dict: Dict[str, TargetInfo] = {}
+    extra_data_info_dict: Dict[str, TargetInfo] = {}
     for train_options in options["training_set"]:  # loop over training sets
-        dataset, target_info_dict_single = get_dataset(train_options)
+        dataset, target_info_dict_single, extra_data_info_dict_single = get_dataset(
+            train_options
+        )
         train_datasets.append(dataset)
+
         intersecting_keys = target_info_dict.keys() & target_info_dict_single.keys()
         for key in intersecting_keys:
             if target_info_dict[key] != target_info_dict_single[key]:
@@ -269,6 +276,18 @@ def train_model(
                     f"Got {target_info_dict[key]} and {target_info_dict_single[key]}."
                 )
         target_info_dict.update(target_info_dict_single)
+
+        intersecting_keys = (
+            extra_data_info_dict.keys() & extra_data_info_dict_single.keys()
+        )
+        for key in intersecting_keys:
+            if extra_data_info_dict[key] != extra_data_info_dict_single[key]:
+                raise ValueError(
+                    f"Extra data information for key {key} differs between training "
+                    f"sets. Got {extra_data_info_dict[key]} and"
+                    f" {extra_data_info_dict_single[key]}."
+                )
+        extra_data_info_dict.update(extra_data_info_dict_single)
 
     train_size = 1.0
 
@@ -310,7 +329,7 @@ def train_model(
         )
 
         for valid_options in options["validation_set"]:
-            dataset, _ = get_dataset(valid_options)
+            dataset, _, _ = get_dataset(valid_options)
             val_datasets.append(dataset)
             train_indices.append(None)
             val_indices.append(None)
@@ -363,7 +382,7 @@ def train_model(
         )
 
         for test_options in options["test_set"]:
-            dataset, _ = get_dataset(test_options)
+            dataset, _, _ = get_dataset(test_options)
             test_datasets.append(dataset)
             test_indices.append(None)
 
@@ -377,13 +396,20 @@ def train_model(
     ###########################
     # CREATE DATASET_INFO #####
     ###########################
+    if options["architecture"].get("atomic_types") is None:  # infer from datasets
+        logging.info("Atomic types inferred from training and validation datasets")
+        atomic_types = get_atomic_types(train_datasets + val_datasets)
+    else:  # use explicitly defined atomic types
+        logging.info("Atomic types explicitly defined in options.yaml")
+        atomic_types = sorted(options["architecture"]["atomic_types"])
 
-    atomic_types = get_atomic_types(train_datasets + val_datasets)
+    logging.info(f"Model defined for atomic types: {atomic_types}")
 
     dataset_info = DatasetInfo(
         length_unit=options["training_set"][0]["systems"]["length_unit"],
         atomic_types=atomic_types,
         targets=target_info_dict,
+        extra_data=extra_data_info_dict,
     )
 
     ###########################
@@ -422,9 +448,13 @@ def train_model(
     ###########################
 
     if is_main_process():
+        logging.info(
+            "Restart options: "
+            f"{checkpoint_dir.absolute().resolve() / 'options_restart.yaml'}"
+        )
         OmegaConf.save(
             config=options,
-            f=Path(checkpoint_dir) / "options_restart.yaml",
+            f=checkpoint_dir / "options_restart.yaml",
             resolve=True,
         )
 
@@ -433,23 +463,85 @@ def train_model(
     ###########################
 
     logging.info("Setting up model")
+
+    # Resolving the model initialization options
+    if restart_from is not None:
+        training_context = "restart"
+    elif "finetune" in hypers["training"]:
+        if "read_from" not in hypers["training"]["finetune"]:
+            raise ValueError(
+                "Finetuning is enabled but no checkpoint was provided. Please "
+                "provide one using the `read_from` option in the `finetune` "
+                "section."
+            )
+        restart_from = hypers["training"]["finetune"]["read_from"]
+        training_context = "finetune"
+    else:
+        training_context = None
+
     try:
-        if continue_from is not None:
-            logging.info(f"Loading checkpoint from `{continue_from}`")
-            trainer = Trainer.load_checkpoint(continue_from, hypers["training"])
-            model = Model.load_checkpoint(continue_from)
+        if training_context == "restart" and restart_from is not None:
+            logging.info(f"Restarting training from '{restart_from}'")
+            checkpoint = torch.load(
+                restart_from, weights_only=False, map_location="cpu"
+            )
+            try:
+                model = model_from_checkpoint(checkpoint, context="restart")
+            except Exception as e:
+                raise ValueError(
+                    f"The file {restart_from} does not contain a valid checkpoint for "
+                    f"the '{architecture_name}' architecture"
+                ) from e
             model = model.restart(dataset_info)
+            try:
+                trainer = trainer_from_checkpoint(
+                    checkpoint=checkpoint,
+                    hypers=hypers["training"],
+                    context=training_context,  # type: ignore
+                )
+            except Exception as e:
+                raise ValueError(
+                    f"The file {restart_from} does not contain a valid checkpoint for "
+                    f"the '{architecture_name}' trainer state"
+                ) from e
+        elif training_context == "finetune" and restart_from is not None:
+            logging.info(f"Starting finetuning from '{restart_from}'")
+            checkpoint = torch.load(
+                restart_from, weights_only=False, map_location="cpu"
+            )
+            try:
+                model = model_from_checkpoint(checkpoint, context="finetune")
+            except Exception as e:
+                raise ValueError(
+                    f"The file {restart_from} does not contain a valid checkpoint for "
+                    f"the '{architecture_name}' architecture"
+                ) from e
+            model = model.restart(dataset_info)
+            trainer = Trainer(hypers["training"])
         else:
+            logging.info("Starting training from scratch")
             model = Model(hypers["model"], dataset_info)
             trainer = Trainer(hypers["training"])
     except Exception as e:
         raise ArchitectureError(e)
+
+    n_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
+    logging.info(
+        (
+            f"The model has {human_readable(n_params)} parameters "
+            f"(actual number: {n_params})."
+        )
+    )
 
     ###########################
     # TRAIN MODEL #############
     ###########################
 
     logging.info("Calling trainer")
+    logging.info(
+        "Intermediate checkpoints (if available): "
+        f"{checkpoint_dir.absolute().resolve()}"
+    )
     try:
         trainer.train(
             model=model,
@@ -469,59 +561,49 @@ def train_model(
     # SAVE FINAL MODEL ########
     ###########################
 
-    output_checked = check_file_extension(filename=output, extension=".pt")
-    logging.info(
-        "Training finished, saving final checkpoint "
-        f"to `{str(Path(output_checked).stem)}.ckpt`"
-    )
+    logging.info("Training finished!")
+
+    checkpoint_output = output.with_suffix(".ckpt")
     try:
-        trainer.save_checkpoint(model, f"{Path(output_checked).stem}.ckpt")
+        trainer.save_checkpoint(model, checkpoint_output)
     except Exception as e:
         raise ArchitectureError(e)
+    if checkpoint_output.exists():
+        logging.info(f"Final checkpoint: {checkpoint_output.absolute().resolve()}")
 
     mts_atomistic_model = model.export()
-    if _has_extensions():
-        extensions_path = str(Path(extensions).absolute().resolve())
-    else:
-        extensions_path = None
-
-    if extensions_path is not None:
-        logging.info(
-            f"Exporting model to `{output_checked}` and extensions to "
-            f"`{extensions_path}`"
-        )
-    else:
-        logging.info(f"Exporting model to `{output_checked}`")
-    # get device from the model. This device could be different from devices[0]
-    # defined above in the case of multi-GPU and/or distributed training
+    # Final device could be different from devices[0] defined above in the case of
+    # multi-GPU and/or distributed training
     final_device = next(
         itertools.chain(
             mts_atomistic_model.parameters(),
             mts_atomistic_model.buffers(),
         )
     ).device
-    mts_atomistic_model.save(str(output_checked), collect_extensions=extensions_path)
-    # the model is first saved and then reloaded 1) for good practice and 2) because
-    # MetatensorAtomisticModel only torchscripts (makes faster) during save()
 
-    # Copy the exported model and the checkpoint also to the checkpoint directory
-    checkpoint_path = Path(checkpoint_dir)
-    if checkpoint_path != Path("."):
-        shutil.copy(output_checked, Path(checkpoint_dir) / output_checked)
-        if Path(f"{Path(output_checked).stem}.ckpt").exists():
-            # inside the if because some models don't have a checkpoint (e.g., GAP)
-            shutil.copy(
-                f"{Path(output_checked).stem}.ckpt",
-                Path(checkpoint_dir) / f"{Path(output_checked).stem}.ckpt",
-            )
+    # model is first saved and then reloaded 1) for good practice and 2) because
+    # `AtomisticModel` only torchscripts (makes faster) during `save()`
+    mts_atomistic_model.save(
+        file=output,
+        collect_extensions=extensions if _has_extensions() else None,
+    )
+
+    logging.info(f"Exported model: {output.absolute().resolve()}")
+    if extensions.exists():
+        logging.info(f"Extensions path: {extensions.absolute().resolve()}")
+
+    if checkpoint_dir.absolute().resolve() != Path.cwd():
+        shutil.copy(output, checkpoint_dir / output)
+        if checkpoint_output.exists():
+            shutil.copy(checkpoint_output, checkpoint_dir / checkpoint_output)
 
     ###########################
     # EVALUATE FINAL MODEL ####
     ###########################
 
     mts_atomistic_model = load_model(
-        path=output_checked,
-        extensions_directory=extensions_path,
+        path=output,
+        extensions_directory=extensions if _has_extensions() else None,
     )
     mts_atomistic_model = mts_atomistic_model.to(final_device)
 
@@ -546,7 +628,6 @@ def train_model(
             mts_atomistic_model,
             train_dataset,
             dataset_info.targets,
-            return_predictions=False,
             batch_size=batch_size,
         )
 
@@ -561,7 +642,6 @@ def train_model(
             mts_atomistic_model,
             val_dataset,
             dataset_info.targets,
-            return_predictions=False,
             batch_size=batch_size,
         )
 
@@ -576,7 +656,6 @@ def train_model(
             mts_atomistic_model,
             test_dataset,
             dataset_info.targets,
-            return_predictions=False,
             batch_size=batch_size,
         )
 

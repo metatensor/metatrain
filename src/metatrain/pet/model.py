@@ -1,43 +1,46 @@
 import warnings
 from math import prod
-from pathlib import Path
-from typing import Dict, List, Optional, Union
+from typing import Any, Dict, List, Literal, Optional
 
-import metatensor.torch
+import metatensor.torch as mts
 import torch
 from metatensor.torch import Labels, TensorBlock, TensorMap
-from metatensor.torch.atomistic import (
-    MetatensorAtomisticModel,
+from metatensor.torch.operations._add import _add_block_block
+from metatomic.torch import (
+    AtomisticModel,
     ModelCapabilities,
     ModelMetadata,
     ModelOutput,
     NeighborListOptions,
     System,
 )
-from torch import nn
 
-from ..utils.additive import ZBL, CompositionModel
-from ..utils.data import DatasetInfo, TargetInfo
-from ..utils.dtype import dtype_to_str
-from ..utils.long_range import DummyLongRangeFeaturizer, LongRangeFeaturizer
-from ..utils.metadata import append_metadata_references
-from ..utils.scaler import Scaler
-from ..utils.sum_over_atoms import sum_over_atoms
+from metatrain.utils.abc import ModelInterface
+from metatrain.utils.additive import ZBL, CompositionModel
+from metatrain.utils.data import DatasetInfo, TargetInfo
+from metatrain.utils.dtype import dtype_to_str
+from metatrain.utils.long_range import DummyLongRangeFeaturizer, LongRangeFeaturizer
+from metatrain.utils.metadata import merge_metadata
+from metatrain.utils.scaler import Scaler
+from metatrain.utils.sum_over_atoms import sum_over_atoms
+
+from . import checkpoints
 from .modules.finetuning import apply_finetuning_strategy
 from .modules.structures import remap_neighborlists, systems_to_batch
 from .modules.transformer import CartesianTransformer
 from .modules.utilities import cutoff_func
 
 
-class PET(torch.nn.Module):
+class PET(ModelInterface):
     """
-    Native metatrain implementation of the PET architecture.
+    Metatrain-native implementation of the PET architecture.
 
     Originally proposed in work (https://arxiv.org/abs/2305.19302v3),
     and published in the `pet` package (https://github.com/spozdn/pet).
 
     """
 
+    __checkpoint_version__ = 3
     __supported_devices__ = ["cuda", "cpu"]
     __supported_dtypes__ = [torch.float32, torch.float64]
     __default_metadata__ = ModelMetadata(
@@ -45,11 +48,10 @@ class PET(torch.nn.Module):
     )
     component_labels: Dict[str, List[List[Labels]]]
 
-    def __init__(self, model_hypers: Dict, dataset_info: DatasetInfo) -> None:
-        super().__init__()
-        self.dataset_info = dataset_info
+    def __init__(self, hypers: Dict, dataset_info: DatasetInfo) -> None:
+        super().__init__(hypers, dataset_info, self.__default_metadata__)
+
         self.atomic_types = dataset_info.atomic_types
-        self.hypers = model_hypers
         self.requested_nl = NeighborListOptions(
             cutoff=self.hypers["cutoff"],
             full_list=True,
@@ -100,10 +102,7 @@ class PET(torch.nn.Module):
 
         self.register_buffer(
             "species_to_species_index",
-            torch.full(
-                (max(self.atomic_types) + 1,),
-                -1,
-            ),
+            torch.full((max(self.atomic_types) + 1,), -1),
         )
         for i, species in enumerate(self.atomic_types):
             self.species_to_species_index[species] = i
@@ -132,7 +131,7 @@ class PET(torch.nn.Module):
         # additive models: these are handled by the trainer at training
         # time, and they are added to the output at evaluation time
         composition_model = CompositionModel(
-            model_hypers={},
+            hypers={},
             dataset_info=DatasetInfo(
                 length_unit=dataset_info.length_unit,
                 atomic_types=self.atomic_types,
@@ -164,9 +163,14 @@ class PET(torch.nn.Module):
         self.additive_models = torch.nn.ModuleList(additive_models)
 
         # scaler: this is also handled by the trainer at training time
-        self.scaler = Scaler(model_hypers={}, dataset_info=dataset_info)
+        self.scaler = Scaler(hypers={}, dataset_info=dataset_info)
 
         self.single_label = Labels.single()
+
+        self.finetune_config: Dict[str, Any] = {}
+
+    def supported_outputs(self) -> Dict[str, ModelOutput]:
+        return self.outputs
 
     def restart(self, dataset_info: DatasetInfo) -> "PET":
         # merge old and new dataset info
@@ -210,9 +214,7 @@ class PET(torch.nn.Module):
 
         return self
 
-    def requested_neighbor_lists(
-        self,
-    ) -> List[NeighborListOptions]:
+    def requested_neighbor_lists(self) -> List[NeighborListOptions]:
         return [self.requested_nl]
 
     def forward(
@@ -621,7 +623,7 @@ class PET(torch.nn.Module):
 
         if selected_atoms is not None:
             for output_name, tmap in atomic_predictions_tmap_dict.items():
-                atomic_predictions_tmap_dict[output_name] = metatensor.torch.slice(
+                atomic_predictions_tmap_dict[output_name] = mts.slice(
                     tmap, axis="samples", selection=selected_atoms
                 )
 
@@ -649,22 +651,60 @@ class PET(torch.nn.Module):
                     selected_atoms,
                 )
                 for name in additive_contributions:
-                    return_dict[name] = metatensor.torch.add(
-                        return_dict[name],
-                        additive_contributions[name],
-                    )
+                    # # TODO: uncomment this after metatensor.torch.add is updated to
+                    # # handle sparse sums
+                    # return_dict[name] = metatensor.torch.add(
+                    #     return_dict[name],
+                    #     additive_contributions[name].to(
+                    #         device=return_dict[name].device,
+                    #         dtype=return_dict[name].dtype
+                    #         ),
+                    # )
+
+                    # TODO: "manual" sparse sum: update to metatensor.torch.add after
+                    # sparse sum is implemented in metatensor.operations
+                    output_blocks: List[TensorBlock] = []
+                    for k, b in return_dict[name].items():
+                        if k in additive_contributions[name].keys:
+                            output_blocks.append(
+                                _add_block_block(
+                                    b,
+                                    additive_contributions[name]
+                                    .block(k)
+                                    .to(device=b.device, dtype=b.dtype),
+                                )
+                            )
+                        else:
+                            output_blocks.append(b)
+                    return_dict[name] = TensorMap(return_dict[name].keys, output_blocks)
 
         return return_dict
 
     @classmethod
-    def load_checkpoint(cls, path: Union[str, Path]) -> "PET":
-        checkpoint = torch.load(path, weights_only=False, map_location="cpu")
+    def load_checkpoint(
+        cls,
+        checkpoint: Dict[str, Any],
+        context: Literal["restart", "finetune", "export"],
+    ) -> "PET":
         model_data = checkpoint["model_data"]
-        model_state_dict = checkpoint["model_state_dict"]
-        finetune_config = checkpoint["train_hypers"].get("finetune", {})
+
+        if context == "restart":
+            model_state_dict = checkpoint["model_state_dict"]
+        elif context == "finetune" or context == "export":
+            model_state_dict = checkpoint["best_model_state_dict"]
+            if model_state_dict is None:
+                model_state_dict = checkpoint["model_state_dict"]
+        else:
+            raise ValueError("Unknown context tag for checkpoint loading!")
+
+        finetune_config = model_state_dict.pop("finetune_config", {})
 
         # Create the model
-        model = cls(**model_data)
+        model = cls(
+            hypers=model_data["model_hypers"],
+            dataset_info=model_data["dataset_info"],
+        )
+
         if finetune_config:
             # Apply the finetuning strategy
             model = apply_finetuning_strategy(model, finetune_config)
@@ -674,11 +714,12 @@ class PET(torch.nn.Module):
         model.to(dtype).load_state_dict(model_state_dict)
         model.additive_models[0].sync_tensor_maps()
 
+        # Loading the metadata from the checkpoint
+        model.metadata = merge_metadata(model.metadata, checkpoint.get("metadata"))
+
         return model
 
-    def export(
-        self, metadata: Optional[ModelMetadata] = None
-    ) -> MetatensorAtomisticModel:
+    def export(self, metadata: Optional[ModelMetadata] = None) -> AtomisticModel:
         dtype = next(self.parameters()).dtype
         if dtype not in self.__supported_dtypes__:
             raise ValueError(f"unsupported dtype {dtype} for PET")
@@ -689,10 +730,8 @@ class PET(torch.nn.Module):
         self.to(dtype)
 
         # Additionally, the composition model contains some `TensorMap`s that cannot
-        # be registered correctly with Pytorch. This funciton moves them:
-        self.additive_models[0]._move_weights_to_device_and_dtype(
-            torch.device("cpu"), torch.float64
-        )
+        # be registered correctly with Pytorch. This function moves them:
+        self.additive_models[0].weights_to(torch.device("cpu"), torch.float64)
 
         interaction_ranges = [self.hypers["num_gnn_layers"] * self.hypers["cutoff"]]
         for additive_model in self.additive_models:
@@ -709,12 +748,9 @@ class PET(torch.nn.Module):
             dtype=dtype_to_str(dtype),
         )
 
-        if metadata is None:
-            metadata = ModelMetadata()
+        metadata = merge_metadata(self.metadata, metadata)
 
-        append_metadata_references(metadata, self.__default_metadata__)
-
-        return MetatensorAtomisticModel(self.eval(), metadata, capabilities)
+        return AtomisticModel(self.eval(), metadata, capabilities)
 
     def _add_output(self, target_name: str, target_info: TargetInfo) -> None:
         # warn that, for Cartesian tensors, we assume that they are symmetric
@@ -749,35 +785,35 @@ class PET(torch.nn.Module):
             per_atom=True,
         )
 
-        self.node_heads[target_name] = nn.ModuleList(
+        self.node_heads[target_name] = torch.nn.ModuleList(
             [
-                nn.Sequential(
-                    nn.Linear(self.hypers["d_pet"], self.hypers["d_head"]),
-                    nn.SiLU(),
-                    nn.Linear(self.hypers["d_head"], self.hypers["d_head"]),
-                    nn.SiLU(),
+                torch.nn.Sequential(
+                    torch.nn.Linear(self.hypers["d_pet"], self.hypers["d_head"]),
+                    torch.nn.SiLU(),
+                    torch.nn.Linear(self.hypers["d_head"], self.hypers["d_head"]),
+                    torch.nn.SiLU(),
                 )
                 for _ in range(self.hypers["num_gnn_layers"])
             ]
         )
 
-        self.edge_heads[target_name] = nn.ModuleList(
+        self.edge_heads[target_name] = torch.nn.ModuleList(
             [
-                nn.Sequential(
-                    nn.Linear(self.hypers["d_pet"], self.hypers["d_head"]),
-                    nn.SiLU(),
-                    nn.Linear(self.hypers["d_head"], self.hypers["d_head"]),
-                    nn.SiLU(),
+                torch.nn.Sequential(
+                    torch.nn.Linear(self.hypers["d_pet"], self.hypers["d_head"]),
+                    torch.nn.SiLU(),
+                    torch.nn.Linear(self.hypers["d_head"], self.hypers["d_head"]),
+                    torch.nn.SiLU(),
                 )
                 for _ in range(self.hypers["num_gnn_layers"])
             ]
         )
 
-        self.node_last_layers[target_name] = nn.ModuleList(
+        self.node_last_layers[target_name] = torch.nn.ModuleList(
             [
-                nn.ModuleDict(
+                torch.nn.ModuleDict(
                     {
-                        key: nn.Linear(
+                        key: torch.nn.Linear(
                             self.hypers["d_head"],
                             prod(shape),
                             bias=True,
@@ -789,11 +825,11 @@ class PET(torch.nn.Module):
             ]
         )
 
-        self.edge_last_layers[target_name] = nn.ModuleList(
+        self.edge_last_layers[target_name] = torch.nn.ModuleList(
             [
-                nn.ModuleDict(
+                torch.nn.ModuleDict(
                     {
-                        key: nn.Linear(
+                        key: torch.nn.Linear(
                             self.hypers["d_head"],
                             prod(shape),
                             bias=True,
@@ -851,3 +887,32 @@ class PET(torch.nn.Module):
             values=sample_values,
         )
         return system_indices, sample_labels
+
+    @staticmethod
+    def upgrade_checkpoint(checkpoint: Dict) -> Dict:
+        if checkpoint["model_ckpt_version"] == 1:
+            checkpoints.update_v1_v2(checkpoint["model_state_dict"])
+            checkpoints.update_v1_v2(checkpoint["best_model_state_dict"])
+            checkpoint["model_ckpt_version"] = 2
+        if checkpoint["model_ckpt_version"] == 2:
+            checkpoints.update_v2_v3(checkpoint["model_state_dict"])
+            checkpoints.update_v2_v3(checkpoint["best_model_state_dict"])
+            checkpoint["model_ckpt_version"] = 3
+
+        return checkpoint
+
+    def get_checkpoint(self) -> Dict:
+        model_state_dict = self.state_dict()
+        model_state_dict["finetune_config"] = self.finetune_config
+        checkpoint = {
+            "architecture_name": "pet",
+            "model_ckpt_version": self.__checkpoint_version__,
+            "metadata": self.metadata,
+            "model_data": {
+                "model_hypers": self.hypers,
+                "dataset_info": self.dataset_info,
+            },
+            "model_state_dict": model_state_dict,
+            "best_model_state_dict": None,
+        }
+        return checkpoint

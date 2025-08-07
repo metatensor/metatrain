@@ -1,56 +1,52 @@
 from typing import Dict, List, Union
 
-import metatensor.torch
+import metatensor.torch as mts
 import numpy as np
 import torch
 from metatensor.torch import TensorMap
-from metatensor.torch.atomistic import ModelOutput
+from metatomic.torch import ModelOutput
 
 from .additive import remove_additive
 from .data import Dataset, DatasetInfo, TargetInfo, get_all_targets
 from .jsonschema import validate
 from .per_atom import average_by_num_atoms
-from .transfer import systems_and_targets_to_device
+from .transfer import batch_to
 
 
 class Scaler(torch.nn.Module):
     """
-    A class that scales the targets of regression problems to unit standard
-    deviation.
+    A class that scales the targets of regression problems to unit standard deviation.
 
-    In most cases, this should be used in conjunction with a composition model
-    (that removes the multi-dimensional "mean" across the composition space) and/or
-    other additive models. See the `train_model` method for more details.
+    In most cases, this should be used in conjunction with a composition model (that
+    removes the multi-dimensional "mean" across the composition space) and/or other
+    additive models. See the `train_model` method for more details.
 
     The scaling is performed per-atom, i.e., in cases where the targets are
-    per-structure, the standard deviation is calculated on the targets divided by
-    the number of atoms in each structure.
+    per-structure, the standard deviation is calculated on the targets divided by the
+    number of atoms in each structure.
 
-    :param model_hypers: A dictionary of model hyperparameters. The paramater is ignored
-        and is only present to be consistent with the general model API.
+    :param hypers: A dictionary of model hyperparameters. This parameter is ignored and
+        is only present to be consistent with the general model API.
     :param dataset_info: An object containing information about the dataset, including
         target quantities and atomic types.
     """
 
-    outputs: Dict[str, ModelOutput]
-    scales: torch.Tensor
-
-    def __init__(self, model_hypers: Dict, dataset_info: DatasetInfo):
+    def __init__(self, hypers: Dict, dataset_info: DatasetInfo):
         super().__init__()
 
-        # `model_hypers` should be an empty dictionary
+        # `hypers` should be an empty dictionary
         validate(
-            instance=model_hypers,
+            instance=hypers,
             schema={"type": "object", "additionalProperties": False},
         )
 
         self.dataset_info = dataset_info
-
-        self.new_targets: Dict[str, TargetInfo] = dataset_info.targets
+        self.new_targets = dataset_info.targets
         self.outputs: Dict[str, ModelOutput] = {}
 
         # Initially, the scales are empty. They will be expanded as new outputs
         # are registered with `_add_output`.
+        self.scales: torch.Tensor  # mypy does not understand register_buffer
         self.register_buffer("scales", torch.ones((0,), dtype=torch.float64))
         self.output_name_to_output_index: Dict[str, int] = {}
         for target_name, target_info in self.dataset_info.targets.items():
@@ -105,9 +101,7 @@ class Scaler(torch.nn.Module):
                     systems = [sample["system"]]
                     targets = {target_key: sample[target_key]}
 
-                    systems, targets = systems_and_targets_to_device(
-                        systems, targets, device
-                    )
+                    systems, targets, _ = batch_to(systems, targets, device=device)
 
                     for additive_model in additive_models:
                         target_info_dict = {target_key: self.new_targets[target_key]}
@@ -194,7 +188,7 @@ class Scaler(torch.nn.Module):
                 scale = float(
                     self.scales[self.output_name_to_output_index[target_key]].item()
                 )
-                scaled_target = metatensor.torch.multiply(target, scale)
+                scaled_target = mts.multiply(target, scale)
                 scaled_outputs[target_key] = scaled_target
             else:
                 scaled_outputs[target_key] = target
@@ -252,8 +246,6 @@ def remove_scale(
         scale = float(
             scaler.scales[scaler.output_name_to_output_index[target_key]].item()
         )
-        scaled_targets[target_key] = metatensor.torch.multiply(
-            targets[target_key], 1.0 / scale
-        )
+        scaled_targets[target_key] = mts.multiply(targets[target_key], 1.0 / scale)
 
     return scaled_targets

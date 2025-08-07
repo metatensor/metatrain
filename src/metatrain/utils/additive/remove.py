@@ -1,10 +1,12 @@
 import warnings
 from typing import Dict, List
 
-import metatensor.torch
+import metatensor.torch as mts
 import torch
 from metatensor.torch import TensorMap
-from metatensor.torch.atomistic import System
+from metatensor.torch.operations._add import _add_block_block
+from metatensor.torch.operations._multiply import _multiply_block_constant
+from metatomic.torch import System
 
 from ..data import TargetInfo
 from ..evaluate_model import evaluate_model
@@ -54,11 +56,12 @@ def remove_additive(
         # subtraction
         blocks = []
         for block_key, old_block in additive_contribution[target_key].items():
-            block = metatensor.torch.TensorBlock(
-                values=old_block.values.detach(),
+            device = targets[target_key].block(block_key).values.device
+            block = mts.TensorBlock(
+                values=old_block.values.detach().to(device=device),
                 samples=targets[target_key].block(block_key).samples,
-                components=old_block.components,
-                properties=old_block.properties,
+                components=[c.to(device=device) for c in old_block.components],
+                properties=old_block.properties.to(device=device),
             )
             for gradient_name in targets[target_key].block(block_key).gradients_list():
                 gradient = (
@@ -68,7 +71,7 @@ def remove_additive(
                 )
                 block.add_gradient(
                     gradient_name,
-                    metatensor.torch.TensorBlock(
+                    mts.TensorBlock(
                         values=gradient.values.detach(),
                         samples=targets[target_key]
                         .block(block_key)
@@ -80,12 +83,29 @@ def remove_additive(
                 )
             blocks.append(block)
         additive_contribution[target_key] = TensorMap(
-            keys=targets[target_key].keys,
+            keys=additive_contribution[target_key].keys.to(device=device),
             blocks=blocks,
         )
-        # subtract the additive contribution from the target
-        targets[target_key] = metatensor.torch.subtract(
-            targets[target_key], additive_contribution[target_key]
+        # Sparse subtract the additive contribution from the appropriate target blocks
+        new_target_blocks = []
+        for key, block in targets[target_key].items():
+            if key in additive_contribution[target_key].keys:
+                new_target_blocks.append(
+                    _add_block_block(
+                        block,
+                        _multiply_block_constant(
+                            additive_contribution[target_key].block(key),
+                            -1.0,
+                        ),
+                    )
+                )
+
+            else:
+                new_target_blocks.append(block)
+
+        targets[target_key] = TensorMap(
+            keys=targets[target_key].keys,
+            blocks=new_target_blocks,
         )
 
     return targets

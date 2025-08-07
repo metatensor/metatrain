@@ -29,17 +29,20 @@ as ``energy`` targets (and its derivatives) in the ``options.yaml`` file.
 Fitting to a new level of theory
 --------------------------------
 
-Training on a new level of theory is a common use case for transfer
-learning. It requires using a pre-trained model checkpoint with
-``mtt train -c pre-trained-model.ckpt`` command and setting the
-new targets corresponding to the new level of theory in the
-``options.yaml`` file. Let's assume that the training is done on the
-dataset computed with the hybrid DFT functional (e.g. PBE0) stored in the
-``new_train_dataset.xyz`` file, where the corresponsing energies are written in the
-``energy`` key of the ``info`` dictionary of the ``ase.Atoms`` object. Then,
-the ``options.yaml`` file should look like this:
+Training on a new level of theory is a common use case for transfer learning. It
+requires using a pre-trained model checkpoint with ``mtt train`` command and setting the
+new targets corresponding to the new level of theory in the ``options.yaml`` file. Let's
+assume that the training is done on the dataset computed with the hybrid DFT functional
+(e.g. PBE0) stored in the ``new_train_dataset.xyz`` file, where the corresponsing
+energies are written in the ``energy`` key of the ``info`` dictionary of the
+``ase.Atoms`` object. Then, the ``options.yaml`` file should look like this:
 
 .. code-block:: yaml
+
+  architecture:
+     training:
+       finetune:
+        read_from: path/to/checkpoint.ckpt
 
   training_set:
     systems: "new_train_dataset.xyz"

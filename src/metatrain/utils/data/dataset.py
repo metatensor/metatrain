@@ -3,23 +3,28 @@ import os
 import warnings
 import zipfile
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple, Union
+from typing import Any, Dict, List, Optional, Set, Tuple, Union
 
 import numpy as np
 import torch
 from metatensor.learn.data import Dataset, group_and_join
 from metatensor.learn.data._namedtuple import namedtuple
 from metatensor.torch import TensorMap, load_buffer
-from metatensor.torch import save_buffer as mts_save_buffer
-from metatensor.torch.atomistic import System, load_system
-from metatensor.torch.atomistic import save as mta_save
+from metatomic.torch import load_system
 from omegaconf import DictConfig
 from torch.utils.data import Subset
 
-from ..external_naming import to_external_name
-from ..units import get_gradient_units
-from .readers.metatensor import _check_tensor_map_metadata, _empty_tensor_map_like
-from .target_info import TargetInfo, get_energy_target_info, get_generic_target_info
+from metatrain.utils.data.readers.metatensor import (
+    _check_tensor_map_metadata,
+    _empty_tensor_map_like,
+)
+from metatrain.utils.data.target_info import (
+    TargetInfo,
+    get_energy_target_info,
+    get_generic_target_info,
+)
+from metatrain.utils.external_naming import to_external_name
+from metatrain.utils.units import get_gradient_units
 
 
 class DatasetInfo:
@@ -34,6 +39,8 @@ class DatasetInfo:
         dataset. ``atomic_types`` will be stored as a sorted list of **unique** atomic
         types.
     :param targets: Information about targets in the dataset.
+    :param extra_data: Optional dictionary containing additional data that is not
+        used as a target, but is still relevant to the dataset.
     """
 
     def __init__(
@@ -41,10 +48,12 @@ class DatasetInfo:
         length_unit: Optional[str],
         atomic_types: List[int],
         targets: Dict[str, TargetInfo],
+        extra_data: Optional[Dict[str, TargetInfo]] = None,
     ):
         self.length_unit = length_unit if length_unit is not None else ""
         self._atomic_types = set(atomic_types)
         self.targets = targets
+        self.extra_data = extra_data if extra_data is not None else {}
 
     @property
     def atomic_types(self) -> List[int]:
@@ -71,6 +80,7 @@ class DatasetInfo:
             self.length_unit == other.length_unit
             and self._atomic_types == other._atomic_types
             and self.targets == other.targets
+            and self.extra_data == other.extra_data
         )
 
     def copy(self) -> "DatasetInfo":
@@ -79,6 +89,7 @@ class DatasetInfo:
             length_unit=self.length_unit,
             atomic_types=self.atomic_types.copy(),
             targets=self.targets.copy(),
+            extra_data=self.extra_data.copy(),
         )
 
     def update(self, other: "DatasetInfo") -> None:
@@ -89,7 +100,7 @@ class DatasetInfo:
         if self.length_unit != other.length_unit:
             raise ValueError(
                 "Can't update DatasetInfo with a different `length_unit`: "
-                f"({self.length_unit} != {other.length_unit})"
+                f"('{self.length_unit}' != '{other.length_unit}')"
             )
 
         self.atomic_types = self.atomic_types + other.atomic_types
@@ -106,11 +117,33 @@ class DatasetInfo:
                 )
         self.targets.update(other.targets)
 
+        intersecting_extra_data_keys = self.extra_data.keys() & other.extra_data.keys()
+        for key in intersecting_extra_data_keys:
+            if not self.extra_data[key].is_compatible_with(other.extra_data[key]):
+                raise ValueError(
+                    f"Can't update DatasetInfo with different extra data information "
+                    f"for key '{key}': {self.extra_data[key]} is not compatible with "
+                    f"{other.extra_data[key]}. If the units, quantity and keys of the "
+                    "two extra data dictionaries are the same, this must be due to a "
+                    "mismatch in the internal metadata of the layout."
+                )
+        self.extra_data.update(other.extra_data)
+
     def union(self, other: "DatasetInfo") -> "DatasetInfo":
         """Return the union of this instance with ``other``."""
         new = self.copy()
         new.update(other)
         return new
+
+    def __setstate__(self, state):
+        """
+        Custom ``__setstate__`` to allow loading old checkpoints where ``extra_data`` is
+        missing.
+        """
+        self.length_unit = state["length_unit"]
+        self._atomic_types = state["_atomic_types"]
+        self.targets = state["targets"]
+        self.extra_data = state.get("extra_data", {})
 
 
 def get_stats(dataset: Union[Dataset, Subset], dataset_info: DatasetInfo) -> str:
@@ -140,7 +173,8 @@ def get_stats(dataset: Union[Dataset, Subset], dataset_info: DatasetInfo) -> str
             if "_gradients" not in key:  # not a gradient
                 tensors = [block.values for block in sample[key].blocks()]
             else:
-                original_key = key.split("_")[0]
+                # The name is <basename>_<gradname>_gradients
+                original_key = "_".join(key.split("_")[:-2])
                 gradient_name = key.replace(f"{original_key}_", "").replace(
                     "_gradients", ""
                 )
@@ -162,6 +196,8 @@ def get_stats(dataset: Union[Dataset, Subset], dataset_info: DatasetInfo) -> str
     # Find units
     units = {}
     for key in target_names:
+        if key not in dataset_info.targets:
+            continue
         # Gets the units of an output
         if key.endswith("_gradients"):
             # handling <base_name>_<gradient_name>_gradients
@@ -176,8 +212,12 @@ def get_stats(dataset: Union[Dataset, Subset], dataset_info: DatasetInfo) -> str
             unit = dataset_info.targets[key].unit
         units[key] = unit
 
+    # TODO: add extra data statistics?
+
     stats += "\n    Mean and standard deviation of targets:"
     for key in target_names:
+        if key not in means or key not in units or key not in stds:
+            continue
         stats += (
             f"\n    - {to_external_name(key, dataset_info.targets)}: "  # type: ignore
             + f"\n      - mean {means[key]:.4g}"
@@ -232,17 +272,44 @@ def get_all_targets(datasets: Union[Dataset, List[Dataset]]) -> List[str]:
     return sorted(set(target_names))
 
 
-def collate_fn(batch: List[Dict[str, Any]]) -> Tuple[List, Dict[str, TensorMap]]:
-    """
-    Wraps `group_and_join` to
-    return the data fields as a list of systems, and a dictionary of nameed
-    targets.
-    """
+class CollateFn:
+    def __init__(
+        self,
+        target_keys: List[str],
+        join_kwargs: Optional[Dict[str, Any]] = None,
+    ):
+        self.target_keys: Set[str] = set(target_keys)
+        self.join_kwargs: Dict[str, Any] = join_kwargs or {
+            "remove_tensor_name": True,
+            "different_keys": "union",
+        }
 
-    collated_targets = group_and_join(batch, join_kwargs={"remove_tensor_name": True})
-    collated_targets = collated_targets._asdict()
-    systems = collated_targets.pop("system")
-    return systems, collated_targets
+    def __call__(
+        self,
+        batch: List[Dict[str, Any]],
+    ) -> Tuple[
+        Any,  # systems
+        Dict[str, TensorMap],  # targets
+        Dict[str, TensorMap],  # extra data
+    ]:
+        # group & join
+        collated = group_and_join(batch, join_kwargs=self.join_kwargs)
+        data = collated._asdict()
+
+        # pull off systems
+        systems = data.pop("system")
+
+        # split into targets vs extra data
+        targets: Dict[str, TensorMap] = {}
+        extra: Dict[str, TensorMap] = {}
+
+        for key, value in data.items():
+            if key in self.target_keys:
+                targets[key] = value
+            else:
+                extra[key] = value
+
+        return systems, targets, extra
 
 
 def check_datasets(train_datasets: List[Dataset], val_datasets: List[Dataset]):
@@ -359,17 +426,19 @@ class DiskDataset(torch.utils.data.Dataset):
 
     The dataset is stored in a zip file, where each sample is stored in a separate
     directory. The directory's name is the index of the sample (e.g. ``0/``), and the
-    files in the directory are the system (``system.mta``) and the targets
-    (each named ``<target_name>.mts``). These are ``metatensor.torch.atomistic.System``
-    and ``metatensor.torch.TensorMap`` objects, respectively.
+    files in the directory are the system (``system.mta``) and the targets (each named
+    ``<target_name>.mts``). These are ``metatomic.torch.System`` and
+    ``metatensor.torch.TensorMap`` objects, respectively.
 
     Such a dataset can be created conveniently using the :py:class:`DiskDatasetWriter`
     class.
 
     :param path: Path to the zip file containing the dataset.
+    :param fields: List of fields to read from the dataset.
+        If None, all fields will be read.
     """
 
-    def __init__(self, path: Union[str, Path]):
+    def __init__(self, path: Union[str, Path], fields: Optional[List[str]] = None):
         self.zip_file = zipfile.ZipFile(path, "r")
         self._field_names = ["system"]
         # check that we have at least one sample:
@@ -382,7 +451,23 @@ class DiskDataset(torch.utils.data.Dataset):
         for file_name in self.zip_file.namelist():
             if file_name.startswith("0/") and file_name.endswith(".mts"):
                 self._field_names.append(file_name[2:-4])
-        self._sample_class = namedtuple("Sample", self._field_names)
+
+        # Determine which fields are going to be read
+        if fields is None:
+            self._fields_to_read = self._field_names
+        else:
+            # Check that the requested fields are present in the dataset
+            fields = ["system", *fields]
+            missing_fields = set(fields) - set(self._field_names)
+            if missing_fields:
+                raise ValueError(
+                    f"Fields {list(missing_fields)} were requested but "
+                    "are not present in this disk dataset. "
+                    f"Available fields: {self._field_names[1:]}"
+                )
+            self._fields_to_read = fields
+
+        self._sample_class = namedtuple("Sample", self._fields_to_read)
         self._len = len([f for f in self.zip_file.namelist() if f.endswith(".mta")])
 
     def __len__(self):
@@ -390,7 +475,7 @@ class DiskDataset(torch.utils.data.Dataset):
 
     def __getitem__(self, index):
         system_and_targets = []
-        for field_name in self._field_names:
+        for field_name in self._fields_to_read:
             if field_name == "system":
                 with self.zip_file.open(f"{index}/system.mta", "r") as file:
                     system = load_system(file)
@@ -402,6 +487,10 @@ class DiskDataset(torch.utils.data.Dataset):
                     tensor_map = load_buffer(tensor_buffer)
                     system_and_targets.append(tensor_map)
         return self._sample_class(*system_and_targets)
+
+    def __iter__(self):
+        for i in range(len(self)):
+            yield self[i]
 
     def __del__(self):
         self.zip_file.close()
@@ -450,42 +539,6 @@ def _is_disk_dataset(dataset: Any) -> bool:
     if isinstance(dataset, torch.utils.data.Subset):
         return _is_disk_dataset(dataset.dataset)
     return False
-
-
-class DiskDatasetWriter:
-    """
-    A class for writing a dataset to disk, to be read by the :py:class:`DiskDataset`
-    class.
-
-    The class is initialized with a path to a zip file, and samples can be written to
-    the zip file using the :py:meth:`write_sample` method.
-
-    :param path: Path to the zip file to write the dataset to.
-    """
-
-    def __init__(self, path: Union[str, Path]):
-        self.zip_file = zipfile.ZipFile(path, "w")
-        self.index = 0
-
-    def write_sample(self, system: System, targets: Dict[str, TensorMap]):
-        """
-        Write a sample to the zip file.
-
-        :param system: The system to write.
-        :param targets: A dictionary of targets to write, where each value is
-            a :py:class:`TensorMap`.
-        """
-        with self.zip_file.open(f"{self.index}/system.mta", "w") as file:
-            mta_save(file, system)
-        for target_name, target in targets.items():
-            with self.zip_file.open(f"{self.index}/{target_name}.mts", "w") as file:
-                tensor_buffer = mts_save_buffer(target)
-                numpy_buffer = tensor_buffer.numpy()
-                np.save(file, numpy_buffer)
-        self.index += 1
-
-    def __del__(self):
-        self.zip_file.close()
 
 
 def _save_indices(

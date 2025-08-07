@@ -1,7 +1,5 @@
 architecture:
-
   name: pet
-
   model:
     cutoff: 4.5
     cutoff_width: 0.2
@@ -12,13 +10,12 @@ architecture:
     num_attention_layers: 2
     num_gnn_layers: 2
     zbl: false
-    long_range: 
+    long_range:
       enable: false
       use_ewald: false
       smearing: 1.4
       kspace_resolution: 1.33
       interpolation_nodes: 5
-
   training:
     distributed: false
     distributed_port: 39591
@@ -37,7 +34,6 @@ architecture:
     log_mae: true
     log_separate_blocks: false
     best_model_metric: rmse_prod
-    finetune: {}
     grad_clip_norm: .inf
     loss:
       type: mse

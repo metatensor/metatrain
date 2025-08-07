@@ -1,7 +1,6 @@
-import metatensor.torch
 import pytest
 import torch
-from metatensor.torch.atomistic import System
+from metatomic.torch import System
 
 from metatrain.soap_bpnn import __model__
 from metatrain.utils.data import DatasetInfo, read_systems
@@ -28,7 +27,7 @@ def test_forces(is_training):
             )
         },
     )
-    model = __model__(model_hypers=MODEL_HYPERS, dataset_info=dataset_info)
+    model = __model__(hypers=MODEL_HYPERS, dataset_info=dataset_info)
     model.to(dtype=torch.float64)
 
     systems = read_systems(RESOURCES_PATH / "qm9_reduced_100.xyz")[:5]
@@ -94,7 +93,7 @@ def test_virial(is_training):
             "energy": get_energy_target_info({"unit": "eV"}, add_strain_gradients=True)
         },
     )
-    model = __model__(model_hypers=MODEL_HYPERS, dataset_info=dataset_info)
+    model = __model__(hypers=MODEL_HYPERS, dataset_info=dataset_info)
     model.to(dtype=torch.float64)
 
     systems = read_systems(RESOURCES_PATH / "carbon_reduced_100.xyz")[:2]
@@ -106,7 +105,7 @@ def test_virial(is_training):
         for system in systems
     ]
     systems = [
-        metatensor.torch.atomistic.System(
+        System(
             positions=system.positions @ strain,
             cell=system.cell @ strain,
             types=system.types,
@@ -137,7 +136,7 @@ def test_virial(is_training):
         for system in systems
     ]
     systems = [
-        metatensor.torch.atomistic.System(
+        System(
             positions=system.positions @ strain,
             cell=system.cell @ strain,
             types=system.types,
@@ -176,7 +175,7 @@ def test_both(is_training):
             )
         },
     )
-    model = __model__(model_hypers=MODEL_HYPERS, dataset_info=dataset_info)
+    model = __model__(hypers=MODEL_HYPERS, dataset_info=dataset_info)
     model.to(dtype=torch.float64)
 
     systems = read_systems(RESOURCES_PATH / "carbon_reduced_100.xyz")[:2]
@@ -190,7 +189,7 @@ def test_both(is_training):
         for system in systems
     ]
     systems = [
-        metatensor.torch.atomistic.System(
+        System(
             positions=system.positions @ strain,
             cell=system.cell @ strain,
             types=system.types,
@@ -219,7 +218,7 @@ def test_both(is_training):
         for system in systems
     ]
     systems = [
-        metatensor.torch.atomistic.System(
+        System(
             positions=system.positions @ strain,
             cell=system.cell @ strain,
             types=system.types,

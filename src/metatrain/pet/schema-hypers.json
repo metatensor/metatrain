@@ -141,9 +141,14 @@
         "finetune": {
           "type": "object",
           "properties": {
+            "read_from": {
+              "type": "string",
+              "format": "uri"
+            },
             "method": {
               "type": "string",
               "enum": [
+                "full",
                 "lora",
                 "heads"
               ]
@@ -261,6 +266,14 @@
         }
       },
       "additionalProperties": false
+    },
+    "atomic_types": {
+      "type": "array",
+      "items": {
+        "type": "integer",
+        "minimum": 1
+      },
+      "uniqueItems": true
     }
   },
   "additionalProperties": false

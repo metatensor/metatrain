@@ -1,14 +1,14 @@
 import csv
+import json
 import logging
 import re
 import sys
-import warnings
 from pathlib import Path
 from typing import List
 
 import pytest
 import wandb
-from metatensor.torch.atomistic import ModelCapabilities, ModelOutput
+from metatomic.torch import ModelCapabilities, ModelOutput
 
 from metatrain import PACKAGE_ROOT
 from metatrain.utils.logging import (
@@ -17,6 +17,7 @@ from metatrain.utils.logging import (
     MetricLogger,
     WandbHandler,
     get_cli_input,
+    human_readable,
     setup_logging,
 )
 
@@ -31,19 +32,6 @@ def assert_log_entry(logtext: str, loglevel: str, message: str) -> None:
 
     if not re.search(pattern, logtext, re.MULTILINE):
         raise AssertionError(f"{message!r} and {loglevel!r} not found in {logtext!r}")
-
-
-def test_warnings_in_log(caplog):
-    """Test that warnings are forwarded to the logger.
-
-    Keep this test at the top since it seems otherwise there are some pytest issues...
-    """
-    logger = logging.getLogger()
-
-    with setup_logging(logger):
-        warnings.warn("A warning", stacklevel=1)
-
-    assert "A warning" in caplog.text
 
 
 def test_default_log(caplog, capsys):
@@ -143,6 +131,8 @@ def test_csv_file_handler_emit_data(monkeypatch, tmp_path):
     rows = read_csv(log_file)
     assert rows == [keys, units, values, more_values]
 
+    handler.close()
+
 
 def test_csv_file_handler_emit_does_nothing(monkeypatch, tmp_path):
     monkeypatch.chdir(tmp_path)
@@ -164,6 +154,8 @@ def test_csv_file_handler_emit_does_nothing(monkeypatch, tmp_path):
 
     assert not log_file.exists() or log_file.stat().st_size == 0
 
+    handler.close()
+
 
 def test_custom_logger_logs_to_csv_handler(monkeypatch, tmp_path):
     monkeypatch.chdir(tmp_path)
@@ -183,6 +175,8 @@ def test_custom_logger_logs_to_csv_handler(monkeypatch, tmp_path):
     rows = read_csv(log_file)
     assert rows == [keys, units, values, values]
 
+    handler.close()
+
 
 def test_wandb_handler_emit_data(monkeypatch, tmp_path):
     monkeypatch.chdir(tmp_path)
@@ -196,6 +190,7 @@ def test_wandb_handler_emit_data(monkeypatch, tmp_path):
 
     # First write
     handler.emit_data(keys, values, units)
+    handler.close()
 
 
 def test_wandb_handler_handler_emit_does_nothing(monkeypatch, tmp_path):
@@ -215,26 +210,63 @@ def test_wandb_handler_handler_emit_does_nothing(monkeypatch, tmp_path):
     )
 
     handler.emit(record)
+    handler.close()
 
 
-def test_custom_logger_logs_to_wandb(monkeypatch, tmp_path):
+class MockWandbRun:
+    """Mock class for wandb.Run to simulate logging behavior."""
+
+    def __init__(self, log_file):
+        self.log_file = log_file
+        self.logs = []
+
+    def log(self, data, step=None, commit=True):
+        entry = {"step": step, "commit": commit, "data": data}
+        self.logs.append(entry)
+        # Also write to file for inspection
+        with open(self.log_file, "a") as f:
+            f.write(json.dumps(entry) + "\n")
+
+    def finish(self):
+        pass  # for compatibility
+
+
+@pytest.mark.parametrize("prefix", ["training", "test", "validation"])
+def test_custom_logger_logs_to_wandb(monkeypatch, tmp_path, prefix):
     monkeypatch.chdir(tmp_path)
 
     logger = CustomLogger("test_logger")
 
-    run = wandb.init(mode="offline")
-    handler = WandbHandler(run=run)
+    log_file = tmp_path / "wandb_log.jsonl"
+    mock_run = MockWandbRun(log_file)
+    handler = WandbHandler(run=mock_run)
 
     logger.addHandler(handler)
 
-    keys = ["Epoch", "Energy"]
+    keys = ["Epoch", f"{prefix} energy"]
     values = ["1", "-10.5"]
     units = ["", "kcal/mol"]
 
     logger.data(keys, values, units)
     logger.data(keys, values, units)
 
-    # TODO check that data is written to wandb
+    for handler in logger.handlers:
+        handler.close()
+
+    # Read logged entries
+    with open(log_file) as f:
+        lines = f.readlines()
+
+    assert len(lines) == 2
+    for line in lines:
+        entry = json.loads(line)
+        assert entry["step"] == 1
+        assert entry["commit"] is True
+
+        # Check cleaned key format
+        expected_key = f"{prefix}/energy [kcal per mol]"
+        assert expected_key in entry["data"]
+        assert entry["data"][expected_key] == -10.5
 
 
 @pytest.mark.parametrize("handler_cls", [WandbHandler, CSVFileHandler])
@@ -260,6 +292,8 @@ def test_handler_different_lengths(handler_cls, monkeypatch, tmp_path):
     )
     with pytest.raises(ValueError, match=match):
         handler.emit_data(keys, values, units)
+
+    handler.close()
 
 
 def test_custom_logger_ignores_handlers_without_emit_data(monkeypatch, tmp_path):
@@ -358,3 +392,37 @@ def test_get_cli_input_sys(monkeypatch):
     argv, argv_str = get_argv()
     monkeypatch.setattr(sys, "argv", argv)
     assert get_cli_input() == argv_str
+
+
+@pytest.mark.parametrize(
+    "value, expected",
+    [
+        (0, "0"),
+        (123, "123"),
+        (999, "999"),
+        (1000, "1K"),
+        (1049, "1K"),
+        (1050, "1.1K"),
+        (1234, "1.2K"),
+        (9999, "10K"),
+        (20454, "20.5K"),
+        (99499, "99.5K"),
+        (99500, "99.5K"),
+        (100000, "100K"),
+        # Edge case around 1 million
+        (999499, "999K"),
+        (999500, "1M"),
+        (999999, "1M"),
+        (1000000, "1M"),
+        (1049999, "1M"),
+        (1050000, "1.1M"),
+        # Larger numbers
+        (123456789, "123M"),
+        (999999999999, "1T"),
+        # Max suffix
+        (1230000000000000, "1230T"),
+        (1230000000000000000, "1230000T"),
+    ],
+)
+def test_human_readable_parameter_counter(value, expected):
+    assert human_readable(value) == expected

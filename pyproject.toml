@@ -3,19 +3,21 @@ name = "metatrain"
 dynamic = ["version"]
 requires-python = ">=3.9"
 
-readme = "README.rst"
-license = {text = "BSD-3-Clause"}
+readme = "README.md"
+license = "BSD-3-Clause"
 description = "Training and evaluating machine learning models for atomistic systems."
 authors = [{name = "metatrain developers"}]
 
 # Strict version pinning to avoid regression test failing on new versions
 dependencies = [
     "ase",
-    "metatensor-learn==0.3.2",
-    "metatensor-operations==0.3.3",
-    "metatensor-torch==0.7.6",
+    "huggingface_hub",
+    "metatensor-learn >=0.3.2,<0.4",
+    "metatensor-operations >=0.3.3,<0.4",
+    "metatensor-torch >=0.7.6,<0.8",
+    "metatomic-torch >=0.1.2,<0.2",
     "jsonschema",
-    "omegaconf",
+    "omegaconf >= 2.3.0",
     "python-hostlist",
     "vesin",
 ]
@@ -24,7 +26,6 @@ keywords = ["machine learning", "molecular modeling"]
 classifiers = [
     "Development Status :: 4 - Beta",
     "Intended Audience :: Science/Research",
-    "License :: OSI Approved :: BSD License",
     "Operating System :: POSIX",
     "Operating System :: MacOS :: MacOS X",
     "Operating System :: Microsoft :: Windows",
@@ -52,7 +53,7 @@ mtt = "metatrain.__main__:main"
 
 [build-system]
 requires = [
-    "setuptools >= 68",
+    "setuptools >= 77",
     "setuptools_scm>=8",
     "wheel",
 ]
@@ -74,7 +75,7 @@ deprecated-pet = [
 pet = []
 nanopet = []
 gap = [
-    "featomic-torch >=0.6,<0.7",
+    "featomic-torch >=0.7,<0.8",
     "skmatter",
     "scipy",
 ]
@@ -132,7 +133,24 @@ ignore_missing_imports = true
 [tool.pytest.ini_options]
 # ignore" a bunch of internal warnings with Python 3.13 and PyTorch
 filterwarnings = [
+    "error",
+    # PyTorch deprecation warnings
     "ignore:ast.Str is deprecated and will be removed in Python 3.14:DeprecationWarning",
     "ignore:Attribute s is deprecated and will be removed in Python 3.14:DeprecationWarning",
     "ignore:ast.NameConstant is deprecated and will be removed in Python 3.14:DeprecationWarning",
+    # PyTorch does not want these, but mypy requires them
+    "ignore:The TorchScript type system doesn't support instance-level annotations on empty non-base types",
+    # Sphericart double backward warning
+    "ignore:Second derivatives of the spherical harmonics with respect to the Cartesian coordinates were not requested at class creation.",
+    # OldCompositionModel deprecation warning
+    "ignore:`OldCompositionModel` composition model is deprecated. Please use `CompositionModel` instead.",
+    # We don't yet have a linux-aarch64 wheel on PyPI, so libgomp is not copied to 
+    # sphericart_torch.libs' by cibuildwheels
+    "ignore:No libgomp shared library found in 'sphericart_torch.libs'.",
 ]
+
+[tool.yamlfix]
+line_length = 88
+explicit_start = false
+section_whitelines = 1
+none_representation = "null"

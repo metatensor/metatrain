@@ -1,10 +1,10 @@
 import copy
 
-import metatensor.torch
+import metatensor.torch as mts
 import pytest
 import torch
 from jsonschema.exceptions import ValidationError
-from metatensor.torch.atomistic import ModelOutput, System
+from metatomic.torch import ModelOutput, System
 from omegaconf import OmegaConf
 
 from metatrain.soap_bpnn import SoapBpnn
@@ -100,7 +100,7 @@ def test_prediction_subset_atoms():
         system_far_away_dimer, requested_neighbor_lists
     )
 
-    selection_labels = metatensor.torch.Labels(
+    selection_labels = mts.Labels(
         names=["system", "atom"],
         values=torch.tensor([[0, 0], [0, 2], [0, 3]]),
     )
@@ -116,13 +116,9 @@ def test_prediction_subset_atoms():
         selected_atoms=selection_labels,
     )
 
-    assert not metatensor.torch.allclose(
-        energy_monomer["energy"], energy_dimer["energy"]
-    )
+    assert not mts.allclose(energy_monomer["energy"], energy_dimer["energy"])
 
-    assert metatensor.torch.allclose(
-        energy_monomer["energy"], energy_monomer_in_dimer["energy"]
-    )
+    assert mts.allclose(energy_monomer["energy"], energy_monomer_in_dimer["energy"])
 
 
 def test_output_last_layer_features():

@@ -2,7 +2,7 @@ from typing import List, Optional, Tuple
 
 import torch
 from metatensor.torch import Labels, TensorBlock
-from metatensor.torch.atomistic import NeighborListOptions, System
+from metatomic.torch import NeighborListOptions, System, register_autograd_neighbors
 
 from .nef import (
     compute_reversed_neighbor_list,
@@ -140,8 +140,10 @@ def remap_neighborlists(
             ),
             components=nl.components,
             properties=nl.properties,
-            values=distances,
+            values=distances.detach(),
         )
+
+        register_autograd_neighbors(system, new_nl)
         new_system.add_neighbor_list(neighbor_list_options, new_nl)
         new_systems.append(new_system)
 

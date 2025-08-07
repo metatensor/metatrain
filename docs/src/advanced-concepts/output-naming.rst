@@ -1,9 +1,8 @@
 Output naming
 =============
 
-The name and format of the outputs in ``metatrain`` are based on
-those of the `<metatensor.torch.atomistic
-https://docs.metatensor.org/latest/atomistic/outputs/index.html>`_
+The name and format of the outputs in ``metatrain`` are based on those of the
+`metatomic <https://docs.metatensor.org/metatomic/latest/outputs/index.html>`_
 package. An immediate example is given by the ``energy`` output.
 
 Any additional outputs present within the library are denoted by the

@@ -5,10 +5,7 @@ import numpy as np
 import torch
 import vesin
 from metatensor.torch import Labels, TensorBlock
-from metatensor.torch.atomistic import (
-    NeighborListOptions,
-    System,
-)
+from metatomic.torch import NeighborListOptions, System, register_autograd_neighbors
 
 from .data.system_to_ase import system_to_ase
 
@@ -79,10 +76,12 @@ def get_system_with_neighbor_lists(
     # Compute the neighbor lists
     for options in neighbor_lists:
         if options not in system.known_neighbor_lists():
-            neighbor_list = _compute_single_neighbor_list(atoms, options).to(
+            neighbors = _compute_single_neighbor_list(atoms, options).to(
                 device=system.device, dtype=system.dtype
             )
-            system.add_neighbor_list(options, neighbor_list)
+
+            register_autograd_neighbors(system, neighbors)
+            system.add_neighbor_list(options, neighbors)
 
     return system
 
@@ -90,8 +89,7 @@ def get_system_with_neighbor_lists(
 def _compute_single_neighbor_list(
     atoms: ase.Atoms, options: NeighborListOptions
 ) -> TensorBlock:
-    # Computes a single neighbor list for an ASE atoms object
-    # (as in metatensor.torch.atomistic)
+    # Computes a single neighbor list for an ASE atoms object (as in metatomic.torch)
 
     if np.all(atoms.pbc) or np.all(~atoms.pbc):
         nl_i, nl_j, nl_S, nl_D = vesin.ase_neighbor_list(

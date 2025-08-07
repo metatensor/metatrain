@@ -131,9 +131,32 @@ Contributing new architectures
 If you want to contribute a new model pleas read the pages on
 :ref:`architecture-life-cycle` and :ref:`adding-new-architecture`.
 
+Pull request workflow
+---------------------
+Once your changes are tested locally you are ready to submit your changes as a pull
+request.
+
+1. **Create the Pull Request**
+
+   - Push your changes to your fork of the repository.
+   - In a browser, navigate to the original repository and click on "New Pull Request".
+   - Select your branch and provide a clear description of your changes.
+
+2. **CI and Addressing Feedback**
+
+   - Ensure that all Continuous Integration (CI) checks pass successfully.
+   - Be open to feedback and make necessary changes to your code and try to respond to
+     comments and questions in a timely and friendly manner.
+   - Before your PR can be merged, you have to trigger a manual GPU check. Ask a
+     maintainer to comment "cscs-ci run" in the PR.
+
+3. **Follow Up**
+
+   - Once your pull request is approved, it will be merged into the ``main`` branch.
+   - Celebrate your contribution!
+
 How to Perform a Release
 -------------------------
-
 1. **Prepare a Release Pull Request**
 
    - Based on the main branch create branch ``release-2025.3`` and a PR.

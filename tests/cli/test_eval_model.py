@@ -5,13 +5,18 @@ from pathlib import Path
 
 import pytest
 import torch
+from metatensor.torch import Labels, TensorBlock, TensorMap
+from metatensor.torch import load as metatensor_load
+from metatomic.torch import NeighborListOptions, systems_to_torch
 from omegaconf import OmegaConf
 
 from metatrain.cli.eval import eval_model
 from metatrain.soap_bpnn import __model__
-from metatrain.utils.data import DatasetInfo
+from metatrain.utils.data import DatasetInfo, DiskDataset
 from metatrain.utils.data.readers.ase import read
 from metatrain.utils.data.target_info import get_energy_target_info
+from metatrain.utils.data.writers import DiskDatasetWriter
+from metatrain.utils.neighbor_lists import get_system_with_neighbor_lists
 
 from . import EVAL_OPTIONS_PATH, MODEL_HYPERS, MODEL_PATH, RESOURCES_PATH
 
@@ -118,7 +123,7 @@ def test_eval_export(monkeypatch, tmp_path, options):
         atomic_types={1, 6, 7, 8},
         targets={"energy": get_energy_target_info({"unit": "eV"})},
     )
-    model = __model__(model_hypers=MODEL_HYPERS, dataset_info=dataset_info)
+    model = __model__(hypers=MODEL_HYPERS, dataset_info=dataset_info)
 
     shutil.copy(RESOURCES_PATH / "qm9_reduced_100.xyz", "qm9_reduced_100.xyz")
 
@@ -171,3 +176,70 @@ def test_eval_no_targets(monkeypatch, tmp_path, model, options):
     )
 
     assert Path("output.xyz").is_file()
+
+
+@pytest.mark.parametrize("suffix", [".zip", ".mts"])
+def test_eval_disk_dataset(monkeypatch, tmp_path, caplog, suffix):
+    """Test that eval via python API runs without an error raise."""
+    monkeypatch.chdir(tmp_path)
+    caplog.set_level(logging.INFO)
+
+    shutil.copy(RESOURCES_PATH / "qm9_reduced_100.xyz", "qm9_reduced_100.xyz")
+
+    model = torch.jit.load(RESOURCES_PATH / "model-32-bit.pt")
+
+    options = OmegaConf.create(
+        {
+            "systems": {"read_from": "qm9_reduced_100.zip"},
+            "targets": {"energy": {"read_from": "qm9_reduced_100.zip"}},
+        }
+    )
+
+    # Write a disk dataset
+    disk_dataset_writer = DiskDatasetWriter("qm9_reduced_100.zip")
+    for i in range(100):
+        frame = read("qm9_reduced_100.xyz", index=i)
+        system = systems_to_torch(frame, dtype=torch.float64)
+        system = get_system_with_neighbor_lists(
+            system,
+            [NeighborListOptions(cutoff=5.0, full_list=True, strict=True)],
+        )
+        energy = TensorMap(
+            keys=Labels.single(),
+            blocks=[
+                TensorBlock(
+                    values=torch.tensor([[frame.info["U0"]]], dtype=torch.float64),
+                    samples=Labels(
+                        names=["system"],
+                        values=torch.tensor([[0]]),
+                    ),
+                    components=[],
+                    properties=Labels("energy", torch.tensor([[0]])),
+                )
+            ],
+        )
+        disk_dataset_writer.write([system], {"energy": energy})
+    disk_dataset_writer.finish()
+
+    eval_model(
+        model=model,
+        options=options,
+        output=f"foo{suffix}",
+        check_consistency=True,
+    )
+
+    # Test target predictions
+    log = "".join([rec.message for rec in caplog.records])
+    assert "energy RMSE (per atom)" in log
+    assert "energy MAE (per atom)" in log
+    assert "dataset with index" not in log
+    assert "evaluation time" in log
+    assert "ms per atom" in log
+
+    # Test file is written predictions
+    if suffix == ".mts":
+        pred = metatensor_load("foo_energy.mts")
+        assert pred.keys == Labels(["_"], torch.tensor([[0]]))
+    else:
+        pred = DiskDataset("foo.zip")
+        assert pred[0]["energy"].keys == Labels(["_"], torch.tensor([[0]]))

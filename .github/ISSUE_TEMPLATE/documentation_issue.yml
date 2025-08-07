@@ -1,0 +1,45 @@
+name: 📚 Documentation issue
+description: Report an issue related to the documentation.
+title: "[DOC] "
+labels: [Documentation]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Report a mistake, missing information, or improvement suggestion related to the documentation.
+  - type: textarea
+    id: location
+    attributes:
+      label: Location of the issue
+      description: |
+        Provide the location of the documentation issue. This could be a URL, file path, or section heading.
+      placeholder: e.g., https://metatensor.github.io/metatrain/latest/getting-started/installation.html or "Getting started -> Installation"
+    validations:
+      required: true
+  - type: textarea
+    id: description
+    attributes:
+      label: Description of the issue
+      description: |
+        Describe the issue you found. Be as specific as possible.
+        For example: typo, outdated information, unclear explanation, missing example, etc.
+      placeholder: Describe the problem clearly.
+    validations:
+      required: true
+  - type: textarea
+    id: suggestion
+    attributes:
+      label: Suggested fix or improvement (optional)
+      description: |
+        If you have an idea of how to fix or improve the documentation, please share it here.
+      placeholder: Suggest the corrected text or improvement.
+    validations:
+      required: false
+  - type: textarea
+    id: additional_context
+    attributes:
+      label: Additional context
+      description: Add any other context, screenshots, or links that might help clarify the issue.
+      placeholder: Additional context, links, or screenshots.
+    validations:
+      required: false

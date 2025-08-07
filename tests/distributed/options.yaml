@@ -15,7 +15,7 @@ training_set:
     energy:
       key: energy
       unit: eV
-      forces: on
+      forces: true
 
 test_set: 0.0
 validation_set: 0.5

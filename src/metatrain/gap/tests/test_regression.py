@@ -1,7 +1,7 @@
 import copy
 import random
 
-import metatensor.torch
+import metatomic.torch
 import numpy as np
 import torch
 from omegaconf import OmegaConf
@@ -18,28 +18,11 @@ from . import DATASET_ETHANOL_PATH, DATASET_PATH, DEFAULT_HYPERS
 torch.set_default_dtype(torch.float64)  # GAP only supports float64
 
 
-# reproducibility
-random.seed(0)
-np.random.seed(0)
-torch.manual_seed(0)
-
-
-def test_regression_init():
-    """Perform a regression test on the model at initialization"""
-    targets = {}
-    targets["mtt::U0"] = get_energy_target_info({"unit": "eV"})
-
-    dataset_info = DatasetInfo(
-        length_unit="Angstrom", atomic_types=[1, 6, 7, 8], targets=targets
-    )
-    GAP(DEFAULT_HYPERS["model"], dataset_info)
-
-
-def test_regression_train_and_invariance():
-    """Perform a regression test on the model when trained for 2 epoch on a small
-    dataset.  We perform also the invariance test here because one needs a trained model
-    for this.
-    """
+def test_regression_train():
+    """Regression test on the model when trained for 2 epoch on a small dataset"""
+    random.seed(0)
+    np.random.seed(0)
+    torch.manual_seed(0)
 
     systems = read_systems(DATASET_PATH)
 
@@ -89,34 +72,9 @@ def test_regression_train_and_invariance():
 
     assert torch.allclose(output["mtt::U0"].block().values, expected_output, rtol=0.3)
 
-    # Tests that the model is rotationally invariant
-    system = read(DATASET_PATH)
-    system.numbers = np.ones(len(system.numbers))
 
-    original_system = copy.deepcopy(system)
-    system.rotate(48, "y")
-
-    original_output = gap(
-        [metatensor.torch.atomistic.systems_to_torch(original_system)],
-        {"mtt::U0": gap.outputs["mtt::U0"]},
-    )
-    rotated_output = gap(
-        [metatensor.torch.atomistic.systems_to_torch(system)],
-        {"mtt::U0": gap.outputs["mtt::U0"]},
-    )
-
-    assert torch.allclose(
-        original_output["mtt::U0"].block().values,
-        rotated_output["mtt::U0"].block().values,
-    )
-
-
-def test_ethanol_regression_train_and_invariance():
-    """Perform a regression test on the model when trained for 2 epoch on a small
-    dataset.  We perform also the invariance test here because one needs a trained model
-    for this.
-    """
-
+def test_invariance():
+    """Check that GAP is rotationally invariant"""
     systems = read_systems(DATASET_ETHANOL_PATH)
 
     conf = {
@@ -182,11 +140,11 @@ def test_ethanol_regression_train_and_invariance():
     system.rotate(48, "y")
 
     original_output = gap(
-        [metatensor.torch.atomistic.systems_to_torch(original_system)],
+        [metatomic.torch.systems_to_torch(original_system)],
         {"energy": gap.outputs["energy"]},
     )
     rotated_output = gap(
-        [metatensor.torch.atomistic.systems_to_torch(system)],
+        [metatomic.torch.systems_to_torch(system)],
         {"energy": gap.outputs["energy"]},
     )
 

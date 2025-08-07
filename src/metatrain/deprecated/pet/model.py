@@ -1,11 +1,10 @@
-from pathlib import Path
-from typing import Dict, List, Optional, Union
+from typing import Any, Dict, List, Literal, Optional
 
-import metatensor.torch
+import metatensor.torch as mts
 import torch
 from metatensor.torch import Labels, TensorBlock, TensorMap
-from metatensor.torch.atomistic import (
-    MetatensorAtomisticModel,
+from metatomic.torch import (
+    AtomisticModel,
     ModelCapabilities,
     ModelMetadata,
     ModelOutput,
@@ -13,26 +12,29 @@ from metatensor.torch.atomistic import (
     System,
 )
 
+from metatrain.utils.abc import ModelInterface
+from metatrain.utils.additive import ZBL
 from metatrain.utils.data import DatasetInfo
 from metatrain.utils.data.target_info import is_auxiliary_output
+from metatrain.utils.dtype import dtype_to_str
+from metatrain.utils.metadata import merge_metadata
+from metatrain.utils.sum_over_atoms import sum_over_atoms
 
-from ...utils.additive import ZBL
-from ...utils.dtype import dtype_to_str
-from ...utils.metadata import append_metadata_references
-from ...utils.sum_over_atoms import sum_over_atoms
 from .modules.pet import PET as RawPET
 from .utils import load_raw_pet_model, systems_to_batch_dict
 
 
-class PET(torch.nn.Module):
+class PET(ModelInterface):
+    __checkpoint_version__ = 1
     __supported_devices__ = ["cuda", "cpu"]
     __supported_dtypes__ = [torch.float32]
     __default_metadata__ = ModelMetadata(
         references={"architecture": ["https://arxiv.org/abs/2305.19302v3"]}
     )
 
-    def __init__(self, model_hypers: Dict, dataset_info: DatasetInfo) -> None:
-        super().__init__()
+    def __init__(self, hypers: Dict, dataset_info: DatasetInfo) -> None:
+        super().__init__(hypers, dataset_info, self.__default_metadata__)
+
         if len(dataset_info.targets) != 1:
             raise ValueError("PET only supports a single target")
         self.target_name = next(iter(dataset_info.targets.keys()))
@@ -52,15 +54,15 @@ class PET(torch.nn.Module):
                 "but a per-atom output was provided"
             )
 
-        model_hypers["D_OUTPUT"] = 1
-        model_hypers["TARGET_TYPE"] = "atomic"
-        model_hypers["TARGET_AGGREGATION"] = "sum"
+        hypers["D_OUTPUT"] = 1
+        hypers["TARGET_TYPE"] = "atomic"
+        hypers["TARGET_AGGREGATION"] = "sum"
         for key in ["R_CUT", "CUTOFF_DELTA", "RESIDUAL_FACTOR"]:
-            model_hypers[key] = float(model_hypers[key])
-        self.hypers = model_hypers
+            hypers[key] = float(hypers[key])
+
         self.cutoff = float(self.hypers["R_CUT"])
         self.atomic_types: List[int] = dataset_info.atomic_types
-        self.dataset_info = dataset_info
+
         self.pet = None
         self.is_lora_applied = False
         self.checkpoint_path: Optional[str] = None
@@ -217,7 +219,7 @@ class PET(torch.nn.Module):
                 values=predictions,
             )
             if selected_atoms is not None:
-                block = metatensor.torch.slice_block(block, "samples", selected_atoms)
+                block = mts.slice_block(block, "samples", selected_atoms)
             output_tmap = TensorMap(keys=empty_labels, blocks=[block])
             if not outputs[output_name].per_atom:
                 output_tmap = sum_over_atoms(output_tmap)
@@ -236,7 +238,7 @@ class PET(torch.nn.Module):
                     selected_atoms,
                 )
                 for output_name in additive_contributions:
-                    output_quantities[output_name] = metatensor.torch.add(
+                    output_quantities[output_name] = mts.add(
                         output_quantities[output_name],
                         additive_contributions[output_name],
                     )
@@ -244,12 +246,16 @@ class PET(torch.nn.Module):
         return output_quantities
 
     @classmethod
-    def load_checkpoint(cls, path: Union[str, Path]) -> "PET":
-        checkpoint = torch.load(path, weights_only=False, map_location="cpu")
+    def load_checkpoint(
+        cls,
+        checkpoint: Dict[str, Any],
+        context: Literal["restart", "finetune", "export"],
+    ) -> "PET":
         hypers = checkpoint["hypers"]
-        model_hypers = hypers["ARCHITECTURAL_HYPERS"]
-        dataset_info = checkpoint["dataset_info"]
-        model = cls(model_hypers=model_hypers, dataset_info=dataset_info)
+        model = cls(
+            hypers=hypers["ARCHITECTURAL_HYPERS"],
+            dataset_info=checkpoint["dataset_info"],
+        )
         state_dict = checkpoint["model_state_dict"]
         dtype = next(iter(state_dict.values())).dtype
         lora_state_dict = checkpoint["lora_state_dict"]
@@ -270,9 +276,19 @@ class PET(torch.nn.Module):
 
         return model
 
-    def export(
-        self, metadata: Optional[ModelMetadata] = None
-    ) -> MetatensorAtomisticModel:
+    def supported_outputs(self) -> Dict[str, ModelOutput]:
+        return {
+            self.target_name: ModelOutput(
+                quantity=self.dataset_info.targets[self.target_name].quantity,
+                unit=self.dataset_info.targets[self.target_name].unit,
+                per_atom=False,
+            ),
+            f"mtt::aux::{self.target_name.replace('mtt::', '')}_last_layer_features": ModelOutput(  # noqa: E501
+                unit="unitless", per_atom=True
+            ),
+        }
+
+    def export(self, metadata: Optional[ModelMetadata] = None) -> AtomisticModel:
         dtype = next(self.parameters()).dtype
         if dtype not in self.__supported_dtypes__:
             raise ValueError(f"Unsupported dtype {self.dtype} for PET")
@@ -289,26 +305,29 @@ class PET(torch.nn.Module):
         interaction_range = max(interaction_ranges)
 
         capabilities = ModelCapabilities(
-            outputs={
-                self.target_name: ModelOutput(
-                    quantity=self.dataset_info.targets[self.target_name].quantity,
-                    unit=self.dataset_info.targets[self.target_name].unit,
-                    per_atom=False,
-                ),
-                f"mtt::aux::{self.target_name.replace('mtt::', '')}_last_layer_features": ModelOutput(  # noqa: E501
-                    unit="unitless", per_atom=True
-                ),
-            },
+            outputs=self.supported_outputs(),
             atomic_types=self.atomic_types,
             interaction_range=interaction_range,
             length_unit=self.dataset_info.length_unit,
-            supported_devices=["cpu", "cuda"],  # and not __supported_devices__
+            supported_devices=["cpu", "cuda"],
             dtype=dtype_to_str(dtype),
         )
 
         if metadata is None:
             metadata = ModelMetadata()
 
-        append_metadata_references(metadata, self.__default_metadata__)
+        metadata = merge_metadata(self.__default_metadata__, metadata)
 
-        return MetatensorAtomisticModel(self.eval(), metadata, capabilities)
+        return AtomisticModel(self.eval(), metadata, capabilities)
+
+    @staticmethod
+    def upgrade_checkpoint(checkpoint: Dict) -> Dict:
+        raise NotImplementedError(
+            "checkpoint upgrade is not implemented for the deprecated "
+            "PET implementation"
+        )
+
+    def get_checkpoint(self) -> Dict[str, Any]:
+        raise NotImplementedError(
+            "get_checkpoint is not implemented for the deprecated PET implementation"
+        )

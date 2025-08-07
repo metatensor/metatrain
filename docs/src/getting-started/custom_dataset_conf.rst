@@ -89,11 +89,11 @@ Allows defining multiple target sections, each with a unique name.
 - Commonly, a section named ``energy`` should be defined, which is essential for running
   molecular dynamics simulations. For the ``energy`` section gradients like ``forces``
   and ``stress`` are enabled by default.
-- Other target sections can also be defined, as long as they are prefixed by ``mtt::``.
-  For example, ``mtt::free_energy``. In general, all targets that are not standard
-  outputs of ``metatensor.torch.atomistic`` (see
-  https://docs.metatensor.org/latest/atomistic/outputs.html) should be prefixed by
-  ``mtt::``.
+- Other target sections can also be defined, as long as they are prefixed by
+  ``mtt::``. For example, ``mtt::free_energy``. In general, all targets that are
+  not standard outputs of ``metatomic`` (see
+  https://docs.metatensor.org/metatomic/latest/outputs/index.html) should be
+  prefixed by ``mtt::``.
 
 Target section parameters include:
 
@@ -179,6 +179,24 @@ elements and therefore has the the same unit ``eV``. The target section ``free-e
 only exists in the second element and its unit does not have to be the same as in the
 first element of the list.
 
+Typically the global atomic types the the model is defined for are inferred from the
+training and validation datasets. Sometimes, due to shuffling of datasets with low
+representation of some types, these datasets may not contain all atomic types that you
+want to use in your model. To explicitly control the atomic types the model is defined
+for, specify the ``atomic_types`` key in the ``architecture`` section of the options
+file:
+
+.. code-block:: yaml
+
+    architecture:
+        name: pet
+        model:
+            cutoff: 5.0
+        training:
+            batch_size: 32
+            epochs: 100
+        atomic_types: [1, 6, 7, 8, 16]  # i.e. for H, C, N, O, S
+
 .. warning::
 
    Even though parsing several datasets is supported by the library, it may not
@@ -187,3 +205,33 @@ first element of the list.
 
 In the next tutorials we explain and show how to set some advanced global training
 parameters.
+
+Datasets requiring additional data
+----------------------------------
+Some targets require additional data to be passed to the loss function for training.
+For example, training a model to predict the polarization for extended systems under
+periodic boundary conditions might require the quantum of polarization to be provided
+for each system in the dataset.
+
+``metatrain`` supports passing additional data in the ``options.yaml`` file.
+For example, if you want to train a polarization model, you can add the following
+section to your ``options.yaml`` file:
+
+.. code-block:: yaml
+
+    training_set:
+        systems:
+            read_from: dataset_0.xyz
+            length_unit: angstrom
+        targets:
+            mtt::polarization:
+                read_from: polarization.mts
+        extra_data:
+            polarization_quantum:
+                read_from: polarization_quantum.mts
+
+.. warning::
+
+   While the ``extra_data`` section can always be present, it will typically be ignored
+   unless using specific loss functions. If the loss function you picked does not
+   support the extra data, it will be ignored.

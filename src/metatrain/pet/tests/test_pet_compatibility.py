@@ -6,9 +6,9 @@ pytest.importorskip("pet_neighbors_convert")
 from urllib.parse import urlparse
 from urllib.request import urlretrieve
 
-import metatensor.torch
+import metatensor.torch as mts
 import torch
-from metatensor.torch.atomistic import ModelOutput
+from metatomic.torch import ModelOutput
 
 from metatrain.deprecated.pet import PET
 from metatrain.deprecated.pet.modules.hypers import Hypers
@@ -25,6 +25,7 @@ from metatrain.pet.modules.utilities import cutoff_func
 from metatrain.utils.architectures import get_default_hypers
 from metatrain.utils.data import DatasetInfo, read_systems
 from metatrain.utils.data.target_info import get_energy_target_info
+from metatrain.utils.io import model_from_checkpoint
 from metatrain.utils.neighbor_lists import get_system_with_neighbor_lists
 from metatrain.utils.output_gradient import compute_gradient
 
@@ -764,8 +765,10 @@ def test_last_layer_features_compatibility():
 
     pet_last_layer_features = pet_predictions["mtt::aux::energy_last_layer_features"]
 
-    assert metatensor.torch.allclose(
-        nativepet_last_layer_features, pet_last_layer_features, atol=1e-6
+    assert mts.allclose(
+        nativepet_last_layer_features,
+        pet_last_layer_features,
+        atol=1e-6,
     )
 
 
@@ -785,7 +788,13 @@ def test_pet_mad_model_compatibility(monkeypatch, tmp_path):
         nativepet_checkpoint,
         "nativepet_checkpoint.ckpt",
     )
-    nativepet_model = NativePET.load_checkpoint("nativepet_checkpoint.ckpt").eval()
+
+    checkpoint = torch.load(
+        "nativepet_checkpoint.ckpt", weights_only=False, map_location="cpu"
+    )
+    nativepet_model = model_from_checkpoint(checkpoint)
+    assert isinstance(nativepet_model, NativePET)
+    nativepet_model = nativepet_model.eval()
 
     systems_1 = read_systems(DATASET_PATH)[:5]
     systems_2 = read_systems(DATASET_WITH_FORCES_PATH)[:5]

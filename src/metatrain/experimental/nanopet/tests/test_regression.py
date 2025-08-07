@@ -2,7 +2,7 @@ import random
 
 import numpy as np
 import torch
-from metatensor.torch.atomistic import ModelOutput
+from metatomic.torch import ModelOutput
 from omegaconf import OmegaConf
 
 from metatrain.experimental.nanopet import NanoPET, Trainer
@@ -14,14 +14,11 @@ from metatrain.utils.neighbor_lists import get_system_with_neighbor_lists
 from . import DATASET_PATH, DEFAULT_HYPERS, MODEL_HYPERS
 
 
-# reproducibility
-random.seed(0)
-np.random.seed(0)
-torch.manual_seed(0)
-
-
 def test_regression_init():
     """Perform a regression test on the model at initialization"""
+    random.seed(0)
+    np.random.seed(0)
+    torch.manual_seed(0)
 
     targets = {}
     targets["mtt::U0"] = get_energy_target_info({"quantity": "energy", "unit": "eV"})
@@ -44,11 +41,11 @@ def test_regression_init():
 
     expected_output = torch.tensor(
         [
-            [-0.361842244864],
-            [-0.222126781940],
-            [-0.145303070545],
-            [-0.189965277910],
-            [-0.048939596862],
+            [0.163995444775],
+            [0.068577021360],
+            [-0.003538529389],
+            [0.049175731838],
+            [0.044154867530],
         ]
     )
 
@@ -60,8 +57,10 @@ def test_regression_init():
 
 
 def test_regression_train():
-    """Perform a regression test on the model when
-    trained for 2 epoch on a small dataset"""
+    """Regression test for the model when trained for 2 epoch on a small dataset"""
+    random.seed(0)
+    np.random.seed(0)
+    torch.manual_seed(0)
 
     systems = read_systems(DATASET_PATH)
 
@@ -113,16 +112,16 @@ def test_regression_train():
 
     expected_output = torch.tensor(
         [
-            [0.675404727459],
-            [0.414229094982],
-            [0.305283188820],
-            [0.677668213844],
-            [0.318834125996],
+            [0.260419785976],
+            [0.258879989386],
+            [0.127974838018],
+            [0.177975922823],
+            [0.136635094881],
         ]
     )
 
     # if you need to change the hardcoded values:
-    torch.set_printoptions(precision=12)
-    print(output["mtt::U0"].block().values)
+    # torch.set_printoptions(precision=12)
+    # print(output["mtt::U0"].block().values)
 
     torch.testing.assert_close(output["mtt::U0"].block().values, expected_output)

@@ -9,7 +9,7 @@ from typing import Dict, List, Optional, Tuple, Union
 
 import numpy as np
 import torch
-from metatensor.torch.atomistic import ModelCapabilities
+from metatomic.torch import ModelCapabilities
 
 from .. import PACKAGE_ROOT, __version__
 from .data import DatasetInfo
@@ -76,6 +76,15 @@ class WandbHandler(logging.Handler):
         super().__init__()
         self.run = run
 
+    def _clean_key(self, key: str) -> str:
+        for prefix in ["training", "test", "validation"]:
+            if key.startswith(prefix + " "):
+                return key.replace(prefix + " ", prefix + "/", 1)
+        return key
+
+    def _clean_unit(self, unit: str) -> str:
+        return unit.replace("/", " per ") if unit else unit
+
     def emit(self, record: logging.LogRecord):
         """Override default behavior to ignore standard log records."""
         pass
@@ -91,11 +100,19 @@ class WandbHandler(logging.Handler):
 
         data = {}
         for key, value, unit in zip(keys, values, units):
-            name = f"{key} [{unit}]" if unit else key
+            # Cleanup to prevent from grouping metrics by text before the last "/".
+            clean_key = self._clean_key(key)
+            clean_unit = self._clean_unit(unit)
+
+            name = f"{clean_key} [{clean_unit}]" if clean_unit else clean_key
             data[name] = float(value)
 
         epoch = int(data.pop("Epoch"))
         self.run.log(data, step=epoch, commit=True)
+
+    def close(self):
+        super().close()
+        self.run.finish()
 
 
 class CustomLogger(logging.Logger):
@@ -421,3 +438,36 @@ def _sort_metric_names(name_list):
     # add the rest
     sorted_name_list.extend(sorted_remaining_name_list)
     return sorted_name_list
+
+
+def human_readable(n: Union[int, float]) -> str:
+    """Convert a number to a human-readable format with suffixes.
+
+    This function takes a number and formats it into a string with metric
+    suffixes (K for thousands, M for millions, B for billions, T for trillions).
+
+    :param n: The number to be converted.
+    :return: The human-readable string representation of the number.
+
+    """
+    suffixes = ["", "K", "M", "B", "T"]
+    idx = 0
+    x = float(n)
+
+    # repeatedly divide by 1000 to find the right suffix
+    while abs(x) >= 1000 and idx < len(suffixes) - 1:
+        x /= 1000
+        idx += 1
+
+    # one decimal if the reduced value is under 100, else integer
+    if abs(x) < 100:
+        s = f"{x:.1f}".rstrip("0").rstrip(".")
+    else:
+        s = f"{int(round(x))}"
+
+    # handle cases like 999999 so it does not become "1000K"
+    if s == "1000" and idx < len(suffixes) - 1:
+        s = "1"
+        idx += 1
+
+    return f"{s}{suffixes[idx]}"

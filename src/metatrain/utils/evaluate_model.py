@@ -1,16 +1,19 @@
 import warnings
 from typing import Dict, List, Union
 
+import metatensor.torch as mts
 import torch
 from metatensor.torch import Labels, TensorBlock, TensorMap
-from metatensor.torch.atomistic import (
-    MetatensorAtomisticModel,
+from metatomic.torch import (
+    AtomisticModel,
     ModelEvaluationOptions,
     ModelOutput,
     System,
     is_atomistic_model,
+    register_autograd_neighbors,
 )
 
+from . import torch_jit_script_unless_coverage
 from .data import TargetInfo
 from .output_gradient import compute_gradient
 
@@ -18,8 +21,8 @@ from .output_gradient import compute_gradient
 def evaluate_model(
     model: Union[
         torch.nn.Module,
-        MetatensorAtomisticModel,
-        torch.jit._script.RecursiveScriptModule,
+        AtomisticModel,
+        torch.jit.RecursiveScriptModule,
     ],
     systems: List[System],
     targets: Dict[str, TargetInfo],
@@ -31,10 +34,10 @@ def evaluate_model(
 
     :param model: The model to use. This can either be a model in training
         (``torch.nn.Module``) or an exported model
-        (``torch.jit._script.RecursiveScriptModule``).
+        (``torch.jit.RecursiveScriptModule``).
     :param systems: The systems to use.
-    :param targets: The names of the targets to evaluate (keys), along with
-        their associated gradients (values).
+    :param targets: The names of the targets to evaluate (keys), along with their
+        associated gradients (values).
     :param is_training: Whether the model is being computed during training.
 
     :returns: The predictions of the model for the requested targets.
@@ -46,10 +49,10 @@ def evaluate_model(
         message="This system's positions or cell requires grad, but the neighbors",
     )
 
-    model_outputs = _get_outputs(model)
-    # Assert that all targets are within the model's capabilities:
+    model_outputs = _get_supported_outputs(model)
+    # Assert that all targets are within the model's supported outputs:
     if not set(targets.keys()).issubset(model_outputs.keys()):
-        raise ValueError("Not all targets are within the model's capabilities.")
+        raise ValueError("Not all targets are within the model's supported outputs")
 
     # Find if there are any energy targets that require gradients:
     energy_targets = []
@@ -214,20 +217,20 @@ def _strain_gradients_to_block(gradients_list):
     )
 
 
-def _get_outputs(
-    model: Union[torch.nn.Module, torch.jit._script.RecursiveScriptModule],
+def _get_supported_outputs(
+    model: Union[torch.nn.Module, torch.jit.RecursiveScriptModule],
 ):
     if is_atomistic_model(model):
         return model.capabilities().outputs
     else:
-        return model.outputs
+        return model.supported_outputs()
 
 
 def _get_model_outputs(
     model: Union[
         torch.nn.Module,
-        MetatensorAtomisticModel,
-        torch.jit._script.RecursiveScriptModule,
+        AtomisticModel,
+        torch.jit.RecursiveScriptModule,
     ],
     systems: List[System],
     targets: Dict[str, TargetInfo],
@@ -257,8 +260,8 @@ def _get_model_outputs(
         )
 
 
-@torch.jit.script
-def _prepare_system(  # pragma: no cover
+@torch_jit_script_unless_coverage
+def _prepare_system(
     system: System, positions_grad: bool, strain_grad: bool, check_consistency: bool
 ):
     """
@@ -294,8 +297,9 @@ def _prepare_system(  # pragma: no cover
             )
             strain = None
 
-    for nl_options in system.known_neighbor_lists():
-        nl = system.get_neighbor_list(nl_options)
-        new_system.add_neighbor_list(nl_options, nl)
+    for options in system.known_neighbor_lists():
+        neighbors = mts.detach_block(system.get_neighbor_list(options))
+        register_autograd_neighbors(system, neighbors)
+        new_system.add_neighbor_list(options, neighbors)
 
     return new_system, strain

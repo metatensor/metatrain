@@ -8,14 +8,16 @@ on:
 
 jobs:
   tests:
+    name: ${{ matrix.architecture-name }}
     strategy:
+      fail-fast: false
       matrix:
-        include:
-          - architecture-name: gap
-          - architecture-name: soap-bpnn
-          - architecture-name: pet
-          - architecture-name: nanopet
-          - architecture-name: deprecated-pet
+        architecture-name:
+          - gap
+          - soap-bpnn
+          - pet
+          - nanopet
+          - deprecated-pet
 
     runs-on: ubuntu-22.04
 

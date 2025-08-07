@@ -1,8 +1,8 @@
 import pytest
 import torch
-from metatensor.torch.atomistic import systems_to_torch
+from metatomic.torch import systems_to_torch
 
-from metatrain.experimental.nanopet import NanoPET
+from metatrain.pet import PET
 from metatrain.soap_bpnn import SoapBpnn
 from metatrain.utils.architectures import get_default_hypers
 from metatrain.utils.data import DatasetInfo
@@ -19,9 +19,10 @@ from . import RESOURCES_PATH
 
 
 @pytest.mark.parametrize("periodicity", [True, False])
-# we only have torchPME integration for nanoPET and SOAP-BPNN for now
-@pytest.mark.parametrize("model_name", ["experimental.nanopet", "soap_bpnn"])
-def test_long_range(periodicity, model_name, tmpdir):
+@pytest.mark.parametrize(
+    "model_name, model_cls", [("pet", PET), ("soap_bpnn", SoapBpnn)]
+)
+def test_long_range(periodicity, model_name, model_cls, tmpdir):
     """Tests that the long-range module can predict successfully."""
 
     if periodicity:
@@ -38,10 +39,8 @@ def test_long_range(periodicity, model_name, tmpdir):
 
     hypers = get_default_hypers(model_name)
     hypers["model"]["long_range"]["enable"] = True
-    if model_name == "soap_bpnn":
-        model = SoapBpnn(hypers["model"], dataset_info)
-    else:
-        model = NanoPET(hypers["model"], dataset_info)
+    hypers["model"]["long_range"]["use_ewald"] = True
+    model = model_cls(hypers["model"], dataset_info)
     requested_nls = get_requested_neighbor_lists(model)
 
     systems = [
