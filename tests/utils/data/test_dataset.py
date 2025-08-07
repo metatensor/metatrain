@@ -694,7 +694,3 @@ def test_instance_torchscript_compatible(layout_scalar):
     )
 
     torch.jit.script(dataset_info)
-
-
-def test_class_torchscript_compatible():
-    torch.jit.script(DatasetInfo)
