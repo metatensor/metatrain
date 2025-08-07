@@ -19,6 +19,7 @@ DEFAULT_READER = {
     ".xyz": "ase",
     ".extxyz": "ase",
     ".mts": "metatensor",
+    ".zip": "metatensor",
 }
 """:py:class:`dict`: mapping file extensions to a default reader"""
 
