@@ -888,8 +888,8 @@ class PET(ModelInterface):
         )
         return system_indices, sample_labels
 
-    @staticmethod
-    def upgrade_checkpoint(checkpoint: Dict) -> Dict:
+    @classmethod
+    def upgrade_checkpoint(cls, checkpoint: Dict) -> Dict:
         if checkpoint["model_ckpt_version"] == 1:
             checkpoints.update_v1_v2(checkpoint["model_state_dict"])
             checkpoints.update_v1_v2(checkpoint["best_model_state_dict"])
@@ -898,6 +898,13 @@ class PET(ModelInterface):
             checkpoints.update_v2_v3(checkpoint["model_state_dict"])
             checkpoints.update_v2_v3(checkpoint["best_model_state_dict"])
             checkpoint["model_ckpt_version"] = 3
+
+        if checkpoint["model_ckpt_version"] != cls.__checkpoint_version__:
+            raise RuntimeError(
+                f"Unable to upgrade the checkpoint: the checkpoint is using model "
+                f"version {checkpoint['model_ckpt_version']}, while the current model "
+                f"version is {cls.__checkpoint_version__}."
+            )
 
         return checkpoint
 

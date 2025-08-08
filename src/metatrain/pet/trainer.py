@@ -583,6 +583,12 @@ class Trainer(TrainerInterface):
 
         return trainer
 
-    @staticmethod
-    def upgrade_checkpoint(checkpoint: Dict) -> Dict:
-        raise NotImplementedError("checkpoint upgrade is not implemented for PET")
+    @classmethod
+    def upgrade_checkpoint(cls, checkpoint: Dict) -> Dict:
+        if checkpoint["trainer_ckpt_version"] != cls.__checkpoint_version__:
+            raise RuntimeError(
+                f"Unable to upgrade the checkpoint: the checkpoint is using "
+                f"trainer version {checkpoint['trainer_ckpt_version']}, while the "
+                f"current trainer version is {cls.__checkpoint_version__}."
+            )
+        return checkpoint
