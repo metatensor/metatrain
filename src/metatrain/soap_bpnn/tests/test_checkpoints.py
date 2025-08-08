@@ -100,7 +100,7 @@ def test_get_checkpoint(context):
 
 @pytest.mark.parametrize("cls_type", ["model", "trainer"])
 def test_failed_checkpoint_upgrade(cls_type):
-    """Test that an error is raised when trying to upgrade an invalid checkpoint."""
+    """Test error raised when trying to upgrade an invalid checkpoint version."""
     checkpoint = {"{cls_type}_ckpt_version": 9999}
 
     if cls_type == "model":
