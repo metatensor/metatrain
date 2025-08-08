@@ -96,3 +96,29 @@ def test_get_checkpoint(context):
     model = SoapBpnn(MODEL_HYPERS, dataset_info)
     checkpoint = model.get_checkpoint()
     SoapBpnn.load_checkpoint(checkpoint, context)
+
+
+def test_failed_model_checkpoint_upgrade():
+    """Test that an error is raised when trying to upgrade an invalid checkpoint."""
+    checkpoint = {"model_ckpt_version": 9999}
+
+    match = (
+        f"Unable to upgrade the checkpoint: the checkpoint is using "
+        f"version 9999, while the current "
+        f"version is {SoapBpnn.__checkpoint_version__}."
+    )
+    with pytest.raises(RuntimeError, match=match):
+        SoapBpnn.upgrade_checkpoint(checkpoint)
+
+
+def test_failed_trainer_checkpoint_upgrade():
+    """Test that an error is raised when trying to upgrade an invalid checkpoint."""
+    checkpoint = {"trainer_ckpt_version": 9999}
+
+    match = (
+        f"Unable to upgrade the checkpoint: the checkpoint is using "
+        f"version 9999, while the current "
+        f"version is {Trainer.__checkpoint_version__}."
+    )
+    with pytest.raises(RuntimeError, match=match):
+        Trainer.upgrade_checkpoint(checkpoint)

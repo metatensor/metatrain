@@ -129,6 +129,9 @@ class ModelInterface(torch.nn.Module, metaclass=ABCMeta):
     def upgrade_checkpoint(checkpoint: Dict["str", Any]) -> Dict["str", Any]:
         """
         Upgrade the checkpoint to the current version of the model.
+
+        :raises RuntimeError: if the checkpoint cannot be upgraded to the current
+            version of the model.
         """
 
     @abstractmethod
@@ -206,6 +209,9 @@ class TrainerInterface(metaclass=ABCMeta):
     def upgrade_checkpoint(checkpoint: Dict) -> Dict:
         """
         Upgrade the checkpoint to the current version of the trainer.
+
+        :raises RuntimeError: if the checkpoint cannot be upgraded to the current
+            version of the trainer.
         """
 
     @classmethod
