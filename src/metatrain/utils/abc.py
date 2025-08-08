@@ -204,9 +204,9 @@ class TrainerInterface(metaclass=ABCMeta):
         Save a checkoint of both the ``model`` and trainer state to the given ``path``
         """
 
-    @staticmethod
+    @classmethod
     @abstractmethod
-    def upgrade_checkpoint(checkpoint: Dict) -> Dict:
+    def upgrade_checkpoint(cls, checkpoint: Dict) -> Dict:
         """
         Upgrade the checkpoint to the current version of the trainer.
 
