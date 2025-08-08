@@ -543,11 +543,16 @@ class Trainer(TrainerInterface):
 
         return trainer
 
-    @staticmethod
-    def upgrade_checkpoint(checkpoint: Dict) -> Dict:
+    @classmethod
+    def upgrade_checkpoint(cls, checkpoint: Dict) -> Dict:
         if checkpoint["trainer_ckpt_version"] == 1:
             checkpoints.trainer_update_v1_v2(checkpoint)
             checkpoint["trainer_ckpt_version"] = 2
-        else:
-            assert checkpoint["trainer_ckpt_version"] == 2
+
+        if checkpoint["trainer_ckpt_version"] != cls.__checkpoint_version__:
+            raise RuntimeError(
+                f"Unable to upgrade the checkpoint: the checkpoint is using trainer "
+                f"version {checkpoint['trainer_ckpt_version']}, while the current "
+                f"trainer version is {cls.__checkpoint_version__}."
+            )
         return checkpoint
