@@ -124,9 +124,9 @@ class ModelInterface(torch.nn.Module, metaclass=ABCMeta):
             user.
         """
 
-    @staticmethod
+    @classmethod
     @abstractmethod
-    def upgrade_checkpoint(checkpoint: Dict["str", Any]) -> Dict["str", Any]:
+    def upgrade_checkpoint(cls, checkpoint: Dict["str", Any]) -> Dict["str", Any]:
         """
         Upgrade the checkpoint to the current version of the model.
 
