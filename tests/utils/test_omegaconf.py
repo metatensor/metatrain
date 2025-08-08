@@ -2,7 +2,7 @@ import re
 
 import pytest
 import torch
-from omegaconf import ListConfig, OmegaConf
+from omegaconf import DictConfig, ListConfig, OmegaConf
 
 from metatrain import soap_bpnn
 from metatrain.utils import omegaconf
@@ -10,6 +10,7 @@ from metatrain.utils.omegaconf import (
     check_dataset_options,
     check_units,
     expand_dataset_config,
+    expand_loss_config,
 )
 
 
@@ -231,6 +232,238 @@ def test_expand_dataset_gradient():
 
     assert conf_expanded["targets"]["my_energy"]["stress"] is False
     conf_expanded["targets"]["my_energy"]["virial"]["read_from"]
+
+
+def test_expand_loss_config_default():
+    """
+    When no custom loss is provided, architecture.training.loss
+    should be created from the default template for each target in training_set.
+    """
+    conf = OmegaConf.create(
+        {
+            "training_set": {
+                "targets": {
+                    "energy": {},  # no gradients requested
+                    "dipole": {},  # non-energy target
+                }
+            },
+            "architecture": {"training": {}},
+        }
+    )
+    expanded = expand_loss_config(conf)
+    loss = expanded["architecture"]["training"]["loss"]
+    # top-level loss must be a DictConfig with exactly the two keys
+    assert isinstance(loss, DictConfig)
+    assert set(loss.keys()) == {"energy", "dipole"}
+
+    # energy should have an empty gradients dict
+    assert isinstance(loss["energy"]["gradients"], DictConfig)
+    assert len(loss["energy"]["gradients"]) == 0
+
+    # non-energy target gets the default loss template
+    assert isinstance(loss["dipole"], DictConfig)
+
+
+def test_expand_loss_config_migrates_forces(monkeypatch):
+    """
+    If the training hyperparams include a top-level 'forces' block,
+    and the dataset requests forces, it should be moved into
+    energy.gradients.positions.
+    """
+    conf = OmegaConf.create(
+        {
+            "training_set": {"targets": {"energy": {"forces": True}}},
+            "architecture": {
+                "training": {
+                    "loss": {
+                        "forces": {"weight": 2.0},
+                        # also supply some default energy block to be merged
+                        "energy": {"weight": 3.0},
+                    }
+                }
+            },
+        }
+    )
+    expanded = expand_loss_config(conf)
+    loss = expanded["architecture"]["training"]["loss"]
+
+    # no top-level 'forces' or 'stress' or 'virial'
+    assert "forces" not in loss
+    assert "stress" not in loss
+    assert "virial" not in loss
+
+    # custom 'scale' should appear under energy.gradients.positions
+    pos = loss["energy"]["gradients"]["positions"]
+    assert isinstance(pos, DictConfig)
+    assert pos["weight"] == 2.0
+
+    # custom energy.weight should have been merged
+    assert loss["energy"]["weight"] == 3.0
+
+
+def test_expand_loss_config_migrates_virial_to_strain():
+    """
+    Legacy 'virial' in loss hyperparams should migrate to
+    energy.gradients.strain when the dataset requests virials.
+    """
+    conf = OmegaConf.create(
+        {
+            "training_set": {"targets": {"energy": {"virial": True}}},
+            "architecture": {
+                "training": {
+                    "loss": {"virial": {"weight": 0.5}, "energy": {"type": "huber"}}
+                }
+            },
+        }
+    )
+    expanded = expand_loss_config(conf)
+    loss = expanded["architecture"]["training"]["loss"]
+
+    # no top-level 'virial' or 'stress'
+    assert "virial" not in loss
+    assert "stress" not in loss
+
+    # migrated into energy.gradients.strain
+    strain = loss["energy"]["gradients"]["strain"]
+    assert isinstance(strain, DictConfig)
+    assert strain["weight"] == 0.5
+
+    # original energy.type preserved
+    assert loss["energy"]["type"] == "huber"
+
+
+def test_expand_loss_config_removes_unused_legacy_keys():
+    """
+    If the dataset does not request a given gradient, any legacy key
+    (forces, stress, virial) in the loss hyperparams must be deleted.
+    """
+    conf = OmegaConf.create(
+        {
+            "training_set": {
+                "targets": {"energy": {}}  # no forces, stress, nor virial
+            },
+            "architecture": {
+                "training": {
+                    "loss": {
+                        "forces": {"scale": 9.9},
+                        "stress": {"scale": 8.8},
+                        "virial": {"scale": 7.7},
+                    }
+                }
+            },
+        }
+    )
+    expanded = expand_loss_config(conf)
+    loss = expanded["architecture"]["training"]["loss"]
+
+    # none of the legacy keys should survive at top level
+    for legacy in ("forces", "stress", "virial"):
+        assert legacy not in loss
+
+    # and energy.gradients remains empty
+    assert loss["energy"]["gradients"] == {}
+
+
+def test_expand_loss_config_non_energy_only():
+    """
+    If the training_set contains only non-energy targets, no 'energy'
+    block should appear in the final loss, only the non-energy ones.
+    """
+    conf = OmegaConf.create(
+        {
+            "training_set": {"targets": {"dipole": {}, "foo": {}}},
+            "architecture": {"training": {}},
+        }
+    )
+    expanded = expand_loss_config(conf)
+    loss = expanded["architecture"]["training"]["loss"]
+
+    # energy should not appear
+    assert "energy" not in loss
+    # both non-energy targets must appear, with default template
+    assert set(loss.keys()) == {"dipole", "foo"}
+    for target in ("dipole", "foo"):
+        assert isinstance(loss[target], DictConfig)
+
+
+def test_expand_loss_config_single_string():
+    """
+    When the loss is given as a single string, it should be expanded into a DictConfig
+    with the default template for all targets.
+    """
+    conf = OmegaConf.create(
+        {
+            "training_set": {
+                "targets": {
+                    "energy": {},  # no gradients requested
+                    "dipole": {},  # non-energy target
+                }
+            },
+            "architecture": {"training": {"loss": "mae"}},
+        }
+    )
+    expanded = expand_loss_config(conf)
+    loss = expanded["architecture"]["training"]["loss"]
+    # top-level loss must be a DictConfig with exactly the two keys
+    assert isinstance(loss, DictConfig)
+    assert set(loss.keys()) == {"energy", "dipole"}
+
+    # energy should have an empty gradients dict
+    assert isinstance(loss["energy"]["gradients"], DictConfig)
+    assert len(loss["energy"]["gradients"]) == 0
+
+    # the type of the energy loss should be 'mae'
+    assert loss["energy"]["type"] == "mae"
+
+    # non-energy target gets the default loss template
+    assert isinstance(loss["dipole"], DictConfig)
+
+    # the type of the dipole loss should be 'mae'
+    assert loss["dipole"]["type"] == "mae"
+
+
+def test_expand_loss_config_per_target_string():
+    """
+    When the loss is given as a string per target, it should be expanded into a
+    DictConfig with the default template for each target, but with the type
+    set to the given string.
+    """
+    conf = OmegaConf.create(
+        {
+            "training_set": {
+                "targets": {
+                    "energy": {},  # no gradients requested
+                    "dipole": {},  # non-energy target
+                }
+            },
+            "architecture": {
+                "training": {"loss": {"energy": "mse", "dipole": "huber"}}
+            },
+        }
+    )
+    expanded = expand_loss_config(conf)
+    loss = expanded["architecture"]["training"]["loss"]
+    # top-level loss must be a DictConfig with exactly the two keys
+    assert isinstance(loss, DictConfig)
+    assert set(loss.keys()) == {"energy", "dipole"}
+
+    # energy should have an empty gradients dict
+    assert isinstance(loss["energy"]["gradients"], DictConfig)
+    assert len(loss["energy"]["gradients"]) == 0
+
+    # the type of the energy loss should be 'mse'
+    assert loss["energy"]["type"] == "mse"
+    assert loss["energy"]["weight"] == 1.0
+    assert loss["energy"]["reduction"] == "mean"
+
+    # non-energy target gets the default loss template
+    assert isinstance(loss["dipole"], DictConfig)
+
+    # the type of the dipole loss should be 'huber'
+    assert loss["dipole"]["type"] == "huber"
+    assert loss["dipole"]["weight"] == 1.0
+    assert loss["dipole"]["reduction"] == "mean"
+    assert loss["dipole"]["delta"] == 1.0
 
 
 def test_check_units():
