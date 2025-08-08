@@ -42,7 +42,7 @@ test tox:
   image: $BASE_IMAGE
   timeout: 1h
   script:
-    - PIP_NO_BUILD_ISOLATION=1 tox -r
+    - PIP_NO_BUILD_ISOLATION=1 tox -r -v
   variables:
     SLURM_JOB_NUM_NODES: 1
     SLURM_PARTITION: normal
