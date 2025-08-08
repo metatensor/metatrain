@@ -901,8 +901,8 @@ class PET(ModelInterface):
 
         if checkpoint["model_ckpt_version"] != cls.__checkpoint_version__:
             raise RuntimeError(
-                f"Unable to upgrade the checkpoint: the checkpoint is using "
-                f"version {checkpoint['model_ckpt_version']}, while the current "
+                f"Unable to upgrade the checkpoint: the checkpoint is using model "
+                f"version {checkpoint['model_ckpt_version']}, while the current model "
                 f"version is {cls.__checkpoint_version__}."
             )
 

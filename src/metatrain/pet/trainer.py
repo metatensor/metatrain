@@ -587,8 +587,8 @@ class Trainer(TrainerInterface):
     def upgrade_checkpoint(cls, checkpoint: Dict) -> Dict:
         if checkpoint["trainer_ckpt_version"] != cls.__checkpoint_version__:
             raise RuntimeError(
-                f"Unable to upgrade the checkpoint: the checkpoint is using "
-                f"version {checkpoint['trainer_ckpt_version']}, while the current "
-                f"version is {cls.__checkpoint_version__}."
+                f"Unable to upgrade the trainer checkpoint: the checkpoint is using "
+                f"trainer version {checkpoint['trainer_ckpt_version']}, while the "
+                f"current trainer version is {cls.__checkpoint_version__}."
             )
         return checkpoint

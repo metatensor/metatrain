@@ -96,27 +96,21 @@ def test_get_checkpoint(context):
     PET.load_checkpoint(checkpoint, context)
 
 
-def test_failed_model_checkpoint_upgrade():
+@pytest.mark.parametrize("cls_type", ["model", "trainer"])
+def test_failed_checkpoint_upgrade(cls_type):
     """Test that an error is raised when trying to upgrade an invalid checkpoint."""
-    checkpoint = {"model_ckpt_version": 9999}
+    checkpoint = {"{cls_type}_ckpt_version": 9999}
+
+    if cls_type == "model":
+        cls = PET
+        version = PET.__checkpoint_version__
+    else:
+        cls = Trainer
+        version = Trainer.__checkpoint_version__
 
     match = (
-        f"Unable to upgrade the checkpoint: the checkpoint is using "
-        f"version 9999, while the current "
-        f"version is {PET.__checkpoint_version__}."
+        f"Unable to upgrade the checkpoint: the checkpoint is using {cls_type} version "
+        f"9999, while the current {cls_type} version is {version}."
     )
     with pytest.raises(RuntimeError, match=match):
-        PET.upgrade_checkpoint(checkpoint)
-
-
-def test_failed_trainer_checkpoint_upgrade():
-    """Test that an error is raised when trying to upgrade an invalid checkpoint."""
-    checkpoint = {"trainer_ckpt_version": 9999}
-
-    match = (
-        f"Unable to upgrade the checkpoint: the checkpoint is using "
-        f"version 9999, while the current "
-        f"version is {Trainer.__checkpoint_version__}."
-    )
-    with pytest.raises(RuntimeError, match=match):
-        Trainer.upgrade_checkpoint(checkpoint)
+        cls.upgrade_checkpoint(checkpoint)
