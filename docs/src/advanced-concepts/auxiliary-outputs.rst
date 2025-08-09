@@ -31,13 +31,13 @@ by one or more architectures in the library:
 The following table shows the architectures that support each of the
 auxiliary outputs:
 
-+--------------------------------------------+-----------+------+-----+---------+
-| Auxiliary output                           | SOAP-BPNN | PET  | GAP | NanoPET |
-+--------------------------------------------+-----------+------+-----+---------+
-| ``mtt::aux::{target}_last_layer_features`` |    Yes    | Yes  | No  |   Yes   |
-+--------------------------------------------+-----------+------+-----+---------+
-| ``features``                               |    Yes    | Yes  | No  |   Yes   |
-+--------------------------------------------+-----------+------+-----+---------+
++--------------------------------------------+-----------+------+-----+---------+-----+
+| Auxiliary output                           | SOAP-BPNN | PET  | GAP | NanoPET | UEA |
++--------------------------------------------+-----------+------+-----+---------+-----+
+| ``mtt::aux::{target}_last_layer_features`` |    Yes    | Yes  | No  |   Yes   | Yes |
++--------------------------------------------+-----------+------+-----+---------+-----+
+| ``features``                               |    Yes    | Yes  | No  |   Yes   | Yes |
++--------------------------------------------+-----------+------+-----+---------+-----+
 
 The following tables show the metadata that will be provided for each of the
 auxiliary outputs:
