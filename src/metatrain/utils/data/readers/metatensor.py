@@ -15,9 +15,29 @@ def read_systems(filename: str) -> List[System]:
     :param filename: name of the file to read
 
     :raises NotImplementedError: Serialization of systems is not yet
-        available in metatensor.
+        available in metatensor, except for DiskDataset .zip files.
     """
-    raise NotImplementedError("Reading metatensor systems is not yet implemented.")
+    from pathlib import Path
+    import zipfile
+    from metatomic.torch import load_system
+    
+    # Check if this is a DiskDataset .zip file
+    if Path(filename).suffix == ".zip":
+        systems = []
+        with zipfile.ZipFile(filename, "r") as zip_file:
+            # Find all system.mta files in the zip
+            system_files = [f for f in zip_file.namelist() if f.endswith("/system.mta")]
+            # Sort by index to maintain order
+            system_files.sort(key=lambda x: int(x.split("/")[0]))
+            
+            for system_file in system_files:
+                with zip_file.open(system_file, "r") as f:
+                    system = load_system(f)
+                    systems.append(system)
+        
+        return systems
+    else:
+        raise NotImplementedError("Reading metatensor systems is not yet implemented.")
 
 
 def _wrapped_metatensor_read(filename) -> TensorMap:
