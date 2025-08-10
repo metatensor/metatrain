@@ -7,6 +7,42 @@ from torch.nn.modules.loss import _Loss
 
 from metatrain.utils.external_naming import to_internal_name
 
+class LLPREnsCalibLoss:
+    ## template for an actual loss function, currently not in use for DOS
+    def __init__(
+        self,
+        reduction: str = "mean",
+        weight: float = 1.0,
+    ):
+        losses = {}
+        losses["values"] = torch.nn.GaussianNLLLoss(reduction=reduction)
+        self.losses = losses
+        self.weight = weight
+
+    def __call__(
+        self,
+        ensemble_pred_mean_tensor_map: TensorMap,
+        ensemble_pred_var_tensor_map: TensorMap,
+        targets_tensor_map: TensorMap,
+    ) -> torch.Tensor:
+
+        loss = torch.zeros(
+            (),
+            dtype=ensemble_pred_mean_tensor_map.block(0).values.dtype,
+            device=ensemble_pred_mean_tensor_map.block(0).values.device,
+        )
+
+        for key in ensemble_pred_mean_tensor_map.keys:
+            block_mean = ensemble_pred_mean_tensor_map.block(key)
+            block_var = ensemble_pred_var_tensor_map.block(key)
+            block_target = targets_tensor_map.block(key)
+            values_mean = block_mean.values
+            values_var = block_var.values
+            values_target = block_target.values
+            loss += self.weight * self.losses["values"](values_mean, values_target, values_var)   # input, target, var
+
+        return loss
+
 
 class TensorMapLoss:
     """A loss function that operates on two ``metatensor.torch.TensorMap``.
