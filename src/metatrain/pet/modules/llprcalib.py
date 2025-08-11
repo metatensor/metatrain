@@ -27,8 +27,7 @@ def apply_llpr_calib_strategy(model: nn.Module, strategy: Dict[str, Any]) -> nn.
 
     elif strategy == "heads":
         for name, param in model.named_parameters():
-            ## check keyword and update
-            if "last_layer" not in name:
+            if "heads" not in name or "llpr_" not in name:
                 param.requires_grad = False
 
     else:

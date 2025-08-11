@@ -415,11 +415,11 @@ class Trainer:
 
                 # CHANGE: DOS Training loop
 
-                ## LLPR CALIB TRIANING LOSS
+                ## LLPR CALIB TRAINING LOSS
                 if self.hypers["llpr_calib"]:
 
-                    dos_pred_mean = predictions['mtt::dos::ensemble'][0].values.mean(axis=0)  # check key, axis
-                    dos_pred_var = predictions['mtt::dos::ensemble'][0].values.var(axis=0)  # check key, axis
+                    dos_pred_mean = predictions['mtt::aux::dos::ensemble'][0].values.mean(axis=2)
+                    dos_pred_var = predictions['mtt::aux::dos::ensemble'][0].values.var(axis=2)
                     dos_target = target_dos_batch[0].values
                     dos_mask = (mask_batch[0].values).bool()
 
@@ -605,8 +605,8 @@ class Trainer:
 
                         if self.hypers["llpr_calib"]:
 
-                            dos_pred_mean = predictions['mtt::dos::ensemble'][0].values.mean(axis=0)  # check key, axis
-                            dos_pred_var = predictions['mtt::dos::ensemble'][0].values.var(axis=0)  # check key, axis
+                            dos_pred_mean = predictions['mtt::aux::dos::ensemble'][0].values.mean(axis=2)
+                            dos_pred_var = predictions['mtt::aux::dos::ensemble'][0].values.var(axis=2)
                             dos_target = target_dos_batch[0].values
                             dos_mask = (mask_batch[0].values).bool()
                             # Obtain shifts from existing support function
@@ -751,8 +751,8 @@ class Trainer:
                     
                 if self.hypers["llpr_calib"]:
 
-                    dos_pred_mean = predictions['mtt::dos::ensemble'][0].values.mean(axis=0)  # check key, axis
-                    dos_pred_var = predictions['mtt::dos::ensemble'][0].values.var(axis=0)  # check key, axis
+                    dos_pred_mean = predictions['mtt::aux::dos::ensemble'][0].values.mean(axis=2)
+                    dos_pred_var = predictions['mtt::aux::dos::ensemble'][0].values.var(axis=2)
                     dos_target = target_dos_batch[0].values
                     dos_mask = (mask_batch[0].values).bool()
 

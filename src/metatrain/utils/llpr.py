@@ -57,7 +57,7 @@ class LLPRUncertaintyModel(torch.nn.Module):
 
         device = next(self.model.parameters()).device
         dtype = getattr(torch, old_capabilities.dtype)
- 
+
         for name, output in old_capabilities.outputs.items():
 
             if is_auxiliary_output(name):
@@ -120,6 +120,7 @@ class LLPRUncertaintyModel(torch.nn.Module):
         systems: List[System],
         outputs: Dict[str, ModelOutput],
         selected_atoms: Optional[Labels] = None,
+        is_calib: bool = False,
     ) -> Dict[str, TensorMap]:
 
         device = systems[0].positions.device
@@ -323,12 +324,17 @@ class LLPRUncertaintyModel(torch.nn.Module):
                 if name.replace("_ensemble", "").replace("aux::", "") in outputs
                 else name.replace("_ensemble", "").replace("mtt::aux::", "")
             )
-            ensemble_values = (
-                ensemble_values
-                - ensemble_values.mean(dim=1, keepdim=True)
-                + return_dict[original_name].block().values.unsqueeze(-1)  ## DOS specific
-            )
- 
+            print(ensemble_values)
+            print(ensemble_values.shape)
+
+            # 
+            if not is_calib:
+                ensemble_values = (
+                    ensemble_values
+                    - ensemble_values.mean(dim=1, keepdim=True)
+                    + return_dict[original_name].block().values.unsqueeze(-1)[:, :ensemble_values.shape[1]]  ## DOS specific
+                )
+
             property_name = "energy" if name == "energy_ensemble" else "ensemble_member"
             ensemble = TensorMap(
                 keys=Labels(
@@ -773,6 +779,9 @@ class LLPRUncertaintyModel(torch.nn.Module):
             # loop through pred channels
             ensemble_weights = []
             for ii in range(weights.shape[0]):   # DOS specific
+                if np.isnan(self.uncertainty_multipliers[uncertainty_name][ii].detach().cpu().numpy()).max():  # DOS specific
+                    print(f"energy channel {ii} has a NaN multiplier, we abort ensemble generation.", ii)                    
+                    break  
                 print("ens. generation for energy channel -- #", ii)
                 cur_ensemble_weights = rng.multivariate_normal(
                     weights[ii].clone().detach().cpu().numpy(),  #  DOS specific

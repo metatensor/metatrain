@@ -474,6 +474,8 @@ class PET(torch.nn.Module):
                 )
             if f"mtt::{base_name}" in last_layer_features_dict:
                 base_name = f"mtt::{base_name}"
+            print(last_layer_features_dict[base_name])
+            print(last_layer_features_dict[base_name].shape)
             last_layer_features_values = torch.cat(
                 last_layer_features_dict[base_name], dim=1
             )
