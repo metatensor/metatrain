@@ -57,7 +57,11 @@ class LLPRUncertaintyModel(torch.nn.Module):
 
         device = next(self.model.parameters()).device
         dtype = getattr(torch, old_capabilities.dtype)
- 
+
+        self.n_ens = defaultdict(lambda: 0)
+        self.llpr_ensemble_layers = torch.nn.ModuleDict()
+        self.ensemble_weights_computed = defaultdict(lambda: False)
+
         for name, output in old_capabilities.outputs.items():
 
             if is_auxiliary_output(name):
@@ -66,7 +70,6 @@ class LLPRUncertaintyModel(torch.nn.Module):
                 continue  # DOS-specific
 
             uncertainty_name = f"mtt::aux::{name.replace('mtt::', '')}_uncertainty"
-
             additional_capabilities[uncertainty_name] = ModelOutput(
                 quantity="",
                 unit=f"({output.unit})^2",
@@ -114,11 +117,13 @@ class LLPRUncertaintyModel(torch.nn.Module):
         self.covariance_computed = False
         self.inv_covariance_computed = False
         self.is_calibrated = False
+        self.is_recalibrated = False
 
     def forward(
         self,
         systems: List[System],
         outputs: Dict[str, ModelOutput],
+        is_recalibrating: bool = False,        
         selected_atoms: Optional[Labels] = None,
     ) -> Dict[str, TensorMap]:
 
@@ -209,7 +214,6 @@ class LLPRUncertaintyModel(torch.nn.Module):
             if name.startswith("mtt::aux::") and name.endswith("_uncertainty"):
                 requested_uncertainties.append(name)
 
-        
         for name, orig_name in zip(requested_uncertainties, outputs.keys()):
 
             if "mask" in name:
@@ -240,7 +244,7 @@ class LLPRUncertaintyModel(torch.nn.Module):
                         values=one_over_pr_values.expand(-1, self.num_subtargets[orig_name]),
                         samples=ll_features.block().samples,
                         components=ll_features.block().components,
-                        properties=Labels.range("properties", 
+                        properties=Labels.range("properties",
                             self.num_subtargets[orig_name],
                             ).to(ll_features.block().values.device),
                         #(
@@ -277,12 +281,11 @@ class LLPRUncertaintyModel(torch.nn.Module):
                     )
                 ],
             )
-            
+
             return_dict[name] = metatensor.torch.multiply(
-                one_over_pr, 
+                one_over_pr,
                 tsm_multipliers,
             )
-
 
         # now deal with potential ensembles (see generate_ensemble method)
         requested_ensembles: List[str] = []
@@ -291,24 +294,24 @@ class LLPRUncertaintyModel(torch.nn.Module):
                 requested_ensembles.append(name)
 
         for name in requested_ensembles:
+
+            if not self.ensemble_weights_computed[name]:
+                raise RuntimeError(f"Ensemble weights have not been computed for {name}! Aborting...")
+
+            base_name = name.replace("_ensemble", "").replace("aux::", "")
             ll_features_name = name.replace("_ensemble", "_last_layer_features")
             if ll_features_name == "energy_last_layer_features":
                 # special case for energy_ensemble
                 ll_features_name = "mtt::aux::energy_last_layer_features"
             ll_features = return_dict[ll_features_name]
             print(ll_features.block().values.shape)
-            # get the ensemble weights (getattr not supported by torchscript)
-            ensemble_weights = torch.tensor(0.0)
-            for buffer_name, buffer in self.named_buffers():
-                if buffer_name == name + "_weights":
-                    ensemble_weights = buffer
-            print(ensemble_weights.shape)        
-            # the ensemble weights should always be found (checks are performed
-            # in the generate_ensemble method and in the metatensor wrapper)
-            ensemble_values = torch.einsum(
-                "ij, jkl -> ikl",     ## DOS specific
-                ll_features.block().values,
-                ensemble_weights,
+
+            ensemble_values = self.llpr_ensemble_layers[base_name](ll_features)
+
+            ensemble_values = ensemble_values.reshape(
+                ensemble_values.shape[0],
+                self.n_ens[base_name],
+                self.ll_feat_size,
             )
 
             # since we know the exact mean of the ensemble from the model's prediction,
@@ -318,17 +321,19 @@ class LLPRUncertaintyModel(torch.nn.Module):
             # this also takes care of additive contributions that are not present in the
             # last layer, which can be composition, short-range models, a bias in the
             # last layer, etc.
-            original_name = (
-                name.replace("_ensemble", "").replace("aux::", "")
-                if name.replace("_ensemble", "").replace("aux::", "") in outputs
-                else name.replace("_ensemble", "").replace("mtt::aux::", "")
-            )
-            ensemble_values = (
-                ensemble_values
-                - ensemble_values.mean(dim=1, keepdim=True)
-                + return_dict[original_name].block().values.unsqueeze(-1)  ## DOS specific
-            )
- 
+
+            if is_recalibrating == False:
+                original_name = (
+                    name.replace("_ensemble", "").replace("aux::", "")
+                    if name.replace("_ensemble", "").replace("aux::", "") in outputs
+                    else name.replace("_ensemble", "").replace("mtt::aux::", "")
+                )
+                ensemble_values = (
+                    ensemble_values
+                    - ensemble_values.mean(dim=1, keepdim=True)
+                    + return_dict[original_name].block().values.unsqueeze(-1)  ## DOS specific
+                )
+
             property_name = "energy" if name == "energy_ensemble" else "ensemble_member"
             ensemble = TensorMap(
                 keys=Labels(
@@ -631,9 +636,8 @@ class LLPRUncertaintyModel(torch.nn.Module):
                     per_atom=False,
                 )
 
-
             outputs = self.forward(systems, requested_outputs)
-            
+
             for name, target in targets.items():
 
                 uncertainty_name = f"mtt::aux::{name.replace('mtt::', '')}_uncertainty"
@@ -647,9 +651,9 @@ class LLPRUncertaintyModel(torch.nn.Module):
                 all_uncertainties[uncertainty_name].append(
                     outputs[uncertainty_name].block().values.detach()
                 )
- 
+
                 if self.dos and name == "mtt::dos":
- 
+
                     # accumulate masks
                     cur_mask = orig_targets["mtt::mask"].block().values.to(device=device, dtype=dtype)
                     all_masks.append(cur_mask)
@@ -734,7 +738,9 @@ class LLPRUncertaintyModel(torch.nn.Module):
         self.is_calibrated = True
 
     def generate_ensemble(
-        self, weight_tensors: Dict[str, torch.Tensor], n_members: int
+        self,
+        weight_tensors: Dict[str, torch.Tensor],
+        n_ens: Dict[str, int],
     ) -> None:
         """Generate an ensemble of weights for the model.
 
@@ -765,19 +771,29 @@ class LLPRUncertaintyModel(torch.nn.Module):
         # with mean given by the input weights and covariance given by the inverse
         # covariance matrix
         for name, weights in weight_tensors.items():
+
             uncertainty_name = "mtt::aux::" + name.replace("mtt::", "") + "_uncertainty"
             device = self.inv_covariances[uncertainty_name].device
             dtype = self.inv_covariances[uncertainty_name].dtype
             rng = np.random.default_rng()
 
+            if n_ens[name] < 0:
+                raise AssertionError(f"Invalid n_ens value for {name}! Double-check your input params. Aborting...")
+            elif n_ens[name] > 0 and n_ens[name] < 8:
+                raise AssertionError(f"n_ens for {name} too small. Aborting...")
+
+            # DOS-specific
             # loop through pred channels
             ensemble_weights = []
-            for ii in range(weights.shape[0]):   # DOS specific
+            for ii in range(weights.shape[0]):
+                if np.isnan(self.uncertainty_multipliers[uncertainty_name][ii].detach().cpu().numpy()):
+                    print(f"multiplier is NaN for channel # {ii}! We terminate ensemble predictions here.")
+                    break
                 print("ens. generation for energy channel -- #", ii)
                 cur_ensemble_weights = rng.multivariate_normal(
-                    weights[ii].clone().detach().cpu().numpy(),  #  DOS specific
+                    weights[ii].clone().detach().cpu().numpy(),
                     self.inv_covariances[uncertainty_name].clone().detach().cpu().numpy()
-                    * self.uncertainty_multipliers[uncertainty_name][ii].detach().cpu().numpy(),   # DOS specific
+                    * self.uncertainty_multipliers[uncertainty_name][ii].detach().cpu().numpy(),
                     size=n_members,
                     method="svd",
                 ).T
@@ -785,18 +801,17 @@ class LLPRUncertaintyModel(torch.nn.Module):
                     cur_ensemble_weights, device=device, dtype=dtype
                 )
                 ensemble_weights.append(cur_ensemble_weights)    # DOS specific
-            ensemble_weights = torch.stack(ensemble_weights,axis=1)   # DOS specifc
+            ensemble_weights = torch.hstack(ensemble_weights)   # DOS specific, shape pred_size, n_ens
 
+            # 1D Linear that goes from ll_feat_size to ensemble_weights * n_ens               
+            self.llpr_ensemble_layers[name] = torch.nn.Linear(
+                self.ll_feat_size,
+                len(ensemble_weights),
+                bias=False
+            )
 
-            ensemble_weights_name = (
-                "mtt::aux::" + name.replace("mtt::", "") + "_ensemble_weights"
-            )
-            if ensemble_weights_name == "mtt::aux::energy_ensemble_weights":
-                ensemble_weights_name = "energy_ensemble_weights"
-            self.register_buffer(
-                ensemble_weights_name,
-                ensemble_weights,
-            )
+            with torch.no_grad():
+                self.llpr_ensemble_layers[name].weight = ensemble_weights
 
         # add the ensembles to the capabilities
         old_outputs = self.capabilities.outputs
