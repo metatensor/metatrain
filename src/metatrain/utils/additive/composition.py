@@ -84,8 +84,9 @@ class CompositionModel(torch.nn.Module):
         """
         Create a DataLoader for the provided datasets. As the dataloader is only used to
         accumulate the quanitites needed for fitting the composition weights, there is
-        no need to shuffle or drop the last non-full batch. Distributed sampling is also
-        not used, and training with double precision is enforced.
+        no need to shuffle or drop the last non-full batch. Distributed sampling can be
+        used or not, based on the `is_distributed` argument, and training with double
+        precision is enforced.
         """
         # Create the collate function
         targets_keys = list(self.dataset_info.targets.keys())
@@ -142,8 +143,8 @@ class CompositionModel(torch.nn.Module):
         datasets: List[Union[Dataset, torch.utils.data.Subset]],
         additive_models: List[torch.nn.Module],
         batch_size: int,
+        is_distributed: bool,
         fixed_weights: Optional[Dict[str, Dict[int, float]]] = None,
-        is_distributed: bool = False,
     ) -> None:
         """
         Train the composition model on the provided training data in the ``datasets``.
@@ -180,7 +181,7 @@ class CompositionModel(torch.nn.Module):
             # only accumulate the targets that do not use fixed weights
             targets = {
                 target_name: targets[target_name]
-                for target_name in self.target_infos.keys()
+                for target_name, target in targets.items()
                 if target_name not in fixed_weights
             }
             if len(targets) == 0:

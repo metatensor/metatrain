@@ -33,6 +33,7 @@ from metatrain.utils.per_atom import average_by_num_atoms
 from metatrain.utils.scaler import remove_scale
 from metatrain.utils.transfer import batch_to
 
+from . import checkpoints
 from .model import PET
 from .modules.finetuning import apply_finetuning_strategy
 
@@ -147,8 +148,8 @@ class Trainer(TrainerInterface):
             train_datasets,
             model.additive_models[1:],
             self.hypers["batch_size"],
+            is_distributed,
             self.hypers["fixed_composition_weights"],
-            is_distributed=is_distributed,
         )
 
         if self.hypers["scale_targets"]:
@@ -574,6 +575,16 @@ class Trainer(TrainerInterface):
 
         return trainer
 
-    @staticmethod
-    def upgrade_checkpoint(checkpoint: Dict) -> Dict:
-        raise NotImplementedError("checkpoint upgrade is not implemented for PET")
+    @classmethod
+    def upgrade_checkpoint(cls, checkpoint: Dict) -> Dict:
+        if checkpoint["trainer_ckpt_version"] == 1:
+            checkpoints.trainer_update_v1_v2(checkpoint)
+            checkpoint["trainer_ckpt_version"] = 2
+
+        if checkpoint["trainer_ckpt_version"] != cls.__checkpoint_version__:
+            raise RuntimeError(
+                f"Unable to upgrade the checkpoint: the checkpoint is using "
+                f"trainer version {checkpoint['trainer_ckpt_version']}, while the "
+                f"current trainer version is {cls.__checkpoint_version__}."
+            )
+        return checkpoint

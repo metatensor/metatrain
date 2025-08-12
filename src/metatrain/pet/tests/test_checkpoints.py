@@ -100,3 +100,23 @@ def test_get_checkpoint(context):
     model = PET(MODEL_HYPERS, dataset_info)
     checkpoint = model.get_checkpoint()
     PET.load_checkpoint(checkpoint, context)
+
+
+@pytest.mark.parametrize("cls_type", ["model", "trainer"])
+def test_failed_checkpoint_upgrade(cls_type):
+    """Test error raised when trying to upgrade an invalid checkpoint version."""
+    checkpoint = {f"{cls_type}_ckpt_version": 9999}
+
+    if cls_type == "model":
+        cls = PET
+        version = PET.__checkpoint_version__
+    else:
+        cls = Trainer
+        version = Trainer.__checkpoint_version__
+
+    match = (
+        f"Unable to upgrade the checkpoint: the checkpoint is using {cls_type} version "
+        f"9999, while the current {cls_type} version is {version}."
+    )
+    with pytest.raises(RuntimeError, match=match):
+        cls.upgrade_checkpoint(checkpoint)

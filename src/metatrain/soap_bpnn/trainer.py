@@ -129,6 +129,8 @@ class Trainer(TrainerInterface):
         model.additive_models[0].train_model(  # this is the composition model
             train_datasets,
             model.additive_models[1:],
+            self.hypers["batch_size"],
+            is_distributed,
             self.hypers["fixed_composition_weights"],
         )
 
@@ -333,7 +335,7 @@ class Trainer(TrainerInterface):
                 )
                 targets = average_by_num_atoms(targets, systems, per_structure_targets)
 
-                train_loss_batch = loss_fn(predictions, targets)
+                train_loss_batch = loss_fn(predictions, targets, extra_data)
 
                 train_loss_batch.backward()
                 optimizer.step()
@@ -392,7 +394,7 @@ class Trainer(TrainerInterface):
                 )
                 targets = average_by_num_atoms(targets, systems, per_structure_targets)
 
-                val_loss_batch = loss_fn(predictions, targets)
+                val_loss_batch = loss_fn(predictions, targets, extra_data)
 
                 if is_distributed:
                     # sum the loss over all processes
@@ -543,11 +545,16 @@ class Trainer(TrainerInterface):
 
         return trainer
 
-    @staticmethod
-    def upgrade_checkpoint(checkpoint: Dict) -> Dict:
+    @classmethod
+    def upgrade_checkpoint(cls, checkpoint: Dict) -> Dict:
         if checkpoint["trainer_ckpt_version"] == 1:
             checkpoints.trainer_update_v1_v2(checkpoint)
             checkpoint["trainer_ckpt_version"] = 2
-        else:
-            assert checkpoint["trainer_ckpt_version"] == 2
+
+        if checkpoint["trainer_ckpt_version"] != cls.__checkpoint_version__:
+            raise RuntimeError(
+                f"Unable to upgrade the checkpoint: the checkpoint is using trainer "
+                f"version {checkpoint['trainer_ckpt_version']}, while the current "
+                f"trainer version is {cls.__checkpoint_version__}."
+            )
         return checkpoint

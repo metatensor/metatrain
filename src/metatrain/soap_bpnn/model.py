@@ -5,6 +5,7 @@ import torch
 from metatensor.torch import Labels, TensorBlock, TensorMap
 from metatensor.torch.learn.nn import Linear as LinearMap
 from metatensor.torch.learn.nn import ModuleMap
+from metatensor.torch.operations._add import _add_block_block
 from metatomic.torch import (
     AtomisticModel,
     ModelCapabilities,
@@ -16,7 +17,7 @@ from metatomic.torch import (
 from spex.metatensor import SoapPowerSpectrum
 
 from metatrain.utils.abc import ModelInterface
-from metatrain.utils.additive import ZBL, OldCompositionModel
+from metatrain.utils.additive import ZBL, CompositionModel
 from metatrain.utils.data import TargetInfo
 from metatrain.utils.data.dataset import DatasetInfo
 from metatrain.utils.dtype import dtype_to_str
@@ -25,6 +26,7 @@ from metatrain.utils.metadata import merge_metadata
 from metatrain.utils.scaler import Scaler
 from metatrain.utils.sum_over_atoms import sum_over_atoms
 
+from . import checkpoints
 from .spherical import TensorBasis
 
 
@@ -169,7 +171,7 @@ def concatenate_structures(
 
 
 class SoapBpnn(ModelInterface):
-    __checkpoint_version__ = 1
+    __checkpoint_version__ = 2
     __supported_devices__ = ["cuda", "cpu"]
     __supported_dtypes__ = [torch.float64, torch.float32]
     __default_metadata__ = ModelMetadata(
@@ -273,7 +275,7 @@ class SoapBpnn(ModelInterface):
 
         # additive models: these are handled by the trainer at training
         # time, and they are added to the output at evaluation time
-        composition_model = OldCompositionModel(
+        composition_model = CompositionModel(
             hypers={},
             dataset_info=DatasetInfo(
                 length_unit=dataset_info.length_unit,
@@ -281,7 +283,7 @@ class SoapBpnn(ModelInterface):
                 targets={
                     target_name: target_info
                     for target_name, target_info in dataset_info.targets.items()
-                    if OldCompositionModel.is_valid_target(target_name, target_info)
+                    if CompositionModel.is_valid_target(target_name, target_info)
                 },
             ),
         )
@@ -342,7 +344,7 @@ class SoapBpnn(ModelInterface):
                 targets={
                     target_name: target_info
                     for target_name, target_info in dataset_info.targets.items()
-                    if OldCompositionModel.is_valid_target(target_name, target_info)
+                    if CompositionModel.is_valid_target(target_name, target_info)
                 },
             ),
         )
@@ -628,10 +630,32 @@ class SoapBpnn(ModelInterface):
                     selected_atoms,
                 )
                 for name in additive_contributions:
-                    return_dict[name] = mts.add(
-                        return_dict[name],
-                        additive_contributions[name],
-                    )
+                    # # TODO: uncomment this after metatensor.torch.add is updated to
+                    # # handle sparse sums
+                    # return_dict[name] = metatensor.torch.add(
+                    #     return_dict[name],
+                    #     additive_contributions[name].to(
+                    #         device=return_dict[name].device,
+                    #         dtype=return_dict[name].dtype
+                    #         ),
+                    # )
+
+                    # TODO: "manual" sparse sum: update to metatensor.torch.add after
+                    # sparse sum is implemented in metatensor.operations
+                    output_blocks: List[TensorBlock] = []
+                    for k, b in return_dict[name].items():
+                        if k in additive_contributions[name].keys:
+                            output_blocks.append(
+                                _add_block_block(
+                                    b,
+                                    additive_contributions[name]
+                                    .block(k)
+                                    .to(device=b.device, dtype=b.dtype),
+                                )
+                            )
+                        else:
+                            output_blocks.append(b)
+                    return_dict[name] = TensorMap(return_dict[name].keys, output_blocks)
 
         return return_dict
 
@@ -832,9 +856,20 @@ class SoapBpnn(ModelInterface):
             per_atom=True,
         )
 
-    @staticmethod
-    def upgrade_checkpoint(checkpoint: Dict) -> Dict:
-        raise NotImplementedError("checkpoint upgrade is not implemented for SoapBPNN")
+    @classmethod
+    def upgrade_checkpoint(cls, checkpoint: Dict) -> Dict:
+        if checkpoint["model_ckpt_version"] == 1:
+            checkpoints.model_update_v1_v2(checkpoint["model_state_dict"])
+            checkpoints.model_update_v1_v2(checkpoint["best_model_state_dict"])
+            checkpoint["model_ckpt_version"] = 2
+
+        if checkpoint["model_ckpt_version"] != cls.__checkpoint_version__:
+            raise RuntimeError(
+                f"Unable to upgrade the checkpoint: the checkpoint is using model "
+                f"version {checkpoint['model_ckpt_version']}, while the current "
+                f"model version is {cls.__checkpoint_version__}."
+            )
+        return checkpoint
 
     def get_checkpoint(self) -> Dict:
         checkpoint = {

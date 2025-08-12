@@ -57,7 +57,7 @@ def test_composition_model_float32_error():
         ),
     ):
         # This should raise an error because the systems are in float32
-        composition_model.train_model(dataset, [], batch_size=1)
+        composition_model.train_model(dataset, [], batch_size=1, is_distributed=False)
 
 
 def test_old_composition_model_train():
@@ -265,7 +265,7 @@ def test_composition_model_train():
         pbc=torch.tensor([True, True, True]),
     )
 
-    composition_model.train_model(dataset, [], batch_size=1)
+    composition_model.train_model(dataset, [], batch_size=1, is_distributed=False)
     assert composition_model.atomic_types == [1, 8]
     output_H = composition_model(
         [system_H], {"energy": ModelOutput(quantity="energy", unit="", per_atom=False)}
@@ -280,7 +280,7 @@ def test_composition_model_train():
         output_O["energy"].block().values, torch.tensor([[1.0]], dtype=torch.float64)
     )
 
-    composition_model.train_model([dataset], [], batch_size=1)
+    composition_model.train_model([dataset], [], batch_size=1, is_distributed=False)
     output_H = composition_model(
         [system_H], {"energy": ModelOutput(quantity="energy", unit="", per_atom=False)}
     )
@@ -294,7 +294,9 @@ def test_composition_model_train():
         output_O["energy"].block().values, torch.tensor([[1.0]], dtype=torch.float64)
     )
 
-    composition_model.train_model([dataset, dataset, dataset], [], batch_size=1)
+    composition_model.train_model(
+        [dataset, dataset, dataset], [], batch_size=1, is_distributed=False
+    )
     assert composition_model.atomic_types == [1, 8]
     output_H = composition_model(
         [system_H], {"energy": ModelOutput(quantity="energy", unit="", per_atom=False)}
@@ -426,7 +428,9 @@ def test_composition_model_predict(device):
             targets=target_info,
         ),
     )
-    composition_model.train_model([dataset], additive_models=[], batch_size=1)
+    composition_model.train_model(
+        [dataset], additive_models=[], batch_size=1, is_distributed=False
+    )
 
     systems_to_predict = [system.to(device=device) for system in systems[:5]]
 
@@ -519,7 +523,9 @@ def test_composition_model_predict_consistency():
         hypers={},
         dataset_info=dataset_info,
     )
-    new_composition_model.train_model([dataset], additive_models=[], batch_size=1)
+    new_composition_model.train_model(
+        [dataset], additive_models=[], batch_size=1, is_distributed=False
+    )
 
     n_structures = 100
     n_atoms = sum([len(system.positions) for system in systems[:n_structures]])
@@ -709,7 +715,9 @@ def test_remove_additive():
             targets=target_info,
         ),
     )
-    composition_model.train_model([dataset], additive_models=[], batch_size=1)
+    composition_model.train_model(
+        [dataset], additive_models=[], batch_size=1, is_distributed=False
+    )
 
     # concatenate all targets
     targets["mtt::U0"] = mts.join(targets["mtt::U0"], axis="samples")
@@ -885,7 +893,7 @@ def test_composition_model_missing_types(caplog):
         ValueError,
         match="unexpected atom types",
     ):
-        composition_model.train_model([dataset], [], batch_size=1)
+        composition_model.train_model([dataset], [], batch_size=1, is_distributed=False)
 
 
 def test_old_composition_model_wrong_target():
@@ -1203,8 +1211,6 @@ def test_composition_model_train_per_atom(where_is_center_type):
 
     energies = [tensor_map_1, tensor_map_2]
     dataset = Dataset.from_dict({"system": systems, "energy": energies})
-    # collate_fn = CollateFn(target_keys=["energy"])
-    # dataloader = DataLoader(dataset, batch_size=1, collate_fn=collate_fn)
 
     composition_model = CompositionModel(
         hypers={},
@@ -1238,8 +1244,7 @@ def test_composition_model_train_per_atom(where_is_center_type):
         pbc=torch.tensor([True, True, True]),
     )
 
-    composition_model.train_model([dataset], [], batch_size=1)
-    # composition_model.train_model(dataloader, [])
+    composition_model.train_model([dataset], [], batch_size=1, is_distributed=False)
     assert composition_model.atomic_types == [1, 8]
     output_H = composition_model(
         [system_H], {"energy": ModelOutput(quantity="energy", unit="", per_atom=False)}
@@ -1424,8 +1429,6 @@ def test_composition_many_subtargets():
         for i, e in enumerate(energies)
     ]
     dataset = Dataset.from_dict({"system": systems, "energy": energies})
-    # collate_fn = CollateFn(target_keys=["energy"])
-    # dataloader = DataLoader(dataset, batch_size=1, collate_fn=collate_fn)
 
     composition_model = CompositionModel(
         hypers={},
@@ -1459,8 +1462,7 @@ def test_composition_many_subtargets():
         pbc=torch.tensor([True, True, True]),
     )
 
-    composition_model.train_model([dataset], [], batch_size=1)
-    # composition_model.train_model(dataloader, [])
+    composition_model.train_model([dataset], [], batch_size=1, is_distributed=False)
     assert composition_model.atomic_types == [1, 8]
     output_H = composition_model(
         [system_H], {"energy": ModelOutput(quantity="energy", unit="", per_atom=False)}
@@ -1696,8 +1698,6 @@ def test_composition_spherical():
         for i, e in enumerate(energies)
     ]
     dataset = Dataset.from_dict({"system": systems, "energy": energies})
-    # collate_fn = CollateFn(target_keys=["energy"])
-    # dataloader = DataLoader(dataset, batch_size=1, collate_fn=collate_fn)
 
     composition_model = CompositionModel(
         hypers={},
@@ -1738,8 +1738,7 @@ def test_composition_spherical():
         pbc=torch.tensor([True, True, True]),
     )
 
-    composition_model.train_model([dataset], [], batch_size=1)
-    # composition_model.train_model(dataloader, [])
+    composition_model.train_model([dataset], [], batch_size=1, is_distributed=False)
     assert composition_model.atomic_types == [1, 8]
     output_H = composition_model(
         [system_H], {"energy": ModelOutput(quantity="energy", unit="", per_atom=False)}
