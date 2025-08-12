@@ -295,7 +295,8 @@ class LLPRUncertaintyModel(torch.nn.Module):
 
         for name in requested_ensembles:
 
-            if not self.ensemble_weights_computed[name]:
+            base_name = name.replace("aux::", "").replace("_ensemble", "")
+            if not self.ensemble_weights_computed[base_name]:
                 raise RuntimeError(f"Ensemble weights have not been computed for {name}! Aborting...")
 
             base_name = name.replace("_ensemble", "").replace("aux::", "")
@@ -304,18 +305,15 @@ class LLPRUncertaintyModel(torch.nn.Module):
                 # special case for energy_ensemble
                 ll_features_name = "mtt::aux::energy_last_layer_features"
             ll_features = return_dict[ll_features_name]
-            print(ll_features.block().values.shape)
 
             self.llpr_ensemble_layers[base_name].to(ll_features.block().values.device)
-            ensemble_values = self.llpr_ensemble_layers[base_name](ll_features)
+            ensemble_values = self.llpr_ensemble_layers[base_name](ll_features.block().values)
 
             ensemble_values = ensemble_values.reshape(
                 ensemble_values.shape[0],
                 self.n_ens[base_name],
                 -1,
             )
-
-            print(ensemble_values.shape)
 
             # since we know the exact mean of the ensemble from the model's prediction,
             # it should be mathematically correct to use it to re-center the ensemble.
@@ -351,10 +349,10 @@ class LLPRUncertaintyModel(torch.nn.Module):
                         samples=ll_features.block().samples,
                         components=ll_features.block().components,
                         properties=Labels(
-                            names=['energy_channel', 'ensemble_member'],   # DOS specific
+                            names=['ensemble_member', 'energy_channel'],   # DOS specific
                             values=torch.cartesian_prod(
-                                torch.arange(ensemble_values.shape[1], device=ensemble_values.device),    # DOS specific
-                                torch.arange(ensemble_values.shape[2], device=ensemble_values.device),    # DOS specific
+                                torch.arange(ensemble_values.shape[1], device=ensemble_values.device),    # DOS specific, double-check!
+                                torch.arange(ensemble_values.shape[2], device=ensemble_values.device),    # DOS specific, double-check!
                             )
                         ),
                     )
@@ -816,7 +814,12 @@ class LLPRUncertaintyModel(torch.nn.Module):
                     cur_ensemble_weights, device=device, dtype=dtype
                 )
                 ensemble_weights.append(cur_ensemble_weights)    # DOS specific
-            ensemble_weights = torch.stack(ensemble_weights, axis=1)   # DOS specific, shape pred_size, n_ens
+            ensemble_weights = torch.stack(ensemble_weights, axis=-1)   # DOS specific, shape pred_size, n_ens
+            print(ensemble_weights.shape)
+            ensemble_weights = ensemble_weights.reshape(
+                    ensemble_weights.shape[0],
+                    -1,
+            )
             print(ensemble_weights.shape)
             # 1D Linear that goes from ll_feat_size to ensemble_weights * n_ens
             self.llpr_ensemble_layers[name] = torch.nn.Linear(
@@ -827,6 +830,7 @@ class LLPRUncertaintyModel(torch.nn.Module):
 
             with torch.no_grad():
                 self.llpr_ensemble_layers[name].weight.copy_(ensemble_weights.T)
+            self.ensemble_weights_computed[name] = True
 
         # add the ensembles to the capabilities
         old_outputs = self.capabilities.outputs
