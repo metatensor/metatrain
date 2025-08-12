@@ -207,13 +207,6 @@ class Trainer(TrainerInterface):
         # Create dataloader for the validation datasets:
         val_dataloaders = []
         for val_dataset, val_sampler in zip(val_datasets, val_samplers):
-            if len(val_dataset) < self.hypers["batch_size"]:
-                raise ValueError(
-                    f"A validation dataset has fewer samples "
-                    f"({len(val_dataset)}) than the batch size "
-                    f"({self.hypers['batch_size']}). "
-                    "Please reduce the batch size."
-                )
             val_dataloaders.append(
                 DataLoader(
                     dataset=val_dataset,
