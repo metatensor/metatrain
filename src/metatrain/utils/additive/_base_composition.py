@@ -11,6 +11,8 @@ import torch
 from metatensor.torch import Labels, LabelsEntry, TensorBlock, TensorMap
 from metatomic.torch import ModelOutput, System
 
+from metatrain.utils.basis import get_edge_sample_labels_1_center
+
 
 class BaseCompositionModel(torch.nn.Module):
     """
@@ -86,6 +88,14 @@ class BaseCompositionModel(torch.nn.Module):
                 "system",
                 "atom",
             ],
+            [
+                "system",
+                "first_atom",
+                "second_atom",
+                "cell_shift_a",
+                "cell_shift_b",
+                "cell_shift_c",
+            ],
         ]
 
         if layout.sample_names == valid_sample_names[0]:
@@ -93,6 +103,9 @@ class BaseCompositionModel(torch.nn.Module):
 
         elif layout.sample_names == valid_sample_names[1]:
             self.sample_kinds[target_name] = "per_atom"
+
+        elif layout.sample_names == valid_sample_names[2]:
+            self.sample_kinds[target_name] = "per_pair"
 
         else:
             raise ValueError(
@@ -214,7 +227,7 @@ class BaseCompositionModel(torch.nn.Module):
                 if self.sample_kinds[target_name] == "per_structure":
                     X = self._compute_X_per_structure(systems)
 
-                elif self.sample_kinds[target_name] == "per_atom":
+                elif self.sample_kinds[target_name] in ["per_atom", "per_pair"]:
                     X = self._compute_X_per_atom(systems, self.atomic_types)
 
                 else:
@@ -323,7 +336,7 @@ class BaseCompositionModel(torch.nn.Module):
         self._sync_device_dtype(device, dtype)
 
         # Build the sample labels that are required
-        _, sample_labels = _get_system_indices_and_labels(systems, device)
+        sample_labels = _get_sample_labels(systems, self.sample_kinds, outputs, device)
 
         # Compute the X tensor
         X = self._compute_X_per_atom(systems, self.atomic_types)
@@ -340,7 +353,12 @@ class BaseCompositionModel(torch.nn.Module):
             prediction_key_vals = []
             prediction_blocks: List[TensorBlock] = []
             for key, weight_block in weights.items():
-                sample_labels_block = sample_labels
+                # Get the correct sample labels for this block. Per-atom are used by
+                # default (and aggregated later) unless the output is per-pair.
+                if self.sample_kinds[output_name] == "per_pair":
+                    sample_labels_block = sample_labels["per_pair"]
+                else:
+                    sample_labels_block = sample_labels["per_atom"]
 
                 # If selected_atoms is provided, slice the samples labels and the X
                 # tensor
@@ -379,7 +397,14 @@ class BaseCompositionModel(torch.nn.Module):
             # If a per-structure output is requested, sum over the sample dimensions
             # that aren't "system".
             if not outputs[output_name].per_atom:
-                prediction = mts.sum_over_samples(prediction, "atom")
+                dims_to_sum: List[str] = []
+                for name in prediction.sample_names:
+                    if name != "system":
+                        dims_to_sum.append(name)
+                prediction = mts.sum_over_samples(
+                    prediction,
+                    dims_to_sum,
+                )
             predictions[output_name] = prediction
 
         return predictions
@@ -477,10 +502,23 @@ def _include_key(key: LabelsEntry) -> bool:
         - If the key has a single name "_" (indicating a scalar), it is included.
         - If the key has names ["o3_lambda", "o3_sigma"] it is included if values are 0
           and 1 respectively (indicating an invariant block of a spherical target).
+        - If the key has names ["o3_lambda", "o3_sigma", "n_centers"], it is included if
+          values are 0, 1, 1 respectively (indicating an invariant block of a per-atom
+          spherical target).
+        - If the key has names ["o3_lambda", "o3_sigma", "n_center", "s2_pi"], it is
+          included if values are 0, 1, 1, 0 respectively (indicating an on-site
+          invariant block of a per-pair target).
     """
     valid_key_names = [
         ["_"],  # scalar
         ["o3_lambda", "o3_sigma"],  # spherical
+        ["o3_lambda", "o3_sigma", "n_centers"],  # spherical per-atom
+        [
+            "o3_lambda",
+            "o3_sigma",
+            "n_centers",
+            "s2_pi",
+        ],  # spherical per-pair, symmetrized
     ]
     include_key = False
 
@@ -489,6 +527,19 @@ def _include_key(key: LabelsEntry) -> bool:
 
     elif key.names == valid_key_names[1]:
         if key["o3_lambda"] == 0 and key["o3_sigma"] == 1:
+            include_key = True
+
+    elif key.names == valid_key_names[2]:
+        if key["o3_lambda"] == 0 and key["o3_sigma"] == 1 and key["n_centers"] == 1:
+            include_key = True
+
+    elif key.names == valid_key_names[3]:
+        if (
+            key["o3_lambda"] == 0
+            and key["o3_sigma"] == 1
+            and key["n_centers"] == 1
+            and key["s2_pi"] == 0
+        ):
             include_key = True
 
     else:
@@ -558,3 +609,32 @@ def _get_system_indices_and_labels(systems: List[System], device: torch.device):
         values=sample_values,
     )
     return system_indices, sample_labels
+
+
+def _get_sample_labels(
+    systems: List[System],
+    sample_kinds: Dict[str, str],
+    outputs: Dict[str, ModelOutput],
+    device: torch.device,
+) -> Dict[str, Labels]:
+    """
+    Returns the sample labels for per-atom and per-pair targets in a dict of labels
+    indexed by the sample kind (either "per_atom", or "per_pair"). Per-atom labels are
+    always returned, but per-pair is only returned if the sample kind of one of the
+    outputs is "per_pair", otherwise an empty Labels is returned.
+    """
+    _, sample_labels_per_atom = _get_system_indices_and_labels(systems, device)
+
+    if any([k == "per_pair" for k in sample_kinds.values()]):
+        sample_labels_per_pair = get_edge_sample_labels_1_center(
+            sample_labels_per_atom, device
+        ).to(device=device)
+    else:
+        sample_labels_per_pair = Labels(["_"], torch.empty(0).reshape(-1, 1)).to(
+            device=device
+        )
+
+    return {
+        "per_atom": sample_labels_per_atom,
+        "per_pair": sample_labels_per_pair,
+    }
