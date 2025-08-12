@@ -7,4 +7,6 @@ COPY . /metatrain/
 
 RUN python3 -m venv /mtt-venv && \
 	. /mtt-venv/bin/activate && \
+	python -m pip install torch==2.7.1+cu128 setuptools wheel cmake>=3.30 && \
+	python -m pip install --no-build-isolation sphericart-torch==1.0.2 && \ 
 	python -m pip install /metatrain[soap-bpnn]
