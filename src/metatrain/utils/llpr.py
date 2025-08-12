@@ -306,13 +306,16 @@ class LLPRUncertaintyModel(torch.nn.Module):
             ll_features = return_dict[ll_features_name]
             print(ll_features.block().values.shape)
 
+            self.llpr_ensemble_layers[base_name].to(ll_features.block().values.device)
             ensemble_values = self.llpr_ensemble_layers[base_name](ll_features)
 
             ensemble_values = ensemble_values.reshape(
                 ensemble_values.shape[0],
                 self.n_ens[base_name],
-                self.ll_feat_size,
+                -1,
             )
+
+            print(ensemble_values.shape)
 
             # since we know the exact mean of the ensemble from the model's prediction,
             # it should be mathematically correct to use it to re-center the ensemble.
@@ -331,7 +334,7 @@ class LLPRUncertaintyModel(torch.nn.Module):
                 ensemble_values = (
                     ensemble_values
                     - ensemble_values.mean(dim=1, keepdim=True)
-                    + return_dict[original_name].block().values.unsqueeze(-1)  ## DOS specific
+                    + return_dict[original_name].block().values.unsqueeze(1)  ## DOS specific
                 )
 
             property_name = "energy" if name == "energy_ensemble" else "ensemble_member"
@@ -782,36 +785,48 @@ class LLPRUncertaintyModel(torch.nn.Module):
             elif n_ens[name] > 0 and n_ens[name] < 8:
                 raise AssertionError(f"n_ens for {name} too small. Aborting...")
 
+            self.n_ens[name] = n_ens[name]
             # DOS-specific
             # loop through pred channels
             ensemble_weights = []
+            max_multiplier = -1,
             for ii in range(weights.shape[0]):
                 if np.isnan(self.uncertainty_multipliers[uncertainty_name][ii].detach().cpu().numpy()):
-                    print(f"multiplier is NaN for channel # {ii}! We terminate ensemble predictions here.")
-                    break
-                print("ens. generation for energy channel -- #", ii)
-                cur_ensemble_weights = rng.multivariate_normal(
-                    weights[ii].clone().detach().cpu().numpy(),
-                    self.inv_covariances[uncertainty_name].clone().detach().cpu().numpy()
-                    * self.uncertainty_multipliers[uncertainty_name][ii].detach().cpu().numpy(),
-                    size=n_members,
-                    method="svd",
-                ).T
+                    print(f"multiplier is NaN for channel # {ii}! We resort to the max_multiplier value...")
+                    cur_ensemble_weights = rng.multivariate_normal(
+                        weights[ii].clone().detach().cpu().numpy(),
+                        self.inv_covariances[uncertainty_name].clone().detach().cpu().numpy()
+                        * max_multiplier,
+                        size=n_ens[name],
+                        method="svd",
+                    ).T
+                else:
+                    print("ens. generation for energy channel -- #", ii)
+                    cur_ensemble_weights = rng.multivariate_normal(
+                        weights[ii].clone().detach().cpu().numpy(),
+                        self.inv_covariances[uncertainty_name].clone().detach().cpu().numpy()
+                        * self.uncertainty_multipliers[uncertainty_name][ii].detach().cpu().numpy(),
+                        size=n_ens[name],
+                        method="svd",
+                    ).T
+                    if max_multiplier < self.uncertainty_multipliers[uncertainty_name][ii].detach().cpu().numpy():
+                        max_multiplier = self.uncertainty_multipliers[uncertainty_name][ii].detach().cpu().numpy()
+
                 cur_ensemble_weights = torch.tensor(
                     cur_ensemble_weights, device=device, dtype=dtype
                 )
                 ensemble_weights.append(cur_ensemble_weights)    # DOS specific
-            ensemble_weights = torch.hstack(ensemble_weights)   # DOS specific, shape pred_size, n_ens
-
-            # 1D Linear that goes from ll_feat_size to ensemble_weights * n_ens               
+            ensemble_weights = torch.stack(ensemble_weights, axis=1)   # DOS specific, shape pred_size, n_ens
+            print(ensemble_weights.shape)
+            # 1D Linear that goes from ll_feat_size to ensemble_weights * n_ens
             self.llpr_ensemble_layers[name] = torch.nn.Linear(
                 self.ll_feat_size,
-                len(ensemble_weights),
+                weights.shape[0] * n_ens[name],
                 bias=False
             )
 
             with torch.no_grad():
-                self.llpr_ensemble_layers[name].weight = ensemble_weights
+                self.llpr_ensemble_layers[name].weight.copy_(ensemble_weights.T)
 
         # add the ensembles to the capabilities
         old_outputs = self.capabilities.outputs
