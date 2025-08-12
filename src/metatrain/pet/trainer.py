@@ -1,5 +1,6 @@
 import copy
 import logging
+import math
 from pathlib import Path
 from typing import Any, Dict, List, Literal, Union
 
@@ -38,15 +39,25 @@ from .model import PET
 from .modules.finetuning import apply_finetuning_strategy
 
 
-def get_scheduler(optimizer, train_hypers):
-    def func_lr_scheduler(epoch):
-        if epoch < train_hypers["num_epochs_warmup"]:
-            return epoch / train_hypers["num_epochs_warmup"]
-        delta = epoch - train_hypers["num_epochs_warmup"]
-        num_blocks = delta // train_hypers["scheduler_patience"]
-        return 0.5 ** (num_blocks)
+def get_scheduler(optimizer, train_hypers, steps_per_epoch):
+    total_steps = train_hypers["num_epochs"] * steps_per_epoch
+    warmup_steps = train_hypers["num_epochs_warmup"] * steps_per_epoch
+    min_lr_ratio = 0.0  # hardcoded for now
 
-    scheduler = LambdaLR(optimizer, func_lr_scheduler)
+    # 2. Define the LR schedule function
+    def lr_lambda(current_step: int):
+        if current_step < warmup_steps:
+            # Linear warmup
+            return float(current_step) / float(max(1, warmup_steps))
+        else:
+            # Cosine decay
+            progress = (current_step - warmup_steps) / float(
+                max(1, total_steps - warmup_steps)
+            )
+            cosine_decay = 0.5 * (1.0 + math.cos(math.pi * progress))
+            return min_lr_ratio + (1.0 - min_lr_ratio) * cosine_decay
+
+    scheduler = LambdaLR(optimizer, lr_lambda=lr_lambda)
     return scheduler
 
 
@@ -293,7 +304,7 @@ class Trainer(TrainerInterface):
             if not (model.module if is_distributed else model).has_new_targets:
                 optimizer.load_state_dict(self.optimizer_state_dict)
 
-        lr_scheduler = get_scheduler(optimizer, self.hypers)
+        lr_scheduler = get_scheduler(optimizer, self.hypers, len(train_dataloader))
 
         if self.scheduler_state_dict is not None and not is_finetune:
             # same as the optimizer, try to load the scheduler state dict
@@ -374,6 +385,27 @@ class Trainer(TrainerInterface):
                     model.parameters(), self.hypers["grad_clip_norm"]
                 )
                 optimizer.step()
+
+                lr_scheduler.step()
+                new_lr = lr_scheduler.get_last_lr()[0]
+                if new_lr != old_lr:
+                    if epoch >= self.hypers["num_epochs_warmup"]:
+                        if new_lr < 1e-7:
+                            logging.info(
+                                "Learning rate is too small, stopping training"
+                            )
+                            break
+                        logging.info(
+                            f"Changing learning rate from {old_lr} to {new_lr}"
+                        )
+                    elif epoch == self.hypers["num_epochs_warmup"] - 1:
+                        logging.info(
+                            "Finished warm-up. "
+                            f"Now training with learning rate {new_lr}"
+                        )
+                    else:  # epoch < self.hypers["num_epochs_warmup"] - 1:
+                        pass  # we don't clutter the log at every warm-up step
+                    old_lr = new_lr
 
                 if is_distributed:
                     # sum the loss over all processes
@@ -486,26 +518,6 @@ class Trainer(TrainerInterface):
                     epoch=epoch,
                     rank=rank,
                 )
-
-            lr_scheduler.step()
-            new_lr = lr_scheduler.get_last_lr()[0]
-            if new_lr != old_lr:
-                if new_lr < 1e-7:
-                    logging.info("Learning rate is too small, stopping training")
-                    break
-                else:
-                    if epoch >= self.hypers["num_epochs_warmup"]:
-                        logging.info(
-                            f"Changing learning rate from {old_lr} to {new_lr}"
-                        )
-                    elif epoch == self.hypers["num_epochs_warmup"] - 1:
-                        logging.info(
-                            "Finished warm-up. "
-                            f"Now training with learning rate {new_lr}"
-                        )
-                    else:  # epoch < self.hypers["num_epochs_warmup"] - 1:
-                        pass  # we don't clutter the log at every warm-up step
-                    old_lr = new_lr
 
             val_metric = get_selected_metric(
                 finalized_val_info, self.hypers["best_model_metric"]
