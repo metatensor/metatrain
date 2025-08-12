@@ -968,7 +968,7 @@ def test_train_wandb_logger(monkeypatch, tmp_path):
 @pytest.mark.parametrize(
     "batch_size,validation_samples",
     [
-        (5, 2),   # 2 validation samples with batch size 5 
+        (5, 2),  # 2 validation samples with batch size 5
         (10, 3),  # 3 validation samples with batch size 10
     ],
 )
@@ -976,65 +976,72 @@ def test_small_validation_set_with_large_batch_size(
     monkeypatch, tmp_path, batch_size, validation_samples
 ):
     """Test that training works with validation sets smaller than batch size.
-    
-    This test verifies that the fix for issue #711 works correctly - 
+
+    This test verifies that the fix for issue #711 works correctly -
     validation datasets with fewer samples than the batch size should not
     raise a ValueError and training should complete successfully.
-    
+
     Before the fix, this would fail with:
-    ValueError: A validation dataset has fewer samples (X) than the batch size (Y). 
+    ValueError: A validation dataset has fewer samples (X) than the batch size (Y).
     Please reduce the batch size.
     """
     monkeypatch.chdir(tmp_path)
 
     # Read the original dataset
     systems = read(DATASET_PATH_QM9, ":")
-    
+
     # Create training set with enough samples for training
-    training_samples = max(15, batch_size + validation_samples + 5)  # Ensure we have enough samples
-    
+    training_samples = max(
+        15, batch_size + validation_samples + 5
+    )  # Ensure we have enough samples
+
     # Write training dataset
     ase.io.write("training.xyz", systems[:training_samples])
-    
+
     # Write validation dataset with exact number of samples we want to test
-    ase.io.write("validation.xyz", systems[training_samples:training_samples + validation_samples])
+    ase.io.write(
+        "validation.xyz",
+        systems[training_samples : training_samples + validation_samples],
+    )
 
     # Create options with explicit file-based datasets and PET architecture
-    options = OmegaConf.create({
-        "seed": 42,
-        "architecture": {
-            "name": "pet",
-            "training": {
-                "batch_size": batch_size,
-                "num_epochs": 1,  # Just one epoch to verify it works
+    options = OmegaConf.create(
+        {
+            "seed": 42,
+            "architecture": {
+                "name": "pet",
+                "training": {
+                    "batch_size": batch_size,
+                    "num_epochs": 1,  # Just one epoch to verify it works
+                },
             },
-        },
-        "training_set": {
-            "systems": {
-                "read_from": "training.xyz",
-                "length_unit": "angstrom",
+            "training_set": {
+                "systems": {
+                    "read_from": "training.xyz",
+                    "length_unit": "angstrom",
+                },
+                "targets": {
+                    "energy": {
+                        "key": "U0",
+                        "unit": "eV",
+                    }
+                },
             },
-            "targets": {
-                "energy": {
-                    "key": "U0",
-                    "unit": "eV",
-                }
+            "validation_set": {
+                "systems": {
+                    "read_from": "validation.xyz",
+                    "length_unit": "angstrom",
+                },
+                "targets": {
+                    "energy": {
+                        "key": "U0",
+                        "unit": "eV",
+                    }
+                },
             },
-        },
-        "validation_set": {
-            "systems": {
-                "read_from": "validation.xyz",
-                "length_unit": "angstrom",
-            },
-            "targets": {
-                "energy": {
-                    "key": "U0",
-                    "unit": "eV",
-                }
-            },
-        },
-        "test_set": 0.0,  # No test set needed for this test
-    })
+            "test_set": 0.0,  # No test set needed for this test
+        }
+    )
 
     OmegaConf.save(config=options, f="options.yaml")
 
@@ -1046,52 +1053,75 @@ def test_small_validation_set_with_large_batch_size(
 
 def test_regression_validation_batch_size_constraint_removed():
     """Test that demonstrates the validation batch size constraint was removed.
-    
+
     This test verifies that the specific validation constraint from issue #711
     was removed, while preserving training dataset constraints.
     """
     # Check that validation constraint was removed but training constraint remains
-    
+
     trainer_files = [
         "/home/runner/work/metatrain/metatrain/src/metatrain/pet/trainer.py",
         "/home/runner/work/metatrain/metatrain/src/metatrain/soap_bpnn/trainer.py",
         "/home/runner/work/metatrain/metatrain/src/metatrain/experimental/nanopet/trainer.py",
     ]
-    
+
     for trainer_file in trainer_files:
         if os.path.exists(trainer_file):
-            with open(trainer_file, 'r') as f:
+            with open(trainer_file, "r") as f:
                 content = f.read()
-            
-            # Verify validation constraint was removed 
+
+            # Verify validation constraint was removed
             # (Look for validation-specific patterns)
-            validation_section_start = content.find("# Create dataloader for the validation datasets:")
-            validation_section_end = content.find("# Create dataloader for the test datasets:")
+            validation_section_start = content.find(
+                "# Create dataloader for the validation datasets:"
+            )
+            validation_section_end = content.find(
+                "# Create dataloader for the test datasets:"
+            )
             if validation_section_end == -1:
                 # Look for other section markers
-                validation_section_end = content.find("val_dataloaders.append(", validation_section_start)
+                validation_section_end = content.find(
+                    "val_dataloaders.append(", validation_section_start
+                )
                 if validation_section_end != -1:
                     # Find the end of the validation section
-                    validation_section_end = content.find(")", validation_section_end) + 1
-            
+                    validation_section_end = (
+                        content.find(")", validation_section_end) + 1
+                    )
+
             if validation_section_start != -1 and validation_section_end != -1:
-                validation_section = content[validation_section_start:validation_section_end]
-                
+                validation_section = content[
+                    validation_section_start:validation_section_end
+                ]
+
                 # Verify no batch size constraint in validation section
                 assert "fewer samples" not in validation_section, (
-                    f"Validation batch size constraint was not removed from {trainer_file}"
+                    f"Validation batch size constraint was not removed from "
+                    f"{trainer_file}"
                 )
-                assert "batch_size" not in validation_section or "len(" not in validation_section, (
-                    f"Validation batch size constraint logic still present in {trainer_file}"
+                assert (
+                    "batch_size" not in validation_section
+                    or "len(" not in validation_section
+                ), (
+                    f"Validation batch size constraint logic still present in "
+                    f"{trainer_file}"
                 )
-            
+
             # Verify training constraint still exists (this should remain)
-            training_section_start = content.find("# Create dataloader for the training datasets:")
+            training_section_start = content.find(
+                "# Create dataloader for the training datasets:"
+            )
             if training_section_start != -1:
-                training_section_end = content.find("# Create dataloader for the validation datasets:", training_section_start)
+                training_section_end = content.find(
+                    "# Create dataloader for the validation datasets:",
+                    training_section_start,
+                )
                 if training_section_end != -1:
-                    training_section = content[training_section_start:training_section_end]
+                    training_section = content[
+                        training_section_start:training_section_end
+                    ]
                     # Training constraint should still be there
                     assert "training dataset has fewer samples" in training_section, (
-                        f"Training batch size constraint was incorrectly removed from {trainer_file}"
+                        f"Training batch size constraint was incorrectly removed from "
+                        f"{trainer_file}"
                     )
