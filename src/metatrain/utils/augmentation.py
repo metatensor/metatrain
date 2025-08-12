@@ -133,6 +133,9 @@ class RotationalAugmenter:
             )
             for tensormap_dict, info_dict in zip(tensormap_dicts, info_dicts):
                 for name in tensormap_dict.keys():
+                    if name.endswith("_mask"):
+                        # skip loss masks
+                        continue
                     tensormap_info = info_dict[name]
                     if tensormap_info.is_spherical:
                         for block in tensormap_info.layout.blocks():
@@ -245,6 +248,15 @@ def _apply_random_augmentations(
     # Apply the transformation to the targets and extra data
     new_targets: Dict[str, TensorMap] = {}
     new_extra_data: Dict[str, TensorMap] = {}
+
+    # Do not transform any masks present in extra_data
+    if extra_data is not None:
+        mask_keys: List[str] = []
+        for key in extra_data.keys():
+            if key.endswith("_mask"):
+                mask_keys.append(key)
+        for key in mask_keys:
+            new_extra_data[key] = extra_data.pop(key)
 
     for tensormap_dict, new_dict in zip(
         [targets, extra_data], [new_targets, new_extra_data]

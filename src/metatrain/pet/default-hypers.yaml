@@ -34,8 +34,3 @@ architecture:
     log_separate_blocks: false
     best_model_metric: rmse_prod
     grad_clip_norm: .inf
-    loss:
-      type: mse
-      weights: {}
-      reduction: mean
-      sliding_factor: null

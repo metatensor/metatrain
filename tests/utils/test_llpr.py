@@ -25,6 +25,7 @@ from metatrain.utils.neighbor_lists import (
     get_requested_neighbor_lists,
     get_system_with_neighbor_lists,
 )
+from metatrain.utils.omegaconf import CONF_LOSS
 
 from . import RESOURCES_PATH
 
@@ -296,6 +297,9 @@ def test_llpr_finetuning(tmpdir):
             "alpha": 0.1,
         },
     }
+
+    hypers["training"]["loss"] = {"energy": CONF_LOSS}
+    hypers["training"]["loss"]["energy"]["gradients"] = {"positions": CONF_LOSS}
 
     trainer = Trainer(hypers["training"])
     trainer.train(
