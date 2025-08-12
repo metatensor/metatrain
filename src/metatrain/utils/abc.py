@@ -124,14 +124,11 @@ class ModelInterface(torch.nn.Module, metaclass=ABCMeta):
             user.
         """
 
-    @classmethod
+    @staticmethod
     @abstractmethod
-    def upgrade_checkpoint(cls, checkpoint: Dict["str", Any]) -> Dict["str", Any]:
+    def upgrade_checkpoint(checkpoint: Dict["str", Any]) -> Dict["str", Any]:
         """
         Upgrade the checkpoint to the current version of the model.
-
-        :raises RuntimeError: if the checkpoint cannot be upgraded to the current
-            version of the model.
         """
 
     @abstractmethod
@@ -204,14 +201,11 @@ class TrainerInterface(metaclass=ABCMeta):
         Save a checkoint of both the ``model`` and trainer state to the given ``path``
         """
 
-    @classmethod
+    @staticmethod
     @abstractmethod
-    def upgrade_checkpoint(cls, checkpoint: Dict) -> Dict:
+    def upgrade_checkpoint(checkpoint: Dict) -> Dict:
         """
         Upgrade the checkpoint to the current version of the trainer.
-
-        :raises RuntimeError: if the checkpoint cannot be upgraded to the current
-            version of the trainer.
         """
 
     @classmethod
