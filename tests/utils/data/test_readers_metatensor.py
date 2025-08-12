@@ -120,6 +120,124 @@ def test_read_systems():
         read_systems("foo.mts")
 
 
+def test_read_systems_diskdataset_zip(tmp_path):
+    """Test reading DiskDataset .zip files with read_systems function."""
+    import ase
+    import zipfile
+    from metatomic.torch import systems_to_torch
+    from metatrain.utils.data.writers import DiskDatasetWriter
+    
+    # Create test systems using ASE
+    system1 = ase.Atoms('H2', positions=[[0, 0, 0], [0, 0, 0.74]], cell=[2, 2, 2], pbc=True)
+    system2 = ase.Atoms('H2', positions=[[0, 0, 0], [0, 0, 0.75]], cell=[2, 2, 2], pbc=True)
+    ase_systems = [system1, system2]
+    
+    # Convert to torch systems
+    torch_systems = [systems_to_torch(sys, dtype=torch.float64) for sys in ase_systems]
+    
+    # Create a DiskDataset .zip file
+    zip_path = tmp_path / "test_dataset.zip"
+    
+    # Create zip with DiskDataset structure manually
+    with zipfile.ZipFile(zip_path, "w") as zip_file:
+        for i, system in enumerate(torch_systems):
+            # Save system.mta file for each index
+            with zip_file.open(f"{i}/system.mta", "w") as f:
+                import metatomic.torch as mta
+                mta.save(f, system.to("cpu").to(torch.float64))
+    
+    # Test reading the zip file
+    result_systems = read_systems(str(zip_path))
+    
+    # Verify results
+    assert isinstance(result_systems, list)
+    assert len(result_systems) == 2
+    
+    # Check that systems are read in correct order and have correct properties
+    for i, (original, result) in enumerate(zip(torch_systems, result_systems)):
+        assert isinstance(result, torch.ScriptObject)
+        
+        # Check positions
+        torch.testing.assert_close(result.positions, original.positions)
+        
+        # Check types (atomic numbers)
+        torch.testing.assert_close(result.types, original.types)
+        
+        # Check cell
+        torch.testing.assert_close(result.cell, original.cell)
+
+
+def test_read_systems_empty_zip(tmp_path):
+    """Test reading an empty .zip file."""
+    import zipfile
+    
+    # Create empty zip file
+    zip_path = tmp_path / "empty.zip"
+    with zipfile.ZipFile(zip_path, "w") as zip_file:
+        pass  # Empty zip
+    
+    # Should return empty list for empty zip
+    result = read_systems(str(zip_path))
+    assert isinstance(result, list)
+    assert len(result) == 0
+
+
+def test_read_systems_non_diskdataset_zip(tmp_path):
+    """Test reading a .zip file that doesn't contain DiskDataset structure."""
+    import zipfile
+    
+    # Create zip with non-DiskDataset structure
+    zip_path = tmp_path / "other.zip"
+    with zipfile.ZipFile(zip_path, "w") as zip_file:
+        zip_file.writestr("some_file.txt", "hello world")
+        zip_file.writestr("another/file.data", "some data")
+    
+    # Should return empty list for non-DiskDataset zip
+    result = read_systems(str(zip_path))
+    assert isinstance(result, list)
+    assert len(result) == 0
+
+
+def test_read_systems_zip_ordering(tmp_path):
+    """Test that systems are read in correct numerical order."""
+    import ase
+    import zipfile
+    from metatomic.torch import systems_to_torch
+    
+    # Create test systems with different positions to distinguish them
+    positions = [
+        [[0, 0, 0], [0, 0, 0.74]],  # system 0
+        [[0, 0, 0], [0, 0, 0.75]],  # system 1 
+        [[0, 0, 0], [0, 0, 0.76]],  # system 2
+    ]
+    
+    ase_systems = [
+        ase.Atoms('H2', positions=pos, cell=[2, 2, 2], pbc=True) 
+        for pos in positions
+    ]
+    torch_systems = [systems_to_torch(sys, dtype=torch.float64) for sys in ase_systems]
+    
+    # Create zip with indices in non-sequential order to test sorting
+    zip_path = tmp_path / "test_ordering.zip"
+    with zipfile.ZipFile(zip_path, "w") as zip_file:
+        # Write systems in order: 2, 0, 1 (intentionally out of order)
+        for idx, system in [(2, torch_systems[2]), (0, torch_systems[0]), (1, torch_systems[1])]:
+            with zip_file.open(f"{idx}/system.mta", "w") as f:
+                import metatomic.torch as mta
+                mta.save(f, system.to("cpu").to(torch.float64))
+    
+    # Read systems
+    result_systems = read_systems(str(zip_path))
+    
+    # Verify they are returned in correct numerical order (0, 1, 2)
+    assert len(result_systems) == 3
+    for i, (original, result) in enumerate(zip(torch_systems, result_systems)):
+        torch.testing.assert_close(result.positions, original.positions)
+        # Verify specific positions to ensure correct ordering
+        expected_z_coord = 0.74 + i * 0.01  # 0.74, 0.75, 0.76
+        assert abs(result.positions[1, 2].item() - expected_z_coord) < 1e-10
+
+
 def test_read_energy(tmpdir, energy_tensor_map):
     conf = {
         "quantity": "energy",
