@@ -2,7 +2,6 @@
 
 import argparse
 import logging
-import os
 import sys
 import traceback
 from datetime import datetime
@@ -18,15 +17,6 @@ from .cli.export import (
 from .cli.train import _add_train_model_parser, _prepare_train_model_args, train_model
 from .utils.distributed.logging import is_main_process
 from .utils.logging import ROOT_LOGGER, setup_logging
-
-
-def _datetime_output_path(now: datetime) -> Path:
-    """Get a date and time based output path."""
-    return Path(
-        "outputs",
-        now.strftime("%Y-%m-%d"),
-        now.strftime("%H-%M-%S"),
-    )
 
 
 def main():
@@ -78,23 +68,17 @@ def main():
 
     if callable == "train_model":
         # define and create `checkpoint_dir` based on current directory, date and time
-        checkpoint_dir = _datetime_output_path(now=datetime.now())
+        checkpoint_dir = Path(datetime.now().strftime("outputs/%Y-%m-%d/%H-%M-%S"))
         if is_main_process():
-            try:
-                os.makedirs(checkpoint_dir)
-            except FileExistsError:
-                # directory already exists from a different run, add a suffix
-                # (.1, .2, ...) to the directory name
-                initial_checkpoint_dir = checkpoint_dir
-                i = 1
-                while True:
-                    try:
-                        checkpoint_dir = f"{initial_checkpoint_dir}.{i}"
-                        os.makedirs(checkpoint_dir)
-                        break
-                    except FileExistsError:
-                        i += 1
-                checkpoint_dir = Path(checkpoint_dir)
+            i = 0
+            while True:
+                try:
+                    checkpoint_dir.mkdir(parents=True, exist_ok=False)
+                    break  # success
+                except FileExistsError:
+                    i += 1
+                    checkpoint_dir = checkpoint_dir.with_suffix(f".{i}")
+
         args.checkpoint_dir = checkpoint_dir
 
         log_file = checkpoint_dir / "train.log"

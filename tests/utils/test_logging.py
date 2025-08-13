@@ -17,6 +17,7 @@ from metatrain.utils.logging import (
     MetricLogger,
     WandbHandler,
     get_cli_input,
+    human_readable,
     setup_logging,
 )
 
@@ -453,3 +454,37 @@ def test_get_cli_input_sys(monkeypatch):
     argv, argv_str = get_argv()
     monkeypatch.setattr(sys, "argv", argv)
     assert get_cli_input() == argv_str
+
+
+@pytest.mark.parametrize(
+    "value, expected",
+    [
+        (0, "0"),
+        (123, "123"),
+        (999, "999"),
+        (1000, "1K"),
+        (1049, "1K"),
+        (1050, "1.1K"),
+        (1234, "1.2K"),
+        (9999, "10K"),
+        (20454, "20.5K"),
+        (99499, "99.5K"),
+        (99500, "99.5K"),
+        (100000, "100K"),
+        # Edge case around 1 million
+        (999499, "999K"),
+        (999500, "1M"),
+        (999999, "1M"),
+        (1000000, "1M"),
+        (1049999, "1M"),
+        (1050000, "1.1M"),
+        # Larger numbers
+        (123456789, "123M"),
+        (999999999999, "1T"),
+        # Max suffix
+        (1230000000000000, "1230T"),
+        (1230000000000000000, "1230000T"),
+    ],
+)
+def test_human_readable_parameter_counter(value, expected):
+    assert human_readable(value) == expected

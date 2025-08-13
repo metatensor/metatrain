@@ -35,6 +35,11 @@ Added
   be used in custom loss functions or models.
 - ``mtt eval`` can be used to evaluate models on a ``DiskDataset``.
 
+Fixed
+#####
+
+- Log is shown when training with ``restart="auto"``
+
 Version 2025.8 - 2025-06-11
 ---------------------------
 
