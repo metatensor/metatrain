@@ -155,7 +155,10 @@ class Trainer(TrainerInterface):
         if self.hypers["scale_targets"]:
             logging.info("Calculating scaling weights")
             model.scaler.train_model(
-                train_datasets, model.additive_models, treat_as_additive=True
+                train_datasets,
+                model.additive_models,
+                self.hypers["batch_size"],
+                is_distributed,
             )
 
         logging.info("Setting up data loaders")
@@ -452,9 +455,10 @@ class Trainer(TrainerInterface):
             }
 
             if epoch == start_epoch:
-                scaler_scales = (
-                    model.module if is_distributed else model
-                ).scaler.get_scales_dict()
+                # TODO: understand how to modify this
+                # scaler_scales = (
+                #     model.module if is_distributed else model
+                # ).scaler.get_scales_dict()
 
                 metric_logger = MetricLogger(
                     log_obj=ROOT_LOGGER,
@@ -463,14 +467,14 @@ class Trainer(TrainerInterface):
                     ).dataset_info,
                     initial_metrics=[finalized_train_info, finalized_val_info],
                     names=["training", "validation"],
-                    scales={
-                        key: (
-                            scaler_scales[key.split(" ")[0]]
-                            if ("MAE" in key or "RMSE" in key)
-                            else 1.0
-                        )
-                        for key in finalized_train_info.keys()
-                    },
+                    # scales={
+                    #     key: (
+                    #         scaler_scales[key.split(" ")[0]]
+                    #         if ("MAE" in key or "RMSE" in key)
+                    #         else 1.0
+                    #     )
+                    #     for key in finalized_train_info.keys()
+                    # },
                 )
             if epoch % self.hypers["log_interval"] == 0:
                 metric_logger.log(
