@@ -396,10 +396,469 @@ class Trainer:
                     predictions, systems, per_structure_targets
                 )
                 # targets = average_by_num_atoms(targets, systems, per_structure_targets) # By default the targets are already averaged by the number of atoms
-                
+
+                # CHANGE: DOS Training loop
+
+                ## LLPR CALIB TRAINING LOSS
+                if self.hypers["llpr_calib"]:
+
+                    dos_pred_mean = predictions['mtt::aux::dos::ensemble'][0].values.mean(axis=2)
+                    dos_pred_var = predictions['mtt::aux::dos::ensemble'][0].values.var(axis=2)
+                    dos_target = target_dos_batch[0].values
+                    dos_mask = (mask_batch[0].values).bool()
+
+                    extra_targets = int(dos_pred_mean.shape[1] - dos_target.shape[1])  # The DOS predictions are longer than the targets, we need to align them
+                    # Obtain shifts from existing support function
+                    _, discrete_shift = get_dynamic_shift_agnostic_mse(dos_pred_mean, dos_target, dos_mask, return_shift = True)
+
+                    # GRADIENT LOSS STUFF
+                    # full_gradient = torch.nn.functional.conv1d(dos_pred_mean.unsqueeze(dim = 1), t4).squeeze(dim = 1)
+                    # dim_loss = dos_predictions.shape[1] - full_gradient.shape[1] # Dimensions lost due to the gradient convolution
+
+                    # Obtain aligned targets (The subset of the predictions that corresponds best to the targets)
+                    aligned_pred_mean = []
+                    aligned_pred_var = []
+                    adjusted_dos_mask = []
+                    # external_gradients_loss = []
+                    for index, prediction in enumerate(dos_pred_mean):
+                        aligned_prediction = prediction[discrete_shift[index]:discrete_shift[index] + dos_mask.shape[1]]
+                        aligned_variance = dos_pred_var[index][discrete_shift[index]:discrete_shift[index] + dos_mask.shape[1]]
+                        # external_gradients_i = external_gradient[index][(discrete_shift[index] + dos_mask.shape[1] - dim_loss):]
+                        # external_gradient_loss_i = torch.trapezoid(external_gradients_i**2, dx = 0.05) * self.hypers['gradient_penalty']
+                        # external_gradients_loss.append(external_gradient_loss_i)
+                        dos_mask_i = torch.hstack( #Adjust the mask to account for the discrete shift
+                            [
+                            (torch.ones(discrete_shift[index])).bool().to(device),
+                            dos_mask[index],
+                            (torch.zeros(int(extra_targets - discrete_shift[index]))).bool().to(device)
+                            ]
+                        )
+                        aligned_pred_mean.append(aligned_prediction)
+                        aligned_pred_var.append(aligned_variance)
+                        adjusted_dos_mask.append(dos_mask_i)
+                    aligned_pred_mean = torch.vstack(aligned_pred_mean)    # check shape
+                    aligned_pred_var = torch.vstack(aligned_pred_var)    # check shape
+                    adjusted_dos_mask = torch.vstack(adjusted_dos_mask)    # check shape
+
+                    dos_loss = GaussianNLLLoss(aligned_pred_mean, dos_target, aligned_pred_var)  #input, target, var
+
+                    # We also compute the loss on the cumulative integral of the DOS, it improves the reliability of the fermi level of the final predicted DOS 
+                    # int_aligned_predictions = torch.cumulative_trapezoid(aligned_predictions, dx = 0.05, dim = 1)
+                    # int_aligned_targets = torch.cumulative_trapezoid(dos_target, dx = 0.05, dim = 1)
+                    # int_error = (int_aligned_predictions - int_aligned_targets)**2
+                    # int_error = int_error * dos_mask[:,1:].unsqueeze(dim=1) # only penalize the integral where the DOS is defined
+                    # int_MSE = torch.mean(torch.trapezoid(int_error, dx = 0.05, dim = 1)) * self.hypers['integral_penalty']
+
+                    # Keep a count of the number of training samples to calculate the MSE accurately
+                    train_count += len(dos_target)
+
+                    # Calculate the gradient loss, useful for making sure that the behaviour of the DOS outside the window is reasonable
+                    # gradient_losses = torch.nn.functional.conv1d(aligned_predictions.unsqueeze(dim = 1), t4).squeeze(dim = 1)
+
+                    # dim_loss = dos_mask.shape[1] - gradient_losses.shape[1]
+                    # gradient_loss = torch.mean(torch.trapezoid(((full_gradient * (~adjusted_dos_mask[:, dim_loss:]))**2), # non-zero gradients outside the window are penalized
+                    #                                                     dx = 0.05, dim = 1)) * self.hypers['gradient_penalty']
+                    total_loss = dos_loss  # + gradient_loss + int_MSE)
+                    total_loss.backward()
+                    # torch.nn.utils.clip_grad_norm_(
+                    #     model.parameters(), self.hypers["grad_clip_norm"]
+                    # )
+                    # torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
+                    # train_loss_batch = loss_fn(predictions, targets)
+                    # train_loss_batch.backward()
+                    # torch.nn.utils.clip_grad_norm_(
+                    #     model.parameters(), self.hypers["grad_clip_norm"]
+                    # )
+                    optimizer.step()
+                    total_loss = (total_loss * len(dos_target)).detach() ## check if this is still applicable
+
+                    if is_distributed:
+                        # sum the loss over all processes
+                        torch.distributed.all_reduce(total_loss)
+
+                    train_loss += total_loss.item()
+
+                ## ORIGINAL TRAIN_LOSS
+                else:
+                    dos_predictions = predictions['mtt::dos'][0].values
+                    dos_target = target_dos_batch[0].values
+                    dos_mask = (mask_batch[0].values).bool()
+                    extra_targets = int(dos_predictions.shape[1] - dos_target.shape[1]) # The DOS predictions are longer than the targets, we need to align them
+                    # Calculate DOS loss using dynamic shift agnostic MSE
+                    dos_loss, discrete_shift = get_dynamic_shift_agnostic_mse(dos_predictions, dos_target, dos_mask, return_shift = True)
+                    full_gradient = torch.nn.functional.conv1d(dos_predictions.unsqueeze(dim = 1), t4).squeeze(dim = 1)
+                    dim_loss = dos_predictions.shape[1] - full_gradient.shape[1] # Dimensions lost due to the gradient convolution
+                    # Obtain aligned targets (The subset of the predictions that corresponds best to the targets)
+                    aligned_predictions = []
+                    adjusted_dos_mask = []
+                    # external_gradients_loss = []
+                    for index, prediction in enumerate(dos_predictions):
+                        aligned_prediction = prediction[discrete_shift[index]:discrete_shift[index] + dos_mask.shape[1]]
+                        # external_gradients_i = external_gradient[index][(discrete_shift[index] + dos_mask.shape[1] - dim_loss):]
+                        # external_gradient_loss_i = torch.trapezoid(external_gradients_i**2, dx = 0.05) * self.hypers['gradient_penalty']
+                        # external_gradients_loss.append(external_gradient_loss_i)
+                        dos_mask_i = torch.hstack( #Adjust the mask to account for the discrete shift
+                            [
+                            (torch.ones(discrete_shift[index])).bool().to(device),
+                            dos_mask[index],
+                            (torch.zeros(int(extra_targets - discrete_shift[index]))).bool().to(device)
+                            ]
+                        )                        
+                        aligned_predictions.append(aligned_prediction)
+                        adjusted_dos_mask.append(dos_mask_i)
+                    aligned_predictions = torch.vstack(aligned_predictions)
+                    adjusted_dos_mask = torch.vstack(adjusted_dos_mask)
+                    # mean_external_gradient_loss = torch.mean(torch.tensor(external_gradients_loss))
+                    # We also compute the loss on the cumulative integral of the DOS, it improves the reliability of the fermi level of the final predicted DOS 
+                    int_aligned_predictions = torch.cumulative_trapezoid(aligned_predictions, dx = 0.05, dim = 1)
+                    int_aligned_targets = torch.cumulative_trapezoid(dos_target, dx = 0.05, dim = 1)
+                    int_error = (int_aligned_predictions - int_aligned_targets)**2
+                    int_error = int_error * dos_mask[:,1:].unsqueeze(dim=1) # only penalize the integral where the DOS is defined
+                    int_MSE = torch.mean(torch.trapezoid(int_error, dx = 0.05, dim = 1)) * self.hypers['integral_penalty']
+                    # Keep a count of the number of training samples to calculate the MSE accurately
+                    train_count += len(dos_target)
+                    # Calculate the gradient loss, useful for making sure that the behaviour of the DOS outside the window is reasonable
+                    # gradient_losses = torch.nn.functional.conv1d(aligned_predictions.unsqueeze(dim = 1), t4).squeeze(dim = 1)
+
+                    # dim_loss = dos_mask.shape[1] - gradient_losses.shape[1]
+                    gradient_loss = torch.mean(torch.trapezoid(((full_gradient * (~adjusted_dos_mask[:, dim_loss:]))**2), # non-zero gradients outside the window are penalized
+                                                                        dx = 0.05, dim = 1)) * self.hypers['gradient_penalty']
+                    total_loss = (dos_loss + gradient_loss + int_MSE) 
+                    total_loss.backward()
+                    torch.nn.utils.clip_grad_norm_(
+                        model.parameters(), self.hypers["grad_clip_norm"]
+                    )
+                    # torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
+                    # train_loss_batch = loss_fn(predictions, targets)
+                    # train_loss_batch.backward()
+                    # torch.nn.utils.clip_grad_norm_(
+                    #     model.parameters(), self.hypers["grad_clip_norm"]
+                    # )
+                    optimizer.step()
+                    total_loss = (total_loss * len(dos_target)).detach() # CHANGE: We need to multiply the loss by the number of samples in the batch to get the correct loss value
+                    if is_distributed:
+                        # sum the loss over all processes
+                        torch.distributed.all_reduce(total_loss)
+                    train_loss += total_loss.item()
+
+
+                # CHANGE: Do not use the default calculators
+                # train_rmse_calculator.update(predictions, targets)
+                # if self.hypers["log_mae"]:
+                #     train_mae_calculator.update(predictions, targets)
+
+                # finalized_train_info = train_rmse_calculator.finalize(
+                #     not_per_atom=["positions_gradients"] + per_structure_targets,
+                #     is_distributed=is_distributed,
+                #     device=device,
+                # )
+                # if self.hypers["log_mae"]:
+                #     finalized_train_info.update(
+                #         train_mae_calculator.finalize(
+                #             not_per_atom=["positions_gradients"] + per_structure_targets,
+                #             is_distributed=is_distributed,
+                #             device=device,
+                #         )
+                #     )
+
+                # CHANGE: Use permanent dataset
+                if self.hypers['use_permanent']:
+
+                    ## GET PREDS AND TARGETS ON PERMANENT SET
+                    for batch in permanent_dataloader:
+                        optimizer.zero_grad()
+                        systems, targets = batch
+                        systems, targets = rotational_augmenter.apply_random_augmentations(
+                            systems, targets
+                        )
+                        systems, targets = systems_and_targets_to_device(
+                            systems, targets, device
+                        )
+                        systems, targets = systems_and_targets_to_dtype(systems, targets, dtype)
+                        target_dos_batch, mask_batch = targets['mtt::dos'], targets['mtt::mask']
+                        predictions = evaluate_model(
+                            model,
+                            systems,
+                            # {key: train_targets[key] for key in targets.keys()},
+                            {key: train_targets[key] for key in train_targets.keys()}, # CHANGE: Use the train_targets keys instead as mask is not a target
+                            is_training=True,
+                        )
+                        predictions = average_by_num_atoms(
+                            predictions, systems, per_structure_targets
+                        )
+
+                        if self.hypers["llpr_calib"]:
+
+                            dos_pred_mean = predictions['mtt::aux::dos::ensemble'][0].values.mean(axis=2)
+                            dos_pred_var = predictions['mtt::aux::dos::ensemble'][0].values.var(axis=2)
+                            dos_target = target_dos_batch[0].values
+                            dos_mask = (mask_batch[0].values).bool()
+                            # Obtain shifts from existing support function
+                            _, discrete_shift = get_dynamic_shift_agnostic_mse(dos_pred_mean, dos_target, dos_mask, return_shift = True)
+
+                            # GRADIENT LOSS STUFF
+                            # full_gradient = torch.nn.functional.conv1d(dos_pred_mean.unsqueeze(dim = 1), t4).squeeze(dim = 1)
+                            # dim_loss = dos_predictions.shape[1] - full_gradient.shape[1] # Dimensions lost due to the gradient convolution
+
+                            # Obtain aligned targets (The subset of the predictions that corresponds best to the targets)
+                            aligned_pred_mean = []
+                            aligned_pred_var = []
+                            adjusted_dos_mask = []
+                            # external_gradients_loss = []
+                            for index, prediction in enumerate(dos_pred_mean):
+                                aligned_prediction = prediction[discrete_shift[index]:discrete_shift[index] + dos_mask.shape[1]]
+                                aligned_variance = dos_pred_var[index][discrete_shift[index]:discrete_shift[index] + dos_mask.shape[1]]
+                                # external_gradients_i = external_gradient[index][(discrete_shift[index] + dos_mask.shape[1] - dim_loss):]
+                                # external_gradient_loss_i = torch.trapezoid(external_gradients_i**2, dx = 0.05) * self.hypers['gradient_penalty']
+                                # external_gradients_loss.append(external_gradient_loss_i)
+                                dos_mask_i = torch.hstack( #Adjust the mask to account for the discrete shift
+                                    [
+                                    (torch.ones(discrete_shift[index])).bool().to(device),
+                                    dos_mask[index],
+                                    (torch.zeros(int(extra_targets - discrete_shift[index]))).bool().to(device)
+                                    ]
+                                )
+                                aligned_pred_mean.append(aligned_prediction)
+                                aligned_pred_var.append(aligned_variance)
+                                adjusted_dos_mask.append(dos_mask_i)
+                            aligned_pred_mean = torch.vstack(aligned_pred_mean)    # check shape
+                            aligned_pred_var = torch.vstack(aligned_pred_var)    # check shape
+                            adjusted_dos_mask = torch.vstack(adjusted_dos_mask)    # check shape
+
+                            dos_loss = GaussianNLLLoss(aligned_pred_mean, dos_target, aligned_pred_var)  #input, target, var
+
+                            # We also compute the loss on the cumulative integral of the DOS, it improves the reliability of the fermi level of the final predicted DOS 
+                            # int_aligned_predictions = torch.cumulative_trapezoid(aligned_predictions, dx = 0.05, dim = 1)
+                            # int_aligned_targets = torch.cumulative_trapezoid(dos_target, dx = 0.05, dim = 1)
+                            # int_error = (int_aligned_predictions - int_aligned_targets)**2
+                            # int_error = int_error * dos_mask[:,1:].unsqueeze(dim=1) # only penalize the integral where the DOS is defined
+                            # int_MSE = torch.mean(torch.trapezoid(int_error, dx = 0.05, dim = 1)) * self.hypers['integral_penalty']
+
+                            # Calculate the gradient loss, useful for making sure that the behaviour of the DOS outside the window is reasonable
+                            # gradient_losses = torch.nn.functional.conv1d(aligned_predictions.unsqueeze(dim = 1), t4).squeeze(dim = 1)
+
+                            # dim_loss = dos_mask.shape[1] - gradient_losses.shape[1]
+                            # gradient_loss = torch.mean(torch.trapezoid(((full_gradient * (~adjusted_dos_mask[:, dim_loss:]))**2), # non-zero gradients outside the window are penalized
+                            #                                                     dx = 0.05, dim = 1)) * self.hypers['gradient_penalty']
+                            total_loss = dos_loss # + gradient_loss + int_MSE)
+                            total_loss.backward()
+                            # torch.nn.utils.clip_grad_norm_(
+                            #     model.parameters(), self.hypers["grad_clip_norm"]
+                            # )
+                            # torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
+                            # train_loss_batch = loss_fn(predictions, targets)
+                            # train_loss_batch.backward()
+                            torch.nn.utils.clip_grad_norm_(
+                                model.parameters(), self.hypers["grad_clip_norm"]
+                            )   ## WHY?
+                            optimizer.step()
+
+                        ## ORIGINAL PERMANENT DATASET LOSS            
+                        else:
+                            dos_predictions = predictions['mtt::dos'][0].values
+                            dos_target = target_dos_batch[0].values
+                            dos_mask = (mask_batch[0].values).bool()
+                            dos_loss, discrete_shift = get_dynamic_shift_agnostic_mse(dos_predictions, dos_target, dos_mask, return_shift = True)
+                            full_gradients = torch.nn.functional.conv1d(dos_predictions.unsqueeze(dim = 1), t4).squeeze(dim = 1)
+                            dim_loss = dos_predictions.shape[1] - full_gradients.shape[1] # Dimensions lost due to the gradient convolution
+                            aligned_predictions = []
+                            # external_gradients_loss = []
+                            adjusted_dos_mask = []
+                            for index, prediction in enumerate(dos_predictions):
+                                aligned_prediction = prediction[discrete_shift[index]:discrete_shift[index] + dos_mask.shape[1]]
+                                # external_gradients_i = external_gradient[index][(discrete_shift[index] + dos_mask.shape[1] - dim_loss):]
+                                # external_gradient_loss_i = torch.trapezoid(external_gradients_i**2, dx = 0.05) * self.hypers['gradient_penalty']
+                                # external_gradients_loss.append(external_gradient_loss_i)
+
+                                dos_mask_i = torch.hstack(
+                                    [
+                                    (torch.ones(discrete_shift[index])).bool().to(device),
+                                    dos_mask[index],
+                                    (torch.zeros(int(extra_targets - discrete_shift[index]))).bool().to(device)
+                                    ]
+                                )                                
+                                aligned_predictions.append(aligned_prediction)
+                                adjusted_dos_mask.append(dos_mask_i)
+                            aligned_predictions = torch.vstack(aligned_predictions)
+                            adjusted_dos_mask = torch.vstack(adjusted_dos_mask).bool()
+                            # mean_external_gradient_loss = torch.mean(torch.tensor(external_gradients_loss))
+                            # Cumulative integral loss
+                            int_aligned_predictions = torch.cumulative_trapezoid(aligned_predictions, dx = 0.05, dim = 1)
+                            int_aligned_targets = torch.cumulative_trapezoid(dos_target, dx = 0.05, dim = 1)
+                            int_error = (int_aligned_predictions - int_aligned_targets)**2
+                            int_error = int_error * dos_mask[:,1:].unsqueeze(dim=1) # only penalize the integral where the DOS is defined
+                            int_MSE = torch.mean(torch.trapezoid(int_error, dx = 0.05, dim = 1)) * self.hypers['integral_penalty']
+                            # Gradient loss 
+                            # gradient_losses = torch.nn.functional.conv1d(aligned_predictions.unsqueeze(dim = 1), t4).squeeze(dim = 1)
+                            # dim_loss = dos_mask.shape[1] - gradient_losses.shape[1]
+                            gradient_loss = torch.mean(torch.trapezoid(((full_gradients * (~adjusted_dos_mask[:, dim_loss:]))**2),
+                                                                                dx = 0.05, dim = 1)) * self.hypers['gradient_penalty']
+                            total_loss = (dos_loss + gradient_loss + int_MSE) 
+                            total_loss.backward()             
+                            torch.nn.utils.clip_grad_norm_(
+                                model.parameters(), self.hypers["grad_clip_norm"]
+                            )
+                            optimizer.step()
+                            # Should always be not distributed so we should not need to accumulate
+
+
+            train_loss /= train_count
 
 
 
+            ### NOW VALIDATION SET ###
+
+            val_loss = 0.0
+            val_count = 0.0 # CHANGE: Added to count the number of validation samples
+            # val_predictions = []
+            for batch in val_dataloader:
+                # CHANGE: Updated validation loop to use the new loss function 
+                systems, targets = batch
+                systems, targets = systems_and_targets_to_device(
+                        systems, targets, device
+                )
+                systems, targets = systems_and_targets_to_dtype(systems, targets, dtype)
+                target_dos_batch, mask_batch = targets['mtt::dos'], targets['mtt::mask'] 
+                predictions = evaluate_model(
+                    model,
+                    systems,
+#                    {key: train_targets[key] for key in targets.keys()}, 
+                    {key: train_targets[key] for key in train_targets.keys()},
+                    is_training=False,
+                )
+
+                # average by the number of atoms
+                predictions = average_by_num_atoms(
+                    predictions, systems, per_structure_targets
+                )
+                # targets = average_by_num_atoms(targets, systems, per_structure_targets)
+                    
+                if self.hypers["llpr_calib"]:
+
+                    dos_pred_mean = predictions['mtt::aux::dos::ensemble'][0].values.mean(axis=2)
+                    dos_pred_var = predictions['mtt::aux::dos::ensemble'][0].values.var(axis=2)
+                    dos_target = target_dos_batch[0].values
+                    dos_mask = (mask_batch[0].values).bool()
+
+                    # Obtain shifts from existing support function
+                    _, discrete_shift = get_dynamic_shift_agnostic_mse(dos_pred_mean, dos_target, dos_mask, return_shift = True)
+
+                    # GRADIENT LOSS STUFF
+                    # full_gradient = torch.nn.functional.conv1d(dos_pred_mean.unsqueeze(dim = 1), t4).squeeze(dim = 1)
+                    # dim_loss = dos_predictions.shape[1] - full_gradient.shape[1] # Dimensions lost due to the gradient convolution
+
+                    # Obtain aligned targets (The subset of the predictions that corresponds best to the targets)
+                    aligned_pred_mean = []
+                    aligned_pred_var = []
+                    adjusted_dos_mask = []
+                    # external_gradients_loss = []
+                    for index, prediction in enumerate(dos_pred_mean):
+                        aligned_prediction = prediction[discrete_shift[index]:discrete_shift[index] + dos_mask.shape[1]]
+                        aligned_variance = dos_pred_var[index][discrete_shift[index]:discrete_shift[index] + dos_mask.shape[1]]
+                        # external_gradients_i = external_gradient[index][(discrete_shift[index] + dos_mask.shape[1] - dim_loss):]
+                        # external_gradient_loss_i = torch.trapezoid(external_gradients_i**2, dx = 0.05) * self.hypers['gradient_penalty']
+                        # external_gradients_loss.append(external_gradient_loss_i)
+                        dos_mask_i = torch.hstack( #Adjust the mask to account for the discrete shift
+                            [
+                            (torch.ones(discrete_shift[index])).bool().to(device),
+                            dos_mask[index],
+                            (torch.zeros(int(extra_targets - discrete_shift[index]))).bool().to(device)
+                            ]
+                        )
+                        aligned_pred_mean.append(aligned_prediction)
+                        aligned_pred_var.append(aligned_variance)
+                        adjusted_dos_mask.append(dos_mask_i)
+                    aligned_pred_mean = torch.vstack(aligned_pred_mean)    # check shape
+                    aligned_pred_var = torch.vstack(aligned_pred_var)    # check shape
+                    adjusted_dos_mask = torch.vstack(adjusted_dos_mask)    # check shape
+
+                    dos_loss = GaussianNLLLoss(aligned_pred_mean, dos_target, aligned_pred_var)  #input, target, var
+
+                    total_loss = dos_loss
+                    val_loss_batch = (total_loss * len(dos_target)).detach()# CHANGE: We need to multiply the loss by the number of samples in the batch to get the correct loss value
+
+                    if is_distributed:
+                        # sum the loss over all processes
+                        torch.distributed.all_reduce(val_loss_batch)
+
+                    val_loss += val_loss_batch.item()
+
+
+                else:
+                    dos_predictions = predictions['mtt::dos'][0].values
+                    # val_predictions.append(dos_predictions.detach())
+                    dos_target = target_dos_batch[0].values
+                    dos_mask = (mask_batch[0].values).bool()        
+                    dos_loss, discrete_shift = get_dynamic_shift_agnostic_mse(dos_predictions, dos_target, dos_mask, return_shift = True)
+                    full_gradients = torch.nn.functional.conv1d(dos_predictions.unsqueeze(dim = 1), t4).squeeze(dim = 1)
+                    dim_loss = dos_predictions.shape[1] - full_gradients.shape[1] # Dimensions lost due to the gradient convolution
+                    # Obtain aligned targets (The subset of the predictions that corresponds best to the targets)
+                    aligned_predictions = []
+                    # external_gradients_loss = []
+                    adjusted_dos_mask = []
+                    for index, prediction in enumerate(dos_predictions):
+                        aligned_prediction = prediction[discrete_shift[index]:discrete_shift[index] + dos_mask.shape[1]]
+                        # external_gradients_i = external_gradient[index][(discrete_shift[index] + dos_mask.shape[1] - dim_loss):]
+                        # external_gradient_loss_i = torch.trapezoid(external_gradients_i**2, dx = 0.05) * self.hypers['gradient_penalty']
+                        # external_gradients_loss.append(external_gradient_loss_i)
+
+                        dos_mask_i = torch.hstack( #Adjust the mask to account for the discrete shift
+                            [
+                            (torch.ones(discrete_shift[index])).bool().to(device),
+                            dos_mask[index],
+                            (torch.zeros(int(extra_targets - discrete_shift[index]))).bool().to(device)
+                            ]
+                        )  
+                        aligned_predictions.append(aligned_prediction)
+                        adjusted_dos_mask.append(dos_mask_i)
+                    aligned_predictions = torch.vstack(aligned_predictions)
+                    adjusted_dos_mask = torch.vstack(adjusted_dos_mask).bool()
+                    # mean_external_gradient_loss = torch.mean(torch.tensor(external_gradients_loss))
+                    # Cumulative integral loss
+                    int_aligned_predictions = torch.cumulative_trapezoid(aligned_predictions, dx = 0.05, dim = 1)
+                    int_aligned_targets = torch.cumulative_trapezoid(dos_target, dx = 0.05, dim = 1)
+                    int_error = (int_aligned_predictions - int_aligned_targets)**2
+                    int_error = int_error * dos_mask[:,1:].unsqueeze(dim=1) # only penalize the integral where the DOS is defined
+                    int_MSE = torch.mean(torch.trapezoid(int_error, dx = 0.05, dim = 1)) * self.hypers['integral_penalty']
+                    val_count += len(dos_target)
+                    # Gradient loss 
+                    # gradient_losses = torch.nn.functional.conv1d(dos_predictions.unsqueeze(dim = 1), t4).squeeze(dim = 1)
+                    # dim_loss = dos_predictions.shape[1] - gradient_losses.shape[1]
+                    gradient_loss = torch.mean(torch.trapezoid(((full_gradients * (~adjusted_dos_mask[:, dim_loss:]))**2),
+                                                                        dx = 0.05, dim = 1)) * self.hypers['gradient_penalty']
+
+
+                    # gradient_losses = torch.nn.functional.conv1d(aligned_predictions.unsqueeze(dim = 1), t4).squeeze(dim = 1)
+                    # gradient_loss = torch.mean(torch.trapezoid(((gradient_losses * (~dos_mask[:, dim_loss:]))**2),
+                    #                                                     dx = 0.05, dim = 1)) * self.hypers['gradient_penalty']
+                    total_loss = (dos_loss + gradient_loss + int_MSE) 
+                    val_loss_batch = (total_loss * len(dos_target)).detach()# CHANGE: We need to multiply the loss by the number of samples in the batch to get the correct loss value
+
+                    if is_distributed:
+                        # sum the loss over all processes
+                        torch.distributed.all_reduce(val_loss_batch)
+                    val_loss += val_loss_batch.item()
+
+            val_loss /= val_count
+            # val_predictions = torch.vstack(val_predictions)
+                # CHANGE: Not using the default calculators
+                # val_rmse_calculator.update(predictions, targets)
+                # if self.hypers["log_mae"]:
+                #     val_mae_calculator.update(predictions, targets)
+            # CHANGE: Not using the default calculators
+            # finalized_val_info = val_rmse_calculator.finalize(
+            #     not_per_atom=["positions_gradients"] + per_structure_targets,
+            #     is_distributed=is_distributed,
+            #     device=device,
+            # )
+            # if self.hypers["log_mae"]:
+            #     finalized_val_info.update(
+            #         val_mae_calculator.finalize(
+            #             not_per_atom=["positions_gradients"] + per_structure_targets,
+            #             is_distributed=is_distributed,
+            #             device=device,
+            #         )
+            #     )
 
             # Now we log the information:
             # Change: Remove information other than the loss
