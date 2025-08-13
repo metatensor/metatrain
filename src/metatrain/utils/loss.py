@@ -2,10 +2,50 @@ from typing import Dict, Optional, Tuple, Union
 
 import torch
 from metatensor.torch import TensorMap
+from metatensor.torch import mean_over_samples, var_over_samples
 from omegaconf import DictConfig
 from torch.nn.modules.loss import _Loss
 
 from metatrain.utils.external_naming import to_internal_name
+
+
+class LLPREnsCalibLoss:
+    ## template for an actual loss function, currently not in use for DOS
+    def __init__(
+        self,
+        reduction: str = "mean",
+        weight: float = 1.0,
+    ):
+        losses = {}
+        losses["values"] = torch.nn.GaussianNLLLoss(reduction=reduction)
+        self.losses = losses
+        self.weight = weight
+
+    def __call__(
+        self,
+        ensemble_pred_tensor_map: TensorMap,
+        targets_tensor_map: TensorMap,
+    ) -> torch.Tensor:
+
+        ens_pred_mean_tsm = mean_over_samples(ensemble_pred_tensor_map, "ensemble_member")
+        ens_pred_var_tsm = var_over_samples(ensemble_pred_tensor_map, "ensemble_member")
+
+        loss = torch.zeros(
+            (),
+            dtype=ens_pred_mean_tsm.block(0).values.dtype,
+            device=ens_pred_mean_tsm.block(0).values.device,
+        )
+
+        for key in ens_pred_mean_tsm.keys:
+            block_mean = ens_pred_mean_tsm.block(key)
+            block_var = ens_pred_var_tsm.block(key)
+            block_target = targets_tensor_map.block(key)
+            values_mean = block_mean.values
+            values_var = block_var.values
+            values_target = block_target.values
+            loss += self.weight * self.losses["values"](values_mean, values_target, values_var)   # input, target, var
+
+        return loss
 
 
 class TensorMapLoss:
