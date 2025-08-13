@@ -80,6 +80,9 @@ mace = [
     "e3nn"
 ]
 flashmd = []
+dpa3 = [
+    "deepmd-kit>=3.1.0"
+]
 
 [tool.check-manifest]
 ignore = ["src/metatrain/_version.py"]
