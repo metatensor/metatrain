@@ -1,0 +1,75 @@
+architecture:
+  name: dpa3
+  model:
+    type_map:
+      - "H"
+      - "C"
+      - "N"
+      - "O"
+    descriptor:
+      type: "dpa3"
+      repflow:
+        n_dim: 128
+        e_dim: 64
+        a_dim: 32
+        nlayers: 6
+        e_rcut: 6.0
+        e_rcut_smth: 5.3
+        e_sel: 1200
+        a_rcut: 4.0
+        a_rcut_smth: 3.5
+        a_sel: 300
+        axis_neuron: 4
+        skip_stat: true
+        a_compress_rate: 1
+        a_compress_e_rate: 2
+        a_compress_use_split: true
+        update_angle: true
+        update_style: "res_residual"
+        update_residual: 0.1
+        update_residual_init: "const"
+        smooth_edge_update: true
+        use_dynamic_sel: true
+        sel_reduce_factor: 10.0
+      activation_function: "custom_silu:10.0"
+      use_tebd_bias: false
+      precision: "float64"
+      concat_output_tebd: false
+    fitting_net:
+      neuron:
+        - 240
+        - 240
+        - 240
+      resnet_dt: true
+      seed: 1
+      precision: "float64"
+      activation_function: "custom_silu:10.0"
+      type: "ener"
+      numb_fparam: 0
+      numb_aparam: 0
+      dim_case_embd: 0
+      trainable: true
+      rcond: null
+      atom_ener: []
+      use_aparam_as_mask: false
+  training:
+    distributed: false
+    distributed_port: 39591
+    batch_size: 8
+    num_epochs: 100
+    learning_rate: 0.001
+    early_stopping_patience: 200
+    scheduler_patience: 100
+    scheduler_factor: 0.8
+    log_interval: 1
+    checkpoint_interval: 25
+    scale_targets: true
+    fixed_composition_weights: {}
+    per_structure_targets: []
+    log_mae: false
+    log_separate_blocks: false
+    best_model_metric: rmse_prod
+    loss:
+      type: mse
+      weights: {}
+      reduction: mean
