@@ -88,7 +88,7 @@ class DPA3(ModelInterface):
     component_labels: Dict[str, List[List[Labels]]]  # torchscript needs this
 
     def __init__(self, hypers: Dict, dataset_info: DatasetInfo) -> None:
-        super().__init__(hypers, dataset_info)
+        super().__init__(hypers, dataset_info, self.__default_metadata__)
         self.atomic_types = dataset_info.atomic_types
         self.model = get_standard_model(hypers)
 
@@ -450,6 +450,22 @@ class DPA3(ModelInterface):
     @staticmethod
     def upgrade_checkpoint(checkpoint: Dict) -> Dict:
         raise NotImplementedError("checkpoint upgrade is not implemented for DPA3")
+    
+    def get_checkpoint(self) -> Dict:
+        model_state_dict = self.state_dict()
+        model_state_dict["finetune_config"] = self.finetune_config
+        checkpoint = {
+            "architecture_name": "dpa3",
+            "model_ckpt_version": self.__checkpoint_version__,
+            "metadata": self.metadata,
+            "model_data": {
+                "model_hypers": self.hypers,
+                "dataset_info": self.dataset_info,
+            },
+            "model_state_dict": model_state_dict,
+            "best_model_state_dict": None,
+        }
+        return checkpoint
     
     def supported_outputs(self) -> Dict[str, ModelOutput]:
         return self.outputs
