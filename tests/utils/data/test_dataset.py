@@ -174,15 +174,10 @@ def test_target_info_eq(layout_scalar):
     assert info1 != info2
 
 
-def test_target_info_eq_error(layout_scalar):
+def test_target_info_eq_other_objects(layout_scalar):
     info = TargetInfo(quantity="energy", unit="eV", layout=layout_scalar)
 
-    match = (
-        "Comparison between a TargetInfo instance and a list instance is not "
-        "implemented."
-    )
-    with pytest.raises(NotImplementedError, match=match):
-        _ = info == [1, 2, 3]
+    assert not info == [1, 2, 3]
 
 
 def test_dataset_info(layout_scalar):
@@ -205,6 +200,7 @@ def test_dataset_info(layout_scalar):
     assert dataset_info.targets["energy"].unit == "kcal/mol"
     assert dataset_info.targets["mtt::U0"].quantity == "energy"
     assert dataset_info.targets["mtt::U0"].unit == "kcal/mol"
+    assert dataset_info.device == layout_scalar.device
 
     expected = (
         "DatasetInfo(length_unit='angstrom', atomic_types=[1, 2, 3], "
@@ -303,18 +299,13 @@ def test_dataset_info_eq(layout_scalar):
     assert info != info2
 
 
-def test_dataset_info_eq_error(layout_scalar):
+def test_dataset_info_eq_other_objects(layout_scalar):
     targets = {}
     targets["energy"] = TargetInfo(quantity="energy", unit="eV", layout=layout_scalar)
 
     info = DatasetInfo(length_unit="angstrom", atomic_types=[1, 6], targets=targets)
 
-    match = (
-        "Comparison between a DatasetInfo instance and a list instance is not "
-        "implemented."
-    )
-    with pytest.raises(NotImplementedError, match=match):
-        _ = info == [1, 2, 3]
+    assert not info == [1, 2, 3]
 
 
 def test_dataset_info_update_different_target_info(layout_scalar):
@@ -360,6 +351,17 @@ def test_dataset_info_union(layout_scalar, layout_cartesian):
     assert union.length_unit == "angstrom"
     assert union.atomic_types == [1, 6]
     assert union.targets == other_targets
+
+
+def test_dataset_info_no_targets():
+    """Tests the properties of a DatasetInfo that has no targets."""
+    dataset_info = DatasetInfo(
+        length_unit="angstrom", atomic_types=[1, 2, 3], targets={}
+    )
+
+    assert dataset_info.device is None
+    # Setting the device should not fail:
+    dataset_info.to(device="cpu")
 
 
 def test_dataset():
@@ -678,3 +680,17 @@ def test_get_stats(layout_scalar):
     assert "stress" not in stats_2
     assert "eV" in stats
     assert "eV" in stats_2
+
+
+def test_instance_torchscript_compatible(layout_scalar):
+    dataset_info = DatasetInfo(
+        length_unit=None,
+        atomic_types=[1, 2, 3],
+        targets={
+            "energy": TargetInfo(
+                quantity="energy", unit="kcal/mol", layout=layout_scalar
+            )
+        },
+    )
+
+    torch.jit.script(dataset_info)

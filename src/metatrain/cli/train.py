@@ -531,7 +531,7 @@ def train_model(
             model = Model(hypers["model"], dataset_info)
             trainer = Trainer(hypers["training"])
     except Exception as e:
-        raise ArchitectureError(e)
+        raise ArchitectureError(e) from e
 
     n_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
     logging.info(
@@ -560,7 +560,7 @@ def train_model(
             checkpoint_dir=str(checkpoint_dir),
         )
     except Exception as e:
-        raise ArchitectureError(e)
+        raise ArchitectureError(e) from e
 
     if not is_main_process():
         return  # only save and evaluate on the main process
