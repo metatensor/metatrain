@@ -79,6 +79,10 @@ gap = [
     "skmatter",
     "scipy",
 ]
+metamace = [
+    "mace-torch",
+    "cuequivariance",
+]
 
 [tool.check-manifest]
 ignore = ["src/metatrain/_version.py"]

@@ -131,7 +131,7 @@ class MetaMACE(ModelInterface):
     def supported_outputs(self) -> Dict[str, ModelOutput]:
         return self.outputs
 
-    def restart(self, dataset_info: DatasetInfo) -> MACE:
+    def restart(self, dataset_info: DatasetInfo) -> "MetaMACE":
         # merge old and new dataset info
         merged_info = self.dataset_info.union(dataset_info)
         new_atomic_types = [
@@ -592,7 +592,7 @@ class MetaMACE(ModelInterface):
     def get_checkpoint(self) -> Dict:
         model_state_dict = self.state_dict()
         checkpoint = {
-            "architecture_name": "experimental.mace",
+            "architecture_name": "experimental.metamace",
             "model_ckpt_version": self.__checkpoint_version__,
             "metadata": self.metadata,
             "model_data": {

@@ -1,5 +1,5 @@
 architecture:
-  name: experimental.mace
+  name: experimental.metamace
 
   model:
     cutoff: 5.0

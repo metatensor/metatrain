@@ -9,7 +9,6 @@ from torch.utils.data import DataLoader, DistributedSampler
 
 from metatrain.utils.abc import TrainerInterface
 from metatrain.utils.additive import remove_additive
-from metatrain.utils.augmentation import RotationalAugmenter
 from metatrain.utils.data import (
     CollateFn,
     CombinedDataLoader,
@@ -21,10 +20,9 @@ from metatrain.utils.distributed.distributed_data_parallel import (
 )
 from metatrain.utils.distributed.slurm import DistributedEnvironment
 from metatrain.utils.evaluate_model import evaluate_model
-from metatrain.utils.external_naming import to_external_name
 from metatrain.utils.io import check_file_extension
 from metatrain.utils.logging import ROOT_LOGGER, MetricLogger
-from metatrain.utils.loss import TensorMapDictLoss
+from metatrain.utils.loss import LossAggregator
 from metatrain.utils.metrics import MAEAccumulator, RMSEAccumulator, get_selected_metric
 from metatrain.utils.neighbor_lists import (
     get_requested_neighbor_lists,
@@ -34,8 +32,9 @@ from metatrain.utils.per_atom import average_by_num_atoms
 from metatrain.utils.scaler import remove_scale
 from metatrain.utils.transfer import batch_to
 
+# from . import checkpoints
 from .model import MetaMACE
-from metatrain.pet.modules.finetuning import apply_finetuning_strategy
+# from .modules.finetuning import apply_finetuning_strategy
 
 
 def get_scheduler(optimizer, train_hypers):
@@ -51,11 +50,10 @@ def get_scheduler(optimizer, train_hypers):
 
 
 class Trainer(TrainerInterface):
+    __checkpoint_version__ = 2
 
-    __checkpoint_version__ = 1
-    
-    def __init__(self, train_hypers):
-        super().__init__(train_hypers)
+    def __init__(self, hypers):
+        super().__init__(hypers)
 
         self.optimizer_state_dict = None
         self.scheduler_state_dict = None
@@ -73,7 +71,6 @@ class Trainer(TrainerInterface):
         val_datasets: List[Union[Dataset, torch.utils.data.Subset]],
         checkpoint_dir: str,
     ):
-
         assert dtype in MetaMACE.__supported_dtypes__
 
         is_distributed = self.hypers["distributed"]
@@ -139,10 +136,29 @@ class Trainer(TrainerInterface):
 
         # Move the model to the device and dtype:
         model.to(device=device, dtype=dtype)
-        # The additive models of the SOAP-BPNN are always in float64 (to avoid
-        # numerical errors in the composition weights, which can be very large).
+        # The additive models of MetaMACE are always in float64 (to avoid numerical errors in
+        # the composition weights, which can be very large).
         for additive_model in model.additive_models:
             additive_model.to(dtype=torch.float64)
+
+        logging.info("Calculating composition weights")
+
+        model.additive_models[0].train_model(  # this is the composition model
+            train_datasets,
+            model.additive_models[1:],
+            self.hypers["batch_size"],
+            is_distributed,
+            self.hypers["fixed_composition_weights"],
+        )
+
+        if self.hypers["scale_targets"]:
+            logging.info("Calculating scaling weights")
+            model.scaler.train_model(
+                train_datasets,
+                model.additive_models,
+                self.hypers["batch_size"],
+                is_distributed,
+            )
 
         logging.info("Setting up data loaders")
 
@@ -172,9 +188,7 @@ class Trainer(TrainerInterface):
             val_samplers = [None] * len(val_datasets)
 
         # Create a collate function:
-        targets_keys = list(
-            (model.module if is_distributed else model).dataset_info.targets.keys()
-        )
+        targets_keys = list(model.dataset_info.targets.keys())
         collate_fn = CollateFn(target_keys=targets_keys)
 
         # Create dataloader for the training datasets:
@@ -227,21 +241,6 @@ class Trainer(TrainerInterface):
             )
         val_dataloader = CombinedDataLoader(val_dataloaders, shuffle=False)
 
-        logging.info("Calculating composition weights")
-        model.additive_models[0].train_model(  # this is the composition model
-            train_datasets,
-            model.additive_models[1:],
-            self.hypers["batch_size"],
-            is_distributed,
-            self.hypers["fixed_composition_weights"],
-        )
-
-        if self.hypers["scale_targets"]:
-            logging.info("Calculating scaling weights")
-            model.scaler.train_model(
-                train_datasets, model.additive_models, treat_as_additive=True
-            )
-
         if is_distributed:
             model = DistributedDataParallel(model, device_ids=[device])
 
@@ -255,29 +254,22 @@ class Trainer(TrainerInterface):
             for gradient_name in target_info.gradients:
                 outputs_list.append(f"{target_name}_{gradient_name}_gradients")
 
-        # Create a loss weight dict:
-        loss_weights_dict = {}
-        for output_name in outputs_list:
-            loss_weights_dict[output_name] = (
-                self.hypers["loss"]["weights"][
-                    to_external_name(output_name, train_targets)
-                ]
-                if to_external_name(output_name, train_targets)
-                in self.hypers["loss"]["weights"]
-                else 1.0
-            )
-        loss_weights_dict_external = {
-            to_external_name(key, train_targets): value
-            for key, value in loss_weights_dict.items()
-        }
-        loss_hypers = copy.deepcopy(self.hypers["loss"])
-        loss_hypers["weights"] = loss_weights_dict
-        logging.info(f"Training with loss weights: {loss_weights_dict_external}")
-
         # Create a loss function:
-        loss_fn = TensorMapDictLoss(
-            **loss_hypers,
+        loss_hypers = self.hypers["loss"]
+        loss_fn = LossAggregator(
+            targets=train_targets,
+            config=loss_hypers,
         )
+        logging.info("Using the following loss functions:")
+        for name, info in loss_fn.metadata.items():
+            logging.info(f"{name}:")
+            main = {k: v for k, v in info.items() if k != "gradients"}
+            logging.info(main)
+            if "gradients" not in info or len(info["gradients"]) == 0:
+                continue
+            logging.info("With gradients:")
+            for grad, ginfo in info["gradients"].items():
+                logging.info(f"\t{name}::{grad}: {ginfo}")
 
         if self.hypers["weight_decay"] is not None:
             optimizer = torch.optim.AdamW(
@@ -310,10 +302,6 @@ class Trainer(TrainerInterface):
         logging.info(f"Base learning rate: {self.hypers['learning_rate']}")
         logging.info(f"Initial learning rate: {old_lr}")
 
-        rotational_augmenter = RotationalAugmenter(
-            train_targets, extra_data_info_dict=extra_data_info
-        )
-
         start_epoch = 0 if self.epoch is None else self.epoch + 1
 
         # Train the model:
@@ -339,11 +327,6 @@ class Trainer(TrainerInterface):
                 optimizer.zero_grad()
 
                 systems, targets, extra_data = batch
-                # systems, targets, extra_data = (
-                #     rotational_augmenter.apply_random_augmentations(
-                #         systems, targets, extra_data=extra_data
-                #     )
-                # )
                 systems, targets, extra_data = batch_to(
                     systems, targets, extra_data, device=device
                 )
@@ -371,7 +354,7 @@ class Trainer(TrainerInterface):
                     predictions, systems, per_structure_targets
                 )
                 targets = average_by_num_atoms(targets, systems, per_structure_targets)
-                train_loss_batch = loss_fn(predictions, targets)
+                train_loss_batch = loss_fn(predictions, targets, extra_data)
                 train_loss_batch.backward()
                 torch.nn.utils.clip_grad_norm_(
                     model.parameters(), self.hypers["grad_clip_norm"]
@@ -430,8 +413,7 @@ class Trainer(TrainerInterface):
                     predictions, systems, per_structure_targets
                 )
                 targets = average_by_num_atoms(targets, systems, per_structure_targets)
-
-                val_loss_batch = loss_fn(predictions, targets)
+                val_loss_batch = loss_fn(predictions, targets, extra_data)
 
                 if is_distributed:
                     # sum the loss over all processes
@@ -463,9 +445,10 @@ class Trainer(TrainerInterface):
             }
 
             if epoch == start_epoch:
-                scaler_scales = (
-                    model.module if is_distributed else model
-                ).scaler.get_scales_dict()
+                # TODO: understand how to modify this
+                # scaler_scales = (
+                #     model.module if is_distributed else model
+                # ).scaler.get_scales_dict()
 
                 metric_logger = MetricLogger(
                     log_obj=ROOT_LOGGER,
@@ -474,14 +457,14 @@ class Trainer(TrainerInterface):
                     ).dataset_info,
                     initial_metrics=[finalized_train_info, finalized_val_info],
                     names=["training", "validation"],
-                    scales={
-                        key: (
-                            scaler_scales[key.split(" ")[0]]
-                            if ("MAE" in key or "RMSE" in key)
-                            else 1.0
-                        )
-                        for key in finalized_train_info.keys()
-                    },
+                    # scales={
+                    #     key: (
+                    #         scaler_scales[key.split(" ")[0]]
+                    #         if ("MAE" in key or "RMSE" in key)
+                    #         else 1.0
+                    #     )
+                    #     for key in finalized_train_info.keys()
+                    # },
                 )
             if epoch % self.hypers["log_interval"] == 0:
                 metric_logger.log(
@@ -537,8 +520,13 @@ class Trainer(TrainerInterface):
         self.optimizer_state_dict = optimizer.state_dict()
         self.scheduler_state_dict = lr_scheduler.state_dict()
 
+        if is_distributed:
+            torch.distributed.destroy_process_group()
+
     def save_checkpoint(self, model, path: Union[str, Path]):
         checkpoint = model.get_checkpoint()
+        # if self.best_model_state_dict is not None:
+        #     self.best_model_state_dict["finetune_config"] = model.finetune_config
         checkpoint.update(
             {
                 "trainer_ckpt_version": self.__checkpoint_version__,
@@ -580,7 +568,14 @@ class Trainer(TrainerInterface):
         trainer.best_optimizer_state_dict = best_optimizer_state_dict
 
         return trainer
-    
-    @staticmethod
-    def upgrade_checkpoint(checkpoint: Dict) -> Dict:
-        raise NotImplementedError("checkpoint upgrade is not implemented for MetaMACE")
+
+    @classmethod
+    def upgrade_checkpoint(cls, checkpoint: Dict) -> Dict:
+
+        if checkpoint["trainer_ckpt_version"] != cls.__checkpoint_version__:
+            raise RuntimeError(
+                f"Unable to upgrade the checkpoint: the checkpoint is using "
+                f"trainer version {checkpoint['trainer_ckpt_version']}, while the "
+                f"current trainer version is {cls.__checkpoint_version__}."
+            )
+        return checkpoint
