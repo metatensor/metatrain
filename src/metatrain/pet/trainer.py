@@ -45,7 +45,7 @@ def get_scheduler(optimizer, train_hypers):
             return epoch / train_hypers["num_epochs_warmup"]
         delta = epoch - train_hypers["num_epochs_warmup"]
         num_blocks = delta // train_hypers["scheduler_patience"]
-        return train_hypers.get("scheduler_factor", 0.5) ** (num_blocks)
+        return train_hypers["scheduler_factor"] ** (num_blocks)
 
     scheduler = LambdaLR(optimizer, func_lr_scheduler)
     return scheduler
@@ -587,7 +587,6 @@ class Trainer(TrainerInterface):
         trainer.best_optimizer_state_dict = best_optimizer_state_dict
 
         return trainer
-
 
     @classmethod
     def upgrade_checkpoint(cls, checkpoint: Dict) -> Dict:

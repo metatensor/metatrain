@@ -12,9 +12,8 @@ def model_update_v1_v2(state_dict):
         )
 
 
-def trainer_update_v1_v2(state_dict):
-    if "scheduler_factor" not in state_dict["train_hypers"]:
-        state_dict["train_hypers"]["scheduler_factor"] = 0.5
+def trainer_update_v1_v2(checkpoint):
+    checkpoint["train_hypers"] = checkpoint["train_hypers"].get("scheduler_factor", 0.5)
 
 
 def model_update_v2_v3(state_dict):
