@@ -544,9 +544,6 @@ class Trainer(TrainerInterface):
         if is_distributed:
             torch.distributed.destroy_process_group()
 
-        logging.info(f"Use best model from epoch {self.best_epoch}")
-        model.load_state_dict(self.best_model_state_dict)
-
     def save_checkpoint(self, model, path: Union[str, Path]):
         checkpoint = model.get_checkpoint()
         if self.best_model_state_dict is not None:
@@ -592,6 +589,9 @@ class Trainer(TrainerInterface):
         if checkpoint["trainer_ckpt_version"] == 1:
             checkpoints.trainer_update_v1_v2(checkpoint)
             checkpoint["trainer_ckpt_version"] = 2
+        if checkpoint["trainer_ckpt_version"] == 2:
+            checkpoints.trainer_update_v2_v3(checkpoint)
+            checkpoint["trainer_ckpt_version"] = 3
         if checkpoint["trainer_ckpt_version"] != cls.__checkpoint_version__:
             raise RuntimeError(
                 f"Unable to upgrade the checkpoint: the checkpoint is using "

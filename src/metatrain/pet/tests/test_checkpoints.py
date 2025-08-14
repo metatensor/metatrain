@@ -122,4 +122,3 @@ def test_failed_checkpoint_upgrade(cls_type):
     )
     with pytest.raises(RuntimeError, match=match):
         cls.upgrade_checkpoint(checkpoint)
-

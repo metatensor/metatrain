@@ -1,3 +1,4 @@
+import logging
 from typing import Any, Dict, List, Literal, Optional
 
 import metatensor.torch as mts
@@ -670,18 +671,17 @@ class SoapBpnn(ModelInterface):
         checkpoint: Dict[str, Any],
         context: Literal["restart", "finetune", "export"],
     ) -> "SoapBpnn":
-        model_data = checkpoint["model_data"]
-
         if context == "restart":
+            logging.info(f"Use latest model from epoch {checkpoint['epoch']}")
             model_state_dict = checkpoint["model_state_dict"]
-        elif context == "finetune" or context == "export":
+        elif context in {"finetune", "export"}:
+            logging.info(f"Use best model from epoch {checkpoint['best_epoch']}")
             model_state_dict = checkpoint["best_model_state_dict"]
-            if model_state_dict is None:
-                model_state_dict = checkpoint["model_state_dict"]
         else:
             raise ValueError("Unknown context tag for checkpoint loading!")
 
         # Create the model
+        model_data = checkpoint["model_data"]
         model = cls(
             hypers=model_data["model_hypers"],
             dataset_info=model_data["dataset_info"],
@@ -859,8 +859,8 @@ class SoapBpnn(ModelInterface):
     @classmethod
     def upgrade_checkpoint(cls, checkpoint: Dict) -> Dict:
         if checkpoint["model_ckpt_version"] == 1:
-            checkpoints.update_v1_v2(checkpoint["model_state_dict"])
-            checkpoints.update_v1_v2(checkpoint["best_model_state_dict"])
+            checkpoints.model_update_v1_v2(checkpoint["model_state_dict"])
+            checkpoints.model_update_v1_v2(checkpoint["best_model_state_dict"])
             checkpoint["model_ckpt_version"] = 2
 
         if checkpoint["model_ckpt_version"] != cls.__checkpoint_version__:

@@ -127,6 +127,7 @@ def test_train(capfd, monkeypatch, tmp_path, output):
     assert "std " in stdout_log
     assert "[INFO]" in stdout_log
     assert stdout_log.count("Epoch:    0") == 1
+    assert re.search(r"Load best model from epoch \d+", stdout_log)
     assert "loss" in stdout_log
     assert "validation" in stdout_log
     assert "train" in stdout_log

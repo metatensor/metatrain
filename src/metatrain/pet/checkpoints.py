@@ -23,3 +23,7 @@ def model_update_v2_v3(state_dict):
         else:
             finetune_config = {}
         state_dict["finetune_config"] = finetune_config
+
+
+def trainer_update_v2_v3(checkpoint):
+    checkpoint["best_epoch"] = checkpoint.get("best_epoch")

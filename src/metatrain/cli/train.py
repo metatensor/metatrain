@@ -568,7 +568,11 @@ def train_model(
         trainer.save_checkpoint(model, checkpoint_output)
     except Exception as e:
         raise ArchitectureError(e)
+
     if checkpoint_output.exists():
+        # Reload ensuring (best) model intended for inference
+        model = load_model(checkpoint_output)
+
         logging.info(f"Final checkpoint: {checkpoint_output.absolute().resolve()}")
 
     mts_atomistic_model = model.export()
