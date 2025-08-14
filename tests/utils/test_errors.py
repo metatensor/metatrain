@@ -9,4 +9,4 @@ def test_architecture_error():
         try:
             raise ValueError("An example error from the architecture")
         except Exception as e:
-            raise ArchitectureError(e)
+            raise ArchitectureError(e) from e

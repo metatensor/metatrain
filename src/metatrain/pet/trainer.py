@@ -143,6 +143,22 @@ class Trainer(TrainerInterface):
         for additive_model in model.additive_models:
             additive_model.to(dtype=torch.float64)
 
+        logging.info("Calculating composition weights")
+
+        model.additive_models[0].train_model(  # this is the composition model
+            train_datasets,
+            model.additive_models[1:],
+            self.hypers["batch_size"],
+            is_distributed,
+            self.hypers["fixed_composition_weights"],
+        )
+
+        if self.hypers["scale_targets"]:
+            logging.info("Calculating scaling weights")
+            model.scaler.train_model(
+                train_datasets, model.additive_models, treat_as_additive=True
+            )
+
         logging.info("Setting up data loaders")
 
         if is_distributed:
@@ -223,19 +239,6 @@ class Trainer(TrainerInterface):
                 )
             )
         val_dataloader = CombinedDataLoader(val_dataloaders, shuffle=False)
-
-        logging.info("Calculating composition weights")
-        model.additive_models[0].train_model(  # this is the composition model
-            train_dataloader,
-            model.additive_models[1:],
-            self.hypers["fixed_composition_weights"],
-        )
-
-        if self.hypers["scale_targets"]:
-            logging.info("Calculating scaling weights")
-            model.scaler.train_model(
-                train_datasets, model.additive_models, treat_as_additive=True
-            )
 
         if is_distributed:
             model = DistributedDataParallel(model, device_ids=[device])
@@ -451,7 +454,10 @@ class Trainer(TrainerInterface):
                 )
 
             # Now we log the information:
-            finalized_train_info = {"loss": train_loss, **finalized_train_info}
+            finalized_train_info = {
+                "loss": train_loss,
+                **finalized_train_info,
+            }
             finalized_val_info = {
                 "loss": val_loss,
                 **finalized_val_info,
@@ -483,6 +489,7 @@ class Trainer(TrainerInterface):
                     metrics=[finalized_train_info, finalized_val_info],
                     epoch=epoch,
                     rank=rank,
+                    learning_rate=old_lr,
                 )
 
             lr_scheduler.step()
@@ -581,10 +588,16 @@ class Trainer(TrainerInterface):
 
         return trainer
 
-    @staticmethod
-    def upgrade_checkpoint(checkpoint: Dict) -> Dict:
+
+    @classmethod
+    def upgrade_checkpoint(cls, checkpoint: Dict) -> Dict:
         if checkpoint["trainer_ckpt_version"] == 1:
             checkpoints.trainer_update_v1_v2(checkpoint)
             checkpoint["trainer_ckpt_version"] = 2
-
+        if checkpoint["trainer_ckpt_version"] != cls.__checkpoint_version__:
+            raise RuntimeError(
+                f"Unable to upgrade the checkpoint: the checkpoint is using "
+                f"trainer version {checkpoint['trainer_ckpt_version']}, while the "
+                f"current trainer version is {cls.__checkpoint_version__}."
+            )
         return checkpoint
