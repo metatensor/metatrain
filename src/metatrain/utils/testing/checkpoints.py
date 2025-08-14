@@ -37,24 +37,23 @@ def checkpoint_did_not_change(monkeypatch, tmp_path, model_trainer):
     model_version = model.__checkpoint_version__
     trainer_version = trainer.__checkpoint_version__
 
-    if not os.path.exists(f"checkpoints/v{model_version}_{trainer_version}.ckpt.gz"):
-        with gzip.open(f"v{model_version}_{trainer_version}.ckpt.gz", "wb") as output:
+    ckpt_name = f"model-v{model_version}_trainer-v{trainer_version}.ckpt.gz"
+    ckpt_path = f"checkpoints/{ckpt_name}"
+
+    if not os.path.exists(ckpt_path):
+        with gzip.open(ckpt_name, "wb") as output:
             with open(os.path.join(tmp_path, "checkpoint.ckpt"), "rb") as input:
                 output.write(input.read())
 
         raise ValueError(
             f"missing reference checkpoint for model version {model_version} and "
-            f"trainer version {trainer_version}, "
-            "we created one for you with the current state of the code. "
-            f"Please move it to "
-            "`checkpoints/v{model_version}_{trainer_version}.ckpt.gz` if you have "
-            "no other changes to do."
+            f"trainer version {trainer_version}, we created one for you with the "
+            f"current state of the code. Please move it to {ckpt_path} if you "
+            "have no other changes to do."
         )
 
     else:
-        with gzip.open(
-            f"checkpoints/v{model_version}_{trainer_version}.ckpt.gz", "rb"
-        ) as fd:
+        with gzip.open(ckpt_path, "rb") as fd:
             reference = torch.load(fd, weights_only=False)
 
         try:
