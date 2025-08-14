@@ -551,10 +551,10 @@ class Trainer(TrainerInterface):
     @classmethod
     def upgrade_checkpoint(cls, checkpoint: Dict) -> Dict:
         for v in range(1, cls.__checkpoint_version__):
-            if checkpoint["model_ckpt_version"] == v:
+            if checkpoint["trainer_ckpt_version"] == v:
                 update = getattr(checkpoints, f"trainer_update_v{v}_v{v + 1}")
                 update(checkpoint)
-                checkpoint["model_ckpt_version"] = v + 1
+                checkpoint["trainer_ckpt_version"] = v + 1
 
         if checkpoint["trainer_ckpt_version"] != cls.__checkpoint_version__:
             raise RuntimeError(

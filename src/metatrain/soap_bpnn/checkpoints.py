@@ -1,3 +1,8 @@
+###########################
+# MODEL ###################
+###########################
+
+
 def model_update_v1_v2(checkpoint):
     for key in ["model_state_dict", "best_model_state_dict"]:
         if (state_dict := checkpoint.get(key)) is not None:
@@ -12,6 +17,11 @@ def model_update_v2_v3(checkpoint):
 
     if checkpoint["best_model_state_dict"] is not None:
         checkpoint["best_model_state_dict"] = checkpoint.get("best_model_state_dict")
+
+
+###########################
+# TRAINER #################
+###########################
 
 
 def trainer_update_v1_v2(checkpoint):
