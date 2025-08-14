@@ -64,8 +64,9 @@ class RotationalAugmenter:
             except ImportError:
                 # quaternionic (used below) is a dependency of spherical
                 raise ImportError(
-                    "To use spherical targets with nanoPET, please install the "
-                    "`spherical` package with `pip install spherical`."
+                    "To perform data augmentation on spherical targets, "
+                    "please install the `spherical` package with "
+                    "`pip install spherical`."
                 )
 
             largest_l_targets = -1
