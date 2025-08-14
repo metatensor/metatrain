@@ -453,7 +453,10 @@ class Trainer(TrainerInterface):
                 )
 
             # Now we log the information:
-            finalized_train_info = {"loss": train_loss, **finalized_train_info}
+            finalized_train_info = {
+                "loss": train_loss,
+                **finalized_train_info,
+            }
             finalized_val_info = {
                 "loss": val_loss,
                 **finalized_val_info,
@@ -485,6 +488,7 @@ class Trainer(TrainerInterface):
                     metrics=[finalized_train_info, finalized_val_info],
                     epoch=epoch,
                     rank=rank,
+                    learning_rate=old_lr,
                 )
 
             lr_scheduler.step()
