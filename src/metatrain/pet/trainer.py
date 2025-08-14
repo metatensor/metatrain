@@ -544,6 +544,9 @@ class Trainer(TrainerInterface):
         if is_distributed:
             torch.distributed.destroy_process_group()
 
+        logging.info(f"Use best model from epoch {self.best_epoch}")
+        model.load_state_dict(self.best_model_state_dict)
+
     def save_checkpoint(self, model, path: Union[str, Path]):
         checkpoint = model.get_checkpoint()
         if self.best_model_state_dict is not None:
