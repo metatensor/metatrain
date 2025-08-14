@@ -27,6 +27,7 @@ architecture:
     scheduler_patience: 250
     log_interval: 1
     checkpoint_interval: 100
+    fit_composition_model: true
     scale_targets: false
     fixed_composition_weights: {}
     per_structure_targets: []
