@@ -61,13 +61,12 @@ class RotationalAugmenter:
         if is_any_target_spherical or is_any_extra_data_spherical:
             try:
                 import spherical
-            except ImportError:
+            except ImportError as e:
                 # quaternionic (used below) is a dependency of spherical
                 raise ImportError(
-                    "To perform data augmentation on spherical targets, "
-                    "please install the `spherical` package with "
-                    "`pip install spherical`."
-                )
+                    "To perform data augmentation on spherical targets, please "
+                    "install the `spherical` package with `pip install spherical`."
+                ) from e
 
             largest_l_targets = -1
             largest_l_extra_data = -1
