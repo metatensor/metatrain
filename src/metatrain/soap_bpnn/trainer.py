@@ -40,7 +40,7 @@ from .model import SoapBpnn
 
 
 class Trainer(TrainerInterface):
-    __checkpoint_version__ = 1
+    __checkpoint_version__ = 2
 
     def __init__(self, hypers):
         super().__init__(hypers)
@@ -550,9 +550,12 @@ class Trainer(TrainerInterface):
 
     @classmethod
     def upgrade_checkpoint(cls, checkpoint: Dict) -> Dict:
-        if checkpoint["trainer_ckpt_version"] == 1:
-            checkpoints.trainer_update_v1_v2(checkpoint)
-            checkpoint["trainer_ckpt_version"] = 2
+        for v in range(1, cls.__checkpoint_version__):
+            if checkpoint["model_ckpt_version"] == v:
+                update = getattr(checkpoints, f"trainer_update_v{v}_v{v + 1}")
+                update(checkpoint)
+                checkpoint["model_ckpt_version"] = v + 1
+
         if checkpoint["trainer_ckpt_version"] != cls.__checkpoint_version__:
             raise RuntimeError(
                 f"Unable to upgrade the checkpoint: the checkpoint is using trainer "

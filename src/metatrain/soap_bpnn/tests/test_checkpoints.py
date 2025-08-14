@@ -101,9 +101,9 @@ def test_get_checkpoint(context, caplog):
     SoapBpnn.load_checkpoint(checkpoint, context)
 
     if context == "restart":
-        assert "Load latest model from epoch 0" in caplog.text
+        assert "Use latest model from epoch None" in caplog.text
     else:
-        assert "Load best model from epoch 0" in caplog.text
+        assert "Use best model from epoch None" in caplog.text
 
 
 @pytest.mark.parametrize("cls_type", ["model", "trainer"])

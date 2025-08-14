@@ -1,4 +1,5 @@
 import logging
+from tabnanny import check
 import warnings
 from math import prod
 from typing import Any, Dict, List, Literal, Optional
@@ -41,7 +42,7 @@ class PET(ModelInterface):
 
     """
 
-    __checkpoint_version__ = 3
+    __checkpoint_version__ = 4
     __supported_devices__ = ["cuda", "cpu"]
     __supported_dtypes__ = [torch.float32, torch.float64]
     __default_metadata__ = ModelMetadata(
@@ -889,14 +890,11 @@ class PET(ModelInterface):
 
     @classmethod
     def upgrade_checkpoint(cls, checkpoint: Dict) -> Dict:
-        if checkpoint["model_ckpt_version"] == 1:
-            checkpoints.model_update_v1_v2(checkpoint["model_state_dict"])
-            checkpoints.model_update_v1_v2(checkpoint["best_model_state_dict"])
-            checkpoint["model_ckpt_version"] = 2
-        if checkpoint["model_ckpt_version"] == 2:
-            checkpoints.model_update_v2_v3(checkpoint["model_state_dict"])
-            checkpoints.model_update_v2_v3(checkpoint["best_model_state_dict"])
-            checkpoint["model_ckpt_version"] = 3
+        for v in range(1, cls.__checkpoint_version__):
+            if checkpoint["model_ckpt_version"] == v:
+                update = getattr(checkpoints, f"model_update_v{v}_v{v + 1}")
+                update(checkpoint)
+                checkpoint["model_ckpt_version"] = v + 1
 
         if checkpoint["model_ckpt_version"] != cls.__checkpoint_version__:
             raise RuntimeError(
@@ -918,7 +916,9 @@ class PET(ModelInterface):
                 "model_hypers": self.hypers,
                 "dataset_info": self.dataset_info,
             },
+            "epoch": None,
+            "best_epoch": None,
             "model_state_dict": model_state_dict,
-            "best_model_state_dict": None,
+            "best_model_state_dict": self.state_dict(),
         }
         return checkpoint
