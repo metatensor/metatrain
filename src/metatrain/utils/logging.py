@@ -217,6 +217,7 @@ class MetricLogger:
         metrics: Union[Dict[str, float], List[Dict[str, float]]],
         epoch: Optional[int] = None,
         rank: Optional[int] = None,
+        learning_rate: Optional[float] = None,
     ):
         """
         Log the metrics.
@@ -241,6 +242,11 @@ class MetricLogger:
         if epoch is not None:
             keys.append("Epoch")
             values.append(f"{epoch:4}")
+            units.append("")
+
+        if learning_rate is not None:
+            keys.append("learning rate")
+            values.append(f"{learning_rate:.3e}")
             units.append("")
 
         if isinstance(metrics, dict):
