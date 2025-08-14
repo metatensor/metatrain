@@ -23,7 +23,7 @@ from metatrain.utils.data.dataset import DatasetInfo
 from metatrain.utils.dtype import dtype_to_str
 from metatrain.utils.long_range import DummyLongRangeFeaturizer, LongRangeFeaturizer
 from metatrain.utils.metadata import merge_metadata
-from metatrain.utils.scaler import Scaler
+from metatrain.utils.old_scaler import OldScaler
 from metatrain.utils.sum_over_atoms import sum_over_atoms
 
 from . import checkpoints
@@ -306,7 +306,7 @@ class SoapBpnn(ModelInterface):
         self.additive_models = torch.nn.ModuleList(additive_models)
 
         # scaler: this is also handled by the trainer at training time
-        self.scaler = Scaler(hypers={}, dataset_info=dataset_info)
+        self.scaler = OldScaler(hypers={}, dataset_info=dataset_info)
 
     def supported_outputs(self) -> Dict[str, ModelOutput]:
         return self.outputs
@@ -859,8 +859,8 @@ class SoapBpnn(ModelInterface):
     @classmethod
     def upgrade_checkpoint(cls, checkpoint: Dict) -> Dict:
         if checkpoint["model_ckpt_version"] == 1:
-            checkpoints.update_v1_v2(checkpoint["model_state_dict"])
-            checkpoints.update_v1_v2(checkpoint["best_model_state_dict"])
+            checkpoints.model_update_v1_v2(checkpoint["model_state_dict"])
+            checkpoints.model_update_v1_v2(checkpoint["best_model_state_dict"])
             checkpoint["model_ckpt_version"] = 2
 
         if checkpoint["model_ckpt_version"] != cls.__checkpoint_version__:

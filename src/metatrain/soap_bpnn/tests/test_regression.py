@@ -14,6 +14,7 @@ from metatrain.utils.neighbor_lists import (
     get_requested_neighbor_lists,
     get_system_with_neighbor_lists,
 )
+from metatrain.utils.omegaconf import CONF_LOSS
 
 from . import DATASET_PATH, DEFAULT_HYPERS, MODEL_HYPERS, SPHERICAL_DISK_DATASET_PATH
 
@@ -95,6 +96,9 @@ def test_regression_train(device):
 
     hypers = DEFAULT_HYPERS.copy()
     hypers["training"]["num_epochs"] = 2
+    loss_conf = OmegaConf.create({"mtt::U0": CONF_LOSS.copy()})
+    OmegaConf.resolve(loss_conf)
+    hypers["training"]["loss"] = loss_conf
 
     dataset_info = DatasetInfo(
         length_unit="Angstrom", atomic_types=[1, 6, 7, 8], targets=target_info_dict
@@ -175,14 +179,15 @@ def test_regression_train_spherical(device):
             },
         },
     }
-    # targets, target_info_dict = read_targets(OmegaConf.create(conf))
-    # dataset = Dataset.from_dict({"system": systems, "mtt::U0": targets["mtt::U0"]})
 
     dataset, target_info_dict, _ = get_dataset(conf)
 
     hypers = DEFAULT_HYPERS.copy()
     hypers["training"]["num_epochs"] = 2
     hypers["training"]["batch_size"] = 1
+    hypers["training"]["loss"]["mtt::electron_density_basis"] = hypers["training"][
+        "loss"
+    ].pop("mtt::U0")
 
     dataset_info = DatasetInfo(
         length_unit="Angstrom", atomic_types=[1, 6, 7, 8], targets=target_info_dict
@@ -212,7 +217,7 @@ def test_regression_train_spherical(device):
         systems,
         {
             "mtt::electron_density_basis": ModelOutput(
-                quantity="energy", unit="", per_atom=True
+                quantity="", unit="", per_atom=True
             )
         },
     )
@@ -220,13 +225,13 @@ def test_regression_train_spherical(device):
     expected_output = torch.tensor(
         [
             [
-                -0.038565825671,
-                0.000463733566,
-                0.000264365954,
-                0.023815866560,
-                0.018959790468,
-                -0.000692606962,
-                0.020604602993,
+                -0.057801067829,
+                -0.022922841832,
+                -0.013157465495,
+                0.003876133356,
+                0.008559819311,
+                0.039749406278,
+                0.013140974566,
             ],
             [
                 0.000000000000,
@@ -238,13 +243,13 @@ def test_regression_train_spherical(device):
                 0.000000000000,
             ],
             [
-                0.024628046900,
-                -0.001363838091,
-                0.003145742230,
-                -0.024710856378,
-                -0.010125328787,
-                -0.015510082245,
-                -0.014338681474,
+                0.020274644718,
+                0.005657686852,
+                0.001842519501,
+                -0.014781145379,
+                0.003011089284,
+                -0.011008090340,
+                -0.012492593378,
             ],
         ],
         device=device,
