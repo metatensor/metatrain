@@ -504,7 +504,7 @@ class Trainer(TrainerInterface):
 
     def save_checkpoint(self, model, path: Union[str, Path]):
         checkpoint = {
-            "architecture_name": "dpa3",
+            "architecture_name": "experimental.dpa3",
             "model_ckpt_version": model.__checkpoint_version__,
             "trainer_ckpt_version": self.__checkpoint_version__,
             "metadata": model.__default_metadata__,

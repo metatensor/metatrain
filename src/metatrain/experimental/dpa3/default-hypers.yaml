@@ -1,5 +1,5 @@
 architecture:
-  name: dpa3
+  name: experimental.dpa3
   model:
     type_map:
       - "H"
